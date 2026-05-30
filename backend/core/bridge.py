@@ -258,10 +258,11 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'youtube'.\n"
         "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips (e.g., visual_cue = '1992 Harshad Mehta news footage').\n"
         "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English, e.g., 'vintage typewriter writing') when visual_type is 'scene' or 'image'.\n"
+        "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"Exact news headline\", \"doc_text\": \"Detailed newspaper excerpt matching the narration\", \"source\": \"Name of Publisher\", \"date\": \"Month DD, YYYY\" }\n"
     )
     
-    if language == "hi":
-        system_prompt += "The rewritten narration text MUST be written in Hindi (Devanagari). Visual suggestions should remain in English.\n\n"
+    if language != "en":
+        system_prompt += f"The rewritten narration text MUST be written in the requested language (code: '{language}'). Visual suggestions MUST remain in English.\n\n"
     else:
         system_prompt += "The rewritten narration text MUST be written in English.\n\n"
         

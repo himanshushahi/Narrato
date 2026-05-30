@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore, Project } from '../store/appStore';
 import { GlassCard } from '../components/ui/GlassCard';
@@ -184,19 +185,20 @@ export const Dashboard: React.FC = () => {
       </motion.div>
 
       {/* Documentary Creation Modal */}
-      <AnimatePresence>
-        {showModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              transition={{ type: "spring", duration: 0.4 }}
-              className="w-full max-w-xl"
-            >
-              <GlassCard elevation="high" className="w-full overflow-hidden shadow-2xl">
-                {/* Modal Header */}
-                <div className="px-6 py-4 bg-stone-950/60 border-b border-stone-850 flex justify-between items-center">
+      {createPortal(
+        <AnimatePresence>
+          {showModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ type: "spring", duration: 0.4 }}
+                className="w-full max-w-xl"
+              >
+                <GlassCard elevation="high" className="w-full shadow-2xl">
+                  {/* Modal Header */}
+                  <div className="px-6 py-4 bg-stone-950/60 border-b border-stone-850 flex justify-between items-center rounded-t-xl">
                   <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2">
                     <VscAdd className="text-[var(--color-accent-primary)]" />
                     New Narrative Build
@@ -285,7 +287,9 @@ export const Dashboard: React.FC = () => {
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 };

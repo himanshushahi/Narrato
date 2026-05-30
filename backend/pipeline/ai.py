@@ -4,6 +4,10 @@ import re
 import requests
 from backend.database.db import get_setting, update_project
 from backend.core.logger import logger
+import urllib.request
+import urllib.parse
+import xml.etree.ElementTree as ET
+import html
 
 # Schema validations for JSON parsing
 INTRO_JSON_SCHEMA = {
@@ -229,6 +233,41 @@ def clean_json_response(raw_response):
     logger.error(f"Failed all JSON parsing attempts. Raw response length: {len(raw_response)}")
     raise ValueError("LLM response could not be parsed into valid JSON.")
 
+def fetch_real_news(query):
+    """Fetches real news using Google News RSS."""
+    try:
+        url = 'https://news.google.com/rss/search?q=' + urllib.parse.quote(query) + '&hl=en-US&gl=US&ceid=US:en'
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        xml_data = urllib.request.urlopen(req, timeout=10).read()
+        root = ET.fromstring(xml_data)
+        item = root.find('.//item')
+        if item is not None:
+            title = item.find('title').text if item.find('title') is not None else ""
+            title = html.unescape(title)
+            source_el = item.find('source')
+            source = source_el.text if source_el is not None else "THE DAILY CHRONICLE"
+            source = html.unescape(source)
+            desc = item.find('description').text if item.find('description') is not None else ""
+            
+            desc_clean = re.sub(r'<[^>]+>', ' ', desc)
+            desc_clean = html.unescape(desc_clean)
+            desc_clean = re.sub(r'\s+', ' ', desc_clean).strip()
+            
+            headline = title
+            if source and title.endswith(f" - {source}"):
+                headline = title[:-(len(source) + 3)]
+                
+            return {
+                "title": source.upper(),
+                "doc_text": headline + "\n\n" + desc_clean,
+                "headline": headline,
+                "snippet": desc_clean[:400] + "..." if len(desc_clean) > 400 else desc_clean,
+                "source": source
+            }
+    except Exception as e:
+        logger.warning(f"Failed to fetch real news for query '{query}': {e}")
+    return None
+
 def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Executes script generation step of pipeline."""
     topic = project_dict['name']
@@ -265,19 +304,13 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
 
     target_word_count = target_minutes * 150
 
-    lang_instruction = ""
-    if language == "hi":
-        lang_instruction = (
-            "LANGUAGE RULES:\n"
-            "- The spoken text (hook, narration, summary, cta) MUST be written in Hindi (Devanagari script).\n"
-            "- The 'visual_cue' field MUST ALWAYS be in ENGLISH. This is critical because visual_cue is used as a search keyword for the media APIs, which only understand English.\n"
-            "  Example: visual_cue = 'ancient Indian trading port with ships' (NOT 'भारत में एक छोटा सा व्यापारिक दफ्तर')\n"
-            "  Example: visual_cue = 'British colonial officers in India' (NOT 'ब्रिटिश अधिकारी')\n"
-            "- The 'title' field can be in Hindi.\n"
-            "- All 'visual_meta' text fields should be in English.\n"
-        )
-    else:
-        lang_instruction = "The spoken text (hook, narration, summary, cta) MUST be written in English."
+    lang_instruction = f"""LANGUAGE RULES:
+- The spoken text (hook, narration, summary, cta) MUST be written in the requested language (code: '{language}'). If the language is not English, translate the spoken text to that language.
+- The 'title' field can be in the requested language.
+- CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH, regardless of the script language. This is used as a search keyword for media APIs which only understand English.
+  Example: visual_cue = 'ancient Indian trading port with ships'
+- CRITICAL: All 'visual_meta' text fields MUST ALWAYS be in English.
+"""
 
     system_prompt = f"""You are a master YouTube Documentary Scriptwriter like Nitish Rajput.
 Your task is to write a highly engaging, structured, and informative script on the requested topic.
@@ -291,10 +324,10 @@ CRITICAL DIRECTIVES:
    - Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'youtube'.
    - If 'chart': visual_meta must contain: {{ "chart_type": "bar"|"line", "data": [{{ "label": "X", "value": Y }}] }}.
    - If 'map': visual_meta must contain: {{ "map_style": "vintage", "locations": [{{ "name": "City", "coord": [lat, lon] }}] }}.
-   - If 'document': visual_meta must contain: {{ "doc_text": "typed quote or excerpt", "title": "Newspaper Header" }}.
+   - If 'document': visual_meta must contain: {{ "headline": "Exact news headline", "doc_text": "Detailed newspaper excerpt matching the narration", "source": "Name of Publisher", "date": "Month DD, YYYY" }}.
    - If 'portrait' (historical figure): visual_meta must contain: {{ "person_name": "Name" }}.
    - If 'scene' (generic B-roll/image stock): visual_meta must contain: {{ "description": "Atmospheric details" }}.
-   - If 'youtube' (real historical event recordings, interviews, news footage, or real-world clips): visual_meta must contain: {{ "search_query": "highly specific terms targeting real youtube footage", "skip_intro": true }}.
+   - If 'youtube' (real historical event recordings, interviews, news footage, or real-world clips): visual_meta must contain: {{ "skip_intro": true }}. The exact YouTube search query MUST be placed cleanly in the 'visual_cue' field (do NOT prepend words like "youtube search query:").
    
 5. STOCK MEDIA CUE OPTIMIZATION (Pexels / Stocks):
    - When visual_type is 'scene' or 'portrait' or 'image' (which search stock photo/video directories like Pexels), the `visual_cue` keyword MUST be simple, clear, and concrete (e.g., 'crowded modern stock trading floor', 'worried businessman holding head', 'old vintage book opening'). Do NOT write long sentences, narrative descriptions, or abstract phrases. Use simple, direct nouns and adjectives.
@@ -303,6 +336,7 @@ CRITICAL DIRECTIVES:
    - Use 'youtube' visual_type ONLY when the segment requires actual, real-world footage, news reports, interviews, or historical documentary recordings that generic stock libraries cannot supply (e.g. '1992 Harshad Mehta news reporting archive', 'SpaceX Falcon Heavy launch original footage', 'Apollo 11 moon landing restored video'). The `visual_cue` should be a clean, targeted search query to find this exact clip on YouTube.
 
 7. Word Count: The script must result in approximately {target_word_count} words of voiceover. Generate between {min_scenes} and {max_scenes} scenes in the scenes array to fit the target length.
+8. Structure Rule: Do NOT include a "Conclusion" or "Final Conclusion" as a scene within the 'scenes' array. The scenes array should only contain the main body of the documentary. The conclusion must strictly be placed in the separate 'conclusion' object defined by the schema.
 
 JSON SCHEMA:
 {json.dumps(SCRIPT_JSON_SCHEMA, indent=2)}

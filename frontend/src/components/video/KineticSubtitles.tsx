@@ -142,8 +142,8 @@ export const KineticSubtitles: React.FC<Props> = ({
     (s) => currentTime >= s.startTime && currentTime < s.endTime
   );
 
-  // 2. If no transcription sentence found, fall back to scene timing sentences
-  if (!activeSentence && fallbackSentences.length > 0) {
+  // 2. If no transcription sentence found, fall back to scene timing sentences ONLY if we have no transcription data
+  if (!activeSentence && allSentences.length === 0 && fallbackSentences.length > 0) {
     activeSentence = fallbackSentences.find(
       (s) => currentTime >= s.startTime && currentTime < s.endTime
     );

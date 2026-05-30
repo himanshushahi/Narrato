@@ -16,11 +16,11 @@ interface CustomSelectProps {
   icon?: React.ReactNode;
 }
 
-export const CustomSelect: React.FC<CustomSelectProps> = ({ 
-  label, 
-  options, 
-  value, 
-  onChange, 
+export const CustomSelect: React.FC<CustomSelectProps> = ({
+  label,
+  options,
+  value,
+  onChange,
   className = '',
   icon
 }) => {
@@ -46,7 +46,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       const viewportHeight = window.innerHeight;
       const spaceBelow = viewportHeight - rect.bottom;
       const spaceAbove = rect.top;
-      
+
       // If space below is less than 260px (height of dropdown with margins) 
       // and there's more space above, open upwards.
       if (spaceBelow < 260 && spaceAbove > spaceBelow) {
@@ -60,12 +60,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   return (
     <div className={`space-y-1.5 w-full relative ${isOpen ? 'z-50' : 'z-10'} ${className}`} ref={containerRef}>
       {label && <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">{label}</label>}
-      
-      <div className="relative">
+
+      <div className="relative cursor-pointer">
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className={`w-full flex items-center justify-between px-4 py-2.5 bg-[var(--color-brand-950)]/50 border ${isOpen ? 'border-[var(--color-accent-primary)] ring-1 ring-[var(--color-accent-primary)]' : 'border-slate-700/50'} rounded-md text-slate-200 focus:outline-none transition-all text-sm group`}
+          className={`w-full cursor-pointer flex items-center justify-between px-4 py-2.5 bg-[var(--color-brand-950)]/50 border ${isOpen ? 'border-[var(--color-accent-primary)] ring-1 ring-[var(--color-accent-primary)]' : 'border-slate-700/50'} rounded-md text-slate-200 focus:outline-none transition-all text-sm group`}
         >
           <div className="flex items-center gap-3 truncate">
             {icon && <span className="text-slate-500 group-hover:text-[var(--color-accent-primary)] transition-colors">{icon}</span>}
@@ -87,11 +87,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: dropdownDirection === 'up' ? 10 : -10, scale: 0.95 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
-              className={`absolute z-50 w-full left-0 bg-[var(--color-brand-900)] border border-slate-700 shadow-2xl rounded-md overflow-hidden backdrop-blur-xl ${
-                dropdownDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'
-              }`}
+              className={`absolute  z-50 w-full left-0 bg-[var(--color-brand-900)] border border-slate-700 shadow-2xl rounded-md overflow-hidden backdrop-blur-xl ${dropdownDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'
+                }`}
             >
-              <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5 space-y-0.5">
+              <div className="max-h-60  overflow-y-auto custom-scrollbar p-1.5 space-y-0.5">
                 {options.map((opt) => {
                   const isSelected = opt.value === value;
                   return (
@@ -102,11 +101,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                         onChange(opt.value);
                         setIsOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-sm text-sm text-left transition-colors ${
-                        isSelected 
-                          ? 'bg-[var(--color-accent-primary)]/20 text-[var(--color-accent-light)] font-bold' 
-                          : 'text-slate-300 hover:bg-slate-800/80 hover:text-white font-medium'
-                      }`}
+                      className={`w-full cursor-pointer flex items-center justify-between px-3 py-2.5 rounded-sm text-sm text-left transition-colors ${isSelected
+                        ? 'bg-[var(--color-accent-primary)]/20 text-[var(--color-accent-light)] font-bold'
+                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white font-medium'
+                        }`}
                     >
                       <span className="truncate">{opt.label}</span>
                       {isSelected && <VscCheck className="text-[var(--color-accent-primary)] shrink-0" />}

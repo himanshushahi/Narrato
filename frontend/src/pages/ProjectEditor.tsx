@@ -46,6 +46,8 @@ export const ProjectEditor: React.FC = () => {
   const [originalScriptData, setOriginalScriptData] = useState<any>(null);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const [savingCardKey, setSavingCardKey] = useState<string | null>(null);
+  const [wasActive, setWasActive] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const handleStartEdit = (cardKey: string) => {
     setOriginalScriptData(JSON.parse(JSON.stringify(scriptData)));
@@ -66,6 +68,15 @@ export const ProjectEditor: React.FC = () => {
       loadFiles(id);
     }
   }, [id]);
+
+  useEffect(() => {
+    if (queue.active === id) {
+      setWasActive(true);
+    } else if (wasActive && queue.active !== id) {
+      setWasActive(false);
+      loadFiles(id!);
+    }
+  }, [queue.active, id, wasActive]);
 
   // Read generated JSON assets from Python server static bridges
   const loadFiles = async (projId: string) => {
@@ -418,14 +429,14 @@ export const ProjectEditor: React.FC = () => {
   // Convert local project assets directory file paths to media streaming URLs
   const getAudioSourceUrl = () => {
     if (selectedProject.audio_path) {
-      return `http://localhost:8888/api/media?path=${encodeURIComponent(selectedProject.audio_path)}`;
+      return `http://localhost:8888/api/media?path=${encodeURIComponent(selectedProject.audio_path)}&t=${reloadKey}`;
     }
     return '';
   };
 
   const getBGMUrl = () => {
     if (selectedProject.bg_music_path) {
-      return `http://localhost:8888/api/media?path=${encodeURIComponent(selectedProject.bg_music_path)}`;
+      return `http://localhost:8888/api/media?path=${encodeURIComponent(selectedProject.bg_music_path)}&t=${reloadKey}`;
     }
     return '';
   };
@@ -467,12 +478,19 @@ export const ProjectEditor: React.FC = () => {
       const origMeta = manifestScene.visual_meta || {};
       const metaChanged = JSON.stringify(liveMeta) !== JSON.stringify(origMeta);
 
+      const resolvedVisualUrl = (cueChanged || typeChanged || metaChanged) 
+        ? '' 
+        : (manifestScene.visual_url ? `${manifestScene.visual_url}&t=${reloadKey}` : '');
+        
+      const resolvedAudioUrl = manifestScene.audio_url ? `${manifestScene.audio_url}&t=${reloadKey}` : '';
+
       return {
         ...manifestScene,
         visual_type: liveType,
         visual_cue: liveCue,
         visual_meta: liveMeta,
-        visual_url: (cueChanged || typeChanged || metaChanged) ? '' : manifestScene.visual_url
+        visual_url: resolvedVisualUrl,
+        audio_url: resolvedAudioUrl
       };
     });
   };
@@ -666,7 +684,7 @@ export const ProjectEditor: React.FC = () => {
                                 }}
                                 className="bg-amber-600 hover:bg-amber-700 text-zinc-950 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded transition-all cursor-pointer shadow-md hover:scale-105 flex items-center gap-1"
                               >
-                                <VscPlay className="text-[9px]" /> Resume
+                                <VscPlay className="text-[9px]" /> {isCompleted ? 'Re-run' : 'Resume'}
                               </button>
                             </div>
                           </>

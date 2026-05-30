@@ -100,7 +100,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             "src/components/video/root.ts",
             "NitishRajputVideo",
             abs_output_path,
-            f"--props={abs_props_path}"
+            f"--props={abs_props_path}",
+            "--log=info"
         ]
         logger.info(f"Executing Remotion command using bundled Node.js: {node_exe}")
     else:
@@ -111,7 +112,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             "src/components/video/root.ts",
             "NitishRajputVideo",
             abs_output_path,
-            f"--props={abs_props_path}"
+            f"--props={abs_props_path}",
+            "--log=info"
         ]
         logger.info("Executing Remotion command using system npx")
 
@@ -140,6 +142,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     frame_regex = re.compile(r"frame\s+(\d+)/(\d+)")
 
     try:
+        buffer = ""
         while True:
             if cancel_event.is_set():
                 logger.warning("Render cancelled by user. Terminating Remotion process.")
@@ -150,29 +153,36 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                     process.kill()
                 raise InterruptedError("Cancelled")
 
-            line = process.stdout.readline()
-            if not line:
+            char = process.stdout.read(1)
+            if not char and process.poll() is not None:
                 break
+                
+            if char in ('\r', '\n'):
+                line = buffer
+                buffer = ""
+                if not line.strip():
+                    continue
 
-            # Print lines to app logs so user can see raw Remotion output if it fails
-            stripped = line.strip()
-            if stripped:
-                logger.debug(f"[Remotion CLI]: {stripped}")
+                stripped = line.strip()
+                if stripped:
+                    logger.debug(f"[Remotion CLI]: {stripped}")
 
-            # Extract percentage progress
-            frame_match = frame_regex.search(line)
-            pct_match = progress_regex.search(line)
-            
-            if frame_match:
-                current_frame = int(frame_match.group(1))
-                total_frames = int(frame_match.group(2))
-                if total_frames > 0:
-                    pct = 10.0 + (current_frame / total_frames) * 89.0
+                # Extract percentage progress
+                frame_match = frame_regex.search(line)
+                pct_match = progress_regex.search(line)
+                
+                if frame_match:
+                    current_frame = int(frame_match.group(1))
+                    total_frames = int(frame_match.group(2))
+                    if total_frames > 0:
+                        pct = 10.0 + (current_frame / total_frames) * 89.0
+                        progress_cb(min(99.0, pct))
+                elif pct_match:
+                    pct_val = int(pct_match.group(1))
+                    pct = 10.0 + (pct_val / 100.0) * 89.0
                     progress_cb(min(99.0, pct))
-            elif pct_match:
-                pct_val = int(pct_match.group(1))
-                pct = 10.0 + (pct_val / 100.0) * 89.0
-                progress_cb(min(99.0, pct))
+            else:
+                buffer += char
 
         process.wait()
 

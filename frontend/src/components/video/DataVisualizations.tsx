@@ -253,16 +253,24 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
 
   // Render Archival Document / Newspaper print
   const renderDocument = () => {
+    // If real news data is fetched, we use it, otherwise fallback to old behavior
     const text = meta.doc_text || 'Archival record text excerpt goes here.';
-    const title = meta.title || 'THE CLASSIFIED ARCHIVES';
-    const subTitle = meta.subtitle || 'Official Telegram Communication';
+    const title = meta.title || 'THE CLASSIFIED ARCHIVES'; // Masthead
+    const subTitle = meta.subtitle || 'BREAKING NEWS';
+    const headline = meta.headline || 'Exclusive Report Uncovers Hidden Details';
+    const source = meta.source || 'The Associated Press';
 
     // Typewriter text progress
     const charCount = text.length;
-    const textProgress = Math.floor(interpolate(frame, [10, 80], [0, charCount], {
+    // Slow down the typing so it fits the frame better, or scale dynamically
+    const textProgress = Math.floor(interpolate(frame, [10, 120], [0, charCount], {
       extrapolateLeft: 'clamp',
       extrapolateRight: 'clamp'
     }));
+
+    // Current Date formatting
+    const today = new Date();
+    const dateStr = meta.date || today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
     return (
       <div style={{
@@ -271,89 +279,137 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        padding: 50
+        padding: 50,
+        boxSizing: 'border-box'
       }}>
-        {/* Paper Container */}
+        {/* Newspaper Paper Container */}
         <div style={{
-          width: 850,
-          backgroundColor: '#eae6df', // vintage paper tone
+          width: 1400,
+          minHeight: 850,
+          backgroundColor: '#f4f0e6', // Vintage newspaper tone
           border: '1px solid #dcd7cd',
-          padding: 60,
-          boxShadow: '0 20px 40px rgba(0,0,0,0.8)',
+          padding: '40px 60px',
+          boxShadow: '0 25px 50px rgba(0,0,0,0.85), inset 0 0 100px rgba(0,0,0,0.05)',
           display: 'flex',
           flexDirection: 'column',
-          color: '#292524',
-          position: 'relative'
+          color: '#1c1917',
+          position: 'relative',
+          overflow: 'hidden'
         }}>
-          {/* Top header border line */}
+          {/* Masthead */}
           <div style={{
-            borderBottom: '3px double #44403c',
             textAlign: 'center',
-            paddingBottom: 20,
-            marginBottom: 30
+            paddingBottom: 10,
+            marginBottom: 10
           }}>
             <h1 style={{
               fontFamily: 'Merriweather, serif',
-              fontWeight: 700,
-              fontSize: 36,
+              fontWeight: 800,
+              fontSize: 64,
               textTransform: 'uppercase',
-              letterSpacing: 2
+              letterSpacing: 2,
+              margin: 0,
+              color: '#0c0a09'
             }}>
               {title}
             </h1>
-            <p style={{
-              fontFamily: 'Montserrat, sans-serif',
-              fontSize: 16,
-              fontWeight: 700,
-              color: '#57534e',
-              textTransform: 'uppercase',
-              marginTop: 5,
-              letterSpacing: 1
-            }}>
-              {subTitle}
-            </p>
           </div>
 
-          {/* Typestate Excerpt Content */}
+          {/* Newspaper Info Bar (Date, Issue, Volume) */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            borderTop: '3px double #292524',
+            borderBottom: '1px solid #292524',
+            padding: '8px 10px',
+            marginBottom: 30,
+            fontFamily: 'Montserrat, sans-serif',
+            fontSize: 14,
+            fontWeight: 600,
+            color: '#44403c',
+            textTransform: 'uppercase',
+            letterSpacing: 1
+          }}>
+            <span>Vol. XCIII... No. 31,520</span>
+            <span>{dateStr}</span>
+            <span>SPECIAL EDITION</span>
+          </div>
+
+          {/* Headline */}
+          <div style={{ marginBottom: 25, textAlign: 'center' }}>
+            <h2 style={{
+              fontFamily: 'Merriweather, serif',
+              fontWeight: 700,
+              fontSize: 42,
+              lineHeight: 1.2,
+              color: '#0c0a09',
+              margin: 0
+            }}>
+              {headline}
+            </h2>
+            <p style={{
+              fontFamily: 'Montserrat, sans-serif',
+              fontWeight: 700,
+              fontSize: 16,
+              color: '#57534e',
+              marginTop: 15,
+              textTransform: 'uppercase',
+              letterSpacing: 1
+            }}>
+              By {source} | {subTitle}
+            </p>
+          </div>
+          
+          <hr style={{ border: 'none', borderTop: '1px solid #a8a29e', marginBottom: 25 }} />
+
+          {/* Multi-column Body Content */}
           <div style={{
             fontFamily: 'Merriweather, serif',
-            fontSize: 22,
+            fontSize: 20,
             lineHeight: 1.8,
             color: '#1c1917',
             textAlign: 'justify',
-            textIndent: 40,
-            minHeight: 250
+            columnCount: 3,
+            columnGap: 40,
+            columnRule: '1px solid #dcd7cd',
+            whiteSpace: 'pre-wrap',
+            flex: 1
           }}>
-            {text.slice(0, textProgress)}
+            {/* Drop Cap for first letter, if typed */}
+            {textProgress > 0 && (
+              <span style={{
+                float: 'left',
+                fontSize: 68,
+                lineHeight: 0.8,
+                paddingTop: 8,
+                paddingRight: 8,
+                paddingLeft: 3,
+                fontWeight: 700,
+                color: '#0c0a09'
+              }}>
+                {text.charAt(0)}
+              </span>
+            )}
+            
+            {text.slice(textProgress > 0 ? 1 : 0, textProgress)}
             <span style={{
               display: 'inline-block',
               width: 3,
-              height: 22,
+              height: 20,
               backgroundColor: '#1c1917',
               marginLeft: 2,
-              opacity: (frame % 10 < 5) ? 1 : 0
+              verticalAlign: 'bottom',
+              opacity: (frame % 15 < 7) ? 1 : 0
             }} />
           </div>
 
-          {/* Red Classified stamp watermark */}
+          {/* Faded edge overlay to simulate paper edges */}
           <div style={{
             position: 'absolute',
-            bottom: 30,
-            right: 50,
-            border: '4px solid #dc2626',
-            color: '#dc2626',
-            fontFamily: 'Montserrat, sans-serif',
-            fontWeight: 800,
-            fontSize: 24,
-            padding: '8px 16px',
-            transform: 'rotate(-12deg)',
-            textTransform: 'uppercase',
-            letterSpacing: 3,
-            borderRadius: 4,
-            opacity: 0.8
-          }}>
-            Classified
-          </div>
+            inset: 0,
+            pointerEvents: 'none',
+            boxShadow: 'inset 0 0 60px rgba(0,0,0,0.1)'
+          }} />
         </div>
       </div>
     );
