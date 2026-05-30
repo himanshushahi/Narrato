@@ -1,0 +1,220 @@
+import sqlite3
+import json
+import uuid
+from datetime import datetime
+from contextlib import contextmanager
+from backend.core.config import DB_PATH
+from backend.core.logger import logger
+
+@contextmanager
+def get_db_connection():
+    """Context manager for SQLite connection with automatic commit and closing."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Database error occurred: {e}", exc_info=True)
+        raise e
+    finally:
+        conn.close()
+
+def init_db():
+    """Initialize database tables if they do not exist."""
+    logger.info(f"Initializing SQLite database at: {DB_PATH}")
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Projects Table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                prompt TEXT,
+                status TEXT DEFAULT 'created',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                language TEXT DEFAULT 'hi',
+                style TEXT DEFAULT 'nitish_rajput',
+                duration_mode TEXT DEFAULT 'medium',
+                script_path TEXT,
+                audio_path TEXT,
+                transcription_path TEXT,
+                assets_manifest_path TEXT,
+                video_path TEXT,
+                tts_engine TEXT DEFAULT 'edge',
+                tts_voice TEXT DEFAULT 'hi-IN-SwaraNeural',
+                tts_speed REAL DEFAULT 1.0,
+                bg_music_path TEXT,
+                bg_music_volume REAL DEFAULT 0.15
+            )
+        """)
+
+        # Tasks Table (Sub-tasks inside a project pipeline)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                step TEXT NOT NULL, -- 'generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets', 'render'
+                status TEXT DEFAULT 'pending', -- 'pending', 'running', 'completed', 'failed'
+                progress REAL DEFAULT 0.0,
+                message TEXT,
+                error_message TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Settings Table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        
+        # Insert default settings if empty or missing
+        default_settings = {
+            "llm_provider": "openai",
+            "openai_api_key": "",
+            "openai_base_url": "https://api.openai.com/v1",
+            "openai_model": "gpt-4o",
+            "whisper_model": "base",
+            "whisper_device": "cpu", # 'cpu' or 'cuda'
+            "tts_engine": "edge", # 'edge' or 'kokoro'
+            "tts_voice": "hi-IN-SwaraNeural", # default Edge voice (Hindi)
+            "tts_speed": "1.0",
+            "tts_pitch": "0",
+            "kokoro_voice": "hf_alpha", # default Kokoro voice
+            "workspace_directory": "",
+            "bg_music_path": "",
+            "bg_music_volume": "0.15",
+            "pexels_api_key": "", # User's Pexels API Key
+            "use_pexels": True,
+            "sfx_volume": "0.20"
+        }
+        for k, v in default_settings.items():
+            cursor.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                (k, json.dumps(v))
+            )
+            
+        # Cleanup stuck pipeline runs from previous application instance
+        cursor.execute("""
+            UPDATE projects 
+            SET status = 'cancelled' 
+            WHERE status IN ('processing', 'queued')
+        """)
+        cursor.execute("""
+            UPDATE tasks 
+            SET status = 'failed', message = 'Interrupted', error_message = 'Pipeline execution interrupted by app restart.'
+            WHERE status IN ('running', 'pending')
+        """)
+        logger.info("Database startup cleanup: marked stuck projects as cancelled and tasks as failed.")
+    logger.info("Database initialized successfully.")
+
+# Project Operations
+def create_project(name, prompt, language="hi", style="nitish_rajput", duration_mode="medium"):
+    project_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    tts_engine = get_setting("tts_engine") or "edge"
+    tts_voice = get_setting("tts_voice") if tts_engine == "edge" else get_setting("kokoro_voice")
+    if not tts_voice:
+        tts_voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
+        
+    tts_speed = float(get_setting("tts_speed") or 1.0)
+    bg_music_path = get_setting("bg_music_path") or ""
+    bg_music_volume = float(get_setting("bg_music_volume") or 0.15)
+        
+    with get_db_connection() as conn:
+        conn.execute("""
+            INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (project_id, name, prompt, now, now, language, style, duration_mode, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume))
+    logger.info(f"Created project in database: {name} (ID: {project_id}, Lang: {language}, Style: {style})")
+    return project_id
+
+def get_project(project_id):
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        return dict(row) if row else None
+
+def get_all_projects():
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+def update_project(project_id, **kwargs):
+    kwargs['updated_at'] = datetime.utcnow().isoformat()
+    columns = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+    values = list(kwargs.values())
+    values.append(project_id)
+    with get_db_connection() as conn:
+        conn.execute(f"UPDATE projects SET {columns} WHERE id = ?", values)
+    logger.debug(f"Updated project {project_id}: {kwargs}")
+
+def delete_project(project_id):
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        conn.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+    logger.info(f"Deleted project {project_id} and associated tasks.")
+
+# Task Operations
+def create_task(project_id, step):
+    task_id = f"{project_id}_{step}"
+    now = datetime.utcnow().isoformat()
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if row:
+            conn.execute("""
+                UPDATE tasks 
+                SET status = 'pending', progress = 0.0, message = 'Restarted', error_message = NULL, updated_at = ?
+                WHERE id = ?
+            """, (now, task_id))
+        else:
+            conn.execute("""
+                INSERT INTO tasks (id, project_id, step, status, updated_at)
+                VALUES (?, ?, ?, 'pending', ?)
+            """, (task_id, project_id, step, now))
+    return task_id
+
+def get_task(task_id):
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return dict(row) if row else None
+
+def get_project_tasks(project_id):
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT * FROM tasks WHERE project_id = ?", (project_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+def update_task(task_id, **kwargs):
+    kwargs['updated_at'] = datetime.utcnow().isoformat()
+    columns = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+    values = list(kwargs.values())
+    values.append(task_id)
+    with get_db_connection() as conn:
+        conn.execute(f"UPDATE tasks SET {columns} WHERE id = ?", values)
+
+# Settings Operations
+def get_setting(key):
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+def get_all_settings():
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        return {r['key']: json.loads(r['value']) for r in rows}
+
+def update_settings(settings_dict):
+    with get_db_connection() as conn:
+        for k, v in settings_dict.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (k, json.dumps(v))
+            )
+    logger.info("Application settings updated in database.")

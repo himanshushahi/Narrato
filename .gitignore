@@ -1,0 +1,38 @@
+# Node.js
+node_modules/
+dist/
+.npm/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Binaries & Executables
+bin/
+build/
+*.exe
+*.dll
+*.dylib
+models/
+
+# Project Specific (Temporary/Generated data)
+temp/
+storage/
+logs/
+exports/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Environments
+.env
+.env.*
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp

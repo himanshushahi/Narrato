@@ -1,0 +1,179 @@
+import os
+import json
+import re
+import subprocess
+import shutil
+from pathlib import Path
+from backend.database.db import get_setting, update_project
+from backend.core.config import get_exports_dir, get_temp_dir
+from backend.core.logger import logger
+
+def clean_media_path(path_str):
+    """Formats an absolute Windows path into a local Bottle server API route."""
+    if not path_str:
+        return ""
+    normalized = str(Path(path_str).resolve()).replace('\\', '/')
+    return f"http://localhost:8888/api/media?path={requests_quote(normalized)}"
+
+def requests_quote(string):
+    import requests
+    return requests.utils.quote(string)
+
+def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
+    """Compiles the React Remotion canvas into an MP4 file."""
+    manifest_path = Path(project_dict['assets_manifest_path'])
+    transcribe_path = Path(project_dict['transcription_path'])
+    audio_path = Path(project_dict['audio_path'])
+
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Segment manifest not found: {manifest_path}")
+    if not transcribe_path.exists():
+        raise FileNotFoundError(f"Whisper transcript not found: {transcribe_path}")
+    if not audio_path.exists():
+        raise FileNotFoundError(f"Narration track not found: {audio_path}")
+
+    logger.info(f"Preparing Remotion compilation properties for project: {project_dict['name']}")
+    progress_cb(5.0)
+
+    # 1. Load manifests
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        scenes = json.load(f)
+    with open(transcribe_path, "r", encoding="utf-8") as f:
+        transcript = json.load(f)
+
+    # Convert local absolute paths in scenes/audios into Bottle media serving URLs
+    # Remotion Chrome sandbox cannot fetch directly from local disk absolute paths
+    for sc in scenes:
+        if sc.get("visual_path"):
+            sc["visual_url"] = clean_media_path(sc["visual_path"])
+        else:
+            sc["visual_url"] = ""
+        sc["audio_url"] = clean_media_path(sc["audio_path"])
+
+    bg_music_url = ""
+    if project_dict.get("bg_music_path"):
+        bg_music_url = clean_media_path(project_dict["bg_music_path"])
+
+    props = {
+        "audioUrl": clean_media_path(str(audio_path)),
+        "bgMusicUrl": bg_music_url,
+        "bgMusicVolume": float(project_dict.get("bg_music_volume") or 0.15),
+        "scenes": scenes,
+        "transcription": transcript,
+        "style": project_dict.get("style", "nitish_rajput"),
+        "language": project_dict.get("language", "hi")
+    }
+
+    # Write props to a JSON file
+    props_path = project_dir / "render_props.json"
+    with open(props_path, "w", encoding="utf-8") as f:
+        json.dump(props, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Wrote render props to {props_path}")
+    progress_cb(10.0)
+
+    # Define output paths
+    exports_dir = get_exports_dir()
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Safe project filename
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', project_dict['name'])
+    output_mp4_path = exports_dir / f"{safe_name}.mp4"
+
+    # 2. Run npx remotion render
+    # Execute inside 'frontend' directory since it contains node_modules and root.ts
+    frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
+    
+    # Normalize props path relative to frontend folder or pass absolute
+    abs_props_path = str(props_path.resolve()).replace('\\', '/')
+    abs_output_path = str(output_mp4_path.resolve()).replace('\\', '/')
+
+    # Command: npx remotion render <entry-file> <composition-id> <output-file> --props=<props-file>
+    cmd = [
+        "npx",
+        "remotion",
+        "render",
+        "src/components/video/root.ts",
+        "NitishRajputVideo",
+        abs_output_path,
+        f"--props={abs_props_path}"
+    ]
+
+    logger.info(f"Executing Remotion command in {frontend_dir}: {' '.join(cmd)}")
+    
+    startupinfo = None
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+    process = subprocess.Popen(
+        cmd,
+        cwd=str(frontend_dir),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+        shell=True, # Need shell=True to execute npx successfully on Windows
+        startupinfo=startupinfo
+    )
+
+    # Regex to capture progress from Remotion output, e.g., "Rendering frame 24/600 (4%)"
+    # Or "Progress: 12%"
+    progress_regex = re.compile(r"(\d+)%")
+    frame_regex = re.compile(r"frame\s+(\d+)/(\d+)")
+
+    try:
+        while True:
+            if cancel_event.is_set():
+                logger.warning("Render cancelled by user. Terminating Remotion process.")
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                raise InterruptedError("Cancelled")
+
+            line = process.stdout.readline()
+            if not line:
+                break
+
+            # Print lines to app logs so user can see raw Remotion output if it fails
+            stripped = line.strip()
+            if stripped:
+                logger.debug(f"[Remotion CLI]: {stripped}")
+
+            # Extract percentage progress
+            frame_match = frame_regex.search(line)
+            pct_match = progress_regex.search(line)
+            
+            if frame_match:
+                current_frame = int(frame_match.group(1))
+                total_frames = int(frame_match.group(2))
+                if total_frames > 0:
+                    pct = 10.0 + (current_frame / total_frames) * 89.0
+                    progress_cb(min(99.0, pct))
+            elif pct_match:
+                pct_val = int(pct_match.group(1))
+                pct = 10.0 + (pct_val / 100.0) * 89.0
+                progress_cb(min(99.0, pct))
+
+        process.wait()
+
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, cmd)
+
+    except Exception as e:
+        if output_mp4_path.exists():
+            try:
+                output_mp4_path.unlink()
+            except Exception:
+                pass
+        raise e
+
+    if not output_mp4_path.exists():
+        raise FileNotFoundError(f"Remotion compiler completed but output file was not found at: {output_mp4_path}")
+
+    update_project(project_dict['id'], video_path=str(output_mp4_path))
+    progress_cb(100.0)
+    logger.info(f"Video compiled successfully! MP4 exported to: {output_mp4_path}")

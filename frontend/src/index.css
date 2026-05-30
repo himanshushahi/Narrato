@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-950: #09090b; /* zinc-950 */
+  --color-brand-900: #18181b; /* zinc-900 */
+  --color-brand-800: #27272a; /* zinc-800 */
+  --color-brand-700: #3f3f46; /* zinc-700 */
+  --color-brand-600: #52525b; /* zinc-600 */
+  
+  --color-accent-primary: #2563eb; /* blue-600 */
+  --color-accent-hover: #1d4ed8; /* blue-700 */
+  --color-accent-light: #dbeafe; /* blue-100 */
+  --color-accent-glow: rgba(37, 99, 235, 0.3);
+
+  /* Override Tailwind stone color to Zinc for unified dark theme */
+  --color-stone-950: #09090b;
+  --color-stone-900: #18181b;
+  --color-stone-850: #202023;
+  --color-stone-800: #27272a;
+  --color-stone-700: #3f3f46;
+  --color-stone-600: #52525b;
+  --color-stone-500: #71717a;
+  --color-stone-400: #a1a1aa;
+  --color-stone-300: #d4d4d8;
+  --color-stone-200: #e4e4e7;
+  --color-stone-100: #f4f4f5;
+  --color-stone-50: #fafafa;
+
+  /* Override Tailwind amber color to Blue for the primary accent color */
+  --color-amber-950: #172554;
+  --color-amber-900: #1e3a8a;
+  --color-amber-800: #1e40af;
+  --color-amber-700: #1d4ed8;
+  --color-amber-600: #2563eb;
+  --color-amber-500: #3b82f6;
+  --color-amber-400: #60a5fa;
+  --color-amber-300: #93c5fd;
+  --color-amber-200: #bfdbfe;
+  --color-amber-100: #dbeafe;
+  --color-amber-50: #eff6ff;
+
+  /* Override Tailwind orange color to Cyan for secondary/gradient accent */
+  --color-orange-950: #083344;
+  --color-orange-900: #164e63;
+  --color-orange-800: #155e75;
+  --color-orange-700: #0e7490;
+  --color-orange-600: #0891b2;
+  --color-orange-500: #06b6d4;
+  --color-orange-400: #22d3ee;
+  --color-orange-300: #67e8f9;
+  --color-orange-200: #a5f3fc;
+  --color-orange-100: #cffafe;
+  --color-orange-50: #ecfeff;
+
+  --font-sans: 'Montserrat', sans-serif;
+  --font-display: 'Merriweather', serif;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  
+  body {
+    background-color: var(--color-brand-950);
+    color: #f4f4f5; /* zinc-100 */
+    font-family: var(--font-sans);
+    overflow: hidden; /* App layouts handle scroll */
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Vintage Film Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-brand-700);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-600);
+}
+
+/* 
+  Global Utility Classes for Archival/Vintage UI 
+*/
+
+.bg-cinematic {
+  background: radial-gradient(circle at top right, rgba(37, 99, 235, 0.05) 0%, transparent 40%),
+              radial-gradient(circle at bottom left, rgba(6, 182, 212, 0.06) 0%, transparent 45%),
+              var(--color-brand-950);
+}
+
+.glass-panel {
+  background: rgba(24, 24, 27, 0.6); /* zinc-900 with transparency */
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.glass-panel-elevated {
+  background: rgba(39, 39, 42, 0.7); /* zinc-800 with transparency */
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.5);
+}
+
+.glass-panel:focus-within,
+.glass-panel-elevated:focus-within {
+  position: relative;
+  z-index: 30;
+}
+
+.glass-card-hover {
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.glass-card-hover:hover {
+  background: rgba(63, 63, 70, 0.4);
+  border-color: rgba(37, 99, 235, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px -10px rgba(0, 0, 0, 0.7), 0 0 15px -5px var(--color-accent-glow);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #FFFFFF 0%, #d4d4d8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-accent {
+  background: linear-gradient(135deg, var(--color-accent-light) 0%, var(--color-accent-primary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

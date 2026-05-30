@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RenderFlow Studio</title>
+    <!-- Google Fonts: Montserrat (ui) and Merriweather (subtitles/documents) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,700;1,300&family=Montserrat:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-zinc-950 text-zinc-100 overflow-hidden font-sans">
+    <!-- Dynamic Eel Script Bridge Injection to prevent Vite bundle errors -->
+    <script type="text/javascript">
+      var script = document.createElement('script');
+      script.src = '/eel.js';
+      script.onload = function() {
+        if (window.eel) {
+          window.eel.expose(function(msg) {}, "on_log_stream");
+          window.eel.expose(function(data) {}, "on_progress_update");
+          window.eel.expose(function(data) {}, "on_kokoro_download_progress");
+          window.eel.expose(function(data) {}, "on_whisper_download_progress");
+        }
+      };
+      document.head.appendChild(script);
+    </script>
+    
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
