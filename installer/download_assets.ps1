@@ -177,6 +177,22 @@ if (-not $ffmpegExists) {
     Write-Host "[INFO] FFmpeg and FFprobe already exist in AppData. Skipping download."
 }
 
+# 2.5 Download yt-dlp if it does not exist
+$ytdlpExists = Test-Path (Join-Path $binPath "yt-dlp.exe")
+if (-not $ytdlpExists) {
+    Write-Host "`n--- DOWNLOADING YT-DLP ---"
+    $ytdlpExe = Join-Path $binPath "yt-dlp.exe"
+    try {
+        Download-FileWithProgressAndRetry -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $ytdlpExe -Name "yt-dlp Binary"
+        Write-Host "[SUCCESS] yt-dlp downloaded to AppData: $binPath"
+    } catch {
+        Write-Error "[ERROR] Failed to download yt-dlp: $_"
+        exit 1
+    }
+} else {
+    Write-Host "[INFO] yt-dlp already exists in AppData. Skipping download."
+}
+
 # 3. Download and extract portable Node.js if it does not exist
 $nodeExists = Test-Path (Join-Path $nodePath "node.exe")
 if (-not $nodeExists) {

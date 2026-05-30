@@ -148,6 +148,7 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
           style={transformStyle}
           muted
           startFrom={0}
+          loop
         />
       ) : (
         <Img 

@@ -84,6 +84,28 @@ def check_ffmpeg():
     print("Alternatively, place static builds inside the './bin/' folder of this directory.")
     return False
 
+def check_ytdlp():
+    print("\n=== Checking yt-dlp ===")
+    
+    # Check local bin first
+    bin_ext = ".exe" if os.name == "nt" else ""
+    local_ytdlp = os.path.join(os.path.dirname(__file__), "bin", f"yt-dlp{bin_ext}")
+    
+    if os.path.exists(local_ytdlp):
+        print(f"[SUCCESS] Found local bundled yt-dlp at: {local_ytdlp}")
+        return True
+        
+    # Check system path
+    ytdlp_in_path = shutil.which("yt-dlp")
+    if ytdlp_in_path:
+        print(f"[SUCCESS] Found system yt-dlp in PATH: {ytdlp_in_path}")
+        return True
+        
+    print("[ERROR] yt-dlp was not found on your system or in './bin/'.")
+    print("To install yt-dlp automatically, please run:")
+    print("  python download_binaries.py")
+    return False
+
 def check_node_dependencies():
     print("\n=== Checking Node/React/Remotion Dependencies ===")
     frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
@@ -120,10 +142,11 @@ def main():
     
     deps_ok = check_python_dependencies()
     ffmpeg_ok = check_ffmpeg()
+    ytdlp_ok = check_ytdlp()
     node_ok = check_node_dependencies()
     
     print("\n==========================================")
-    if deps_ok and ffmpeg_ok and node_ok:
+    if deps_ok and ffmpeg_ok and ytdlp_ok and node_ok:
         print(" STATUS: Ready to launch!")
         print("==========================================")
         print("To run the application in development mode:")

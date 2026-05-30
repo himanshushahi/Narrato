@@ -93,6 +93,8 @@ def init_db():
             "bg_music_volume": "0.15",
             "pexels_api_key": "", # User's Pexels API Key
             "use_pexels": True,
+            "use_youtube": True, # Enabled by default, user can toggle
+            "youtube_download_duration": "15",
             "sfx_volume": "0.20"
         }
         for k, v in default_settings.items():

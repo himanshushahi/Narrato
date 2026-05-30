@@ -1,9 +1,11 @@
 import os
 import json
 import requests
+import subprocess
 from pathlib import Path
-from backend.database.db import get_setting
+from backend.database.db import get_setting, get_project, update_project
 from backend.core.logger import logger
+from backend.core.config import get_ytdlp_path, get_ffmpeg_path
 
 def search_pexels_photo(query, api_key):
     """Searches Pexels for a photo matching the query. Returns url to download."""
@@ -47,6 +49,56 @@ def search_pexels_video(query, api_key):
     except Exception as e:
         logger.warning(f"Pexels video search failed for '{query}': {e}")
     return None
+
+def download_youtube_video(query, dest_path, start_offset=15, duration=15):
+    """
+    Downloads a short clip from YouTube matching the query using yt-dlp.
+    Quality defaults to 1080p, falls back to 720p or lower.
+    Downloads the segment after start_offset seconds.
+    """
+    ytdlp_path = get_ytdlp_path()
+    ffmpeg_path = get_ffmpeg_path()
+    
+    logger.info(f"download_youtube_video: Query='{query}', start_offset={start_offset}, duration={duration}")
+    
+    start_sec = start_offset
+    end_sec = start_sec + duration
+    
+    # We build the download-sections string: e.g. "*15-30" or "*0-15"
+    sections_str = f"*{start_sec}-{end_sec}"
+    
+    cmd = [
+        ytdlp_path,
+        f"ytsearch1:{query}",
+        "-f", "mp4[height<=1080]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "--max-downloads", "1",
+        "--no-playlist",
+        "--download-sections", sections_str,
+        "--force-keyframes-at-cuts",
+        "--merge-output-format", "mp4",
+        "--ffmpeg-location", ffmpeg_path,
+        "--no-warnings",
+        "-o", str(dest_path)
+    ]
+    
+    try:
+        logger.info(f"Executing yt-dlp command: {' '.join(cmd)}")
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
+        
+        # Prioritize checking if the file was downloaded successfully (yt-dlp may return non-zero when aborting remaining search items)
+        if dest_path.exists() and dest_path.stat().st_size > 0:
+            logger.info(f"Successfully downloaded YouTube clip to {dest_path}")
+            return True
+            
+        if res.returncode != 0:
+            logger.error(f"yt-dlp failed with returncode {res.returncode}. stderr: {res.stderr}")
+            return False
+            
+        logger.error(f"yt-dlp command finished but dest_path {dest_path} was not created.")
+        return False
+    except Exception as e:
+        logger.error(f"Exception while executing yt-dlp: {e}")
+        return False
 
 def download_asset(url, dest_path):
     """Downloads a binary asset from a URL and saves it."""
@@ -94,9 +146,80 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         
         segment["visual_path"] = "" # default
         
+        # Read script.json so we can sync fallbacks
+        script_path = project_dir / "script.json"
+        script_data = None
+        script_modified = False
+        if script_path.exists():
+            try:
+                with open(script_path, "r", encoding="utf-8") as sf:
+                    script_data = json.load(sf)
+            except Exception as e:
+                logger.warning(f"Could not load script.json in pipeline: {e}")
+
+        # If type is youtube, download from youtube first. If it fails, fall back to stock video/photo.
+        if visual_type == "youtube":
+            dest_file = assets_dir / f"asset_{idx:03d}.mp4"
+            logger.info(f"Segment {idx} is YouTube visual type. Sourcing from YouTube: '{visual_cue}'")
+            
+            visual_meta = segment.get("visual_meta") or {}
+            if not isinstance(visual_meta, dict):
+                visual_meta = {}
+            start_offset = int(visual_meta.get("start_offset", 15))
+            duration = int(visual_meta.get("duration", 15))
+            
+            yt_success = download_youtube_video(visual_cue, dest_file, start_offset=start_offset, duration=duration)
+            if yt_success:
+                segment["visual_path"] = str(dest_file)
+                logger.info(f"Saved youtube asset_{idx:03d}.mp4 locally.")
+            else:
+                logger.warning(f"YouTube download failed for segment {idx}. Falling back to stock video.")
+                fallback_type = "scene"
+                asset_url = None
+                ext = ".mp4"
+                
+                if api_key:
+                    asset_url = search_pexels_video(visual_cue, api_key)
+                    if not asset_url:
+                        logger.warning(f"Stock video fallback failed for segment {idx}. Trying stock photo.")
+                        asset_url = search_pexels_photo(visual_cue, api_key)
+                        ext = ".jpg"
+                        fallback_type = "image"
+                        
+                if asset_url:
+                    dest_file_fb = assets_dir / f"asset_{idx:03d}{ext}"
+                    if download_asset(asset_url, dest_file_fb):
+                        segment["visual_path"] = str(dest_file_fb)
+                        segment["visual_type"] = fallback_type
+                        logger.info(f"Successfully saved fallback {fallback_type} asset locally.")
+                        # Sync visual_type to script_data
+                        if script_data:
+                            section_type = segment.get("section_type")
+                            if section_type == "introduction" and "introduction" in script_data:
+                                script_data["introduction"]["visual_type"] = fallback_type
+                                script_modified = True
+                            elif section_type == "conclusion" and "conclusion" in script_data:
+                                script_data["conclusion"]["visual_type"] = fallback_type
+                                script_modified = True
+                            elif section_type == "scene" and "scenes" in script_data:
+                                script_scene_idx = sum(1 for s in manifest[:idx] if s.get("section_type") == "scene")
+                                if script_scene_idx < len(script_data["scenes"]):
+                                    script_data["scenes"][script_scene_idx]["visual_type"] = fallback_type
+                                    script_modified = True
+                else:
+                    segment["visual_path"] = ""
+                    logger.warning(f"Fallback asset gathering failed for segment {idx}.")
+                    
+            if script_modified and script_data:
+                try:
+                    with open(script_path, "w", encoding="utf-8") as sf:
+                        json.dump(script_data, sf, indent=2, ensure_ascii=False)
+                    logger.info("Synchronized fallback visual types to script.json")
+                except Exception as e:
+                    logger.error(f"Failed to save synchronized script.json: {e}")
+
         # Only download asset if visual type is image or B-roll scene
-        # Programmatic visual types (map, chart, document) do not need Pexels
-        if visual_type in ("scene", "portrait", "image") and api_key and use_pexels:
+        elif visual_type in ("scene", "portrait", "image") and api_key:
             logger.info(f"Searching Pexels for segment {idx}: '{visual_cue}' (type: {visual_type})")
             
             asset_url = None
@@ -190,12 +313,74 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, visual_type, visu
                 logger.warning(f"Could not delete old asset file {old_file}: {e}")
                 
     # 2. Check if type requires internet download
-    # Only download asset if visual type is image, portrait or scene
-    if visual_type in ("scene", "portrait", "image"):
-        api_key = get_setting("pexels_api_key")
-        use_pexels = get_setting("use_pexels")
+    fallback_warning = None
+    if visual_type == "youtube":
+        dest_file = assets_dir / f"asset_{manifest_scene_index:03d}.mp4"
+        logger.info(f"Single fetch: Sourcing from YouTube: '{visual_cue}'")
         
-        if api_key and use_pexels:
+        visual_meta = segment.get("visual_meta") or {}
+        if not isinstance(visual_meta, dict):
+            visual_meta = {}
+        start_offset = int(visual_meta.get("start_offset", 15))
+        duration = int(visual_meta.get("duration", 15))
+        
+        yt_success = download_youtube_video(visual_cue, dest_file, start_offset=start_offset, duration=duration)
+        if yt_success:
+            segment["visual_path"] = str(dest_file)
+            segment["visual_type"] = "youtube"
+        else:
+            logger.warning(f"YouTube fetch failed for single scene. Falling back to stock video.")
+            fallback_warning = "YouTube download failed. Fell back to stock video."
+            fallback_type = "scene"
+            asset_url = None
+            ext = ".mp4"
+            
+            api_key = get_setting("pexels_api_key")
+            
+            if api_key:
+                asset_url = search_pexels_video(visual_cue, api_key)
+                if not asset_url:
+                    logger.warning("Stock video fallback failed. Sourcing stock photo.")
+                    fallback_warning = "YouTube and stock video failed. Fell back to stock photo."
+                    asset_url = search_pexels_photo(visual_cue, api_key)
+                    ext = ".jpg"
+                    fallback_type = "image"
+                    
+            if asset_url:
+                dest_file_fb = assets_dir / f"asset_{manifest_scene_index:03d}{ext}"
+                if download_asset(asset_url, dest_file_fb):
+                    segment["visual_path"] = str(dest_file_fb)
+                    segment["visual_type"] = fallback_type
+                    # Update script.json database to keep UI in sync
+                    script_path = project_dir / "script.json"
+                    if script_path.exists():
+                        try:
+                            with open(script_path, "r", encoding="utf-8") as sf:
+                                script_data = json.load(sf)
+                            section_type = segment.get("section_type")
+                            if section_type == "introduction" and "introduction" in script_data:
+                                script_data["introduction"]["visual_type"] = fallback_type
+                            elif section_type == "conclusion" and "conclusion" in script_data:
+                                script_data["conclusion"]["visual_type"] = fallback_type
+                            elif section_type == "scene" and "scenes" in script_data:
+                                script_scene_idx = sum(1 for s in manifest[:manifest_scene_index] if s.get("section_type") == "scene")
+                                if script_scene_idx < len(script_data["scenes"]):
+                                    script_data["scenes"][script_scene_idx]["visual_type"] = fallback_type
+                            with open(script_path, "w", encoding="utf-8") as sf:
+                                json.dump(script_data, sf, indent=2, ensure_ascii=False)
+                        except Exception as e:
+                            logger.error(f"Failed to sync script visual type: {e}")
+                else:
+                    segment["visual_path"] = ""
+                    fallback_warning = "YouTube and stock media fallbacks all failed."
+            else:
+                segment["visual_path"] = ""
+                fallback_warning = "YouTube failed and stock media API was not configured/failed."
+                
+    elif visual_type in ("scene", "portrait", "image"):
+        api_key = get_setting("pexels_api_key")
+        
+        if api_key:
             logger.info(f"Single fetch: Searching Pexels for segment {manifest_scene_index}: '{visual_cue}' (type: {visual_type})")
             
             asset_url = None
@@ -228,5 +413,5 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, visual_type, visu
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
         
-    return {"success": True, "segment": segment}
+    return {"success": True, "segment": segment, "fallback_warning": fallback_warning}
 

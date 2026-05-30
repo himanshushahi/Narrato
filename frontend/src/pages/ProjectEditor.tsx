@@ -17,6 +17,7 @@ const VISUAL_TYPE_OPTIONS = [
   { value: 'chart', label: 'Animated Chart' },
   { value: 'map', label: 'Vintage Map' },
   { value: 'document', label: 'Archival Document' },
+  { value: 'youtube', label: 'YouTube Video' },
 ];
 
 const PIPELINE_STAGES = [
@@ -138,23 +139,30 @@ export const ProjectEditor: React.FC = () => {
       const type = manifestScene.section_type;
       let liveCue = manifestScene.visual_cue;
       let liveType = manifestScene.visual_type;
+      let liveMeta = manifestScene.visual_meta || {};
 
       if (type === 'introduction' && scriptData.introduction) {
         liveCue = scriptData.introduction.visual_cue;
         liveType = scriptData.introduction.visual_type;
+        liveMeta = scriptData.introduction.visual_meta || {};
       } else if (type === 'conclusion' && scriptData.conclusion) {
         liveCue = scriptData.conclusion.visual_cue;
         liveType = scriptData.conclusion.visual_type;
+        liveMeta = scriptData.conclusion.visual_meta || {};
       } else if (type === 'scene' && scriptData.scenes) {
         const scriptScene = scriptData.scenes[sceneCounter];
         sceneCounter++;
         if (scriptScene) {
           liveCue = scriptScene.visual_cue;
           liveType = scriptScene.visual_type;
+          liveMeta = scriptScene.visual_meta || {};
         }
       }
 
-      if (liveCue !== manifestScene.visual_cue || liveType !== manifestScene.visual_type) {
+      const origMeta = manifestScene.visual_meta || {};
+      const metaChanged = JSON.stringify(liveMeta) !== JSON.stringify(origMeta);
+
+      if (liveCue !== manifestScene.visual_cue || liveType !== manifestScene.visual_type || metaChanged) {
         changed = true;
       }
     });
@@ -310,16 +318,27 @@ export const ProjectEditor: React.FC = () => {
           ? (scriptData.conclusion?.visual_type || 'scene')
           : (index !== undefined ? (scriptData.scenes[index]?.visual_type || 'scene') : 'scene');
 
+      const liveMeta = (cardKey === 'intro' || cardKey === 'introduction')
+        ? (scriptData.introduction?.visual_meta || {})
+        : (cardKey === 'conclusion')
+          ? (scriptData.conclusion?.visual_meta || {})
+          : (index !== undefined ? (scriptData.scenes[index]?.visual_meta || {}) : {});
+
+      const origMeta = targetManifestScene?.visual_meta || {};
+      const metaChanged = JSON.stringify(liveMeta) !== JSON.stringify(origMeta);
+
       const hasVisualChanges = targetManifestScene && (
         liveCue !== targetManifestScene.visual_cue ||
-        liveType !== targetManifestScene.visual_type
+        liveType !== targetManifestScene.visual_type ||
+        metaChanged
       );
 
       if (hasVisualChanges && manifestIndex !== -1) {
-        const requiresFetch = ['scene', 'portrait', 'image'].includes(liveType);
+        const requiresFetch = ['scene', 'portrait', 'image', 'youtube'].includes(liveType);
         
         if (requiresFetch) {
-          addToast("Searching Pexels and downloading new visual asset...", "info");
+          const serviceName = liveType === 'youtube' ? 'YouTube' : 'Pexels';
+          addToast(`Searching ${serviceName} and downloading new visual asset...`, "info");
         } else {
           addToast("Updating programmatic visual layer style...", "info");
         }
@@ -327,7 +346,11 @@ export const ProjectEditor: React.FC = () => {
         try {
           const res = await window.eel.fetch_single_scene_asset(id, manifestIndex, liveType, liveCue)();
           if (res && res.success) {
-            addToast("Visual updated successfully!", "success");
+            if (res.fallback_warning) {
+              addToast(res.fallback_warning, "warning", 6000);
+            } else {
+              addToast("Visual updated successfully!", "success");
+            }
           } else {
             addToast(`Failed to update visual: ${res?.error || 'Unknown error'}`, "error");
           }
@@ -416,13 +439,16 @@ export const ProjectEditor: React.FC = () => {
 
       let liveCue = manifestScene.visual_cue;
       let liveType = manifestScene.visual_type;
+      let liveMeta = manifestScene.visual_meta || {};
 
       if (type === 'introduction' && scriptData.introduction) {
         liveCue = scriptData.introduction.visual_cue;
         liveType = scriptData.introduction.visual_type;
+        liveMeta = scriptData.introduction.visual_meta || {};
       } else if (type === 'conclusion' && scriptData.conclusion) {
         liveCue = scriptData.conclusion.visual_cue;
         liveType = scriptData.conclusion.visual_type;
+        liveMeta = scriptData.conclusion.visual_meta || {};
       } else if (type === 'scene' && scriptData.scenes) {
         const currentIdx = sceneCounter;
         sceneCounter++;
@@ -430,19 +456,23 @@ export const ProjectEditor: React.FC = () => {
         if (scriptScene) {
           liveCue = scriptScene.visual_cue;
           liveType = scriptScene.visual_type;
+          liveMeta = scriptScene.visual_meta || {};
         }
       }
 
-      // If the visual cue or visual type has changed compared to the compiled manifest,
+      // If the visual cue, type, or meta parameters have changed compared to the compiled manifest,
       // clear the cached visual url so it renders the vintage card placeholder with the new cue
       const cueChanged = liveCue !== manifestScene.visual_cue;
       const typeChanged = liveType !== manifestScene.visual_type;
+      const origMeta = manifestScene.visual_meta || {};
+      const metaChanged = JSON.stringify(liveMeta) !== JSON.stringify(origMeta);
 
       return {
         ...manifestScene,
         visual_type: liveType,
         visual_cue: liveCue,
-        visual_url: (cueChanged || typeChanged) ? '' : manifestScene.visual_url
+        visual_meta: liveMeta,
+        visual_url: (cueChanged || typeChanged || metaChanged) ? '' : manifestScene.visual_url
       };
     });
   };
@@ -837,6 +867,71 @@ export const ProjectEditor: React.FC = () => {
                             setScriptData(copy);
                           }}
                         />
+                        {scriptData.introduction.visual_type === 'youtube' && (
+                          <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
+                            {/* Start Offset Slider */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center text-xs">
+                                <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
+                                <span className="text-[var(--color-accent-light)] font-mono font-bold">
+                                  {scriptData.introduction.visual_meta?.start_offset !== undefined 
+                                    ? scriptData.introduction.visual_meta.start_offset 
+                                    : 15}s
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max="120"
+                                step="1"
+                                value={scriptData.introduction.visual_meta?.start_offset !== undefined 
+                                  ? scriptData.introduction.visual_meta.start_offset 
+                                  : 15}
+                                onChange={(e) => {
+                                  const copy = { ...scriptData };
+                                  if (!copy.introduction.visual_meta) {
+                                    copy.introduction.visual_meta = {};
+                                  }
+                                  copy.introduction.visual_meta.start_offset = parseInt(e.target.value);
+                                  setScriptData(copy);
+                                }}
+                                className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
+                              />
+                              <p className="text-[10px] text-stone-500">Choose where to start downloading from inside the video (0s starts at the beginning).</p>
+                            </div>
+
+                            {/* Clip Duration Slider */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center text-xs">
+                                <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
+                                <span className="text-[var(--color-accent-light)] font-mono font-bold">
+                                  {scriptData.introduction.visual_meta?.duration !== undefined 
+                                    ? scriptData.introduction.visual_meta.duration 
+                                    : 15}s
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min="5"
+                                max="60"
+                                step="1"
+                                value={scriptData.introduction.visual_meta?.duration !== undefined 
+                                  ? scriptData.introduction.visual_meta.duration 
+                                  : 15}
+                                onChange={(e) => {
+                                  const copy = { ...scriptData };
+                                  if (!copy.introduction.visual_meta) {
+                                    copy.introduction.visual_meta = {};
+                                  }
+                                  copy.introduction.visual_meta.duration = parseInt(e.target.value);
+                                  setScriptData(copy);
+                                }}
+                                className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
+                              />
+                              <p className="text-[10px] text-stone-500">Determine the length of the downloaded clip segment.</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* LLM Rewrite sub-section */}
@@ -969,6 +1064,71 @@ export const ProjectEditor: React.FC = () => {
                                 setScriptData(copy);
                               }}
                             />
+                            {scene.visual_type === 'youtube' && (
+                              <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
+                                {/* Start Offset Slider */}
+                                <div className="space-y-1.5">
+                                  <div className="flex justify-between items-center text-xs">
+                                    <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
+                                    <span className="text-[var(--color-accent-light)] font-mono font-bold">
+                                      {scene.visual_meta?.start_offset !== undefined 
+                                        ? scene.visual_meta.start_offset 
+                                        : 15}s
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="120"
+                                    step="1"
+                                    value={scene.visual_meta?.start_offset !== undefined 
+                                      ? scene.visual_meta.start_offset 
+                                      : 15}
+                                    onChange={(e) => {
+                                      const copy = { ...scriptData };
+                                      if (!copy.scenes[idx].visual_meta) {
+                                        copy.scenes[idx].visual_meta = {};
+                                      }
+                                      copy.scenes[idx].visual_meta.start_offset = parseInt(e.target.value);
+                                      setScriptData(copy);
+                                    }}
+                                    className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
+                                  />
+                                  <p className="text-[10px] text-stone-500">Choose where to start downloading from inside the video (0s starts at the beginning).</p>
+                                </div>
+
+                                {/* Clip Duration Slider */}
+                                <div className="space-y-1.5">
+                                  <div className="flex justify-between items-center text-xs">
+                                    <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
+                                    <span className="text-[var(--color-accent-light)] font-mono font-bold">
+                                      {scene.visual_meta?.duration !== undefined 
+                                        ? scene.visual_meta.duration 
+                                        : 15}s
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min="5"
+                                    max="60"
+                                    step="1"
+                                    value={scene.visual_meta?.duration !== undefined 
+                                      ? scene.visual_meta.duration 
+                                      : 15}
+                                    onChange={(e) => {
+                                      const copy = { ...scriptData };
+                                      if (!copy.scenes[idx].visual_meta) {
+                                        copy.scenes[idx].visual_meta = {};
+                                      }
+                                      copy.scenes[idx].visual_meta.duration = parseInt(e.target.value);
+                                      setScriptData(copy);
+                                    }}
+                                    className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
+                                  />
+                                  <p className="text-[10px] text-stone-500">Determine the length of the downloaded clip segment.</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           {/* AI Rewrite controls */}
@@ -1106,6 +1266,71 @@ export const ProjectEditor: React.FC = () => {
                             setScriptData(copy);
                           }}
                         />
+                        {scriptData.conclusion.visual_type === 'youtube' && (
+                          <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
+                            {/* Start Offset Slider */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center text-xs">
+                                <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
+                                <span className="text-[var(--color-accent-light)] font-mono font-bold">
+                                  {scriptData.conclusion.visual_meta?.start_offset !== undefined 
+                                    ? scriptData.conclusion.visual_meta.start_offset 
+                                    : 15}s
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max="120"
+                                step="1"
+                                value={scriptData.conclusion.visual_meta?.start_offset !== undefined 
+                                  ? scriptData.conclusion.visual_meta.start_offset 
+                                  : 15}
+                                onChange={(e) => {
+                                  const copy = { ...scriptData };
+                                  if (!copy.conclusion.visual_meta) {
+                                    copy.conclusion.visual_meta = {};
+                                  }
+                                  copy.conclusion.visual_meta.start_offset = parseInt(e.target.value);
+                                  setScriptData(copy);
+                                }}
+                                className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
+                              />
+                              <p className="text-[10px] text-stone-500">Choose where to start downloading from inside the video (0s starts at the beginning).</p>
+                            </div>
+
+                            {/* Clip Duration Slider */}
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center text-xs">
+                                <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
+                                <span className="text-[var(--color-accent-light)] font-mono font-bold">
+                                  {scriptData.conclusion.visual_meta?.duration !== undefined 
+                                    ? scriptData.conclusion.visual_meta.duration 
+                                    : 15}s
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min="5"
+                                max="60"
+                                step="1"
+                                value={scriptData.conclusion.visual_meta?.duration !== undefined 
+                                  ? scriptData.conclusion.visual_meta.duration 
+                                  : 15}
+                                onChange={(e) => {
+                                  const copy = { ...scriptData };
+                                  if (!copy.conclusion.visual_meta) {
+                                    copy.conclusion.visual_meta = {};
+                                  }
+                                  copy.conclusion.visual_meta.duration = parseInt(e.target.value);
+                                  setScriptData(copy);
+                                }}
+                                className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
+                              />
+                              <p className="text-[10px] text-stone-500">Determine the length of the downloaded clip segment.</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* AI Rewrite controls */}

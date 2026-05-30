@@ -13,7 +13,7 @@ export interface Scene {
   audio_file: string;
   audio_url: string;
   duration: number;
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document';
+  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube';
   visual_cue: string;
   visual_url?: string;
   visual_meta?: any;

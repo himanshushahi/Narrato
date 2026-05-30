@@ -254,6 +254,9 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "and a prompt request explaining how to modify or rewrite this segment. "
         "Your task is to rewrite the narration and visual details. Preserve the scene numbers/schema format. "
         "Format your output strictly as a JSON object containing the modified segment.\n\n"
+        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'youtube'.\n"
+        "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips (e.g., visual_cue = '1992 Harshad Mehta news footage').\n"
+        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English, e.g., 'vintage typewriter writing') when visual_type is 'scene' or 'image'.\n"
     )
     
     if language == "hi":

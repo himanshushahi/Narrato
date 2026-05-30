@@ -689,30 +689,18 @@ export const SettingsPage: React.FC = () => {
                 Pexels Stock Overlays
               </h2>
               <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="use_pexels"
-                    checked={formData.use_pexels}
-                    onChange={(e) => setFormData(prev => ({ ...prev, use_pexels: e.target.checked }))}
-                    className="w-4 h-4 rounded accent-[var(--color-accent-primary)] bg-stone-950 border-stone-800"
-                  />
-                  <label htmlFor="use_pexels" className="text-xs text-stone-300 font-bold uppercase tracking-wide cursor-pointer select-none">
-                    Automatically download matching Pexels overlay stock media
-                  </label>
-                </div>
-
-                {formData.use_pexels && (
-                  <CustomInput
-                    label="Pexels Authorization Key"
-                    type="password"
-                    name="pexels_api_key"
-                    value={formData.pexels_api_key || ''}
-                    onChange={handleInputChange}
-                    placeholder="Enter Pexels API Key..."
-                    icon={<VscKey />}
-                  />
-                )}
+                <p className="text-xs text-stone-400">
+                  Configure your Pexels authorization key to download matching stock photos and B-roll video assets automatically when visual type layers are selected.
+                </p>
+                <CustomInput
+                  label="Pexels Authorization Key"
+                  type="password"
+                  name="pexels_api_key"
+                  value={formData.pexels_api_key || ''}
+                  onChange={handleInputChange}
+                  placeholder="Enter Pexels API Key..."
+                  icon={<VscKey />}
+                />
               </div>
             </GlassCard>
           </motion.div>

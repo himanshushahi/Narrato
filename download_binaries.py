@@ -7,8 +7,8 @@ import shutil
 import ssl
 from pathlib import Path
 
-def download_ffmpeg(url, dest_path):
-    print(f"[INFO] Downloading FFmpeg from {url}...")
+def download_file(url, dest_path, name="file"):
+    print(f"[INFO] Downloading {name} from {url}...")
     context = ssl._create_unverified_context()
     
     req = urllib.request.Request(
@@ -43,41 +43,58 @@ def main():
     
     ffmpeg_exe = bin_dir / "ffmpeg.exe"
     ffprobe_exe = bin_dir / "ffprobe.exe"
+    ytdlp_exe = bin_dir / "yt-dlp.exe"
     
-    if ffmpeg_exe.exists() and ffprobe_exe.exists():
-        print("[INFO] ffmpeg.exe and ffprobe.exe already exist in bin/ folder.")
+    if ffmpeg_exe.exists() and ffprobe_exe.exists() and ytdlp_exe.exists():
+        print("[INFO] ffmpeg.exe, ffprobe.exe, and yt-dlp.exe already exist in bin/ folder.")
         return
         
     # Gyan.dev provides reliable release builds for Windows
-    url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    ffmpeg_url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    ytdlp_url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        zip_path = Path(temp_dir) / "ffmpeg.zip"
-        try:
-            download_ffmpeg(url, zip_path)
-        except Exception as e:
-            print(f"\n[ERROR] Failed to download FFmpeg: {e}")
-            sys.exit(1)
-            
-        print("[INFO] Extracting ffmpeg.exe and ffprobe.exe...")
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                extracted_count = 0
-                for member in zip_ref.namelist():
-                    filename = os.path.basename(member)
-                    if filename in ["ffmpeg.exe", "ffprobe.exe"]:
-                        # Extract this file to bin_dir
-                        with zip_ref.open(member) as source, open(bin_dir / filename, "wb") as target:
-                            shutil.copyfileobj(source, target)
-                        print(f"[SUCCESS] Extracted {filename} to {bin_dir / filename}")
-                        extracted_count += 1
-                if extracted_count < 2:
-                    print(f"[WARNING] Only found {extracted_count} of 2 required files in the archive.")
-        except Exception as e:
-            print(f"[ERROR] Failed to extract archive: {e}")
-            sys.exit(1)
+    # 1. Download and extract FFmpeg/FFprobe if needed
+    if not (ffmpeg_exe.exists() and ffprobe_exe.exists()):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            zip_path = Path(temp_dir) / "ffmpeg.zip"
+            try:
+                download_file(ffmpeg_url, zip_path, "FFmpeg/FFprobe Bundle")
+            except Exception as e:
+                print(f"\n[ERROR] Failed to download FFmpeg: {e}")
+                sys.exit(1)
+                
+            print("[INFO] Extracting ffmpeg.exe and ffprobe.exe...")
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    extracted_count = 0
+                    for member in zip_ref.namelist():
+                        filename = os.path.basename(member)
+                        if filename in ["ffmpeg.exe", "ffprobe.exe"]:
+                            # Extract this file to bin_dir
+                            with zip_ref.open(member) as source, open(bin_dir / filename, "wb") as target:
+                                shutil.copyfileobj(source, target)
+                            print(f"[SUCCESS] Extracted {filename} to {bin_dir / filename}")
+                            extracted_count += 1
+                    if extracted_count < 2:
+                        print(f"[WARNING] Only found {extracted_count} of 2 required files in the archive.")
+            except Exception as e:
+                print(f"[ERROR] Failed to extract archive: {e}")
+                sys.exit(1)
+    else:
+        print("[INFO] FFmpeg and FFprobe already exist. Skipping FFmpeg download.")
 
-    print("[SUCCESS] FFmpeg and FFprobe binaries are successfully placed in the bin/ folder!")
+    # 2. Download yt-dlp if needed
+    if not ytdlp_exe.exists():
+        try:
+            download_file(ytdlp_url, ytdlp_exe, "yt-dlp")
+            print(f"[SUCCESS] yt-dlp.exe successfully downloaded and placed in the bin/ folder!")
+        except Exception as e:
+            print(f"\n[ERROR] Failed to download yt-dlp: {e}")
+            sys.exit(1)
+    else:
+        print("[INFO] yt-dlp.exe already exists. Skipping yt-dlp download.")
+
+    print("[SUCCESS] All required binaries are present in the bin/ folder!")
 
 if __name__ == "__main__":
     main()

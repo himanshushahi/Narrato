@@ -270,11 +270,11 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
         lang_instruction = (
             "LANGUAGE RULES:\n"
             "- The spoken text (hook, narration, summary, cta) MUST be written in Hindi (Devanagari script).\n"
-            "- The 'visual_cue' field MUST ALWAYS be in ENGLISH. This is critical because visual_cue is used as a search keyword for the Pexels stock media API, which only understands English.\n"
+            "- The 'visual_cue' field MUST ALWAYS be in ENGLISH. This is critical because visual_cue is used as a search keyword for the media APIs, which only understand English.\n"
             "  Example: visual_cue = 'ancient Indian trading port with ships' (NOT 'भारत में एक छोटा सा व्यापारिक दफ्तर')\n"
             "  Example: visual_cue = 'British colonial officers in India' (NOT 'ब्रिटिश अधिकारी')\n"
             "- The 'title' field can be in Hindi.\n"
-            "- All 'visual_meta' text fields (doc_text, person_name, description) should be in English for best stock media results.\n"
+            "- All 'visual_meta' text fields should be in English.\n"
         )
     else:
         lang_instruction = "The spoken text (hook, narration, summary, cta) MUST be written in English."
@@ -288,13 +288,21 @@ CRITICAL DIRECTIVES:
 2. Segmenting: Break the story down chronologically.
 3. Sentence Length: Write narration in short, punchy sentences (12-18 words each) so they can fit dynamic typography and quick edits.
 4. Visual Directives (visual_type & visual_meta):
-   - Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene'.
+   - Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'youtube'.
    - If 'chart': visual_meta must contain: {{ "chart_type": "bar"|"line", "data": [{{ "label": "X", "value": Y }}] }}.
    - If 'map': visual_meta must contain: {{ "map_style": "vintage", "locations": [{{ "name": "City", "coord": [lat, lon] }}] }}.
    - If 'document': visual_meta must contain: {{ "doc_text": "typed quote or excerpt", "title": "Newspaper Header" }}.
    - If 'portrait' (historical figure): visual_meta must contain: {{ "person_name": "Name" }}.
-   - If 'scene' (b-roll): visual_meta must contain: {{ "description": "Atmospheric details" }}.
-5. Word Count: The script must result in approximately {target_word_count} words of voiceover. Generate between {min_scenes} and {max_scenes} scenes in the scenes array to fit the target length.
+   - If 'scene' (generic B-roll/image stock): visual_meta must contain: {{ "description": "Atmospheric details" }}.
+   - If 'youtube' (real historical event recordings, interviews, news footage, or real-world clips): visual_meta must contain: {{ "search_query": "highly specific terms targeting real youtube footage", "skip_intro": true }}.
+   
+5. STOCK MEDIA CUE OPTIMIZATION (Pexels / Stocks):
+   - When visual_type is 'scene' or 'portrait' or 'image' (which search stock photo/video directories like Pexels), the `visual_cue` keyword MUST be simple, clear, and concrete (e.g., 'crowded modern stock trading floor', 'worried businessman holding head', 'old vintage book opening'). Do NOT write long sentences, narrative descriptions, or abstract phrases. Use simple, direct nouns and adjectives.
+   
+6. REAL YOUTUBE MEDIA OPTIMIZATION (YouTube):
+   - Use 'youtube' visual_type ONLY when the segment requires actual, real-world footage, news reports, interviews, or historical documentary recordings that generic stock libraries cannot supply (e.g. '1992 Harshad Mehta news reporting archive', 'SpaceX Falcon Heavy launch original footage', 'Apollo 11 moon landing restored video'). The `visual_cue` should be a clean, targeted search query to find this exact clip on YouTube.
+
+7. Word Count: The script must result in approximately {target_word_count} words of voiceover. Generate between {min_scenes} and {max_scenes} scenes in the scenes array to fit the target length.
 
 JSON SCHEMA:
 {json.dumps(SCRIPT_JSON_SCHEMA, indent=2)}

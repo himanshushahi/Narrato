@@ -93,3 +93,10 @@ def get_ffprobe_path():
     if local_ffprobe.exists():
         return str(local_ffprobe)
     return "ffprobe"
+
+def get_ytdlp_path():
+    ytdlp_ext = ".exe" if os.name == "nt" else ""
+    local_ytdlp = BIN_DIR / f"yt-dlp{ytdlp_ext}"
+    if local_ytdlp.exists():
+        return str(local_ytdlp)
+    return "yt-dlp"
