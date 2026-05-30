@@ -55,7 +55,7 @@ def main():
         eel.init(dummy_dir, allowed_extensions=[])
         
         # Explicitly register exposed JS functions so Eel's Python side knows they exist.
-        funcs = ["on_log_stream", "on_progress_update", "on_kokoro_download_progress", "on_whisper_download_progress"]
+        funcs = ["on_log_stream", "on_progress_update", "on_kokoro_download_progress", "on_whisper_download_progress", "on_ytdlp_update_progress"]
         eel._js_functions = funcs
         for f in funcs:
             eel._import_js_function(f)
@@ -87,7 +87,7 @@ def main():
         eel.init(web_dir, allowed_extensions=[])
         
         # Explicitly register exposed JS functions so Eel's Python side knows they exist in production.
-        funcs = ["on_log_stream", "on_progress_update", "on_kokoro_download_progress", "on_whisper_download_progress"]
+        funcs = ["on_log_stream", "on_progress_update", "on_kokoro_download_progress", "on_whisper_download_progress", "on_ytdlp_update_progress"]
         eel._js_functions = funcs
         for f in funcs:
             eel._import_js_function(f)

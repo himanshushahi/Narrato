@@ -7,7 +7,7 @@ $ProgressPreference = 'SilentlyContinue'
 # Target paths in AppData
 $appdataPath = Join-Path $env:LOCALAPPDATA "RenderFlowStudio"
 $binPath = Join-Path $appdataPath "bin"
-$nodePath = Join-Path $appdataPath "node"
+$nodePath = $binPath
 
 # Terminate any running instances of the app to prevent file lock errors during overwrite
 Write-Host "Checking for running instances of RenderFlow Studio..."
@@ -206,15 +206,15 @@ if (-not $nodeExists) {
     try {
         Download-FileWithProgressAndRetry -Uri "https://nodejs.org/dist/v20.13.1/node-v20.13.1-win-x64.zip" -OutFile $nodeZip -Name "Node.js Portable Package"
         
-        Write-Host "Extracting Node.js files..."
+        Write-Host "Extracting node.exe..."
         Expand-Archive -Path $nodeZip -DestinationPath $nodeExtract -Force
         
-        $subFolder = Get-ChildItem -Path $nodeExtract -Directory | Select-Object -First 1
-        if ($subFolder) {
-            Get-ChildItem -Path $subFolder.FullName | Copy-Item -Destination $nodePath -Recurse -Force
-            Write-Host "[SUCCESS] Node.js portable extracted to AppData: $nodePath"
+        $nodeExeFile = Get-ChildItem -Path $nodeExtract -Filter "node.exe" -Recurse | Select-Object -First 1
+        if ($nodeExeFile) {
+            Copy-Item -Path $nodeExeFile.FullName -Destination (Join-Path $nodePath "node.exe") -Force
+            Write-Host "[SUCCESS] node.exe extracted to: $nodePath"
         } else {
-            throw "Failed to locate extracted Node.js folder structure."
+            throw "Failed to locate node.exe inside the downloaded archive."
         }
     } catch {
         Write-Error "[ERROR] Failed to download or extract Node.js: $_"

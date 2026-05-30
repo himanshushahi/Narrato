@@ -44,14 +44,16 @@ def main():
     ffmpeg_exe = bin_dir / "ffmpeg.exe"
     ffprobe_exe = bin_dir / "ffprobe.exe"
     ytdlp_exe = bin_dir / "yt-dlp.exe"
+    node_exe = bin_dir / "node.exe"
     
-    if ffmpeg_exe.exists() and ffprobe_exe.exists() and ytdlp_exe.exists():
-        print("[INFO] ffmpeg.exe, ffprobe.exe, and yt-dlp.exe already exist in bin/ folder.")
+    if ffmpeg_exe.exists() and ffprobe_exe.exists() and ytdlp_exe.exists() and node_exe.exists():
+        print("[INFO] ffmpeg.exe, ffprobe.exe, yt-dlp.exe, and node.exe already exist in bin/ folder.")
         return
         
     # Gyan.dev provides reliable release builds for Windows
     ffmpeg_url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
     ytdlp_url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+    node_url = "https://nodejs.org/dist/v20.13.1/node-v20.13.1-win-x64.zip"
     
     # 1. Download and extract FFmpeg/FFprobe if needed
     if not (ffmpeg_exe.exists() and ffprobe_exe.exists()):
@@ -93,6 +95,32 @@ def main():
             sys.exit(1)
     else:
         print("[INFO] yt-dlp.exe already exists. Skipping yt-dlp download.")
+
+    # 3. Download portable Node.js if needed
+    if not node_exe.exists():
+        with tempfile.TemporaryDirectory() as temp_dir:
+            zip_path = Path(temp_dir) / "node.zip"
+            try:
+                download_file(node_url, zip_path, "Node.js Portable Bundle")
+            except Exception as e:
+                print(f"\n[ERROR] Failed to download Node.js: {e}")
+                sys.exit(1)
+                
+            print("[INFO] Extracting node.exe...")
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    for member in zip_ref.namelist():
+                        filename = os.path.basename(member)
+                        if filename == "node.exe":
+                            with zip_ref.open(member) as source, open(node_exe, "wb") as target:
+                                shutil.copyfileobj(source, target)
+                            print(f"[SUCCESS] Extracted node.exe to {node_exe}")
+                            break
+            except Exception as e:
+                print(f"[ERROR] Failed to extract Node.js archive: {e}")
+                sys.exit(1)
+    else:
+        print("[INFO] node.exe already exists. Skipping Node.js download.")
 
     print("[SUCCESS] All required binaries are present in the bin/ folder!")
 

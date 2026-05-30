@@ -100,3 +100,10 @@ def get_ytdlp_path():
     if local_ytdlp.exists():
         return str(local_ytdlp)
     return "yt-dlp"
+
+def get_node_path():
+    node_ext = ".exe" if os.name == "nt" else ""
+    local_node = BIN_DIR / f"node{node_ext}"
+    if local_node.exists():
+        return str(local_node.resolve())
+    return "node"

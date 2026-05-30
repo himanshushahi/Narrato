@@ -5,7 +5,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from backend.database.db import get_setting, update_project
-from backend.core.config import get_exports_dir, get_temp_dir
+from backend.core.config import get_exports_dir, get_temp_dir, get_node_path
 from backend.core.logger import logger
 
 def clean_media_path(path_str):
@@ -88,18 +88,34 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     abs_props_path = str(props_path.resolve()).replace('\\', '/')
     abs_output_path = str(output_mp4_path.resolve()).replace('\\', '/')
 
-    # Command: npx remotion render <entry-file> <composition-id> <output-file> --props=<props-file>
-    cmd = [
-        "npx",
-        "remotion",
-        "render",
-        "src/components/video/root.ts",
-        "NitishRajputVideo",
-        abs_output_path,
-        f"--props={abs_props_path}"
-    ]
+    # Command: run specific node with remotion-cli.js if available, otherwise fallback to npx
+    node_exe = get_node_path()
+    remotion_cli = frontend_dir / "node_modules" / "@remotion" / "cli" / "remotion-cli.js"
+    
+    if node_exe != "node" and remotion_cli.exists():
+        cmd = [
+            node_exe,
+            str(remotion_cli),
+            "render",
+            "src/components/video/root.ts",
+            "NitishRajputVideo",
+            abs_output_path,
+            f"--props={abs_props_path}"
+        ]
+        logger.info(f"Executing Remotion command using bundled Node.js: {node_exe}")
+    else:
+        cmd = [
+            "npx",
+            "remotion",
+            "render",
+            "src/components/video/root.ts",
+            "NitishRajputVideo",
+            abs_output_path,
+            f"--props={abs_props_path}"
+        ]
+        logger.info("Executing Remotion command using system npx")
 
-    logger.info(f"Executing Remotion command in {frontend_dir}: {' '.join(cmd)}")
+    logger.info(f"Executing command in {frontend_dir}: {' '.join(cmd)}")
     
     startupinfo = None
     if os.name == "nt":

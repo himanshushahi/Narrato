@@ -22,12 +22,19 @@ export const SettingsPage: React.FC = () => {
   const downloadKokoro = useAppStore((state) => state.downloadKokoro);
   const whisperDownload = useAppStore((state) => state.whisperDownload);
   const downloadWhisper = useAppStore((state) => state.downloadWhisper);
+  const ytdlpUpdate = useAppStore((state) => state.ytdlpUpdate);
+  const updateYtdlp = useAppStore((state) => state.updateYtdlp);
 
   const [formData, setFormData] = useState<SettingsType>({ ...settings });
   const [saveStatus, setSaveStatus] = useState('');
   const [kokoroInstalled, setKokoroInstalled] = useState(false);
   const [whisperInstalled, setWhisperInstalled] = useState(false);
   const [gpuAvailable, setGpuAvailable] = useState(false);
+
+  // yt-dlp version state
+  const [ytdlpVersion, setYtdlpVersion] = useState<string | null>(null);
+  const [ytdlpInstalled, setYtdlpInstalled] = useState(false);
+  const [ytdlpPath, setYtdlpPath] = useState<string | null>(null);
 
   // App language state (computed locally based on voice settings)
   const [appLanguage, setAppLanguage] = useState<'hi' | 'en'>('hi');
@@ -52,6 +59,25 @@ export const SettingsPage: React.FC = () => {
     };
     detectGPU();
   }, []);
+
+  // Check yt-dlp version on mount and after updates
+  useEffect(() => {
+    const checkYtdlpVersion = async () => {
+      if (window.eel) {
+        try {
+          const info = await window.eel.get_ytdlp_version()();
+          setYtdlpInstalled(info.installed);
+          setYtdlpVersion(info.version);
+          setYtdlpPath(info.path);
+        } catch {
+          setYtdlpInstalled(false);
+          setYtdlpVersion(null);
+          setYtdlpPath(null);
+        }
+      }
+    };
+    checkYtdlpVersion();
+  }, [ytdlpUpdate.status]);
 
   // Sync settings when loaded
   useEffect(() => {
@@ -208,6 +234,10 @@ export const SettingsPage: React.FC = () => {
       setSaveStatus('failed');
       setTimeout(() => setSaveStatus(''), 2000);
     }
+  };
+
+  const handleUpdateYtdlp = () => {
+    updateYtdlp();
   };
 
   const isConnected = !!formData.openai_api_key?.trim();
@@ -677,6 +707,108 @@ export const SettingsPage: React.FC = () => {
                     />
                   </div>
                 </div>
+              </div>
+            </GlassCard>
+          </motion.div>
+
+          {/* YouTube Integration (yt-dlp) Card */}
+          <motion.div variants={itemVariants}>
+            <GlassCard className="p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
+                  <MdOutlineMovie className="text-base text-[var(--color-accent-primary)]" />
+                  YouTube Integration (yt-dlp)
+                </h2>
+                <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${
+                  ytdlpInstalled
+                    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
+                    : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
+                }`}>
+                  {ytdlpInstalled ? `Installed v${ytdlpVersion}` : 'Not Found'}
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-stone-400">
+                  yt-dlp is used to fetch YouTube visuals for your documentary scenes. If YouTube downloads are failing after a YouTube update, updating yt-dlp to the latest version usually fixes it.
+                </p>
+
+                {ytdlpInstalled && ytdlpPath && (
+                  <div className="bg-black/20 p-3 rounded-md border border-stone-800/40 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">Version</span>
+                      <span className="text-xs text-stone-200 font-mono">{ytdlpVersion}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">Path</span>
+                      <span className="text-[10px] text-stone-400 font-mono truncate">{ytdlpPath}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Update progress or button */}
+                {ytdlpUpdate.active ? (
+                  ytdlpUpdate.status === 'checking' ? (
+                    <div className="bg-blue-950/20 border border-blue-800/30 rounded-lg p-4 flex items-center gap-3">
+                      <VscLoading className="animate-spin text-blue-400 text-base" />
+                      <span className="text-xs text-blue-400 font-medium">Checking for latest version...</span>
+                    </div>
+                  ) : (
+                    <div className="bg-blue-950/20 border border-blue-800/30 rounded-lg p-4 space-y-3">
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-[10px] text-blue-400 font-medium">
+                          <span>Downloading latest yt-dlp...</span>
+                          <span>{ytdlpUpdate.progress}%</span>
+                        </div>
+                        <div className="w-full bg-black/50 rounded-full h-1.5 border border-blue-800/20 overflow-hidden">
+                          <motion.div
+                            className="h-full bg-gradient-to-r from-blue-500 to-cyan-400"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${ytdlpUpdate.progress}%` }}
+                            transition={{ duration: 0.3, ease: "easeOut" }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                ) : ytdlpUpdate.status === 'up_to_date' ? (
+                  <div className="space-y-3">
+                    <div className="bg-emerald-950/20 border border-emerald-800/30 rounded-lg p-4">
+                      <div className="flex items-center gap-2 text-[10px] text-emerald-400 font-medium">
+                        <VscCheck className="text-sm text-emerald-400" />
+                        <span>yt-dlp is already up-to-date with version {ytdlpVersion}.</span>
+                      </div>
+                    </div>
+                    <GlowButton variant="secondary" size="sm" type="button" onClick={handleUpdateYtdlp} icon={<VscCloudDownload />}>
+                      Check for Updates Again
+                    </GlowButton>
+                  </div>
+                ) : ytdlpUpdate.status === 'completed' ? (
+                  <div className="space-y-3">
+                    <div className="bg-emerald-950/20 border border-emerald-800/30 rounded-lg p-4">
+                      <div className="flex items-center gap-2 text-[10px] text-emerald-400 font-medium">
+                        <VscCheck className="text-sm" />
+                        <span>yt-dlp updated successfully! The new version ({ytdlpVersion}) will be used.</span>
+                      </div>
+                    </div>
+                    <GlowButton variant="secondary" size="sm" type="button" onClick={handleUpdateYtdlp} icon={<VscCloudDownload />}>
+                      Check for Updates Again
+                    </GlowButton>
+                  </div>
+                ) : ytdlpUpdate.status === 'failed' ? (
+                  <div className="space-y-3">
+                    <div className="text-[10px] text-rose-400 bg-rose-950/20 border border-rose-900/30 rounded p-3 font-mono">
+                      Update failed: {ytdlpUpdate.error}
+                    </div>
+                    <GlowButton variant="secondary" size="sm" type="button" onClick={handleUpdateYtdlp} icon={<VscCloudDownload />}>
+                      Retry Update
+                    </GlowButton>
+                  </div>
+                ) : (
+                  <GlowButton variant="secondary" size="sm" type="button" onClick={handleUpdateYtdlp} icon={<VscCloudDownload />}>
+                    {ytdlpInstalled ? 'Update yt-dlp to Latest' : 'Download yt-dlp'}
+                  </GlowButton>
+                )}
               </div>
             </GlassCard>
           </motion.div>

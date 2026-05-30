@@ -16,6 +16,7 @@ from backend.pipeline.tts import (
 
 _kokoro_download_active = False
 _whisper_download_active = False
+_ytdlp_update_active = False
 
 @eel.expose
 def browse_workspace_directory():
@@ -412,6 +413,166 @@ def setup_bridge_callbacks():
         except Exception:
             pass
     global_queue_manager.register_progress_callback(safe_progress_update)
+
+
+@eel.expose
+def get_ytdlp_version():
+    """Returns the currently installed yt-dlp version and path."""
+    from backend.core.config import get_ytdlp_path
+    import subprocess
+    ytdlp_path = get_ytdlp_path()
+    try:
+        res = subprocess.run(
+            [ytdlp_path, "--version"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=10
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return {"installed": True, "version": res.stdout.strip(), "path": ytdlp_path}
+    except Exception as e:
+        logger.warning(f"Could not determine yt-dlp version: {e}")
+    return {"installed": False, "version": None, "path": None}
+
+@eel.expose
+def update_ytdlp():
+    """Downloads the latest yt-dlp binary from GitHub releases in a background thread."""
+    global _ytdlp_update_active
+    if _ytdlp_update_active:
+        return {"status": "already_running"}
+
+    _ytdlp_update_active = True
+
+    def _update_task():
+        global _ytdlp_update_active
+        try:
+            import urllib.request
+            import ssl
+            import subprocess
+            from backend.core.config import BIN_DIR, get_ytdlp_path
+
+            def safe_progress(data):
+                try:
+                    eel.on_ytdlp_update_progress(data)()
+                except Exception:
+                    pass
+
+            safe_progress({"status": "checking"})
+
+            # Get current installed version
+            current_version = None
+            ytdlp_path = get_ytdlp_path()
+            try:
+                res = subprocess.run(
+                    [ytdlp_path, "--version"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, timeout=10
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    current_version = res.stdout.strip()
+            except Exception:
+                pass
+
+            # Fetch latest version tag from GitHub redirect
+            latest_version = None
+            try:
+                context = ssl._create_unverified_context()
+                req = urllib.request.Request(
+                    "https://github.com/yt-dlp/yt-dlp/releases/latest",
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                )
+                with urllib.request.urlopen(req, context=context, timeout=10) as resp:
+                    latest_url = resp.geturl()
+                    # URL format: https://github.com/yt-dlp/yt-dlp/releases/tag/YYYY.MM.DD
+                    latest_version = latest_url.split("/")[-1]
+            except Exception as e:
+                logger.warning(f"Could not check latest yt-dlp version online: {e}")
+
+            # If version is already up-to-date, notify and exit
+            if current_version and latest_version and current_version == latest_version:
+                safe_progress({"status": "up_to_date", "version": current_version})
+                logger.info(f"yt-dlp is already up-to-date (version: {current_version})")
+                _ytdlp_update_active = False
+                return
+
+            safe_progress({"status": "downloading", "progress": 0})
+
+            BIN_DIR.mkdir(parents=True, exist_ok=True)
+            ytdlp_ext = ".exe" if os.name == "nt" else ""
+            target_path = BIN_DIR / f"yt-dlp{ytdlp_ext}"
+            temp_path = BIN_DIR / f"yt-dlp_new{ytdlp_ext}"
+            backup_path = BIN_DIR / f"yt-dlp_old{ytdlp_ext}"
+
+            url = f"https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp{ytdlp_ext}"
+            context = ssl._create_unverified_context()
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            )
+
+            with urllib.request.urlopen(req, context=context) as response, open(temp_path, "wb") as out_file:
+                total_size = int(response.info().get("Content-Length", 0))
+                downloaded = 0
+                block_size = 1024 * 256  # 256KB
+
+                while True:
+                    buffer = response.read(block_size)
+                    if not buffer:
+                        break
+                    downloaded += len(buffer)
+                    out_file.write(buffer)
+
+                    if total_size > 0:
+                        percent = int(downloaded * 100 / total_size)
+                        safe_progress({"status": "downloading", "progress": percent})
+
+            # Atomic swap: backup old → move new → cleanup backup
+            if target_path.exists():
+                if backup_path.exists():
+                    backup_path.unlink()
+                target_path.rename(backup_path)
+
+            temp_path.rename(target_path)
+
+            if backup_path.exists():
+                try:
+                    backup_path.unlink()
+                except Exception:
+                    pass
+
+            # Get the new version
+            import subprocess
+            new_version = "unknown"
+            try:
+                res = subprocess.run(
+                    [str(target_path), "--version"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, timeout=10
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    new_version = res.stdout.strip()
+            except Exception:
+                pass
+
+            safe_progress({"status": "completed", "new_version": new_version})
+            logger.info(f"yt-dlp updated successfully to version {new_version}")
+
+        except Exception as e:
+            logger.error(f"yt-dlp update failed: {e}")
+            # Clean up temp file if it exists
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except Exception:
+                pass
+            try:
+                eel.on_ytdlp_update_progress({"status": "failed", "error": str(e)})()
+            except Exception:
+                pass
+        finally:
+            _ytdlp_update_active = False
+
+    threading.Thread(target=_update_task, daemon=True).start()
+    return {"status": "started"}
 
 
 @eel.expose

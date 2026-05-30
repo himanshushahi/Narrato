@@ -75,6 +75,13 @@ export interface WhisperDownload {
   error: string;
 }
 
+export interface YtdlpUpdate {
+  active: boolean;
+  progress: number;
+  status: string; // '', 'downloading', 'completed', 'failed'
+  error: string;
+}
+
 export interface Toast {
   id: string;
   message: string;
@@ -92,6 +99,7 @@ interface AppStore {
   settings: Settings;
   kokoroDownload: KokoroDownload;
   whisperDownload: WhisperDownload;
+  ytdlpUpdate: YtdlpUpdate;
   toasts: Toast[];
   
   setProjects: (projects: Project[]) => void;
@@ -109,6 +117,7 @@ interface AppStore {
   cancelPipeline: (projectId: string) => Promise<void>;
   downloadKokoro: () => Promise<void>;
   downloadWhisper: (modelSize: string) => Promise<void>;
+  updateYtdlp: () => Promise<void>;
   addToast: (message: string, type?: Toast['type'], duration?: number) => void;
   removeToast: (id: string) => void;
 }
@@ -152,6 +161,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     error: ""
   },
   whisperDownload: {
+    active: false,
+    progress: 0,
+    status: "",
+    error: ""
+  },
+  ytdlpUpdate: {
     active: false,
     progress: 0,
     status: "",
@@ -259,6 +274,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (window.eel) {
       set({ whisperDownload: { active: true, progress: 0, status: "started", error: "" } });
       await window.eel.start_whisper_download(modelSize)();
+    }
+  },
+
+  updateYtdlp: async () => {
+    if (window.eel) {
+      set({ ytdlpUpdate: { active: true, progress: 0, status: "started", error: "" } });
+      await window.eel.update_ytdlp()();
     }
   }
 }));
@@ -376,6 +398,37 @@ export const initializeEelListeners = () => {
       return { whisperDownload: update };
     });
   }, "on_whisper_download_progress");
+
+  // 5. yt-dlp update progress listener
+  window.eel.expose((data: any) => {
+    useAppStore.setState((state) => {
+      const update = { ...state.ytdlpUpdate };
+
+      if (data.status === "completed") {
+        update.active = false;
+        update.status = "completed";
+        update.progress = 100;
+      } else if (data.status === "failed") {
+        update.active = false;
+        update.status = "failed";
+        update.error = data.error || "Update failed";
+      } else if (data.status === "checking") {
+        update.active = true;
+        update.status = "checking";
+        update.progress = 0;
+      } else if (data.status === "up_to_date") {
+        update.active = false;
+        update.status = "up_to_date";
+        update.progress = 100;
+      } else {
+        update.active = true;
+        update.progress = Math.round(data.progress || 0);
+        update.status = "downloading";
+      }
+
+      return { ytdlpUpdate: update };
+    });
+  }, "on_ytdlp_update_progress");
 
   console.log("Eel Zustand bridge listeners registered.");
 };
