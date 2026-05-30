@@ -323,7 +323,7 @@ CRITICAL DIRECTIVES:
 4. Visual Directives (visual_type & visual_meta):
    - Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'youtube'.
    - If 'chart': visual_meta must contain: {{ "chart_type": "bar"|"line", "data": [{{ "label": "X", "value": Y }}] }}.
-   - If 'map': visual_meta must contain: {{ "map_style": "vintage", "locations": [{{ "name": "City", "coord": [lat, lon] }}] }}.
+   - If 'map': visual_meta must contain: {{ "map_style": "vintage", "locations": [{{ "name": "City", "coord": [lat, lon] }}] }}. (Note: If describing a journey, conflict, or trade route, provide EXACTLY TWO locations in the array to automatically draw an animated travel line between them).
    - If 'document': visual_meta must contain: {{ "headline": "Exact news headline", "doc_text": "Detailed newspaper excerpt matching the narration", "source": "Name of Publisher", "date": "Month DD, YYYY" }}.
    - If 'portrait' (historical figure): visual_meta must contain: {{ "person_name": "Name" }}.
    - If 'scene' (generic B-roll/image stock): visual_meta must contain: {{ "description": "Atmospheric details" }}.

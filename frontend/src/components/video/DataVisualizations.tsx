@@ -1,5 +1,8 @@
 import React from 'react';
 import { useCurrentFrame, spring, interpolate } from 'remotion';
+import * as d3Geo from 'd3-geo';
+import * as topojson from 'topojson-client';
+import worldData from './world-110m.json';
 
 interface Props {
   type: 'chart' | 'map' | 'document';
@@ -142,16 +145,55 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
 
   // Render Map Outline
   const renderMap = () => {
+    // TopoJSON to GeoJSON
+    // The "countries-110m.json" from world-atlas has a "countries" object in "objects"
+    const countries = topojson.feature(worldData as any, worldData.objects.countries as any);
+
     const locations = meta.locations || [
-      { name: 'Start', coord: [300, 300] },
-      { name: 'End', coord: [600, 200] }
+      { name: 'Start', coord: [28.6139, 77.2090] }, // Delhi
+      { name: 'End', coord: [51.5074, -0.1278] } // London
     ];
 
+    // Map container size
+    const width = 1920;
+    const height = 1080;
+
+    // Compute bounding box for given locations to focus map
+    let projection = d3Geo.geoMercator().scale(300).translate([width / 2, height / 1.5]);
+
+    if (locations.length > 0) {
+        // Create a GeoJSON FeatureCollection of our points
+        const pointsFeature = {
+            type: "FeatureCollection",
+            features: locations.map((loc: any) => ({
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [loc.coord[1], loc.coord[0]] // GeoJSON uses [longitude, latitude]!
+                }
+            }))
+        };
+
+        // Use fitExtent to scale and center projection around points, with padding
+        projection = d3Geo.geoMercator().fitExtent([[300, 300], [width - 300, height - 300]], pointsFeature as any);
+        
+        // If there's only one point, the scale might be infinite, so cap it
+        if (locations.length === 1) {
+             const centerCoord = [locations[0].coord[1], locations[0].coord[0]];
+             projection = d3Geo.geoMercator().scale(1500).center(centerCoord as any).translate([width / 2, height / 2]);
+        }
+    }
+
+    const pathGenerator = d3Geo.geoPath().projection(projection);
+
     // Compute route lines drawing progress
-    const lineDraw = interpolate(frame, [15, 60], [1000, 0], {
+    const lineDraw = interpolate(frame, [15, 90], [2000, 0], {
       extrapolateLeft: 'clamp',
       extrapolateRight: 'clamp'
     });
+    
+    // Slow cinematic pan/zoom
+    const zoomScale = interpolate(frame, [0, durationInFrames], [1, 1.15]);
 
     return (
       <div style={{
@@ -161,92 +203,120 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        padding: 40
+        backgroundColor: '#1c1917', 
+        overflow: 'hidden',
+        position: 'relative'
       }}>
-        {/* Map Header */}
-        <h2 style={{
-          fontFamily: 'Montserrat, sans-serif',
-          fontWeight: 800,
-          fontSize: 48,
-          color: '#f59e0b',
-          marginBottom: 40,
-          textTransform: 'uppercase',
-          letterSpacing: 2
+        {/* Animated Map Container */}
+        <div style={{
+            position: 'absolute',
+            width,
+            height,
+            transform: `scale(${zoomScale})`,
+            transformOrigin: 'center center'
         }}>
-          {meta.title || 'Geopolitical Map'}
-        </h2>
+            {/* SVG Topographical Map */}
+            <svg width={width} height={height} style={{ position: 'absolute', inset: 0 }}>
+                {/* Background Ocean Color */}
+                <rect width="100%" height="100%" fill="#292524" />
+                
+                {/* Vintage Grid lines background */}
+                <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+                    <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#44403c" strokeWidth="1" />
+                </pattern>
+                <rect width="100%" height="100%" fill="url(#grid)" />
 
-        {/* SVG Vector Map Container */}
-        <div style={{ position: 'relative', width: 1000, height: 600, border: '1px solid #44403c', borderRadius: 8, overflow: 'hidden', backgroundColor: '#111' }}>
-          
-          {/* Vintage Grid lines background */}
-          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.15 }}>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#78716c" strokeWidth="1" />
-            </pattern>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-
-          {/* Draw routes and locations */}
-          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 2 }}>
-            {/* Draw Path connecting locations */}
-            {locations.length > 1 && (
-              <polyline
-                points={locations.map((loc: any) => `${loc.coord[0]},${loc.coord[1]}`).join(' ')}
-                fill="none"
-                stroke="#b45309"
-                strokeWidth="5"
-                strokeDasharray="10 6"
-                style={{
-                  strokeDashoffset: lineDraw
-                }}
-              />
-            )}
-
-            {/* Plot glowing nodes */}
-            {locations.map((loc: any, i: number) => {
-              const [cx, cy] = loc.coord;
-              const nodeScale = spring({
-                frame: frame - i * 15,
-                fps: 30,
-                config: { damping: 10, stiffness: 100 }
-              });
-
-              return (
-                <g key={i} style={{ opacity: nodeScale }}>
-                  {/* Glowing radius */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={20}
-                    fill="rgba(239, 68, 68, 0.25)"
-                  />
-                  {/* Outer circle */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={8}
-                    fill="#ef4444"
-                    stroke="#ffffff"
-                    strokeWidth="2"
-                  />
-                  {/* Text Label */}
-                  <text
-                    x={cx + 15}
-                    y={cy + 5}
-                    fill="#f5f5f4"
-                    fontFamily="Montserrat, sans-serif"
-                    fontWeight="700"
-                    fontSize="18"
-                    textAnchor="start"
-                  >
-                    {loc.name}
-                  </text>
+                {/* Country Borders */}
+                <g opacity="0.8">
+                    {(countries as any).features.map((feature: any, i: number) => (
+                        <path 
+                            key={i} 
+                            d={pathGenerator(feature) || ""} 
+                            fill="#3f3f46" 
+                            stroke="#57534e" 
+                            strokeWidth="1.5" 
+                            strokeLinejoin="round" 
+                        />
+                    ))}
                 </g>
-              );
-            })}
-          </svg>
+
+                {/* Draw Path connecting locations */}
+                {locations.length > 1 && (
+                <path
+                    d={pathGenerator({
+                        type: "LineString",
+                        coordinates: locations.map((loc: any) => [loc.coord[1], loc.coord[0]])
+                    } as any) || ""}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="5"
+                    strokeDasharray="15 10"
+                    style={{
+                        strokeDashoffset: lineDraw
+                    }}
+                />
+                )}
+
+                {/* Plot glowing nodes */}
+                {locations.map((loc: any, i: number) => {
+                    const projected = projection([loc.coord[1], loc.coord[0]]);
+                    if (!projected) return null;
+                    const [cx, cy] = projected;
+
+                    const nodeScale = spring({
+                        frame: frame - i * 15,
+                        fps: 30,
+                        config: { damping: 10, stiffness: 100 }
+                    });
+
+                    return (
+                        <g key={i} style={{ opacity: nodeScale }}>
+                            {/* Glowing radius */}
+                            <circle
+                                cx={cx}
+                                cy={cy}
+                                r={25}
+                                fill="rgba(239, 68, 68, 0.3)"
+                            />
+                            {/* Outer circle */}
+                            <circle
+                                cx={cx}
+                                cy={cy}
+                                r={8}
+                                fill="#ef4444"
+                                stroke="#ffffff"
+                                strokeWidth="2"
+                            />
+                            {/* Text Label */}
+                            <text
+                                x={cx + 15}
+                                y={cy + 6}
+                                fill="#f5f5f4"
+                                fontFamily="Montserrat, sans-serif"
+                                fontWeight="800"
+                                fontSize="24"
+                                textAnchor="start"
+                                style={{
+                                    textShadow: '0 2px 4px rgba(0,0,0,0.8)'
+                                }}
+                            >
+                                {loc.name}
+                            </text>
+                        </g>
+                    );
+                })}
+            </svg>
+            
+            {/* Vignette Overlay for Vintage feel */}
+            <div style={{
+                position: 'absolute',
+                inset: 0,
+                boxShadow: 'inset 0 0 150px rgba(0,0,0,0.8)',
+                pointerEvents: 'none'
+            }} />
         </div>
+
+
       </div>
     );
   };
