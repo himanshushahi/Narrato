@@ -267,7 +267,15 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
 
     lang_instruction = ""
     if language == "hi":
-        lang_instruction = "The spoken text (hook, narration, summary, cta) MUST be written in Hindi (using Devanagari script). Visual suggestions (visual_cue) should remain in English."
+        lang_instruction = (
+            "LANGUAGE RULES:\n"
+            "- The spoken text (hook, narration, summary, cta) MUST be written in Hindi (Devanagari script).\n"
+            "- The 'visual_cue' field MUST ALWAYS be in ENGLISH. This is critical because visual_cue is used as a search keyword for the Pexels stock media API, which only understands English.\n"
+            "  Example: visual_cue = 'ancient Indian trading port with ships' (NOT 'भारत में एक छोटा सा व्यापारिक दफ्तर')\n"
+            "  Example: visual_cue = 'British colonial officers in India' (NOT 'ब्रिटिश अधिकारी')\n"
+            "- The 'title' field can be in Hindi.\n"
+            "- All 'visual_meta' text fields (doc_text, person_name, description) should be in English for best stock media results.\n"
+        )
     else:
         lang_instruction = "The spoken text (hook, narration, summary, cta) MUST be written in English."
 

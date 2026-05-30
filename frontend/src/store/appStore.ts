@@ -73,6 +73,13 @@ export interface WhisperDownload {
   error: string;
 }
 
+export interface Toast {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info' | 'warning';
+  duration?: number;
+}
+
 interface AppStore {
   projects: Project[];
   selectedProject: Project | null;
@@ -83,6 +90,7 @@ interface AppStore {
   settings: Settings;
   kokoroDownload: KokoroDownload;
   whisperDownload: WhisperDownload;
+  toasts: Toast[];
   
   setProjects: (projects: Project[]) => void;
   setSelectedProject: (project: Project | null) => void;
@@ -99,6 +107,8 @@ interface AppStore {
   cancelPipeline: (projectId: string) => Promise<void>;
   downloadKokoro: () => Promise<void>;
   downloadWhisper: (modelSize: string) => Promise<void>;
+  addToast: (message: string, type?: Toast['type'], duration?: number) => void;
+  removeToast: (id: string) => void;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -143,12 +153,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
     status: "",
     error: ""
   },
+  toasts: [],
 
   setProjects: (projects) => set({ projects }),
   setSelectedProject: (project) => set({ selectedProject: project }),
   setTasks: (tasks) => set({ tasks }),
   clearLogs: () => set({ logs: [] }),
   setSettings: (settings) => set({ settings }),
+  addToast: (message, type = 'info', duration = 4000) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    set((state) => ({ toasts: [...state.toasts, { id, message, type, duration }] }));
+    
+    if (duration > 0) {
+      setTimeout(() => {
+        get().removeToast(id);
+      }, duration);
+    }
+  },
+  removeToast: (id) => set((state) => ({ toasts: state.toasts.filter(t => t.id !== id) })),
   
   fetchProjects: async () => {
     if (window.eel) {

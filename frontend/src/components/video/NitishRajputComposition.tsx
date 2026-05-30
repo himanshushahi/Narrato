@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Sequence, Audio, useVideoConfig } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
@@ -48,15 +48,32 @@ interface Props {
   language?: string;
 }
 
+export interface SceneTiming {
+  start: number;
+  end: number;
+  text: string;
+}
+
 export const NitishRajputComposition: React.FC<Props> = ({
   audioUrl,
   bgMusicUrl,
   bgMusicVolume = 0.15,
   scenes = [],
-  transcription = { segments: [] },
+  transcription = { language: '', segments: [] },
   style = 'nitish_rajput'
 }) => {
-  const { width, height } = useVideoConfig();
+  useVideoConfig();
+
+  // Build scene timing lookup (cumulative start/end times) for subtitle gap-filling
+  const sceneTimings: SceneTiming[] = useMemo(() => {
+    let offset = 0;
+    return scenes.map(scene => {
+      const start = offset;
+      const end = offset + (scene.duration || 0);
+      offset = end;
+      return { start, end, text: scene.text };
+    });
+  }, [scenes]);
 
   // Helper to render segment specific visual layers
   const renderSceneVisual = (scene: Scene, durationFrames: number) => {
@@ -145,6 +162,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
       {transcription && transcription.segments && (
         <KineticSubtitles 
           transcription={transcription} 
+          sceneTimings={sceneTimings}
           styleType={style} 
         />
       )}

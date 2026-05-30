@@ -26,6 +26,7 @@ interface Eel {
   generate_voice_preview: EelCall<[string, string, string, string, string, string], any>;
   get_audio_base64: EelCall<[string], string>;
   open_exports_folder: EelCall<[], boolean>;
+  fetch_single_scene_asset: EelCall<[string, number, string, string], any>;
 }
 
 interface Window {

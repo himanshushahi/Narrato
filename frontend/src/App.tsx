@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import ProjectEditor from './pages/ProjectEditor';
 import SettingsPage from './pages/SettingsPage';
 import TerminalLogs from './components/TerminalLogs';
+import { ToastContainer } from './components/ui/Toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscPlay, VscSettings, VscLayers, VscPulse, VscFlame, VscLayoutSidebarLeft, VscAccount, VscDebugDisconnect
@@ -176,6 +177,7 @@ export default function App() {
           <TerminalLogs />
         </div>
       </div>
+      <ToastContainer />
     </Router>
   );
 }

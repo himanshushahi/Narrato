@@ -1,16 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useAppStore, Project, Task } from '../store/appStore';
+import { useAppStore } from '../store/appStore';
 import RemotionVideoPlayer from '../components/video/RemotionVideoPlayer';
+import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
+import { CustomSelect } from '../components/ui/CustomSelect';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscPlay, VscRefresh, VscFolderOpened, VscSave, VscEye, VscFlame, VscTrash, VscArrowLeft, VscSparkle,
-  VscPulse
+  VscPlay, VscFolderOpened, VscSave, VscFlame, VscArrowLeft, VscSparkle,
+  VscPulse, VscCheck, VscError, VscLoading, VscCircleFilled, VscWarning
 } from 'react-icons/vsc';
+
+const VISUAL_TYPE_OPTIONS = [
+  { value: 'scene', label: 'B-Roll Scene' },
+  { value: 'image', label: 'Stock Image' },
+  { value: 'portrait', label: 'Portrait' },
+  { value: 'chart', label: 'Animated Chart' },
+  { value: 'map', label: 'Vintage Map' },
+  { value: 'document', label: 'Archival Document' },
+];
+
+const PIPELINE_STAGES = [
+  { id: 'generate_script', title: 'Script Generation', desc: 'AI scriptwriting & cues formulation' },
+  { id: 'generate_voiceover', title: 'Voiceover Synthesis', desc: 'Synthesizing AI narrator voiceover' },
+  { id: 'transcribe', title: 'Transcription & Sync', desc: 'Whisper word-level audio alignment' },
+  { id: 'fetch_assets', title: 'Fetch Visual Assets', desc: 'Retrieving B-roll clips & images' },
+  { id: 'render', title: 'Video Export (Remotion)', desc: 'Compiling frames to final MP4' }
+];
 
 export const ProjectEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const {
-    selectedProject, tasks, fetchProjectDetail, startPipeline, cancelPipeline, queue
+    selectedProject, tasks, fetchProjectDetail, startPipeline, resumePipeline, cancelPipeline, queue, addToast
   } = useAppStore();
 
   const [scriptData, setScriptData] = useState<any>(null);
@@ -21,6 +41,23 @@ export const ProjectEditor: React.FC = () => {
   const [rewritePrompt, setRewritePrompt] = useState('');
   const [rewritingIdx, setRewritingIdx] = useState<number | null>(null);
   const [rewritingType, setRewritingType] = useState<string>('');
+
+  const [originalScriptData, setOriginalScriptData] = useState<any>(null);
+  const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
+  const [savingCardKey, setSavingCardKey] = useState<string | null>(null);
+
+  const handleStartEdit = (cardKey: string) => {
+    setOriginalScriptData(JSON.parse(JSON.stringify(scriptData)));
+    setEditingCard(cardKey);
+  };
+
+  const handleCancelEdit = () => {
+    if (originalScriptData) {
+      setScriptData(originalScriptData);
+    }
+    setEditingCard(null);
+    setOriginalScriptData(null);
+  };
 
   useEffect(() => {
     if (id) {
@@ -42,7 +79,16 @@ export const ProjectEditor: React.FC = () => {
           }
           if (project.assets_manifest_path) {
             const manifest = await window.eel.read_json_file(project.assets_manifest_path)();
-            setManifestData(manifest || []);
+            // Transform visual_path → visual_url for the player
+            // The manifest stores absolute file paths, but the Remotion player needs HTTP URLs
+            // served through the Bottle media server (same pattern as audio URLs)
+            const enrichedManifest = (manifest || []).map((scene: any) => ({
+              ...scene,
+              visual_url: scene.visual_path
+                ? `http://localhost:8888/api/media?path=${encodeURIComponent(scene.visual_path)}`
+                : ''
+            }));
+            setManifestData(enrichedManifest);
           }
           if (project.transcription_path) {
             const transcript = await window.eel.read_json_file(project.transcription_path)();
@@ -54,6 +100,7 @@ export const ProjectEditor: React.FC = () => {
       console.error("Failed to load asset JSONs:", e);
     } finally {
       setLoadingScript(false);
+      setScriptChangedAlert(false);
     }
   };
 
@@ -67,18 +114,11 @@ export const ProjectEditor: React.FC = () => {
 
   // Calculate current active pipeline progress
   const activeTaskStep = queue.active === selectedProject.id ? Object.values(tasks).find(t => t.status === 'running') : null;
-  const renderTask = tasks['render'];
 
   const triggerFullPipeline = async () => {
     if (!id) return;
+    setScriptChangedAlert(false);
     const steps = ['generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets', 'render'];
-    await startPipeline(id, steps);
-    loadFiles(id);
-  };
-
-  const triggerVisualSync = async () => {
-    if (!id) return;
-    const steps = ['generate_voiceover', 'transcribe', 'fetch_assets', 'render'];
     await startPipeline(id, steps);
     loadFiles(id);
   };
@@ -88,20 +128,235 @@ export const ProjectEditor: React.FC = () => {
     await startPipeline(id, ['render']);
   };
 
-  const handleSaveCard = async (type: string, index?: number) => {
-    if (!id || !scriptData || !window.eel) return;
+  const hasVisualEdits = () => {
+    if (!manifestData || !scriptData) return false;
+
+    let sceneCounter = 0;
+    let changed = false;
+
+    manifestData.forEach((manifestScene: any) => {
+      const type = manifestScene.section_type;
+      let liveCue = manifestScene.visual_cue;
+      let liveType = manifestScene.visual_type;
+
+      if (type === 'introduction' && scriptData.introduction) {
+        liveCue = scriptData.introduction.visual_cue;
+        liveType = scriptData.introduction.visual_type;
+      } else if (type === 'conclusion' && scriptData.conclusion) {
+        liveCue = scriptData.conclusion.visual_cue;
+        liveType = scriptData.conclusion.visual_type;
+      } else if (type === 'scene' && scriptData.scenes) {
+        const scriptScene = scriptData.scenes[sceneCounter];
+        sceneCounter++;
+        if (scriptScene) {
+          liveCue = scriptScene.visual_cue;
+          liveType = scriptScene.visual_type;
+        }
+      }
+
+      if (liveCue !== manifestScene.visual_cue || liveType !== manifestScene.visual_type) {
+        changed = true;
+      }
+    });
+
+    return changed;
+  };
+
+  const canResumeFrom = (stageId: string) => {
+    if (queue.active === selectedProject.id) return false;
+    if (scriptChangedAlert) return false;
+
+    const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
+    if (targetIdx === -1) return false;
+
+    for (let i = 0; i < targetIdx; i++) {
+      const priorStageId = PIPELINE_STAGES[i].id;
+      if (tasks[priorStageId]?.status !== 'completed') {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handleResumeFromStage = async (stageId: string) => {
+    if (!id || !canResumeFrom(stageId)) return;
+
+    const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
+    if (targetIdx === -1) return;
+
+    const stepsToRun = PIPELINE_STAGES.slice(targetIdx).map(s => s.id);
+
+    setScriptChangedAlert(false);
+    try {
+      const res = await startPipeline(id, stepsToRun);
+      if (res.success) {
+        addToast(`Resumed pipeline from: ${PIPELINE_STAGES[targetIdx].title}`, 'success');
+      } else {
+        addToast(res.error || "Failed to start pipeline", 'error');
+      }
+      loadFiles(id);
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to start pipeline", 'error');
+    }
+  };
+
+  const handleResumePipeline = async () => {
+    if (!id) return;
+
+    try {
+      let res;
+      if (scriptChangedAlert) {
+        res = await startPipeline(id, ['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+      } else if (hasVisualEdits()) {
+        res = await startPipeline(id, ['fetch_assets', 'render']);
+      } else {
+        res = await resumePipeline(id);
+      }
+
+      setScriptChangedAlert(false);
+
+      if (res.success) {
+        addToast("Pipeline started successfully", 'success');
+      } else {
+        addToast(res.error || "Failed to start pipeline", 'error');
+      }
+      loadFiles(id);
+    } catch (err) {
+      console.error(err);
+      addToast("Failed to start pipeline", 'error');
+    }
+  };
+
+  const handleSaveCard = async (cardKey?: string, index?: number) => {
+    if (!id || !scriptData || !window.eel || !selectedProject.script_path) return;
+
+    if (cardKey) {
+      setSavingCardKey(cardKey);
+    }
+
+    let narrationChanged = false;
+    if (originalScriptData) {
+      if (cardKey === 'introduction' || cardKey === 'intro') {
+        if (scriptData.introduction?.hook !== originalScriptData.introduction?.hook) {
+          narrationChanged = true;
+        }
+      } else if (cardKey === 'conclusion') {
+        if (scriptData.conclusion?.summary !== originalScriptData.conclusion?.summary ||
+            scriptData.conclusion?.cta !== originalScriptData.conclusion?.cta) {
+          narrationChanged = true;
+        }
+      } else if (index !== undefined && scriptData.scenes && originalScriptData.scenes) {
+        const scene = scriptData.scenes[index];
+        const origScene = originalScriptData.scenes[index];
+        if (scene && origScene && scene.narration !== origScene.narration) {
+          narrationChanged = true;
+        }
+      } else {
+        // Fallback for general check
+        if (scriptData.introduction?.hook !== originalScriptData.introduction?.hook) {
+          narrationChanged = true;
+        }
+        if (scriptData.conclusion?.summary !== originalScriptData.conclusion?.summary ||
+          scriptData.conclusion?.cta !== originalScriptData.conclusion?.cta) {
+          narrationChanged = true;
+        }
+        if (scriptData.scenes && originalScriptData.scenes) {
+          scriptData.scenes.forEach((scene: any, idx: number) => {
+            const origScene = originalScriptData.scenes[idx];
+            if (origScene && scene.narration !== origScene.narration) {
+              narrationChanged = true;
+            }
+          });
+        }
+      }
+    }
 
     // Save locally edited script parameters back to python storage
     const success = await window.eel.save_json_file(selectedProject.script_path, scriptData)();
     if (success) {
+      let targetManifestScene: any = null;
+      let manifestIndex = -1;
+
+      if (cardKey === 'intro' || cardKey === 'introduction') {
+        manifestIndex = manifestData.findIndex((s: any) => s.section_type === 'introduction');
+        targetManifestScene = manifestData[manifestIndex];
+      } else if (cardKey === 'conclusion') {
+        manifestIndex = manifestData.findIndex((s: any) => s.section_type === 'conclusion');
+        targetManifestScene = manifestData[manifestIndex];
+      } else if (index !== undefined) {
+        let sceneCount = 0;
+        for (let i = 0; i < manifestData.length; i++) {
+          if (manifestData[i].section_type === 'scene') {
+            if (sceneCount === index) {
+              manifestIndex = i;
+              targetManifestScene = manifestData[i];
+              break;
+            }
+            sceneCount++;
+          }
+        }
+      }
+
+      const liveCue = (cardKey === 'intro' || cardKey === 'introduction')
+        ? (scriptData.introduction?.visual_cue || '')
+        : (cardKey === 'conclusion')
+          ? (scriptData.conclusion?.visual_cue || '')
+          : (index !== undefined ? (scriptData.scenes[index]?.visual_cue || '') : '');
+
+      const liveType = (cardKey === 'intro' || cardKey === 'introduction')
+        ? (scriptData.introduction?.visual_type || 'scene')
+        : (cardKey === 'conclusion')
+          ? (scriptData.conclusion?.visual_type || 'scene')
+          : (index !== undefined ? (scriptData.scenes[index]?.visual_type || 'scene') : 'scene');
+
+      const hasVisualChanges = targetManifestScene && (
+        liveCue !== targetManifestScene.visual_cue ||
+        liveType !== targetManifestScene.visual_type
+      );
+
+      if (hasVisualChanges && manifestIndex !== -1) {
+        const requiresFetch = ['scene', 'portrait', 'image'].includes(liveType);
+        
+        if (requiresFetch) {
+          addToast("Searching Pexels and downloading new visual asset...", "info");
+        } else {
+          addToast("Updating programmatic visual layer style...", "info");
+        }
+
+        try {
+          const res = await window.eel.fetch_single_scene_asset(id, manifestIndex, liveType, liveCue)();
+          if (res && res.success) {
+            addToast("Visual updated successfully!", "success");
+          } else {
+            addToast(`Failed to update visual: ${res?.error || 'Unknown error'}`, "error");
+          }
+        } catch (err) {
+          console.error(err);
+          addToast("Failed to communicate with backend to update visual", "error");
+        }
+      }
+
+      // Reload files to get updated manifest data and URLs
+      await loadFiles(id);
+
       setEditingCard(null);
-      // Re-trigger asset updates since narration was updated
-      alert("Script card saved! Click 'Sync Audio & Subtitles' to generate new speech clips.");
+      setSavingCardKey(null);
+
+      if (narrationChanged) {
+        addToast("Narration text updated! We recommend resuming/syncing the pipeline to regenerate voiceover and subtitles.", 'warning', 6000);
+        setScriptChangedAlert(true);
+      } else if (!hasVisualChanges) {
+        addToast("Script parameters saved!", 'success');
+      }
+    } else {
+      setSavingCardKey(null);
+      addToast("Failed to save script changes", 'error');
     }
   };
 
   const handleRewriteSection = async (type: string, index: number) => {
-    if (!id || !scriptData || !window.eel) return;
+    if (!id || !scriptData || !window.eel || !selectedProject.script_path) return;
     setRewritingIdx(index);
     setRewritingType(type);
 
@@ -124,9 +379,10 @@ export const ProjectEditor: React.FC = () => {
         await window.eel.save_json_file(selectedProject.script_path, updated)();
         setEditingCard(null);
         setRewritePrompt('');
-        alert("LLM rewrite completed and saved! Click 'Sync Audio & Subtitles' to rebuild speech.");
+        setScriptChangedAlert(true);
+        addToast("LLM rewrite completed and saved! Click 'Sync Audio & Subtitles' or 'Resume Pipeline' to rebuild voiceover.", 'success');
       } else {
-        alert("Rewrite failed: " + (res.error || "Unknown error"));
+        addToast("Rewrite failed: " + (res.error || "Unknown error"), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -151,6 +407,46 @@ export const ProjectEditor: React.FC = () => {
     return '';
   };
 
+  const getLiveScenes = () => {
+    if (!manifestData || !scriptData) return manifestData;
+
+    let sceneCounter = 0;
+    return manifestData.map((manifestScene: any) => {
+      const type = manifestScene.section_type;
+
+      let liveCue = manifestScene.visual_cue;
+      let liveType = manifestScene.visual_type;
+
+      if (type === 'introduction' && scriptData.introduction) {
+        liveCue = scriptData.introduction.visual_cue;
+        liveType = scriptData.introduction.visual_type;
+      } else if (type === 'conclusion' && scriptData.conclusion) {
+        liveCue = scriptData.conclusion.visual_cue;
+        liveType = scriptData.conclusion.visual_type;
+      } else if (type === 'scene' && scriptData.scenes) {
+        const currentIdx = sceneCounter;
+        sceneCounter++;
+        const scriptScene = scriptData.scenes[currentIdx];
+        if (scriptScene) {
+          liveCue = scriptScene.visual_cue;
+          liveType = scriptScene.visual_type;
+        }
+      }
+
+      // If the visual cue or visual type has changed compared to the compiled manifest,
+      // clear the cached visual url so it renders the vintage card placeholder with the new cue
+      const cueChanged = liveCue !== manifestScene.visual_cue;
+      const typeChanged = liveType !== manifestScene.visual_type;
+
+      return {
+        ...manifestScene,
+        visual_type: liveType,
+        visual_cue: liveCue,
+        visual_url: (cueChanged || typeChanged) ? '' : manifestScene.visual_url
+      };
+    });
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-60px)] z-10 relative">
 
@@ -169,36 +465,25 @@ export const ProjectEditor: React.FC = () => {
         {/* Pipeline Controls */}
         <div className="flex items-center gap-3">
           {queue.active === selectedProject.id ? (
-            <button
-              onClick={() => cancelPipeline(selectedProject.id)}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-xs font-bold transition-colors animate-pulse"
-            >
-              Cancel Render
-            </button>
+            <span className="text-xs bg-amber-600/10 text-amber-400 px-3 py-2 rounded border border-amber-600/25 font-bold uppercase tracking-wider flex items-center gap-1.5 animate-pulse">
+              <VscPulse className="animate-spin text-sm" /> Processing...
+            </span>
           ) : (
             <>
               {!selectedProject.script_path ? (
                 <button
                   onClick={triggerFullPipeline}
-                  className="bg-gradient-to-r from-amber-600 to-orange-700 hover:from-amber-700 hover:to-orange-800 text-white px-5 py-2.5 rounded text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+                  className="bg-gradient-to-r from-amber-600 to-orange-700 hover:from-amber-700 hover:to-orange-850 text-white px-5 py-2.5 rounded text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                 >
                   <VscFlame className="text-sm" /> Generate Video
                 </button>
               ) : (
-                <>
-                  <button
-                    onClick={triggerVisualSync}
-                    className="bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 px-4 py-2.5 rounded text-xs font-bold transition-colors flex items-center gap-1.5"
-                  >
-                    <VscRefresh className="text-sm" /> Sync Audio & Subtitles
-                  </button>
-                  <button
-                    onClick={triggerExportOnly}
-                    className="bg-amber-600 hover:bg-amber-700 text-zinc-950 px-4 py-2.5 rounded text-xs font-black transition-colors flex items-center gap-1.5"
-                  >
-                    <VscPlay className="text-sm" /> Export Video (MP4)
-                  </button>
-                </>
+                <button
+                  onClick={triggerExportOnly}
+                  className="bg-amber-600 hover:bg-amber-700 text-zinc-950 px-4 py-2.5 rounded text-xs font-black transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <VscPlay className="text-sm" /> Export Video (MP4)
+                </button>
               )}
             </>
           )}
@@ -208,7 +493,7 @@ export const ProjectEditor: React.FC = () => {
               onClick={async () => {
                 if (window.eel) await window.eel.open_exports_folder()();
               }}
-              className="p-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded border border-stone-700 hover:text-white transition-colors"
+              className="p-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded border border-stone-700 hover:text-white transition-colors cursor-pointer"
               title="Open Exports Directory"
             >
               <VscFolderOpened />
@@ -228,31 +513,218 @@ export const ProjectEditor: React.FC = () => {
               audioUrl={getAudioSourceUrl()}
               bgMusicUrl={getBGMUrl()}
               bgMusicVolume={selectedProject.bg_music_volume}
-              scenes={manifestData}
+              scenes={getLiveScenes()}
               transcription={transcriptionData}
               styleType={selectedProject.style}
               language={selectedProject.language}
             />
           </div>
 
-          {/* Active Job Progress Overlay */}
-          {activeTaskStep && (
-            <div className="bg-stone-900/60 border border-stone-800 p-4 rounded-lg shadow-md">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
-                  <VscPulse className="animate-pulse" /> Active Pipeline Stage: {activeTaskStep.step.replace('_', ' ')}
+          {/* Production Pipeline & Controls Panel */}
+          <div className="bg-stone-900/40 border border-stone-800 p-5 rounded-xl shadow-lg backdrop-blur-md flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-stone-800/80 pb-3">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-stone-300 font-sans">
+                  Production Pipeline
+                </h3>
+                <p className="text-[10px] text-stone-500 mt-0.5">Automated video generation workflow</p>
+              </div>
+              {queue.active === selectedProject.id && (
+                <span className="text-[9px] bg-amber-600/10 text-amber-400 px-2 py-0.5 rounded border border-amber-600/20 font-bold uppercase tracking-wider flex items-center gap-1.5 animate-pulse">
+                  <VscPulse className="animate-spin text-xs" />
+                  Active
                 </span>
-                <span className="text-xs font-mono text-stone-400">{activeTaskStep.progress.toFixed(0)}%</span>
-              </div>
-              <div className="w-full bg-stone-950 h-2 rounded-full overflow-hidden border border-stone-800">
-                <div
-                  className="bg-gradient-to-r from-amber-600 to-orange-500 h-full rounded-full transition-all duration-300"
-                  style={{ width: `${activeTaskStep.progress}%` }}
-                />
-              </div>
-              <p className="text-[10px] text-stone-500 mt-2 italic">{activeTaskStep.message || 'Waiting...'}</p>
+              )}
             </div>
-          )}
+
+            {/* Stages List */}
+            <div className="flex flex-col relative py-1">
+              {PIPELINE_STAGES.map((stage, idx) => {
+                const task = tasks[stage.id];
+                const isRunning = queue.active === selectedProject.id && (activeTaskStep?.step === stage.id || task?.status === 'running');
+                const isCompleted = task?.status === 'completed';
+                const isFailed = task?.status === 'failed' || (!queue.active && task?.status === 'running');
+                const isPending = task?.status === 'pending';
+                const clickable = canResumeFrom(stage.id);
+
+                let progress = 0;
+                if (isRunning) {
+                  progress = activeTaskStep?.progress || task?.progress || 0;
+                } else if (isCompleted) {
+                  progress = 100;
+                }
+
+                const message = isRunning
+                  ? (activeTaskStep?.message || task?.message || 'Processing...')
+                  : (isFailed ? (task?.error_message || 'Failed') : '');
+
+                return (
+                  <div
+                    key={stage.id}
+                    onClick={() => clickable && handleResumeFromStage(stage.id)}
+                    className={`relative pl-11 pr-3 pb-5 last:pb-2 flex flex-col group/stage transition-all duration-200 py-1.5 -mx-3 rounded-lg border border-transparent ${clickable ? 'cursor-pointer hover:bg-stone-850/60 hover:border-stone-800/80 hover:shadow-sm' : ''
+                      }`}
+                  >
+                    {/* Connecting vertical line */}
+                    {idx < PIPELINE_STAGES.length - 1 && (
+                      <div className={`absolute left-[21px] top-7 bottom-0 w-[2px] transition-colors duration-300 ${isCompleted ? 'bg-emerald-500/30' : 'bg-stone-850'
+                        }`} />
+                    )}
+
+                    {/* Circle Status Badge */}
+                    <div className="absolute left-3 top-1.5">
+                      {isCompleted ? (
+                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shrink-0" title="Completed">
+                          <VscCheck className="text-xs" />
+                        </div>
+                      ) : isRunning ? (
+                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0 animate-pulse" title="Running">
+                          <VscLoading className="text-xs animate-spin" />
+                        </div>
+                      ) : isFailed ? (
+                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-red-500/10 text-red-400 border border-red-500/25 shrink-0" title="Failed">
+                          <VscError className="text-xs font-bold" />
+                        </div>
+                      ) : isPending ? (
+                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 shrink-0 animate-pulse" title="Queued">
+                          <VscCircleFilled className="text-[10px]" />
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-stone-850 text-stone-500 border border-stone-800 shrink-0" title="Pending">
+                          <span className="text-[9px] font-bold font-mono">{idx + 1}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Stage Info */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className={`text-xs font-bold font-sans transition-colors ${isRunning ? 'text-amber-400 font-extrabold' : isCompleted ? 'text-stone-300 font-bold' : isFailed ? 'text-red-400 font-bold' : 'text-stone-400 font-medium'
+                          }`}>
+                          {stage.title}
+                        </span>
+                        <span className="text-[10px] text-stone-500 mt-0.5">{stage.desc}</span>
+                      </div>
+
+                      {/* Status Text or Action Button */}
+                      <div className="shrink-0 flex items-center min-w-[85px] justify-end relative h-8">
+                        {clickable ? (
+                          <>
+                            {/* Status badge: shown by default, fades out on hover */}
+                            <div className="group-hover/stage:opacity-0 transition-opacity duration-200 flex items-center justify-end">
+                              <span className={`text-[9px] font-mono font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border ${isCompleted ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/10' :
+                                  isRunning ? 'bg-amber-500/5 text-amber-400 border-amber-500/10 animate-pulse' :
+                                    isFailed ? 'bg-red-500/5 text-red-400 border-red-500/10' :
+                                      isPending ? 'bg-blue-500/5 text-blue-400 border-blue-500/10' :
+                                        'bg-stone-900 text-stone-600 border-stone-800/60'
+                                }`}>
+                                {isCompleted ? 'Done' :
+                                  isRunning ? `${progress.toFixed(0)}%` :
+                                    isFailed ? 'Failed' :
+                                      isPending ? 'Queued' :
+                                        'Waiting'}
+                              </span>
+                            </div>
+
+                            {/* Resume button: hidden by default, fades in on hover */}
+                            <div className="absolute right-0 opacity-0 group-hover/stage:opacity-100 transition-opacity duration-200 pointer-events-none group-hover/stage:pointer-events-auto flex items-center justify-end">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleResumeFromStage(stage.id);
+                                }}
+                                className="bg-amber-600 hover:bg-amber-700 text-zinc-950 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded transition-all cursor-pointer shadow-md hover:scale-105 flex items-center gap-1"
+                              >
+                                <VscPlay className="text-[9px]" /> Resume
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <span className={`text-[9px] font-mono font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border ${isCompleted ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/10' :
+                              isRunning ? 'bg-amber-500/5 text-amber-400 border-amber-500/10 animate-pulse' :
+                                isFailed ? 'bg-red-500/5 text-red-400 border-red-500/10' :
+                                  isPending ? 'bg-blue-500/5 text-blue-400 border-blue-500/10' :
+                                    'bg-stone-900 text-stone-600 border-stone-800/60'
+                            }`}>
+                            {isCompleted ? 'Done' :
+                              isRunning ? `${progress.toFixed(0)}%` :
+                                isFailed ? 'Failed' :
+                                  isPending ? 'Queued' :
+                                    'Waiting'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Active Progress Bar */}
+                    {isRunning && (
+                      <div className="w-full bg-stone-950 h-1.5 rounded-full overflow-hidden border border-stone-800 mt-2">
+                        <div
+                          className="bg-gradient-to-r from-amber-600 to-orange-500 h-full rounded-full transition-all duration-300"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Message or Error Message */}
+                    {message && (
+                      <p className={`text-[10px] mt-1.5 leading-relaxed ${isFailed ? 'text-red-400 font-mono border border-red-500/10 bg-red-950/20 px-2 py-1 rounded' : 'text-stone-400 italic'
+                        }`}>
+                        {message}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Actions Bar */}
+            <div className="flex flex-col gap-3 pt-3 border-t border-stone-850">
+              {scriptChangedAlert && (
+                <div className="bg-amber-600/10 border border-amber-600/25 p-3 rounded-lg text-[11px] text-amber-300 flex items-start gap-2 animate-pulse mb-1">
+                  <VscWarning className="text-sm shrink-0 mt-0.5" />
+                  <div>
+                    <strong>Script narration changed!</strong> The spoken text has been updated. We recommend clicking <strong>Resume Pipeline</strong> to synchronize narrator voiceovers and subtitles.
+                  </div>
+                </div>
+              )}
+
+              {queue.active === selectedProject.id ? (
+                <button
+                  onClick={() => cancelPipeline(selectedProject.id)}
+                  className="w-full bg-red-600 hover:bg-red-750 text-white py-2.5 rounded text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer animate-pulse"
+                >
+                  <VscError className="text-sm font-bold" /> Cancel Pipeline Execution
+                </button>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    {!selectedProject.script_path ? (
+                      <button
+                        onClick={triggerFullPipeline}
+                        className="w-full bg-gradient-to-r from-amber-600 to-orange-700 hover:from-amber-700 hover:to-orange-850 text-white py-2.5 rounded text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <VscFlame className="text-sm" /> Generate Video
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleResumePipeline}
+                        className="w-full bg-gradient-to-r from-amber-600 to-orange-700 hover:from-amber-700 hover:to-orange-850 text-white py-2.5 rounded text-xs font-extrabold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                        title="Intelligently resume pipeline compilation based on your edits"
+                      >
+                        <VscPlay className="text-sm" /> Resume Pipeline
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="text-[10px] text-stone-500 text-center select-none leading-relaxed px-1">
+                    💡 <strong>Smart Resume:</strong> Skip completed steps like Script Writing or Voiceover to save time, compute power, and API key cost.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
 
           {/* Settings reference details */}
           <div className="bg-stone-900/30 border border-stone-800/40 p-4 rounded-lg text-xs text-stone-500 space-y-2">
@@ -286,21 +758,38 @@ export const ProjectEditor: React.FC = () => {
             <div className="space-y-6">
 
               {/* Introduction Card */}
-              <div className={`p-4 rounded-lg border transition-all ${editingCard === 'intro' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}>
+              <motion.div
+                layout
+                className={`p-4 rounded-lg border transition-all ${editingCard === 'intro' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+              >
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">0. Hook Introduction</span>
                   <div className="flex gap-2">
                     {editingCard === 'intro' ? (
-                      <button
-                        onClick={() => handleSaveCard('introduction')}
-                        className="flex items-center gap-1 bg-amber-600 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold"
-                      >
-                        <VscSave /> Save
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleSaveCard('introduction')}
+                          disabled={savingCardKey !== null}
+                          className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
+                        >
+                          {savingCardKey === 'introduction' ? (
+                            <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
+                          ) : (
+                            <><VscSave /> Save</>
+                          )}
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          disabled={savingCardKey !== null}
+                          className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </>
                     ) : (
                       <button
-                        onClick={() => setEditingCard('intro')}
-                        className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30"
+                        onClick={() => handleStartEdit('intro')}
+                        className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
                       >
                         Edit
                       </button>
@@ -308,22 +797,28 @@ export const ProjectEditor: React.FC = () => {
                   </div>
                 </div>
 
-                {editingCard === 'intro' ? (
-                  <div className="space-y-3">
-                    <textarea
-                      rows={3}
-                      value={scriptData.introduction.hook}
-                      onChange={(e) => {
-                        const copy = { ...scriptData };
-                        copy.introduction.hook = e.target.value;
-                        setScriptData(copy);
-                      }}
-                      className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white resize-none"
-                    />
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] text-stone-500 uppercase tracking-wide font-bold mb-1">Visual Cue Keyword</label>
-                        <input
+                <AnimatePresence mode="wait">
+                  {editingCard === 'intro' ? (
+                    <motion.div
+                      key="edit-intro"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      transition={{ duration: 0.15 }}
+                      className="space-y-3"
+                    >
+                      <CustomTextarea
+                        rows={3}
+                        value={scriptData.introduction.hook}
+                        onChange={(e) => {
+                          const copy = { ...scriptData };
+                          copy.introduction.hook = e.target.value;
+                          setScriptData(copy);
+                        }}
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <CustomInput
+                          label="Visual Cue Keyword"
                           type="text"
                           value={scriptData.introduction.visual_cue}
                           onChange={(e) => {
@@ -331,62 +826,60 @@ export const ProjectEditor: React.FC = () => {
                             copy.introduction.visual_cue = e.target.value;
                             setScriptData(copy);
                           }}
-                          className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white"
                         />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-stone-500 uppercase tracking-wide font-bold mb-1">Visual Layer Type</label>
-                        <select
+                        <CustomSelect
+                          label="Visual Layer Type"
+                          options={VISUAL_TYPE_OPTIONS}
                           value={scriptData.introduction.visual_type}
-                          onChange={(e) => {
+                          onChange={(val) => {
                             const copy = { ...scriptData };
-                            copy.introduction.visual_type = e.target.value;
+                            copy.introduction.visual_type = val;
                             setScriptData(copy);
                           }}
-                          className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white"
-                        >
-                          <option value="scene">B-Roll Scene</option>
-                          <option value="image">Stock Image</option>
-                          <option value="portrait">Portrait</option>
-                          <option value="chart">Animated Chart</option>
-                          <option value="map">Vintage Map</option>
-                          <option value="document">Archival Document</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* LLM Rewrite sub-section */}
-                    <div className="border-t border-stone-800/80 pt-3 mt-2">
-                      <label className="block text-[9px] text-stone-400 uppercase tracking-wide font-bold mb-1">AI Prompt Rewrite</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="e.g., make it sound more suspenseful or dramatic..."
-                          value={rewritePrompt}
-                          onChange={(e) => setRewritePrompt(e.target.value)}
-                          className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-xs text-white"
                         />
-                        <button
-                          type="button"
-                          onClick={() => handleRewriteSection('introduction', 0)}
-                          disabled={rewritingType === 'introduction'}
-                          className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-1 rounded text-xs font-bold transition-all flex items-center gap-1"
-                        >
-                          {rewritingType === 'introduction' ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
-                        </button>
                       </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.introduction.hook}</p>
-                    <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
-                      <span>Layer: <strong className="text-stone-300 capitalize">{scriptData.introduction.visual_type}</strong></span>
-                      <span>Cue: <strong className="text-stone-300">{scriptData.introduction.visual_cue}</strong></span>
-                    </div>
-                  </div>
-                )}
-              </div>
+
+                      {/* LLM Rewrite sub-section */}
+                      <div className="border-t border-stone-800/80 pt-3 mt-2">
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1">
+                            <CustomInput
+                              label="AI Prompt Rewrite"
+                              type="text"
+                              placeholder="e.g., make it sound more suspenseful or dramatic..."
+                              value={rewritePrompt}
+                              onChange={(e) => setRewritePrompt(e.target.value)}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRewriteSection('introduction', 0)}
+                            disabled={rewritingType === 'introduction'}
+                            className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+                          >
+                            {rewritingType === 'introduction' ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="view-intro"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      transition={{ duration: 0.15 }}
+                      className="space-y-2"
+                    >
+                      <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.introduction.hook}</p>
+                      <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
+                        <span>Layer: <strong className="text-stone-300 capitalize">{scriptData.introduction.visual_type}</strong></span>
+                        <span>Cue: <strong className="text-stone-300">{scriptData.introduction.visual_cue}</strong></span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
 
               {/* Scenes Map */}
               {scriptData.scenes.map((scene: any, idx: number) => {
@@ -394,23 +887,41 @@ export const ProjectEditor: React.FC = () => {
                 const isEditing = editingCard === cardKey;
 
                 return (
-                  <div key={idx} className={`p-4 rounded-lg border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}>
+                  <motion.div
+                    key={idx}
+                    layout
+                    className={`p-4 rounded-lg border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+                  >
                     <div className="flex justify-between items-center mb-3">
                       <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">
                         Scene {idx + 1}: {scene.title}
                       </span>
                       <div className="flex gap-2">
                         {isEditing ? (
-                          <button
-                            onClick={() => handleSaveCard(cardKey, idx)}
-                            className="flex items-center gap-1 bg-amber-600 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold"
-                          >
-                            <VscSave /> Save
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleSaveCard(cardKey, idx)}
+                              disabled={savingCardKey !== null}
+                              className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
+                            >
+                              {savingCardKey === cardKey ? (
+                                <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
+                              ) : (
+                                <><VscSave /> Save</>
+                              )}
+                            </button>
+                            <button
+                              onClick={handleCancelEdit}
+                              disabled={savingCardKey !== null}
+                              className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </>
                         ) : (
                           <button
-                            onClick={() => setEditingCard(cardKey)}
-                            className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30"
+                            onClick={() => handleStartEdit(cardKey)}
+                            className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
                           >
                             Edit
                           </button>
@@ -418,22 +929,28 @@ export const ProjectEditor: React.FC = () => {
                       </div>
                     </div>
 
-                    {isEditing ? (
-                      <div className="space-y-3">
-                        <textarea
-                          rows={3}
-                          value={scene.narration}
-                          onChange={(e) => {
-                            const copy = { ...scriptData };
-                            copy.scenes[idx].narration = e.target.value;
-                            setScriptData(copy);
-                          }}
-                          className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white resize-none"
-                        />
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-[10px] text-stone-500 uppercase tracking-wide font-bold mb-1">Visual Cue Keyword</label>
-                            <input
+                    <AnimatePresence mode="wait">
+                      {isEditing ? (
+                        <motion.div
+                          key={`edit-scene-${idx}`}
+                          initial={{ opacity: 0, y: -8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 8 }}
+                          transition={{ duration: 0.15 }}
+                          className="space-y-3"
+                        >
+                          <CustomTextarea
+                            rows={3}
+                            value={scene.narration}
+                            onChange={(e) => {
+                              const copy = { ...scriptData };
+                              copy.scenes[idx].narration = e.target.value;
+                              setScriptData(copy);
+                            }}
+                          />
+                          <div className="grid grid-cols-2 gap-3">
+                            <CustomInput
+                              label="Visual Cue Keyword"
                               type="text"
                               value={scene.visual_cue}
                               onChange={(e) => {
@@ -441,81 +958,96 @@ export const ProjectEditor: React.FC = () => {
                                 copy.scenes[idx].visual_cue = e.target.value;
                                 setScriptData(copy);
                               }}
-                              className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white"
                             />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] text-stone-500 uppercase tracking-wide font-bold mb-1">Visual Layer Type</label>
-                            <select
+                            <CustomSelect
+                              label="Visual Layer Type"
+                              options={VISUAL_TYPE_OPTIONS}
                               value={scene.visual_type}
-                              onChange={(e) => {
+                              onChange={(val) => {
                                 const copy = { ...scriptData };
-                                copy.scenes[idx].visual_type = e.target.value;
+                                copy.scenes[idx].visual_type = val;
                                 setScriptData(copy);
                               }}
-                              className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white"
-                            >
-                              <option value="scene">B-Roll Scene</option>
-                              <option value="image">Stock Image</option>
-                              <option value="portrait">Portrait</option>
-                              <option value="chart">Animated Chart</option>
-                              <option value="map">Vintage Map</option>
-                              <option value="document">Archival Document</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* AI Rewrite controls */}
-                        <div className="border-t border-stone-800/80 pt-3 mt-2">
-                          <label className="block text-[9px] text-stone-400 uppercase tracking-wide font-bold mb-1">AI Prompt Rewrite</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              placeholder="e.g. rewrite this describing the ships blockading the port..."
-                              value={rewritePrompt}
-                              onChange={(e) => setRewritePrompt(e.target.value)}
-                              className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-xs text-white"
                             />
-                            <button
-                              type="button"
-                              onClick={() => handleRewriteSection('scenes', idx)}
-                              disabled={rewritingType === 'scenes' && rewritingIdx === idx}
-                              className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-1 rounded text-xs font-bold transition-all flex items-center gap-1"
-                            >
-                              {rewritingType === 'scenes' && rewritingIdx === idx ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
-                            </button>
                           </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <p className="text-xs text-stone-200 leading-relaxed font-sans">{scene.narration}</p>
-                        <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
-                          <span>Layer: <strong className="text-stone-300 capitalize">{scene.visual_type}</strong></span>
-                          <span>Cue: <strong className="text-stone-300">{scene.visual_cue}</strong></span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+
+                          {/* AI Rewrite controls */}
+                          <div className="border-t border-stone-800/80 pt-3 mt-2">
+                            <div className="flex items-end gap-2">
+                              <div className="flex-1">
+                                <CustomInput
+                                  label="AI Prompt Rewrite"
+                                  type="text"
+                                  placeholder="e.g. rewrite this describing the ships blockading the port..."
+                                  value={rewritePrompt}
+                                  onChange={(e) => setRewritePrompt(e.target.value)}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRewriteSection('scenes', idx)}
+                                disabled={rewritingType === 'scenes' && rewritingIdx === idx}
+                                className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+                              >
+                                {rewritingType === 'scenes' && rewritingIdx === idx ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key={`view-scene-${idx}`}
+                          initial={{ opacity: 0, y: -8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 8 }}
+                          transition={{ duration: 0.15 }}
+                          className="space-y-2"
+                        >
+                          <p className="text-xs text-stone-200 leading-relaxed font-sans">{scene.narration}</p>
+                          <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
+                            <span>Layer: <strong className="text-stone-300 capitalize">{scene.visual_type}</strong></span>
+                            <span>Cue: <strong className="text-stone-300">{scene.visual_cue}</strong></span>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
                 );
               })}
 
               {/* Conclusion Card */}
-              <div className={`p-4 rounded-lg border transition-all ${editingCard === 'conclusion' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}>
+              <motion.div
+                layout
+                className={`p-4 rounded-lg border transition-all ${editingCard === 'conclusion' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+              >
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">Final Conclusion</span>
                   <div className="flex gap-2">
                     {editingCard === 'conclusion' ? (
-                      <button
-                        onClick={() => handleSaveCard('conclusion')}
-                        className="flex items-center gap-1 bg-amber-600 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold"
-                      >
-                        <VscSave /> Save
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleSaveCard('conclusion')}
+                          disabled={savingCardKey !== null}
+                          className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
+                        >
+                          {savingCardKey === 'conclusion' ? (
+                            <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
+                          ) : (
+                            <><VscSave /> Save</>
+                          )}
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          disabled={savingCardKey !== null}
+                          className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </>
                     ) : (
                       <button
-                        onClick={() => setEditingCard('conclusion')}
-                        className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30"
+                        onClick={() => handleStartEdit('conclusion')}
+                        className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
                       >
                         Edit
                       </button>
@@ -523,11 +1055,18 @@ export const ProjectEditor: React.FC = () => {
                   </div>
                 </div>
 
-                {editingCard === 'conclusion' ? (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <label className="block text-[10px] text-stone-500 uppercase tracking-wide font-bold">Summary Text</label>
-                      <textarea
+                <AnimatePresence mode="wait">
+                  {editingCard === 'conclusion' ? (
+                    <motion.div
+                      key="edit-conclusion"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      transition={{ duration: 0.15 }}
+                      className="space-y-3"
+                    >
+                      <CustomTextarea
+                        label="Summary Text"
                         rows={2}
                         value={scriptData.conclusion.summary}
                         onChange={(e) => {
@@ -535,12 +1074,9 @@ export const ProjectEditor: React.FC = () => {
                           copy.conclusion.summary = e.target.value;
                           setScriptData(copy);
                         }}
-                        className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white resize-none"
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="block text-[10px] text-stone-500 uppercase tracking-wide font-bold">Call To Action (CTA)</label>
-                      <textarea
+                      <CustomTextarea
+                        label="Call To Action (CTA)"
                         rows={2}
                         value={scriptData.conclusion.cta}
                         onChange={(e) => {
@@ -548,13 +1084,10 @@ export const ProjectEditor: React.FC = () => {
                           copy.conclusion.cta = e.target.value;
                           setScriptData(copy);
                         }}
-                        className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white resize-none"
                       />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] text-stone-500 uppercase tracking-wide font-bold mb-1">Visual Cue Keyword</label>
-                        <input
+                      <div className="grid grid-cols-2 gap-3">
+                        <CustomInput
+                          label="Visual Cue Keyword"
                           type="text"
                           value={scriptData.conclusion.visual_cue}
                           onChange={(e) => {
@@ -562,63 +1095,61 @@ export const ProjectEditor: React.FC = () => {
                             copy.conclusion.visual_cue = e.target.value;
                             setScriptData(copy);
                           }}
-                          className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white"
                         />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-stone-500 uppercase tracking-wide font-bold mb-1">Visual Layer Type</label>
-                        <select
+                        <CustomSelect
+                          label="Visual Layer Type"
+                          options={VISUAL_TYPE_OPTIONS}
                           value={scriptData.conclusion.visual_type}
-                          onChange={(e) => {
+                          onChange={(val) => {
                             const copy = { ...scriptData };
-                            copy.conclusion.visual_type = e.target.value;
+                            copy.conclusion.visual_type = val;
                             setScriptData(copy);
                           }}
-                          className="w-full bg-stone-950 border border-stone-800 rounded p-2 text-xs text-white"
-                        >
-                          <option value="scene">B-Roll Scene</option>
-                          <option value="image">Stock Image</option>
-                          <option value="portrait">Portrait</option>
-                          <option value="chart">Animated Chart</option>
-                          <option value="map">Vintage Map</option>
-                          <option value="document">Archival Document</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* AI Rewrite controls */}
-                    <div className="border-t border-stone-800/80 pt-3 mt-2">
-                      <label className="block text-[9px] text-stone-400 uppercase tracking-wide font-bold mb-1">AI Prompt Rewrite</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="e.g. make the ending call to subscribe more witty..."
-                          value={rewritePrompt}
-                          onChange={(e) => setRewritePrompt(e.target.value)}
-                          className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-xs text-white"
                         />
-                        <button
-                          type="button"
-                          onClick={() => handleRewriteSection('conclusion', 0)}
-                          disabled={rewritingType === 'conclusion'}
-                          className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-1 rounded text-xs font-bold transition-all flex items-center gap-1"
-                        >
-                          {rewritingType === 'conclusion' ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
-                        </button>
                       </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.conclusion.summary}</p>
-                    <p className="text-xs text-amber-500 font-bold leading-relaxed font-sans">{scriptData.conclusion.cta}</p>
-                    <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
-                      <span>Layer: <strong className="text-stone-300 capitalize">{scriptData.conclusion.visual_type}</strong></span>
-                      <span>Cue: <strong className="text-stone-300">{scriptData.conclusion.visual_cue}</strong></span>
-                    </div>
-                  </div>
-                )}
-              </div>
+
+                      {/* AI Rewrite controls */}
+                      <div className="border-t border-stone-800/80 pt-3 mt-2">
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1">
+                            <CustomInput
+                              label="AI Prompt Rewrite"
+                              type="text"
+                              placeholder="e.g. make the ending call to subscribe more witty..."
+                              value={rewritePrompt}
+                              onChange={(e) => setRewritePrompt(e.target.value)}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRewriteSection('conclusion', 0)}
+                            disabled={rewritingType === 'conclusion'}
+                            className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+                          >
+                            {rewritingType === 'conclusion' ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="view-conclusion"
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      transition={{ duration: 0.15 }}
+                      className="space-y-2"
+                    >
+                      <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.conclusion.summary}</p>
+                      <p className="text-xs text-amber-500 font-bold leading-relaxed font-sans">{scriptData.conclusion.cta}</p>
+                      <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
+                        <span>Layer: <strong className="text-stone-300 capitalize">{scriptData.conclusion.visual_type}</strong></span>
+                        <span>Cue: <strong className="text-stone-300">{scriptData.conclusion.visual_cue}</strong></span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
 
             </div>
           )}

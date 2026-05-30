@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { projects, fetchProjects, deleteProject } = useAppStore();
+  const { projects, fetchProjects, deleteProject, addToast } = useAppStore();
 
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
@@ -40,10 +40,10 @@ export const Dashboard: React.FC = () => {
           // Redirect directly to the editor workspace
           navigate(`/editor/${res.project_id}`);
         } else {
-          alert("Error: " + (res.error || "Failed to create project"));
+          addToast("Error: " + (res.error || "Failed to create project"), 'error');
         }
       } else {
-        alert("Eel is not connected. Project creation is mocked.");
+        addToast("Eel is not connected. Project creation is mocked.", 'warning');
         setShowModal(false);
       }
     } catch (err) {

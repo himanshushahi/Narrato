@@ -145,3 +145,88 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
     progress_cb(100.0)
     logger.info("Asset gathering pipeline step completed.")
+
+
+def fetch_single_scene_asset(project_id, manifest_scene_index, visual_type, visual_cue):
+    """
+    Searches and downloads a visual asset from the internet for a single scene,
+    and updates the assets manifest file.
+    """
+    from backend.database.db import get_project, get_setting
+    from backend.core.config import get_storage_dir
+    
+    project = get_project(project_id)
+    if not project:
+        logger.error(f"Project not found: {project_id}")
+        return {"success": False, "error": "Project not found"}
+        
+    manifest_path = Path(project['assets_manifest_path'])
+    if not manifest_path.exists():
+        logger.error(f"Manifest not found: {manifest_path}")
+        return {"success": False, "error": "Manifest file not found"}
+        
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+        
+    if manifest_scene_index < 0 or manifest_scene_index >= len(manifest):
+        logger.error(f"Invalid scene index: {manifest_scene_index}")
+        return {"success": False, "error": "Invalid scene index"}
+        
+    segment = manifest[manifest_scene_index]
+    segment["visual_type"] = visual_type
+    segment["visual_cue"] = visual_cue
+    
+    project_dir = get_storage_dir() / project_id
+    assets_dir = project_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Clean up any existing downloaded asset files for this scene index
+    for existing_ext in (".mp4", ".jpg", ".png", ".jpeg"):
+        old_file = assets_dir / f"asset_{manifest_scene_index:03d}{existing_ext}"
+        if old_file.exists():
+            try:
+                old_file.unlink()
+            except Exception as e:
+                logger.warning(f"Could not delete old asset file {old_file}: {e}")
+                
+    # 2. Check if type requires internet download
+    # Only download asset if visual type is image, portrait or scene
+    if visual_type in ("scene", "portrait", "image"):
+        api_key = get_setting("pexels_api_key")
+        use_pexels = get_setting("use_pexels")
+        
+        if api_key and use_pexels:
+            logger.info(f"Single fetch: Searching Pexels for segment {manifest_scene_index}: '{visual_cue}' (type: {visual_type})")
+            
+            asset_url = None
+            ext = ".jpg"
+            
+            if visual_type == "scene":
+                asset_url = search_pexels_video(visual_cue, api_key)
+                ext = ".mp4"
+            
+            if not asset_url:
+                asset_url = search_pexels_photo(visual_cue, api_key)
+                ext = ".jpg"
+                
+            if asset_url:
+                dest_file = assets_dir / f"asset_{manifest_scene_index:03d}{ext}"
+                if download_asset(asset_url, dest_file):
+                    segment["visual_path"] = str(dest_file)
+                    logger.info(f"Saved single asset_{manifest_scene_index:03d}{ext} locally.")
+                else:
+                    segment["visual_path"] = ""
+            else:
+                segment["visual_path"] = ""
+        else:
+            segment["visual_path"] = ""
+    else:
+        # Programmatic visual types (map, chart, document) do not need Pexels
+        segment["visual_path"] = ""
+        
+    # Write back the updated manifest
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        
+    return {"success": True, "segment": segment}
+

@@ -409,3 +409,15 @@ def setup_bridge_callbacks():
         except Exception:
             pass
     global_queue_manager.register_progress_callback(safe_progress_update)
+
+
+@eel.expose
+def fetch_single_scene_asset(project_id, manifest_scene_index, visual_type, visual_cue):
+    logger.info(f"Bridge API: fetch_single_scene_asset index {manifest_scene_index} for project {project_id} (type: {visual_type})")
+    from backend.pipeline.assets import fetch_single_scene_asset as fetch_single
+    try:
+        return fetch_single(project_id, manifest_scene_index, visual_type, visual_cue)
+    except Exception as e:
+        logger.error(f"Failed to fetch single scene asset: {e}")
+        return {"success": False, "error": str(e)}
+
