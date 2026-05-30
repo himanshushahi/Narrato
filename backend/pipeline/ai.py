@@ -406,3 +406,86 @@ Target Scenes: Generate exactly {min_scenes} to {max_scenes} scenes.
     update_project(project_dict['id'], script_path=str(script_path))
     progress_cb(100.0)
     logger.info(f"Script generated successfully and saved to: {script_path}")
+
+def generate_chart_data(prompt):
+    """Generates JSON chart data using the configured LLM based on user prompt."""
+    logger.info(f"Generating chart data for prompt: '{prompt}'")
+    
+    llm_provider = get_setting("llm_provider") or "openai"
+    api_key = get_setting("openai_api_key")
+    base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
+    model = get_setting("openai_model") or "gpt-4o"
+
+    if not api_key:
+        return {"success": False, "error": "LLM API key is missing. Please configure it in settings."}
+
+    system_prompt = """You are an expert data analyst and researcher.
+Your task is to generate realistic, accurate, or highly plausible chart data based on the user's prompt.
+You must return your output strictly as a JSON object containing a "data" array. No markdown backticks, no explanations.
+
+CRITICAL JSON SCHEMA:
+{
+  "chart_type": "bar" or "line",
+  "title": "A short, punchy title for this chart (max 5 words)",
+  "data": [
+    { "label": "Short Label 1", "value": 100 },
+    { "label": "Short Label 2", "value": 250 }
+  ]
+}
+
+RULES:
+1. Provide between 4 and 15 data points.
+2. "label" must be short (e.g. Years, Names, Categories).
+3. "value" MUST be a number (integer or float). Do NOT use strings for values. Do NOT add commas or symbols like $ or %.
+4. Return ONLY valid JSON.
+"""
+
+    user_prompt = f"Generate chart data for this topic: '{prompt}'"
+
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    try:
+        if llm_provider == "nvidia":
+            data = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.7
+            }
+        else:
+            data = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.7,
+                "response_format": {"type": "json_object"}
+            }
+
+        response = requests.post(url, headers=headers, json=data, timeout=45)
+        response.raise_for_status()
+        res_data = response.json()
+        raw_content = res_data["choices"][0]["message"]["content"]
+        
+        parsed_json = clean_json_response(raw_content)
+        
+        # Ensure array exists
+        if "data" not in parsed_json or not isinstance(parsed_json["data"], list):
+            raise ValueError("LLM did not return a 'data' array.")
+            
+        return {
+            "success": True, 
+            "data": parsed_json["data"], 
+            "title": parsed_json.get("title", prompt.upper()[:30]),
+            "chart_type": parsed_json.get("chart_type", "bar")
+        }
+    except Exception as e:
+        logger.error(f"Failed to generate AI chart data: {e}")
+        return {"success": False, "error": str(e)}

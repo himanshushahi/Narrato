@@ -586,3 +586,9 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, visual_type, visu
         logger.error(f"Failed to fetch single scene asset: {e}")
         return {"success": False, "error": str(e)}
 
+@eel.expose
+def generate_chart_data_api(prompt):
+    """Exposes the AI data generator to the frontend."""
+    from backend.pipeline.ai import generate_chart_data
+    return generate_chart_data(prompt)
+

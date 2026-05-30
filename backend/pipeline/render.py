@@ -88,6 +88,11 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     abs_props_path = str(props_path.resolve()).replace('\\', '/')
     abs_output_path = str(output_mp4_path.resolve()).replace('\\', '/')
 
+    # Calculate exact duration
+    total_duration = sum(float(sc.get("duration") or 0.0) for sc in scenes)
+    total_frames = max(150, int(total_duration * 30))
+    frames_arg = f"--frames=0-{total_frames - 1}"
+
     # Command: run specific node with remotion-cli.js if available, otherwise fallback to npx
     node_exe = get_node_path()
     remotion_cli = frontend_dir / "node_modules" / "@remotion" / "cli" / "remotion-cli.js"
@@ -101,6 +106,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             "NitishRajputVideo",
             abs_output_path,
             f"--props={abs_props_path}",
+            frames_arg,
             "--log=info"
         ]
         logger.info(f"Executing Remotion command using bundled Node.js: {node_exe}")
@@ -113,6 +119,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             "NitishRajputVideo",
             abs_output_path,
             f"--props={abs_props_path}",
+            frames_arg,
             "--log=info"
         ]
         logger.info("Executing Remotion command using system npx")

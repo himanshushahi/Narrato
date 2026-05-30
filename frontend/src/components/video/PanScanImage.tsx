@@ -138,7 +138,8 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
     );
   }
 
-  const isVideo = src.toLowerCase().endsWith('.mp4') || src.toLowerCase().endsWith('.webm');
+  const cleanSrc = src.split('&t=')[0].split('?t=')[0];
+  const isVideo = cleanSrc.toLowerCase().includes('.mp4') || cleanSrc.toLowerCase().includes('.webm');
 
   return (
     <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>

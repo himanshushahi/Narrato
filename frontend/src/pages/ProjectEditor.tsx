@@ -7,7 +7,8 @@ import { CustomSelect } from '../components/ui/CustomSelect';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscPlay, VscFolderOpened, VscSave, VscFlame, VscArrowLeft, VscSparkle,
-  VscPulse, VscCheck, VscError, VscLoading, VscCircleFilled, VscWarning
+  VscPulse, VscCheck, VscError, VscLoading, VscCircleFilled, VscWarning,
+  VscCloudDownload
 } from 'react-icons/vsc';
 
 const VISUAL_TYPE_OPTIONS = [
@@ -31,77 +32,77 @@ const PIPELINE_STAGES = [
 const MapLocationsEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const locations = visualMeta?.locations || [];
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
-  
+
   const handleUpdate = (idx: number, field: string, val: string) => {
-     const newLocs = [...locations];
-     if (field === 'name') newLocs[idx].name = val;
-     if (field === 'lat') newLocs[idx].coord[0] = parseFloat(val) || 0;
-     if (field === 'lon') newLocs[idx].coord[1] = parseFloat(val) || 0;
-     onChange({ ...visualMeta, locations: newLocs });
+    const newLocs = [...locations];
+    if (field === 'name') newLocs[idx].name = val;
+    if (field === 'lat') newLocs[idx].coord[0] = parseFloat(val) || 0;
+    if (field === 'lon') newLocs[idx].coord[1] = parseFloat(val) || 0;
+    onChange({ ...visualMeta, locations: newLocs });
   };
-  
+
   const handleAdd = () => {
-     onChange({ ...visualMeta, locations: [...locations, { name: 'New Place', coord: [0, 0] }] });
+    onChange({ ...visualMeta, locations: [...locations, { name: 'New Place', coord: [0, 0] }] });
   };
 
   const handleRemove = (idx: number) => {
-     const newLocs = locations.filter((_: any, i: number) => i !== idx);
-     onChange({ ...visualMeta, locations: newLocs });
+    const newLocs = locations.filter((_: any, i: number) => i !== idx);
+    onChange({ ...visualMeta, locations: newLocs });
   };
 
   const handleAutoLocate = async (idx: number) => {
-      const name = locations[idx].name;
-      if (!name) return;
-      setLoadingIdx(idx);
-      try {
-         const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name)}&format=json&limit=1`);
-         const data = await res.json();
-         if (data && data.length > 0) {
-             const newLocs = [...locations];
-             newLocs[idx].coord[0] = parseFloat(data[0].lat);
-             newLocs[idx].coord[1] = parseFloat(data[0].lon);
-             onChange({ ...visualMeta, locations: newLocs });
-         } else {
-             alert(`Could not find coordinates for "${name}"`);
-         }
-      } catch (e) {
-         console.error(e);
-         alert("Failed to fetch coordinates.");
-      } finally {
-         setLoadingIdx(null);
+    const name = locations[idx].name;
+    if (!name) return;
+    setLoadingIdx(idx);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name)}&format=json&limit=1`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        const newLocs = [...locations];
+        newLocs[idx].coord[0] = parseFloat(data[0].lat);
+        newLocs[idx].coord[1] = parseFloat(data[0].lon);
+        onChange({ ...visualMeta, locations: newLocs });
+      } else {
+        alert(`Could not find coordinates for "${name}"`);
       }
+    } catch (e) {
+      console.error(e);
+      alert("Failed to fetch coordinates.");
+    } finally {
+      setLoadingIdx(null);
+    }
   };
 
   return (
     <div className="col-span-2 space-y-3 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
-       <div className="flex justify-between items-center text-xs">
-          <label className="text-stone-400 font-bold uppercase tracking-wider">Map Locations (Lat, Lon):</label>
-          <button type="button" onClick={handleAdd} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">
-             + Add Point
-          </button>
-       </div>
-       <div className="space-y-2">
-         {locations.map((loc: any, idx: number) => (
-            <div key={idx} className="flex gap-2 items-center">
-               <div className="flex w-1/3 relative">
-                 <input type="text" value={loc.name} onChange={e => handleUpdate(idx, 'name', e.target.value)} className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 pr-7 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Name" />
-                 <button 
-                   type="button" 
-                   onClick={() => handleAutoLocate(idx)} 
-                   disabled={loadingIdx === idx}
-                   className="absolute right-1 top-1 text-stone-400 hover:text-amber-400 disabled:opacity-50"
-                   title="Auto-Locate Coordinates"
-                 >
-                   {loadingIdx === idx ? <VscLoading className="animate-spin text-xs mt-0.5" /> : '📍'}
-                 </button>
-               </div>
-               <input type="number" step="any" value={loc.coord?.[0] || 0} onChange={e => handleUpdate(idx, 'lat', e.target.value)} className="w-1/4 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Lat" />
-               <input type="number" step="any" value={loc.coord?.[1] || 0} onChange={e => handleUpdate(idx, 'lon', e.target.value)} className="w-1/4 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Lon" />
-               <button type="button" onClick={() => handleRemove(idx)} className="text-red-400 hover:text-red-300 px-2 py-1 text-xs">✕</button>
+      <div className="flex justify-between items-center text-xs">
+        <label className="text-stone-400 font-bold uppercase tracking-wider">Map Locations (Lat, Lon):</label>
+        <button type="button" onClick={handleAdd} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">
+          + Add Point
+        </button>
+      </div>
+      <div className="space-y-2">
+        {locations.map((loc: any, idx: number) => (
+          <div key={idx} className="flex gap-2 items-center">
+            <div className="flex w-1/3 relative">
+              <input type="text" value={loc.name} onChange={e => handleUpdate(idx, 'name', e.target.value)} className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 pr-7 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Name" />
+              <button
+                type="button"
+                onClick={() => handleAutoLocate(idx)}
+                disabled={loadingIdx === idx}
+                className="absolute right-1 top-1 text-stone-400 hover:text-amber-400 disabled:opacity-50"
+                title="Auto-Locate Coordinates"
+              >
+                {loadingIdx === idx ? <VscLoading className="animate-spin text-xs mt-0.5" /> : '📍'}
+              </button>
             </div>
-         ))}
-         {locations.length === 0 && <p className="text-[10px] text-stone-500">No locations set.</p>}
-       </div>
+            <input type="number" step="any" value={loc.coord?.[0] || 0} onChange={e => handleUpdate(idx, 'lat', e.target.value)} className="w-1/4 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Lat" />
+            <input type="number" step="any" value={loc.coord?.[1] || 0} onChange={e => handleUpdate(idx, 'lon', e.target.value)} className="w-1/4 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Lon" />
+            <button type="button" onClick={() => handleRemove(idx)} className="text-red-400 hover:text-red-300 px-2 py-1 text-xs">✕</button>
+          </div>
+        ))}
+        {locations.length === 0 && <p className="text-[10px] text-stone-500">No locations set.</p>}
+      </div>
     </div>
   );
 };
@@ -340,7 +341,7 @@ export const ProjectEditor: React.FC = () => {
         }
       } else if (cardKey === 'conclusion') {
         if (scriptData.conclusion?.summary !== originalScriptData.conclusion?.summary ||
-            scriptData.conclusion?.cta !== originalScriptData.conclusion?.cta) {
+          scriptData.conclusion?.cta !== originalScriptData.conclusion?.cta) {
           narrationChanged = true;
         }
       } else if (index !== undefined && scriptData.scenes && originalScriptData.scenes) {
@@ -424,7 +425,7 @@ export const ProjectEditor: React.FC = () => {
 
       if (hasVisualChanges && manifestIndex !== -1) {
         const requiresFetch = ['scene', 'portrait', 'image', 'youtube'].includes(liveType);
-        
+
         if (requiresFetch) {
           const serviceName = liveType === 'youtube' ? 'YouTube' : 'Pexels';
           addToast(`Searching ${serviceName} and downloading new visual asset...`, "info");
@@ -556,10 +557,10 @@ export const ProjectEditor: React.FC = () => {
       const origMeta = manifestScene.visual_meta || {};
       const metaChanged = JSON.stringify(liveMeta) !== JSON.stringify(origMeta);
 
-      const resolvedVisualUrl = (cueChanged || typeChanged || metaChanged) 
-        ? '' 
+      const resolvedVisualUrl = (cueChanged || typeChanged || metaChanged)
+        ? ''
         : (manifestScene.visual_url ? `${manifestScene.visual_url}&t=${reloadKey}` : '');
-        
+
       const resolvedAudioUrl = manifestScene.audio_url ? `${manifestScene.audio_url}&t=${reloadKey}` : '';
 
       return {
@@ -739,10 +740,10 @@ export const ProjectEditor: React.FC = () => {
                             {/* Status badge: shown by default, fades out on hover */}
                             <div className="group-hover/stage:opacity-0 transition-opacity duration-200 flex items-center justify-end">
                               <span className={`text-[9px] font-mono font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border ${isCompleted ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/10' :
-                                  isRunning ? 'bg-amber-500/5 text-amber-400 border-amber-500/10 animate-pulse' :
-                                    isFailed ? 'bg-red-500/5 text-red-400 border-red-500/10' :
-                                      isPending ? 'bg-blue-500/5 text-blue-400 border-blue-500/10' :
-                                        'bg-stone-900 text-stone-600 border-stone-800/60'
+                                isRunning ? 'bg-amber-500/5 text-amber-400 border-amber-500/10 animate-pulse' :
+                                  isFailed ? 'bg-red-500/5 text-red-400 border-red-500/10' :
+                                    isPending ? 'bg-blue-500/5 text-blue-400 border-blue-500/10' :
+                                      'bg-stone-900 text-stone-600 border-stone-800/60'
                                 }`}>
                                 {isCompleted ? 'Done' :
                                   isRunning ? `${progress.toFixed(0)}%` :
@@ -768,10 +769,10 @@ export const ProjectEditor: React.FC = () => {
                           </>
                         ) : (
                           <span className={`text-[9px] font-mono font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border ${isCompleted ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/10' :
-                              isRunning ? 'bg-amber-500/5 text-amber-400 border-amber-500/10 animate-pulse' :
-                                isFailed ? 'bg-red-500/5 text-red-400 border-red-500/10' :
-                                  isPending ? 'bg-blue-500/5 text-blue-400 border-blue-500/10' :
-                                    'bg-stone-900 text-stone-600 border-stone-800/60'
+                            isRunning ? 'bg-amber-500/5 text-amber-400 border-amber-500/10 animate-pulse' :
+                              isFailed ? 'bg-red-500/5 text-red-400 border-red-500/10' :
+                                isPending ? 'bg-blue-500/5 text-blue-400 border-blue-500/10' :
+                                  'bg-stone-900 text-stone-600 border-stone-800/60'
                             }`}>
                             {isCompleted ? 'Done' :
                               isRunning ? `${progress.toFixed(0)}%` :
@@ -970,8 +971,8 @@ export const ProjectEditor: React.FC = () => {
                               <div className="flex justify-between items-center text-xs">
                                 <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
                                 <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                  {scriptData.introduction.visual_meta?.start_offset !== undefined 
-                                    ? scriptData.introduction.visual_meta.start_offset 
+                                  {scriptData.introduction.visual_meta?.start_offset !== undefined
+                                    ? scriptData.introduction.visual_meta.start_offset
                                     : 15}s
                                 </span>
                               </div>
@@ -980,8 +981,8 @@ export const ProjectEditor: React.FC = () => {
                                 min="0"
                                 max="120"
                                 step="1"
-                                value={scriptData.introduction.visual_meta?.start_offset !== undefined 
-                                  ? scriptData.introduction.visual_meta.start_offset 
+                                value={scriptData.introduction.visual_meta?.start_offset !== undefined
+                                  ? scriptData.introduction.visual_meta.start_offset
                                   : 15}
                                 onChange={(e) => {
                                   const copy = { ...scriptData };
@@ -1001,8 +1002,8 @@ export const ProjectEditor: React.FC = () => {
                               <div className="flex justify-between items-center text-xs">
                                 <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
                                 <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                  {scriptData.introduction.visual_meta?.duration !== undefined 
-                                    ? scriptData.introduction.visual_meta.duration 
+                                  {scriptData.introduction.visual_meta?.duration !== undefined
+                                    ? scriptData.introduction.visual_meta.duration
                                     : 15}s
                                 </span>
                               </div>
@@ -1011,8 +1012,8 @@ export const ProjectEditor: React.FC = () => {
                                 min="5"
                                 max="60"
                                 step="1"
-                                value={scriptData.introduction.visual_meta?.duration !== undefined 
-                                  ? scriptData.introduction.visual_meta.duration 
+                                value={scriptData.introduction.visual_meta?.duration !== undefined
+                                  ? scriptData.introduction.visual_meta.duration
                                   : 15}
                                 onChange={(e) => {
                                   const copy = { ...scriptData };
@@ -1029,13 +1030,23 @@ export const ProjectEditor: React.FC = () => {
                           </div>
                         )}
                         {scriptData.introduction.visual_type === 'map' && (
-                          <MapLocationsEditor 
-                            visualMeta={scriptData.introduction.visual_meta || {}} 
+                          <MapLocationsEditor
+                            visualMeta={scriptData.introduction.visual_meta || {}}
                             onChange={(newMeta) => {
-                                const copy = { ...scriptData };
-                                copy.introduction.visual_meta = newMeta;
-                                setScriptData(copy);
-                            }} 
+                              const copy = { ...scriptData };
+                              copy.introduction.visual_meta = newMeta;
+                              setScriptData(copy);
+                            }}
+                          />
+                        )}
+                        {scriptData.introduction.visual_type === 'chart' && (
+                          <ChartDataEditor
+                            visualMeta={scriptData.introduction.visual_meta || {}}
+                            onChange={(newMeta) => {
+                              const copy = { ...scriptData };
+                              copy.introduction.visual_meta = newMeta;
+                              setScriptData(copy);
+                            }}
                           />
                         )}
                       </div>
@@ -1177,8 +1188,8 @@ export const ProjectEditor: React.FC = () => {
                                   <div className="flex justify-between items-center text-xs">
                                     <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
                                     <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                      {scene.visual_meta?.start_offset !== undefined 
-                                        ? scene.visual_meta.start_offset 
+                                      {scene.visual_meta?.start_offset !== undefined
+                                        ? scene.visual_meta.start_offset
                                         : 15}s
                                     </span>
                                   </div>
@@ -1187,8 +1198,8 @@ export const ProjectEditor: React.FC = () => {
                                     min="0"
                                     max="120"
                                     step="1"
-                                    value={scene.visual_meta?.start_offset !== undefined 
-                                      ? scene.visual_meta.start_offset 
+                                    value={scene.visual_meta?.start_offset !== undefined
+                                      ? scene.visual_meta.start_offset
                                       : 15}
                                     onChange={(e) => {
                                       const copy = { ...scriptData };
@@ -1208,8 +1219,8 @@ export const ProjectEditor: React.FC = () => {
                                   <div className="flex justify-between items-center text-xs">
                                     <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
                                     <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                      {scene.visual_meta?.duration !== undefined 
-                                        ? scene.visual_meta.duration 
+                                      {scene.visual_meta?.duration !== undefined
+                                        ? scene.visual_meta.duration
                                         : 15}s
                                     </span>
                                   </div>
@@ -1218,8 +1229,8 @@ export const ProjectEditor: React.FC = () => {
                                     min="5"
                                     max="60"
                                     step="1"
-                                    value={scene.visual_meta?.duration !== undefined 
-                                      ? scene.visual_meta.duration 
+                                    value={scene.visual_meta?.duration !== undefined
+                                      ? scene.visual_meta.duration
                                       : 15}
                                     onChange={(e) => {
                                       const copy = { ...scriptData };
@@ -1236,14 +1247,25 @@ export const ProjectEditor: React.FC = () => {
                               </div>
                             )}
                             {scene.visual_type === 'map' && (
-                              <MapLocationsEditor 
-                                visualMeta={scene.visual_meta || {}} 
+                              <MapLocationsEditor
+                                visualMeta={scene.visual_meta || {}}
                                 onChange={(newMeta) => {
-                                    const copy = { ...scriptData };
-                                    if (!copy.scenes[idx]) return;
-                                    copy.scenes[idx].visual_meta = newMeta;
-                                    setScriptData(copy);
-                                }} 
+                                  const copy = { ...scriptData };
+                                  if (!copy.scenes[idx]) return;
+                                  copy.scenes[idx].visual_meta = newMeta;
+                                  setScriptData(copy);
+                                }}
+                              />
+                            )}
+                            {scene.visual_type === 'chart' && (
+                              <ChartDataEditor
+                                visualMeta={scene.visual_meta || {}}
+                                onChange={(newMeta) => {
+                                  const copy = { ...scriptData };
+                                  if (!copy.scenes[idx]) return;
+                                  copy.scenes[idx].visual_meta = newMeta;
+                                  setScriptData(copy);
+                                }}
                               />
                             )}
                           </div>
@@ -1390,8 +1412,8 @@ export const ProjectEditor: React.FC = () => {
                               <div className="flex justify-between items-center text-xs">
                                 <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
                                 <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                  {scriptData.conclusion.visual_meta?.start_offset !== undefined 
-                                    ? scriptData.conclusion.visual_meta.start_offset 
+                                  {scriptData.conclusion.visual_meta?.start_offset !== undefined
+                                    ? scriptData.conclusion.visual_meta.start_offset
                                     : 15}s
                                 </span>
                               </div>
@@ -1400,8 +1422,8 @@ export const ProjectEditor: React.FC = () => {
                                 min="0"
                                 max="120"
                                 step="1"
-                                value={scriptData.conclusion.visual_meta?.start_offset !== undefined 
-                                  ? scriptData.conclusion.visual_meta.start_offset 
+                                value={scriptData.conclusion.visual_meta?.start_offset !== undefined
+                                  ? scriptData.conclusion.visual_meta.start_offset
                                   : 15}
                                 onChange={(e) => {
                                   const copy = { ...scriptData };
@@ -1421,8 +1443,8 @@ export const ProjectEditor: React.FC = () => {
                               <div className="flex justify-between items-center text-xs">
                                 <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
                                 <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                  {scriptData.conclusion.visual_meta?.duration !== undefined 
-                                    ? scriptData.conclusion.visual_meta.duration 
+                                  {scriptData.conclusion.visual_meta?.duration !== undefined
+                                    ? scriptData.conclusion.visual_meta.duration
                                     : 15}s
                                 </span>
                               </div>
@@ -1431,8 +1453,8 @@ export const ProjectEditor: React.FC = () => {
                                 min="5"
                                 max="60"
                                 step="1"
-                                value={scriptData.conclusion.visual_meta?.duration !== undefined 
-                                  ? scriptData.conclusion.visual_meta.duration 
+                                value={scriptData.conclusion.visual_meta?.duration !== undefined
+                                  ? scriptData.conclusion.visual_meta.duration
                                   : 15}
                                 onChange={(e) => {
                                   const copy = { ...scriptData };
@@ -1449,13 +1471,13 @@ export const ProjectEditor: React.FC = () => {
                           </div>
                         )}
                         {scriptData.conclusion.visual_type === 'map' && (
-                          <MapLocationsEditor 
-                            visualMeta={scriptData.conclusion.visual_meta || {}} 
+                          <MapLocationsEditor
+                            visualMeta={scriptData.conclusion.visual_meta || {}}
                             onChange={(newMeta) => {
-                                const copy = { ...scriptData };
-                                copy.conclusion.visual_meta = newMeta;
-                                setScriptData(copy);
-                            }} 
+                              const copy = { ...scriptData };
+                              copy.conclusion.visual_meta = newMeta;
+                              setScriptData(copy);
+                            }}
                           />
                         )}
                       </div>
@@ -1512,4 +1534,116 @@ export const ProjectEditor: React.FC = () => {
     </div>
   );
 };
+
+const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
+  const [loading, setLoading] = useState(false);
+  const prompt = visualMeta?.chart_prompt || '';
+  const data = visualMeta?.data || [];
+
+  const handleFetch = async () => {
+    if (!prompt) return;
+    setLoading(true);
+    try {
+      if (window.eel) {
+        const res = await window.eel.generate_chart_data_api(prompt)();
+        if (res.success && res.data) {
+          onChange({
+            ...visualMeta,
+            data: res.data,
+            title: res.title || prompt.toUpperCase(),
+            chart_type: res.chart_type || 'bar',
+            chart_prompt: prompt
+          });
+        } else {
+          alert(`Failed to generate data: ${res.error}`);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error generating chart data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateDataRow = (index: number, field: 'label' | 'value', val: string) => {
+    const newData = [...data];
+    if (field === 'label') newData[index].label = val;
+    if (field === 'value') newData[index].value = parseFloat(val) || 0;
+    onChange({ ...visualMeta, data: newData });
+  };
+
+  const removeDataRow = (index: number) => {
+    const newData = data.filter((_: any, i: number) => i !== index);
+    onChange({ ...visualMeta, data: newData });
+  };
+
+  const addDataRow = () => {
+    const newData = [...data, { label: 'New', value: 0 }];
+    onChange({ ...visualMeta, data: newData });
+  };
+
+  return (
+    <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
+      <div>
+        <div className="flex justify-between items-center text-xs mb-2">
+          <label className="text-stone-400 font-bold uppercase tracking-wider">✨ AI Data Generator:</label>
+        </div>
+        <div className="flex gap-2 items-center">
+          <input
+            type="text"
+            value={prompt}
+            onChange={(e) => onChange({ ...visualMeta, chart_prompt: e.target.value })}
+            placeholder="e.g. Top 10 most populated countries in 2024"
+            className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+          />
+          <button
+            type="button"
+            onClick={handleFetch}
+            disabled={loading || !prompt}
+            className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-zinc-950 px-3 py-1.5 rounded text-[11px] font-bold shrink-0 transition-colors flex items-center gap-1"
+          >
+            {loading ? <VscLoading className="animate-spin text-xs" /> : <VscSparkle className="text-xs" />} Generate
+          </button>
+        </div>
+      </div>
+      
+      <div className="border-t border-stone-800 pt-3">
+        <div className="flex justify-between items-center text-xs mb-2">
+          <label className="text-stone-400 font-bold uppercase tracking-wider">Manual Editor:</label>
+          <button type="button" onClick={addDataRow} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">
+            + Add Row
+          </button>
+        </div>
+        {data.length > 0 ? (
+          <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+            {data.map((row: any, idx: number) => (
+              <div key={idx} className="flex gap-2 items-center">
+                <input 
+                  type="text" 
+                  value={row.label} 
+                  onChange={(e) => updateDataRow(idx, 'label', e.target.value)} 
+                  className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50" 
+                  placeholder="Label" 
+                />
+                <input 
+                  type="number" 
+                  step="any"
+                  value={row.value} 
+                  onChange={(e) => updateDataRow(idx, 'value', e.target.value)} 
+                  className="w-24 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50" 
+                  placeholder="Value" 
+                />
+                <button type="button" onClick={() => removeDataRow(idx)} className="text-red-400 hover:text-red-300 px-1.5 py-1 text-xs">✕</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] text-stone-500 italic">No data yet. Generate with AI or add manually.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default ProjectEditor;

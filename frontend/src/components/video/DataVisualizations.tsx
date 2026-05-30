@@ -24,17 +24,32 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
   const renderChart = () => {
     const chartType = meta.chart_type || 'bar';
     const rawData = meta.data || [
-      { label: 'A', value: 20 },
-      { label: 'B', value: 50 },
-      { label: 'C', value: 80 }
+      { label: 'Jan', value: 20 },
+      { label: 'Feb', value: 50 },
+      { label: 'Mar', value: 80 },
+      { label: 'Apr', value: 65 }
     ];
 
-    // Find max value for scaling
+    const chartWidth = 1400;
+    const chartHeight = 750;
+    const padding = { top: 180, right: 80, bottom: 80, left: 140 };
+    const innerWidth = chartWidth - padding.left - padding.right;
+    const innerHeight = chartHeight - padding.top - padding.bottom;
+
+    const formatValue = (val: number) => {
+      if (val >= 1000000) return `${(val / 1000000).toFixed(1)}M`;
+      if (val >= 1000) return `${(val / 1000).toFixed(1)}k`;
+      return Math.round(val);
+    };
+
     const maxVal = Math.max(...rawData.map((d: any) => d.value), 1);
-    const chartWidth = 900;
-    const chartHeight = 500;
-    const barWidth = 60;
-    const gap = 50;
+    
+    // Bar Width and Spacing
+    const barWidth = Math.min(100, (innerWidth / rawData.length) * 0.5);
+    const xStep = rawData.length > 1 ? innerWidth / (rawData.length - 1) : innerWidth;
+
+    // Cinematic zoom effect
+    const zoomScale = interpolate(frame, [0, durationInFrames], [1, 1.08]);
 
     return (
       <div style={{
@@ -44,100 +59,175 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        padding: 50
+        backgroundColor: '#1c1917',
+        position: 'relative',
+        overflow: 'hidden'
       }}>
-        {/* Chart Header */}
-        <h2 style={{
-          fontFamily: 'Montserrat, sans-serif',
-          fontWeight: 800,
-          fontSize: 48,
-          color: '#fbbf24',
-          marginBottom: 60,
-          textTransform: 'uppercase',
-          letterSpacing: 2
-        }}>
-          {meta.title || 'Statistical Overview'}
-        </h2>
-
-        {/* Chart Grid */}
+        {/* Background Vintage Vignette */}
         <div style={{
-          width: chartWidth,
-          height: chartHeight,
-          borderLeft: '4px solid #78716c',
-          borderBottom: '4px solid #78716c',
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'space-around',
-          paddingBottom: 4,
-          paddingLeft: 20
+            position: 'absolute',
+            inset: 0,
+            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
+            pointerEvents: 'none',
+            zIndex: 10
+        }} />
+
+        <div style={{
+            position: 'absolute',
+            width: chartWidth,
+            height: chartHeight,
+            transform: `scale(${zoomScale})`,
+            transformOrigin: 'center center'
         }}>
-          {rawData.map((item: any, i: number) => {
-            const pct = item.value / maxVal;
-            const targetHeight = pct * (chartHeight - 80);
-            const heightVal = targetHeight * animProgress; // Grow animation
+            {/* Chart Header */}
+            <h2 style={{
+              fontFamily: 'Montserrat, sans-serif',
+              fontWeight: 900,
+              fontSize: 56,
+              color: '#fef3c7',
+              textAlign: 'center',
+              textTransform: 'uppercase',
+              letterSpacing: 4,
+              textShadow: '0 4px 20px rgba(217, 119, 6, 0.5)',
+              margin: 0,
+              position: 'absolute',
+              top: 20,
+              width: '100%'
+            }}>
+              {meta.title || 'Statistical Overview'}
+            </h2>
 
-            return (
-              <div 
-                key={i} 
-                style={{ 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  alignItems: 'center',
-                  position: 'relative'
-                }}
-              >
-                {/* Bar Value text */}
-                <div style={{
-                  fontFamily: 'Montserrat, sans-serif',
-                  fontWeight: 700,
-                  fontSize: 24,
-                  color: '#e7e5e4',
-                  marginBottom: 10,
-                  opacity: animProgress
-                }}>
-                  {item.value}
-                </div>
+            <svg width={chartWidth} height={chartHeight} style={{ overflow: 'visible' }}>
+                <defs>
+                    <linearGradient id="barGradientFront" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#fbbf24" />
+                        <stop offset="100%" stopColor="#b45309" />
+                    </linearGradient>
+                    <linearGradient id="barGradientSide" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#d97706" />
+                        <stop offset="100%" stopColor="#78350f" />
+                    </linearGradient>
+                    <linearGradient id="barGradientTop" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#fde68a" />
+                        <stop offset="100%" stopColor="#f59e0b" />
+                    </linearGradient>
+                    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="12" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                </defs>
 
-                {/* Animated Column Bar */}
-                {chartType === 'bar' ? (
-                  <div style={{
-                    width: barWidth,
-                    height: heightVal,
-                    background: 'linear-gradient(to top, #7c2d12, #ea580c, #f97316)',
-                    borderRadius: '4px 4px 0 0',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)'
-                  }} />
-                ) : (
-                  // Line node connector
-                  <div style={{
-                    position: 'absolute',
-                    bottom: heightVal,
-                    width: 20,
-                    height: 20,
-                    borderRadius: '50%',
-                    backgroundColor: '#ea580c',
-                    border: '4px solid #fef3c7',
-                    boxShadow: '0 0 10px #ea580c'
-                  }} />
-                )}
+                <g transform={`translate(${padding.left}, ${padding.top})`}>
+                    {/* Y-Axis Grid Lines */}
+                    {[0, 0.25, 0.5, 0.75, 1].map((tick, i) => {
+                        const y = innerHeight - (innerHeight * tick);
+                        const val = maxVal * tick;
+                        const drawProgress = interpolate(frame - (i*4), [0, 25], [0, innerWidth], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+                        
+                        return (
+                            <g key={`grid-${i}`}>
+                                <line 
+                                    x1={0} y1={y} x2={drawProgress} y2={y} 
+                                    stroke="#44403c" strokeWidth="2" strokeDasharray="8 8"
+                                />
+                                <text 
+                                    x={-25} y={y + 8} 
+                                    fill="#a8a29e" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="end"
+                                    opacity={animProgress}
+                                >
+                                    {formatValue(val)}
+                                </text>
+                            </g>
+                        );
+                    })}
 
-                {/* Axis label */}
-                <div style={{
-                  fontFamily: 'Montserrat, sans-serif',
-                  fontWeight: 600,
-                  fontSize: 20,
-                  color: '#a8a29e',
-                  marginTop: 20,
-                  position: 'absolute',
-                  bottom: -45,
-                  whiteSpace: 'nowrap'
-                }}>
-                  {item.label}
-                </div>
-              </div>
-            );
-          })}
+                    {/* Chart Bars / Lines */}
+                    {chartType === 'line' ? (
+                        <g>
+                            {/* D3 Path String Generation Manually */}
+                            <path 
+                                d={`M ${rawData.map((d: any, i: number) => {
+                                    const x = i * xStep;
+                                    const y = innerHeight - ((d.value / maxVal) * innerHeight * animProgress);
+                                    return `${x},${y}`;
+                                }).join(' L ')}`}
+                                fill="none"
+                                stroke="#fbbf24"
+                                strokeWidth="8"
+                                filter="url(#glow)"
+                            />
+                            {/* Nodes */}
+                            {rawData.map((d: any, i: number) => {
+                                const x = i * xStep;
+                                const targetY = innerHeight - ((d.value / maxVal) * innerHeight);
+                                const y = innerHeight - ((d.value / maxVal) * innerHeight * animProgress);
+                                const nodeAnim = spring({ frame: frame - i * 4, fps: 30, config: { damping: 12 } });
+                                
+                                return (
+                                    <g key={`node-${i}`} transform={`translate(${x}, ${y})`} opacity={nodeAnim}>
+                                        <circle r={10} fill="#fffbeb" />
+                                        <circle r={20} fill="none" stroke="#fbbf24" strokeWidth="4" opacity="0.8" filter="url(#glow)" />
+                                        <text y={-30} fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="800" textAnchor="middle">
+                                            {formatValue(d.value * animProgress)}
+                                        </text>
+                                        <text y={targetY - y + 50} fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="middle">
+                                            {d.label}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+                        </g>
+                    ) : (
+                        // Faux 3D Bars
+                        <g>
+                            {rawData.map((d: any, i: number) => {
+                                const x = (innerWidth / rawData.length) * i + (innerWidth / rawData.length - barWidth) / 2;
+                                const targetH = (d.value / maxVal) * innerHeight;
+                                const h = targetH * animProgress;
+                                const y = innerHeight - h;
+                                const depth = 20; // 3D depth thickness
+
+                                return (
+                                    <g key={`bar-${i}`}>
+                                        {/* Side polygon for 3D effect */}
+                                        <polygon 
+                                            points={`${x+barWidth},${y} ${x+barWidth+depth},${y-depth} ${x+barWidth+depth},${innerHeight-depth} ${x+barWidth},${innerHeight}`}
+                                            fill="url(#barGradientSide)"
+                                        />
+                                        {/* Top polygon */}
+                                        <polygon 
+                                            points={`${x},${y} ${x+depth},${y-depth} ${x+barWidth+depth},${y-depth} ${x+barWidth},${y}`}
+                                            fill="url(#barGradientTop)"
+                                        />
+                                        {/* Front Face */}
+                                        <rect 
+                                            x={x} y={y} width={barWidth} height={h} 
+                                            fill="url(#barGradientFront)"
+                                            filter="url(#glow)"
+                                        />
+                                        
+                                        {/* Value Label */}
+                                        <text 
+                                            x={x + barWidth / 2} y={y - depth - 20} 
+                                            fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="900" textAnchor="middle"
+                                            opacity={animProgress}
+                                        >
+                                            {formatValue(d.value * animProgress)}
+                                        </text>
+                                        {/* X-Axis Label */}
+                                        <text 
+                                            x={x + barWidth / 2} y={innerHeight + 40} 
+                                            fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="middle"
+                                        >
+                                            {d.label}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+                        </g>
+                    )}
+                </g>
+            </svg>
         </div>
       </div>
     );

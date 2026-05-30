@@ -13,3 +13,4 @@ bottle>=0.13.4
 gevent>=26.4.0
 requests>=2.31.0
 pillow>=10.2.0
+yfinance>=0.2.0
