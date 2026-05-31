@@ -128,6 +128,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
     logger.info(f"Executing command in {frontend_dir}: {' '.join(cmd)}")
     
+    env = os.environ.copy()
+    env["NODE_OPTIONS"] = "--max-old-space-size=8192"
+    
     startupinfo = None
     if os.name == "nt":
         startupinfo = subprocess.STARTUPINFO()
@@ -142,13 +145,13 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         bufsize=1,
         universal_newlines=True,
         shell=True, # Need shell=True to execute npx successfully on Windows
-        startupinfo=startupinfo
+        startupinfo=startupinfo,
+        env=env
     )
 
-    # Regex to capture progress from Remotion output, e.g., "Rendering frame 24/600 (4%)"
-    # Or "Progress: 12%"
-    progress_regex = re.compile(r"(\d+)%")
-    frame_regex = re.compile(r"frame\s+(\d+)/(\d+)")
+    bundle_regex = re.compile(r"Bundling (\d+)%")
+    render_regex = re.compile(r"Rendered\s+(\d+)/(\d+)")
+    encode_regex = re.compile(r"Encoded\s+(\d+)/(\d+)")
 
     try:
         buffer = ""
@@ -176,20 +179,27 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                 if stripped:
                     logger.debug(f"[Remotion CLI]: {stripped}")
 
-                # Extract percentage progress
-                frame_match = frame_regex.search(line)
-                pct_match = progress_regex.search(line)
+                # Extract precise progress phases
+                bundle_match = bundle_regex.search(line)
+                render_match = render_regex.search(line)
+                encode_match = encode_regex.search(line)
                 
-                if frame_match:
-                    current_frame = int(frame_match.group(1))
-                    total_frames = int(frame_match.group(2))
-                    if total_frames > 0:
-                        pct = 10.0 + (current_frame / total_frames) * 89.0
-                        progress_cb(min(99.0, pct))
-                elif pct_match:
-                    pct_val = int(pct_match.group(1))
-                    pct = 10.0 + (pct_val / 100.0) * 89.0
+                if bundle_match:
+                    pct_val = int(bundle_match.group(1))
+                    pct = 10.0 + (pct_val / 100.0) * 20.0  # 10% to 30%
                     progress_cb(min(99.0, pct))
+                elif render_match:
+                    current = int(render_match.group(1))
+                    total = int(render_match.group(2))
+                    if total > 0:
+                        pct = 30.0 + (current / total) * 50.0 # 30% to 80%
+                        progress_cb(min(99.0, pct))
+                elif encode_match:
+                    current = int(encode_match.group(1))
+                    total = int(encode_match.group(2))
+                    if total > 0:
+                        pct = 80.0 + (current / total) * 19.0 # 80% to 99%
+                        progress_cb(min(99.0, pct))
             else:
                 buffer += char
 

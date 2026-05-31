@@ -168,8 +168,15 @@ class QueueManager:
                     logger.error(f"Error executing step {step} for project {project_id}: {e}", exc_info=True)
                     err_msg = str(e)
                     stack = traceback.format_exc()
-                    update_task(task_id, status='failed', progress=0.0, error_message=err_msg, message='Failed')
-                    self._broadcast_task_progress(project_id, step, 0.0, 'Failed', 'failed')
+                    
+                    # Don't reset progress to 0.0 on failure
+                    update_task(task_id, status='failed', error_message=err_msg, message=f'Failed: {err_msg[:50]}...')
+                    
+                    # Broadcast the last known progress instead of 0.0
+                    task_rec = get_task(task_id)
+                    cur_prog = task_rec['progress'] if task_rec else 0.0
+                    self._broadcast_task_progress(project_id, step, cur_prog, f'Failed: {err_msg[:50]}...', 'failed')
+                    
                     success = False
                     break
 
