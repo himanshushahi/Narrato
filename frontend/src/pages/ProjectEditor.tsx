@@ -14,11 +14,21 @@ import {
 const VISUAL_TYPE_OPTIONS = [
   { value: 'scene', label: 'B-Roll Scene' },
   { value: 'image', label: 'Stock Image' },
+  { value: 'parallax', label: '2.5D Parallax Photo' },
   { value: 'portrait', label: 'Portrait' },
   { value: 'chart', label: 'Animated Chart' },
   { value: 'map', label: 'Vintage Map' },
+  { value: 'network', label: 'Network Diagram (String Board)' },
   { value: 'document', label: 'Archival Document' },
   { value: 'youtube', label: 'YouTube Video' },
+];
+
+const TARGET_STAGE_OPTIONS = [
+  { value: 'render', label: 'Run Full Pipeline' },
+  { value: 'generate_script', label: 'Stop after: Scripting' },
+  { value: 'generate_voiceover', label: 'Stop after: Voiceover' },
+  { value: 'transcribe', label: 'Stop after: Transcription' },
+  { value: 'fetch_assets', label: 'Stop after: Visuals' },
 ];
 
 const PIPELINE_STAGES = [
@@ -28,6 +38,43 @@ const PIPELINE_STAGES = [
   { id: 'fetch_assets', title: 'Fetch Visual Assets', desc: 'Retrieving B-roll clips & images' },
   { id: 'render', title: 'Video Export (Remotion)', desc: 'Compiling frames to final MP4' }
 ];
+
+const getDefaultMetaForType = (type: string, existingMeta: any) => {
+  const meta: any = {};
+  
+  // Preserve existing lower third
+  if (existingMeta?.lower_third) {
+    meta.lower_third = { ...existingMeta.lower_third };
+  }
+
+  // Inject defaults based on type
+  if (type === 'chart') {
+    meta.chart_type = 'bar';
+    meta.data = [{ label: 'Category 1', value: 10 }];
+  } else if (type === 'map') {
+    meta.map_style = 'vintage';
+    meta.locations = [{ name: 'New Location', coord: [0, 0] }];
+  } else if (type === 'document') {
+    meta.headline = 'News';
+    meta.doc_text = 'Content...';
+    meta.highlight_text = '';
+    meta.source = 'Source';
+    meta.date = new Date().getFullYear().toString();
+  } else if (type === 'network') {
+    meta.nodes = [{ id: '1', label: 'Entity 1', type: 'person' }];
+    meta.edges = [];
+  } else if (type === 'youtube') {
+    meta.start_offset = 15;
+    meta.duration = 15;
+    meta.skip_intro = true;
+  } else if (type === 'portrait') {
+    meta.person_name = 'Historical Figure';
+  } else if (type === 'parallax') {
+    meta.foreground_url = '';
+  }
+
+  return meta;
+};
 
 const MapLocationsEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const locations = visualMeta?.locations || [];
@@ -119,6 +166,7 @@ export const ProjectEditor: React.FC = () => {
   const [loadingScript, setLoadingScript] = useState(false);
   const [editingCard, setEditingCard] = useState<string | null>(null); // 'intro', 'conclusion', or 'scene_i'
   const [rewritePrompt, setRewritePrompt] = useState('');
+  const [targetStage, setTargetStage] = useState('render');
   const [rewritingIdx, setRewritingIdx] = useState<number | null>(null);
   const [rewritingType, setRewritingType] = useState<string>('');
 
@@ -156,6 +204,30 @@ export const ProjectEditor: React.FC = () => {
       loadFiles(id!);
     }
   }, [queue.active, id, wasActive]);
+
+  const previousTasksRef = React.useRef(tasks);
+
+  useEffect(() => {
+    // Check if any critical tasks just completed to live-reload assets (Bug Fix)
+    const criticalSteps = ['generate_script', 'transcribe', 'fetch_assets'];
+    let shouldReload = false;
+
+    for (const step of criticalSteps) {
+      const prevStatus = previousTasksRef.current[step]?.status;
+      const currStatus = tasks[step]?.status;
+
+      if (prevStatus !== 'completed' && currStatus === 'completed') {
+        shouldReload = true;
+        break;
+      }
+    }
+
+    if (shouldReload && id) {
+      loadFiles(id);
+    }
+
+    previousTasksRef.current = tasks;
+  }, [tasks, id]);
 
   // Read generated JSON assets from Python server static bridges
   const loadFiles = async (projId: string) => {
@@ -209,7 +281,9 @@ export const ProjectEditor: React.FC = () => {
   const triggerFullPipeline = async () => {
     if (!id) return;
     setScriptChangedAlert(false);
-    const steps = ['generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets', 'render'];
+    const allSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets', 'render'];
+    const targetIdx = allSteps.indexOf(targetStage);
+    const steps = allSteps.slice(0, targetIdx + 1);
     await startPipeline(id, steps);
     loadFiles(id);
   };
@@ -872,14 +946,34 @@ export const ProjectEditor: React.FC = () => {
             </div>
           ) : !scriptData ? (
             <div className="py-20 text-center bg-stone-900/30 border border-stone-800 rounded-lg p-6">
-              <p className="text-stone-400">Pipeline assets have not been generated.</p>
-              <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto">Launch the generation pipeline above to call LLM scripting and synthesize voiceovers.</p>
-              <button
-                onClick={triggerFullPipeline}
-                className="mt-4 bg-amber-600 hover:bg-amber-700 text-zinc-950 px-4 py-2 rounded text-xs font-bold transition-all"
-              >
-                Launch Pipeline
-              </button>
+              {queue.active === selectedProject.id ? (
+                <>
+                  <VscLoading className="text-4xl text-amber-500 animate-spin mx-auto mb-4" />
+                  <p className="text-stone-300 font-bold">Generating Script & Assets...</p>
+                  <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto">Please wait while the AI writes the documentary script. This might take a minute.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-stone-400 font-bold">Pipeline assets have not been generated.</p>
+                  <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto mb-5">Launch the generation pipeline from the sidebar to call LLM scripting and synthesize voiceovers.</p>
+                  
+                  <div className="flex flex-col items-center gap-3">
+                    <CustomSelect 
+                      options={TARGET_STAGE_OPTIONS}
+                      value={targetStage}
+                      onChange={(val) => setTargetStage(val)}
+                      className="max-w-[240px] mx-auto w-full"
+                    />
+
+                    <button
+                      onClick={triggerFullPipeline}
+                      className="bg-amber-600 cursor-pointer hover:bg-amber-700 text-zinc-950 px-5 py-2.5 rounded text-xs font-bold transition-all shadow-md inline-flex justify-center items-center gap-2 max-w-[240px] w-full"
+                    >
+                      <VscPlay /> Launch Pipeline
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-6">
@@ -961,6 +1055,7 @@ export const ProjectEditor: React.FC = () => {
                           onChange={(val) => {
                             const copy = { ...scriptData };
                             copy.introduction.visual_type = val;
+                            copy.introduction.visual_meta = getDefaultMetaForType(val, copy.introduction.visual_meta);
                             setScriptData(copy);
                           }}
                         />
@@ -1049,6 +1144,34 @@ export const ProjectEditor: React.FC = () => {
                             }}
                           />
                         )}
+                        {scriptData.introduction.visual_type === 'document' && (
+                          <DocumentHighlightEditor
+                            visualMeta={scriptData.introduction.visual_meta || {}}
+                            onChange={(newMeta) => {
+                              const copy = { ...scriptData };
+                              copy.introduction.visual_meta = newMeta;
+                              setScriptData(copy);
+                            }}
+                          />
+                        )}
+                        {scriptData.introduction.visual_type === 'network' && (
+                          <NetworkDataEditor
+                            visualMeta={scriptData.introduction.visual_meta || {}}
+                            onChange={(newMeta) => {
+                              const copy = { ...scriptData };
+                              copy.introduction.visual_meta = newMeta;
+                              setScriptData(copy);
+                            }}
+                          />
+                        )}
+                        <LowerThirdEditor
+                          visualMeta={scriptData.introduction.visual_meta || {}}
+                          onChange={(newMeta) => {
+                            const copy = { ...scriptData };
+                            copy.introduction.visual_meta = newMeta;
+                            setScriptData(copy);
+                          }}
+                        />
                       </div>
 
                       {/* LLM Rewrite sub-section */}
@@ -1178,6 +1301,7 @@ export const ProjectEditor: React.FC = () => {
                               onChange={(val) => {
                                 const copy = { ...scriptData };
                                 copy.scenes[idx].visual_type = val;
+                                copy.scenes[idx].visual_meta = getDefaultMetaForType(val, copy.scenes[idx].visual_meta);
                                 setScriptData(copy);
                               }}
                             />
@@ -1268,6 +1392,37 @@ export const ProjectEditor: React.FC = () => {
                                 }}
                               />
                             )}
+                            {scene.visual_type === 'document' && (
+                              <DocumentHighlightEditor
+                                visualMeta={scene.visual_meta || {}}
+                                onChange={(newMeta) => {
+                                  const copy = { ...scriptData };
+                                  if (!copy.scenes[idx]) return;
+                                  copy.scenes[idx].visual_meta = newMeta;
+                                  setScriptData(copy);
+                                }}
+                              />
+                            )}
+                            {scene.visual_type === 'network' && (
+                              <NetworkDataEditor
+                                visualMeta={scene.visual_meta || {}}
+                                onChange={(newMeta) => {
+                                  const copy = { ...scriptData };
+                                  if (!copy.scenes[idx]) return;
+                                  copy.scenes[idx].visual_meta = newMeta;
+                                  setScriptData(copy);
+                                }}
+                              />
+                            )}
+                            <LowerThirdEditor
+                              visualMeta={scene.visual_meta || {}}
+                              onChange={(newMeta) => {
+                                const copy = { ...scriptData };
+                                if (!copy.scenes[idx]) return;
+                                copy.scenes[idx].visual_meta = newMeta;
+                                setScriptData(copy);
+                              }}
+                            />
                           </div>
 
                           {/* AI Rewrite controls */}
@@ -1402,6 +1557,7 @@ export const ProjectEditor: React.FC = () => {
                           onChange={(val) => {
                             const copy = { ...scriptData };
                             copy.conclusion.visual_type = val;
+                            copy.conclusion.visual_meta = getDefaultMetaForType(val, copy.conclusion.visual_meta);
                             setScriptData(copy);
                           }}
                         />
@@ -1480,6 +1636,44 @@ export const ProjectEditor: React.FC = () => {
                             }}
                           />
                         )}
+                        {scriptData.conclusion.visual_type === 'chart' && (
+                          <ChartDataEditor
+                            visualMeta={scriptData.conclusion.visual_meta || {}}
+                            onChange={(newMeta) => {
+                              const copy = { ...scriptData };
+                              copy.conclusion.visual_meta = newMeta;
+                              setScriptData(copy);
+                            }}
+                          />
+                        )}
+                        {scriptData.conclusion.visual_type === 'document' && (
+                          <DocumentHighlightEditor
+                            visualMeta={scriptData.conclusion.visual_meta || {}}
+                            onChange={(newMeta) => {
+                              const copy = { ...scriptData };
+                              copy.conclusion.visual_meta = newMeta;
+                              setScriptData(copy);
+                            }}
+                          />
+                        )}
+                        {scriptData.conclusion.visual_type === 'network' && (
+                          <NetworkDataEditor
+                            visualMeta={scriptData.conclusion.visual_meta || {}}
+                            onChange={(newMeta) => {
+                              const copy = { ...scriptData };
+                              copy.conclusion.visual_meta = newMeta;
+                              setScriptData(copy);
+                            }}
+                          />
+                        )}
+                        <LowerThirdEditor
+                          visualMeta={scriptData.conclusion.visual_meta || {}}
+                          onChange={(newMeta) => {
+                            const copy = { ...scriptData };
+                            copy.conclusion.visual_meta = newMeta;
+                            setScriptData(copy);
+                          }}
+                        />
                       </div>
 
                       {/* AI Rewrite controls */}
@@ -1531,6 +1725,66 @@ export const ProjectEditor: React.FC = () => {
 
       </div>
 
+    </div>
+  );
+};
+
+const LowerThirdEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
+  const lowerThird = visualMeta?.lower_third || { title: '', subtitle: '' };
+
+  const handleUpdate = (field: string, val: string) => {
+    if (!val && field === 'title') {
+      const copy = { ...visualMeta };
+      delete copy.lower_third;
+      onChange(copy);
+      return;
+    }
+    onChange({ ...visualMeta, lower_third: { ...lowerThird, [field]: val } });
+  };
+
+  return (
+    <div className="col-span-2 space-y-2 mt-2 bg-stone-900/40 p-3 rounded-lg border border-stone-800">
+      <div className="flex justify-between items-center text-xs mb-1">
+        <label className="text-stone-400 font-bold uppercase tracking-wider">Universal Lower Third:</label>
+      </div>
+      <div className="flex gap-2">
+        <input type="text" value={lowerThird.title} onChange={e => handleUpdate('title', e.target.value)} className="w-1/2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Title (e.g. Person Name)" />
+        <input type="text" value={lowerThird.subtitle} onChange={e => handleUpdate('subtitle', e.target.value)} className="w-1/2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Subtitle (e.g. Profession)" />
+      </div>
+    </div>
+  );
+};
+
+const DocumentHighlightEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
+  return (
+    <div className="col-span-2 space-y-2 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
+      <div className="flex justify-between items-center text-xs mb-1">
+        <label className="text-stone-400 font-bold uppercase tracking-wider">Document Highlight:</label>
+      </div>
+      <input type="text" value={visualMeta?.highlight_text || ''} onChange={e => onChange({ ...visualMeta, highlight_text: e.target.value })} className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Phrase to highlight with marker" />
+    </div>
+  );
+};
+
+const NetworkDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
+  const [jsonText, setJsonText] = useState(() => JSON.stringify({ nodes: visualMeta?.nodes || [], edges: visualMeta?.edges || [] }, null, 2));
+
+  const handleSave = () => {
+    try {
+      const parsed = JSON.parse(jsonText);
+      onChange({ ...visualMeta, nodes: parsed.nodes, edges: parsed.edges });
+    } catch (e) {
+      alert("Invalid JSON format");
+    }
+  };
+
+  return (
+    <div className="col-span-2 space-y-2 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
+      <div className="flex justify-between items-center text-xs mb-1">
+        <label className="text-stone-400 font-bold uppercase tracking-wider">Network Data (JSON):</label>
+        <button type="button" onClick={handleSave} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">Save JSON Data</button>
+      </div>
+      <textarea rows={6} value={jsonText} onChange={e => setJsonText(e.target.value)} className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50 font-mono" placeholder="{ nodes: [], edges: [] }" />
     </div>
   );
 };
@@ -1607,7 +1861,7 @@ const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: 
           </button>
         </div>
       </div>
-      
+
       <div className="border-t border-stone-800 pt-3">
         <div className="flex justify-between items-center text-xs mb-2">
           <label className="text-stone-400 font-bold uppercase tracking-wider">Manual Editor:</label>
@@ -1619,20 +1873,20 @@ const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: 
           <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
             {data.map((row: any, idx: number) => (
               <div key={idx} className="flex gap-2 items-center">
-                <input 
-                  type="text" 
-                  value={row.label} 
-                  onChange={(e) => updateDataRow(idx, 'label', e.target.value)} 
-                  className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50" 
-                  placeholder="Label" 
+                <input
+                  type="text"
+                  value={row.label}
+                  onChange={(e) => updateDataRow(idx, 'label', e.target.value)}
+                  className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+                  placeholder="Label"
                 />
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   step="any"
-                  value={row.value} 
-                  onChange={(e) => updateDataRow(idx, 'value', e.target.value)} 
-                  className="w-24 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50" 
-                  placeholder="Value" 
+                  value={row.value}
+                  onChange={(e) => updateDataRow(idx, 'value', e.target.value)}
+                  className="w-24 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+                  placeholder="Value"
                 />
                 <button type="button" onClick={() => removeDataRow(idx)} className="text-red-400 hover:text-red-300 px-1.5 py-1 text-xs">✕</button>
               </div>

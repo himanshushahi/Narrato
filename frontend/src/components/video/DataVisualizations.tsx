@@ -5,7 +5,7 @@ import * as topojson from 'topojson-client';
 import worldData from './world-110m.json';
 
 interface Props {
-  type: 'chart' | 'map' | 'document';
+  type: 'chart' | 'map' | 'document' | 'network';
   meta: any;
   durationInFrames: number;
 }
@@ -432,6 +432,19 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
     const today = new Date();
     const dateStr = meta.date || today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
+    // Handle highlighted text if specified
+    const highlightTarget = meta.highlight_text || '';
+    let beforeHighlight = text;
+    let highlightSegment = '';
+    let afterHighlight = '';
+
+    if (highlightTarget && text.includes(highlightTarget)) {
+      const parts = text.split(highlightTarget);
+      beforeHighlight = parts[0];
+      highlightSegment = highlightTarget;
+      afterHighlight = parts.slice(1).join(highlightTarget);
+    }
+
     return (
       <div style={{
         display: 'flex',
@@ -551,7 +564,28 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
               </span>
             )}
             
-            {text.slice(textProgress > 0 ? 1 : 0, textProgress)}
+            {/* Text rendering with optional highlight */}
+            {highlightSegment ? (
+              <>
+                {beforeHighlight.slice(textProgress > 0 ? 1 : 0, Math.max(0, textProgress))}
+                {textProgress > beforeHighlight.length && (
+                  <span style={{
+                    backgroundColor: 'rgba(251, 191, 36, 0.4)', // Amber highlighter
+                    padding: '0 4px',
+                    borderRadius: '2px',
+                    boxShadow: '0 0 10px rgba(251, 191, 36, 0.2)'
+                  }}>
+                    {highlightSegment.slice(0, Math.max(0, textProgress - beforeHighlight.length))}
+                  </span>
+                )}
+                {textProgress > beforeHighlight.length + highlightSegment.length && (
+                  afterHighlight.slice(0, Math.max(0, textProgress - beforeHighlight.length - highlightSegment.length))
+                )}
+              </>
+            ) : (
+              text.slice(textProgress > 0 ? 1 : 0, textProgress)
+            )}
+            
             <span style={{
               display: 'inline-block',
               width: 3,
@@ -575,8 +609,165 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
     );
   };
 
+  // Render Network / String Board
+  const renderNetwork = () => {
+    const nodes = meta.nodes || [
+      { id: '1', label: 'Company A', x: 400, y: 300, type: 'entity' },
+      { id: '2', label: 'Subject', x: 960, y: 540, type: 'person' },
+      { id: '3', label: 'Offshore', x: 1500, y: 300, type: 'entity' },
+      { id: '4', label: 'Bank', x: 960, y: 800, type: 'entity' }
+    ];
+    
+    const edges = meta.edges || [
+      { source: '1', target: '2' },
+      { source: '2', target: '3' },
+      { source: '3', target: '4' },
+      { source: '2', target: '4' }
+    ];
+
+    const zoomScale = interpolate(frame, [0, durationInFrames], [1, 1.1]);
+
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#1c1917',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          opacity: 0.1,
+          backgroundImage: 'radial-gradient(#ffffff 2px, transparent 2px)',
+          backgroundSize: '40px 40px'
+        }} />
+        
+        <div style={{
+          position: 'absolute',
+          width: 1920,
+          height: 1080,
+          transform: `scale(${zoomScale})`
+        }}>
+          {/* Draw Edges */}
+          <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
+            {edges.map((edge: any, i: number) => {
+              const sourceNode = nodes.find((n: any) => n.id === edge.source);
+              const targetNode = nodes.find((n: any) => n.id === edge.target);
+              if (!sourceNode || !targetNode) return null;
+
+              const dx = targetNode.x - sourceNode.x;
+              const dy = targetNode.y - sourceNode.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              const lineDraw = interpolate(
+                frame - i * 15,
+                [0, 30],
+                [dist, 0],
+                { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
+              );
+
+              return (
+                <line
+                  key={`edge-${i}`}
+                  x1={sourceNode.x}
+                  y1={sourceNode.y}
+                  x2={targetNode.x}
+                  y2={targetNode.y}
+                  stroke="#ef4444"
+                  strokeWidth="6"
+                  strokeDasharray={dist}
+                  strokeDashoffset={lineDraw}
+                  style={{ filter: 'drop-shadow(0px 5px 10px rgba(0,0,0,0.5))' }}
+                />
+              );
+            })}
+          </svg>
+
+          {/* Draw Nodes */}
+          {nodes.map((node: any, i: number) => {
+            const nodeScale = spring({
+              frame: frame - i * 10,
+              fps: 30,
+              config: { damping: 12, stiffness: 100 }
+            });
+
+            return (
+              <div
+                key={`node-${i}`}
+                style={{
+                  position: 'absolute',
+                  left: node.x,
+                  top: node.y,
+                  transform: `translate(-50%, -50%) scale(${nodeScale})`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center'
+                }}
+              >
+                <div style={{
+                  width: node.type === 'person' ? 140 : 100,
+                  height: node.type === 'person' ? 140 : 100,
+                  backgroundColor: '#f5f5f4',
+                  borderRadius: node.type === 'person' ? '50%' : '12px',
+                  border: '4px solid #44403c',
+                  boxShadow: '0 15px 25px rgba(0,0,0,0.8)',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  overflow: 'hidden'
+                }}>
+                  {node.image ? (
+                    <img src={node.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ fontSize: 40, color: '#1c1917' }}>{node.label.charAt(0)}</span>
+                  )}
+                </div>
+                {/* Pin */}
+                <div style={{
+                  position: 'absolute',
+                  top: -15,
+                  width: 20,
+                  height: 20,
+                  backgroundColor: '#ef4444',
+                  borderRadius: '50%',
+                  boxShadow: 'inset -2px -2px 6px rgba(0,0,0,0.4), 0 5px 10px rgba(0,0,0,0.6)'
+                }} />
+                
+                <div style={{
+                  marginTop: 15,
+                  backgroundColor: '#f5f5f4',
+                  padding: '5px 15px',
+                  borderRadius: 4,
+                  boxShadow: '0 5px 15px rgba(0,0,0,0.5)',
+                  fontFamily: 'Montserrat, sans-serif',
+                  fontWeight: 800,
+                  fontSize: 20,
+                  color: '#1c1917'
+                }}>
+                  {node.label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{
+            position: 'absolute',
+            inset: 0,
+            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
+            pointerEvents: 'none'
+        }} />
+      </div>
+    );
+  };
+
   // Router to specific visual renderer
   if (type === 'map') return renderMap();
   if (type === 'document') return renderDocument();
+  if (type === 'network') return renderNetwork();
   return renderChart();
 };

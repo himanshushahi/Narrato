@@ -245,18 +245,42 @@ export const KineticSubtitles: React.FC<Props> = ({
             <span
               key={i}
               style={{
-                fontFamily: 'Montserrat, sans-serif',
-                fontWeight: 900,
-                fontSize: 54,
-                color: color,
-                textTransform: 'uppercase',
-                textShadow: textShadow,
-                transform: `scale(${scale})`,
-                transition: 'color 0.08s ease-out',
+                position: 'relative',
                 display: 'inline-block'
               }}
             >
-              {wordObj.word.trim()}
+              {/* Highlighter Background */}
+              {isPast || isActive ? (
+                <span style={{
+                  position: 'absolute',
+                  left: -2,
+                  right: -2,
+                  bottom: 2,
+                  height: '40%',
+                  backgroundColor: 'rgba(251, 191, 36, 0.4)',
+                  transformOrigin: 'left center',
+                  transform: `scaleX(${isPast ? 1 : interpolate(activeFrames, [0, 5], [0, 1], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' })})`,
+                  zIndex: -1,
+                  borderRadius: 2
+                }} />
+              ) : null}
+              <span
+                style={{
+                  fontFamily: 'Montserrat, sans-serif',
+                  fontWeight: 900,
+                  fontSize: 54,
+                  color: color,
+                  textTransform: 'uppercase',
+                  textShadow: textShadow,
+                  transform: `scale(${scale})`,
+                  transition: 'color 0.08s ease-out',
+                  display: 'inline-block',
+                  position: 'relative',
+                  zIndex: 1
+                }}
+              >
+                {wordObj.word.trim()}
+              </span>
             </span>
           );
         })}

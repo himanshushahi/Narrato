@@ -31,7 +31,10 @@ def serve_media():
         
     dirname = os.path.dirname(file_path)
     filename = os.path.basename(file_path)
-    return bottle.static_file(filename, root=dirname)
+    response = bottle.static_file(filename, root=dirname)
+    # Prevent Chrome disk-cache issues during Remotion headless rendering
+    response.set_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+    return response
 
 def main():
     logger.info("Starting RenderFlow Studio...")

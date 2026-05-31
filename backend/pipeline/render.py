@@ -107,6 +107,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             abs_output_path,
             f"--props={abs_props_path}",
             frames_arg,
+            "--concurrency=1",
             "--log=info"
         ]
         logger.info(f"Executing Remotion command using bundled Node.js: {node_exe}")
@@ -120,6 +121,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             abs_output_path,
             f"--props={abs_props_path}",
             frames_arg,
+            "--concurrency=1",
             "--log=info"
         ]
         logger.info("Executing Remotion command using system npx")

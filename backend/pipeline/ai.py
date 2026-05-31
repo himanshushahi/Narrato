@@ -291,21 +291,25 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     # Speaking speed is ~150 words/min
     if duration_mode == "short":
         target_minutes = 2
-        min_scenes = 4
-        max_scenes = 6
+        min_scenes = 8
+        max_scenes = 12
+        sentence_rule = "Write narration in engaging sentences (25-35 words per scene) to keep visuals changing rapidly."
     elif duration_mode == "long":
         target_minutes = 10
-        min_scenes = 15
-        max_scenes = 20
+        min_scenes = 35
+        max_scenes = 45
+        sentence_rule = "Write detailed narration paragraphs (35-50 words per scene). Because this is a 10-minute video, you MUST generate at least 35 scenes so the visuals change every 15 seconds."
     else: # medium
         target_minutes = 5
-        min_scenes = 8
-        max_scenes = 11
+        min_scenes = 18
+        max_scenes = 24
+        sentence_rule = "Write engaging narration (30-40 words per scene) to fit dynamic 12-15 second visual edits."
 
     target_word_count = target_minutes * 150
 
     lang_instruction = f"""LANGUAGE RULES:
-- The spoken text (hook, narration, summary, cta) MUST be written in the requested language (code: '{language}'). If the language is not English, translate the spoken text to that language.
+- The spoken text (hook, narration, summary, cta) MUST be written in the native script of the requested language (code: '{language}'). 
+  For example, if the language is Hindi ('hi'), you MUST use the Devanagari script (e.g., 'भारत का इतिहास'). Do NOT use English alphabet transliterations (e.g., no 'Bharat ka itihas').
 - The 'title' field can be in the requested language.
 - CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH, regardless of the script language. This is used as a search keyword for media APIs which only understand English.
   Example: visual_cue = 'ancient Indian trading port with ships'
@@ -319,24 +323,44 @@ You must return your output strictly as a JSON object matching the provided JSON
 CRITICAL DIRECTIVES:
 1. Tone: Analytical, documentary-style, engaging, objective, and clear.
 2. Segmenting: Break the story down chronologically.
-3. Sentence Length: Write narration in short, punchy sentences (12-18 words each) so they can fit dynamic typography and quick edits.
-4. Visual Directives (visual_type & visual_meta):
-   - Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'youtube'.
-   - If 'chart': visual_meta must contain: {{ "chart_type": "bar"|"line", "data": [{{ "label": "X", "value": Y }}] }}.
-   - If 'map': visual_meta must contain: {{ "map_style": "vintage", "locations": [{{ "name": "City", "coord": [lat, lon] }}] }}. (Note: If describing a journey, conflict, or trade route, provide EXACTLY TWO locations in the array to automatically draw an animated travel line between them).
-   - If 'document': visual_meta must contain: {{ "headline": "Exact news headline", "doc_text": "Detailed newspaper excerpt matching the narration", "source": "Name of Publisher", "date": "Month DD, YYYY" }}.
-   - If 'portrait' (historical figure): visual_meta must contain: {{ "person_name": "Name" }}.
-   - If 'scene' (generic B-roll/image stock): visual_meta must contain: {{ "description": "Atmospheric details" }}.
-   - If 'youtube' (real historical event recordings, interviews, news footage, or real-world clips): visual_meta must contain: {{ "skip_intro": true }}. The exact YouTube search query MUST be placed cleanly in the 'visual_cue' field (do NOT prepend words like "youtube search query:").
+3. Narration Length: {sentence_rule}
+4. Visual Directives (`visual_type`, `visual_cue` & `visual_meta`):
+   You MUST select exactly one `visual_type` from the 8 available options. For each type, `visual_cue` and `visual_meta` must follow strict rules:
    
-5. STOCK MEDIA CUE OPTIMIZATION (Pexels / Stocks):
-   - When visual_type is 'scene' or 'portrait' or 'image' (which search stock photo/video directories like Pexels), the `visual_cue` keyword MUST be simple, clear, and concrete (e.g., 'crowded modern stock trading floor', 'worried businessman holding head', 'old vintage book opening'). Do NOT write long sentences, narrative descriptions, or abstract phrases. Use simple, direct nouns and adjectives.
-   
-6. REAL YOUTUBE MEDIA OPTIMIZATION (YouTube):
-   - Use 'youtube' visual_type ONLY when the segment requires actual, real-world footage, news reports, interviews, or historical documentary recordings that generic stock libraries cannot supply (e.g. '1992 Harshad Mehta news reporting archive', 'SpaceX Falcon Heavy launch original footage', 'Apollo 11 moon landing restored video'). The `visual_cue` should be a clean, targeted search query to find this exact clip on YouTube.
+   - 'scene' (B-roll), 'image' (Stock Image), 'parallax' (2.5D Photo), 'portrait':
+     -> `visual_cue`: MUST be a simple, concrete search keyword for Pexels/Stock media (e.g., "worried businessman", "ancient Indian port").
+     -> `visual_meta`: {{}} (Empty object. For 'portrait', you may optionally provide {{ "person_name": "Name" }}).
+     
+   - 'youtube' (YouTube Video):
+     -> `visual_cue`: MUST be a full sentence describing the exact YouTube search query (e.g., "Harshad Mehta 1992 news report").
+     -> `visual_meta`: MUST contain {{ "start_offset": 15, "duration": 15, "skip_intro": true }}.
 
-7. Word Count: The script must result in approximately {target_word_count} words of voiceover. Generate between {min_scenes} and {max_scenes} scenes in the scenes array to fit the target length.
-8. Structure Rule: Do NOT include a "Conclusion" or "Final Conclusion" as a scene within the 'scenes' array. The scenes array should only contain the main body of the documentary. The conclusion must strictly be placed in the separate 'conclusion' object defined by the schema.
+   - 'chart' (Animated Chart):
+     -> `visual_cue`: Description of the chart.
+     -> `visual_meta`: MUST contain {{ "chart_type": "bar"|"line", "data": [{{ "label": "X", "value": Y }}] }}.
+     
+   - 'map' (Vintage Map):
+     -> `visual_cue`: Description of the journey.
+     -> `visual_meta`: MUST contain {{ "map_style": "vintage", "locations": [{{ "name": "City", "coord": [lat, lon] }}] }}. Provide exactly two locations to animate a travel line.
+     
+   - 'document' (Archival Document):
+     -> `visual_cue`: MUST be a search query for fetching historical news from Google News.
+     -> `visual_meta`: MUST contain {{ "headline": "Exact news headline", "doc_text": "Detailed newspaper excerpt", "highlight_text": "Specific short phrase in doc_text to highlight with a marker", "source": "Publisher", "date": "Month DD, YYYY" }}.
+
+   - 'network' (Network Diagram):
+     -> `visual_cue`: Description of the relationship.
+     -> `visual_meta`: MUST contain {{ "nodes": [{{ "id": "1", "label": "Name", "type": "person"|"entity" }}], "edges": [{{ "source": "1", "target": "2" }}] }}.
+
+5. Universal Lower Thirds (Global Overlay):
+   - 'lower_third' is a GLOBAL property that can be used SIMULTANEOUSLY with ANY of the 8 `visual_type` options.
+   - It renders a sleek informational popup over the background visual.
+   - Format: To use it, simply inject it into the `visual_meta` object alongside any other required properties.
+   - Example (A map with a lower third): 
+     "visual_meta": {{ "map_style": "vintage", "locations": [...], "lower_third": {{ "title": "India", "subtitle": "1992" }} }}
+   - Use this sparingly to introduce people, places, or key dates.
+   
+6. Word Count: The script must result in approximately {target_word_count} words of voiceover. Generate between {min_scenes} and {max_scenes} scenes in the scenes array to fit the target length.
+7. Structure Rule: Do NOT include a "Conclusion" or "Final Conclusion" as a scene within the 'scenes' array. The scenes array should only contain the main body of the documentary. The conclusion must strictly be placed in the separate 'conclusion' object defined by the schema.
 
 JSON SCHEMA:
 {json.dumps(SCRIPT_JSON_SCHEMA, indent=2)}

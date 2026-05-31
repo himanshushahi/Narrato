@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { projects, fetchProjects, deleteProject, addToast } = useAppStore();
+  const { projects, fetchProjects, deleteProject, addToast, showConfirm } = useAppStore();
 
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
@@ -165,9 +165,11 @@ export const Dashboard: React.FC = () => {
                       </GlowButton>
                       <GlowButton
                         onClick={() => {
-                          if (confirm("Are you sure you want to delete this project and delete all compiled video files?")) {
-                            deleteProject(project.id);
-                          }
+                          showConfirm(
+                            "Delete Project?",
+                            "Are you sure you want to delete this project and delete all compiled video files?",
+                            () => deleteProject(project.id)
+                          );
                         }}
                         variant="danger"
                         size="sm"

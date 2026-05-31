@@ -89,6 +89,14 @@ export interface Toast {
   duration?: number;
 }
 
+export interface ConfirmState {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
 interface AppStore {
   projects: Project[];
   selectedProject: Project | null;
@@ -120,6 +128,9 @@ interface AppStore {
   updateYtdlp: () => Promise<void>;
   addToast: (message: string, type?: Toast['type'], duration?: number) => void;
   removeToast: (id: string) => void;
+  confirmState: ConfirmState;
+  showConfirm: (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => void;
+  closeConfirm: () => void;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -173,13 +184,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     error: ""
   },
   toasts: [],
+  confirmState: { isOpen: false, title: '', message: '', onConfirm: () => {}, onCancel: () => {} },
+  
+  showConfirm: (title, message, onConfirm, onCancel = () => {}) => 
+    set({ confirmState: { isOpen: true, title, message, onConfirm, onCancel } }),
+    
+  closeConfirm: () => 
+    set(state => ({ confirmState: { ...state.confirmState, isOpen: false } })),
 
   setProjects: (projects) => set({ projects }),
   setSelectedProject: (project) => set({ selectedProject: project }),
   setTasks: (tasks) => set({ tasks }),
   clearLogs: () => set({ logs: [] }),
   setSettings: (settings) => set({ settings }),
-  addToast: (message, type = 'info', duration = 4000) => {
+  addToast: (message, type = 'info', duration = 3000) => {
     const id = Math.random().toString(36).substring(2, 9);
     set((state) => ({ toasts: [...state.toasts, { id, message, type, duration }] }));
     
@@ -235,6 +253,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       if (get().selectedProject?.id === projectId) {
         set({ selectedProject: null, tasks: {} });
       }
+      get().addToast("Project deleted successfully.", "success");
     }
   },
 

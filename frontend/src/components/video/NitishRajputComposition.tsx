@@ -3,7 +3,10 @@ import { Sequence, Audio, useVideoConfig } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
 import { PanScanImage } from './PanScanImage';
+import { ParallaxImage } from './ParallaxImage';
 import { DataVisualizations } from './DataVisualizations';
+import { LowerThird } from './LowerThird';
+import { TransitionWrapper } from './TransitionWrapper';
 
 export interface Scene {
   index: number;
@@ -13,7 +16,7 @@ export interface Scene {
   audio_file: string;
   audio_url: string;
   duration: number;
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube';
+  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network';
   visual_cue: string;
   visual_url?: string;
   visual_meta?: any;
@@ -81,7 +84,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
     const url = scene.visual_url || '';
     const meta = scene.visual_meta || {};
 
-    if (type === 'chart' || type === 'map' || type === 'document') {
+    if (type === 'chart' || type === 'map' || type === 'document' || type === 'network') {
       return (
         <div style={{ width: '100%', height: '100%', position: 'relative' }}>
           {/* Base vintage texture under graphs/documents */}
@@ -93,6 +96,17 @@ export const NitishRajputComposition: React.FC<Props> = ({
           }} />
           <DataVisualizations type={type} meta={meta} durationInFrames={durationFrames} />
         </div>
+      );
+    }
+
+    if (type === 'parallax') {
+      return (
+        <ParallaxImage 
+          backgroundUrl={url}
+          foregroundUrl={meta.foreground_url}
+          cue={scene.visual_cue}
+          durationInFrames={durationFrames}
+        />
       );
     }
 
@@ -135,7 +149,9 @@ export const NitishRajputComposition: React.FC<Props> = ({
             from={currentOffset}
             durationInFrames={durationFrames}
           >
-            {renderSceneVisual(scene, durationFrames)}
+            <TransitionWrapper durationInFrames={durationFrames}>
+              {renderSceneVisual(scene, durationFrames)}
+            </TransitionWrapper>
             
             {/* Title watermark on upper corner */}
             <div style={{
@@ -154,6 +170,15 @@ export const NitishRajputComposition: React.FC<Props> = ({
             }}>
               {scene.title}
             </div>
+
+            {/* Lower Third overlay if requested in metadata */}
+            {scene.visual_meta?.lower_third && (
+              <LowerThird 
+                title={scene.visual_meta.lower_third.title}
+                subtitle={scene.visual_meta.lower_third.subtitle}
+                durationInFrames={durationFrames}
+              />
+            )}
           </Sequence>
         );
       })}
