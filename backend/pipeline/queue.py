@@ -4,7 +4,7 @@ import threading
 import traceback
 from backend.core.logger import logger
 from backend.database.db import (
-    get_project, update_project, create_task, update_task, get_project_tasks
+    get_project, update_project, create_task, update_task, get_project_tasks, get_task
 )
 
 class QueueManager:

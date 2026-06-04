@@ -61,7 +61,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "scenes": scenes,
         "transcription": transcript,
         "style": project_dict.get("style", "nitish_rajput"),
-        "language": project_dict.get("language", "hi")
+        "language": project_dict.get("language", "hi"),
+        "fps": int(get_setting("render_fps") or 30)
     }
 
     # Write props to a JSON file
@@ -88,9 +89,35 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     abs_props_path = str(props_path.resolve()).replace('\\', '/')
     abs_output_path = str(output_mp4_path.resolve()).replace('\\', '/')
 
+    # Fetch rendering settings
+    render_resolution = get_setting("render_resolution") or "1080p"
+    render_concurrency = get_setting("render_concurrency") or "logical"
+    render_fps = get_setting("render_fps") or "30"
+    render_crf = get_setting("render_crf") or "18"
+    render_codec = get_setting("render_codec") or "h264"
+    render_hardware = get_setting("render_hardware") or "cpu"
+    
+    # Map concurrency
+    if render_concurrency == "logical":
+        concurrency_arg = "100%"
+    elif render_concurrency == "physical":
+        concurrency_arg = "50%"
+    else:
+        concurrency_arg = render_concurrency
+    
+    # Map resolution to scale
+    scale_map = {
+        "720p": "0.6666666666666666",
+        "1080p": "1",
+        "1440p": "1.3333333333333333",
+        "4k": "2"
+    }
+    scale_arg = scale_map.get(render_resolution.lower(), "1")
+
     # Calculate exact duration
+    fps = int(render_fps)
     total_duration = sum(float(sc.get("duration") or 0.0) for sc in scenes)
-    total_frames = max(150, int(total_duration * 30))
+    total_frames = max(150, int(total_duration * fps))
     frames_arg = f"--frames=0-{total_frames - 1}"
 
     # Command: run specific node with remotion-cli.js if available, otherwise fallback to npx
@@ -107,9 +134,16 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             abs_output_path,
             f"--props={abs_props_path}",
             frames_arg,
-            "--concurrency=1",
+            f"--concurrency={concurrency_arg}",
+            f"--scale={scale_arg}",
+            f"--codec={render_codec}",
+            f"--crf={render_crf}",
             "--log=info"
         ]
+        
+        if render_hardware == "cuda":
+            cmd.append("--gl=angle")
+            
         logger.info(f"Executing Remotion command using bundled Node.js: {node_exe}")
     else:
         cmd = [
@@ -121,15 +155,25 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             abs_output_path,
             f"--props={abs_props_path}",
             frames_arg,
-            "--concurrency=1",
-            "--log=info"
+            f"--concurrency={concurrency_arg}",
+            f"--scale={scale_arg}",
+            f"--codec={render_codec}",
+            f"--crf={render_crf}",
+            "--log=info",
+            "--timeout=120000"
         ]
+        
+        if render_hardware == "cuda":
+            cmd.append("--gl=angle")
+            
         logger.info("Executing Remotion command using system npx")
 
     logger.info(f"Executing command in {frontend_dir}: {' '.join(cmd)}")
     
     env = os.environ.copy()
     env["NODE_OPTIONS"] = "--max-old-space-size=8192"
+    if render_hardware == "cuda":
+        env["REMOTION_CUDA_ENABLED"] = "1"
     
     startupinfo = None
     if os.name == "nt":
@@ -144,7 +188,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         text=True,
         bufsize=1,
         universal_newlines=True,
-        shell=True, # Need shell=True to execute npx successfully on Windows
+        shell=(cmd[0] == "npx"), # Need shell=True to execute npx successfully on Windows, but not node.exe
         startupinfo=startupinfo,
         env=env
     )
@@ -155,6 +199,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
     try:
         buffer = ""
+        last_output_lines = []
         while True:
             if cancel_event.is_set():
                 logger.warning("Render cancelled by user. Terminating Remotion process.")
@@ -177,13 +222,30 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
                 stripped = line.strip()
                 if stripped:
-                    logger.debug(f"[Remotion CLI]: {stripped}")
+                    # Extract precise progress phases
+                    bundle_match = bundle_regex.search(line)
+                    render_match = render_regex.search(line)
+                    encode_match = encode_regex.search(line)
+                    
+                    # Throttle spammy logs (only log every 100th frame or the final frame)
+                    skip_log = False
+                    if render_match:
+                        current = int(render_match.group(1))
+                        if current % 100 != 0 and current != int(render_match.group(2)):
+                            skip_log = True
+                    elif encode_match:
+                        current = int(encode_match.group(1))
+                        if current % 100 != 0 and current != int(encode_match.group(2)):
+                            skip_log = True
 
-                # Extract precise progress phases
-                bundle_match = bundle_regex.search(line)
-                render_match = render_regex.search(line)
-                encode_match = encode_regex.search(line)
-                
+                    if not skip_log:
+                        logger.info(f"[Remotion CLI]: {stripped}")
+                        
+                    # Always append to error output buffer in case it fails
+                    last_output_lines.append(stripped)
+                    if len(last_output_lines) > 20:
+                        last_output_lines.pop(0)
+                        
                 if bundle_match:
                     pct_val = int(bundle_match.group(1))
                     pct = 10.0 + (pct_val / 100.0) * 20.0  # 10% to 30%
@@ -206,7 +268,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         process.wait()
 
         if process.returncode != 0:
-            raise subprocess.CalledProcessError(process.returncode, cmd)
+            error_details = "\n".join(last_output_lines)
+            raise RuntimeError(f"Remotion render failed with exit code {process.returncode}.\nLast output:\n{error_details}")
 
     except Exception as e:
         if output_mp4_path.exists():
@@ -217,7 +280,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         raise e
 
     if not output_mp4_path.exists():
-        raise FileNotFoundError(f"Remotion compiler completed but output file was not found at: {output_mp4_path}")
+        error_details = "\n".join(last_output_lines)
+        raise FileNotFoundError(f"Remotion compiler completed but output file was not found at: {output_mp4_path}\nLast output before crash:\n{error_details}")
 
     update_project(project_dict['id'], video_path=str(output_mp4_path))
     progress_cb(100.0)

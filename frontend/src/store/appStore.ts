@@ -53,6 +53,12 @@ export interface Settings {
   use_youtube: boolean;
   youtube_download_duration: string;
   sfx_volume: string;
+  render_resolution: string;
+  render_concurrency: string;
+  render_fps: string;
+  render_crf: string;
+  render_codec: string;
+  render_hardware: string;
 }
 
 export interface QueueState {
@@ -162,7 +168,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     use_pexels: true,
     use_youtube: true,
     youtube_download_duration: "15",
-    sfx_volume: "0.20"
+    sfx_volume: "0.20",
+    render_resolution: "1080p",
+    render_concurrency: "logical",
+    render_fps: "30",
+    render_crf: "18",
+    render_codec: "h264",
+    render_hardware: "cpu"
   },
   kokoroDownload: {
     active: false,

@@ -23,15 +23,17 @@ export const RemotionRoot: React.FC = () => {
           language: 'hi'
         }}
         calculateMetadata={({ props }) => {
+          const fps = (props as any).fps || 30;
           const scenes = (props as any).scenes || [];
           const totalDuration = scenes.reduce(
             (sum: number, sc: any) => sum + (sc.duration || 0),
             0
           );
-          // At least 150 frames (5 sec) fallback, otherwise compute from total scene durations
-          const totalFrames = Math.max(150, Math.ceil(totalDuration * 30));
+          // At least 5 sec fallback, otherwise compute from total scene durations
+          const totalFrames = Math.max(fps * 5, Math.ceil(totalDuration * fps));
           return {
             durationInFrames: totalFrames,
+            fps: fps,
           };
         }}
       />

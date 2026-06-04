@@ -85,6 +85,7 @@ export const SettingsPage: React.FC = () => {
       const updated = { ...settings };
       if (!gpuAvailable) {
         updated.whisper_device = 'cpu';
+        updated.render_hardware = 'cpu';
       }
       return updated;
     });
@@ -247,6 +248,11 @@ export const SettingsPage: React.FC = () => {
     { id: 'cuda', label: 'GPU CUDA Engine', disabled: !gpuAvailable }
   ];
 
+  const renderHardwareTabs: Tab[] = [
+    { id: 'cpu', label: 'CPU (Software)' },
+    { id: 'cuda', label: 'GPU (CUDA NVENC)', disabled: !gpuAvailable }
+  ];
+
   const ttsEngineTabs: Tab[] = [
     { id: 'kokoro', label: 'Kokoro (Offline)' },
     { id: 'edge', label: 'Edge-TTS (Online)' }
@@ -297,6 +303,41 @@ export const SettingsPage: React.FC = () => {
   const filteredKokoroVoiceOptions = kokoroVoiceOptions.filter(opt =>
     appLanguage === 'hi' ? opt.value.startsWith('h') : !opt.value.startsWith('h')
   );
+
+  const renderResolutionOptions: SelectOption[] = [
+    { value: '720p', label: '720p (HD - Fast Render)' },
+    { value: '1080p', label: '1080p (FHD - Recommended)' },
+    { value: '1440p', label: '1440p (2K - High Quality)' },
+    { value: '4k', label: '4K (UHD - Slowest Render)' }
+  ];
+
+  const renderConcurrencyOptions: SelectOption[] = [
+    { value: '1', label: '1 Core (Slow & Stable)' },
+    { value: '2', label: '2 Cores' },
+    { value: '4', label: '4 Cores' },
+    { value: '8', label: '8 Cores' },
+    { value: 'logical', label: 'Max Logical Cores (Fastest)' },
+    { value: 'physical', label: 'Max Physical Cores (Recommended)' }
+  ];
+
+  const renderFpsOptions: SelectOption[] = [
+    { value: '24', label: '24 FPS (Cinematic)' },
+    { value: '30', label: '30 FPS (Standard)' },
+    { value: '60', label: '60 FPS (Smooth)' }
+  ];
+
+  const renderCodecOptions: SelectOption[] = [
+    { value: 'h264', label: 'H.264 (Universal - Recommended)' },
+    { value: 'h265', label: 'H.265 (Better Compression)' },
+    { value: 'vp8', label: 'VP8 (WebM)' },
+    { value: 'vp9', label: 'VP9 (WebM HQ)' }
+  ];
+
+  const renderCrfOptions: SelectOption[] = [
+    { value: '18', label: 'High Quality (CRF 18)' },
+    { value: '23', label: 'Medium Quality (CRF 23 - Default)' },
+    { value: '28', label: 'Lower Quality (CRF 28 - Smallest)' }
+  ];
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -809,6 +850,68 @@ export const SettingsPage: React.FC = () => {
                     {ytdlpInstalled ? 'Update yt-dlp to Latest' : 'Download yt-dlp'}
                   </GlowButton>
                 )}
+              </div>
+            </GlassCard>
+          </motion.div>
+
+          {/* Rendering Engine Settings */}
+          <motion.div variants={itemVariants}>
+            <GlassCard className="p-6 space-y-6">
+              <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
+                <VscPlay className="text-base text-[var(--color-accent-primary)]" />
+                Rendering Engine (Remotion)
+              </h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider mb-1.5">Processing Hardware</label>
+                  <AnimatedTabs
+                    tabs={renderHardwareTabs}
+                    activeTab={formData.render_hardware || 'cpu'}
+                    onChange={(id) => handleSelectChange('render_hardware', id)}
+                    layoutId="settings-render-hardware-tab"
+                  />
+                  {formData.render_hardware === 'cuda' && (
+                    <p className="mt-2 text-xs text-amber-200/80 bg-amber-950/20 border border-amber-800/30 p-2 rounded">
+                      Ensure your system supports NVENC. Using CUDA speeds up both frame rendering and video stitching.
+                    </p>
+                  )}
+                </div>
+                
+                <p className="text-xs text-stone-400">
+                  Configure output settings for your final video compilations. Higher resolutions and frame rates will significantly increase rendering times.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <CustomSelect
+                    label="Output Resolution"
+                    options={renderResolutionOptions}
+                    value={formData.render_resolution || '1080p'}
+                    onChange={(val) => handleSelectChange('render_resolution', val)}
+                  />
+                  <CustomSelect
+                    label="Frame Rate (FPS)"
+                    options={renderFpsOptions}
+                    value={formData.render_fps || '30'}
+                    onChange={(val) => handleSelectChange('render_fps', val)}
+                  />
+                  <CustomSelect
+                    label="CPU Concurrency"
+                    options={renderConcurrencyOptions}
+                    value={formData.render_concurrency || 'logical'}
+                    onChange={(val) => handleSelectChange('render_concurrency', val)}
+                  />
+                  <CustomSelect
+                    label="Video Codec"
+                    options={renderCodecOptions}
+                    value={formData.render_codec || 'h264'}
+                    onChange={(val) => handleSelectChange('render_codec', val)}
+                  />
+                  <CustomSelect
+                    label="Video Quality (CRF)"
+                    options={renderCrfOptions}
+                    value={formData.render_crf || '18'}
+                    onChange={(val) => handleSelectChange('render_crf', val)}
+                  />
+                </div>
               </div>
             </GlassCard>
           </motion.div>
