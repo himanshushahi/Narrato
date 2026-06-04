@@ -206,9 +206,10 @@ class QueueManager:
         proj_dir.mkdir(parents=True, exist_ok=True)
 
         def make_progress_callback(s):
-            def cb(pct):
+            def cb(pct, msg=None):
                 update_task(f"{project_id}_{s}", progress=pct)
-                self._broadcast_task_progress(project_id, s, pct, f"Processing... {pct:.0f}%", "running")
+                msg_str = msg if msg else f"Processing... {pct:.0f}%"
+                self._broadcast_task_progress(project_id, s, pct, msg_str, "running")
             return cb
 
         progress_cb = make_progress_callback(step)

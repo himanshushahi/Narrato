@@ -161,14 +161,14 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     if not check_whisper_assets(model_size):
         logger.info(f"Local Whisper model '{model_size}' missing. Fetching now...")
         def dl_cb(pct):
-            progress_cb(pct * 0.4) # first 40% of step is model download
+            progress_cb(pct * 0.4, f"Downloading Whisper model... {pct:.0f}%") # first 40% of step is model download
         download_whisper_model_files(model_size, dl_cb)
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
 
     # 2. Transcribe
-    progress_cb(45.0)
+    progress_cb(45.0, "Loading Whisper model...")
     model = get_whisper_model(model_size, device)
     
     logger.info("Starting audio transcription...")
@@ -210,7 +210,7 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
         if total_dur > 0:
             pct = 45.0 + (segment.end / total_dur) * 50.0
-            progress_cb(min(98.0, pct))
+            progress_cb(min(98.0, pct), f"Transcribing audio... {min(100.0, (segment.end / total_dur) * 100):.0f}%")
 
     result = {
         "language": info.language,
@@ -229,5 +229,5 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     export_vtt(segments, str(sub_dir / "subtitles.vtt"))
 
     update_project(project_dict['id'], transcription_path=str(json_path))
-    progress_cb(100.0)
+    progress_cb(100.0, "Transcription completed!")
     logger.info(f"Transcription completed. Output JSON: {json_path}")

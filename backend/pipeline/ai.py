@@ -377,7 +377,7 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     duration_mode = project_dict.get('duration_mode', 'medium')
     
     logger.info(f"Generating script for topic: '{topic}' (Lang: {language}, Dur: {duration_mode})")
-    progress_cb(5.0)
+    progress_cb(5.0, "Preparing to generate script...")
     
     # Check API key before starting
     api_key = get_setting("openai_api_key")
@@ -436,7 +436,7 @@ Universal Lower Thirds (Global Overlay):
 """
     
     # 1. Generate Outline
-    progress_cb(10.0)
+    progress_cb(10.0, "Generating video outline...")
     logger.info("Stage 1: Generating Outline...")
     outline_system_prompt = f"""You are a master YouTube Documentary Director.
 Your task is to outline a documentary.
@@ -451,7 +451,7 @@ Generate a {min_scenes} to {max_scenes} chapter outline."""
     outline_data = _call_llm_json(outline_system_prompt, outline_user_prompt, OUTLINE_JSON_SCHEMA, cancel_event)
     
     # 2. Generate Base (Intro & Conclusion)
-    progress_cb(20.0)
+    progress_cb(20.0, "Writing introduction & conclusion...")
     logger.info("Stage 2: Generating Intro & Conclusion...")
     base_system_prompt = f"""You are a master YouTube Documentary Scriptwriter.
 Write the introduction (hook) and the conclusion (summary and call to action) for this documentary based on the provided outline.
@@ -467,7 +467,7 @@ Write the introduction and conclusion."""
     base_data = _call_llm_json(base_system_prompt, base_user_prompt, BASE_SCRIPT_JSON_SCHEMA, cancel_event)
     
     # 3. Generate Scenes in Loop
-    progress_cb(30.0)
+    progress_cb(30.0, "Drafting scene narratives...")
     logger.info("Stage 3: Generating Scenes...")
     
     scenes_array = []
@@ -525,10 +525,10 @@ Write the narration and visual details for this scene."""
             
             completed += 1
             current_progress = 30.0 + (completed / total_chapters) * 60.0
-            progress_cb(current_progress)
+            progress_cb(current_progress, f"Drafting scene narratives... {completed}/{total_chapters}")
             
     scenes_array = [r for r in results if r is not None]
-    progress_cb(90.0)
+    progress_cb(90.0, "Assembling final script...")
     
     # 4. Assembly
     logger.info("Stage 4: Assembling Script...")
@@ -544,7 +544,7 @@ Write the narration and visual details for this scene."""
         json.dump(final_script, f, indent=2, ensure_ascii=False)
 
     update_project(project_dict['id'], script_path=str(script_path))
-    progress_cb(100.0)
+    progress_cb(100.0, "Script generation complete!")
     logger.info(f"Script generated successfully and saved to: {script_path}")
 
 

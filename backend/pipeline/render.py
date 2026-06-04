@@ -33,7 +33,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         raise FileNotFoundError(f"Narration track not found: {audio_path}")
 
     logger.info(f"Preparing Remotion compilation properties for project: {project_dict['name']}")
-    progress_cb(5.0)
+    progress_cb(5.0, "Preparing compilation properties...")
 
     # 1. Load manifests
     with open(manifest_path, "r", encoding="utf-8") as f:
@@ -71,7 +71,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         json.dump(props, f, indent=2, ensure_ascii=False)
 
     logger.info(f"Wrote render props to {props_path}")
-    progress_cb(10.0)
+    progress_cb(2.0, "Wrote render properties. Starting Remotion CLI...")
 
     # Define output paths
     exports_dir = get_exports_dir()
@@ -141,6 +141,14 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             "--log=info"
         ]
         
+        bin_dir = frontend_dir.parent / "bin"
+        ffmpeg_exe = bin_dir / "ffmpeg.exe"
+        ffprobe_exe = bin_dir / "ffprobe.exe"
+        if ffmpeg_exe.exists():
+            cmd.append(f"--ffmpeg-executable={ffmpeg_exe}")
+        if ffprobe_exe.exists():
+            cmd.append(f"--ffprobe-executable={ffprobe_exe}")
+        
         if render_hardware == "cuda":
             cmd.append("--gl=angle")
             
@@ -162,6 +170,14 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             "--log=info",
             "--timeout=120000"
         ]
+        
+        bin_dir = frontend_dir.parent / "bin"
+        ffmpeg_exe = bin_dir / "ffmpeg.exe"
+        ffprobe_exe = bin_dir / "ffprobe.exe"
+        if ffmpeg_exe.exists():
+            cmd.append(f"--ffmpeg-executable={ffmpeg_exe}")
+        if ffprobe_exe.exists():
+            cmd.append(f"--ffprobe-executable={ffprobe_exe}")
         
         if render_hardware == "cuda":
             cmd.append("--gl=angle")
@@ -248,20 +264,20 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                         
                 if bundle_match:
                     pct_val = int(bundle_match.group(1))
-                    pct = 10.0 + (pct_val / 100.0) * 20.0  # 10% to 30%
-                    progress_cb(min(99.0, pct))
+                    pct = 2.0 + (pct_val / 100.0) * 3.0  # 2% to 5%
+                    progress_cb(min(99.0, pct), f"Bundling App... {pct_val}%")
                 elif render_match:
                     current = int(render_match.group(1))
                     total = int(render_match.group(2))
                     if total > 0:
-                        pct = 30.0 + (current / total) * 50.0 # 30% to 80%
-                        progress_cb(min(99.0, pct))
+                        pct = 5.0 + (current / total) * 60.0 # 5% to 65%
+                        progress_cb(min(99.0, pct), f"Rendering Frame {current}/{total}")
                 elif encode_match:
                     current = int(encode_match.group(1))
                     total = int(encode_match.group(2))
                     if total > 0:
-                        pct = 80.0 + (current / total) * 19.0 # 80% to 99%
-                        progress_cb(min(99.0, pct))
+                        pct = 65.0 + (current / total) * 34.0 # 65% to 99%
+                        progress_cb(min(99.0, pct), f"Encoding Frame {current}/{total}")
             else:
                 buffer += char
 
@@ -284,5 +300,5 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         raise FileNotFoundError(f"Remotion compiler completed but output file was not found at: {output_mp4_path}\nLast output before crash:\n{error_details}")
 
     update_project(project_dict['id'], video_path=str(output_mp4_path))
-    progress_cb(100.0)
+    progress_cb(100.0, "Video compilation complete!")
     logger.info(f"Video compiled successfully! MP4 exported to: {output_mp4_path}")

@@ -269,7 +269,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             "visual_meta": visual_meta
         })
 
-        progress_cb(10.0 + (idx + 1) / total_sections * 70.0) # progress ranges 10% -> 80%
+        progress_cb(10.0 + (idx + 1) / total_sections * 70.0, f"Synthesizing voiceover... {idx + 1}/{total_sections}") # progress ranges 10% -> 80%
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
@@ -289,5 +289,5 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         assets_manifest_path=str(manifest_path) # Stores the video timeline details
     )
     
-    progress_cb(100.0)
+    progress_cb(100.0, "Voiceover generation complete!")
     logger.info(f"Voiceover generation completed. Merged track: {merged_audio_path}")

@@ -147,7 +147,8 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
         <Video 
           src={src} 
           style={transformStyle}
-          muted
+          muted={true}
+          volume={0}
           startFrom={0}
           loop
         />

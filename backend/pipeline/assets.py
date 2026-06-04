@@ -134,7 +134,7 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     assets_dir.mkdir(parents=True, exist_ok=True)
     
     total_segments = len(manifest)
-    progress_cb(10.0)
+    progress_cb(10.0, "Starting visual assets download...")
 
     # 1. Fetch visual assets for each scene
     for idx, segment in enumerate(manifest):
@@ -241,7 +241,7 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                     segment["visual_path"] = str(dest_file)
                     logger.info(f"Saved asset_{idx:03d}{ext} locally.")
                     
-        progress_cb(10.0 + (idx + 1) / total_segments * 70.0) # progress 10% -> 80%
+        progress_cb(10.0 + (idx + 1) / total_segments * 70.0, f"Downloading visual assets... {idx + 1}/{total_segments}") # progress 10% -> 80%
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
@@ -266,7 +266,7 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
-    progress_cb(100.0)
+    progress_cb(100.0, "Asset downloading complete!")
     logger.info("Asset gathering pipeline step completed.")
 
 
