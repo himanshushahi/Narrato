@@ -587,16 +587,20 @@ export const ProjectEditor: React.FC = () => {
   const handleResumeFromStage = async (stageId: string) => {
     if (!id || !canResumeFrom(stageId)) return;
 
-    const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
-    if (targetIdx === -1) return;
+    const startIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
+    if (startIdx === -1) return;
 
-    const stepsToRun = PIPELINE_STAGES.slice(targetIdx).map(s => s.id);
+    // Respect the targetStage selection
+    const endIdx = PIPELINE_STAGES.findIndex(s => s.id === targetStage);
+    const finalEndIdx = endIdx !== -1 && endIdx >= startIdx ? endIdx : PIPELINE_STAGES.length - 1;
+
+    const stepsToRun = PIPELINE_STAGES.slice(startIdx, finalEndIdx + 1).map(s => s.id);
 
     setScriptChangedAlert(false);
     try {
       const res = await startPipeline(id, stepsToRun);
       if (res.success) {
-        addToast(`Resumed pipeline from: ${PIPELINE_STAGES[targetIdx].title}`, 'success');
+        addToast(`Resumed pipeline from: ${PIPELINE_STAGES[startIdx].title}`, 'success');
       } else {
         addToast(res.error || "Failed to start pipeline", 'error');
       }
@@ -612,12 +616,25 @@ export const ProjectEditor: React.FC = () => {
 
     try {
       let res;
+      
+      const allSteps = PIPELINE_STAGES.map(s => s.id);
+      const endIdx = PIPELINE_STAGES.findIndex(s => s.id === targetStage);
+      const limitSteps = (steps: string[]) => {
+        if (endIdx === -1) return steps;
+        return steps.filter(step => allSteps.indexOf(step) <= endIdx);
+      };
+      
       if (scriptChangedAlert) {
-        res = await startPipeline(id, ['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+        res = await startPipeline(id, limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']));
       } else if (hasVisualEdits()) {
-        res = await startPipeline(id, ['fetch_assets', 'render']);
+        res = await startPipeline(id, limitSteps(['fetch_assets', 'render']));
       } else {
-        res = await resumePipeline(id);
+        // Find remaining steps
+        const completedSteps = new Set(Object.values(tasks).filter(t => t.status === 'completed').map(t => t.step));
+        let remainingSteps = allSteps.filter(s => !completedSteps.has(s));
+        if (remainingSteps.length === 0) remainingSteps = ['render'];
+        
+        res = await startPipeline(id, limitSteps(remainingSteps));
       }
 
       setScriptChangedAlert(false);
@@ -1086,23 +1103,60 @@ export const ProjectEditor: React.FC = () => {
                 </button>
               ) : (
                 <>
-                  <div className="flex items-center gap-3">
-                    {!selectedProject.script_path ? (
-                      <button
-                        onClick={triggerFullPipeline}
-                        className="w-full bg-gradient-to-r from-amber-600 to-orange-700 hover:from-amber-700 hover:to-orange-850 text-white py-2.5 rounded text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <VscFlame className="text-sm" /> Generate Video
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleResumePipeline}
-                        className="w-full bg-gradient-to-r from-amber-600 to-orange-700 hover:from-amber-700 hover:to-orange-850 text-white py-2.5 rounded text-xs font-extrabold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
-                        title="Intelligently resume pipeline compilation based on your edits"
-                      >
-                        <VscPlay className="text-sm" /> Resume Pipeline
-                      </button>
-                    )}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1.5 mb-2 px-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Target Stage (Run Until):</label>
+                        <span className="text-[9px] text-amber-500/80 font-mono">{PIPELINE_STAGES.find(s => s.id === targetStage)?.title || 'All'}</span>
+                      </div>
+                      <div className="flex gap-1 bg-stone-900/60 p-1 rounded-lg border border-stone-800 overflow-hidden">
+                        {PIPELINE_STAGES.map((stage, idx) => {
+                          const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === targetStage);
+                          const isSelected = idx <= targetIdx;
+                          const shortNames: Record<string, string> = {
+                            'generate_script': 'Script',
+                            'generate_voiceover': 'Voice',
+                            'transcribe': 'Sync',
+                            'fetch_assets': 'Visuals',
+                            'render': 'Export'
+                          };
+                          
+                          return (
+                            <button
+                              key={stage.id}
+                              type="button"
+                              onClick={() => setTargetStage(stage.id)}
+                              className={`flex-1 text-[9px] py-1.5 px-1 font-bold uppercase tracking-wider rounded transition-all duration-200 ${
+                                isSelected 
+                                  ? 'bg-amber-600 text-zinc-950 shadow-sm shadow-amber-900/20' 
+                                  : 'text-stone-500 hover:bg-stone-800 hover:text-stone-300 cursor-pointer'
+                              }`}
+                              title={`Stop after: ${stage.title}`}
+                            >
+                              {shortNames[stage.id] || stage.id}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {!selectedProject.script_path ? (
+                        <button
+                          onClick={triggerFullPipeline}
+                          className="w-full bg-gradient-to-r from-amber-600 to-orange-700 hover:from-amber-700 hover:to-orange-850 text-white py-2.5 rounded text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <VscFlame className="text-sm" /> Generate Video
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleResumePipeline}
+                          className="w-full bg-gradient-to-r from-amber-600 to-orange-700 hover:from-amber-700 hover:to-orange-850 text-white py-2.5 rounded text-xs font-extrabold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                          title="Intelligently resume pipeline compilation based on your edits"
+                        >
+                          <VscPlay className="text-sm" /> Resume Pipeline
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <p className="text-[10px] text-stone-500 text-center select-none leading-relaxed px-1">
@@ -1144,13 +1198,6 @@ export const ProjectEditor: React.FC = () => {
                   <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto mb-5">Launch the generation pipeline from the sidebar to call LLM scripting and synthesize voiceovers.</p>
                   
                   <div className="flex flex-col items-center gap-3">
-                    <CustomSelect 
-                      options={TARGET_STAGE_OPTIONS}
-                      value={targetStage}
-                      onChange={(val) => setTargetStage(val)}
-                      className="max-w-[240px] mx-auto w-full"
-                    />
-
                     <button
                       onClick={triggerFullPipeline}
                       className="bg-amber-600 cursor-pointer hover:bg-amber-700 text-zinc-950 px-5 py-2.5 rounded text-xs font-bold transition-all shadow-md inline-flex justify-center items-center gap-2 max-w-[240px] w-full"

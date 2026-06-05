@@ -225,6 +225,16 @@ def start_whisper_download(model_size):
     return {"status": "started"}
 
 @eel.expose
+def get_downloaded_whisper_models():
+    from backend.pipeline.transcribe import list_downloaded_whisper_models
+    return list_downloaded_whisper_models()
+
+@eel.expose
+def delete_whisper_model(safe_dir_name):
+    from backend.pipeline.transcribe import delete_whisper_model as _delete_model
+    return {"success": _delete_model(safe_dir_name)}
+
+@eel.expose
 def check_nvidia_gpu_available():
     import shutil
     if shutil.which("nvidia-smi") is not None:

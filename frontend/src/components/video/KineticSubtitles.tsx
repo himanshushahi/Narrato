@@ -39,13 +39,39 @@ function splitWordsIntoSentences(words: TranscriptionWord[]): SentenceGroup[] {
     // Also check if comma acts as a clause boundary (only if we have enough words for a reasonable chunk)
     const endsWithComma = trimmedWord.endsWith(',') && currentGroup.length >= 4;
 
-    const isLastWord = i === words.length - 1;
+    // Detect silence gaps
+    let hasLargeSilenceGap = false;
+    let hasSmallGap = false;
+    if (i < words.length - 1) {
+      const nextWord = words[i + 1];
+      const gap = nextWord.start - word.end;
+      if (gap > 1.2) {
+        hasLargeSilenceGap = true;
+      }
+      if (gap > 0.25) {
+        hasSmallGap = true; // Natural breathing pause
+      }
+    }
 
-    if (endsWithPunctuation || endsWithComma || isLastWord) {
+    const isLastWord = i === words.length - 1;
+    const isTooLong = currentGroup.length >= 10; // Hard limit to prevent massive blocks
+    const isNaturalBreak = currentGroup.length >= 5 && hasSmallGap; // Soft limit on pauses
+
+    if (endsWithPunctuation || endsWithComma || isLastWord || hasLargeSilenceGap || isTooLong || isNaturalBreak) {
       // Flush current group as a sentence
       if (currentGroup.length > 0) {
+        const sentenceDuration = currentGroup[currentGroup.length - 1].end - currentGroup[0].start;
+        const totalWordDuration = currentGroup.reduce((sum, w) => sum + (w.end - w.start), 0);
+        const avgWordDuration = totalWordDuration / currentGroup.length;
+        
+        let isValidTimings = true;
+        // If a "word" takes > 3.0 seconds on average, it's likely a whole phrase lumped together
+        if (avgWordDuration > 3.0) isValidTimings = false;
+        // If the spoken words account for less than 15% of the sentence duration, it's probably hallucinated gaps
+        if (sentenceDuration > 2.0 && totalWordDuration / sentenceDuration < 0.15) isValidTimings = false;
+
         sentences.push({
-          words: [...currentGroup],
+          words: isValidTimings ? [...currentGroup] : [],
           startTime: currentGroup[0].start,
           endTime: currentGroup[currentGroup.length - 1].end,
           text: currentGroup.map(w => w.word.trim()).join(' ')
@@ -74,8 +100,18 @@ function splitWordsIntoSentences(words: TranscriptionWord[]): SentenceGroup[] {
  */
 function splitTextIntoTimedSentences(text: string, start: number, end: number): SentenceGroup[] {
   // Split on sentence-ending punctuation, keeping the delimiter
-  const rawParts = text.split(/(?<=[।\.\|\?\!\,])\s*/);
-  const parts = rawParts.filter(p => p.trim().length > 0);
+  let rawParts = text.split(/(?<=[।\.\|\?\!\,])\s*/);
+  let parts = rawParts.filter(p => p.trim().length > 0);
+
+  // If there's no punctuation and the text is very long, artificially split it into chunks of ~6-8 words
+  if (parts.length === 1 && parts[0].split(' ').length > 10) {
+    const words = parts[0].split(' ');
+    const chunkedParts = [];
+    for (let i = 0; i < words.length; i += 8) {
+      chunkedParts.push(words.slice(i, i + 8).join(' '));
+    }
+    parts = chunkedParts;
+  }
 
   if (parts.length === 0) return [];
 
@@ -122,6 +158,13 @@ export const KineticSubtitles: React.FC<Props> = ({
         sentences.push(...groups);
       }
     }
+
+    // Post-process to eliminate gaps and overlaps between sentences globally
+    for (let j = 0; j < sentences.length - 1; j++) {
+      // Force the current sentence to end exactly when the next sentence begins
+      sentences[j].endTime = sentences[j + 1].startTime;
+    }
+
     return sentences;
   }, [transcription]);
 
@@ -213,9 +256,13 @@ export const KineticSubtitles: React.FC<Props> = ({
         maxWidth: 1200
       }}>
         {words.map((wordObj, i) => {
-          const isActive = currentTime >= wordObj.start && currentTime <= wordObj.end;
+          const nextWord = words[i + 1];
+          // Extend this word's highlight until the next word starts to eliminate gaps
+          const effectiveEnd = nextWord ? nextWord.start : activeSentence.endTime;
+          
+          const isActive = currentTime >= wordObj.start && currentTime < effectiveEnd;
           // Word is "past" if current time has moved beyond it
-          const isPast = currentTime > wordObj.end;
+          const isPast = currentTime >= effectiveEnd;
           
           // Calculate frames elapsed since this word became active
           const wordStartFrame = Math.floor(wordObj.start * fps);

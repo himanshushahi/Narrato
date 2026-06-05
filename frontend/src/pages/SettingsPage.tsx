@@ -9,7 +9,7 @@ import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
 import { motion } from 'framer-motion';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
-  VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened
+  VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
 } from 'react-icons/vsc';
 import { MdOutlineMovie } from 'react-icons/md';
 
@@ -22,6 +22,11 @@ export const SettingsPage: React.FC = () => {
   const downloadKokoro = useAppStore((state) => state.downloadKokoro);
   const whisperDownload = useAppStore((state) => state.whisperDownload);
   const downloadWhisper = useAppStore((state) => state.downloadWhisper);
+  const downloadedWhisperModels = useAppStore((state) => state.downloadedWhisperModels);
+  const fetchDownloadedWhisperModels = useAppStore((state) => state.fetchDownloadedWhisperModels);
+  const deleteWhisperModel = useAppStore((state) => state.deleteWhisperModel);
+  const showConfirm = useAppStore((state) => state.showConfirm);
+  const closeConfirm = useAppStore((state) => state.closeConfirm);
   const ytdlpUpdate = useAppStore((state) => state.ytdlpUpdate);
   const updateYtdlp = useAppStore((state) => state.updateYtdlp);
 
@@ -47,7 +52,8 @@ export const SettingsPage: React.FC = () => {
   // Fetch settings on load
   useEffect(() => {
     fetchSettings();
-  }, [fetchSettings]);
+    fetchDownloadedWhisperModels();
+  }, [fetchSettings, fetchDownloadedWhisperModels]);
 
   // Detect GPU availability on load
   useEffect(() => {
@@ -81,18 +87,25 @@ export const SettingsPage: React.FC = () => {
 
   // Sync settings when loaded
   useEffect(() => {
+    const isHindi = (settings.tts_voice?.startsWith('hi-') || settings.kokoro_voice?.startsWith('h'));
+    setAppLanguage(isHindi ? 'hi' : 'en');
+
     setFormData((prev) => {
       const updated = { ...settings };
       if (!gpuAvailable) {
         updated.whisper_device = 'cpu';
         updated.render_hardware = 'cpu';
       }
+
+      // Smart default: Upgrade legacy 'small' or 'base' to the Hindi model if the app is in Hindi
+      if (isHindi && (updated.whisper_model === 'small' || updated.whisper_model === 'base')) {
+        updated.whisper_model = 'collabora/faster-whisper-small-hindi';
+      } else if (!isHindi && updated.whisper_model === 'collabora/faster-whisper-small-hindi') {
+        updated.whisper_model = 'base';
+      }
+
       return updated;
     });
-
-    // Detect language from default voices
-    const isHindi = (settings.tts_voice?.startsWith('hi-') || settings.kokoro_voice?.startsWith('h'));
-    setAppLanguage(isHindi ? 'hi' : 'en');
   }, [settings, gpuAvailable]);
 
   // Sync preview text language
@@ -147,9 +160,11 @@ export const SettingsPage: React.FC = () => {
         if (lang === 'hi') {
           updated.tts_voice = 'hi-IN-SwaraNeural';
           updated.kokoro_voice = 'hf_alpha';
+          updated.whisper_model = 'collabora/faster-whisper-small-hindi';
         } else {
           updated.tts_voice = 'en-US-AndrewNeural';
           updated.kokoro_voice = 'af_bella';
+          updated.whisper_model = 'base';
         }
       }
       if (name === 'llm_provider') {
@@ -262,6 +277,7 @@ export const SettingsPage: React.FC = () => {
     { value: 'tiny', label: 'Tiny (~75MB) - Fastest' },
     { value: 'base', label: 'Base (~140MB) - Balanced' },
     { value: 'small', label: 'Small (~460MB) - Good Accuracy' },
+    { value: 'collabora/faster-whisper-small-hindi', label: 'Small Hindi (~460MB) - Best for Hindi' },
     { value: 'medium', label: 'Medium (~1.5GB) - High Accuracy' }
   ];
 
@@ -495,6 +511,40 @@ export const SettingsPage: React.FC = () => {
                     value={formData.whisper_model}
                     onChange={(val) => handleSelectChange('whisper_model', val)}
                   />
+
+                  {/* Downloaded Models List */}
+                  {downloadedWhisperModels.length > 0 && (
+                    <div className="mt-4 bg-black/20 rounded-lg border border-stone-800/40 p-3">
+                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider mb-2">Downloaded Models</label>
+                      <div className="space-y-2">
+                        {downloadedWhisperModels.map(model => (
+                          <div key={model.id} className="flex items-center justify-between bg-black/40 rounded p-2 border border-stone-800/50">
+                            <div className="flex flex-col">
+                              <span className="text-xs text-stone-300 font-mono">{model.id}</span>
+                              <span className="text-[10px] text-stone-500">{model.size_mb} MB</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                showConfirm(
+                                  "Delete Whisper Model",
+                                  `Are you sure you want to delete the model '${model.id}'? This will free up ${model.size_mb} MB of disk space.`,
+                                  () => {
+                                    deleteWhisperModel(model.id);
+                                    closeConfirm();
+                                  }
+                                );
+                              }}
+                              className="text-rose-500/70 hover:text-rose-400 p-1.5 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
+                              title="Delete model"
+                            >
+                              <VscTrash />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -760,11 +810,10 @@ export const SettingsPage: React.FC = () => {
                   <MdOutlineMovie className="text-base text-[var(--color-accent-primary)]" />
                   YouTube Integration (yt-dlp)
                 </h2>
-                <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${
-                  ytdlpInstalled
+                <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${ytdlpInstalled
                     ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
                     : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
-                }`}>
+                  }`}>
                   {ytdlpInstalled ? `Installed v${ytdlpVersion}` : 'Not Found'}
                 </span>
               </div>
@@ -876,7 +925,7 @@ export const SettingsPage: React.FC = () => {
                     </p>
                   )}
                 </div>
-                
+
                 <p className="text-xs text-stone-400">
                   Configure output settings for your final video compilations. Higher resolutions and frame rates will significantly increase rendering times.
                 </p>

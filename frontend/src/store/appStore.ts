@@ -81,6 +81,11 @@ export interface WhisperDownload {
   error: string;
 }
 
+export interface DownloadedWhisperModel {
+  id: string;
+  size_mb: number;
+}
+
 export interface YtdlpUpdate {
   active: boolean;
   progress: number;
@@ -113,6 +118,7 @@ interface AppStore {
   settings: Settings;
   kokoroDownload: KokoroDownload;
   whisperDownload: WhisperDownload;
+  downloadedWhisperModels: DownloadedWhisperModel[];
   ytdlpUpdate: YtdlpUpdate;
   toasts: Toast[];
   
@@ -131,6 +137,8 @@ interface AppStore {
   cancelPipeline: (projectId: string) => Promise<void>;
   downloadKokoro: () => Promise<void>;
   downloadWhisper: (modelSize: string) => Promise<void>;
+  fetchDownloadedWhisperModels: () => Promise<void>;
+  deleteWhisperModel: (id: string) => Promise<boolean>;
   updateYtdlp: () => Promise<void>;
   addToast: (message: string, type?: Toast['type'], duration?: number) => void;
   removeToast: (id: string) => void;
@@ -189,6 +197,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     status: "",
     error: ""
   },
+  downloadedWhisperModels: [],
   ytdlpUpdate: {
     active: false,
     progress: 0,
@@ -308,6 +317,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
+  fetchDownloadedWhisperModels: async () => {
+    if (window.eel) {
+      const models = await window.eel.get_downloaded_whisper_models()();
+      set({ downloadedWhisperModels: models || [] });
+    }
+  },
+
+  deleteWhisperModel: async (id) => {
+    if (window.eel) {
+      const res = await window.eel.delete_whisper_model(id)();
+      if (res?.success) {
+        get().addToast(`Deleted Whisper model: ${id}`, "success");
+        get().fetchDownloadedWhisperModels();
+        return true;
+      } else {
+        get().addToast(`Failed to delete Whisper model: ${id}`, "error");
+      }
+    }
+    return false;
+  },
+
   updateYtdlp: async () => {
     if (window.eel) {
       set({ ytdlpUpdate: { active: true, progress: 0, status: "started", error: "" } });
@@ -417,6 +447,8 @@ export const initializeEelListeners = () => {
         update.active = false;
         update.status = "completed";
         update.progress = 100;
+        // Refresh downloaded models when download completes
+        useAppStore.getState().fetchDownloadedWhisperModels();
       } else if (data.status === "failed") {
         update.active = false;
         update.status = "failed";

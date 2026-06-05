@@ -123,6 +123,12 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key):
     if not isinstance(visual_meta, dict):
         visual_meta = {}
     
+    # Smart check: If asset is already downloaded, skip!
+    existing_path = sub_visual.get("visual_path", "")
+    if existing_path and Path(existing_path).exists():
+        logger.info(f"Asset already exists for [{seg_idx}:{sub_idx}] '{existing_path}', skipping download.")
+        return sub_visual
+        
     sub_visual["visual_path"] = ""  # default
     
     if visual_type == "youtube":

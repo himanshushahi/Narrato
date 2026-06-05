@@ -6,7 +6,8 @@ from backend.core.logger import logger
 from backend.database.db import get_setting, update_project
 
 def get_whisper_model_path(model_size):
-    whisper_dir = get_models_dir() / "whisper" / model_size
+    safe_dir_name = model_size.replace("/", "_") if "/" in model_size else model_size
+    whisper_dir = get_models_dir() / "whisper" / safe_dir_name
     if (whisper_dir / "model.bin").exists() and (whisper_dir / "config.json").exists():
         return str(whisper_dir)
         
@@ -19,14 +20,56 @@ def get_whisper_model_path(model_size):
 def check_whisper_assets(model_size):
     return get_whisper_model_path(model_size) is not None
 
+def list_downloaded_whisper_models():
+    models = []
+    whisper_base_dir = get_models_dir() / "whisper"
+    if not whisper_base_dir.exists():
+        return models
+    
+    for item in whisper_base_dir.iterdir():
+        if item.is_dir():
+            has_model = False
+            for root, dirs, files in os.walk(str(item)):
+                if "model.bin" in files:
+                    has_model = True
+                    break
+            
+            if has_model:
+                total_size = 0
+                for root, dirs, files in os.walk(str(item)):
+                    for f in files:
+                        fp = os.path.join(root, f)
+                        if not os.path.islink(fp):
+                            total_size += os.path.getsize(fp)
+                
+                size_mb = total_size / (1024 * 1024)
+                models.append({
+                    "id": item.name,
+                    "size_mb": round(size_mb, 1)
+                })
+    return models
+
+def delete_whisper_model(safe_dir_name):
+    whisper_dir = get_models_dir() / "whisper" / safe_dir_name
+    if whisper_dir.exists() and whisper_dir.is_dir():
+        import shutil
+        try:
+            shutil.rmtree(str(whisper_dir))
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete model {safe_dir_name}: {e}")
+            return False
+    return False
+
 def download_whisper_model_files(model_size, progress_callback=None):
     import huggingface_hub
     import tqdm.std
     
-    whisper_dir = get_models_dir() / "whisper" / model_size
+    safe_dir_name = model_size.replace("/", "_") if "/" in model_size else model_size
+    whisper_dir = get_models_dir() / "whisper" / safe_dir_name
     whisper_dir.mkdir(parents=True, exist_ok=True)
     
-    repo_id = f"Systran/faster-whisper-{model_size}"
+    repo_id = model_size if "/" in model_size else f"Systran/faster-whisper-{model_size}"
     
     # Save original tqdm methods
     original_init = tqdm.std.tqdm.__init__
@@ -34,40 +77,37 @@ def download_whisper_model_files(model_size, progress_callback=None):
     original_close = tqdm.std.tqdm.close
     original_reset = tqdm.std.tqdm.reset
     
-    progress_state = {
-        "total_bytes": 0,
-        "downloaded_bytes": 0,
-        "last_percent": -1
-    }
+    progress_states = {}
+    last_percent = {"value": -1}
     
     def custom_init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
         self.desc_name = kwargs.get('desc', '') or getattr(self, 'desc', '') or ''
         if self.total and self.total > 1_000_000:
-            progress_state["total_bytes"] = self.total
-            progress_state["downloaded_bytes"] = self.n
+            progress_states[id(self)] = {"total": self.total, "downloaded": self.n}
 
     def custom_reset(self, total=None):
         original_reset(self, total)
         if self.total and self.total > 1_000_000:
-            progress_state["total_bytes"] = self.total
-            progress_state["downloaded_bytes"] = self.n
+            progress_states[id(self)] = {"total": self.total, "downloaded": self.n}
 
     def custom_update(self, n=1):
         res = original_update(self, n)
         if self.total and self.total > 1_000_000:
-            progress_state["total_bytes"] = self.total
-            progress_state["downloaded_bytes"] = self.n
+            progress_states[id(self)] = {"total": self.total, "downloaded": self.n}
             
             if progress_callback:
-                pct = (progress_state["downloaded_bytes"] / progress_state["total_bytes"]) * 100
-                pct = min(100.0, max(0.0, pct))
-                if int(pct) != progress_state["last_percent"]:
-                    progress_state["last_percent"] = int(pct)
-                    try:
-                        progress_callback(pct)
-                    except Exception:
-                        pass
+                total_bytes = sum(state["total"] for state in progress_states.values())
+                downloaded_bytes = sum(state["downloaded"] for state in progress_states.values())
+                if total_bytes > 0:
+                    pct = (downloaded_bytes / total_bytes) * 100
+                    pct = min(100.0, max(0.0, pct))
+                    if int(pct) != last_percent["value"]:
+                        last_percent["value"] = int(pct)
+                        try:
+                            progress_callback(pct)
+                        except Exception:
+                            pass
         return res
 
     def custom_close(self):
