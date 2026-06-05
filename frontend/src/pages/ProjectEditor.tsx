@@ -24,6 +24,15 @@ const VISUAL_TYPE_OPTIONS = [
   { value: 'youtube', label: 'YouTube Video' },
 ];
 
+const TRANSITION_TYPE_OPTIONS = [
+  { value: 'subtle_slide', label: 'Subtle Slide (Default)' },
+  { value: 'fade', label: 'Fade' },
+  { value: 'zoom_in', label: 'Zoom In' },
+  { value: 'slide_left', label: 'Slide Left' },
+  { value: 'slide_right', label: 'Slide Right' },
+  { value: 'none', label: 'None (Cut)' },
+];
+
 const TARGET_STAGE_OPTIONS = [
   { value: 'render', label: 'Run Full Pipeline' },
   { value: 'generate_script', label: 'Stop after: Scripting' },
@@ -138,7 +147,14 @@ const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek }: 
             </div>
             <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
               <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
-              <CustomSelect label="Visual Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
+              <div className="flex gap-2">
+                <div className="w-1/2">
+                  <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
+                </div>
+                <div className="w-1/2">
+                  <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />
+                </div>
+              </div>
 
               {sv.visual_type === 'youtube' && (
                 <div className="col-span-2 space-y-4 mt-2 bg-stone-950/60 p-3.5 rounded-lg border border-stone-800">
@@ -345,15 +361,16 @@ export const ProjectEditor: React.FC = () => {
 
       const resolvedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
         const osv = origSubVisuals[idx] || {};
-        const isChanged =
+        const requiresNewAsset =
           lsv.visual_type !== osv.visual_type ||
           lsv.visual_cue !== osv.visual_cue ||
           JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
-        const visualUrl = isChanged ? '' : (osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '');
+        const visualUrl = requiresNewAsset ? '' : (osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '');
         return {
           ...osv,
           visual_type: lsv.visual_type,
           visual_cue: lsv.visual_cue,
+          transition_type: lsv.transition_type,
           visual_meta: lsv.visual_meta,
           visual_url: visualUrl,
           duration: osv.duration
@@ -566,7 +583,19 @@ export const ProjectEditor: React.FC = () => {
       }
 
       const origSubVisuals = manifestScene.sub_visuals || [];
-      if (JSON.stringify(liveSubVisuals) !== JSON.stringify(origSubVisuals)) {
+      const relevantLiveSubVisuals = liveSubVisuals.map((lsv: any) => ({
+        visual_type: lsv.visual_type,
+        visual_cue: lsv.visual_cue,
+        transition_type: lsv.transition_type,
+        visual_meta: lsv.visual_meta
+      }));
+      const relevantOrigSubVisuals = origSubVisuals.map((osv: any) => ({
+        visual_type: osv.visual_type,
+        visual_cue: osv.visual_cue,
+        transition_type: osv.transition_type,
+        visual_meta: osv.visual_meta
+      }));
+      if (JSON.stringify(relevantLiveSubVisuals) !== JSON.stringify(relevantOrigSubVisuals)) {
         changed = true;
       }
     });
@@ -711,12 +740,12 @@ export const ProjectEditor: React.FC = () => {
           const origSubVisuals = manifestScene.sub_visuals || [];
           const mergedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
             const osv = origSubVisuals[idx] || {};
-            const isChanged =
+            const requiresNewAsset =
               lsv.visual_type !== osv.visual_type ||
               lsv.visual_cue !== osv.visual_cue ||
               JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
 
-            if (!isChanged) {
+            if (!requiresNewAsset) {
               return {
                 ...lsv,
                 visual_path: osv.visual_path,

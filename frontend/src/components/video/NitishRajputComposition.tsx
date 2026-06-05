@@ -11,6 +11,7 @@ import { TransitionWrapper } from './TransitionWrapper';
 export interface SubVisual {
   visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network';
   visual_cue: string;
+  transition_type?: string;
   visual_url?: string;
   visual_meta?: any;
   duration?: number;
@@ -176,7 +177,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
                     from={subFrom}
                     durationInFrames={Math.max(1, subDuration)}
                   >
-                    <TransitionWrapper durationInFrames={Math.max(1, subDuration)}>
+                    <TransitionWrapper durationInFrames={Math.max(1, subDuration)} type={subVis.transition_type}>
                       {renderSubVisual(subVis, Math.max(1, subDuration))}
                     </TransitionWrapper>
                   </Sequence>
