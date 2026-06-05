@@ -76,6 +76,100 @@ const getDefaultMetaForType = (type: string, existingMeta: any) => {
   return meta;
 };
 
+
+const SubVisualsEditor = ({ subVisuals, onChange }: { subVisuals: any[], onChange: (newSubs: any[]) => void }) => {
+  const handleUpdate = (idx: number, field: string, val: any) => {
+    const copy = [...subVisuals];
+    copy[idx][field] = val;
+    if (field === 'visual_type') {
+      copy[idx].visual_meta = getDefaultMetaForType(val, copy[idx].visual_meta);
+    }
+    onChange(copy);
+  };
+
+  const handleUpdateMeta = (idx: number, newMeta: any) => {
+    const copy = [...subVisuals];
+    copy[idx].visual_meta = newMeta;
+    onChange(copy);
+  };
+
+  const handleAdd = () => {
+    onChange([...subVisuals, { visual_type: 'scene', visual_cue: '', visual_meta: {} }]);
+  };
+
+  const handleRemove = (idx: number) => {
+    onChange(subVisuals.filter((_: any, i: number) => i !== idx));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">Sub-Visuals (Cuts)</label>
+        <button type="button" onClick={handleAdd} className="text-[10px] bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 px-2 py-1 rounded">+ Add Sub-Visual</button>
+      </div>
+      {subVisuals.map((sv: any, idx: number) => (
+        <div key={idx} className="bg-stone-900/60 p-3 rounded border border-stone-800 space-y-3 relative">
+          <button type="button" onClick={() => handleRemove(idx)} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded">Remove</button>
+          <div className="text-xs font-bold text-stone-500 mb-1">Sub-Visual {idx + 1}</div>
+          <div className="grid grid-cols-2 gap-3">
+            <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
+            <CustomSelect label="Visual Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
+            
+            {sv.visual_type === 'youtube' && (
+              <div className="col-span-2 space-y-4 mt-2 bg-stone-950/60 p-3.5 rounded-lg border border-stone-800">
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
+                    <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15}s</span>
+                  </div>
+                  <input type="range" min="0" max="120" step="1" value={sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, start_offset: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
+                    <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.duration !== undefined ? sv.visual_meta.duration : 15}s</span>
+                  </div>
+                  <input type="range" min="5" max="60" step="1" value={sv.visual_meta?.duration !== undefined ? sv.visual_meta.duration : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, duration: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
+                </div>
+              </div>
+            )}
+            
+            {sv.visual_type === 'map' && (
+              <MapLocationsEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+            )}
+            {sv.visual_type === 'chart' && (
+              <ChartDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+            )}
+            {sv.visual_type === 'document' && (
+              <DocumentHighlightEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+            )}
+            {sv.visual_type === 'network' && (
+              <NetworkDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+            )}
+            <LowerThirdEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+
+          </div>
+        </div>
+      ))}
+      {subVisuals.length === 0 && <p className="text-xs text-stone-500 italic">No sub-visuals. A default black screen will be shown.</p>}
+    </div>
+  );
+};
+
+const SubVisualsView = ({ subVisuals }: { subVisuals: any[] }) => {
+  return (
+    <div className="flex flex-col gap-2 border-t border-stone-800/40 pt-2">
+      {subVisuals.map((sv: any, idx: number) => (
+        <div key={idx} className="flex gap-4 text-[10px] text-stone-500 font-mono bg-stone-900/30 px-2 py-1 rounded">
+          <span className="w-4 text-stone-600">{idx+1}.</span>
+          <span>Layer: <strong className="text-stone-300 capitalize">{sv.visual_type}</strong></span>
+          <span>Cue: <strong className="text-stone-300">{sv.visual_cue}</strong></span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const MapLocationsEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const locations = visualMeta?.locations || [];
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
@@ -245,12 +339,22 @@ export const ProjectEditor: React.FC = () => {
             // Transform visual_path → visual_url for the player
             // The manifest stores absolute file paths, but the Remotion player needs HTTP URLs
             // served through the Bottle media server (same pattern as audio URLs)
-            const enrichedManifest = (manifest || []).map((scene: any) => ({
-              ...scene,
-              visual_url: scene.visual_path
-                ? `http://localhost:8888/api/media?path=${encodeURIComponent(scene.visual_path)}`
-                : ''
-            }));
+            const enrichedManifest = (manifest || []).map((scene: any) => {
+              const enrichedSubVisuals = (scene.sub_visuals || []).map((sv: any) => ({
+                ...sv,
+                visual_url: sv.visual_path 
+                  ? `http://localhost:8888/api/media?path=${encodeURIComponent(sv.visual_path)}`
+                  : ''
+              }));
+              
+              return {
+                ...scene,
+                visual_url: scene.visual_path
+                  ? `http://localhost:8888/api/media?path=${encodeURIComponent(scene.visual_path)}`
+                  : '',
+                sub_visuals: enrichedSubVisuals
+              };
+            });
             setManifestData(enrichedManifest);
           }
           if (project.transcription_path) {
@@ -301,32 +405,22 @@ export const ProjectEditor: React.FC = () => {
 
     manifestData.forEach((manifestScene: any) => {
       const type = manifestScene.section_type;
-      let liveCue = manifestScene.visual_cue;
-      let liveType = manifestScene.visual_type;
-      let liveMeta = manifestScene.visual_meta || {};
+      let liveSubVisuals: any[] = [];
 
       if (type === 'introduction' && scriptData.introduction) {
-        liveCue = scriptData.introduction.visual_cue;
-        liveType = scriptData.introduction.visual_type;
-        liveMeta = scriptData.introduction.visual_meta || {};
+        liveSubVisuals = scriptData.introduction.sub_visuals || [];
       } else if (type === 'conclusion' && scriptData.conclusion) {
-        liveCue = scriptData.conclusion.visual_cue;
-        liveType = scriptData.conclusion.visual_type;
-        liveMeta = scriptData.conclusion.visual_meta || {};
+        liveSubVisuals = scriptData.conclusion.sub_visuals || [];
       } else if (type === 'scene' && scriptData.scenes) {
         const scriptScene = scriptData.scenes[sceneCounter];
         sceneCounter++;
         if (scriptScene) {
-          liveCue = scriptScene.visual_cue;
-          liveType = scriptScene.visual_type;
-          liveMeta = scriptScene.visual_meta || {};
+          liveSubVisuals = scriptScene.sub_visuals || [];
         }
       }
 
-      const origMeta = manifestScene.visual_meta || {};
-      const metaChanged = JSON.stringify(liveMeta) !== JSON.stringify(origMeta);
-
-      if (liveCue !== manifestScene.visual_cue || liveType !== manifestScene.visual_type || metaChanged) {
+      const origSubVisuals = manifestScene.sub_visuals || [];
+      if (JSON.stringify(liveSubVisuals) !== JSON.stringify(origSubVisuals)) {
         changed = true;
       }
     });
@@ -424,27 +518,9 @@ export const ProjectEditor: React.FC = () => {
         if (scene && origScene && scene.narration !== origScene.narration) {
           narrationChanged = true;
         }
-      } else {
-        // Fallback for general check
-        if (scriptData.introduction?.hook !== originalScriptData.introduction?.hook) {
-          narrationChanged = true;
-        }
-        if (scriptData.conclusion?.summary !== originalScriptData.conclusion?.summary ||
-          scriptData.conclusion?.cta !== originalScriptData.conclusion?.cta) {
-          narrationChanged = true;
-        }
-        if (scriptData.scenes && originalScriptData.scenes) {
-          scriptData.scenes.forEach((scene: any, idx: number) => {
-            const origScene = originalScriptData.scenes[idx];
-            if (origScene && scene.narration !== origScene.narration) {
-              narrationChanged = true;
-            }
-          });
-        }
       }
     }
 
-    // Save locally edited script parameters back to python storage
     const success = await window.eel.save_json_file(selectedProject.script_path, scriptData)();
     if (success) {
       let targetManifestScene: any = null;
@@ -470,61 +546,30 @@ export const ProjectEditor: React.FC = () => {
         }
       }
 
-      const liveCue = (cardKey === 'intro' || cardKey === 'introduction')
-        ? (scriptData.introduction?.visual_cue || '')
+      const liveSubVisuals = (cardKey === 'intro' || cardKey === 'introduction')
+        ? (scriptData.introduction?.sub_visuals || [])
         : (cardKey === 'conclusion')
-          ? (scriptData.conclusion?.visual_cue || '')
-          : (index !== undefined ? (scriptData.scenes[index]?.visual_cue || '') : '');
+          ? (scriptData.conclusion?.sub_visuals || [])
+          : (index !== undefined ? (scriptData.scenes[index]?.sub_visuals || []) : []);
 
-      const liveType = (cardKey === 'intro' || cardKey === 'introduction')
-        ? (scriptData.introduction?.visual_type || 'scene')
-        : (cardKey === 'conclusion')
-          ? (scriptData.conclusion?.visual_type || 'scene')
-          : (index !== undefined ? (scriptData.scenes[index]?.visual_type || 'scene') : 'scene');
-
-      const liveMeta = (cardKey === 'intro' || cardKey === 'introduction')
-        ? (scriptData.introduction?.visual_meta || {})
-        : (cardKey === 'conclusion')
-          ? (scriptData.conclusion?.visual_meta || {})
-          : (index !== undefined ? (scriptData.scenes[index]?.visual_meta || {}) : {});
-
-      const origMeta = targetManifestScene?.visual_meta || {};
-      const metaChanged = JSON.stringify(liveMeta) !== JSON.stringify(origMeta);
-
-      const hasVisualChanges = targetManifestScene && (
-        liveCue !== targetManifestScene.visual_cue ||
-        liveType !== targetManifestScene.visual_type ||
-        metaChanged
-      );
+      const origSubVisuals = targetManifestScene?.sub_visuals || [];
+      const hasVisualChanges = targetManifestScene && (JSON.stringify(liveSubVisuals) !== JSON.stringify(origSubVisuals));
 
       if (hasVisualChanges && manifestIndex !== -1) {
-        const requiresFetch = ['scene', 'portrait', 'image', 'youtube'].includes(liveType);
-
-        if (requiresFetch) {
-          const serviceName = liveType === 'youtube' ? 'YouTube' : 'Pexels';
-          addToast(`Searching ${serviceName} and downloading new visual asset...`, "info");
-        } else {
-          addToast("Updating programmatic visual layer style...", "info");
-        }
-
-        try {
-          const res = await window.eel.fetch_single_scene_asset(id, manifestIndex, liveType, liveCue)();
-          if (res && res.success) {
-            if (res.fallback_warning) {
-              addToast(res.fallback_warning, "warning", 6000);
-            } else {
-              addToast("Visual updated successfully!", "success");
-            }
-          } else {
-            addToast(`Failed to update visual: ${res?.error || 'Unknown error'}`, "error");
-          }
-        } catch (err) {
-          console.error(err);
-          addToast("Failed to communicate with backend to update visual", "error");
+        addToast("Updating visuals...", "info");
+        for (let subIdx = 0; subIdx < liveSubVisuals.length; subIdx++) {
+           const liveSv = liveSubVisuals[subIdx];
+           const origSv = origSubVisuals[subIdx] || {};
+           if (JSON.stringify(liveSv) !== JSON.stringify({ visual_type: origSv.visual_type, visual_cue: origSv.visual_cue, visual_meta: origSv.visual_meta })) {
+             try {
+               await window.eel.fetch_single_scene_asset(id, manifestIndex, subIdx, liveSv.visual_type || 'scene', liveSv.visual_cue || '')();
+             } catch (e) {
+               console.error("Failed to update sub_visual", subIdx, e);
+             }
+           }
         }
       }
 
-      // Reload files to get updated manifest data and URLs
       await loadFiles(id);
 
       setEditingCard(null);
@@ -535,6 +580,8 @@ export const ProjectEditor: React.FC = () => {
         setScriptChangedAlert(true);
       } else if (!hasVisualChanges) {
         addToast("Script parameters saved!", 'success');
+      } else {
+        addToast("Visuals updated successfully!", "success");
       }
     } else {
       setSavingCardKey(null);
@@ -600,49 +647,45 @@ export const ProjectEditor: React.FC = () => {
     let sceneCounter = 0;
     return manifestData.map((manifestScene: any) => {
       const type = manifestScene.section_type;
-
-      let liveCue = manifestScene.visual_cue;
-      let liveType = manifestScene.visual_type;
-      let liveMeta = manifestScene.visual_meta || {};
+      let liveSubVisuals: any[] = [];
 
       if (type === 'introduction' && scriptData.introduction) {
-        liveCue = scriptData.introduction.visual_cue;
-        liveType = scriptData.introduction.visual_type;
-        liveMeta = scriptData.introduction.visual_meta || {};
+        liveSubVisuals = scriptData.introduction.sub_visuals || [];
       } else if (type === 'conclusion' && scriptData.conclusion) {
-        liveCue = scriptData.conclusion.visual_cue;
-        liveType = scriptData.conclusion.visual_type;
-        liveMeta = scriptData.conclusion.visual_meta || {};
+        liveSubVisuals = scriptData.conclusion.sub_visuals || [];
       } else if (type === 'scene' && scriptData.scenes) {
         const currentIdx = sceneCounter;
         sceneCounter++;
         const scriptScene = scriptData.scenes[currentIdx];
         if (scriptScene) {
-          liveCue = scriptScene.visual_cue;
-          liveType = scriptScene.visual_type;
-          liveMeta = scriptScene.visual_meta || {};
+          liveSubVisuals = scriptScene.sub_visuals || [];
         }
       }
 
-      // If the visual cue, type, or meta parameters have changed compared to the compiled manifest,
-      // clear the cached visual url so it renders the vintage card placeholder with the new cue
-      const cueChanged = liveCue !== manifestScene.visual_cue;
-      const typeChanged = liveType !== manifestScene.visual_type;
-      const origMeta = manifestScene.visual_meta || {};
-      const metaChanged = JSON.stringify(liveMeta) !== JSON.stringify(origMeta);
-
-      const resolvedVisualUrl = (cueChanged || typeChanged || metaChanged)
-        ? ''
-        : (manifestScene.visual_url ? `${manifestScene.visual_url}&t=${reloadKey}` : '');
+      const origSubVisuals = manifestScene.sub_visuals || [];
+      
+      const resolvedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
+        const osv = origSubVisuals[idx] || {};
+        const isChanged = 
+          lsv.visual_type !== osv.visual_type || 
+          lsv.visual_cue !== osv.visual_cue || 
+          JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
+        const visualUrl = isChanged ? '' : (osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '');
+        return {
+          ...osv,
+          visual_type: lsv.visual_type,
+          visual_cue: lsv.visual_cue,
+          visual_meta: lsv.visual_meta,
+          visual_url: visualUrl,
+          duration: osv.duration
+        };
+      });
 
       const resolvedAudioUrl = manifestScene.audio_url ? `${manifestScene.audio_url}&t=${reloadKey}` : '';
 
       return {
         ...manifestScene,
-        visual_type: liveType,
-        visual_cue: liveCue,
-        visual_meta: liveMeta,
-        visual_url: resolvedVisualUrl,
+        sub_visuals: resolvedSubVisuals,
         audio_url: resolvedAudioUrl
       };
     });
@@ -1037,142 +1080,7 @@ export const ProjectEditor: React.FC = () => {
                           setScriptData(copy);
                         }}
                       />
-                      <div className="grid grid-cols-2 gap-3">
-                        <CustomInput
-                          label="Visual Cue Keyword"
-                          type="text"
-                          value={scriptData.introduction.visual_cue}
-                          onChange={(e) => {
-                            const copy = { ...scriptData };
-                            copy.introduction.visual_cue = e.target.value;
-                            setScriptData(copy);
-                          }}
-                        />
-                        <CustomSelect
-                          label="Visual Layer Type"
-                          options={VISUAL_TYPE_OPTIONS}
-                          value={scriptData.introduction.visual_type}
-                          onChange={(val) => {
-                            const copy = { ...scriptData };
-                            copy.introduction.visual_type = val;
-                            copy.introduction.visual_meta = getDefaultMetaForType(val, copy.introduction.visual_meta);
-                            setScriptData(copy);
-                          }}
-                        />
-                        {scriptData.introduction.visual_type === 'youtube' && (
-                          <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
-                            {/* Start Offset Slider */}
-                            <div className="space-y-1.5">
-                              <div className="flex justify-between items-center text-xs">
-                                <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
-                                <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                  {scriptData.introduction.visual_meta?.start_offset !== undefined
-                                    ? scriptData.introduction.visual_meta.start_offset
-                                    : 15}s
-                                </span>
-                              </div>
-                              <input
-                                type="range"
-                                min="0"
-                                max="120"
-                                step="1"
-                                value={scriptData.introduction.visual_meta?.start_offset !== undefined
-                                  ? scriptData.introduction.visual_meta.start_offset
-                                  : 15}
-                                onChange={(e) => {
-                                  const copy = { ...scriptData };
-                                  if (!copy.introduction.visual_meta) {
-                                    copy.introduction.visual_meta = {};
-                                  }
-                                  copy.introduction.visual_meta.start_offset = parseInt(e.target.value);
-                                  setScriptData(copy);
-                                }}
-                                className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
-                              />
-                              <p className="text-[10px] text-stone-500">Choose where to start downloading from inside the video (0s starts at the beginning).</p>
-                            </div>
-
-                            {/* Clip Duration Slider */}
-                            <div className="space-y-1.5">
-                              <div className="flex justify-between items-center text-xs">
-                                <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
-                                <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                  {scriptData.introduction.visual_meta?.duration !== undefined
-                                    ? scriptData.introduction.visual_meta.duration
-                                    : 15}s
-                                </span>
-                              </div>
-                              <input
-                                type="range"
-                                min="5"
-                                max="60"
-                                step="1"
-                                value={scriptData.introduction.visual_meta?.duration !== undefined
-                                  ? scriptData.introduction.visual_meta.duration
-                                  : 15}
-                                onChange={(e) => {
-                                  const copy = { ...scriptData };
-                                  if (!copy.introduction.visual_meta) {
-                                    copy.introduction.visual_meta = {};
-                                  }
-                                  copy.introduction.visual_meta.duration = parseInt(e.target.value);
-                                  setScriptData(copy);
-                                }}
-                                className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
-                              />
-                              <p className="text-[10px] text-stone-500">Determine the length of the downloaded clip segment.</p>
-                            </div>
-                          </div>
-                        )}
-                        {scriptData.introduction.visual_type === 'map' && (
-                          <MapLocationsEditor
-                            visualMeta={scriptData.introduction.visual_meta || {}}
-                            onChange={(newMeta) => {
-                              const copy = { ...scriptData };
-                              copy.introduction.visual_meta = newMeta;
-                              setScriptData(copy);
-                            }}
-                          />
-                        )}
-                        {scriptData.introduction.visual_type === 'chart' && (
-                          <ChartDataEditor
-                            visualMeta={scriptData.introduction.visual_meta || {}}
-                            onChange={(newMeta) => {
-                              const copy = { ...scriptData };
-                              copy.introduction.visual_meta = newMeta;
-                              setScriptData(copy);
-                            }}
-                          />
-                        )}
-                        {scriptData.introduction.visual_type === 'document' && (
-                          <DocumentHighlightEditor
-                            visualMeta={scriptData.introduction.visual_meta || {}}
-                            onChange={(newMeta) => {
-                              const copy = { ...scriptData };
-                              copy.introduction.visual_meta = newMeta;
-                              setScriptData(copy);
-                            }}
-                          />
-                        )}
-                        {scriptData.introduction.visual_type === 'network' && (
-                          <NetworkDataEditor
-                            visualMeta={scriptData.introduction.visual_meta || {}}
-                            onChange={(newMeta) => {
-                              const copy = { ...scriptData };
-                              copy.introduction.visual_meta = newMeta;
-                              setScriptData(copy);
-                            }}
-                          />
-                        )}
-                        <LowerThirdEditor
-                          visualMeta={scriptData.introduction.visual_meta || {}}
-                          onChange={(newMeta) => {
-                            const copy = { ...scriptData };
-                            copy.introduction.visual_meta = newMeta;
-                            setScriptData(copy);
-                          }}
-                        />
-                      </div>
+                      <SubVisualsEditor subVisuals={scriptData.introduction.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.introduction.sub_visuals = newSubs; setScriptData(copy); }} />
 
                       {/* LLM Rewrite sub-section */}
                       <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1207,10 +1115,7 @@ export const ProjectEditor: React.FC = () => {
                       className="space-y-2"
                     >
                       <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.introduction.hook}</p>
-                      <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
-                        <span>Layer: <strong className="text-stone-300 capitalize">{scriptData.introduction.visual_type}</strong></span>
-                        <span>Cue: <strong className="text-stone-300">{scriptData.introduction.visual_cue}</strong></span>
-                      </div>
+                      <SubVisualsView subVisuals={scriptData.introduction.sub_visuals || []} />
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -1283,147 +1188,7 @@ export const ProjectEditor: React.FC = () => {
                               setScriptData(copy);
                             }}
                           />
-                          <div className="grid grid-cols-2 gap-3">
-                            <CustomInput
-                              label="Visual Cue Keyword"
-                              type="text"
-                              value={scene.visual_cue}
-                              onChange={(e) => {
-                                const copy = { ...scriptData };
-                                copy.scenes[idx].visual_cue = e.target.value;
-                                setScriptData(copy);
-                              }}
-                            />
-                            <CustomSelect
-                              label="Visual Layer Type"
-                              options={VISUAL_TYPE_OPTIONS}
-                              value={scene.visual_type}
-                              onChange={(val) => {
-                                const copy = { ...scriptData };
-                                copy.scenes[idx].visual_type = val;
-                                copy.scenes[idx].visual_meta = getDefaultMetaForType(val, copy.scenes[idx].visual_meta);
-                                setScriptData(copy);
-                              }}
-                            />
-                            {scene.visual_type === 'youtube' && (
-                              <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
-                                {/* Start Offset Slider */}
-                                <div className="space-y-1.5">
-                                  <div className="flex justify-between items-center text-xs">
-                                    <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
-                                    <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                      {scene.visual_meta?.start_offset !== undefined
-                                        ? scene.visual_meta.start_offset
-                                        : 15}s
-                                    </span>
-                                  </div>
-                                  <input
-                                    type="range"
-                                    min="0"
-                                    max="120"
-                                    step="1"
-                                    value={scene.visual_meta?.start_offset !== undefined
-                                      ? scene.visual_meta.start_offset
-                                      : 15}
-                                    onChange={(e) => {
-                                      const copy = { ...scriptData };
-                                      if (!copy.scenes[idx].visual_meta) {
-                                        copy.scenes[idx].visual_meta = {};
-                                      }
-                                      copy.scenes[idx].visual_meta.start_offset = parseInt(e.target.value);
-                                      setScriptData(copy);
-                                    }}
-                                    className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
-                                  />
-                                  <p className="text-[10px] text-stone-500">Choose where to start downloading from inside the video (0s starts at the beginning).</p>
-                                </div>
-
-                                {/* Clip Duration Slider */}
-                                <div className="space-y-1.5">
-                                  <div className="flex justify-between items-center text-xs">
-                                    <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
-                                    <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                      {scene.visual_meta?.duration !== undefined
-                                        ? scene.visual_meta.duration
-                                        : 15}s
-                                    </span>
-                                  </div>
-                                  <input
-                                    type="range"
-                                    min="5"
-                                    max="60"
-                                    step="1"
-                                    value={scene.visual_meta?.duration !== undefined
-                                      ? scene.visual_meta.duration
-                                      : 15}
-                                    onChange={(e) => {
-                                      const copy = { ...scriptData };
-                                      if (!copy.scenes[idx].visual_meta) {
-                                        copy.scenes[idx].visual_meta = {};
-                                      }
-                                      copy.scenes[idx].visual_meta.duration = parseInt(e.target.value);
-                                      setScriptData(copy);
-                                    }}
-                                    className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
-                                  />
-                                  <p className="text-[10px] text-stone-500">Determine the length of the downloaded clip segment.</p>
-                                </div>
-                              </div>
-                            )}
-                            {scene.visual_type === 'map' && (
-                              <MapLocationsEditor
-                                visualMeta={scene.visual_meta || {}}
-                                onChange={(newMeta) => {
-                                  const copy = { ...scriptData };
-                                  if (!copy.scenes[idx]) return;
-                                  copy.scenes[idx].visual_meta = newMeta;
-                                  setScriptData(copy);
-                                }}
-                              />
-                            )}
-                            {scene.visual_type === 'chart' && (
-                              <ChartDataEditor
-                                visualMeta={scene.visual_meta || {}}
-                                onChange={(newMeta) => {
-                                  const copy = { ...scriptData };
-                                  if (!copy.scenes[idx]) return;
-                                  copy.scenes[idx].visual_meta = newMeta;
-                                  setScriptData(copy);
-                                }}
-                              />
-                            )}
-                            {scene.visual_type === 'document' && (
-                              <DocumentHighlightEditor
-                                visualMeta={scene.visual_meta || {}}
-                                onChange={(newMeta) => {
-                                  const copy = { ...scriptData };
-                                  if (!copy.scenes[idx]) return;
-                                  copy.scenes[idx].visual_meta = newMeta;
-                                  setScriptData(copy);
-                                }}
-                              />
-                            )}
-                            {scene.visual_type === 'network' && (
-                              <NetworkDataEditor
-                                visualMeta={scene.visual_meta || {}}
-                                onChange={(newMeta) => {
-                                  const copy = { ...scriptData };
-                                  if (!copy.scenes[idx]) return;
-                                  copy.scenes[idx].visual_meta = newMeta;
-                                  setScriptData(copy);
-                                }}
-                              />
-                            )}
-                            <LowerThirdEditor
-                              visualMeta={scene.visual_meta || {}}
-                              onChange={(newMeta) => {
-                                const copy = { ...scriptData };
-                                if (!copy.scenes[idx]) return;
-                                copy.scenes[idx].visual_meta = newMeta;
-                                setScriptData(copy);
-                              }}
-                            />
-                          </div>
+                          <SubVisualsEditor subVisuals={scene.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} />
 
                           {/* AI Rewrite controls */}
                           <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1458,10 +1223,7 @@ export const ProjectEditor: React.FC = () => {
                           className="space-y-2"
                         >
                           <p className="text-xs text-stone-200 leading-relaxed font-sans">{scene.narration}</p>
-                          <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
-                            <span>Layer: <strong className="text-stone-300 capitalize">{scene.visual_type}</strong></span>
-                            <span>Cue: <strong className="text-stone-300">{scene.visual_cue}</strong></span>
-                          </div>
+                          <SubVisualsView subVisuals={scene.sub_visuals || []} />
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -1539,142 +1301,7 @@ export const ProjectEditor: React.FC = () => {
                           setScriptData(copy);
                         }}
                       />
-                      <div className="grid grid-cols-2 gap-3">
-                        <CustomInput
-                          label="Visual Cue Keyword"
-                          type="text"
-                          value={scriptData.conclusion.visual_cue}
-                          onChange={(e) => {
-                            const copy = { ...scriptData };
-                            copy.conclusion.visual_cue = e.target.value;
-                            setScriptData(copy);
-                          }}
-                        />
-                        <CustomSelect
-                          label="Visual Layer Type"
-                          options={VISUAL_TYPE_OPTIONS}
-                          value={scriptData.conclusion.visual_type}
-                          onChange={(val) => {
-                            const copy = { ...scriptData };
-                            copy.conclusion.visual_type = val;
-                            copy.conclusion.visual_meta = getDefaultMetaForType(val, copy.conclusion.visual_meta);
-                            setScriptData(copy);
-                          }}
-                        />
-                        {scriptData.conclusion.visual_type === 'youtube' && (
-                          <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
-                            {/* Start Offset Slider */}
-                            <div className="space-y-1.5">
-                              <div className="flex justify-between items-center text-xs">
-                                <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
-                                <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                  {scriptData.conclusion.visual_meta?.start_offset !== undefined
-                                    ? scriptData.conclusion.visual_meta.start_offset
-                                    : 15}s
-                                </span>
-                              </div>
-                              <input
-                                type="range"
-                                min="0"
-                                max="120"
-                                step="1"
-                                value={scriptData.conclusion.visual_meta?.start_offset !== undefined
-                                  ? scriptData.conclusion.visual_meta.start_offset
-                                  : 15}
-                                onChange={(e) => {
-                                  const copy = { ...scriptData };
-                                  if (!copy.conclusion.visual_meta) {
-                                    copy.conclusion.visual_meta = {};
-                                  }
-                                  copy.conclusion.visual_meta.start_offset = parseInt(e.target.value);
-                                  setScriptData(copy);
-                                }}
-                                className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
-                              />
-                              <p className="text-[10px] text-stone-500">Choose where to start downloading from inside the video (0s starts at the beginning).</p>
-                            </div>
-
-                            {/* Clip Duration Slider */}
-                            <div className="space-y-1.5">
-                              <div className="flex justify-between items-center text-xs">
-                                <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
-                                <span className="text-[var(--color-accent-light)] font-mono font-bold">
-                                  {scriptData.conclusion.visual_meta?.duration !== undefined
-                                    ? scriptData.conclusion.visual_meta.duration
-                                    : 15}s
-                                </span>
-                              </div>
-                              <input
-                                type="range"
-                                min="5"
-                                max="60"
-                                step="1"
-                                value={scriptData.conclusion.visual_meta?.duration !== undefined
-                                  ? scriptData.conclusion.visual_meta.duration
-                                  : 15}
-                                onChange={(e) => {
-                                  const copy = { ...scriptData };
-                                  if (!copy.conclusion.visual_meta) {
-                                    copy.conclusion.visual_meta = {};
-                                  }
-                                  copy.conclusion.visual_meta.duration = parseInt(e.target.value);
-                                  setScriptData(copy);
-                                }}
-                                className="w-full h-1 bg-stone-950 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
-                              />
-                              <p className="text-[10px] text-stone-500">Determine the length of the downloaded clip segment.</p>
-                            </div>
-                          </div>
-                        )}
-                        {scriptData.conclusion.visual_type === 'map' && (
-                          <MapLocationsEditor
-                            visualMeta={scriptData.conclusion.visual_meta || {}}
-                            onChange={(newMeta) => {
-                              const copy = { ...scriptData };
-                              copy.conclusion.visual_meta = newMeta;
-                              setScriptData(copy);
-                            }}
-                          />
-                        )}
-                        {scriptData.conclusion.visual_type === 'chart' && (
-                          <ChartDataEditor
-                            visualMeta={scriptData.conclusion.visual_meta || {}}
-                            onChange={(newMeta) => {
-                              const copy = { ...scriptData };
-                              copy.conclusion.visual_meta = newMeta;
-                              setScriptData(copy);
-                            }}
-                          />
-                        )}
-                        {scriptData.conclusion.visual_type === 'document' && (
-                          <DocumentHighlightEditor
-                            visualMeta={scriptData.conclusion.visual_meta || {}}
-                            onChange={(newMeta) => {
-                              const copy = { ...scriptData };
-                              copy.conclusion.visual_meta = newMeta;
-                              setScriptData(copy);
-                            }}
-                          />
-                        )}
-                        {scriptData.conclusion.visual_type === 'network' && (
-                          <NetworkDataEditor
-                            visualMeta={scriptData.conclusion.visual_meta || {}}
-                            onChange={(newMeta) => {
-                              const copy = { ...scriptData };
-                              copy.conclusion.visual_meta = newMeta;
-                              setScriptData(copy);
-                            }}
-                          />
-                        )}
-                        <LowerThirdEditor
-                          visualMeta={scriptData.conclusion.visual_meta || {}}
-                          onChange={(newMeta) => {
-                            const copy = { ...scriptData };
-                            copy.conclusion.visual_meta = newMeta;
-                            setScriptData(copy);
-                          }}
-                        />
-                      </div>
+                      <SubVisualsEditor subVisuals={scriptData.conclusion.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.conclusion.sub_visuals = newSubs; setScriptData(copy); }} />
 
                       {/* AI Rewrite controls */}
                       <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1710,10 +1337,7 @@ export const ProjectEditor: React.FC = () => {
                     >
                       <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.conclusion.summary}</p>
                       <p className="text-xs text-amber-500 font-bold leading-relaxed font-sans">{scriptData.conclusion.cta}</p>
-                      <div className="flex gap-4 text-[10px] text-stone-500 border-t border-stone-800/40 pt-2 font-mono">
-                        <span>Layer: <strong className="text-stone-300 capitalize">{scriptData.conclusion.visual_type}</strong></span>
-                        <span>Cue: <strong className="text-stone-300">{scriptData.conclusion.visual_cue}</strong></span>
-                      </div>
+                      <SubVisualsView subVisuals={scriptData.conclusion.sub_visuals || []} />
                     </motion.div>
                   )}
                 </AnimatePresence>

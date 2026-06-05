@@ -255,9 +255,13 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "and a prompt request explaining how to modify or rewrite this segment. "
         "Your task is to rewrite the narration and visual details. Preserve the scene numbers/schema format. "
         "Format your output strictly as a JSON object containing the modified segment.\n\n"
-        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'youtube'.\n"
-        "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips (e.g., visual_cue = '1992 Harshad Mehta news footage').\n"
-        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English, e.g., 'vintage typewriter writing') when visual_type is 'scene' or 'image'.\n"
+        "IMPORTANT: Every segment MUST include a 'sub_visuals' array with 2-4 sub-visual entries for fast-paced visual cuts.\n"
+        "Each sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }\n"
+        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network'.\n"
+        "- For media types (scene, image, portrait, youtube, parallax): provide 2-4 sub_visuals with DIFFERENT keywords.\n"
+        "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
+        "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
+        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
         "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"Exact news headline\", \"doc_text\": \"Detailed newspaper excerpt matching the narration\", \"source\": \"Name of Publisher\", \"date\": \"Month DD, YYYY\" }\n"
     )
     
@@ -269,16 +273,16 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
     from backend.pipeline.ai import INTRO_JSON_SCHEMA, CONCLUSION_JSON_SCHEMA, SCENE_JSON_SCHEMA
     if section_type == "introduction":
         target_content = full_script.get("introduction", {})
-        prompt_struct = "Expected: { \"hook\": \"text\", \"visual_cue\": \"text\", \"visual_type\": \"text\", \"visual_meta\": {} }"
+        prompt_struct = "Expected: { \"hook\": \"text\", \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }] }"
         schema = INTRO_JSON_SCHEMA
     elif section_type == "conclusion":
         target_content = full_script.get("conclusion", {})
-        prompt_struct = "Expected: { \"summary\": \"text\", \"cta\": \"text\", \"visual_cue\": \"text\", \"visual_type\": \"text\", \"visual_meta\": {} }"
+        prompt_struct = "Expected: { \"summary\": \"text\", \"cta\": \"text\", \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }] }"
         schema = CONCLUSION_JSON_SCHEMA
     else:
         scenes = full_script.get("scenes", [])
         target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
-        prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\", \"visual_cue\": \"text\", \"visual_type\": \"text\", \"visual_meta\": {} }"
+        prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\", \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }] }"
         schema = SCENE_JSON_SCHEMA
         
     user_prompt = (
@@ -577,11 +581,11 @@ def update_ytdlp():
 
 
 @eel.expose
-def fetch_single_scene_asset(project_id, manifest_scene_index, visual_type, visual_cue):
-    logger.info(f"Bridge API: fetch_single_scene_asset index {manifest_scene_index} for project {project_id} (type: {visual_type})")
+def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index, visual_type, visual_cue):
+    logger.info(f"Bridge API: fetch_single_scene_asset index {manifest_scene_index}:{sub_visual_index} for project {project_id} (type: {visual_type})")
     from backend.pipeline.assets import fetch_single_scene_asset as fetch_single
     try:
-        return fetch_single(project_id, manifest_scene_index, visual_type, visual_cue)
+        return fetch_single(project_id, manifest_scene_index, sub_visual_index, visual_type, visual_cue)
     except Exception as e:
         logger.error(f"Failed to fetch single scene asset: {e}")
         return {"success": False, "error": str(e)}

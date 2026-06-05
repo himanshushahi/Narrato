@@ -611,12 +611,22 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
 
   // Render Network / String Board
   const renderNetwork = () => {
-    const nodes = meta.nodes || [
+    let rawNodes = meta.nodes || [
       { id: '1', label: 'Company A', x: 400, y: 300, type: 'entity' },
       { id: '2', label: 'Subject', x: 960, y: 540, type: 'person' },
       { id: '3', label: 'Offshore', x: 1500, y: 300, type: 'entity' },
       { id: '4', label: 'Bank', x: 960, y: 800, type: 'entity' }
     ];
+
+    const nodes = rawNodes.map((n: any, i: number) => {
+      if (n.x !== undefined && n.y !== undefined) return n;
+      const angle = (i / rawNodes.length) * Math.PI * 2;
+      return {
+        ...n,
+        x: 960 + Math.cos(angle) * 350,
+        y: 540 + Math.sin(angle) * 350
+      };
+    });
     
     const edges = meta.edges || [
       { source: '1', target: '2' },

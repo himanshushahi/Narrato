@@ -26,7 +26,7 @@ interface Eel {
   generate_voice_preview: EelCall<[string, string, string, string, string, string], any>;
   get_audio_base64: EelCall<[string], string>;
   open_exports_folder: EelCall<[], boolean>;
-  fetch_single_scene_asset: EelCall<[string, number, string, string], any>;
+  fetch_single_scene_asset: EelCall<[string, number, number, string, string], any>;
   get_ytdlp_version: EelCall<[], { installed: boolean; version: string | null; path: string | null }>;
   update_ytdlp: EelCall<[], { status: string }>;
 }

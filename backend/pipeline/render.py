@@ -44,11 +44,23 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     # Convert local absolute paths in scenes/audios into Bottle media serving URLs
     # Remotion Chrome sandbox cannot fetch directly from local disk absolute paths
     for sc in scenes:
-        if sc.get("visual_path"):
-            sc["visual_url"] = clean_media_path(sc["visual_path"])
-        else:
-            sc["visual_url"] = ""
         sc["audio_url"] = clean_media_path(sc["audio_path"])
+        
+        # Process sub_visuals: convert each sub_visual's visual_path to a URL
+        # and compute duration for each sub_visual (equal split of scene duration)
+        sub_visuals = sc.get("sub_visuals", [])
+        scene_duration = float(sc.get("duration") or 0.0)
+        num_subs = len(sub_visuals) if sub_visuals else 1
+        sub_duration = scene_duration / num_subs if num_subs > 0 else scene_duration
+        
+        for sv in sub_visuals:
+            if sv.get("visual_path"):
+                sv["visual_url"] = clean_media_path(sv["visual_path"])
+            else:
+                sv["visual_url"] = ""
+            sv["duration"] = sub_duration
+        
+        sc["sub_visuals"] = sub_visuals
 
     bg_music_url = ""
     if project_dict.get("bg_music_path"):
@@ -141,14 +153,6 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             "--log=info"
         ]
         
-        bin_dir = frontend_dir.parent / "bin"
-        ffmpeg_exe = bin_dir / "ffmpeg.exe"
-        ffprobe_exe = bin_dir / "ffprobe.exe"
-        if ffmpeg_exe.exists():
-            cmd.append(f"--ffmpeg-executable={ffmpeg_exe}")
-        if ffprobe_exe.exists():
-            cmd.append(f"--ffprobe-executable={ffprobe_exe}")
-        
         if render_hardware == "cuda":
             cmd.append("--gl=angle")
             
@@ -171,14 +175,6 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             "--timeout=120000"
         ]
         
-        bin_dir = frontend_dir.parent / "bin"
-        ffmpeg_exe = bin_dir / "ffmpeg.exe"
-        ffprobe_exe = bin_dir / "ffprobe.exe"
-        if ffmpeg_exe.exists():
-            cmd.append(f"--ffmpeg-executable={ffmpeg_exe}")
-        if ffprobe_exe.exists():
-            cmd.append(f"--ffprobe-executable={ffprobe_exe}")
-        
         if render_hardware == "cuda":
             cmd.append("--gl=angle")
             
@@ -188,8 +184,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     
     env = os.environ.copy()
     env["NODE_OPTIONS"] = "--max-old-space-size=8192"
-    if render_hardware == "cuda":
-        env["REMOTION_CUDA_ENABLED"] = "1"
+    # Note: GPU acceleration is handled by --gl=angle for frame rendering.
+    # Video encoding uses software libx264/libx265 (Remotion's bundled FFmpeg
+    # does not include hardware encoders like h264_nvenc).
     
     startupinfo = None
     if os.name == "nt":

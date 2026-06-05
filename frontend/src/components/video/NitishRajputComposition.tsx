@@ -8,6 +8,14 @@ import { DataVisualizations } from './DataVisualizations';
 import { LowerThird } from './LowerThird';
 import { TransitionWrapper } from './TransitionWrapper';
 
+export interface SubVisual {
+  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network';
+  visual_cue: string;
+  visual_url?: string;
+  visual_meta?: any;
+  duration?: number;
+}
+
 export interface Scene {
   index: number;
   section_type: string;
@@ -16,10 +24,7 @@ export interface Scene {
   audio_file: string;
   audio_url: string;
   duration: number;
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network';
-  visual_cue: string;
-  visual_url?: string;
-  visual_meta?: any;
+  sub_visuals: SubVisual[];
 }
 
 export interface TranscriptionWord {
@@ -78,11 +83,11 @@ export const NitishRajputComposition: React.FC<Props> = ({
     });
   }, [scenes]);
 
-  // Helper to render segment specific visual layers
-  const renderSceneVisual = (scene: Scene, durationFrames: number) => {
-    const type = scene.visual_type;
-    const url = scene.visual_url || '';
-    const meta = scene.visual_meta || {};
+  // Helper to render a single sub-visual's content
+  const renderSubVisual = (subVis: SubVisual, durationFrames: number) => {
+    const type = subVis.visual_type;
+    const url = subVis.visual_url || '';
+    const meta = subVis.visual_meta || {};
 
     if (type === 'chart' || type === 'map' || type === 'document' || type === 'network') {
       return (
@@ -104,7 +109,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
         <ParallaxImage 
           backgroundUrl={url}
           foregroundUrl={meta.foreground_url}
-          cue={scene.visual_cue}
+          cue={subVis.visual_cue}
           durationInFrames={durationFrames}
         />
       );
@@ -115,7 +120,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
       <PanScanImage 
         src={url} 
         type={type} 
-        cue={scene.visual_cue} 
+        cue={subVis.visual_cue} 
         durationInFrames={durationFrames} 
       />
     );
@@ -143,15 +148,44 @@ export const NitishRajputComposition: React.FC<Props> = ({
         const currentOffset = frameOffset;
         frameOffset += durationFrames;
 
+        const subVisuals = scene.sub_visuals || [];
+        const numSubs = subVisuals.length;
+
+        // Find the first lower_third in any sub_visual's visual_meta
+        const lowerThirdMeta = subVisuals.find(sv => sv.visual_meta?.lower_third)?.visual_meta?.lower_third;
+
         return (
           <Sequence
             key={idx}
             from={currentOffset}
             durationInFrames={durationFrames}
           >
-            <TransitionWrapper durationInFrames={durationFrames}>
-              {renderSceneVisual(scene, durationFrames)}
-            </TransitionWrapper>
+            {/* Sub-visual sequences: each gets an equal fraction of the scene duration */}
+            {numSubs > 0 ? (
+              subVisuals.map((subVis, subIdx) => {
+                // Distribute frames equally, with last sub-visual getting any remainder
+                const baseSubDuration = Math.floor(durationFrames / numSubs);
+                const subFrom = subIdx * baseSubDuration;
+                const subDuration = subIdx === numSubs - 1 
+                  ? durationFrames - subFrom 
+                  : baseSubDuration;
+
+                return (
+                  <Sequence
+                    key={subIdx}
+                    from={subFrom}
+                    durationInFrames={Math.max(1, subDuration)}
+                  >
+                    <TransitionWrapper durationInFrames={Math.max(1, subDuration)}>
+                      {renderSubVisual(subVis, Math.max(1, subDuration))}
+                    </TransitionWrapper>
+                  </Sequence>
+                );
+              })
+            ) : (
+              // Fallback: no sub_visuals — show dark placeholder
+              <div style={{ width: '100%', height: '100%', backgroundColor: '#0c0a09' }} />
+            )}
             
             {/* Title watermark on upper corner */}
             <div style={{
@@ -171,11 +205,11 @@ export const NitishRajputComposition: React.FC<Props> = ({
               {scene.title}
             </div>
 
-            {/* Lower Third overlay if requested in metadata */}
-            {scene.visual_meta?.lower_third && (
+            {/* Lower Third overlay if any sub_visual requested it */}
+            {lowerThirdMeta && (
               <LowerThird 
-                title={scene.visual_meta.lower_third.title}
-                subtitle={scene.visual_meta.lower_third.subtitle}
+                title={lowerThirdMeta.title}
+                subtitle={lowerThirdMeta.subtitle}
                 durationInFrames={durationFrames}
               />
             )}

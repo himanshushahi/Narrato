@@ -1,21 +1,10 @@
 import { Config } from '@remotion/cli/config';
 
 Config.overrideFfmpegCommand(({ args }) => {
-  // If the Python backend set REMOTION_CUDA_ENABLED, we attempt to use NVENC
-  if (process.env.REMOTION_CUDA_ENABLED === '1') {
-    const codecIndex = args.indexOf('-c:v');
-    
-    if (codecIndex !== -1) {
-      const currentCodec = args[codecIndex + 1];
-      
-      // Swap out the software encoder for the Nvidia hardware encoder
-      if (currentCodec === 'libx264') {
-        args[codecIndex + 1] = 'h264_nvenc';
-      } else if (currentCodec === 'libx265') {
-        args[codecIndex + 1] = 'hevc_nvenc';
-      }
-    }
-  }
-
+  // NOTE: NVENC hardware encoding is NOT supported by Remotion's bundled FFmpeg
+  // (which only has libx264/libx265 enabled). The --ffmpeg-executable flag is
+  // also deprecated in Remotion v4 (replaced by --binaries-directory).
+  // GPU acceleration via --gl=angle speeds up frame rendering in the browser,
+  // but video encoding will use the software libx264/libx265 encoder.
   return args;
 });

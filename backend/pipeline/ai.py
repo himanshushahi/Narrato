@@ -10,16 +10,28 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 import html
 
+# Schema for individual sub-visual entries
+SUB_VISUAL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "visual_cue": {"type": "string"},
+        "visual_type": {"type": "string"},
+        "visual_meta": {"type": "object"}
+    },
+    "required": ["visual_cue", "visual_type"]
+}
+
 # Schema validations for JSON parsing
 INTRO_JSON_SCHEMA = {
     "type": "object",
     "properties": {
         "hook": {"type": "string"},
-        "visual_cue": {"type": "string"},
-        "visual_type": {"type": "string"},
-        "visual_meta": {"type": "object"}
+        "sub_visuals": {
+            "type": "array",
+            "items": SUB_VISUAL_SCHEMA
+        }
     },
-    "required": ["hook", "visual_cue", "visual_type"]
+    "required": ["hook", "sub_visuals"]
 }
 
 SCENE_JSON_SCHEMA = {
@@ -28,11 +40,12 @@ SCENE_JSON_SCHEMA = {
         "scene_number": {"type": "integer"},
         "title": {"type": "string"},
         "narration": {"type": "string"},
-        "visual_cue": {"type": "string"},
-        "visual_type": {"type": "string"},
-        "visual_meta": {"type": "object"}
+        "sub_visuals": {
+            "type": "array",
+            "items": SUB_VISUAL_SCHEMA
+        }
     },
-    "required": ["scene_number", "title", "narration", "visual_cue", "visual_type"]
+    "required": ["scene_number", "title", "narration", "sub_visuals"]
 }
 
 CONCLUSION_JSON_SCHEMA = {
@@ -40,11 +53,12 @@ CONCLUSION_JSON_SCHEMA = {
     "properties": {
         "summary": {"type": "string"},
         "cta": {"type": "string"},
-        "visual_cue": {"type": "string"},
-        "visual_type": {"type": "string"},
-        "visual_meta": {"type": "object"}
+        "sub_visuals": {
+            "type": "array",
+            "items": SUB_VISUAL_SCHEMA
+        }
     },
-    "required": ["summary", "cta", "visual_cue", "visual_type"]
+    "required": ["summary", "cta", "sub_visuals"]
 }
 
 SCRIPT_JSON_SCHEMA = {
@@ -409,8 +423,22 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
 """
 
     visual_rules = """
-Visual Directives (`visual_type`, `visual_cue` & `visual_meta`):
-You MUST select exactly one `visual_type` from the 8 available options. For each type, `visual_cue` and `visual_meta` must follow strict rules:
+Sub-Visuals System (`sub_visuals` array):
+Every scene, introduction, and conclusion MUST include a `sub_visuals` array. This creates fast-paced visual cuts instead of one static visual.
+
+CRITICAL INSTRUCTIONS ON QUANTITY:
+- If using MEDIA types (scene, image, portrait, youtube, parallax), your array MUST contain EXACTLY 2 to 4 sub_visuals IN TOTAL. Do NOT generate more than 4 sub_visuals for a single scene.
+- If using PROGRAMMATIC types (chart, map, document, network), your array MUST contain EXACTLY 1 sub_visual, since these take time to animate.
+- Do NOT try to use every available visual type. ONLY pick the 2 to 4 most relevant types for the current narration.
+
+Format Example (Media):
+"sub_visuals": [
+  { "visual_type": "scene", "visual_cue": "protesters matching", "visual_meta": {} },
+  { "visual_type": "portrait", "visual_cue": "angry protester face", "visual_meta": {} }
+]
+
+Visual Type Rules (`visual_type`, `visual_cue` & `visual_meta`):
+For each sub_visual you create, you must choose ONE `visual_type` from the available options. The `visual_cue` and `visual_meta` MUST follow strict rules based on the chosen type:
 - 'scene' (B-roll), 'image' (Stock Image), 'parallax' (2.5D Photo), 'portrait':
   -> `visual_cue`: MUST be a simple, concrete search keyword for Pexels/Stock media (e.g., "worried businessman", "ancient Indian port").
   -> `visual_meta`: {} (Empty object. For 'portrait', you may optionally provide { "person_name": "Name" }).
