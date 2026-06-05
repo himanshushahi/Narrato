@@ -34,7 +34,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@remotion/bundler": "^4.0.469",
     "@remotion/cli": "^4.0.469",
+    "@remotion/renderer": "^4.0.469",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

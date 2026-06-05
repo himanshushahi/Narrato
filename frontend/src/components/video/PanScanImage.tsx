@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, interpolate, Img, Video } from 'remotion';
+import { Img, Video } from 'remotion';
 
 interface Props {
   src: string;
@@ -9,61 +9,16 @@ interface Props {
 }
 
 export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames }) => {
-  const frame = useCurrentFrame();
-
-  // Create alternating pan directions based on the length of the visual cue
-  const cueLength = cue.length;
-  const directionSeed = cueLength % 4;
-
-  let startX = -20;
-  let endX = 20;
-  let startY = -10;
-  let endY = 10;
-  let startScale = 1.05;
-  let endScale = 1.25;
-
-  if (directionSeed === 1) {
-    // Zoom out, pan left
-    startX = 30;
-    endX = -30;
-    startY = -10;
-    endY = 10;
-    startScale = 1.3;
-    endScale = 1.05;
-  } else if (directionSeed === 2) {
-    // Zoom in, pan up-right
-    startX = -40;
-    endX = 20;
-    startY = 20;
-    endY = -20;
-    startScale = 1.08;
-    endScale = 1.28;
-  } else if (directionSeed === 3) {
-    // Zoom in, pan down-left
-    startX = 20;
-    endX = -20;
-    startY = -20;
-    endY = 20;
-    startScale = 1.05;
-    endScale = 1.2;
-  }
-
-  // Linear interpolations for transform coordinates
-  const scale = interpolate(frame, [0, durationInFrames], [startScale, endScale], {
-    extrapolateRight: 'clamp'
-  });
-  const x = interpolate(frame, [0, durationInFrames], [startX, endX], {
-    extrapolateRight: 'clamp'
-  });
-  const y = interpolate(frame, [0, durationInFrames], [startY, endY], {
-    extrapolateRight: 'clamp'
-  });
+  // No zoom or pan - completely static stable frame
+  const roundedScale = 1;
+  const roundedX = 0;
+  const roundedY = 0;
 
   const transformStyle = {
-    transform: `scale(${scale}) translate3d(${x}px, ${y}px, 0)`,
+    transform: `scale(${roundedScale}) translate3d(${roundedX}px, ${roundedY}px, 0)`,
     width: '100%',
     height: '100%',
-    objectFit: 'cover' as const
+    objectFit: 'cover' as const,
   };
 
   // If no stock asset is downloaded, render a gorgeous vintage polaroid card with the text cue
@@ -95,7 +50,7 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
           boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)',
           borderRadius: 4,
           border: '1px solid #dcd7cd',
-          transform: `rotate(${directionSeed - 2}deg) scale(${scale * 0.9})`,
+          transform: `rotate(0deg) scale(${roundedScale * 0.9})`,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center'
@@ -117,7 +72,7 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
               <polyline points="21 15 16 10 5 21" />
             </svg>
           </div>
-          
+
           {/* Card text snippet caption */}
           <div style={{
             marginTop: 35,
@@ -144,8 +99,8 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
   return (
     <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
       {isVideo ? (
-        <Video 
-          src={src} 
+        <Video
+          src={src}
           style={transformStyle}
           muted={true}
           volume={0}
@@ -153,8 +108,8 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
           loop
         />
       ) : (
-        <Img 
-          src={src} 
+        <Img
+          src={src}
           style={transformStyle}
         />
       )}

@@ -9,11 +9,11 @@ from backend.core.config import get_exports_dir, get_temp_dir, get_node_path
 from backend.core.logger import logger
 
 def clean_media_path(path_str):
-    """Formats an absolute Windows path into a local Bottle server API route."""
+    """Formats an absolute Windows path into a local file:/// URL."""
     if not path_str:
         return ""
     normalized = str(Path(path_str).resolve()).replace('\\', '/')
-    return f"http://localhost:8888/api/media?path={requests_quote(normalized)}"
+    return f"file:///{normalized}"
 
 def requests_quote(string):
     import requests
@@ -93,9 +93,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', project_dict['name'])
     output_mp4_path = exports_dir / f"{safe_name}.mp4"
 
-    # 2. Run npx remotion render
-    # Execute inside 'frontend' directory since it contains node_modules and root.ts
+    # 2. Run custom render script (programmatic renderMedia API)
+    # Uses render.mjs instead of `remotion render` CLI to enable:
+    #   - Hardware-accelerated encoding (NVENC) via hardwareAcceleration param
+    #   - Custom FFmpeg/FFprobe binaries via ffmpegExecutable/ffprobeExecutable
     frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
+    render_script = frontend_dir / "src" / "render.mjs"
+    
+    if not render_script.exists():
+        raise FileNotFoundError(f"Render script not found: {render_script}")
     
     # Normalize props path relative to frontend folder or pass absolute
     abs_props_path = str(props_path.resolve()).replace('\\', '/')
@@ -130,63 +136,43 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     fps = int(render_fps)
     total_duration = sum(float(sc.get("duration") or 0.0) for sc in scenes)
     total_frames = max(150, int(total_duration * fps))
-    frames_arg = f"--frames=0-{total_frames - 1}"
+    frames_arg = f"0-{total_frames - 1}"
 
-    # Command: run specific node with remotion-cli.js if available, otherwise fallback to npx
+    # Build command using render.mjs (programmatic API)
     node_exe = get_node_path()
-    remotion_cli = frontend_dir / "node_modules" / "@remotion" / "cli" / "remotion-cli.js"
     
-    if node_exe != "node" and remotion_cli.exists():
-        cmd = [
-            node_exe,
-            str(remotion_cli),
-            "render",
-            "src/components/video/root.ts",
-            "NitishRajputVideo",
-            abs_output_path,
-            f"--props={abs_props_path}",
-            frames_arg,
-            f"--concurrency={concurrency_arg}",
-            f"--scale={scale_arg}",
-            f"--codec={render_codec}",
-            f"--crf={render_crf}",
-            "--log=info"
-        ]
-        
-        if render_hardware == "cuda":
-            cmd.append("--gl=angle")
-            
-        logger.info(f"Executing Remotion command using bundled Node.js: {node_exe}")
+    cmd = [
+        node_exe,
+        str(render_script),
+        "--props", abs_props_path,
+        "--output", abs_output_path,
+        "--fps", str(fps),
+        "--codec", render_codec,
+        "--crf", str(render_crf),
+        "--scale", scale_arg,
+        "--concurrency", concurrency_arg,
+        "--frames", frames_arg,
+    ]
+    
+    # Pass portable FFmpeg/FFprobe binaries if available
+    bin_dir = frontend_dir.parent / "bin"
+    ffmpeg_exe = bin_dir / "ffmpeg.exe"
+    ffprobe_exe = bin_dir / "ffprobe.exe"
+    if ffmpeg_exe.exists():
+        cmd.extend(["--ffmpeg", str(ffmpeg_exe.resolve())])
+    if ffprobe_exe.exists():
+        cmd.extend(["--ffprobe", str(ffprobe_exe.resolve())])
+    
+    # Hardware acceleration: use "if-possible" for CUDA (graceful NVENC fallback)
+    if render_hardware == "cuda":
+        cmd.extend(["--hw-accel", "if-possible"])
     else:
-        cmd = [
-            "npx",
-            "remotion",
-            "render",
-            "src/components/video/root.ts",
-            "NitishRajputVideo",
-            abs_output_path,
-            f"--props={abs_props_path}",
-            frames_arg,
-            f"--concurrency={concurrency_arg}",
-            f"--scale={scale_arg}",
-            f"--codec={render_codec}",
-            f"--crf={render_crf}",
-            "--log=info",
-            "--timeout=120000"
-        ]
-        
-        if render_hardware == "cuda":
-            cmd.append("--gl=angle")
-            
-        logger.info("Executing Remotion command using system npx")
+        cmd.extend(["--hw-accel", "disable"])
 
-    logger.info(f"Executing command in {frontend_dir}: {' '.join(cmd)}")
+    logger.info(f"Executing render.mjs in {frontend_dir}: {' '.join(cmd)}")
     
     env = os.environ.copy()
     env["NODE_OPTIONS"] = "--max-old-space-size=8192"
-    # Note: GPU acceleration is handled by --gl=angle for frame rendering.
-    # Video encoding uses software libx264/libx265 (Remotion's bundled FFmpeg
-    # does not include hardware encoders like h264_nvenc).
     
     startupinfo = None
     if os.name == "nt":
@@ -199,16 +185,17 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
         universal_newlines=True,
-        shell=(cmd[0] == "npx"), # Need shell=True to execute npx successfully on Windows, but not node.exe
         startupinfo=startupinfo,
         env=env
     )
 
-    bundle_regex = re.compile(r"Bundling (\d+)%")
-    render_regex = re.compile(r"Rendered\s+(\d+)/(\d+)")
-    encode_regex = re.compile(r"Encoded\s+(\d+)/(\d+)")
+    # Progress regex patterns for render.mjs output
+    progress_regex = re.compile(r"Render progress:\s*([\d.]+)%")
+    bundle_regex = re.compile(r"Bundle ready in")
 
     try:
         buffer = ""
@@ -235,50 +222,47 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
                 stripped = line.strip()
                 if stripped:
-                    # Extract precise progress phases
-                    bundle_match = bundle_regex.search(line)
-                    render_match = render_regex.search(line)
-                    encode_match = encode_regex.search(line)
+                    progress_match = progress_regex.search(stripped)
                     
-                    # Throttle spammy logs (only log every 100th frame or the final frame)
+                    # Throttle progress logs (only log every 5%)
                     skip_log = False
-                    if render_match:
-                        current = int(render_match.group(1))
-                        if current % 100 != 0 and current != int(render_match.group(2)):
+                    if progress_match:
+                        pct_val = float(progress_match.group(1))
+                        if not hasattr(render_pipeline, '_last_logged_pct'):
+                            render_pipeline._last_logged_pct = -1
+                        if abs(pct_val - render_pipeline._last_logged_pct) < 5.0 and pct_val < 100:
                             skip_log = True
-                    elif encode_match:
-                        current = int(encode_match.group(1))
-                        if current % 100 != 0 and current != int(encode_match.group(2)):
-                            skip_log = True
+                        else:
+                            render_pipeline._last_logged_pct = pct_val
 
                     if not skip_log:
-                        logger.info(f"[Remotion CLI]: {stripped}")
+                        logger.info(f"[Remotion]: {stripped}")
                         
                     # Always append to error output buffer in case it fails
                     last_output_lines.append(stripped)
                     if len(last_output_lines) > 20:
                         last_output_lines.pop(0)
                         
-                if bundle_match:
-                    pct_val = int(bundle_match.group(1))
-                    pct = 2.0 + (pct_val / 100.0) * 3.0  # 2% to 5%
-                    progress_cb(min(99.0, pct), f"Bundling App... {pct_val}%")
-                elif render_match:
-                    current = int(render_match.group(1))
-                    total = int(render_match.group(2))
-                    if total > 0:
-                        pct = 5.0 + (current / total) * 60.0 # 5% to 65%
-                        progress_cb(min(99.0, pct), f"Rendering Frame {current}/{total}")
-                elif encode_match:
-                    current = int(encode_match.group(1))
-                    total = int(encode_match.group(2))
-                    if total > 0:
-                        pct = 65.0 + (current / total) * 34.0 # 65% to 99%
-                        progress_cb(min(99.0, pct), f"Encoding Frame {current}/{total}")
+                    # Parse progress and update callback
+                    if progress_match:
+                        pct_val = float(progress_match.group(1))
+                        # Map render progress (0-100%) to pipeline progress (5-99%)
+                        pct = 5.0 + (pct_val / 100.0) * 94.0
+                        progress_cb(min(99.0, pct), f"Rendering... {pct_val:.1f}%")
+                    elif bundle_regex.search(stripped):
+                        progress_cb(5.0, "Bundling complete. Starting render...")
+                    elif "Bundling" in stripped:
+                        progress_cb(3.0, "Bundling Remotion project...")
+                    elif "Selecting composition" in stripped:
+                        progress_cb(4.0, "Preparing composition...")
             else:
                 buffer += char
 
         process.wait()
+
+        # Clean up the function-level progress tracker
+        if hasattr(render_pipeline, '_last_logged_pct'):
+            del render_pipeline._last_logged_pct
 
         if process.returncode != 0:
             error_details = "\n".join(last_output_lines)
@@ -299,3 +283,4 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     update_project(project_dict['id'], video_path=str(output_mp4_path))
     progress_cb(100.0, "Video compilation complete!")
     logger.info(f"Video compiled successfully! MP4 exported to: {output_mp4_path}")
+

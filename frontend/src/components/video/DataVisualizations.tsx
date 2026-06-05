@@ -43,13 +43,13 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
     };
 
     const maxVal = Math.max(...rawData.map((d: any) => d.value), 1);
-    
+
     // Bar Width and Spacing
     const barWidth = Math.min(100, (innerWidth / rawData.length) * 0.5);
     const xStep = rawData.length > 1 ? innerWidth / (rawData.length - 1) : innerWidth;
 
-    // Cinematic zoom effect
-    const zoomScale = interpolate(frame, [0, durationInFrames], [1, 1.08]);
+    // No zoom - static stable frame
+    const zoomScale = 1;
 
     return (
       <div style={{
@@ -92,7 +92,9 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
               margin: 0,
               position: 'absolute',
               top: 20,
-              width: '100%'
+              width: '100%',
+              WebkitFontSmoothing: 'antialiased',
+              MozOsxFontSmoothing: 'grayscale',
             }}>
               {meta.title || 'Statistical Overview'}
             </h2>
@@ -126,14 +128,18 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                         
                         return (
                             <g key={`grid-${i}`}>
-                                <line 
-                                    x1={0} y1={y} x2={drawProgress} y2={y} 
+                                <line
+                                    x1={0} y1={y} x2={drawProgress} y2={y}
                                     stroke="#44403c" strokeWidth="2" strokeDasharray="8 8"
                                 />
-                                <text 
-                                    x={-25} y={y + 8} 
+                                <text
+                                    x={-25} y={y + 8}
                                     fill="#a8a29e" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="end"
                                     opacity={animProgress}
+                                    style={{
+                                        WebkitFontSmoothing: 'antialiased',
+                                        MozOsxFontSmoothing: 'grayscale',
+                                    }}
                                 >
                                     {formatValue(val)}
                                 </text>
@@ -167,10 +173,20 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                                     <g key={`node-${i}`} transform={`translate(${x}, ${y})`} opacity={nodeAnim}>
                                         <circle r={10} fill="#fffbeb" />
                                         <circle r={20} fill="none" stroke="#fbbf24" strokeWidth="4" opacity="0.8" filter="url(#glow)" />
-                                        <text y={-30} fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="800" textAnchor="middle">
+                                        <text y={-30} fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="800" textAnchor="middle"
+                                            style={{
+                                                WebkitFontSmoothing: 'antialiased',
+                                                MozOsxFontSmoothing: 'grayscale',
+                                            }}
+                                        >
                                             {formatValue(d.value * animProgress)}
                                         </text>
-                                        <text y={targetY - y + 50} fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="middle">
+                                        <text y={targetY - y + 50} fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="middle"
+                                            style={{
+                                                WebkitFontSmoothing: 'antialiased',
+                                                MozOsxFontSmoothing: 'grayscale',
+                                            }}
+                                        >
                                             {d.label}
                                         </text>
                                     </g>
@@ -207,17 +223,25 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                                         />
                                         
                                         {/* Value Label */}
-                                        <text 
-                                            x={x + barWidth / 2} y={y - depth - 20} 
+                                        <text
+                                            x={x + barWidth / 2} y={y - depth - 20}
                                             fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="900" textAnchor="middle"
                                             opacity={animProgress}
+                                            style={{
+                                                WebkitFontSmoothing: 'antialiased',
+                                                MozOsxFontSmoothing: 'grayscale',
+                                            }}
                                         >
                                             {formatValue(d.value * animProgress)}
                                         </text>
                                         {/* X-Axis Label */}
-                                        <text 
-                                            x={x + barWidth / 2} y={innerHeight + 40} 
+                                        <text
+                                            x={x + barWidth / 2} y={innerHeight + 40}
                                             fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="middle"
+                                            style={{
+                                                WebkitFontSmoothing: 'antialiased',
+                                                MozOsxFontSmoothing: 'grayscale',
+                                            }}
                                         >
                                             {d.label}
                                         </text>
@@ -282,8 +306,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
       extrapolateRight: 'clamp'
     });
     
-    // Slow cinematic pan/zoom
-    const zoomScale = interpolate(frame, [0, durationInFrames], [1, 1.15]);
+    // No zoom - static stable frame
+    const zoomScale = 1;
 
     return (
       <div style={{
@@ -293,7 +317,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        backgroundColor: '#1c1917', 
+        backgroundColor: '#1c1917',
         overflow: 'hidden',
         position: 'relative'
       }}>
@@ -386,9 +410,13 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                                 fontWeight="800"
                                 fontSize="24"
                                 textAnchor="start"
+                                dominantBaseline="middle"
                                 style={{
-                                    textShadow: '0 2px 4px rgba(0,0,0,0.8)'
+                                    textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+                                    WebkitFontSmoothing: 'antialiased',
+                                    MozOsxFontSmoothing: 'grayscale',
                                 }}
+                                vectorEffect="non-scaling-stroke"
                             >
                                 {loc.name}
                             </text>
@@ -635,7 +663,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
       { source: '2', target: '4' }
     ];
 
-    const zoomScale = interpolate(frame, [0, durationInFrames], [1, 1.1]);
+    const zoomScale = 1;
 
     return (
       <div style={{
@@ -756,7 +784,9 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                   fontFamily: 'Montserrat, sans-serif',
                   fontWeight: 800,
                   fontSize: 20,
-                  color: '#1c1917'
+                  color: '#1c1917',
+                  WebkitFontSmoothing: 'antialiased',
+                  MozOsxFontSmoothing: 'grayscale',
                 }}>
                   {node.label}
                 </div>
