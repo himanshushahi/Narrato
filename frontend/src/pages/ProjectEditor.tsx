@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
-import RemotionVideoPlayer from '../components/video/RemotionVideoPlayer';
+import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../components/video/RemotionVideoPlayer';
 import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -77,7 +77,14 @@ const getDefaultMetaForType = (type: string, existingMeta: any) => {
 };
 
 
-const SubVisualsEditor = ({ subVisuals, onChange }: { subVisuals: any[], onChange: (newSubs: any[]) => void }) => {
+const formatTime = (frame: number) => {
+  const totalSeconds = Math.floor(frame / 30);
+  const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+  const s = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+};
+
+const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void }) => {
   const handleUpdate = (idx: number, field: string, val: any) => {
     const copy = [...subVisuals];
     copy[idx][field] = val;
@@ -107,11 +114,25 @@ const SubVisualsEditor = ({ subVisuals, onChange }: { subVisuals: any[], onChang
         <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">Sub-Visuals (Cuts)</label>
         <button type="button" onClick={handleAdd} className="text-[10px] bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 px-2 py-1 rounded">+ Add Sub-Visual</button>
       </div>
-      {subVisuals.map((sv: any, idx: number) => (
-        <div key={idx} className="bg-stone-900/60 p-3 rounded border border-stone-800 space-y-3 relative">
-          <button type="button" onClick={() => handleRemove(idx)} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded">Remove</button>
-          <div className="text-xs font-bold text-stone-500 mb-1">Sub-Visual {idx + 1}</div>
-          <div className="grid grid-cols-2 gap-3">
+      {subVisuals.map((sv: any, idx: number) => {
+        const isActive = activeIdx === idx;
+        const timing = timings?.[idx];
+        
+        return (
+        <div key={idx} 
+          onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
+          className={`bg-stone-900/60 p-3 rounded border space-y-3 relative cursor-pointer transition-colors ${isActive ? 'border-amber-500/60 bg-amber-900/10 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-stone-800 hover:border-stone-700'}`}>
+          <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded">Remove</button>
+          <div className="flex items-center gap-2 mb-1">
+            <div className={`text-xs font-bold ${isActive ? 'text-amber-400' : 'text-stone-500'}`}>Sub-Visual {idx + 1}</div>
+            {timing && (
+              <div className="text-[9px] font-mono bg-stone-950 px-1.5 py-0.5 rounded text-stone-400 border border-stone-800">
+                [{formatTime(timing.start)} - {formatTime(timing.end)}]
+              </div>
+            )}
+            {isActive && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+          </div>
+          <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
             <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
             <CustomSelect label="Visual Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
             
@@ -150,22 +171,38 @@ const SubVisualsEditor = ({ subVisuals, onChange }: { subVisuals: any[], onChang
 
           </div>
         </div>
-      ))}
+      )})}
       {subVisuals.length === 0 && <p className="text-xs text-stone-500 italic">No sub-visuals. A default black screen will be shown.</p>}
     </div>
   );
 };
 
-const SubVisualsView = ({ subVisuals }: { subVisuals: any[] }) => {
+const SubVisualsView = ({ subVisuals, timings, activeIdx, onSeek }: { subVisuals: any[], timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void }) => {
   return (
     <div className="flex flex-col gap-2 border-t border-stone-800/40 pt-2">
-      {subVisuals.map((sv: any, idx: number) => (
-        <div key={idx} className="flex gap-4 text-[10px] text-stone-500 font-mono bg-stone-900/30 px-2 py-1 rounded">
-          <span className="w-4 text-stone-600">{idx+1}.</span>
-          <span>Layer: <strong className="text-stone-300 capitalize">{sv.visual_type}</strong></span>
-          <span>Cue: <strong className="text-stone-300">{sv.visual_cue}</strong></span>
+      {subVisuals.map((sv: any, idx: number) => {
+        const isActive = activeIdx === idx;
+        const timing = timings?.[idx];
+        
+        return (
+        <div key={idx} 
+          onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
+          className={`flex flex-col gap-1 text-[10px] font-mono px-2 py-1.5 rounded cursor-pointer transition-colors ${isActive ? 'bg-amber-900/20 text-amber-100 border border-amber-500/30' : 'bg-stone-900/30 text-stone-500 hover:bg-stone-800/50 border border-transparent'}`}>
+          <div className="flex items-center gap-2">
+            <span className={`w-4 ${isActive ? 'text-amber-400' : 'text-stone-600'}`}>{idx+1}.</span>
+            {timing && (
+              <span className="bg-stone-950/80 px-1 rounded text-stone-400 border border-stone-800/60">
+                {formatTime(timing.start)}
+              </span>
+            )}
+            <span>Layer: <strong className={isActive ? 'text-amber-300 capitalize' : 'text-stone-300 capitalize'}>{sv.visual_type}</strong></span>
+          </div>
+          <div className="pl-6 flex items-center gap-2">
+            <span>Cue: <strong className={isActive ? 'text-amber-200' : 'text-stone-300'}>{sv.visual_cue}</strong></span>
+            {isActive && <span className="ml-auto text-[9px] text-amber-500 bg-amber-500/10 px-1 rounded animate-pulse">Playing</span>}
+          </div>
         </div>
-      ))}
+      )})}
     </div>
   );
 };
@@ -270,6 +307,101 @@ export const ProjectEditor: React.FC = () => {
   const [savingCardKey, setSavingCardKey] = useState<string | null>(null);
   const [wasActive, setWasActive] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  const [currentFrame, setCurrentFrame] = useState(0);
+  const playerRef = useRef<RemotionVideoPlayerRef>(null);
+
+  const getLiveScenes = React.useCallback(() => {
+    if (!manifestData || !scriptData) return manifestData;
+
+    let sceneCounter = 0;
+    return manifestData.map((manifestScene: any) => {
+      const type = manifestScene.section_type;
+      let liveSubVisuals: any[] = [];
+
+      if (type === 'introduction' && scriptData.introduction) {
+        liveSubVisuals = scriptData.introduction.sub_visuals || [];
+      } else if (type === 'conclusion' && scriptData.conclusion) {
+        liveSubVisuals = scriptData.conclusion.sub_visuals || [];
+      } else if (type === 'scene' && scriptData.scenes) {
+        const currentIdx = sceneCounter;
+        sceneCounter++;
+        const scriptScene = scriptData.scenes[currentIdx];
+        if (scriptScene) {
+          liveSubVisuals = scriptScene.sub_visuals || [];
+        }
+      }
+
+      const origSubVisuals = manifestScene.sub_visuals || [];
+      
+      const resolvedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
+        const osv = origSubVisuals[idx] || {};
+        const isChanged = 
+          lsv.visual_type !== osv.visual_type || 
+          lsv.visual_cue !== osv.visual_cue || 
+          JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
+        const visualUrl = isChanged ? '' : (osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '');
+        return {
+          ...osv,
+          visual_type: lsv.visual_type,
+          visual_cue: lsv.visual_cue,
+          visual_meta: lsv.visual_meta,
+          visual_url: visualUrl,
+          duration: osv.duration
+        };
+      });
+
+      const resolvedAudioUrl = manifestScene.audio_url ? `${manifestScene.audio_url}&t=${reloadKey}` : '';
+
+      return {
+        ...manifestScene,
+        sub_visuals: resolvedSubVisuals,
+        audio_url: resolvedAudioUrl
+      };
+    });
+  }, [manifestData, scriptData, reloadKey]);
+
+  const liveScenes = getLiveScenes();
+
+  const sceneTimings = useMemo(() => {
+    if (!liveScenes) return [];
+    let offset = 0;
+    return liveScenes.map((scene: any) => {
+      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      const start = offset;
+      const end = offset + durationFrames;
+      
+      const subVisuals = scene.sub_visuals || [];
+      const numSubs = subVisuals.length;
+      
+      let subs: any[] = [];
+      if (numSubs > 0) {
+        subs = subVisuals.map((sv: any, idx: number) => {
+          const baseSubDuration = Math.floor(durationFrames / numSubs);
+          const subFrom = start + idx * baseSubDuration;
+          const subDuration = idx === numSubs - 1 
+            ? durationFrames - (idx * baseSubDuration)
+            : baseSubDuration;
+          return { start: subFrom, end: subFrom + Math.max(1, subDuration) };
+        });
+      }
+      
+      offset = end;
+      return { start, end, subs };
+    });
+  }, [liveScenes]);
+
+  const activeSceneIdx = sceneTimings.findIndex(t => currentFrame >= t.start && currentFrame < t.end);
+  const activeSubIdx = activeSceneIdx >= 0 && sceneTimings[activeSceneIdx].subs.length > 0
+    ? sceneTimings[activeSceneIdx].subs.findIndex(t => currentFrame >= t.start && currentFrame < t.end) 
+    : -1;
+
+  const handleSeek = (frame: number) => {
+    if (playerRef.current) {
+      playerRef.current.seekTo(frame);
+    }
+  };
+
 
   const handleStartEdit = (cardKey: string) => {
     setOriginalScriptData(JSON.parse(JSON.stringify(scriptData)));
@@ -697,56 +829,6 @@ export const ProjectEditor: React.FC = () => {
     return '';
   };
 
-  const getLiveScenes = () => {
-    if (!manifestData || !scriptData) return manifestData;
-
-    let sceneCounter = 0;
-    return manifestData.map((manifestScene: any) => {
-      const type = manifestScene.section_type;
-      let liveSubVisuals: any[] = [];
-
-      if (type === 'introduction' && scriptData.introduction) {
-        liveSubVisuals = scriptData.introduction.sub_visuals || [];
-      } else if (type === 'conclusion' && scriptData.conclusion) {
-        liveSubVisuals = scriptData.conclusion.sub_visuals || [];
-      } else if (type === 'scene' && scriptData.scenes) {
-        const currentIdx = sceneCounter;
-        sceneCounter++;
-        const scriptScene = scriptData.scenes[currentIdx];
-        if (scriptScene) {
-          liveSubVisuals = scriptScene.sub_visuals || [];
-        }
-      }
-
-      const origSubVisuals = manifestScene.sub_visuals || [];
-      
-      const resolvedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
-        const osv = origSubVisuals[idx] || {};
-        const isChanged = 
-          lsv.visual_type !== osv.visual_type || 
-          lsv.visual_cue !== osv.visual_cue || 
-          JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
-        const visualUrl = isChanged ? '' : (osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '');
-        return {
-          ...osv,
-          visual_type: lsv.visual_type,
-          visual_cue: lsv.visual_cue,
-          visual_meta: lsv.visual_meta,
-          visual_url: visualUrl,
-          duration: osv.duration
-        };
-      });
-
-      const resolvedAudioUrl = manifestScene.audio_url ? `${manifestScene.audio_url}&t=${reloadKey}` : '';
-
-      return {
-        ...manifestScene,
-        sub_visuals: resolvedSubVisuals,
-        audio_url: resolvedAudioUrl
-      };
-    });
-  };
-
   return (
     <div className="flex flex-col h-[calc(100vh-60px)] z-10 relative">
 
@@ -810,13 +892,15 @@ export const ProjectEditor: React.FC = () => {
           <div>
             <h2 className="text-sm font-bold text-stone-400 uppercase tracking-widest mb-3">Live Video Canvas</h2>
             <RemotionVideoPlayer
+              ref={playerRef}
               audioUrl={getAudioSourceUrl()}
               bgMusicUrl={getBGMUrl()}
               bgMusicVolume={selectedProject.bg_music_volume}
-              scenes={getLiveScenes()}
+              scenes={liveScenes}
               transcription={transcriptionData}
               styleType={selectedProject.style}
               language={selectedProject.language}
+              onFrameUpdate={setCurrentFrame}
             />
           </div>
 
@@ -1078,13 +1162,25 @@ export const ProjectEditor: React.FC = () => {
             <div className="space-y-6">
 
               {/* Introduction Card */}
+              {(() => {
+                const introSceneIdx = 0;
+                const introTimings = sceneTimings[introSceneIdx]?.subs;
+                const isIntroActive = activeSceneIdx === introSceneIdx;
+                const introActiveSubIdx = isIntroActive ? activeSubIdx : -1;
+                return (
               <motion.div
                 layout
-                className={`p-4 rounded-lg border transition-all ${editingCard === 'intro' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+                className={`p-4 rounded-lg border transition-all ${editingCard === 'intro' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isIntroActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
               >
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">0. Hook Introduction</span>
-                  <div className="flex gap-2">
+                <div 
+                  className={`flex justify-between items-center mb-3 ${editingCard !== 'intro' ? 'cursor-pointer hover:opacity-80' : ''}`}
+                  onClick={() => { if (editingCard !== 'intro' && sceneTimings[introSceneIdx]) handleSeek(sceneTimings[introSceneIdx].start); }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">0. Hook Introduction</span>
+                    {isIntroActive && !editingCard && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+                  </div>
+                  <div className="flex gap-2" onClick={e => e.stopPropagation()}>
                     {editingCard === 'intro' ? (
                       <>
                         <button
@@ -1136,7 +1232,7 @@ export const ProjectEditor: React.FC = () => {
                           setScriptData(copy);
                         }}
                       />
-                      <SubVisualsEditor subVisuals={scriptData.introduction.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.introduction.sub_visuals = newSubs; setScriptData(copy); }} />
+                      <SubVisualsEditor subVisuals={scriptData.introduction.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.introduction.sub_visuals = newSubs; setScriptData(copy); }} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
 
                       {/* LLM Rewrite sub-section */}
                       <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1171,28 +1267,40 @@ export const ProjectEditor: React.FC = () => {
                       className="space-y-2"
                     >
                       <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.introduction.hook}</p>
-                      <SubVisualsView subVisuals={scriptData.introduction.sub_visuals || []} />
+                      <SubVisualsView subVisuals={scriptData.introduction.sub_visuals || []} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
                     </motion.div>
                   )}
                 </AnimatePresence>
               </motion.div>
+              );})()}
 
               {/* Scenes Map */}
               {scriptData.scenes.map((scene: any, idx: number) => {
                 const cardKey = `scene_${idx}`;
                 const isEditing = editingCard === cardKey;
 
+                const globalSceneIdx = idx + (scriptData.introduction ? 1 : 0);
+                const timings = sceneTimings[globalSceneIdx]?.subs;
+                const isActive = activeSceneIdx === globalSceneIdx;
+                const activeSubIdxForScene = isActive ? activeSubIdx : -1;
+
                 return (
                   <motion.div
                     key={idx}
                     layout
-                    className={`p-4 rounded-lg border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+                    className={`p-4 rounded-lg border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
                   >
-                    <div className="flex justify-between items-center mb-3">
-                      <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">
-                        Scene {idx + 1}: {scene.title}
-                      </span>
-                      <div className="flex gap-2">
+                    <div 
+                      className={`flex justify-between items-center mb-3 ${!isEditing ? 'cursor-pointer hover:opacity-80' : ''}`}
+                      onClick={() => { if (!isEditing && sceneTimings[globalSceneIdx]) handleSeek(sceneTimings[globalSceneIdx].start); }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">
+                          Scene {idx + 1}: {scene.title}
+                        </span>
+                        {isActive && !isEditing && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+                      </div>
+                      <div className="flex gap-2" onClick={e => e.stopPropagation()}>
                         {isEditing ? (
                           <>
                             <button
@@ -1244,7 +1352,7 @@ export const ProjectEditor: React.FC = () => {
                               setScriptData(copy);
                             }}
                           />
-                          <SubVisualsEditor subVisuals={scene.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} />
+                          <SubVisualsEditor subVisuals={scene.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
 
                           {/* AI Rewrite controls */}
                           <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1279,7 +1387,7 @@ export const ProjectEditor: React.FC = () => {
                           className="space-y-2"
                         >
                           <p className="text-xs text-stone-200 leading-relaxed font-sans">{scene.narration}</p>
-                          <SubVisualsView subVisuals={scene.sub_visuals || []} />
+                          <SubVisualsView subVisuals={scene.sub_visuals || []} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -1288,13 +1396,25 @@ export const ProjectEditor: React.FC = () => {
               })}
 
               {/* Conclusion Card */}
+              {(() => {
+                const concSceneIdx = (scriptData.introduction ? 1 : 0) + scriptData.scenes.length;
+                const concTimings = sceneTimings[concSceneIdx]?.subs;
+                const isConcActive = activeSceneIdx === concSceneIdx;
+                const concActiveSubIdx = isConcActive ? activeSubIdx : -1;
+                return (
               <motion.div
                 layout
-                className={`p-4 rounded-lg border transition-all ${editingCard === 'conclusion' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+                className={`p-4 rounded-lg border transition-all ${editingCard === 'conclusion' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isConcActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
               >
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">Final Conclusion</span>
-                  <div className="flex gap-2">
+                <div 
+                  className={`flex justify-between items-center mb-3 ${editingCard !== 'conclusion' ? 'cursor-pointer hover:opacity-80' : ''}`}
+                  onClick={() => { if (editingCard !== 'conclusion' && sceneTimings[concSceneIdx]) handleSeek(sceneTimings[concSceneIdx].start); }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">Final Conclusion</span>
+                    {isConcActive && !editingCard && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+                  </div>
+                  <div className="flex gap-2" onClick={e => e.stopPropagation()}>
                     {editingCard === 'conclusion' ? (
                       <>
                         <button
@@ -1357,7 +1477,7 @@ export const ProjectEditor: React.FC = () => {
                           setScriptData(copy);
                         }}
                       />
-                      <SubVisualsEditor subVisuals={scriptData.conclusion.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.conclusion.sub_visuals = newSubs; setScriptData(copy); }} />
+                      <SubVisualsEditor subVisuals={scriptData.conclusion.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.conclusion.sub_visuals = newSubs; setScriptData(copy); }} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
 
                       {/* AI Rewrite controls */}
                       <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1393,11 +1513,12 @@ export const ProjectEditor: React.FC = () => {
                     >
                       <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.conclusion.summary}</p>
                       <p className="text-xs text-amber-500 font-bold leading-relaxed font-sans">{scriptData.conclusion.cta}</p>
-                      <SubVisualsView subVisuals={scriptData.conclusion.sub_visuals || []} />
+                      <SubVisualsView subVisuals={scriptData.conclusion.sub_visuals || []} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
                     </motion.div>
                   )}
                 </AnimatePresence>
               </motion.div>
+              );})()}
 
             </div>
           )}

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Player } from '@remotion/player';
+import React, { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
+import { Player, PlayerRef } from '@remotion/player';
 import { NitishRajputComposition, Scene, Transcription } from './NitishRajputComposition';
 
 interface Props {
@@ -10,17 +10,48 @@ interface Props {
   transcription: Transcription;
   styleType?: string;
   language?: string;
+  onFrameUpdate?: (frame: number) => void;
 }
 
-export const RemotionVideoPlayer: React.FC<Props> = ({
+export interface RemotionVideoPlayerRef {
+  seekTo: (frame: number) => void;
+}
+
+export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   audioUrl,
   bgMusicUrl,
   bgMusicVolume = 0.15,
   scenes = [],
   transcription = { segments: [] },
   styleType = 'nitish_rajput',
-  language = 'hi'
-}) => {
+  language = 'hi',
+  onFrameUpdate
+}, ref) => {
+
+  const playerRef = useRef<PlayerRef>(null);
+
+  useImperativeHandle(ref, () => ({
+    seekTo: (frame: number) => {
+      if (playerRef.current) {
+        playerRef.current.seekTo(frame);
+      }
+    }
+  }));
+
+  useEffect(() => {
+    if (!playerRef.current || !onFrameUpdate) return;
+    const { current } = playerRef;
+    
+    const onFrame = (e: Event) => {
+      onFrameUpdate((e as CustomEvent).detail.frame);
+    };
+    
+    current.addEventListener('frameupdate', onFrame);
+    
+    return () => {
+      current.removeEventListener('frameupdate', onFrame);
+    };
+  }, [onFrameUpdate]);
 
   // Dynamically compute the total duration of the video based on segment synthesis times
   const durationInFrames = useMemo(() => {
@@ -58,6 +89,7 @@ export const RemotionVideoPlayer: React.FC<Props> = ({
   return (
     <div className="w-full aspect-video bg-black rounded-lg overflow-hidden border border-zinc-800 shadow-2xl relative">
       <Player
+        ref={playerRef}
         component={NitishRajputComposition}
         inputProps={inputProps}
         durationInFrames={durationInFrames}
@@ -78,5 +110,5 @@ export const RemotionVideoPlayer: React.FC<Props> = ({
       </div>
     </div>
   );
-};
+});
 export default RemotionVideoPlayer;
