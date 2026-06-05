@@ -34,6 +34,7 @@ def serve_media():
     response = bottle.static_file(filename, root=dirname)
     # Prevent Chrome disk-cache issues during Remotion headless rendering
     response.set_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+    response.set_header('Access-Control-Allow-Origin', '*')
     return response
 
 def main():
@@ -56,13 +57,13 @@ def main():
         dummy_dir = os.path.join(os.path.dirname(__file__), "dummy")
         os.makedirs(dummy_dir, exist_ok=True)
         eel.init(dummy_dir, allowed_extensions=[])
-        
+
         # Explicitly register exposed JS functions so Eel's Python side knows they exist.
         funcs = ["on_log_stream", "on_progress_update", "on_kokoro_download_progress", "on_whisper_download_progress", "on_ytdlp_update_progress"]
         eel._js_functions = funcs
         for f in funcs:
             eel._import_js_function(f)
-        
+
         try:
             logger.info("Connecting Eel to Vite dev server at http://localhost:5173...")
             eel.start(

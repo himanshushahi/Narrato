@@ -1,5 +1,5 @@
 import React from 'react';
-import { Img, Video } from 'remotion';
+import { useCurrentFrame, interpolate, Img, Video } from 'remotion';
 
 interface Props {
   src: string;
@@ -9,17 +9,55 @@ interface Props {
 }
 
 export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames }) => {
-  // No zoom or pan - completely static stable frame
-  const roundedScale = 1;
-  const roundedX = 0;
-  const roundedY = 0;
+  const frame = useCurrentFrame();
 
-  const transformStyle = {
-    transform: `scale(${roundedScale}) translate3d(${roundedX}px, ${roundedY}px, 0)`,
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover' as const,
-  };
+  // Create alternating pan directions based on the length of the visual cue
+  const cueLength = cue.length || 0;
+  const directionSeed = cueLength % 4;
+
+  let startX = -20;
+  let endX = 20;
+  let startY = -10;
+  let endY = 10;
+  let startScale = 1.05;
+  let endScale = 1.25;
+
+  if (directionSeed === 1) {
+    // Zoom out, pan left
+    startX = 30;
+    endX = -30;
+    startY = -10;
+    endY = 10;
+    startScale = 1.3;
+    endScale = 1.05;
+  } else if (directionSeed === 2) {
+    // Zoom in, pan up-right
+    startX = -40;
+    endX = 20;
+    startY = 20;
+    endY = -20;
+    startScale = 1.08;
+    endScale = 1.28;
+  } else if (directionSeed === 3) {
+    // Zoom in, pan down-left
+    startX = 20;
+    endX = -20;
+    startY = -20;
+    endY = 20;
+    startScale = 1.05;
+    endScale = 1.2;
+  }
+
+  // Linear interpolations for transform coordinates
+  const scale = interpolate(frame, [0, durationInFrames], [startScale, endScale], {
+    extrapolateRight: 'clamp'
+  });
+  const x = interpolate(frame, [0, durationInFrames], [startX, endX], {
+    extrapolateRight: 'clamp'
+  });
+  const y = interpolate(frame, [0, durationInFrames], [startY, endY], {
+    extrapolateRight: 'clamp'
+  });
 
   // If no stock asset is downloaded, render a gorgeous vintage polaroid card with the text cue
   if (!src) {
@@ -50,7 +88,7 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
           boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)',
           borderRadius: 4,
           border: '1px solid #dcd7cd',
-          transform: `rotate(0deg) scale(${roundedScale * 0.9})`,
+          transform: `rotate(${directionSeed - 2}deg) scale(${scale * 0.9})`,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center'
@@ -97,22 +135,31 @@ export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames
   const isVideo = cleanSrc.toLowerCase().includes('.mp4') || cleanSrc.toLowerCase().includes('.webm');
 
   return (
-    <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
-      {isVideo ? (
-        <Video
-          src={src}
-          style={transformStyle}
-          muted={true}
-          volume={0}
-          startFrom={0}
-          loop
-        />
-      ) : (
-        <Img
-          src={src}
-          style={transformStyle}
-        />
-      )}
+    <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', backgroundColor: '#000' }}>
+      {/* Wrapper div receives the transform! This prevents Chrome GPU flickering on Video tags! */}
+      <div style={{
+        width: '100%',
+        height: '100%',
+        transform: `scale(${scale}) translate3d(${x}px, ${y}px, 0)`,
+        willChange: 'transform',
+        transformOrigin: 'center center',
+      }}>
+        {isVideo ? (
+          <Video
+            src={src}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            muted={true}
+            volume={0}
+            startFrom={0}
+            loop
+          />
+        ) : (
+          <Img
+            src={src}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        )}
+      </div>
     </div>
   );
 };

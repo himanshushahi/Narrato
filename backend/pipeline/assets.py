@@ -318,3 +318,88 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
         
     return {"success": True, "segment": segment, "sub_visual": sub_visual}
 
+
+def cleanup_removed_assets(project_id, new_manifest_data):
+    """
+    Compares new manifest with existing assets on disk, deletes removed sub_visual files.
+
+    Args:
+        project_id: Project identifier
+        new_manifest_data: Updated manifest structure from frontend
+
+    Returns:
+        dict: {deleted_files: [...], preserved_files: [...], new_manifest: {...}}
+    """
+    from backend.database.db import get_project
+    from backend.core.config import get_storage_dir
+
+    project = get_project(project_id)
+    if not project:
+        logger.error(f"Project not found: {project_id}")
+        return {"success": False, "error": "Project not found", "deleted_files": [], "preserved_files": []}
+
+    manifest_path = Path(project['assets_manifest_path'])
+    if not manifest_path.exists():
+        logger.warning(f"Manifest not found: {manifest_path}, skipping cleanup")
+        return {"success": True, "deleted_files": [], "preserved_files": [], "new_manifest": new_manifest_data}
+
+    # Load old manifest
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        old_manifest = json.load(f)
+
+    assets_dir = get_storage_dir() / project_id / "assets"
+
+    # Build set of (scene_idx, sub_idx) from new manifest
+    kept_positions = set()
+    for scene_idx, segment in enumerate(new_manifest_data):
+        sub_visuals = segment.get("sub_visuals", [])
+        for sub_idx, sv in enumerate(sub_visuals):
+            # Only track positions that have actual media files (not programmatic types)
+            visual_type = sv.get("visual_type", "")
+            if visual_type in ("scene", "image", "portrait", "parallax", "youtube"):
+                kept_positions.add((scene_idx, sub_idx))
+
+    # Find and delete orphaned files
+    deleted_files = []
+    preserved_files = []
+    extensions = [".mp4", ".jpg", ".png", ".jpeg"]
+
+    for scene_idx, segment in enumerate(old_manifest):
+        sub_visuals = segment.get("sub_visuals", [])
+        for sub_idx, sv in enumerate(sub_visuals):
+            if (scene_idx, sub_idx) not in kept_positions:
+                # This sub_visual was removed or changed to non-media type - delete its files
+                for ext in extensions:
+                    file_path = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}{ext}"
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                            deleted_files.append(str(file_path))
+                            logger.info(f"Deleted orphaned asset: {file_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete {file_path}: {e}")
+            else:
+                # Preserve: check if file exists for kept positions
+                for ext in extensions:
+                    file_path = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}{ext}"
+                    if file_path.exists():
+                        preserved_files.append(str(file_path))
+                        break  # Only count once per position
+
+    # Write new manifest to disk
+    try:
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(new_manifest_data, f, indent=2, ensure_ascii=False)
+        logger.info(f"Updated manifest file: {manifest_path}")
+    except Exception as e:
+        logger.error(f"Failed to write new manifest: {e}")
+        return {"success": False, "error": str(e), "deleted_files": deleted_files, "preserved_files": preserved_files}
+
+    logger.info(f"Cleanup complete: {len(deleted_files)} deleted, {len(preserved_files)} preserved")
+    return {
+        "success": True,
+        "deleted_files": deleted_files,
+        "preserved_files": preserved_files,
+        "new_manifest": new_manifest_data
+    }
+

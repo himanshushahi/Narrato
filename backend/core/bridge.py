@@ -596,3 +596,49 @@ def generate_chart_data_api(prompt):
     from backend.pipeline.ai import generate_chart_data
     return generate_chart_data(prompt)
 
+@eel.expose
+def save_project_with_cleanup(project_id, script_data, manifest_data):
+    """
+    Saves script and manifest JSON files, cleaning up removed visual assets.
+
+    Args:
+        project_id: Project identifier
+        script_data: Script JSON data to save
+        manifest_data: Updated manifest structure with sub_visuals
+
+    Returns:
+        dict: {success: bool, script_saved: bool, cleanup_result: {...}, error?: str}
+    """
+    from backend.database.db import get_project
+    from backend.pipeline.assets import cleanup_removed_assets
+
+    result = {"success": True, "script_saved": False, "cleanup_result": None}
+
+    try:
+        project = get_project(project_id)
+        if not project:
+            return {"success": False, "error": "Project not found", "script_saved": False}
+
+        # 1. Save script JSON file
+        if project.get('script_path'):
+            script_success = save_json_file(project['script_path'], script_data)
+            result["script_saved"] = script_success
+            if not script_success:
+                logger.warning("Script file save failed, but continuing with cleanup")
+
+        # 2. Cleanup removed assets and save manifest
+        cleanup_result = cleanup_removed_assets(project_id, manifest_data)
+        result["cleanup_result"] = cleanup_result
+
+        if not cleanup_result.get("success"):
+            logger.warning("Asset cleanup failed, but script was saved")
+            result["success"] = False
+            result["error"] = cleanup_result.get("error", "Cleanup failed")
+
+    except Exception as e:
+        logger.error(f"save_project_with_cleanup failed: {e}", exc_info=True)
+        result["success"] = False
+        result["error"] = str(e)
+
+    return result
+

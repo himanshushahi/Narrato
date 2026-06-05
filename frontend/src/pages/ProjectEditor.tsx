@@ -265,6 +265,7 @@ export const ProjectEditor: React.FC = () => {
   const [rewritingType, setRewritingType] = useState<string>('');
 
   const [originalScriptData, setOriginalScriptData] = useState<any>(null);
+  const [originalManifestData, setOriginalManifestData] = useState<any[]>([]);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const [savingCardKey, setSavingCardKey] = useState<string | null>(null);
   const [wasActive, setWasActive] = useState(false);
@@ -272,6 +273,7 @@ export const ProjectEditor: React.FC = () => {
 
   const handleStartEdit = (cardKey: string) => {
     setOriginalScriptData(JSON.parse(JSON.stringify(scriptData)));
+    setOriginalManifestData(JSON.parse(JSON.stringify(manifestData)));
     setEditingCard(cardKey);
   };
 
@@ -281,6 +283,7 @@ export const ProjectEditor: React.FC = () => {
     }
     setEditingCard(null);
     setOriginalScriptData(null);
+    setOriginalManifestData([]);
   };
 
   useEffect(() => {
@@ -356,6 +359,8 @@ export const ProjectEditor: React.FC = () => {
               };
             });
             setManifestData(enrichedManifest);
+            // Also reset original manifest data when loading fresh files
+            setOriginalManifestData(enrichedManifest);
           }
           if (project.transcription_path) {
             const transcript = await window.eel.read_json_file(project.transcription_path)();
@@ -523,50 +528,100 @@ export const ProjectEditor: React.FC = () => {
 
     const success = await window.eel.save_json_file(selectedProject.script_path, scriptData)();
     if (success) {
-      let targetManifestScene: any = null;
-      let manifestIndex = -1;
+      // Build the full manifest with live sub_visuals from scriptData
+      const buildLiveManifest = () => {
+        if (!manifestData || !scriptData) return manifestData;
 
-      if (cardKey === 'intro' || cardKey === 'introduction') {
-        manifestIndex = manifestData.findIndex((s: any) => s.section_type === 'introduction');
-        targetManifestScene = manifestData[manifestIndex];
-      } else if (cardKey === 'conclusion') {
-        manifestIndex = manifestData.findIndex((s: any) => s.section_type === 'conclusion');
-        targetManifestScene = manifestData[manifestIndex];
-      } else if (index !== undefined) {
-        let sceneCount = 0;
-        for (let i = 0; i < manifestData.length; i++) {
-          if (manifestData[i].section_type === 'scene') {
-            if (sceneCount === index) {
-              manifestIndex = i;
-              targetManifestScene = manifestData[i];
-              break;
+        let sceneCounter = 0;
+        return manifestData.map((manifestScene: any) => {
+          const type = manifestScene.section_type;
+          let liveSubVisuals: any[] = [];
+
+          if (type === 'introduction' && scriptData.introduction) {
+            liveSubVisuals = scriptData.introduction.sub_visuals || [];
+          } else if (type === 'conclusion' && scriptData.conclusion) {
+            liveSubVisuals = scriptData.conclusion.sub_visuals || [];
+          } else if (type === 'scene' && scriptData.scenes) {
+            const currentIdx = sceneCounter;
+            sceneCounter++;
+            const scriptScene = scriptData.scenes[currentIdx];
+            if (scriptScene) {
+              liveSubVisuals = scriptScene.sub_visuals || [];
             }
-            sceneCount++;
           }
-        }
+
+          const origSubVisuals = manifestScene.sub_visuals || [];
+          const mergedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
+            const osv = origSubVisuals[idx] || {};
+            const isChanged = 
+              lsv.visual_type !== osv.visual_type || 
+              lsv.visual_cue !== osv.visual_cue || 
+              JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
+              
+            if (!isChanged) {
+              return {
+                ...lsv,
+                visual_path: osv.visual_path,
+                visual_url: osv.visual_url,
+                duration: osv.duration
+              };
+            }
+            return lsv;
+          });
+
+          return {
+            ...manifestScene,
+            sub_visuals: mergedSubVisuals
+          };
+        });
+      };
+
+      const liveManifest = buildLiveManifest();
+
+      // Use the new save_project_with_cleanup API to save and cleanup assets
+      const cleanupResult = await window.eel.save_project_with_cleanup(id, scriptData, liveManifest)();
+
+      if (cleanupResult) {
+        console.log(`Assets cleaned: ${cleanupResult.deleted_files?.length || 0} deleted, ${cleanupResult.preserved_files?.length || 0} preserved`);
       }
 
-      const liveSubVisuals = (cardKey === 'intro' || cardKey === 'introduction')
-        ? (scriptData.introduction?.sub_visuals || [])
-        : (cardKey === 'conclusion')
-          ? (scriptData.conclusion?.sub_visuals || [])
-          : (index !== undefined ? (scriptData.scenes[index]?.sub_visuals || []) : []);
+      // Fetch updated assets for changed sub-visuals (only if actual edits were made)
+      if (liveManifest) {
+        // Compare against the original manifest state at edit time, not the current manifestData
+        const originalManifest = originalManifestData.length > 0 ? originalManifestData : manifestData;
 
-      const origSubVisuals = targetManifestScene?.sub_visuals || [];
-      const hasVisualChanges = targetManifestScene && (JSON.stringify(liveSubVisuals) !== JSON.stringify(origSubVisuals));
+        for (let manifestIndex = 0; manifestIndex < liveManifest.length; manifestIndex++) {
+          const manifestScene = liveManifest[manifestIndex];
+          const liveSubVisuals = manifestScene.sub_visuals || [];
+          // Match by index, not by section_type (since multiple scenes share the same section_type)
+          const origScene = originalManifest[manifestIndex];
+          const origSubVisuals = origScene?.sub_visuals || [];
 
-      if (hasVisualChanges && manifestIndex !== -1) {
-        addToast("Updating visuals...", "info");
-        for (let subIdx = 0; subIdx < liveSubVisuals.length; subIdx++) {
-           const liveSv = liveSubVisuals[subIdx];
-           const origSv = origSubVisuals[subIdx] || {};
-           if (JSON.stringify(liveSv) !== JSON.stringify({ visual_type: origSv.visual_type, visual_cue: origSv.visual_cue, visual_meta: origSv.visual_meta })) {
-             try {
-               await window.eel.fetch_single_scene_asset(id, manifestIndex, subIdx, liveSv.visual_type || 'scene', liveSv.visual_cue || '')();
-             } catch (e) {
-               console.error("Failed to update sub_visual", subIdx, e);
-             }
-           }
+          for (let subIdx = 0; subIdx < liveSubVisuals.length; subIdx++) {
+            const liveSv = liveSubVisuals[subIdx];
+            const origSv = origSubVisuals[subIdx] || {};
+
+            // Compare only the relevant fields that trigger asset fetching
+            const liveKey = JSON.stringify({
+              visual_type: liveSv.visual_type,
+              visual_cue: liveSv.visual_cue,
+              visual_meta: liveSv.visual_meta
+            });
+            const origKey = JSON.stringify({
+              visual_type: origSv.visual_type,
+              visual_cue: origSv.visual_cue,
+              visual_meta: origSv.visual_meta
+            });
+            const hasChanged = liveKey !== origKey;
+
+            if (hasChanged && liveSv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(liveSv.visual_type)) {
+              try {
+                await window.eel.fetch_single_scene_asset(id, manifestIndex, subIdx, liveSv.visual_type, liveSv.visual_cue || '')();
+              } catch (e) {
+                console.error("Failed to fetch updated sub_visual", subIdx, e);
+              }
+            }
+          }
         }
       }
 
@@ -575,13 +630,14 @@ export const ProjectEditor: React.FC = () => {
       setEditingCard(null);
       setSavingCardKey(null);
 
+      // Show appropriate toast based on what changed
       if (narrationChanged) {
         addToast("Narration text updated! We recommend resuming/syncing the pipeline to regenerate voiceover and subtitles.", 'warning', 6000);
         setScriptChangedAlert(true);
-      } else if (!hasVisualChanges) {
-        addToast("Script parameters saved!", 'success');
+      } else if (cleanupResult?.deleted_files && cleanupResult.deleted_files.length > 0) {
+        addToast(`Saved! Removed ${cleanupResult.deleted_files.length} unused asset file(s).`, 'success');
       } else {
-        addToast("Visuals updated successfully!", "success");
+        addToast("Project saved successfully!", 'success');
       }
     } else {
       setSavingCardKey(null);
