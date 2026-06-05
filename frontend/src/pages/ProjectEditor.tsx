@@ -4,6 +4,7 @@ import { useAppStore } from '../store/appStore';
 import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../components/video/RemotionVideoPlayer';
 import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
 import { CustomSelect } from '../components/ui/CustomSelect';
+import { SubtitleEditor } from '../components/SubtitleEditor';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscPlay, VscFolderOpened, VscSave, VscFlame, VscArrowLeft, VscSparkle,
@@ -41,7 +42,7 @@ const PIPELINE_STAGES = [
 
 const getDefaultMetaForType = (type: string, existingMeta: any) => {
   const meta: any = {};
-  
+
   // Preserve existing lower third
   if (existingMeta?.lower_third) {
     meta.lower_third = { ...existingMeta.lower_third };
@@ -120,61 +121,62 @@ const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek }: 
       {subVisuals.map((sv: any, idx: number) => {
         const isActive = activeIdx === idx;
         const timing = timings?.[idx];
-        
-        return (
-        <div key={idx} 
-          onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
-          className={`bg-stone-900/60 p-3 rounded border space-y-3 relative cursor-pointer transition-colors ${isActive ? 'border-amber-500/60 bg-amber-900/10 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-stone-800 hover:border-stone-700'}`}>
-          <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded">Remove</button>
-          <div className="flex items-center gap-2 mb-1">
-            <div className={`text-xs font-bold ${isActive ? 'text-amber-400' : 'text-stone-500'}`}>Sub-Visual {idx + 1}</div>
-            {timing && (
-              <div className="text-[9px] font-mono bg-stone-950 px-1.5 py-0.5 rounded text-stone-400 border border-stone-800">
-                [{formatTime(timing.start)} - {formatTime(timing.end)}]
-              </div>
-            )}
-            {isActive && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
-          </div>
-          <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
-            <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
-            <CustomSelect label="Visual Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
-            
-            {sv.visual_type === 'youtube' && (
-              <div className="col-span-2 space-y-4 mt-2 bg-stone-950/60 p-3.5 rounded-lg border border-stone-800">
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center text-xs">
-                    <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
-                    <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15}s</span>
-                  </div>
-                  <input type="range" min="0" max="120" step="1" value={sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, start_offset: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center text-xs">
-                    <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
-                    <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.duration !== undefined ? sv.visual_meta.duration : 15}s</span>
-                  </div>
-                  <input type="range" min="5" max="60" step="1" value={sv.visual_meta?.duration !== undefined ? sv.visual_meta.duration : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, duration: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
-                </div>
-              </div>
-            )}
-            
-            {sv.visual_type === 'map' && (
-              <MapLocationsEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-            )}
-            {sv.visual_type === 'chart' && (
-              <ChartDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-            )}
-            {sv.visual_type === 'document' && (
-              <DocumentHighlightEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-            )}
-            {sv.visual_type === 'network' && (
-              <NetworkDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-            )}
-            <LowerThirdEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
 
+        return (
+          <div key={idx}
+            onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
+            className={`bg-stone-900/60 p-3 rounded border space-y-3 relative cursor-pointer transition-colors ${isActive ? 'border-amber-500/60 bg-amber-900/10 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-stone-800 hover:border-stone-700'}`}>
+            <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded">Remove</button>
+            <div className="flex items-center gap-2 mb-1">
+              <div className={`text-xs font-bold ${isActive ? 'text-amber-400' : 'text-stone-500'}`}>Sub-Visual {idx + 1}</div>
+              {timing && (
+                <div className="text-[9px] font-mono bg-stone-950 px-1.5 py-0.5 rounded text-stone-400 border border-stone-800">
+                  [{formatTime(timing.start)} - {formatTime(timing.end)}]
+                </div>
+              )}
+              {isActive && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+            </div>
+            <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
+              <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
+              <CustomSelect label="Visual Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
+
+              {sv.visual_type === 'youtube' && (
+                <div className="col-span-2 space-y-4 mt-2 bg-stone-950/60 p-3.5 rounded-lg border border-stone-800">
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
+                      <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15}s</span>
+                    </div>
+                    <input type="range" min="0" max="120" step="1" value={sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, start_offset: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
+                      <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.duration !== undefined ? sv.visual_meta.duration : 15}s</span>
+                    </div>
+                    <input type="range" min="5" max="60" step="1" value={sv.visual_meta?.duration !== undefined ? sv.visual_meta.duration : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, duration: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
+                  </div>
+                </div>
+              )}
+
+              {sv.visual_type === 'map' && (
+                <MapLocationsEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              )}
+              {sv.visual_type === 'chart' && (
+                <ChartDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              )}
+              {sv.visual_type === 'document' && (
+                <DocumentHighlightEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              )}
+              {sv.visual_type === 'network' && (
+                <NetworkDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              )}
+              <LowerThirdEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+
+            </div>
           </div>
-        </div>
-      )})}
+        )
+      })}
       {subVisuals.length === 0 && <p className="text-xs text-stone-500 italic">No sub-visuals. A default black screen will be shown.</p>}
     </div>
   );
@@ -186,26 +188,27 @@ const SubVisualsView = ({ subVisuals, timings, activeIdx, onSeek }: { subVisuals
       {subVisuals.map((sv: any, idx: number) => {
         const isActive = activeIdx === idx;
         const timing = timings?.[idx];
-        
+
         return (
-        <div key={idx} 
-          onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
-          className={`flex flex-col gap-1 text-[10px] font-mono px-2 py-1.5 rounded cursor-pointer transition-colors ${isActive ? 'bg-amber-900/20 text-amber-100 border border-amber-500/30' : 'bg-stone-900/30 text-stone-500 hover:bg-stone-800/50 border border-transparent'}`}>
-          <div className="flex items-center gap-2">
-            <span className={`w-4 ${isActive ? 'text-amber-400' : 'text-stone-600'}`}>{idx+1}.</span>
-            {timing && (
-              <span className="bg-stone-950/80 px-1 rounded text-stone-400 border border-stone-800/60">
-                {formatTime(timing.start)}
-              </span>
-            )}
-            <span>Layer: <strong className={isActive ? 'text-amber-300 capitalize' : 'text-stone-300 capitalize'}>{sv.visual_type}</strong></span>
+          <div key={idx}
+            onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
+            className={`flex flex-col gap-1 text-[10px] font-mono px-2 py-1.5 rounded cursor-pointer transition-colors ${isActive ? 'bg-amber-900/20 text-amber-100 border border-amber-500/30' : 'bg-stone-900/30 text-stone-500 hover:bg-stone-800/50 border border-transparent'}`}>
+            <div className="flex items-center gap-2">
+              <span className={`w-4 ${isActive ? 'text-amber-400' : 'text-stone-600'}`}>{idx + 1}.</span>
+              {timing && (
+                <span className="bg-stone-950/80 px-1 rounded text-stone-400 border border-stone-800/60">
+                  {formatTime(timing.start)}
+                </span>
+              )}
+              <span>Layer: <strong className={isActive ? 'text-amber-300 capitalize' : 'text-stone-300 capitalize'}>{sv.visual_type}</strong></span>
+            </div>
+            <div className="pl-6 flex items-center gap-2">
+              <span>Cue: <strong className={isActive ? 'text-amber-200' : 'text-stone-300'}>{sv.visual_cue}</strong></span>
+              {isActive && <span className="ml-auto text-[9px] text-amber-500 bg-amber-500/10 px-1 rounded animate-pulse">Playing</span>}
+            </div>
           </div>
-          <div className="pl-6 flex items-center gap-2">
-            <span>Cue: <strong className={isActive ? 'text-amber-200' : 'text-stone-300'}>{sv.visual_cue}</strong></span>
-            {isActive && <span className="ml-auto text-[9px] text-amber-500 bg-amber-500/10 px-1 rounded animate-pulse">Playing</span>}
-          </div>
-        </div>
-      )})}
+        )
+      })}
     </div>
   );
 };
@@ -304,6 +307,9 @@ export const ProjectEditor: React.FC = () => {
   const [rewritingIdx, setRewritingIdx] = useState<number | null>(null);
   const [rewritingType, setRewritingType] = useState<string>('');
 
+  const [activeTab, setActiveTab] = useState<'script' | 'subtitles'>('script');
+  const [isSavingSubtitles, setIsSavingSubtitles] = useState(false);
+
   const [originalScriptData, setOriginalScriptData] = useState<any>(null);
   const [originalManifestData, setOriginalManifestData] = useState<any[]>([]);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
@@ -336,12 +342,12 @@ export const ProjectEditor: React.FC = () => {
       }
 
       const origSubVisuals = manifestScene.sub_visuals || [];
-      
+
       const resolvedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
         const osv = origSubVisuals[idx] || {};
-        const isChanged = 
-          lsv.visual_type !== osv.visual_type || 
-          lsv.visual_cue !== osv.visual_cue || 
+        const isChanged =
+          lsv.visual_type !== osv.visual_type ||
+          lsv.visual_cue !== osv.visual_cue ||
           JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
         const visualUrl = isChanged ? '' : (osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '');
         return {
@@ -373,22 +379,22 @@ export const ProjectEditor: React.FC = () => {
       const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
       const start = offset;
       const end = offset + durationFrames;
-      
+
       const subVisuals = scene.sub_visuals || [];
       const numSubs = subVisuals.length;
-      
+
       let subs: any[] = [];
       if (numSubs > 0) {
         subs = subVisuals.map((sv: any, idx: number) => {
           const baseSubDuration = Math.floor(durationFrames / numSubs);
           const subFrom = start + idx * baseSubDuration;
-          const subDuration = idx === numSubs - 1 
+          const subDuration = idx === numSubs - 1
             ? durationFrames - (idx * baseSubDuration)
             : baseSubDuration;
           return { start: subFrom, end: subFrom + Math.max(1, subDuration) };
         });
       }
-      
+
       offset = end;
       return { start, end, subs };
     });
@@ -396,7 +402,7 @@ export const ProjectEditor: React.FC = () => {
 
   const activeSceneIdx = sceneTimings.findIndex(t => currentFrame >= t.start && currentFrame < t.end);
   const activeSubIdx = activeSceneIdx >= 0 && sceneTimings[activeSceneIdx].subs.length > 0
-    ? sceneTimings[activeSceneIdx].subs.findIndex(t => currentFrame >= t.start && currentFrame < t.end) 
+    ? sceneTimings[activeSceneIdx].subs.findIndex(t => currentFrame >= t.start && currentFrame < t.end)
     : -1;
 
   const handleSeek = (frame: number) => {
@@ -480,11 +486,11 @@ export const ProjectEditor: React.FC = () => {
             const enrichedManifest = (manifest || []).map((scene: any) => {
               const enrichedSubVisuals = (scene.sub_visuals || []).map((sv: any) => ({
                 ...sv,
-                visual_url: sv.visual_path 
+                visual_url: sv.visual_path
                   ? `http://localhost:8888/api/media?path=${encodeURIComponent(sv.visual_path)}`
                   : ''
               }));
-              
+
               return {
                 ...scene,
                 visual_url: scene.visual_path
@@ -616,14 +622,14 @@ export const ProjectEditor: React.FC = () => {
 
     try {
       let res;
-      
+
       const allSteps = PIPELINE_STAGES.map(s => s.id);
       const endIdx = PIPELINE_STAGES.findIndex(s => s.id === targetStage);
       const limitSteps = (steps: string[]) => {
         if (endIdx === -1) return steps;
         return steps.filter(step => allSteps.indexOf(step) <= endIdx);
       };
-      
+
       if (scriptChangedAlert) {
         res = await startPipeline(id, limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']));
       } else if (hasVisualEdits()) {
@@ -633,7 +639,7 @@ export const ProjectEditor: React.FC = () => {
         const completedSteps = new Set(Object.values(tasks).filter(t => t.status === 'completed').map(t => t.step));
         let remainingSteps = allSteps.filter(s => !completedSteps.has(s));
         if (remainingSteps.length === 0) remainingSteps = ['render'];
-        
+
         res = await startPipeline(id, limitSteps(remainingSteps));
       }
 
@@ -705,11 +711,11 @@ export const ProjectEditor: React.FC = () => {
           const origSubVisuals = manifestScene.sub_visuals || [];
           const mergedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
             const osv = origSubVisuals[idx] || {};
-            const isChanged = 
-              lsv.visual_type !== osv.visual_type || 
-              lsv.visual_cue !== osv.visual_cue || 
+            const isChanged =
+              lsv.visual_type !== osv.visual_type ||
+              lsv.visual_cue !== osv.visual_cue ||
               JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
-              
+
             if (!isChanged) {
               return {
                 ...lsv,
@@ -796,6 +802,27 @@ export const ProjectEditor: React.FC = () => {
       addToast("Failed to save script changes", 'error');
     }
   };
+
+  const handleSaveTranscription = async () => {
+    if (!id || !transcriptionData || !window.eel || !selectedProject.transcription_path) return;
+    setIsSavingSubtitles(true);
+    try {
+      const success = await window.eel.save_json_file(selectedProject.transcription_path, transcriptionData)();
+      if (success) {
+        addToast("Subtitles saved successfully!", 'success');
+        // Reload files so the Remotion player gets the new data.
+        loadFiles(id);
+      } else {
+        addToast("Failed to save subtitles", 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      addToast("Failed to save subtitles", 'error');
+    } finally {
+      setIsSavingSubtitles(false);
+    }
+  };
+
 
   const handleRewriteSection = async (type: string, index: number) => {
     if (!id || !scriptData || !window.eel || !selectedProject.script_path) return;
@@ -1120,17 +1147,16 @@ export const ProjectEditor: React.FC = () => {
                             'fetch_assets': 'Visuals',
                             'render': 'Export'
                           };
-                          
+
                           return (
                             <button
                               key={stage.id}
                               type="button"
                               onClick={() => setTargetStage(stage.id)}
-                              className={`flex-1 text-[9px] py-1.5 px-1 font-bold uppercase tracking-wider rounded transition-all duration-200 ${
-                                isSelected 
-                                  ? 'bg-amber-600 text-zinc-950 shadow-sm shadow-amber-900/20' 
-                                  : 'text-stone-500 hover:bg-stone-800 hover:text-stone-300 cursor-pointer'
-                              }`}
+                              className={`flex-1 text-[9px] py-1.5 px-1 font-bold uppercase tracking-wider rounded transition-all duration-200 ${isSelected
+                                ? 'bg-amber-600 text-zinc-950 shadow-sm shadow-amber-900/20'
+                                : 'text-stone-500 hover:bg-stone-800 hover:text-stone-300 cursor-pointer'
+                                }`}
                               title={`Stop after: ${stage.title}`}
                             >
                               {shortNames[stage.id] || stage.id}
@@ -1176,409 +1202,443 @@ export const ProjectEditor: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Side: Interactive Script Editor */}
-        <div className="w-1/2 p-6 overflow-y-auto bg-stone-950/40 flex flex-col gap-6">
-          <h2 className="text-sm font-bold text-stone-400 uppercase tracking-widest">Documentary Script & Cues</h2>
+        {/* Right Side: Interactive Script Editor & Subtitles */}
+        <div className="w-1/2 flex flex-col bg-stone-950/40">
+          <div className="flex border-b border-stone-800/80 bg-stone-900/50 pt-4 px-6 gap-6 sticky top-0 z-10">
+            <button
+              className={`pb-3 cursor-pointer text-sm font-bold uppercase tracking-widest transition-colors ${activeTab === 'script' ? 'text-amber-500 border-b-2 border-amber-500' : 'text-stone-500 hover:text-stone-300'}`}
+              onClick={() => setActiveTab('script')}
+            >
+              Documentary Script
+            </button>
+            <button
+              className={`pb-3 cursor-pointer text-sm font-bold uppercase tracking-widest transition-colors ${activeTab === 'subtitles' ? 'text-amber-500 border-b-2 border-amber-500' : 'text-stone-500 hover:text-stone-300'}`}
+              onClick={() => setActiveTab('subtitles')}
+            >
+              Subtitles
+            </button>
+          </div>
 
-          {loadingScript ? (
-            <div className="py-12 text-center text-stone-500">
-              <p>Reading script details...</p>
-            </div>
-          ) : !scriptData ? (
-            <div className="py-20 text-center bg-stone-900/30 border border-stone-800 rounded-lg p-6">
-              {queue.active === selectedProject.id ? (
-                <>
-                  <VscLoading className="text-4xl text-amber-500 animate-spin mx-auto mb-4" />
-                  <p className="text-stone-300 font-bold">Generating Script & Assets...</p>
-                  <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto">Please wait while the AI writes the documentary script. This might take a minute.</p>
-                </>
-              ) : (
-                <>
-                  <p className="text-stone-400 font-bold">Pipeline assets have not been generated.</p>
-                  <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto mb-5">Launch the generation pipeline from the sidebar to call LLM scripting and synthesize voiceovers.</p>
-                  
-                  <div className="flex flex-col items-center gap-3">
-                    <button
-                      onClick={triggerFullPipeline}
-                      className="bg-amber-600 cursor-pointer hover:bg-amber-700 text-zinc-950 px-5 py-2.5 rounded text-xs font-bold transition-all shadow-md inline-flex justify-center items-center gap-2 max-w-[240px] w-full"
-                    >
-                      <VscPlay /> Launch Pipeline
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-6">
+          <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6">
+            {activeTab === 'script' && (
+              <>
 
-              {/* Introduction Card */}
-              {(() => {
-                const introSceneIdx = 0;
-                const introTimings = sceneTimings[introSceneIdx]?.subs;
-                const isIntroActive = activeSceneIdx === introSceneIdx;
-                const introActiveSubIdx = isIntroActive ? activeSubIdx : -1;
-                return (
-              <motion.div
-                layout
-                className={`p-4 rounded-lg border transition-all ${editingCard === 'intro' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isIntroActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
-              >
-                <div 
-                  className={`flex justify-between items-center mb-3 ${editingCard !== 'intro' ? 'cursor-pointer hover:opacity-80' : ''}`}
-                  onClick={() => { if (editingCard !== 'intro' && sceneTimings[introSceneIdx]) handleSeek(sceneTimings[introSceneIdx].start); }}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">0. Hook Introduction</span>
-                    {isIntroActive && !editingCard && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+                {loadingScript ? (
+                  <div className="py-12 text-center text-stone-500">
+                    <p>Reading script details...</p>
                   </div>
-                  <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                    {editingCard === 'intro' ? (
+                ) : !scriptData ? (
+                  <div className="py-20 text-center bg-stone-900/30 border border-stone-800 rounded-lg p-6">
+                    {queue.active === selectedProject.id ? (
                       <>
-                        <button
-                          onClick={() => handleSaveCard('introduction')}
-                          disabled={savingCardKey !== null}
-                          className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
-                        >
-                          {savingCardKey === 'introduction' ? (
-                            <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
-                          ) : (
-                            <><VscSave /> Save</>
-                          )}
-                        </button>
-                        <button
-                          onClick={handleCancelEdit}
-                          disabled={savingCardKey !== null}
-                          className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
-                        >
-                          Cancel
-                        </button>
+                        <VscLoading className="text-4xl text-amber-500 animate-spin mx-auto mb-4" />
+                        <p className="text-stone-300 font-bold">Generating Script & Assets...</p>
+                        <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto">Please wait while the AI writes the documentary script. This might take a minute.</p>
                       </>
                     ) : (
-                      <button
-                        onClick={() => handleStartEdit('intro')}
-                        className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                    )}
-                  </div>
-                </div>
+                      <>
+                        <p className="text-stone-400 font-bold">Pipeline assets have not been generated.</p>
+                        <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto mb-5">Launch the generation pipeline from the sidebar to call LLM scripting and synthesize voiceovers.</p>
 
-                <AnimatePresence mode="wait">
-                  {editingCard === 'intro' ? (
-                    <motion.div
-                      key="edit-intro"
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
-                      transition={{ duration: 0.15 }}
-                      className="space-y-3"
-                    >
-                      <CustomTextarea
-                        rows={3}
-                        value={scriptData.introduction.hook}
-                        onChange={(e) => {
-                          const copy = { ...scriptData };
-                          copy.introduction.hook = e.target.value;
-                          setScriptData(copy);
-                        }}
-                      />
-                      <SubVisualsEditor subVisuals={scriptData.introduction.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.introduction.sub_visuals = newSubs; setScriptData(copy); }} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
-
-                      {/* LLM Rewrite sub-section */}
-                      <div className="border-t border-stone-800/80 pt-3 mt-2">
-                        <div className="flex items-end gap-2">
-                          <div className="flex-1">
-                            <CustomInput
-                              label="AI Prompt Rewrite"
-                              type="text"
-                              placeholder="e.g., make it sound more suspenseful or dramatic..."
-                              value={rewritePrompt}
-                              onChange={(e) => setRewritePrompt(e.target.value)}
-                            />
-                          </div>
+                        <div className="flex flex-col items-center gap-3">
                           <button
-                            type="button"
-                            onClick={() => handleRewriteSection('introduction', 0)}
-                            disabled={rewritingType === 'introduction'}
-                            className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+                            onClick={triggerFullPipeline}
+                            className="bg-amber-600 cursor-pointer hover:bg-amber-700 text-zinc-950 px-5 py-2.5 rounded text-xs font-bold transition-all shadow-md inline-flex justify-center items-center gap-2 max-w-[240px] w-full"
                           >
-                            {rewritingType === 'introduction' ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
+                            <VscPlay /> Launch Pipeline
                           </button>
                         </div>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="view-intro"
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
-                      transition={{ duration: 0.15 }}
-                      className="space-y-2"
-                    >
-                      <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.introduction.hook}</p>
-                      <SubVisualsView subVisuals={scriptData.introduction.sub_visuals || []} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-              );})()}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-6">
 
-              {/* Scenes Map */}
-              {scriptData.scenes.map((scene: any, idx: number) => {
-                const cardKey = `scene_${idx}`;
-                const isEditing = editingCard === cardKey;
-
-                const globalSceneIdx = idx + (scriptData.introduction ? 1 : 0);
-                const timings = sceneTimings[globalSceneIdx]?.subs;
-                const isActive = activeSceneIdx === globalSceneIdx;
-                const activeSubIdxForScene = isActive ? activeSubIdx : -1;
-
-                return (
-                  <motion.div
-                    key={idx}
-                    layout
-                    className={`p-4 rounded-lg border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
-                  >
-                    <div 
-                      className={`flex justify-between items-center mb-3 ${!isEditing ? 'cursor-pointer hover:opacity-80' : ''}`}
-                      onClick={() => { if (!isEditing && sceneTimings[globalSceneIdx]) handleSeek(sceneTimings[globalSceneIdx].start); }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">
-                          Scene {idx + 1}: {scene.title}
-                        </span>
-                        {isActive && !isEditing && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
-                      </div>
-                      <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                        {isEditing ? (
-                          <>
-                            <button
-                              onClick={() => handleSaveCard(cardKey, idx)}
-                              disabled={savingCardKey !== null}
-                              className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
-                            >
-                              {savingCardKey === cardKey ? (
-                                <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
-                              ) : (
-                                <><VscSave /> Save</>
-                              )}
-                            </button>
-                            <button
-                              onClick={handleCancelEdit}
-                              disabled={savingCardKey !== null}
-                              className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            onClick={() => handleStartEdit(cardKey)}
-                            className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <AnimatePresence mode="wait">
-                      {isEditing ? (
+                    {/* Introduction Card */}
+                    {(() => {
+                      const introSceneIdx = 0;
+                      const introTimings = sceneTimings[introSceneIdx]?.subs;
+                      const isIntroActive = activeSceneIdx === introSceneIdx;
+                      const introActiveSubIdx = isIntroActive ? activeSubIdx : -1;
+                      return (
                         <motion.div
-                          key={`edit-scene-${idx}`}
-                          initial={{ opacity: 0, y: -8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 8 }}
-                          transition={{ duration: 0.15 }}
-                          className="space-y-3"
+                          layout
+                          className={`p-4 rounded-lg border transition-all ${editingCard === 'intro' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isIntroActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
                         >
-                          <CustomTextarea
-                            rows={3}
-                            value={scene.narration}
-                            onChange={(e) => {
-                              const copy = { ...scriptData };
-                              copy.scenes[idx].narration = e.target.value;
-                              setScriptData(copy);
-                            }}
-                          />
-                          <SubVisualsEditor subVisuals={scene.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
-
-                          {/* AI Rewrite controls */}
-                          <div className="border-t border-stone-800/80 pt-3 mt-2">
-                            <div className="flex items-end gap-2">
-                              <div className="flex-1">
-                                <CustomInput
-                                  label="AI Prompt Rewrite"
-                                  type="text"
-                                  placeholder="e.g. rewrite this describing the ships blockading the port..."
-                                  value={rewritePrompt}
-                                  onChange={(e) => setRewritePrompt(e.target.value)}
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleRewriteSection('scenes', idx)}
-                                disabled={rewritingType === 'scenes' && rewritingIdx === idx}
-                                className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
-                              >
-                                {rewritingType === 'scenes' && rewritingIdx === idx ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
-                              </button>
+                          <div
+                            className={`flex justify-between items-center mb-3 ${editingCard !== 'intro' ? 'cursor-pointer hover:opacity-80' : ''}`}
+                            onClick={() => { if (editingCard !== 'intro' && sceneTimings[introSceneIdx]) handleSeek(sceneTimings[introSceneIdx].start); }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">0. Hook Introduction</span>
+                              {isIntroActive && !editingCard && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+                            </div>
+                            <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                              {editingCard === 'intro' ? (
+                                <>
+                                  <button
+                                    onClick={() => handleSaveCard('introduction')}
+                                    disabled={savingCardKey !== null}
+                                    className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    {savingCardKey === 'introduction' ? (
+                                      <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
+                                    ) : (
+                                      <><VscSave /> Save</>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    disabled={savingCardKey !== null}
+                                    className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => handleStartEdit('intro')}
+                                  className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                              )}
                             </div>
                           </div>
+
+                          <AnimatePresence mode="wait">
+                            {editingCard === 'intro' ? (
+                              <motion.div
+                                key="edit-intro"
+                                initial={{ opacity: 0, y: -8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                transition={{ duration: 0.15 }}
+                                className="space-y-3"
+                              >
+                                <CustomTextarea
+                                  rows={3}
+                                  value={scriptData.introduction.hook}
+                                  onChange={(e) => {
+                                    const copy = { ...scriptData };
+                                    copy.introduction.hook = e.target.value;
+                                    setScriptData(copy);
+                                  }}
+                                />
+                                <SubVisualsEditor subVisuals={scriptData.introduction.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; copy.introduction.sub_visuals = newSubs; setScriptData(copy); }} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
+
+                                {/* LLM Rewrite sub-section */}
+                                <div className="border-t border-stone-800/80 pt-3 mt-2">
+                                  <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                      <CustomInput
+                                        label="AI Prompt Rewrite"
+                                        type="text"
+                                        placeholder="e.g., make it sound more suspenseful or dramatic..."
+                                        value={rewritePrompt}
+                                        onChange={(e) => setRewritePrompt(e.target.value)}
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRewriteSection('introduction', 0)}
+                                      disabled={rewritingType === 'introduction'}
+                                      className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+                                    >
+                                      {rewritingType === 'introduction' ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
+                                    </button>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            ) : (
+                              <motion.div
+                                key="view-intro"
+                                initial={{ opacity: 0, y: -8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                transition={{ duration: 0.15 }}
+                                className="space-y-2"
+                              >
+                                <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.introduction.hook}</p>
+                                <SubVisualsView subVisuals={scriptData.introduction.sub_visuals || []} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </motion.div>
-                      ) : (
+                      );
+                    })()}
+
+                    {/* Scenes Map */}
+                    {scriptData.scenes.map((scene: any, idx: number) => {
+                      const cardKey = `scene_${idx}`;
+                      const isEditing = editingCard === cardKey;
+
+                      const globalSceneIdx = idx + (scriptData.introduction ? 1 : 0);
+                      const timings = sceneTimings[globalSceneIdx]?.subs;
+                      const isActive = activeSceneIdx === globalSceneIdx;
+                      const activeSubIdxForScene = isActive ? activeSubIdx : -1;
+
+                      return (
                         <motion.div
-                          key={`view-scene-${idx}`}
-                          initial={{ opacity: 0, y: -8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 8 }}
-                          transition={{ duration: 0.15 }}
-                          className="space-y-2"
+                          key={idx}
+                          layout
+                          className={`p-4 rounded-lg border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
                         >
-                          <p className="text-xs text-stone-200 leading-relaxed font-sans">{scene.narration}</p>
-                          <SubVisualsView subVisuals={scene.sub_visuals || []} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                );
-              })}
-
-              {/* Conclusion Card */}
-              {(() => {
-                const concSceneIdx = (scriptData.introduction ? 1 : 0) + scriptData.scenes.length;
-                const concTimings = sceneTimings[concSceneIdx]?.subs;
-                const isConcActive = activeSceneIdx === concSceneIdx;
-                const concActiveSubIdx = isConcActive ? activeSubIdx : -1;
-                return (
-              <motion.div
-                layout
-                className={`p-4 rounded-lg border transition-all ${editingCard === 'conclusion' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isConcActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
-              >
-                <div 
-                  className={`flex justify-between items-center mb-3 ${editingCard !== 'conclusion' ? 'cursor-pointer hover:opacity-80' : ''}`}
-                  onClick={() => { if (editingCard !== 'conclusion' && sceneTimings[concSceneIdx]) handleSeek(sceneTimings[concSceneIdx].start); }}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">Final Conclusion</span>
-                    {isConcActive && !editingCard && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
-                  </div>
-                  <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                    {editingCard === 'conclusion' ? (
-                      <>
-                        <button
-                          onClick={() => handleSaveCard('conclusion')}
-                          disabled={savingCardKey !== null}
-                          className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
-                        >
-                          {savingCardKey === 'conclusion' ? (
-                            <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
-                          ) : (
-                            <><VscSave /> Save</>
-                          )}
-                        </button>
-                        <button
-                          onClick={handleCancelEdit}
-                          disabled={savingCardKey !== null}
-                          className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => handleStartEdit('conclusion')}
-                        className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <AnimatePresence mode="wait">
-                  {editingCard === 'conclusion' ? (
-                    <motion.div
-                      key="edit-conclusion"
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
-                      transition={{ duration: 0.15 }}
-                      className="space-y-3"
-                    >
-                      <CustomTextarea
-                        label="Summary Text"
-                        rows={2}
-                        value={scriptData.conclusion.summary}
-                        onChange={(e) => {
-                          const copy = { ...scriptData };
-                          copy.conclusion.summary = e.target.value;
-                          setScriptData(copy);
-                        }}
-                      />
-                      <CustomTextarea
-                        label="Call To Action (CTA)"
-                        rows={2}
-                        value={scriptData.conclusion.cta}
-                        onChange={(e) => {
-                          const copy = { ...scriptData };
-                          copy.conclusion.cta = e.target.value;
-                          setScriptData(copy);
-                        }}
-                      />
-                      <SubVisualsEditor subVisuals={scriptData.conclusion.sub_visuals || []} onChange={(newSubs) => { const copy = {...scriptData}; copy.conclusion.sub_visuals = newSubs; setScriptData(copy); }} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
-
-                      {/* AI Rewrite controls */}
-                      <div className="border-t border-stone-800/80 pt-3 mt-2">
-                        <div className="flex items-end gap-2">
-                          <div className="flex-1">
-                            <CustomInput
-                              label="AI Prompt Rewrite"
-                              type="text"
-                              placeholder="e.g. make the ending call to subscribe more witty..."
-                              value={rewritePrompt}
-                              onChange={(e) => setRewritePrompt(e.target.value)}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRewriteSection('conclusion', 0)}
-                            disabled={rewritingType === 'conclusion'}
-                            className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+                          <div
+                            className={`flex justify-between items-center mb-3 ${!isEditing ? 'cursor-pointer hover:opacity-80' : ''}`}
+                            onClick={() => { if (!isEditing && sceneTimings[globalSceneIdx]) handleSeek(sceneTimings[globalSceneIdx].start); }}
                           >
-                            {rewritingType === 'conclusion' ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="view-conclusion"
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
-                      transition={{ duration: 0.15 }}
-                      className="space-y-2"
-                    >
-                      <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.conclusion.summary}</p>
-                      <p className="text-xs text-amber-500 font-bold leading-relaxed font-sans">{scriptData.conclusion.cta}</p>
-                      <SubVisualsView subVisuals={scriptData.conclusion.sub_visuals || []} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-              );})()}
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">
+                                Scene {idx + 1}: {scene.title}
+                              </span>
+                              {isActive && !isEditing && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+                            </div>
+                            <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    onClick={() => handleSaveCard(cardKey, idx)}
+                                    disabled={savingCardKey !== null}
+                                    className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    {savingCardKey === cardKey ? (
+                                      <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
+                                    ) : (
+                                      <><VscSave /> Save</>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    disabled={savingCardKey !== null}
+                                    className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => handleStartEdit(cardKey)}
+                                  className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </div>
+                          </div>
 
-            </div>
-          )}
+                          <AnimatePresence mode="wait">
+                            {isEditing ? (
+                              <motion.div
+                                key={`edit-scene-${idx}`}
+                                initial={{ opacity: 0, y: -8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                transition={{ duration: 0.15 }}
+                                className="space-y-3"
+                              >
+                                <CustomTextarea
+                                  rows={3}
+                                  value={scene.narration}
+                                  onChange={(e) => {
+                                    const copy = { ...scriptData };
+                                    copy.scenes[idx].narration = e.target.value;
+                                    setScriptData(copy);
+                                  }}
+                                />
+                                <SubVisualsEditor subVisuals={scene.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
+
+                                {/* AI Rewrite controls */}
+                                <div className="border-t border-stone-800/80 pt-3 mt-2">
+                                  <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                      <CustomInput
+                                        label="AI Prompt Rewrite"
+                                        type="text"
+                                        placeholder="e.g. rewrite this describing the ships blockading the port..."
+                                        value={rewritePrompt}
+                                        onChange={(e) => setRewritePrompt(e.target.value)}
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRewriteSection('scenes', idx)}
+                                      disabled={rewritingType === 'scenes' && rewritingIdx === idx}
+                                      className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+                                    >
+                                      {rewritingType === 'scenes' && rewritingIdx === idx ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
+                                    </button>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            ) : (
+                              <motion.div
+                                key={`view-scene-${idx}`}
+                                initial={{ opacity: 0, y: -8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                transition={{ duration: 0.15 }}
+                                className="space-y-2"
+                              >
+                                <p className="text-xs text-stone-200 leading-relaxed font-sans">{scene.narration}</p>
+                                <SubVisualsView subVisuals={scene.sub_visuals || []} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+                      );
+                    })}
+
+                    {/* Conclusion Card */}
+                    {(() => {
+                      const concSceneIdx = (scriptData.introduction ? 1 : 0) + scriptData.scenes.length;
+                      const concTimings = sceneTimings[concSceneIdx]?.subs;
+                      const isConcActive = activeSceneIdx === concSceneIdx;
+                      const concActiveSubIdx = isConcActive ? activeSubIdx : -1;
+                      return (
+                        <motion.div
+                          layout
+                          className={`p-4 rounded-lg border transition-all ${editingCard === 'conclusion' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isConcActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+                        >
+                          <div
+                            className={`flex justify-between items-center mb-3 ${editingCard !== 'conclusion' ? 'cursor-pointer hover:opacity-80' : ''}`}
+                            onClick={() => { if (editingCard !== 'conclusion' && sceneTimings[concSceneIdx]) handleSeek(sceneTimings[concSceneIdx].start); }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-amber-500 font-sans">Final Conclusion</span>
+                              {isConcActive && !editingCard && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+                            </div>
+                            <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                              {editingCard === 'conclusion' ? (
+                                <>
+                                  <button
+                                    onClick={() => handleSaveCard('conclusion')}
+                                    disabled={savingCardKey !== null}
+                                    className="flex items-center gap-1 bg-amber-600 disabled:opacity-50 text-zinc-950 px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    {savingCardKey === 'conclusion' ? (
+                                      <><VscLoading className="animate-spin text-[10px]" /> Saving...</>
+                                    ) : (
+                                      <><VscSave /> Save</>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    disabled={savingCardKey !== null}
+                                    className="text-[10px] disabled:opacity-50 text-stone-400 hover:text-white px-2.5 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => handleStartEdit('conclusion')}
+                                  className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <AnimatePresence mode="wait">
+                            {editingCard === 'conclusion' ? (
+                              <motion.div
+                                key="edit-conclusion"
+                                initial={{ opacity: 0, y: -8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                transition={{ duration: 0.15 }}
+                                className="space-y-3"
+                              >
+                                <CustomTextarea
+                                  label="Summary Text"
+                                  rows={2}
+                                  value={scriptData.conclusion.summary}
+                                  onChange={(e) => {
+                                    const copy = { ...scriptData };
+                                    copy.conclusion.summary = e.target.value;
+                                    setScriptData(copy);
+                                  }}
+                                />
+                                <CustomTextarea
+                                  label="Call To Action (CTA)"
+                                  rows={2}
+                                  value={scriptData.conclusion.cta}
+                                  onChange={(e) => {
+                                    const copy = { ...scriptData };
+                                    copy.conclusion.cta = e.target.value;
+                                    setScriptData(copy);
+                                  }}
+                                />
+                                <SubVisualsEditor subVisuals={scriptData.conclusion.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; copy.conclusion.sub_visuals = newSubs; setScriptData(copy); }} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
+
+                                {/* AI Rewrite controls */}
+                                <div className="border-t border-stone-800/80 pt-3 mt-2">
+                                  <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                      <CustomInput
+                                        label="AI Prompt Rewrite"
+                                        type="text"
+                                        placeholder="e.g. make the ending call to subscribe more witty..."
+                                        value={rewritePrompt}
+                                        onChange={(e) => setRewritePrompt(e.target.value)}
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRewriteSection('conclusion', 0)}
+                                      disabled={rewritingType === 'conclusion'}
+                                      className="bg-stone-800 hover:bg-amber-600 hover:text-zinc-950 text-stone-300 border border-stone-700 px-3 py-2.5 rounded text-xs font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+                                    >
+                                      {rewritingType === 'conclusion' ? 'Rewriting...' : <><VscSparkle /> AI Rewrite</>}
+                                    </button>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            ) : (
+                              <motion.div
+                                key="view-conclusion"
+                                initial={{ opacity: 0, y: -8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                transition={{ duration: 0.15 }}
+                                className="space-y-2"
+                              >
+                                <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.conclusion.summary}</p>
+                                <p className="text-xs text-amber-500 font-bold leading-relaxed font-sans">{scriptData.conclusion.cta}</p>
+                                <SubVisualsView subVisuals={scriptData.conclusion.sub_visuals || []} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+                      );
+                    })()}
+
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeTab === 'subtitles' && (
+              <div className="flex-1 h-full min-h-[500px]">
+                <SubtitleEditor
+                  transcription={transcriptionData}
+                  onChange={(newTrans) => setTranscriptionData(newTrans)}
+                  onPlaySegment={(frame) => handleSeek(frame)}
+                  onSave={handleSaveTranscription}
+                  isSaving={isSavingSubtitles}
+                />
+              </div>
+            )}
+          </div>
         </div>
-
       </div>
-
     </div>
   );
 };
+
+
 
 const LowerThirdEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const lowerThird = visualMeta?.lower_third || { title: '', subtitle: '' };
