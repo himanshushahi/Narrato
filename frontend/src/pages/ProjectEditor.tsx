@@ -70,7 +70,7 @@ const getDefaultMetaForType = (type: string, existingMeta: any) => {
   } else if (type === 'portrait') {
     meta.person_name = 'Historical Figure';
   } else if (type === 'parallax') {
-    meta.foreground_url = '';
+    meta.foreground_url = existingMeta?.foreground_url || '';
   }
 
   return meta;
@@ -87,6 +87,9 @@ const formatTime = (frame: number) => {
 const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void }) => {
   const handleUpdate = (idx: number, field: string, val: any) => {
     const copy = [...subVisuals];
+    if (field === 'visual_type' && copy[idx][field] === val) {
+      return;
+    }
     copy[idx][field] = val;
     if (field === 'visual_type') {
       copy[idx].visual_meta = getDefaultMetaForType(val, copy[idx].visual_meta);

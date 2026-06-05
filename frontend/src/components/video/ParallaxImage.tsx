@@ -1,5 +1,5 @@
 import React from 'react';
-import { Img } from 'remotion';
+import { Img, useCurrentFrame, interpolate } from 'remotion';
 
 interface Props {
   backgroundUrl: string;
@@ -9,11 +9,26 @@ interface Props {
 }
 
 export const ParallaxImage: React.FC<Props> = ({ backgroundUrl, foregroundUrl, cue, durationInFrames }) => {
-  // No zoom or pan - completely static stable frame
-  const roundedBgScale = 1;
-  const roundedBgX = 0;
-  const roundedFgScale = 1;
-  const roundedFgX = 0;
+  const frame = useCurrentFrame();
+
+  // Create smooth, subtle animation for background and foreground
+  // Create dynamic and noticeable animation for background and foreground
+  // Background scales up and pans slowly
+  const bgScale = interpolate(frame, [0, durationInFrames], [1.1, 1.25], { extrapolateRight: 'clamp' });
+  const bgX = interpolate(frame, [0, durationInFrames], [-40, 40], { extrapolateRight: 'clamp' });
+  const bgY = interpolate(frame, [0, durationInFrames], [-20, 20], { extrapolateRight: 'clamp' });
+  
+  // Foreground scales up faster and pans in the opposite direction to create strong parallax depth
+  const fgScale = interpolate(frame, [0, durationInFrames], [1.15, 1.4], { extrapolateRight: 'clamp' });
+  const fgX = interpolate(frame, [0, durationInFrames], [50, -50], { extrapolateRight: 'clamp' });
+  const fgY = interpolate(frame, [0, durationInFrames], [25, -25], { extrapolateRight: 'clamp' });
+
+  const roundedBgScale = Number(bgScale.toFixed(3));
+  const roundedBgX = Number(bgX.toFixed(2));
+  const roundedBgY = Number(bgY.toFixed(2));
+  const roundedFgScale = Number(fgScale.toFixed(3));
+  const roundedFgX = Number(fgX.toFixed(2));
+  const roundedFgY = Number(fgY.toFixed(2));
 
   // If no image is provided, fallback to standard polaroid from PanScan
   if (!backgroundUrl) {
@@ -47,7 +62,9 @@ export const ParallaxImage: React.FC<Props> = ({ backgroundUrl, foregroundUrl, c
           width: '100%',
           height: '100%',
           objectFit: 'cover',
-          transform: `scale(${roundedBgScale}) translateX(${roundedBgX}px) translateZ(0)`,
+          transform: `scale(${roundedBgScale}) translate3d(${roundedBgX}px, ${roundedBgY}px, 0)`,
+          willChange: 'transform',
+          transformOrigin: 'center center',
           filter: foregroundUrl ? 'blur(2px) brightness(0.7)' : 'none',
         }}
       />
@@ -62,7 +79,9 @@ export const ParallaxImage: React.FC<Props> = ({ backgroundUrl, foregroundUrl, c
             width: '100%',
             height: '100%',
             objectFit: 'contain',
-            transform: `scale(${roundedFgScale}) translateX(${roundedFgX}px) translateZ(50px)`,
+            transform: `scale(${roundedFgScale}) translate3d(${roundedFgX}px, ${roundedFgY}px, 50px)`,
+            willChange: 'transform',
+            transformOrigin: 'center center',
             filter: 'drop-shadow(0px 25px 40px rgba(0,0,0,0.8))',
           }}
         />
