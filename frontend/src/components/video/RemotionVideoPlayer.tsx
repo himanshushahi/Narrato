@@ -38,20 +38,24 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
     }
   }));
 
+  const hasScenes = scenes && scenes.length > 0;
+
   useEffect(() => {
-    if (!playerRef.current || !onFrameUpdate) return;
-    const { current } = playerRef;
-    
-    const onFrame = (e: Event) => {
-      onFrameUpdate((e as CustomEvent).detail.frame);
-    };
-    
-    current.addEventListener('frameupdate', onFrame);
-    
-    return () => {
-      current.removeEventListener('frameupdate', onFrame);
-    };
-  }, [onFrameUpdate]);
+    if (!onFrameUpdate || !hasScenes) return;
+
+    let lastFrame = -1;
+    const interval = setInterval(() => {
+      if (playerRef.current) {
+        const frame = playerRef.current.getCurrentFrame();
+        if (frame !== lastFrame) {
+          lastFrame = frame;
+          onFrameUpdate(frame);
+        }
+      }
+    }, 200); // poll at ~5fps to prevent React render lag
+
+    return () => clearInterval(interval);
+  }, [onFrameUpdate, hasScenes]);
 
   // Dynamically compute the total duration of the video based on segment synthesis times
   const durationInFrames = useMemo(() => {
@@ -103,7 +107,7 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         controls
         loop
       />
-      
+
       {/* Dynamic duration indicator badge */}
       <div className="absolute top-4 right-4 bg-zinc-950/80 backdrop-blur-md px-3 py-1 rounded text-xs font-mono text-zinc-300 z-20 border border-zinc-800 pointer-events-none">
         {(durationInFrames / 30).toFixed(1)}s / {((durationInFrames / 30) / 60).toFixed(2)}m
