@@ -7,6 +7,7 @@ import { AIProviderCard } from '../features/Settings/components/AIProviderCard';
 import { AnimatedTabs, Tab } from '../components/ui/AnimatedTabs';
 import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
+import { CustomRange } from '../components/ui/CustomRange';
 import { motion, Variants } from 'framer-motion';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
@@ -765,43 +766,120 @@ export const SettingsPage: React.FC = () => {
 
                 {/* Right side: Vol and Sfx sliders */}
                 <div className="space-y-4 bg-black/15 p-4 rounded-md border border-stone-850">
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between">
-                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Background Music Volume</label>
-                      <span className="text-[10px] text-stone-300 font-bold">{Math.round(parseFloat(formData.bg_music_volume || '0.15') * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="0.5"
-                      step="0.01"
-                      name="bg_music_volume"
-                      value={formData.bg_music_volume}
-                      onChange={(e) => setFormData(prev => ({ ...prev, bg_music_volume: e.target.value }))}
-                      className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
-                    />
-                  </div>
+                  <CustomRange
+                    label="Background Music Volume"
+                    valueDisplay={`${Math.round(parseFloat(formData.bg_music_volume || '0.15') * 100)}%`}
+                    min="0"
+                    max="0.5"
+                    step="0.01"
+                    name="bg_music_volume"
+                    value={formData.bg_music_volume}
+                    onChange={(e) => setFormData(prev => ({ ...prev, bg_music_volume: e.target.value }))}
+                  />
 
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between">
-                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Sound Effects (SFX) Volume</label>
-                      <span className="text-[10px] text-stone-300 font-bold">{Math.round(parseFloat(formData.sfx_volume || '0.20') * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="0.6"
-                      step="0.01"
-                      name="sfx_volume"
-                      value={formData.sfx_volume}
-                      onChange={(e) => setFormData(prev => ({ ...prev, sfx_volume: e.target.value }))}
-                      className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]"
-                    />
-                  </div>
+                  <CustomRange
+                    label="Sound Effects (SFX) Volume"
+                    valueDisplay={`${Math.round(parseFloat(formData.sfx_volume || '0.20') * 100)}%`}
+                    min="0"
+                    max="0.6"
+                    step="0.01"
+                    name="sfx_volume"
+                    value={formData.sfx_volume}
+                    onChange={(e) => setFormData(prev => ({ ...prev, sfx_volume: e.target.value }))}
+                  />
                 </div>
               </div>
             </GlassCard>
           </motion.div>
+
+          {/* Pexels API Key */}
+          <motion.div variants={itemVariants}>
+            <GlassCard className="p-6 space-y-6">
+              <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
+                <VscMusic className="text-base text-[var(--color-accent-primary)]" />
+                Pexels Stock Overlays
+              </h2>
+              <div className="space-y-4">
+                <p className="text-xs text-stone-400">
+                  Configure your Pexels authorization key to download matching stock photos and B-roll video assets automatically when visual type layers are selected.
+                </p>
+                <CustomInput
+                  label="Pexels Authorization Key"
+                  type="password"
+                  name="pexels_api_key"
+                  value={formData.pexels_api_key || ''}
+                  onChange={handleInputChange}
+                  placeholder="Enter Pexels API Key..."
+                  icon={<VscKey />}
+                />
+              </div>
+            </GlassCard>
+          </motion.div>
+
+
+
+          {/* Rendering Engine Settings */}
+          <motion.div variants={itemVariants}>
+            <GlassCard className="p-6 space-y-6">
+              <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
+                <VscPlay className="text-base text-[var(--color-accent-primary)]" />
+                Rendering Engine (Remotion)
+              </h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider mb-1.5">Processing Hardware</label>
+                  <AnimatedTabs
+                    tabs={renderHardwareTabs}
+                    activeTab={formData.render_hardware || 'cpu'}
+                    onChange={(id) => handleSelectChange('render_hardware', id)}
+                    layoutId="settings-render-hardware-tab"
+                  />
+                  {formData.render_hardware === 'cuda' && (
+                    <p className="mt-2 text-xs text-amber-200/80 bg-amber-950/20 border border-amber-800/30 p-2 rounded">
+                      Ensure your system supports NVENC. Using CUDA speeds up both frame rendering and video stitching.
+                    </p>
+                  )}
+                </div>
+
+                <p className="text-xs text-stone-400">
+                  Configure output settings for your final video compilations. Higher resolutions and frame rates will significantly increase rendering times.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <CustomSelect
+                    label="Output Resolution"
+                    options={renderResolutionOptions}
+                    value={formData.render_resolution || '1080p'}
+                    onChange={(val) => handleSelectChange('render_resolution', val)}
+                  />
+                  <CustomSelect
+                    label="Frame Rate (FPS)"
+                    options={renderFpsOptions}
+                    value={formData.render_fps || '30'}
+                    onChange={(val) => handleSelectChange('render_fps', val)}
+                  />
+                  <CustomSelect
+                    label="CPU Concurrency"
+                    options={renderConcurrencyOptions}
+                    value={formData.render_concurrency || 'logical'}
+                    onChange={(val) => handleSelectChange('render_concurrency', val)}
+                  />
+                  <CustomSelect
+                    label="Video Codec"
+                    options={renderCodecOptions}
+                    value={formData.render_codec || 'h264'}
+                    onChange={(val) => handleSelectChange('render_codec', val)}
+                  />
+                  <CustomSelect
+                    label="Video Quality (CRF)"
+                    options={renderCrfOptions}
+                    value={formData.render_crf || '18'}
+                    onChange={(val) => handleSelectChange('render_crf', val)}
+                  />
+                </div>
+              </div>
+            </GlassCard>
+          </motion.div>
+
 
           {/* YouTube Integration (yt-dlp) Card */}
           <motion.div variants={itemVariants}>
@@ -812,8 +890,8 @@ export const SettingsPage: React.FC = () => {
                   YouTube Integration (yt-dlp)
                 </h2>
                 <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${ytdlpInstalled
-                    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
-                    : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
+                  ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
+                  : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
                   }`}>
                   {ytdlpInstalled ? `Installed v${ytdlpVersion}` : 'Not Found'}
                 </span>
@@ -900,92 +978,6 @@ export const SettingsPage: React.FC = () => {
                     {ytdlpInstalled ? 'Update yt-dlp to Latest' : 'Download yt-dlp'}
                   </GlowButton>
                 )}
-              </div>
-            </GlassCard>
-          </motion.div>
-
-          {/* Rendering Engine Settings */}
-          <motion.div variants={itemVariants}>
-            <GlassCard className="p-6 space-y-6">
-              <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
-                <VscPlay className="text-base text-[var(--color-accent-primary)]" />
-                Rendering Engine (Remotion)
-              </h2>
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider mb-1.5">Processing Hardware</label>
-                  <AnimatedTabs
-                    tabs={renderHardwareTabs}
-                    activeTab={formData.render_hardware || 'cpu'}
-                    onChange={(id) => handleSelectChange('render_hardware', id)}
-                    layoutId="settings-render-hardware-tab"
-                  />
-                  {formData.render_hardware === 'cuda' && (
-                    <p className="mt-2 text-xs text-amber-200/80 bg-amber-950/20 border border-amber-800/30 p-2 rounded">
-                      Ensure your system supports NVENC. Using CUDA speeds up both frame rendering and video stitching.
-                    </p>
-                  )}
-                </div>
-
-                <p className="text-xs text-stone-400">
-                  Configure output settings for your final video compilations. Higher resolutions and frame rates will significantly increase rendering times.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <CustomSelect
-                    label="Output Resolution"
-                    options={renderResolutionOptions}
-                    value={formData.render_resolution || '1080p'}
-                    onChange={(val) => handleSelectChange('render_resolution', val)}
-                  />
-                  <CustomSelect
-                    label="Frame Rate (FPS)"
-                    options={renderFpsOptions}
-                    value={formData.render_fps || '30'}
-                    onChange={(val) => handleSelectChange('render_fps', val)}
-                  />
-                  <CustomSelect
-                    label="CPU Concurrency"
-                    options={renderConcurrencyOptions}
-                    value={formData.render_concurrency || 'logical'}
-                    onChange={(val) => handleSelectChange('render_concurrency', val)}
-                  />
-                  <CustomSelect
-                    label="Video Codec"
-                    options={renderCodecOptions}
-                    value={formData.render_codec || 'h264'}
-                    onChange={(val) => handleSelectChange('render_codec', val)}
-                  />
-                  <CustomSelect
-                    label="Video Quality (CRF)"
-                    options={renderCrfOptions}
-                    value={formData.render_crf || '18'}
-                    onChange={(val) => handleSelectChange('render_crf', val)}
-                  />
-                </div>
-              </div>
-            </GlassCard>
-          </motion.div>
-
-          {/* Pexels API Key */}
-          <motion.div variants={itemVariants}>
-            <GlassCard className="p-6 space-y-6">
-              <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
-                <VscMusic className="text-base text-[var(--color-accent-primary)]" />
-                Pexels Stock Overlays
-              </h2>
-              <div className="space-y-4">
-                <p className="text-xs text-stone-400">
-                  Configure your Pexels authorization key to download matching stock photos and B-roll video assets automatically when visual type layers are selected.
-                </p>
-                <CustomInput
-                  label="Pexels Authorization Key"
-                  type="password"
-                  name="pexels_api_key"
-                  value={formData.pexels_api_key || ''}
-                  onChange={handleInputChange}
-                  placeholder="Enter Pexels API Key..."
-                  icon={<VscKey />}
-                />
               </div>
             </GlassCard>
           </motion.div>

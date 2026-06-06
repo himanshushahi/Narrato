@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { CustomInput } from '../../components/ui/CustomInput';
 import { CustomSelect } from '../../components/ui/CustomSelect';
+import { CustomColorInput } from '../../components/ui/CustomColorInput';
+import { CustomCheckbox } from '../../components/ui/CustomCheckbox';
 import { VscLoading, VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -141,11 +143,11 @@ export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, 
               placeholder="Preset Name..."
               value={presetName}
               onChange={(e) => setPresetName(e.target.value)}
-              className="w-full bg-stone-900 border border-stone-700 rounded-md px-3 py-2 text-sm text-stone-200 placeholder-stone-600 focus:outline-none focus:border-amber-500/50"
+              className="w-full bg-stone-900 border border-stone-700 rounded-md px-3 py-2 text-sm text-stone-200 placeholder-stone-600 focus:outline-none focus:border-[var(--color-accent-primary)]/50 focus:ring-1 focus:ring-[var(--color-accent-primary)]/50 transition-colors"
             />
             <button
               onClick={handleSavePreset}
-              className="p-2 bg-amber-600 cursor-pointer hover:bg-amber-500 text-white rounded-md transition-colors"
+              className="p-2 bg-[var(--color-accent-primary)] cursor-pointer hover:bg-[var(--color-accent-light)] hover:text-[var(--color-brand-950)] text-white rounded-md transition-colors"
               title="Save current styling as preset"
             >
               <VscSave />
@@ -160,7 +162,7 @@ export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, 
                 <span className="truncate max-w-[120px] font-medium">{p.name}</span>
                 <button
                   onClick={() => handleSetDefaultPreset(p.id)}
-                  className={`p-1 rounded hover:bg-stone-800 transition-colors ${defaultPresetId === p.id ? 'text-amber-500' : 'text-stone-500 hover:text-stone-300'}`}
+                  className={`p-1 rounded hover:bg-stone-800 transition-colors ${defaultPresetId === p.id ? 'text-[var(--color-accent-primary)]' : 'text-stone-500 hover:text-stone-300'}`}
                   title={defaultPresetId === p.id ? "Remove as default" : "Set as default for new projects"}
                 >
                   <VscStarFull />
@@ -206,40 +208,16 @@ export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, 
           value={settings.fontSize !== undefined ? settings.fontSize : 54}
           onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, fontSize: parseInt(e.target.value) || 54 }) }}
         />
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Active Highlight Color</label>
-          <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50">
-            <input
-              type="color"
-              value={settings.activeColor || '#fbbf24'}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, activeColor: e.target.value }) }}
-              className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
-            />
-            <input
-              type="text"
-              value={settings.activeColor || '#fbbf24'}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, activeColor: e.target.value }) }}
-              className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
-            />
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Past/Inactive Text Color</label>
-          <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50">
-            <input
-              type="color"
-              value={settings.pastColor || '#d6d3d1'}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, pastColor: e.target.value }) }}
-              className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
-            />
-            <input
-              type="text"
-              value={settings.pastColor || '#d6d3d1'}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, pastColor: e.target.value }) }}
-              className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
-            />
-          </div>
-        </div>
+        <CustomColorInput
+          label="Active Highlight Color"
+          value={settings.activeColor || '#fbbf24'}
+          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, activeColor: e.target.value }) }}
+        />
+        <CustomColorInput
+          label="Past/Inactive Text Color"
+          value={settings.pastColor || '#d6d3d1'}
+          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, pastColor: e.target.value }) }}
+        />
         <CustomSelect
           label="Text Transform"
           options={[
@@ -258,31 +236,19 @@ export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, 
           onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, bottomOffset: parseInt(e.target.value) || 0 }) }}
         />
         <div className="flex flex-col gap-1.5 justify-center mt-2 col-span-2">
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-stone-300 font-medium">
-            <input
-              type="checkbox"
-              checked={settings.showBackgroundHighlight !== false}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, showBackgroundHighlight: e.target.checked }) }}
-              className="w-4 h-4 rounded border-stone-700 bg-stone-900 text-amber-500 focus:ring-amber-500/50 focus:ring-offset-stone-950"
-            />
-            Show Read Text Background Highlight
-          </label>
+          <CustomCheckbox
+            label="Show Read Text Background Highlight"
+            checked={settings.showBackgroundHighlight !== false}
+            onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, showBackgroundHighlight: e.target.checked }) }}
+          />
         </div>
         {settings.showBackgroundHighlight !== false && (
           <div className="flex flex-col gap-1.5 col-span-2">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Background Highlight Color</label>
-            <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50 max-w-[50%]">
-              <input
-                type="color"
+            <div className="max-w-[50%]">
+              <CustomColorInput
+                label="Background Highlight Color"
                 value={settings.highlightBgColor || settings.activeColor || '#fbbf24'}
                 onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, highlightBgColor: e.target.value }) }}
-                className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
-              />
-              <input
-                type="text"
-                value={settings.highlightBgColor || settings.activeColor || '#fbbf24'}
-                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, highlightBgColor: e.target.value }) }}
-                className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
               />
             </div>
           </div>

@@ -6,6 +6,8 @@ import { DocumentHighlightEditor } from './DocumentHighlightEditor';
 import { NetworkDataEditor } from './NetworkDataEditor';
 import { LowerThirdEditor } from './LowerThirdEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
+import { BiTrashAlt } from 'react-icons/bi';
+import { BsPlus } from 'react-icons/bs';
 
 export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void }) => {
   const handleUpdate = (idx: number, field: string, val: any) => {
@@ -38,7 +40,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">Sub-Visuals (Cuts)</label>
-        <button type="button" onClick={handleAdd} className="text-[10px] bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 px-2 py-1 rounded">+ Add Sub-Visual</button>
+        <button type="button" onClick={handleAdd} className="text-[10px] bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 px-2 py-1 rounded flex items-center gap-1 cursor-pointer"><BsPlus size={20} /> Add Sub-Visual</button>
       </div>
       {subVisuals.map((sv: any, idx: number) => {
         const isActive = activeIdx === idx;
@@ -48,7 +50,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
           <div key={idx}
             onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
             className={`bg-stone-900/60 p-3 rounded border space-y-3 relative cursor-pointer transition-colors ${isActive ? 'border-amber-500/60 bg-amber-900/10 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-stone-800 hover:border-stone-700'}`}>
-            <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded">Remove</button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded cursor-pointer"><BiTrashAlt size={15} /></button>
             <div className="flex items-center gap-2 mb-1">
               <div className={`text-xs font-bold ${isActive ? 'text-amber-400' : 'text-stone-500'}`}>Sub-Visual {idx + 1}</div>
               {timing && (

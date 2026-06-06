@@ -26,15 +26,15 @@ function Sidebar() {
   };
 
   const navItems = [
-    { path: '/', icon: <VscLayers />, label: 'Library' },
-    { path: '/settings', icon: <VscSettings />, label: 'Settings' }
+    { path: '/', icon: <VscLayers />, label: 'Studio' },
+    { path: '/settings', icon: <VscSettings />, label: 'Settings' },
   ];
 
   return (
     <motion.div
       initial={false}
       animate={{ width: collapsed ? 80 : 260 }}
-      className="relative z-40 bg-[var(--color-brand-900)] border-r border-stone-800 flex flex-col justify-between select-none backdrop-blur-2xl shadow-2xl"
+      className="relative z-40 bg-stone-950 border-r border-stone-800 flex flex-col justify-between select-none shadow-2xl"
     >
       <div className="space-y-8 py-6">
         {/* Brand logo */}
@@ -97,26 +97,28 @@ function Sidebar() {
           </motion.div>
         )}
 
-        <div className={`flex items-center gap-2 border-t border-stone-800 pt-4 ${collapsed ? 'justify-center flex-col' : 'justify-between'}`}>
-          {!collapsed && (
-            <div className="flex items-center gap-2 px-2">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-600 to-orange-800 flex items-center justify-center text-white border border-white/10 shadow-inner">
-                <VscAccount />
+        <div className={`flex flex-col gap-4 border-t border-stone-800 pt-4`}>
+          <div className={`flex items-center gap-2 ${collapsed ? 'justify-center flex-col' : 'justify-between'}`}>
+            {!collapsed && (
+              <div className="flex items-center gap-2 px-2">
+                <div className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center text-stone-400 border border-stone-700 shadow-inner">
+                  <VscAccount />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-stone-200">Local Studio</span>
+                  <span className="text-[9px] text-emerald-400 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-bold text-stone-200">Local Studio</span>
-                <span className="text-[9px] text-emerald-400 font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online
-                </span>
-              </div>
-            </div>
-          )}
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="p-2.5 text-stone-500 hover:text-white hover:bg-stone-800/50 rounded-md transition-colors"
-          >
-            <VscLayoutSidebarLeft className="text-lg" />
-          </button>
+            )}
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              className="p-2.5 text-stone-500 hover:text-white hover:bg-stone-800/50 rounded-md transition-colors"
+            >
+              <VscLayoutSidebarLeft className="text-lg" />
+            </button>
+          </div>
         </div>
       </div>
     </motion.div>

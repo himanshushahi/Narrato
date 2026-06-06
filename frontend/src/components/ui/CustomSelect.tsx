@@ -58,14 +58,14 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   }, [isOpen]);
 
   return (
-    <div className={`space-y-1.5 w-full relative ${isOpen ? 'z-50' : 'z-10'} ${className}`} ref={containerRef}>
+    <div className={`space-y-1.5 w-full relative ${isOpen ? 'z-50' : 'z-10'}`} ref={containerRef}>
       {label && <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">{label}</label>}
 
       <div className="relative cursor-pointer">
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className={`w-full cursor-pointer flex items-center justify-between px-4 py-2.5 bg-[var(--color-brand-950)]/50 border ${isOpen ? 'border-[var(--color-accent-primary)] ring-1 ring-[var(--color-accent-primary)]' : 'border-slate-700/50'} rounded-md text-slate-200 focus:outline-none transition-all text-sm group`}
+          className={`w-full cursor-pointer flex items-center justify-between px-4 py-2.5 bg-[var(--color-brand-950)]/50 border ${isOpen ? 'border-[var(--color-accent-primary)] ring-1 ring-[var(--color-accent-primary)]' : 'border-slate-700/50'} rounded-md text-slate-200 focus:outline-none transition-all text-sm group ${className}`}
         >
           <div className="flex items-center gap-3 truncate">
             {icon && <span className="text-slate-500 group-hover:text-[var(--color-accent-primary)] transition-colors">{icon}</span>}

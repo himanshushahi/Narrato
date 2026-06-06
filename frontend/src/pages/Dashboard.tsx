@@ -19,7 +19,6 @@ export const Dashboard: React.FC = () => {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [language, setLanguage] = useState('hi');
-  const [style, setStyle] = useState('nitish_rajput');
   const [durationMode, setDurationMode] = useState('medium');
   const [loading, setLoading] = useState(false);
 
@@ -34,7 +33,7 @@ export const Dashboard: React.FC = () => {
     setLoading(true);
     try {
       if (window.eel) {
-        const res = await window.eel.create_new_project(name, prompt, language, style, durationMode)();
+        const res = await window.eel.create_new_project(name, prompt, language, 'nitish_rajput', durationMode)();
         if (res.success && res.project_id) {
           fetchProjects();
           setShowModal(false);
@@ -117,68 +116,86 @@ export const Dashboard: React.FC = () => {
               </GlowButton>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {projects.map((project: Project) => (
                 <GlassCard
                   key={project.id}
                   hoverEffect={true}
-                  className="p-5 flex flex-col justify-between group relative overflow-hidden h-56"
+                  className="flex flex-col group relative overflow-hidden h-auto sm:min-h-[14rem] cursor-pointer"
                   onClick={() => navigate(`/editor/${project.id}`)}
                 >
                   {/* Visual overlay gradient */}
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[var(--color-accent-primary)]/5 to-transparent rounded-bl-full pointer-events-none" />
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-[var(--color-accent-primary)]/10 to-transparent rounded-bl-full pointer-events-none" />
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[8px] uppercase tracking-widest px-2 py-0.5 rounded font-extrabold border ${project.language === 'hi'
+                  {/* Content area */}
+                  <div className="flex-1 p-5 sm:p-6 flex flex-col justify-between z-10">
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[9px] uppercase tracking-widest px-2 py-0.5 rounded font-extrabold border ${project.language === 'hi'
                           ? 'bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-light)] border-[var(--color-accent-primary)]/20 shadow-[0_0_15px_-5px_var(--color-accent-glow)]'
                           : 'bg-stone-800 text-stone-300 border-stone-750'
-                        }`}>
-                        {project.language === 'hi' ? 'Hindi' : 'English'}
-                      </span>
-                      <div className="flex items-center gap-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider">
-                        <VscCircleFilled className={getStatusColor(project.status)} />
-                        <span>{project.status}</span>
+                          }`}>
+                          {project.language === 'hi' ? 'Hindi' : 'English'}
+                        </span>
+                        <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${project.status === 'completed' ? 'border-emerald-500/20 text-emerald-400 bg-emerald-500/10' : 'border-stone-700 text-stone-400'}`}>
+                          <VscCircleFilled className={getStatusColor(project.status)} />
+                          <span>{project.status}</span>
+                        </div>
                       </div>
+
+                      <h3 className="text-lg sm:text-xl font-extrabold text-white tracking-tight line-clamp-2 group-hover:text-[var(--color-accent-light)] transition-colors mt-1">
+                        {project.name}
+                      </h3>
+
+                      <p className="text-xs text-stone-400 line-clamp-2 leading-relaxed">
+                        {project.prompt}
+                      </p>
                     </div>
 
-                    <h3 className="text-base font-extrabold text-white tracking-tight truncate group-hover:text-[var(--color-accent-light)] transition-colors">
-                      {project.name}
-                    </h3>
+                    <div className="mt-4 pt-4 border-t border-stone-850/80">
+                      <div className="grid grid-cols-3 gap-2 mb-4">
+                        <div>
+                          <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider mb-1">Date Created</div>
+                          <div className="text-xs text-stone-300 font-medium">
+                            {new Date(project.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider mb-1">Duration</div>
+                          <div className="text-xs text-stone-300 font-medium capitalize">
+                            {project.duration_mode === 'short' ? '2m' : project.duration_mode === 'medium' ? '5m' : '10m'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider mb-1">Resolution</div>
+                          <div className="text-xs text-stone-300 font-medium">4K</div>
+                        </div>
+                      </div>
 
-                    <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed">
-                      {project.prompt}
-                    </p>
-                  </div>
-
-                  <div className="border-t border-stone-850/80 pt-4 flex items-center justify-between">
-                    <span className="text-[10px] text-stone-600 font-mono">
-                      {new Date(project.created_at).toLocaleDateString()}
-                    </span>
-
-                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                      <GlowButton
-                        onClick={() => navigate(`/editor/${project.id}`)}
-                        variant="secondary"
-                        size="sm"
-                        icon={<VscPlay className="text-[var(--color-accent-primary)]" />}
-                      >
-                        Studio
-                      </GlowButton>
-                      <GlowButton
-                        onClick={() => {
-                          showConfirm(
-                            "Delete Project?",
-                            "Are you sure you want to delete this project and delete all compiled video files?",
-                            () => deleteProject(project.id)
-                          );
-                        }}
-                        variant="danger"
-                        size="sm"
-                        icon={<VscTrash />}
-                      >
-                        Delete
-                      </GlowButton>
+                      <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                        <GlowButton
+                          onClick={() => navigate(`/editor/${project.id}`)}
+                          className="flex-1 justify-center"
+                          size="sm"
+                          icon={<VscPlay />}
+                        >
+                          Open Studio
+                        </GlowButton>
+                        <GlowButton
+                          onClick={() => {
+                            showConfirm(
+                              "Delete Project?",
+                              "Are you sure you want to delete this project and delete all compiled video files?",
+                              () => deleteProject(project.id)
+                            );
+                          }}
+                          variant="danger"
+                          size="sm"
+                          icon={<VscTrash />}
+                        >
+                          Delete
+                        </GlowButton>
+                      </div>
                     </div>
                   </div>
                 </GlassCard>
@@ -192,105 +209,102 @@ export const Dashboard: React.FC = () => {
       {createPortal(
         <AnimatePresence>
           {showModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+            <motion.div
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
-                transition={{ type: "spring", duration: 0.4 }}
+                transition={{ type: "spring", duration: 0.3 }}
                 className="w-full max-w-xl"
               >
-                <GlassCard elevation="high" className="w-full shadow-2xl">
+                <div className="w-full bg-[var(--color-brand-900)] border border-stone-800/60 rounded-xl shadow-2xl overflow-hidden">
                   {/* Modal Header */}
-                  <div className="px-6 py-4 bg-stone-950/60 border-b border-stone-850 flex justify-between items-center rounded-t-xl">
-                  <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                    <VscAdd className="text-[var(--color-accent-primary)]" />
-                    New Narrative Build
-                  </h2>
-                  <button
-                    onClick={() => setShowModal(false)}
-                    className="text-stone-500 hover:text-white text-xl font-bold transition-colors cursor-pointer"
-                  >
-                    &times;
-                  </button>
-                </div>
-
-                {/* Modal Form */}
-                <form onSubmit={handleCreate} className="p-6 space-y-6">
-                  <CustomInput
-                    label="Narrative Topic / Name"
-                    required
-                    type="text"
-                    placeholder="e.g. The Scam of 1992, Rise of the East India Company"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-
-                  <CustomTextarea
-                    label="Script & Art Direction Prompt"
-                    required
-                    rows={3}
-                    placeholder="Tell the AI what to cover in the script. e.g. Detail how the scam was plotted, who leaked the stock reports, and what systemic changes resulted."
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                  />
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <CustomSelect
-                      label="Language"
-                      options={[
-                        { value: 'hi', label: 'Hindi (हिंदी)' },
-                        { value: 'en', label: 'English (EN)' }
-                      ]}
-                      value={language}
-                      onChange={setLanguage}
-                    />
-
-                    <CustomSelect
-                      label="Visual style"
-                      options={[
-                        { value: 'nitish_rajput', label: 'Nitish Rajput Style' },
-                        { value: 'vintage_documentary', label: 'Vintage Archival' },
-                        { value: 'dark_mystery', label: 'Dark Suspense' }
-                      ]}
-                      value={style}
-                      onChange={setStyle}
-                    />
-
-                    <CustomSelect
-                      label="Duration Mode"
-                      options={[
-                        { value: 'short', label: 'Short (~2m)' },
-                        { value: 'medium', label: 'Medium (~5m)' },
-                        { value: 'long', label: 'Long (~10m)' }
-                      ]}
-                      value={durationMode}
-                      onChange={setDurationMode}
-                    />
-                  </div>
-
-                  <div className="flex justify-end gap-3 border-t border-stone-850 pt-6">
-                    <GlowButton
-                      variant="ghost"
-                      size="sm"
-                      type="button"
+                  <div className="px-6 py-5 border-b border-stone-800/60 flex justify-between items-center">
+                    <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                      <VscAdd className="text-[var(--color-accent-primary)] text-xl" />
+                      New Narrative Build
+                    </h2>
+                    <button
                       onClick={() => setShowModal(false)}
+                      className="text-stone-500 hover:text-white text-2xl font-black transition-colors cursor-pointer leading-none"
                     >
-                      Cancel
-                    </GlowButton>
-                    <GlowButton
-                      type="submit"
-                      disabled={loading}
-                      icon={loading ? <VscLoading className="animate-spin" /> : <VscPlay />}
-                    >
-                      {loading ? 'Assembling...' : 'Assemble Project'}
-                    </GlowButton>
+                      &times;
+                    </button>
                   </div>
-                </form>
-              </GlassCard>
+
+                  {/* Modal Form */}
+                  <form onSubmit={handleCreate} className="p-6 space-y-6">
+                    <CustomInput
+                      label="Narrative Topic / Name"
+                      required
+                      type="text"
+                      placeholder="e.g. The Scam of 1992, Rise of the East India Company"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="bg-stone-950"
+                    />
+
+                    <CustomTextarea
+                      label="Script & Art Direction Prompt"
+                      required
+                      rows={3}
+                      placeholder="Tell the AI what to cover in the script. e.g. Detail how the scam was plotted, who leaked the stock reports, and what systemic changes resulted."
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      className="bg-stone-950"
+                    />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <CustomSelect
+                        label="Language"
+                        options={[
+                          { value: 'hi', label: 'Hindi (हिंदी)' },
+                          { value: 'en', label: 'English (EN)' }
+                        ]}
+                        value={language}
+                        onChange={setLanguage}
+                        className="bg-stone-950"
+                      />
+
+                      <CustomSelect
+                        label="Duration Mode"
+                        options={[
+                          { value: 'short', label: 'Short (~2m)' },
+                          { value: 'medium', label: 'Medium (~5m)' },
+                          { value: 'long', label: 'Long (~10m)' }
+                        ]}
+                        value={durationMode}
+                        onChange={setDurationMode}
+                        className="bg-stone-950"
+                      />
+                    </div>
+
+                    <div className="flex justify-end items-center gap-4 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => setShowModal(false)}
+                        className="text-sm font-bold text-white hover:text-stone-300 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <GlowButton
+                        type="submit"
+                        disabled={loading}
+                        icon={loading ? <VscLoading className="animate-spin" /> : <VscPlay />}
+                      >
+                        {loading ? 'Assembling...' : 'Assemble Project'}
+                      </GlowButton>
+                    </div>
+                  </form>
+                </div>
+              </motion.div>
             </motion.div>
-          </div>
-        )}
+          )}
         </AnimatePresence>,
         document.body
       )}

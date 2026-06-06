@@ -2,9 +2,11 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useProjectStore } from '../store/useProjectStore';
 import { useUIStore } from '../store/useUIStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../components/video/RemotionVideoPlayer';
 import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
 import { SubtitleEditor } from '../features/ProjectEditor/components/SubtitleEditor';
+import { AnimatedTabs } from '../components/ui/AnimatedTabs';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscPlay, VscSave, VscFlame, VscArrowLeft, VscSparkle,
@@ -22,6 +24,7 @@ export const ProjectEditor: React.FC = () => {
     selectedProject, tasks, fetchProjectDetail, startPipeline, cancelPipeline, queue, updateProject, downloadFont
   } = useProjectStore();
   const { addToast } = useUIStore();
+  const { settings } = useSettingsStore();
 
   const [scriptData, setScriptData] = useState<any>(null);
   const [manifestData, setManifestData] = useState<any[]>([]);
@@ -654,14 +657,14 @@ export const ProjectEditor: React.FC = () => {
     <div className="flex flex-col h-[calc(100vh-60px)] z-10 relative">
 
       {/* Editor Sub-header */}
-      <div className="bg-stone-900 border-b border-stone-800 px-6 py-4 flex items-center justify-between">
+      <div className="bg-transparent border-b border-stone-850 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link to="/" className="p-2 text-stone-400 hover:text-white rounded hover:bg-stone-800 transition-colors">
             <VscArrowLeft />
           </Link>
           <div>
-            <h1 className="text-xl font-bold text-white font-sans">{selectedProject.name}</h1>
-            <p className="text-xs text-stone-500 font-mono">ID: {selectedProject.id.slice(0, 8)}... | Style: {selectedProject.style}</p>
+            <h1 className="text-xl font-bold text-white font-sans tracking-tight">{selectedProject.name}</h1>
+            <p className="text-[10px] text-stone-500 font-mono mt-0.5">ID: {selectedProject.id.slice(0, 8)}... | Style: {selectedProject.style}</p>
           </div>
         </div>
 
@@ -687,10 +690,10 @@ export const ProjectEditor: React.FC = () => {
       </div>
 
       {/* Editor Split Layout */}
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 bg-transparent">
 
         {/* Left Side: Remotion Video Player & Compiler Progress */}
-        <div className="w-1/2 p-6 flex flex-col gap-6 border-r border-stone-800 bg-stone-950/20 overflow-y-auto">
+        <div className="w-1/2 p-6 flex flex-col gap-6 border-r border-stone-850/50 overflow-y-auto">
           <div>
             <h2 className="text-sm font-bold text-stone-400 uppercase tracking-widest mb-3">Live Video Canvas</h2>
             <RemotionVideoPlayer
@@ -708,8 +711,8 @@ export const ProjectEditor: React.FC = () => {
           </div>
 
           {/* Production Pipeline & Controls Panel */}
-          <div className="bg-stone-900/40 border border-stone-800 p-5 rounded-xl shadow-lg backdrop-blur-md flex flex-col gap-4">
-            <div className="flex justify-between items-center border-b border-stone-800/80 pb-3">
+          <div className="bg-black/20 border border-stone-850 p-5 rounded-xl shadow-lg flex flex-col gap-4">
+            <div className="flex justify-between items-center border-b border-stone-800/50 pb-3">
               <div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-stone-300 font-sans">
                   Production Pipeline
@@ -952,27 +955,24 @@ export const ProjectEditor: React.FC = () => {
           {/* Settings reference details */}
           <div className="bg-stone-900/30 border border-stone-800/40 p-4 rounded-lg text-xs text-stone-500 space-y-2">
             <h3 className="font-bold text-stone-400 uppercase tracking-wider text-[10px] mb-1">Canvas Specifications</h3>
-            <p>• Output Format: H.264 MP4 | aspect 16:9 (1920x1080) at 30 fps</p>
+            <p>• Output Format: {settings?.render_codec === 'hevc_nvenc' || settings?.render_codec === 'h265' ? 'H.265' : 'H.264'} MP4 | aspect 16:9 ({settings?.render_resolution === '4k' ? '3840x2160' : '1920x1080'}) at {settings?.render_fps || 30} fps</p>
             <p>• Visual overlay includes dust scratches and radial vignettes.</p>
             <p>• Subtitles are synced word-by-word with spring animations.</p>
           </div>
         </div>
 
         {/* Right Side: Interactive Script Editor & Subtitles */}
-        <div className="w-1/2 flex flex-col bg-stone-950/40">
-          <div className="flex border-b border-stone-800/80 bg-stone-900/50 pt-4 px-6 gap-6 sticky top-0 z-10">
-            <button
-              className={`pb-3 cursor-pointer text-sm font-bold uppercase tracking-widest transition-colors ${activeTab === 'script' ? 'text-amber-500 border-b-2 border-amber-500' : 'text-stone-500 hover:text-stone-300'}`}
-              onClick={() => setActiveTab('script')}
-            >
-              Documentary Script
-            </button>
-            <button
-              className={`pb-3 cursor-pointer text-sm font-bold uppercase tracking-widest transition-colors ${activeTab === 'subtitles' ? 'text-amber-500 border-b-2 border-amber-500' : 'text-stone-500 hover:text-stone-300'}`}
-              onClick={() => setActiveTab('subtitles')}
-            >
-              Subtitles
-            </button>
+        <div className="w-1/2 flex flex-col bg-transparent">
+          <div className="flex border-b border-stone-850/50 pt-4 px-6 pb-4 sticky top-0 z-10 bg-[var(--color-brand-950)]/95 backdrop-blur-sm">
+            <AnimatedTabs
+              tabs={[
+                { id: 'script', label: 'Documentary Script' },
+                { id: 'subtitles', label: 'Subtitles' }
+              ]}
+              activeTab={activeTab}
+              onChange={(id) => setActiveTab(id as 'script' | 'subtitles')}
+              className="w-full"
+            />
           </div>
 
           <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6">
@@ -1019,7 +1019,7 @@ export const ProjectEditor: React.FC = () => {
                       return (
                         <motion.div
                           layout
-                          className={`p-4 rounded-lg border transition-all ${editingCard === 'intro' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isIntroActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+                          className={`p-5 rounded-xl border transition-all ${editingCard === 'intro' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isIntroActive ? 'bg-black/20 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.03)]' : 'bg-black/10 border-stone-800 hover:border-stone-700'}`}
                         >
                           <div
                             className={`flex justify-between items-center mb-3 ${editingCard !== 'intro' ? 'cursor-pointer hover:opacity-80' : ''}`}
@@ -1138,7 +1138,7 @@ export const ProjectEditor: React.FC = () => {
                         <motion.div
                           key={idx}
                           layout
-                          className={`p-4 rounded-lg border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+                          className={`p-5 rounded-xl border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isActive ? 'bg-black/20 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.03)]' : 'bg-black/10 border-stone-800 hover:border-stone-700'}`}
                         >
                           <div
                             className={`flex justify-between items-center mb-3 ${!isEditing ? 'cursor-pointer hover:opacity-80' : ''}`}
@@ -1254,7 +1254,7 @@ export const ProjectEditor: React.FC = () => {
                       return (
                         <motion.div
                           layout
-                          className={`p-4 rounded-lg border transition-all ${editingCard === 'conclusion' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isConcActive ? 'bg-amber-900/10 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'bg-stone-900/50 border-stone-800 hover:border-stone-700'}`}
+                          className={`p-5 rounded-xl border transition-all ${editingCard === 'conclusion' ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isConcActive ? 'bg-black/20 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.03)]' : 'bg-black/10 border-stone-800 hover:border-stone-700'}`}
                         >
                           <div
                             className={`flex justify-between items-center mb-3 ${editingCard !== 'conclusion' ? 'cursor-pointer hover:opacity-80' : ''}`}
