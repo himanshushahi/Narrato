@@ -6,6 +6,7 @@ interface Props {
   transcription: Transcription;
   sceneTimings?: SceneTiming[];
   styleType?: string;
+  subtitleSettings?: any;
 }
 
 /** Sentence boundary punctuation for Hindi and English */
@@ -139,7 +140,8 @@ function splitTextIntoTimedSentences(text: string, start: number, end: number): 
 export const KineticSubtitles: React.FC<Props> = ({ 
   transcription, 
   sceneTimings = [],
-  styleType = 'nitish_rajput' 
+  styleType = 'nitish_rajput',
+  subtitleSettings = {}
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -219,14 +221,15 @@ export const KineticSubtitles: React.FC<Props> = ({
         opacity: fadeIn
       }}>
         <div style={{
-          fontFamily: 'Montserrat, sans-serif',
-          fontWeight: 800,
-          fontSize: 48,
-          color: '#ffffff',
+          fontFamily: subtitleSettings.fontFamily ? `"${subtitleSettings.fontFamily}", sans-serif` : 'Montserrat, sans-serif',
+          fontWeight: subtitleSettings.fontWeight || 800,
+          fontSize: subtitleSettings.fontSize || 48,
+          color: subtitleSettings.futureColor || '#ffffff',
           textAlign: 'center',
           textShadow: '0px 4px 10px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,1)',
           lineHeight: 1.3,
-          maxWidth: 1200
+          maxWidth: 1200,
+          textTransform: subtitleSettings.textTransform || 'none'
         }}>
           {activeSentence.text}
         </div>
@@ -238,7 +241,7 @@ export const KineticSubtitles: React.FC<Props> = ({
   return (
     <div style={{
       position: 'absolute',
-      bottom: 120,
+      bottom: subtitleSettings.bottomOffset !== undefined ? subtitleSettings.bottomOffset : 120,
       left: '10%',
       right: '10%',
       display: 'flex',
@@ -283,9 +286,22 @@ export const KineticSubtitles: React.FC<Props> = ({
           // Active word: bright amber-yellow with glow
           // Past words: dimmed stone white
           // Future words: standard white
-          const color = isActive ? '#fbbf24' : isPast ? '#d6d3d1' : '#f5f5f4';
+          const activeColor = subtitleSettings.activeColor || '#fbbf24';
+          const pastColor = subtitleSettings.pastColor || '#d6d3d1';
+          const futureColor = subtitleSettings.futureColor || '#f5f5f4';
+          
+          const color = isActive ? activeColor : isPast ? pastColor : futureColor;
+          
+          // Hex to rgba helper for shadow glow
+          const hexToRgba = (hex: string, alpha: number) => {
+            const r = parseInt(hex.slice(1, 3), 16) || 251;
+            const g = parseInt(hex.slice(3, 5), 16) || 191;
+            const b = parseInt(hex.slice(5, 7), 16) || 36;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+          };
+          
           const textShadow = isActive 
-            ? '0 0 15px rgba(251, 191, 36, 0.4), 0px 4px 12px rgba(0,0,0,0.9)'
+            ? `0 0 15px ${hexToRgba(activeColor, 0.4)}, 0px 4px 12px rgba(0,0,0,0.9)`
             : '0px 4px 12px rgba(0,0,0,0.9), 0px 2px 4px rgba(0,0,0,0.8)';
 
           return (
@@ -297,14 +313,14 @@ export const KineticSubtitles: React.FC<Props> = ({
               }}
             >
               {/* Highlighter Background */}
-              {isPast || isActive ? (
+              {(isPast || isActive) && subtitleSettings.showBackgroundHighlight !== false ? (
                 <span style={{
                   position: 'absolute',
                   left: -2,
                   right: -2,
                   bottom: 2,
                   height: '40%',
-                  backgroundColor: 'rgba(251, 191, 36, 0.4)',
+                  backgroundColor: hexToRgba(subtitleSettings.highlightBgColor || activeColor, 0.4),
                   transformOrigin: 'left center',
                   transform: `scaleX(${isPast ? 1 : interpolate(activeFrames, [0, 5], [0, 1], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' })})`,
                   zIndex: -1,
@@ -313,11 +329,11 @@ export const KineticSubtitles: React.FC<Props> = ({
               ) : null}
               <span
                 style={{
-                  fontFamily: 'Montserrat, sans-serif',
-                  fontWeight: 900,
-                  fontSize: 54,
+                  fontFamily: subtitleSettings.fontFamily ? `"${subtitleSettings.fontFamily}", sans-serif` : 'Montserrat, sans-serif',
+                  fontWeight: subtitleSettings.fontWeight || 900,
+                  fontSize: subtitleSettings.fontSize || 54,
                   color: color,
-                  textTransform: 'uppercase',
+                  textTransform: subtitleSettings.textTransform || 'uppercase',
                   textShadow: textShadow,
                   transform: `scale(${scale})`,
                   transition: 'color 0.08s ease-out',

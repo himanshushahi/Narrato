@@ -64,6 +64,15 @@ def db_get_project(project_id):
     return get_project(project_id)
 
 @eel.expose
+def db_update_project(project_id, updates_dict):
+    try:
+        update_project(project_id, **updates_dict)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Failed to update project: {e}")
+        return {"success": False, "error": str(e)}
+
+@eel.expose
 def db_delete_project(project_id):
     proj = get_project(project_id)
     if proj:
@@ -142,6 +151,61 @@ def save_json_file(file_path, data):
     except Exception as e:
         logger.error(f"Failed to save JSON file: {e}")
         return False
+
+@eel.expose
+def download_google_font(font_family):
+    import urllib.request
+    import re
+    from backend.core.config import get_fonts_dir
+    fonts_dir = get_fonts_dir()
+    
+    safe_name = font_family.replace(" ", "")
+    font_specific_dir = fonts_dir / safe_name
+    font_specific_dir.mkdir(parents=True, exist_ok=True)
+    
+    css_file = font_specific_dir / f"{safe_name}.css"
+    
+    if css_file.exists():
+        return {"success": True, "css_path": str(css_file)}
+        
+    try:
+        url_family = font_family.replace(" ", "+")
+        # Ask for standard weights for subtitles
+        css_url = f"https://fonts.googleapis.com/css2?family={url_family}:wght@400;700;800;900&display=swap"
+        req = urllib.request.Request(css_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+        
+        with urllib.request.urlopen(req, timeout=10) as response:
+            css_content = response.read().decode('utf-8')
+            
+        urls = re.findall(r"url\((https://[^)]+)\)", css_content)
+        if not urls:
+            # Fallback for some fonts that might not have those weights
+            css_url = f"https://fonts.googleapis.com/css2?family={url_family}&display=swap"
+            req = urllib.request.Request(css_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                css_content = response.read().decode('utf-8')
+            urls = re.findall(r"url\((https://[^)]+)\)", css_content)
+            
+        for font_url in set(urls):
+            font_filename = font_url.split("/")[-1]
+            local_font_path = font_specific_dir / font_filename
+            if not local_font_path.exists():
+                logger.info(f"Downloading font file: {font_filename} to {font_specific_dir}")
+                urllib.request.urlretrieve(font_url, local_font_path)
+            
+            # Replace remote URL with local API endpoint URL
+            # Note: The UI will load the CSS via media server, so it should request fonts via media server too.
+            import urllib.parse
+            local_url = f"http://localhost:8888/api/media?path={urllib.parse.quote(str(local_font_path))}"
+            css_content = css_content.replace(font_url, local_url)
+            
+        with open(css_file, "w", encoding="utf-8") as f:
+            f.write(css_content)
+            
+        return {"success": True, "css_path": str(css_file)}
+    except Exception as e:
+        logger.error(f"Failed to download font {font_family}: {e}")
+        return {"success": False, "error": str(e)}
 
 @eel.expose
 def check_kokoro_downloaded():

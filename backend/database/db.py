@@ -48,9 +48,16 @@ def init_db():
                 tts_voice TEXT DEFAULT 'hi-IN-SwaraNeural',
                 tts_speed REAL DEFAULT 1.0,
                 bg_music_path TEXT,
-                bg_music_volume REAL DEFAULT 0.15
+                bg_music_volume REAL DEFAULT 0.15,
+                subtitle_settings TEXT
             )
         """)
+
+        # Add subtitle_settings to existing databases
+        try:
+            cursor.execute("ALTER TABLE projects ADD COLUMN subtitle_settings TEXT")
+        except sqlite3.OperationalError:
+            pass # Column already exists
 
         # Tasks Table (Sub-tasks inside a project pipeline)
         cursor.execute("""
@@ -136,12 +143,22 @@ def create_project(name, prompt, language="hi", style="nitish_rajput", duration_
     tts_speed = float(get_setting("tts_speed") or 1.0)
     bg_music_path = get_setting("bg_music_path") or ""
     bg_music_volume = float(get_setting("bg_music_volume") or 0.15)
+    
+    # Handle default subtitle preset
+    default_preset_id = get_setting("default_subtitle_preset_id")
+    subtitle_presets = get_setting("subtitle_presets") or []
+    subtitle_settings = None
+    if default_preset_id and subtitle_presets:
+        for preset in subtitle_presets:
+            if preset.get("id") == default_preset_id:
+                subtitle_settings = json.dumps(preset.get("settings", {}))
+                break
         
     with get_db_connection() as conn:
         conn.execute("""
-            INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (project_id, name, prompt, now, now, language, style, duration_mode, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume))
+            INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, subtitle_settings)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (project_id, name, prompt, now, now, language, style, duration_mode, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, subtitle_settings))
     logger.info(f"Created project in database: {name} (ID: {project_id}, Lang: {language}, Style: {style})")
     return project_id
 

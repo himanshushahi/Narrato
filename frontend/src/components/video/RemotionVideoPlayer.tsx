@@ -10,6 +10,7 @@ interface Props {
   transcription: Transcription;
   styleType?: string;
   language?: string;
+  subtitleSettings?: any;
   onFrameUpdate?: (frame: number) => void;
 }
 
@@ -25,6 +26,7 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   transcription = { segments: [] },
   styleType = 'nitish_rajput',
   language = 'hi',
+  subtitleSettings = {},
   onFrameUpdate
 }, ref) => {
 
@@ -74,9 +76,10 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       scenes,
       transcription,
       style: styleType,
-      language
+      language,
+      subtitleSettings
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, scenes, transcription, styleType, language]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, scenes, transcription, styleType, language, subtitleSettings]);
 
   if (!scenes || scenes.length === 0) {
     return (

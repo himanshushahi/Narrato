@@ -55,6 +55,7 @@ interface Props {
   transcription: Transcription;
   style?: string;
   language?: string;
+  subtitleSettings?: any;
 }
 
 export interface SceneTiming {
@@ -69,7 +70,8 @@ export const NitishRajputComposition: React.FC<Props> = ({
   bgMusicVolume = 0.15,
   scenes = [],
   transcription = { language: '', segments: [] },
-  style = 'nitish_rajput'
+  style = 'nitish_rajput',
+  subtitleSettings = {}
 }) => {
   useVideoConfig();
 
@@ -224,6 +226,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
           transcription={transcription} 
           sceneTimings={sceneTimings}
           styleType={style} 
+          subtitleSettings={subtitleSettings}
         />
       )}
 

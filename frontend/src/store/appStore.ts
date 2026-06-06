@@ -17,9 +17,9 @@ export interface Project {
   video_path?: string;
   tts_engine?: string;
   tts_voice?: string;
-  tts_speed?: number;
   bg_music_path?: string;
   bg_music_volume?: number;
+  subtitle_settings?: string;
 }
 
 export interface Task {
@@ -59,6 +59,14 @@ export interface Settings {
   render_crf: string;
   render_codec: string;
   render_hardware: string;
+  subtitle_presets?: SubtitlePreset[];
+  default_subtitle_preset_id?: string;
+}
+
+export interface SubtitlePreset {
+  id: string;
+  name: string;
+  settings: any;
 }
 
 export interface QueueState {
@@ -132,10 +140,12 @@ interface AppStore {
   fetchSettings: () => Promise<void>;
   saveSettings: (settings: Settings) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
+  updateProject: (projectId: string, updates: Partial<Project>) => Promise<boolean>;
   startPipeline: (projectId: string, steps: string[]) => Promise<{ success: boolean; error?: string }>;
   resumePipeline: (projectId: string) => Promise<{ success: boolean; error?: string }>;
   cancelPipeline: (projectId: string) => Promise<void>;
   downloadKokoro: () => Promise<void>;
+  downloadFont: (fontFamily: string) => Promise<{ success: boolean; css_path?: string }>;
   downloadWhisper: (modelSize: string) => Promise<void>;
   fetchDownloadedWhisperModels: () => Promise<void>;
   deleteWhisperModel: (id: string) => Promise<boolean>;
@@ -278,6 +288,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
+  updateProject: async (projectId, updates) => {
+    if (window.eel) {
+      const res = await window.eel.db_update_project(projectId, updates)();
+      if (res.success) {
+        get().fetchProjectDetail(projectId);
+        return true;
+      } else {
+        get().addToast(`Failed to update project: ${res.error}`, "error");
+        return false;
+      }
+    }
+    return false;
+  },
+
   startPipeline: async (projectId, steps) => {
     if (window.eel) {
       const res = await window.eel.start_processing_pipeline(projectId, steps)();
@@ -308,6 +332,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ kokoroDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
       await window.eel.start_kokoro_download()();
     }
+  },
+
+  downloadFont: async (fontFamily: string) => {
+    if (window.eel) {
+      return await window.eel.download_google_font(fontFamily)();
+    }
+    return { success: false, error: "Eel connection missing" };
   },
 
   downloadWhisper: async (modelSize) => {

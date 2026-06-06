@@ -25,7 +25,7 @@ def serve_media():
         return bottle.HTTPError(404, "File not found")
         
     # Security check: verify file extension is a media file
-    valid_exts = ('.wav', '.mp3', '.mp4', '.mkv', '.mov', '.webm', '.avi', '.ogg', '.jpg', '.jpeg', '.png', '.webp', '.svg')
+    valid_exts = ('.wav', '.mp3', '.mp4', '.mkv', '.mov', '.webm', '.avi', '.ogg', '.jpg', '.jpeg', '.png', '.webp', '.svg', '.css', '.woff2', '.ttf')
     if not file_path.lower().endswith(valid_exts):
         return bottle.HTTPError(400, "Invalid file format")
         

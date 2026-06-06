@@ -63,6 +63,11 @@ def get_temp_dir() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
+def get_fonts_dir() -> Path:
+    d = BASE_DIR / "fonts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 def get_models_dir() -> Path:
     # Models are stored statically in BASE_DIR / "models" (AppData in production, project root in dev)
     d = BASE_DIR / "models"
