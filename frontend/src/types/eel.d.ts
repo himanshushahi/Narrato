@@ -29,6 +29,12 @@ interface Eel {
   fetch_single_scene_asset: EelCall<[string, number, number, string, string], any>;
   get_ytdlp_version: EelCall<[], { installed: boolean; version: string | null; path: string | null }>;
   update_ytdlp: EelCall<[], { status: string }>;
+  save_project_with_cleanup: EelCall<[string, any, any], any>;
+  db_update_project: EelCall<[string, any], any>;
+  download_google_font: EelCall<[string], any>;
+  get_downloaded_whisper_models: EelCall<[], any[]>;
+  delete_whisper_model: EelCall<[string], any>;
+  generate_chart_data_api: EelCall<[any], any>;
 }
 
 interface Window {

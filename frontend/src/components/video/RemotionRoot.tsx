@@ -1,13 +1,13 @@
 import React from 'react';
 import { Composition } from 'remotion';
-import { NitishRajputComposition } from './NitishRajputComposition';
+import { NitishRajputComposition, Props as CompositionProps } from './NitishRajputComposition';
 
 export const RemotionRoot: React.FC = () => {
   return (
     <>
       <Composition
         id="NitishRajputVideo"
-        component={NitishRajputComposition}
+        component={NitishRajputComposition as React.FC<any>}
         // Fallback duration in frames (overridden by calculateMetadata when props are available)
         durationInFrames={3600} 
         fps={30}
@@ -17,11 +17,11 @@ export const RemotionRoot: React.FC = () => {
           audioUrl: '',
           bgMusicUrl: '',
           bgMusicVolume: 0.15,
-          scenes: [] as any[],
-          transcription: { segments: [] } as any,
+          scenes: [],
+          transcription: { language: 'hi', segments: [] },
           style: 'nitish_rajput',
           language: 'hi'
-        }}
+        } as CompositionProps}
         calculateMetadata={({ props }) => {
           const fps = (props as any).fps || 30;
           const scenes = (props as any).scenes || [];

@@ -8,7 +8,7 @@ interface Props {
   durationInFrames: number;
 }
 
-export const ParallaxImage: React.FC<Props> = ({ backgroundUrl, foregroundUrl, cue, durationInFrames }) => {
+export const ParallaxImage: React.FC<Props> = ({ backgroundUrl, foregroundUrl, durationInFrames }) => {
   const frame = useCurrentFrame();
 
   // Create smooth, subtle animation for background and foreground

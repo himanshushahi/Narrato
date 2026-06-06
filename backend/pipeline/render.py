@@ -66,6 +66,13 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     if project_dict.get("bg_music_path"):
         bg_music_url = clean_media_path(project_dict["bg_music_path"])
 
+    subtitle_settings = {}
+    if project_dict.get("subtitle_settings"):
+        try:
+            subtitle_settings = json.loads(project_dict["subtitle_settings"])
+        except Exception as e:
+            logger.error(f"Failed to parse subtitle_settings: {e}")
+
     props = {
         "audioUrl": clean_media_path(str(audio_path)),
         "bgMusicUrl": bg_music_url,
@@ -74,7 +81,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "transcription": transcript,
         "style": project_dict.get("style", "nitish_rajput"),
         "language": project_dict.get("language", "hi"),
-        "fps": int(get_setting("render_fps") or 30)
+        "fps": int(get_setting("render_fps") or 30),
+        "subtitleSettings": subtitle_settings
     }
 
     # Write props to a JSON file

@@ -1,0 +1,293 @@
+import { useState } from 'react';
+import { CustomInput } from '../../components/ui/CustomInput';
+import { CustomSelect } from '../../components/ui/CustomSelect';
+import { VscLoading, VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
+import { useProjectStore } from '../../store/useProjectStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useUIStore } from '../../store/useUIStore';
+
+export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, onUpdate: (newSettings: any) => void }) => {
+  const [downloading, setDownloading] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const { downloadFont } = useProjectStore();
+  const { addToast } = useUIStore();
+  const { settings: globalSettings, saveSettings } = useSettingsStore();
+
+  const presets = globalSettings?.subtitle_presets || [];
+  const defaultPresetId = globalSettings?.default_subtitle_preset_id;
+
+  const handleSavePreset = async () => {
+    const trimmedName = presetName.trim();
+    if (!trimmedName) {
+      addToast("Please enter a preset name", "error");
+      return;
+    }
+
+    const existingIndex = presets.findIndex((p: any) => p.name.toLowerCase() === trimmedName.toLowerCase());
+    let updatedPresets = [...presets];
+
+    if (existingIndex >= 0) {
+      updatedPresets[existingIndex] = {
+        ...updatedPresets[existingIndex],
+        settings: { ...settings }
+      };
+      addToast(`Preset "${trimmedName}" updated!`, "success");
+    } else {
+      updatedPresets.push({
+        id: crypto.randomUUID(),
+        name: trimmedName,
+        settings: { ...settings }
+      });
+      addToast(`Preset "${trimmedName}" saved!`, "success");
+    }
+
+    await saveSettings({
+      ...globalSettings,
+      subtitle_presets: updatedPresets
+    });
+    setPresetName("");
+  };
+
+  const handleLoadPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    if (!presetId) {
+      setPresetName("");
+      return;
+    }
+    const preset = presets.find((p: any) => p.id === presetId);
+    if (preset) {
+      onUpdate(preset.settings);
+      setPresetName(preset.name);
+      addToast(`Loaded preset "${preset.name}"`, "success");
+    }
+  };
+
+  const handleDeletePreset = async (presetId: string) => {
+    const updatedPresets = presets.filter((p: any) => p.id !== presetId);
+    const isDefault = defaultPresetId === presetId;
+
+    await saveSettings({
+      ...globalSettings,
+      subtitle_presets: updatedPresets,
+      default_subtitle_preset_id: isDefault ? undefined : defaultPresetId
+    });
+    addToast("Preset deleted", "info");
+  };
+
+  const handleSetDefaultPreset = async (presetId: string) => {
+    const isCurrentlyDefault = defaultPresetId === presetId;
+    await saveSettings({
+      ...globalSettings,
+      default_subtitle_preset_id: isCurrentlyDefault ? undefined : presetId
+    });
+    if (!isCurrentlyDefault) {
+      addToast("Set as default preset", "success");
+    } else {
+      addToast("Removed default preset", "info");
+    }
+  };
+
+  const handleFontChange = async (fontFamily: string) => {
+    setSelectedPresetId("");
+    onUpdate({ ...settings, fontFamily });
+    if (!fontFamily) return;
+    setDownloading(true);
+    const res = await downloadFont(fontFamily);
+    setDownloading(false);
+    if (res.success && res.css_path) {
+      addToast(`Font ${fontFamily} loaded`, "success");
+      const id = `font-${fontFamily.replace(/\s/g, '')}`;
+      if (!document.getElementById(id)) {
+        const link = document.createElement('link');
+        link.id = id;
+        link.rel = 'stylesheet';
+        link.href = `http://localhost:8888/api/media?path=${encodeURIComponent(res.css_path)}`;
+        document.head.appendChild(link);
+      }
+    } else {
+      addToast(`Failed to load font: ${(res as any).error}`, "error");
+    }
+  };
+
+  return (
+    <div className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 space-y-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-black text-stone-300 uppercase tracking-widest font-sans">Subtitle Styling</h3>
+        {downloading && <span className="text-[10px] text-amber-500 font-bold flex items-center gap-1"><VscLoading className="animate-spin text-sm" /> Downloading Font...</span>}
+      </div>
+
+      {/* PRESETS SECTION */}
+      <div className="bg-stone-950 p-3 rounded-lg border border-stone-800 space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Presets</label>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <CustomSelect
+              options={[
+                { value: '', label: 'Load a preset...' },
+                ...presets.map((p: any) => ({ value: p.id, label: p.name }))
+              ]}
+              value={selectedPresetId}
+              onChange={handleLoadPreset}
+            />
+          </div>
+
+          <div className="flex items-center gap-1 flex-1">
+            <input
+              type="text"
+              placeholder="Preset Name..."
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              className="w-full bg-stone-900 border border-stone-700 rounded-md px-3 py-2 text-sm text-stone-200 placeholder-stone-600 focus:outline-none focus:border-amber-500/50"
+            />
+            <button
+              onClick={handleSavePreset}
+              className="p-2 bg-amber-600 cursor-pointer hover:bg-amber-500 text-white rounded-md transition-colors"
+              title="Save current styling as preset"
+            >
+              <VscSave />
+            </button>
+          </div>
+        </div>
+
+        {presets.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-800/50">
+            {presets.map((p: any) => (
+              <div key={p.id} className="flex items-center gap-1 bg-stone-900 border border-stone-700 rounded pl-2 pr-1 py-1 text-xs text-stone-300">
+                <span className="truncate max-w-[120px] font-medium">{p.name}</span>
+                <button
+                  onClick={() => handleSetDefaultPreset(p.id)}
+                  className={`p-1 rounded hover:bg-stone-800 transition-colors ${defaultPresetId === p.id ? 'text-amber-500' : 'text-stone-500 hover:text-stone-300'}`}
+                  title={defaultPresetId === p.id ? "Remove as default" : "Set as default for new projects"}
+                >
+                  <VscStarFull />
+                </button>
+                <button
+                  onClick={() => handleDeletePreset(p.id)}
+                  className="p-1 rounded hover:bg-red-900/50 hover:text-red-400 text-stone-500 transition-colors"
+                  title="Delete preset"
+                >
+                  <VscTrash />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <hr className="border-stone-800" />
+
+      <div className="grid grid-cols-2 gap-4">
+        <CustomSelect
+          label="Font Family"
+          options={[
+            { value: 'Montserrat', label: 'Montserrat (Latin)' },
+            { value: 'Inter', label: 'Inter (Latin)' },
+            { value: 'Roboto', label: 'Roboto (Latin)' },
+            { value: 'Poppins', label: 'Poppins (Supports Hindi)' },
+            { value: 'Hind', label: 'Hind (Supports Hindi)' },
+            { value: 'Mukta', label: 'Mukta (Supports Hindi)' },
+            { value: 'Kalam', label: 'Kalam (Supports Hindi)' },
+            { value: 'Noto Sans Devanagari', label: 'Noto Sans Devanagari' },
+            { value: 'Lato', label: 'Lato (Latin)' },
+            { value: 'Oswald', label: 'Oswald (Latin)' },
+            { value: 'Raleway', label: 'Raleway (Latin)' },
+            { value: 'Anton', label: 'Anton (Latin)' },
+            { value: 'Bebas Neue', label: 'Bebas Neue (Latin)' }
+          ]}
+          value={settings.fontFamily || 'Montserrat'}
+          onChange={handleFontChange}
+        />
+        <CustomInput
+          label="Font Size"
+          type="number"
+          value={settings.fontSize !== undefined ? settings.fontSize : 54}
+          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, fontSize: parseInt(e.target.value) || 54 }) }}
+        />
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Active Highlight Color</label>
+          <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50">
+            <input
+              type="color"
+              value={settings.activeColor || '#fbbf24'}
+              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, activeColor: e.target.value }) }}
+              className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
+            />
+            <input
+              type="text"
+              value={settings.activeColor || '#fbbf24'}
+              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, activeColor: e.target.value }) }}
+              className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
+            />
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Past/Inactive Text Color</label>
+          <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50">
+            <input
+              type="color"
+              value={settings.pastColor || '#d6d3d1'}
+              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, pastColor: e.target.value }) }}
+              className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
+            />
+            <input
+              type="text"
+              value={settings.pastColor || '#d6d3d1'}
+              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, pastColor: e.target.value }) }}
+              className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
+            />
+          </div>
+        </div>
+        <CustomSelect
+          label="Text Transform"
+          options={[
+            { value: 'uppercase', label: 'UPPERCASE' },
+            { value: 'lowercase', label: 'lowercase' },
+            { value: 'capitalize', label: 'Capitalize' },
+            { value: 'none', label: 'Normal' }
+          ]}
+          value={settings.textTransform || 'uppercase'}
+          onChange={(val) => { setSelectedPresetId(""); onUpdate({ ...settings, textTransform: val }) }}
+        />
+        <CustomInput
+          label="Y Position (px from bottom)"
+          type="number"
+          value={settings.bottomOffset !== undefined ? settings.bottomOffset : 120}
+          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, bottomOffset: parseInt(e.target.value) || 0 }) }}
+        />
+        <div className="flex flex-col gap-1.5 justify-center mt-2 col-span-2">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-stone-300 font-medium">
+            <input
+              type="checkbox"
+              checked={settings.showBackgroundHighlight !== false}
+              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, showBackgroundHighlight: e.target.checked }) }}
+              className="w-4 h-4 rounded border-stone-700 bg-stone-900 text-amber-500 focus:ring-amber-500/50 focus:ring-offset-stone-950"
+            />
+            Show Read Text Background Highlight
+          </label>
+        </div>
+        {settings.showBackgroundHighlight !== false && (
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Background Highlight Color</label>
+            <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50 max-w-[50%]">
+              <input
+                type="color"
+                value={settings.highlightBgColor || settings.activeColor || '#fbbf24'}
+                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, highlightBgColor: e.target.value }) }}
+                className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
+              />
+              <input
+                type="text"
+                value={settings.highlightBgColor || settings.activeColor || '#fbbf24'}
+                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, highlightBgColor: e.target.value }) }}
+                className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

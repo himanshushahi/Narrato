@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { useAppStore, Project } from '../store/appStore';
+import { useProjectStore, Project } from '../store/useProjectStore';
+import { useUIStore } from '../store/useUIStore';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GlowButton } from '../components/ui/GlowButton';
 import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { VscPlay, VscTrash, VscAdd, VscFolderOpened, VscCircleFilled, VscLayers, VscLoading } from 'react-icons/vsc';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { projects, fetchProjects, deleteProject, addToast, showConfirm } = useAppStore();
+  const { projects, fetchProjects, deleteProject } = useProjectStore();
+  const { addToast, showConfirm } = useUIStore();
 
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
@@ -64,12 +66,12 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const containerVariants = {
+  const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: { opacity: 1, transition: { staggerChildren: 0.08 } }
   };
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { opacity: 0, y: 15 },
     show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 25 } }
   };

@@ -1,7 +1,6 @@
 import React from 'react';
-import { GlassCard } from '../ui/GlassCard';
+import { GlassCard } from '../../../components/ui/GlassCard';
 import { VscCheck, VscError, VscKey } from 'react-icons/vsc';
-import { motion } from 'framer-motion';
 
 interface AIProviderCardProps {
   title: string;

@@ -1,4 +1,4 @@
-import React, { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
+import { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Player, PlayerRef } from '@remotion/player';
 import { NitishRajputComposition, Scene, Transcription } from './NitishRajputComposition';
 
@@ -98,7 +98,7 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       <Player
         ref={playerRef}
         component={NitishRajputComposition}
-        inputProps={inputProps}
+        inputProps={inputProps as any}
         durationInFrames={durationInFrames}
         fps={30}
         compositionWidth={1920}

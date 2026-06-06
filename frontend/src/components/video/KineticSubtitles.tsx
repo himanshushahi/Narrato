@@ -140,7 +140,7 @@ function splitTextIntoTimedSentences(text: string, start: number, end: number): 
 export const KineticSubtitles: React.FC<Props> = ({ 
   transcription, 
   sceneTimings = [],
-  styleType = 'nitish_rajput',
+  styleType: _styleType = 'nitish_rajput',
   subtitleSettings = {}
 }) => {
   const frame = useCurrentFrame();

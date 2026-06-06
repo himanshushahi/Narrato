@@ -1,5 +1,4 @@
 import React, { InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
-import { motion } from 'framer-motion';
 
 interface CustomInputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;

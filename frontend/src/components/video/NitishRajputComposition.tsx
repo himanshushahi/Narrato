@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Sequence, Audio, useVideoConfig } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
@@ -47,7 +47,7 @@ export interface Transcription {
   segments: TranscriptionSegment[];
 }
 
-interface Props {
+export interface Props {
   audioUrl: string;
   bgMusicUrl?: string;
   bgMusicVolume?: number;
@@ -64,7 +64,7 @@ export interface SceneTiming {
   text: string;
 }
 
-export const NitishRajputComposition: React.FC<Props> = ({
+export const NitishRajputComposition = ({
   audioUrl,
   bgMusicUrl,
   bgMusicVolume = 0.15,
@@ -72,7 +72,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
   transcription = { language: '', segments: [] },
   style = 'nitish_rajput',
   subtitleSettings = {}
-}) => {
+}: Props) => {
   useVideoConfig();
 
   // Build scene timing lookup (cumulative start/end times) for subtitle gap-filling

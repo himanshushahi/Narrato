@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Transcription, TranscriptionSegment } from './video/NitishRajputComposition';
+import { Transcription } from '../../../components/video/NitishRajputComposition';
 
 interface SubtitleEditorProps {
   transcription: Transcription;

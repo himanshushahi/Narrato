@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppStore } from '../store/appStore';
+import { useUIStore } from '../../store/useUIStore';
 import { VscChevronUp, VscChevronDown, VscTrash, VscTerminal } from 'react-icons/vsc';
 
 export const TerminalLogs: React.FC = () => {
-  const { logs, clearLogs } = useAppStore();
+  const { logs, clearLogs } = useUIStore();
   const [expanded, setExpanded] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 

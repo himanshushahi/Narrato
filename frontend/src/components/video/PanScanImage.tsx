@@ -8,7 +8,7 @@ interface Props {
   durationInFrames: number;
 }
 
-export const PanScanImage: React.FC<Props> = ({ src, type, cue, durationInFrames }) => {
+export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames }) => {
   const frame = useCurrentFrame();
 
   // Create alternating pan directions based on the length of the visual cue

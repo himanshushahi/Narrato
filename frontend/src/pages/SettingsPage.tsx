@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { useAppStore, Settings as SettingsType } from '../store/appStore';
+import { useSettingsStore, Settings as SettingsType } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GlowButton } from '../components/ui/GlowButton';
-import { AIProviderCard } from '../components/features/AIProviderCard';
+import { AIProviderCard } from '../features/Settings/components/AIProviderCard';
 import { AnimatedTabs, Tab } from '../components/ui/AnimatedTabs';
 import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
-import { motion } from 'framer-motion';
+import { motion, Variants } from 'framer-motion';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
@@ -14,21 +15,21 @@ import {
 import { MdOutlineMovie } from 'react-icons/md';
 
 export const SettingsPage: React.FC = () => {
-  const settings = useAppStore((state) => state.settings);
-  const saveSettings = useAppStore((state) => state.saveSettings);
-  const fetchSettings = useAppStore((state) => state.fetchSettings);
+  const settings = useSettingsStore((state) => state.settings);
+  const saveSettings = useSettingsStore((state) => state.saveSettings);
+  const fetchSettings = useSettingsStore((state) => state.fetchSettings);
 
-  const kokoroDownload = useAppStore((state) => state.kokoroDownload);
-  const downloadKokoro = useAppStore((state) => state.downloadKokoro);
-  const whisperDownload = useAppStore((state) => state.whisperDownload);
-  const downloadWhisper = useAppStore((state) => state.downloadWhisper);
-  const downloadedWhisperModels = useAppStore((state) => state.downloadedWhisperModels);
-  const fetchDownloadedWhisperModels = useAppStore((state) => state.fetchDownloadedWhisperModels);
-  const deleteWhisperModel = useAppStore((state) => state.deleteWhisperModel);
-  const showConfirm = useAppStore((state) => state.showConfirm);
-  const closeConfirm = useAppStore((state) => state.closeConfirm);
-  const ytdlpUpdate = useAppStore((state) => state.ytdlpUpdate);
-  const updateYtdlp = useAppStore((state) => state.updateYtdlp);
+  const kokoroDownload = useSettingsStore((state) => state.kokoroDownload);
+  const downloadKokoro = useSettingsStore((state) => state.downloadKokoro);
+  const whisperDownload = useSettingsStore((state) => state.whisperDownload);
+  const downloadWhisper = useSettingsStore((state) => state.downloadWhisper);
+  const downloadedWhisperModels = useSettingsStore((state) => state.downloadedWhisperModels);
+  const fetchDownloadedWhisperModels = useSettingsStore((state) => state.fetchDownloadedWhisperModels);
+  const deleteWhisperModel = useSettingsStore((state) => state.deleteWhisperModel);
+  const showConfirm = useUIStore((state) => state.showConfirm);
+  const closeConfirm = useUIStore((state) => state.closeConfirm);
+  const ytdlpUpdate = useSettingsStore((state) => state.ytdlpUpdate);
+  const updateYtdlp = useSettingsStore((state) => state.updateYtdlp);
 
   const [formData, setFormData] = useState<SettingsType>({ ...settings });
   const [saveStatus, setSaveStatus] = useState('');
@@ -90,7 +91,7 @@ export const SettingsPage: React.FC = () => {
     const isHindi = (settings.tts_voice?.startsWith('hi-') || settings.kokoro_voice?.startsWith('h'));
     setAppLanguage(isHindi ? 'hi' : 'en');
 
-    setFormData((prev) => {
+    setFormData(() => {
       const updated = { ...settings };
       if (!gpuAvailable) {
         updated.whisper_device = 'cpu';
@@ -355,12 +356,12 @@ export const SettingsPage: React.FC = () => {
     { value: '28', label: 'Lower Quality (CRF 28 - Smallest)' }
   ];
 
-  const containerVariants = {
+  const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: { opacity: 1, transition: { staggerChildren: 0.08 } }
   };
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { opacity: 0, y: 15 },
     show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 25 } }
   };

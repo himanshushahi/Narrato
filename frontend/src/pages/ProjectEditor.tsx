@@ -1,317 +1,27 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useAppStore } from '../store/appStore';
+import { useProjectStore } from '../store/useProjectStore';
+import { useUIStore } from '../store/useUIStore';
 import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../components/video/RemotionVideoPlayer';
 import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
-import { CustomSelect } from '../components/ui/CustomSelect';
-import { SubtitleEditor } from '../components/SubtitleEditor';
+import { SubtitleEditor } from '../features/ProjectEditor/components/SubtitleEditor';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscPlay, VscFolderOpened, VscSave, VscFlame, VscArrowLeft, VscSparkle,
-  VscPulse, VscCheck, VscError, VscLoading, VscCircleFilled, VscWarning,
-  VscCloudDownload, VscStarFull, VscTrash
+  VscPlay, VscSave, VscFlame, VscArrowLeft, VscSparkle,
+  VscPulse, VscCheck, VscError, VscLoading, VscCircleFilled, VscWarning
 } from 'react-icons/vsc';
 
-const VISUAL_TYPE_OPTIONS = [
-  { value: 'scene', label: 'B-Roll Scene' },
-  { value: 'image', label: 'Stock Image' },
-  { value: 'parallax', label: '2.5D Parallax Photo' },
-  { value: 'portrait', label: 'Portrait' },
-  { value: 'chart', label: 'Animated Chart' },
-  { value: 'map', label: 'Vintage Map' },
-  { value: 'network', label: 'Network Diagram (String Board)' },
-  { value: 'document', label: 'Archival Document' },
-  { value: 'youtube', label: 'YouTube Video' },
-];
-
-const TRANSITION_TYPE_OPTIONS = [
-  { value: 'subtle_slide', label: 'Subtle Slide (Default)' },
-  { value: 'fade', label: 'Fade' },
-  { value: 'zoom_in', label: 'Zoom In' },
-  { value: 'slide_left', label: 'Slide Left' },
-  { value: 'slide_right', label: 'Slide Right' },
-  { value: 'none', label: 'None (Cut)' },
-];
-
-const TARGET_STAGE_OPTIONS = [
-  { value: 'render', label: 'Run Full Pipeline' },
-  { value: 'generate_script', label: 'Stop after: Scripting' },
-  { value: 'generate_voiceover', label: 'Stop after: Voiceover' },
-  { value: 'transcribe', label: 'Stop after: Transcription' },
-  { value: 'fetch_assets', label: 'Stop after: Visuals' },
-];
-
-const PIPELINE_STAGES = [
-  { id: 'generate_script', title: 'Script Generation', desc: 'AI scriptwriting & cues formulation' },
-  { id: 'generate_voiceover', title: 'Voiceover Synthesis', desc: 'Synthesizing AI narrator voiceover' },
-  { id: 'transcribe', title: 'Transcription & Sync', desc: 'Whisper word-level audio alignment' },
-  { id: 'fetch_assets', title: 'Fetch Visual Assets', desc: 'Retrieving B-roll clips & images' },
-  { id: 'render', title: 'Video Export (Remotion)', desc: 'Compiling frames to final MP4' }
-];
-
-const getDefaultMetaForType = (type: string, existingMeta: any) => {
-  const meta: any = {};
-
-  // Preserve existing lower third
-  if (existingMeta?.lower_third) {
-    meta.lower_third = { ...existingMeta.lower_third };
-  }
-
-  // Inject defaults based on type
-  if (type === 'chart') {
-    meta.chart_type = 'bar';
-    meta.data = [{ label: 'Category 1', value: 10 }];
-  } else if (type === 'map') {
-    meta.map_style = 'vintage';
-    meta.locations = [{ name: 'New Location', coord: [0, 0] }];
-  } else if (type === 'document') {
-    meta.headline = 'News';
-    meta.doc_text = 'Content...';
-    meta.highlight_text = '';
-    meta.source = 'Source';
-    meta.date = new Date().getFullYear().toString();
-  } else if (type === 'network') {
-    meta.nodes = [{ id: '1', label: 'Entity 1', type: 'person' }];
-    meta.edges = [];
-  } else if (type === 'youtube') {
-    meta.start_offset = 15;
-    meta.duration = 15;
-    meta.skip_intro = true;
-  } else if (type === 'portrait') {
-    meta.person_name = 'Historical Figure';
-  } else if (type === 'parallax') {
-    meta.foreground_url = existingMeta?.foreground_url || '';
-  }
-
-  return meta;
-};
-
-
-const formatTime = (frame: number) => {
-  const totalSeconds = Math.floor(frame / 30);
-  const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-  const s = (totalSeconds % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-};
-
-const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void }) => {
-  const handleUpdate = (idx: number, field: string, val: any) => {
-    const copy = [...subVisuals];
-    if (field === 'visual_type' && copy[idx][field] === val) {
-      return;
-    }
-    copy[idx][field] = val;
-    if (field === 'visual_type') {
-      copy[idx].visual_meta = getDefaultMetaForType(val, copy[idx].visual_meta);
-    }
-    onChange(copy);
-  };
-
-  const handleUpdateMeta = (idx: number, newMeta: any) => {
-    const copy = [...subVisuals];
-    copy[idx].visual_meta = newMeta;
-    onChange(copy);
-  };
-
-  const handleAdd = () => {
-    onChange([...subVisuals, { visual_type: 'scene', visual_cue: '', visual_meta: {} }]);
-  };
-
-  const handleRemove = (idx: number) => {
-    onChange(subVisuals.filter((_: any, i: number) => i !== idx));
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">Sub-Visuals (Cuts)</label>
-        <button type="button" onClick={handleAdd} className="text-[10px] bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 px-2 py-1 rounded">+ Add Sub-Visual</button>
-      </div>
-      {subVisuals.map((sv: any, idx: number) => {
-        const isActive = activeIdx === idx;
-        const timing = timings?.[idx];
-
-        return (
-          <div key={idx}
-            onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
-            className={`bg-stone-900/60 p-3 rounded border space-y-3 relative cursor-pointer transition-colors ${isActive ? 'border-amber-500/60 bg-amber-900/10 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-stone-800 hover:border-stone-700'}`}>
-            <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded">Remove</button>
-            <div className="flex items-center gap-2 mb-1">
-              <div className={`text-xs font-bold ${isActive ? 'text-amber-400' : 'text-stone-500'}`}>Sub-Visual {idx + 1}</div>
-              {timing && (
-                <div className="text-[9px] font-mono bg-stone-950 px-1.5 py-0.5 rounded text-stone-400 border border-stone-800">
-                  [{formatTime(timing.start)} - {formatTime(timing.end)}]
-                </div>
-              )}
-              {isActive && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
-            </div>
-            <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
-              <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
-              <div className="flex gap-2">
-                <div className="w-1/2">
-                  <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
-                </div>
-                <div className="w-1/2">
-                  <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />
-                </div>
-              </div>
-
-              {sv.visual_type === 'youtube' && (
-                <div className="col-span-2 space-y-4 mt-2 bg-stone-950/60 p-3.5 rounded-lg border border-stone-800">
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center text-xs">
-                      <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
-                      <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15}s</span>
-                    </div>
-                    <input type="range" min="0" max="120" step="1" value={sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, start_offset: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center text-xs">
-                      <label className="text-stone-400 font-bold uppercase tracking-wider">Clip Duration:</label>
-                      <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.duration !== undefined ? sv.visual_meta.duration : 15}s</span>
-                    </div>
-                    <input type="range" min="5" max="60" step="1" value={sv.visual_meta?.duration !== undefined ? sv.visual_meta.duration : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, duration: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
-                  </div>
-                </div>
-              )}
-
-              {sv.visual_type === 'map' && (
-                <MapLocationsEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-              )}
-              {sv.visual_type === 'chart' && (
-                <ChartDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-              )}
-              {sv.visual_type === 'document' && (
-                <DocumentHighlightEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-              )}
-              {sv.visual_type === 'network' && (
-                <NetworkDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-              )}
-              <LowerThirdEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-
-            </div>
-          </div>
-        )
-      })}
-      {subVisuals.length === 0 && <p className="text-xs text-stone-500 italic">No sub-visuals. A default black screen will be shown.</p>}
-    </div>
-  );
-};
-
-const SubVisualsView = ({ subVisuals, timings, activeIdx, onSeek }: { subVisuals: any[], timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void }) => {
-  return (
-    <div className="flex flex-col gap-2 border-t border-stone-800/40 pt-2">
-      {subVisuals.map((sv: any, idx: number) => {
-        const isActive = activeIdx === idx;
-        const timing = timings?.[idx];
-
-        return (
-          <div key={idx}
-            onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
-            className={`flex flex-col gap-1 text-[10px] font-mono px-2 py-1.5 rounded cursor-pointer transition-colors ${isActive ? 'bg-amber-900/20 text-amber-100 border border-amber-500/30' : 'bg-stone-900/30 text-stone-500 hover:bg-stone-800/50 border border-transparent'}`}>
-            <div className="flex items-center gap-2">
-              <span className={`w-4 ${isActive ? 'text-amber-400' : 'text-stone-600'}`}>{idx + 1}.</span>
-              {timing && (
-                <span className="bg-stone-950/80 px-1 rounded text-stone-400 border border-stone-800/60">
-                  {formatTime(timing.start)}
-                </span>
-              )}
-              <span>Layer: <strong className={isActive ? 'text-amber-300 capitalize' : 'text-stone-300 capitalize'}>{sv.visual_type}</strong></span>
-            </div>
-            <div className="pl-6 flex items-center gap-2">
-              <span>Cue: <strong className={isActive ? 'text-amber-200' : 'text-stone-300'}>{sv.visual_cue}</strong></span>
-              {isActive && <span className="ml-auto text-[9px] text-amber-500 bg-amber-500/10 px-1 rounded animate-pulse">Playing</span>}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  );
-};
-
-const MapLocationsEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
-  const locations = visualMeta?.locations || [];
-  const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
-
-  const handleUpdate = (idx: number, field: string, val: string) => {
-    const newLocs = [...locations];
-    if (field === 'name') newLocs[idx].name = val;
-    if (field === 'lat') newLocs[idx].coord[0] = parseFloat(val) || 0;
-    if (field === 'lon') newLocs[idx].coord[1] = parseFloat(val) || 0;
-    onChange({ ...visualMeta, locations: newLocs });
-  };
-
-  const handleAdd = () => {
-    onChange({ ...visualMeta, locations: [...locations, { name: 'New Place', coord: [0, 0] }] });
-  };
-
-  const handleRemove = (idx: number) => {
-    const newLocs = locations.filter((_: any, i: number) => i !== idx);
-    onChange({ ...visualMeta, locations: newLocs });
-  };
-
-  const handleAutoLocate = async (idx: number) => {
-    const name = locations[idx].name;
-    if (!name) return;
-    setLoadingIdx(idx);
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name)}&format=json&limit=1`);
-      const data = await res.json();
-      if (data && data.length > 0) {
-        const newLocs = [...locations];
-        newLocs[idx].coord[0] = parseFloat(data[0].lat);
-        newLocs[idx].coord[1] = parseFloat(data[0].lon);
-        onChange({ ...visualMeta, locations: newLocs });
-      } else {
-        alert(`Could not find coordinates for "${name}"`);
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Failed to fetch coordinates.");
-    } finally {
-      setLoadingIdx(null);
-    }
-  };
-
-  return (
-    <div className="col-span-2 space-y-3 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
-      <div className="flex justify-between items-center text-xs">
-        <label className="text-stone-400 font-bold uppercase tracking-wider">Map Locations (Lat, Lon):</label>
-        <button type="button" onClick={handleAdd} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">
-          + Add Point
-        </button>
-      </div>
-      <div className="space-y-2">
-        {locations.map((loc: any, idx: number) => (
-          <div key={idx} className="flex gap-2 items-center">
-            <div className="flex w-1/3 relative">
-              <input type="text" value={loc.name} onChange={e => handleUpdate(idx, 'name', e.target.value)} className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 pr-7 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Name" />
-              <button
-                type="button"
-                onClick={() => handleAutoLocate(idx)}
-                disabled={loadingIdx === idx}
-                className="absolute right-1 top-1 text-stone-400 hover:text-amber-400 disabled:opacity-50"
-                title="Auto-Locate Coordinates"
-              >
-                {loadingIdx === idx ? <VscLoading className="animate-spin text-xs mt-0.5" /> : '📍'}
-              </button>
-            </div>
-            <input type="number" step="any" value={loc.coord?.[0] || 0} onChange={e => handleUpdate(idx, 'lat', e.target.value)} className="w-1/4 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Lat" />
-            <input type="number" step="any" value={loc.coord?.[1] || 0} onChange={e => handleUpdate(idx, 'lon', e.target.value)} className="w-1/4 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Lon" />
-            <button type="button" onClick={() => handleRemove(idx)} className="text-red-400 hover:text-red-300 px-2 py-1 text-xs">✕</button>
-          </div>
-        ))}
-        {locations.length === 0 && <p className="text-[10px] text-stone-500">No locations set.</p>}
-      </div>
-    </div>
-  );
-};
+import { PIPELINE_STAGES } from '../features/ProjectEditor/constants';
+import { SubVisualsEditor } from '../features/ProjectEditor/SubVisualsEditor';
+import { SubVisualsView } from '../features/ProjectEditor/SubVisualsView';
+import { SubtitleSettingsEditor } from '../features/ProjectEditor/SubtitleSettingsEditor';
 
 export const ProjectEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const {
-    selectedProject, tasks, fetchProjectDetail, startPipeline, resumePipeline, cancelPipeline, queue, addToast, updateProject, downloadFont
-  } = useAppStore();
+    selectedProject, tasks, fetchProjectDetail, startPipeline, cancelPipeline, queue, updateProject, downloadFont
+  } = useProjectStore();
+  const { addToast } = useUIStore();
 
   const [scriptData, setScriptData] = useState<any>(null);
   const [manifestData, setManifestData] = useState<any[]>([]);
@@ -331,7 +41,7 @@ export const ProjectEditor: React.FC = () => {
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const [savingCardKey, setSavingCardKey] = useState<string | null>(null);
   const [wasActive, setWasActive] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
+  const [reloadKey] = useState(0);
 
   const [currentFrame, setCurrentFrame] = useState(0);
   const playerRef = useRef<RemotionVideoPlayerRef>(null);
@@ -402,7 +112,7 @@ export const ProjectEditor: React.FC = () => {
 
       let subs: any[] = [];
       if (numSubs > 0) {
-        subs = subVisuals.map((sv: any, idx: number) => {
+        subs = subVisuals.map((_: any, idx: number) => {
           const baseSubDuration = Math.floor(durationFrames / numSubs);
           const subFrom = start + idx * baseSubDuration;
           const subDuration = idx === numSubs - 1
@@ -581,10 +291,7 @@ export const ProjectEditor: React.FC = () => {
     loadFiles(id);
   };
 
-  const triggerExportOnly = async () => {
-    if (!id) return;
-    await startPipeline(id, ['render']);
-  };
+
 
   const hasVisualEdits = () => {
     if (!manifestData || !scriptData) return false;
@@ -633,10 +340,15 @@ export const ProjectEditor: React.FC = () => {
     if (queue.active === selectedProject.id) return false;
     if (scriptChangedAlert) return false;
 
-    const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
-    if (targetIdx === -1) return false;
+    const stageIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
+    if (stageIdx === -1) return false;
 
-    for (let i = 0; i < targetIdx; i++) {
+    const currentTargetIdx = PIPELINE_STAGES.findIndex(s => s.id === targetStage);
+    if (currentTargetIdx !== -1 && stageIdx > currentTargetIdx) {
+      return false;
+    }
+
+    for (let i = 0; i < stageIdx; i++) {
       const priorStageId = PIPELINE_STAGES[i].id;
       if (tasks[priorStageId]?.status !== 'completed') {
         return false;
@@ -685,18 +397,25 @@ export const ProjectEditor: React.FC = () => {
         return steps.filter(step => allSteps.indexOf(step) <= endIdx);
       };
 
+      let stepsToRun: string[] = [];
       if (scriptChangedAlert) {
-        res = await startPipeline(id, limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']));
+        stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
       } else if (hasVisualEdits()) {
-        res = await startPipeline(id, limitSteps(['fetch_assets', 'render']));
+        stepsToRun = limitSteps(['fetch_assets', 'render']);
       } else {
         // Find remaining steps
         const completedSteps = new Set(Object.values(tasks).filter(t => t.status === 'completed').map(t => t.step));
         let remainingSteps = allSteps.filter(s => !completedSteps.has(s));
         if (remainingSteps.length === 0) remainingSteps = ['render'];
-
-        res = await startPipeline(id, limitSteps(remainingSteps));
+        stepsToRun = limitSteps(remainingSteps);
       }
+
+      if (stepsToRun.length === 0) {
+        addToast("All selected stages are already completed. Select a later target stage or use the Re-run buttons.", 'warning', 5000);
+        return;
+      }
+
+      res = await startPipeline(id, stepsToRun);
 
       setScriptChangedAlert(false);
 
@@ -1683,461 +1402,5 @@ export const ProjectEditor: React.FC = () => {
   );
 };
 
-
-
-const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, onUpdate: (newSettings: any) => void }) => {
-  const [downloading, setDownloading] = useState(false);
-  const [presetName, setPresetName] = useState("");
-  const [selectedPresetId, setSelectedPresetId] = useState("");
-  const { downloadFont, addToast, settings: globalSettings, saveSettings } = useAppStore();
-
-  const presets = globalSettings?.subtitle_presets || [];
-  const defaultPresetId = globalSettings?.default_subtitle_preset_id;
-
-  const handleSavePreset = async () => {
-    const trimmedName = presetName.trim();
-    if (!trimmedName) {
-      addToast("Please enter a preset name", "error");
-      return;
-    }
-
-    const existingIndex = presets.findIndex((p: any) => p.name.toLowerCase() === trimmedName.toLowerCase());
-    let updatedPresets = [...presets];
-
-    if (existingIndex >= 0) {
-      updatedPresets[existingIndex] = {
-        ...updatedPresets[existingIndex],
-        settings: { ...settings }
-      };
-      addToast(`Preset "${trimmedName}" updated!`, "success");
-    } else {
-      updatedPresets.push({
-        id: crypto.randomUUID(),
-        name: trimmedName,
-        settings: { ...settings }
-      });
-      addToast(`Preset "${trimmedName}" saved!`, "success");
-    }
-
-    await saveSettings({
-      ...globalSettings,
-      subtitle_presets: updatedPresets
-    });
-    setPresetName("");
-  };
-
-  const handleLoadPreset = (presetId: string) => {
-    setSelectedPresetId(presetId);
-    if (!presetId) {
-      setPresetName("");
-      return;
-    }
-    const preset = presets.find((p: any) => p.id === presetId);
-    if (preset) {
-      onUpdate(preset.settings);
-      setPresetName(preset.name);
-      addToast(`Loaded preset "${preset.name}"`, "success");
-    }
-  };
-
-  const handleDeletePreset = async (presetId: string) => {
-    const updatedPresets = presets.filter((p: any) => p.id !== presetId);
-    const isDefault = defaultPresetId === presetId;
-
-    await saveSettings({
-      ...globalSettings,
-      subtitle_presets: updatedPresets,
-      default_subtitle_preset_id: isDefault ? undefined : defaultPresetId
-    });
-    addToast("Preset deleted", "info");
-  };
-
-  const handleSetDefaultPreset = async (presetId: string) => {
-    const isCurrentlyDefault = defaultPresetId === presetId;
-    await saveSettings({
-      ...globalSettings,
-      default_subtitle_preset_id: isCurrentlyDefault ? undefined : presetId
-    });
-    if (!isCurrentlyDefault) {
-      addToast("Set as default preset", "success");
-    } else {
-      addToast("Removed default preset", "info");
-    }
-  };
-
-  const handleFontChange = async (fontFamily: string) => {
-    setSelectedPresetId("");
-    onUpdate({ ...settings, fontFamily });
-    if (!fontFamily) return;
-    setDownloading(true);
-    const res = await downloadFont(fontFamily);
-    setDownloading(false);
-    if (res.success && res.css_path) {
-      addToast(`Font ${fontFamily} loaded`, "success");
-      const id = `font-${fontFamily.replace(/\s/g, '')}`;
-      if (!document.getElementById(id)) {
-        const link = document.createElement('link');
-        link.id = id;
-        link.rel = 'stylesheet';
-        link.href = `http://localhost:8888/api/media?path=${encodeURIComponent(res.css_path)}`;
-        document.head.appendChild(link);
-      }
-    } else {
-      addToast(`Failed to load font: ${res.error}`, "error");
-    }
-  };
-
-  return (
-    <div className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 space-y-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-black text-stone-300 uppercase tracking-widest font-sans">Subtitle Styling</h3>
-        {downloading && <span className="text-[10px] text-amber-500 font-bold flex items-center gap-1"><VscLoading className="animate-spin text-sm" /> Downloading Font...</span>}
-      </div>
-
-      {/* PRESETS SECTION */}
-      <div className="bg-stone-950 p-3 rounded-lg border border-stone-800 space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Presets</label>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="flex-1">
-            <CustomSelect
-              options={[
-                { value: '', label: 'Load a preset...' },
-                ...presets.map((p: any) => ({ value: p.id, label: p.name }))
-              ]}
-              value={selectedPresetId}
-              onChange={handleLoadPreset}
-            />
-          </div>
-
-          <div className="flex items-center gap-1 flex-1">
-            <input
-              type="text"
-              placeholder="Preset Name..."
-              value={presetName}
-              onChange={(e) => setPresetName(e.target.value)}
-              className="w-full bg-stone-900 border border-stone-700 rounded-md px-3 py-2 text-sm text-stone-200 placeholder-stone-600 focus:outline-none focus:border-amber-500/50"
-            />
-            <button
-              onClick={handleSavePreset}
-              className="p-2 bg-amber-600 cursor-pointer hover:bg-amber-500 text-white rounded-md transition-colors"
-              title="Save current styling as preset"
-            >
-              <VscSave />
-            </button>
-          </div>
-        </div>
-
-        {presets.length > 0 && (
-          <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-800/50">
-            {presets.map((p: any) => (
-              <div key={p.id} className="flex items-center gap-1 bg-stone-900 border border-stone-700 rounded pl-2 pr-1 py-1 text-xs text-stone-300">
-                <span className="truncate max-w-[120px] font-medium">{p.name}</span>
-                <button
-                  onClick={() => handleSetDefaultPreset(p.id)}
-                  className={`p-1 rounded hover:bg-stone-800 transition-colors ${defaultPresetId === p.id ? 'text-amber-500' : 'text-stone-500 hover:text-stone-300'}`}
-                  title={defaultPresetId === p.id ? "Remove as default" : "Set as default for new projects"}
-                >
-                  <VscStarFull />
-                </button>
-                <button
-                  onClick={() => handleDeletePreset(p.id)}
-                  className="p-1 rounded hover:bg-red-900/50 hover:text-red-400 text-stone-500 transition-colors"
-                  title="Delete preset"
-                >
-                  <VscTrash />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <hr className="border-stone-800" />
-
-      <div className="grid grid-cols-2 gap-4">
-        <CustomSelect
-          label="Font Family"
-          options={[
-            { value: 'Montserrat', label: 'Montserrat (Latin)' },
-            { value: 'Inter', label: 'Inter (Latin)' },
-            { value: 'Roboto', label: 'Roboto (Latin)' },
-            { value: 'Poppins', label: 'Poppins (Supports Hindi)' },
-            { value: 'Hind', label: 'Hind (Supports Hindi)' },
-            { value: 'Mukta', label: 'Mukta (Supports Hindi)' },
-            { value: 'Kalam', label: 'Kalam (Supports Hindi)' },
-            { value: 'Noto Sans Devanagari', label: 'Noto Sans Devanagari' },
-            { value: 'Lato', label: 'Lato (Latin)' },
-            { value: 'Oswald', label: 'Oswald (Latin)' },
-            { value: 'Raleway', label: 'Raleway (Latin)' },
-            { value: 'Anton', label: 'Anton (Latin)' },
-            { value: 'Bebas Neue', label: 'Bebas Neue (Latin)' }
-          ]}
-          value={settings.fontFamily || 'Montserrat'}
-          onChange={handleFontChange}
-        />
-        <CustomInput
-          label="Font Size"
-          type="number"
-          value={settings.fontSize !== undefined ? settings.fontSize : 54}
-          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, fontSize: parseInt(e.target.value) || 54 }) }}
-        />
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Active Highlight Color</label>
-          <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50">
-            <input
-              type="color"
-              value={settings.activeColor || '#fbbf24'}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, activeColor: e.target.value }) }}
-              className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
-            />
-            <input
-              type="text"
-              value={settings.activeColor || '#fbbf24'}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, activeColor: e.target.value }) }}
-              className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
-            />
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Past/Inactive Text Color</label>
-          <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50">
-            <input
-              type="color"
-              value={settings.pastColor || '#d6d3d1'}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, pastColor: e.target.value }) }}
-              className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
-            />
-            <input
-              type="text"
-              value={settings.pastColor || '#d6d3d1'}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, pastColor: e.target.value }) }}
-              className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
-            />
-          </div>
-        </div>
-        <CustomSelect
-          label="Text Transform"
-          options={[
-            { value: 'uppercase', label: 'UPPERCASE' },
-            { value: 'lowercase', label: 'lowercase' },
-            { value: 'capitalize', label: 'Capitalize' },
-            { value: 'none', label: 'Normal' }
-          ]}
-          value={settings.textTransform || 'uppercase'}
-          onChange={(val) => { setSelectedPresetId(""); onUpdate({ ...settings, textTransform: val }) }}
-        />
-        <CustomInput
-          label="Y Position (px from bottom)"
-          type="number"
-          value={settings.bottomOffset !== undefined ? settings.bottomOffset : 120}
-          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, bottomOffset: parseInt(e.target.value) || 0 }) }}
-        />
-        <div className="flex flex-col gap-1.5 justify-center mt-2 col-span-2">
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-stone-300 font-medium">
-            <input
-              type="checkbox"
-              checked={settings.showBackgroundHighlight !== false}
-              onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, showBackgroundHighlight: e.target.checked }) }}
-              className="w-4 h-4 rounded border-stone-700 bg-stone-900 text-amber-500 focus:ring-amber-500/50 focus:ring-offset-stone-950"
-            />
-            Show Read Text Background Highlight
-          </label>
-        </div>
-        {settings.showBackgroundHighlight !== false && (
-          <div className="flex flex-col gap-1.5 col-span-2">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Background Highlight Color</label>
-            <div className="flex items-center gap-2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 focus-within:border-amber-500/50 max-w-[50%]">
-              <input
-                type="color"
-                value={settings.highlightBgColor || settings.activeColor || '#fbbf24'}
-                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, highlightBgColor: e.target.value }) }}
-                className="w-6 h-6 rounded cursor-pointer border-none p-0 bg-transparent shrink-0"
-              />
-              <input
-                type="text"
-                value={settings.highlightBgColor || settings.activeColor || '#fbbf24'}
-                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, highlightBgColor: e.target.value }) }}
-                className="bg-transparent border-none text-[11px] text-white focus:outline-none w-full font-mono uppercase"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const LowerThirdEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
-  const lowerThird = visualMeta?.lower_third || { title: '', subtitle: '' };
-
-  const handleUpdate = (field: string, val: string) => {
-    if (!val && field === 'title') {
-      const copy = { ...visualMeta };
-      delete copy.lower_third;
-      onChange(copy);
-      return;
-    }
-    onChange({ ...visualMeta, lower_third: { ...lowerThird, [field]: val } });
-  };
-
-  return (
-    <div className="col-span-2 space-y-2 mt-2 bg-stone-900/40 p-3 rounded-lg border border-stone-800">
-      <div className="flex justify-between items-center text-xs mb-1">
-        <label className="text-stone-400 font-bold uppercase tracking-wider">Universal Lower Third:</label>
-      </div>
-      <div className="flex gap-2">
-        <input type="text" value={lowerThird.title} onChange={e => handleUpdate('title', e.target.value)} className="w-1/2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Title (e.g. Person Name)" />
-        <input type="text" value={lowerThird.subtitle} onChange={e => handleUpdate('subtitle', e.target.value)} className="w-1/2 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Subtitle (e.g. Profession)" />
-      </div>
-    </div>
-  );
-};
-
-const DocumentHighlightEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
-  return (
-    <div className="col-span-2 space-y-2 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
-      <div className="flex justify-between items-center text-xs mb-1">
-        <label className="text-stone-400 font-bold uppercase tracking-wider">Document Highlight:</label>
-      </div>
-      <input type="text" value={visualMeta?.highlight_text || ''} onChange={e => onChange({ ...visualMeta, highlight_text: e.target.value })} className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50" placeholder="Phrase to highlight with marker" />
-    </div>
-  );
-};
-
-const NetworkDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
-  const [jsonText, setJsonText] = useState(() => JSON.stringify({ nodes: visualMeta?.nodes || [], edges: visualMeta?.edges || [] }, null, 2));
-
-  const handleSave = () => {
-    try {
-      const parsed = JSON.parse(jsonText);
-      onChange({ ...visualMeta, nodes: parsed.nodes, edges: parsed.edges });
-    } catch (e) {
-      alert("Invalid JSON format");
-    }
-  };
-
-  return (
-    <div className="col-span-2 space-y-2 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
-      <div className="flex justify-between items-center text-xs mb-1">
-        <label className="text-stone-400 font-bold uppercase tracking-wider">Network Data (JSON):</label>
-        <button type="button" onClick={handleSave} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">Save JSON Data</button>
-      </div>
-      <textarea rows={6} value={jsonText} onChange={e => setJsonText(e.target.value)} className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50 font-mono" placeholder="{ nodes: [], edges: [] }" />
-    </div>
-  );
-};
-
-const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
-  const [loading, setLoading] = useState(false);
-  const prompt = visualMeta?.chart_prompt || '';
-  const data = visualMeta?.data || [];
-
-  const handleFetch = async () => {
-    if (!prompt) return;
-    setLoading(true);
-    try {
-      if (window.eel) {
-        const res = await window.eel.generate_chart_data_api(prompt)();
-        if (res.success && res.data) {
-          onChange({
-            ...visualMeta,
-            data: res.data,
-            title: res.title || prompt.toUpperCase(),
-            chart_type: res.chart_type || 'bar',
-            chart_prompt: prompt
-          });
-        } else {
-          alert(`Failed to generate data: ${res.error}`);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Error generating chart data.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const updateDataRow = (index: number, field: 'label' | 'value', val: string) => {
-    const newData = [...data];
-    if (field === 'label') newData[index].label = val;
-    if (field === 'value') newData[index].value = parseFloat(val) || 0;
-    onChange({ ...visualMeta, data: newData });
-  };
-
-  const removeDataRow = (index: number) => {
-    const newData = data.filter((_: any, i: number) => i !== index);
-    onChange({ ...visualMeta, data: newData });
-  };
-
-  const addDataRow = () => {
-    const newData = [...data, { label: 'New', value: 0 }];
-    onChange({ ...visualMeta, data: newData });
-  };
-
-  return (
-    <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
-      <div>
-        <div className="flex justify-between items-center text-xs mb-2">
-          <label className="text-stone-400 font-bold uppercase tracking-wider">✨ AI Data Generator:</label>
-        </div>
-        <div className="flex gap-2 items-center">
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => onChange({ ...visualMeta, chart_prompt: e.target.value })}
-            placeholder="e.g. Top 10 most populated countries in 2024"
-            className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
-          />
-          <button
-            type="button"
-            onClick={handleFetch}
-            disabled={loading || !prompt}
-            className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-zinc-950 px-3 py-1.5 rounded text-[11px] font-bold shrink-0 transition-colors flex items-center gap-1"
-          >
-            {loading ? <VscLoading className="animate-spin text-xs" /> : <VscSparkle className="text-xs" />} Generate
-          </button>
-        </div>
-      </div>
-
-      <div className="border-t border-stone-800 pt-3">
-        <div className="flex justify-between items-center text-xs mb-2">
-          <label className="text-stone-400 font-bold uppercase tracking-wider">Manual Editor:</label>
-          <button type="button" onClick={addDataRow} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">
-            + Add Row
-          </button>
-        </div>
-        {data.length > 0 ? (
-          <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-            {data.map((row: any, idx: number) => (
-              <div key={idx} className="flex gap-2 items-center">
-                <input
-                  type="text"
-                  value={row.label}
-                  onChange={(e) => updateDataRow(idx, 'label', e.target.value)}
-                  className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
-                  placeholder="Label"
-                />
-                <input
-                  type="number"
-                  step="any"
-                  value={row.value}
-                  onChange={(e) => updateDataRow(idx, 'value', e.target.value)}
-                  className="w-24 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
-                  placeholder="Value"
-                />
-                <button type="button" onClick={() => removeDataRow(idx)} className="text-red-400 hover:text-red-300 px-1.5 py-1 text-xs">✕</button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[10px] text-stone-500 italic">No data yet. Generate with AI or add manually.</p>
-        )}
-      </div>
-    </div>
-  );
-};
 
 export default ProjectEditor;

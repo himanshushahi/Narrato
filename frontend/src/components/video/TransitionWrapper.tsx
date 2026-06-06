@@ -7,7 +7,7 @@ interface Props {
   type?: string;
 }
 
-export const TransitionWrapper: React.FC<Props> = ({ children, durationInFrames, type = 'subtle_slide' }) => {
+export const TransitionWrapper: React.FC<Props> = ({ children, type = 'subtle_slide' }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 

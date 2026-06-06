@@ -10,7 +10,7 @@ interface Props {
   durationInFrames: number;
 }
 
-export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFrames }) => {
+export const DataVisualizations: React.FC<Props> = ({ type, meta }) => {
   const frame = useCurrentFrame();
 
   // Growth animation for charts and vectors

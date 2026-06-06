@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
-import { initializeEelListeners } from './store/appStore'
+import { initializeEelListeners } from './store/eelListeners'
 
 // Early initialize Eel listeners to map incoming Python callback calls directly to Zustand state
 try {

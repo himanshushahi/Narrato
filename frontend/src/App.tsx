@@ -1,20 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { useAppStore, initializeEelListeners } from './store/appStore';
-import Dashboard from './pages/Dashboard';
-import ProjectEditor from './pages/ProjectEditor';
-import SettingsPage from './pages/SettingsPage';
-import TerminalLogs from './components/TerminalLogs';
+import { Suspense } from 'react';
+import { useProjectStore } from './store/useProjectStore';
+import { useSettingsStore } from './store/useSettingsStore';
+import { initializeEelListeners } from './store/eelListeners';
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+const ProjectEditor = React.lazy(() => import('./pages/ProjectEditor'));
+const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
+import TerminalLogs from './components/ui/TerminalLogs';
 import { ToastContainer } from './components/ui/Toast';
 import { ConfirmModal } from './components/ui/ConfirmModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscPlay, VscSettings, VscLayers, VscPulse, VscFlame, VscLayoutSidebarLeft, VscAccount, VscDebugDisconnect
+  VscSettings, VscLayers, VscPulse, VscLayoutSidebarLeft, VscAccount, VscDebugDisconnect
 } from 'react-icons/vsc';
 
 function Sidebar() {
   const location = useLocation();
-  const queue = useAppStore((state) => state.queue);
+  const queue = useProjectStore((state) => state.queue);
   const [collapsed, setCollapsed] = useState(false);
 
   const isActive = (path: string) => {
@@ -126,8 +129,8 @@ export default function App() {
   useEffect(() => {
     try {
       initializeEelListeners();
-      useAppStore.getState().fetchProjects();
-      useAppStore.getState().fetchSettings();
+      useProjectStore.getState().fetchProjects();
+      useSettingsStore.getState().fetchSettings();
     } catch (error) {
       console.error("Eel initialization failed", error);
       setConnectionError(true);
@@ -152,23 +155,25 @@ export default function App() {
 
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative">
             <AnimatePresence mode="wait">
-              <Routes>
-                <Route path="/" element={
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="min-h-full">
-                    <Dashboard />
-                  </motion.div>
-                } />
-                <Route path="/editor/:id" element={
-                  <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="min-h-full">
-                    <ProjectEditor />
-                  </motion.div>
-                } />
-                <Route path="/settings" element={
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="min-h-full">
-                    <SettingsPage />
-                  </motion.div>
-                } />
-              </Routes>
+              <Suspense fallback={<div className="h-screen w-screen flex items-center justify-center bg-zinc-950 text-white font-mono">Loading Module...</div>}>
+                <Routes>
+                  <Route path="/" element={
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="min-h-full">
+                      <Dashboard />
+                    </motion.div>
+                  } />
+                  <Route path="/editor/:id" element={
+                    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="min-h-full">
+                      <ProjectEditor />
+                    </motion.div>
+                  } />
+                  <Route path="/settings" element={
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="min-h-full">
+                      <SettingsPage />
+                    </motion.div>
+                  } />
+                </Routes>
+              </Suspense>
             </AnimatePresence>
           </div>
 

@@ -1,11 +1,11 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAppStore } from '../../store/appStore';
+import { useUIStore } from '../../store/useUIStore';
 import { VscWarning } from 'react-icons/vsc';
 
 export const ConfirmModal: React.FC = () => {
-  const { confirmState, closeConfirm } = useAppStore();
+  const { confirmState, closeConfirm } = useUIStore();
 
   const handleConfirm = () => {
     confirmState.onConfirm();
