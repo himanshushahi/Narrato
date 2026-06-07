@@ -225,7 +225,7 @@ export const SettingsPage: React.FC = () => {
       )();
 
       if (res && res.success && res.audio_path) {
-        // RenderFlow Studio serves previews via /api/media
+        // Narrato serves previews via /api/media
         const audioUrl = window.location.port === "5173"
           ? `http://localhost:8888/api/media?path=${encodeURIComponent(res.audio_path)}`
           : `/api/media?path=${encodeURIComponent(res.audio_path)}`;
@@ -731,7 +731,7 @@ export const SettingsPage: React.FC = () => {
                           name="workspace_directory"
                           value={formData.workspace_directory || ''}
                           onChange={handleInputChange}
-                          placeholder="Defaults to %LOCALAPPDATA%/RenderFlowStudio"
+                          placeholder="Defaults to %LOCALAPPDATA%/Narrato"
                         />
                       </div>
                       <GlowButton variant="secondary" size="sm" type="button" onClick={handleBrowseWorkspace} icon={<VscFolderOpened />}>

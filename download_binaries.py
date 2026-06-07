@@ -50,8 +50,8 @@ def main():
         print("[INFO] ffmpeg.exe, ffprobe.exe, yt-dlp.exe, and node.exe already exist in bin/ folder.")
         return
         
-    # Gyan.dev provides reliable release builds for Windows
-    ffmpeg_url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    # BtbN provides reliable and fast release builds for Windows on GitHub
+    ffmpeg_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
     ytdlp_url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
     node_url = "https://nodejs.org/dist/v20.13.1/node-v20.13.1-win-x64.zip"
     

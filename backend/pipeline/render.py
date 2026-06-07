@@ -102,14 +102,18 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     output_mp4_path = exports_dir / f"{safe_name}.mp4"
 
     # 2. Run custom render script (programmatic renderMedia API)
-    # Uses render.mjs instead of `remotion render` CLI to enable:
-    #   - Hardware-accelerated encoding (NVENC) via hardwareAcceleration param
-    #   - Custom FFmpeg/FFprobe binaries via ffmpegExecutable/ffprobeExecutable
     frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
-    render_script = frontend_dir / "src" / "render.mjs"
+    render_script = frontend_dir / "dist-render" / "render.mjs"
     
     if not render_script.exists():
+        # Fallback to dev script if compiled version not found
+        render_script = frontend_dir / "src" / "render.mjs"
+        
+    if not render_script.exists():
         raise FileNotFoundError(f"Render script not found: {render_script}")
+        
+    bundle_dir = frontend_dir / "dist-remotion"
+    abs_bundle_dir = str(bundle_dir.resolve()).replace('\\', '/')
     
     # Normalize props path relative to frontend folder or pass absolute
     abs_props_path = str(props_path.resolve()).replace('\\', '/')
@@ -160,6 +164,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "--scale", scale_arg,
         "--concurrency", concurrency_arg,
         "--frames", frames_arg,
+        "--bundle-dir", abs_bundle_dir,
     ]
     
     # Pass portable FFmpeg/FFprobe binaries if available

@@ -28,7 +28,7 @@ class EelLogHandler(logging.Handler):
             self.handleError(record)
 
 def setup_logger():
-    logger = logging.getLogger("RenderFlowStudio")
+    logger = logging.getLogger("Narrato")
     logger.setLevel(logging.DEBUG)
     
     # Avoid duplicate handlers if setup is run multiple times

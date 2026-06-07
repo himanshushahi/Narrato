@@ -1,18 +1,32 @@
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "      RENDERFLOW STUDIO BUILD PIPELINE    " -ForegroundColor Cyan
+Write-Host "      NARRATO BUILD PIPELINE    " -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
-# 1. Detect and activate local python virtual environment
 $RootFolder = $PSScriptRoot
 $VenvPath = Join-Path $RootFolder ".venv"
 $VenvActivate = Join-Path $VenvPath "Scripts\Activate.ps1"
+$VenvPython = Join-Path $VenvPath "Scripts\python.exe"
 
-if (Test-Path $VenvActivate) {
-    Write-Host "[INFO] Activating Python Virtual Environment..." -ForegroundColor Green
-    . $VenvActivate
-} else {
-    Write-Warning "[WARNING] Local virtual environment (.venv) was not found. Attempting to build with system python."
+# 1. Ensure Python Virtual Environment
+Write-Host "`n=== SETTING UP ENVIRONMENT ===" -ForegroundColor Yellow
+if (!(Test-Path $VenvPath)) {
+    Write-Host "[INFO] Local virtual environment not found. Creating..." -ForegroundColor Cyan
+    python -m venv .venv
+    if (!(Test-Path $VenvActivate)) {
+        Write-Error "[ERROR] Failed to create virtual environment. Ensure Python is in your PATH."
+        exit 1
+    }
 }
+
+Write-Host "[INFO] Activating Python Virtual Environment..." -ForegroundColor Green
+. $VenvActivate
+
+Write-Host "[INFO] Installing/Updating Python dependencies..." -ForegroundColor Cyan
+& $VenvPython -m pip install -r requirements.txt
+
+# Ensure pyinstaller is installed
+Write-Host "[INFO] Ensuring PyInstaller is installed..." -ForegroundColor Cyan
+& $VenvPython -m pip install pyinstaller
 
 $FrontendFolder = Join-Path $RootFolder "frontend"
 $WebFolder = Join-Path $FrontendFolder "dist"
@@ -20,7 +34,21 @@ $DistFolder = Join-Path $RootFolder "dist"
 $BuildFolder = Join-Path $RootFolder "build"
 $BinFolder = Join-Path $RootFolder "bin"
 
-# 2. Clean previous builds
+# 2. Ensure auxiliary binaries are downloaded
+Write-Host "`n=== VERIFYING BINARIES ===" -ForegroundColor Yellow
+if (!(Test-Path $BinFolder)) {
+    New-Item -ItemType Directory -Path $BinFolder -Force | Out-Null
+}
+
+Write-Host "[INFO] Running download_binaries.py..." -ForegroundColor Cyan
+& $VenvPython "download_binaries.py"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "[ERROR] Failed to download required binaries."
+    exit 1
+}
+Write-Host "[SUCCESS] Binaries verification completed." -ForegroundColor Green
+
+# 3. Clean previous builds
 Write-Host "`n=== CLEANING WORKSPACE ===" -ForegroundColor Yellow
 $FoldersToClean = @($WebFolder, $DistFolder, $BuildFolder)
 foreach ($Folder in $FoldersToClean) {
@@ -31,17 +59,17 @@ foreach ($Folder in $FoldersToClean) {
 }
 Write-Host "[SUCCESS] Clean completed." -ForegroundColor Green
 
-# 3. Compile Vite Frontend
+# 4. Compile Vite Frontend
 Write-Host "`n=== COMPILING VITE FRONTEND ===" -ForegroundColor Yellow
-if (!(Test-Path (Join-Path $FrontendFolder "node_modules"))) {
-    Write-Host "[INFO] node_modules not found in frontend. Running npm install..." -ForegroundColor Cyan
-    Push-Location $FrontendFolder
-    npm install
-    Pop-Location
-}
-Write-Host "[INFO] Building production web assets..." -ForegroundColor Cyan
+Write-Host "[INFO] Installing frontend dependencies..." -ForegroundColor Cyan
 Push-Location $FrontendFolder
+npm install
+Write-Host "[INFO] Building production web assets..." -ForegroundColor Cyan
 npm run build
+Write-Host "[INFO] Pre-bundling Remotion composition..." -ForegroundColor Cyan
+npm run build:remotion
+Write-Host "[INFO] Compiling production rendering script..." -ForegroundColor Cyan
+npm run build:render
 Pop-Location
 
 if (!(Test-Path $WebFolder)) {
@@ -50,39 +78,12 @@ if (!(Test-Path $WebFolder)) {
 }
 Write-Host "[SUCCESS] Vite frontend compiled successfully." -ForegroundColor Green
 
-# 4. Verify auxiliary binaries
-Write-Host "`n=== VERIFYING BINARIES ===" -ForegroundColor Yellow
-if (!(Test-Path $BinFolder)) {
-    New-Item -ItemType Directory -Path $BinFolder -Force | Out-Null
-}
-$FfmpegPath = Join-Path $BinFolder "ffmpeg.exe"
-$FfprobePath = Join-Path $BinFolder "ffprobe.exe"
-
-if (!(Test-Path $FfmpegPath) -or !(Test-Path $FfprobePath)) {
-    Write-Warning "[WARNING] Local FFmpeg or FFprobe was not found under: $BinFolder"
-    Write-Warning "Please run 'python download_binaries.py' to download them for local packaging."
-} else {
-    Write-Host "[SUCCESS] FFmpeg and FFprobe binaries are present in bin/ folder." -ForegroundColor Green
-}
-
 # 5. Run PyInstaller
 Write-Host "`n=== COMPILING BACKEND VIA PYINSTALLER ===" -ForegroundColor Yellow
-$VenvPython = Join-Path $VenvPath "Scripts\python.exe"
-if (!(Test-Path $VenvPython)) {
-    $VenvPython = "python"
-}
-
-# Check if PyInstaller is installed
-& $VenvPython -c "import PyInstaller" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[INFO] PyInstaller is not installed in the virtual environment. Installing..." -ForegroundColor Cyan
-    & $VenvPython -m pip install pyinstaller
-}
-
 Write-Host "[INFO] Running PyInstaller..." -ForegroundColor Cyan
-& $VenvPython -m PyInstaller --noconfirm (Join-Path $RootFolder "renderflow_studio.spec")
+& $VenvPython -m PyInstaller --noconfirm (Join-Path $RootFolder "narrato.spec")
 
-$ExePath = Join-Path $DistFolder "RenderFlowStudio\RenderFlowStudio.exe"
+$ExePath = Join-Path $DistFolder "Narrato\Narrato.exe"
 if (!(Test-Path $ExePath)) {
     Write-Error "[ERROR] PyInstaller compilation failed to produce output executable."
     exit 1
@@ -110,7 +111,7 @@ if ($MakeNsisPath) {
     $NsiScript = Join-Path $RootFolder "installer\installer.nsi"
     & $MakeNsisPath $NsiScript
     
-    $InstallerPath = Join-Path $RootFolder "installer\RenderFlowStudio_Setup.exe"
+    $InstallerPath = Join-Path $RootFolder "installer\Narrato_Setup.exe"
     if (Test-Path $InstallerPath) {
         Write-Host "[SUCCESS] NSIS installer compiled successfully: $InstallerPath" -ForegroundColor Green
     } else {

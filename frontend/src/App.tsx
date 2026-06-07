@@ -39,13 +39,13 @@ function Sidebar() {
       <div className="space-y-8 py-6">
         {/* Brand logo */}
         <div className={`px-6 flex items-center gap-3 ${collapsed ? 'justify-center px-0' : ''}`}>
-          <img src="/logo.png" alt="RenderFlow Studio" className={`${collapsed ? 'w-8 h-8' : 'w-10 h-10'} relative z-10 object-contain`} />
+          <img src="/logo.png" alt="Narrato" className={`${collapsed ? 'w-8 h-8' : 'w-10 h-10'} relative z-10 object-contain`} />
           {!collapsed && (
             <motion.span
               initial={{ opacity: 0 }} animate={{ opacity: 1 }}
               className="font-black text-xs tracking-widest text-white uppercase text-gradient"
             >
-              RenderFlow <span className="[var(--color-accent-primary)]">Studio</span>
+              Narr<span className="[var(--color-accent-primary)]">ato</span>
             </motion.span>
           )}
         </div>

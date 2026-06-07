@@ -4,11 +4,11 @@ from pathlib import Path
 
 # Resolve workspace root vs frozen bundle directories
 if getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production":
-    # Production/Frozen mode: Writeable folders (logs, storage, exports, models) go to %LOCALAPPDATA%/RenderFlowStudio
+    # Production/Frozen mode: Writeable folders (logs, storage, exports, models) go to %LOCALAPPDATA%/Narrato
     appdata_local = os.environ.get("LOCALAPPDATA")
     if not appdata_local:
         appdata_local = str(Path.home() / "AppData" / "Local")
-    BASE_DIR = Path(appdata_local).resolve() / "RenderFlowStudio"
+    BASE_DIR = Path(appdata_local).resolve() / "Narrato"
     
     if getattr(sys, 'frozen', False):
         # Bundled read-only assets are located in sys._MEIPASS
@@ -35,7 +35,7 @@ else:
 (BASE_DIR / "storage").mkdir(parents=True, exist_ok=True)
 
 # Database path (statically in central global storage folder)
-DB_PATH = BASE_DIR / "storage" / "renderflow_studio.db"
+DB_PATH = BASE_DIR / "storage" / "narrato.db"
 
 # Binaries directory
 BIN_DIR = BASE_DIR / "bin"

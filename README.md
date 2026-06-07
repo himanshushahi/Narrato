@@ -1,6 +1,6 @@
-# RenderFlow Studio (Remotion Canvas)
+# Narrato
 
-RenderFlow Studio is a powerful, AI-driven desktop application for programmatic video generation. Built with a Python backend (powered by Eel) and a modern React/Remotion frontend, it allows users to dynamically generate complex, data-driven, and kinetic video compositions directly from their desktop.
+Narrato is a powerful, AI-driven desktop application for programmatic video generation. Built with a Python backend (powered by Eel) and a modern React/Remotion frontend, it allows users to dynamically generate complex, data-driven, and kinetic video compositions directly from their desktop.
 
 ## ✨ Features
 
@@ -85,7 +85,7 @@ To bundle the application into a standalone Windows executable and generate an i
 ```powershell
 powershell ./build.ps1
 ```
-*Note: This script uses PyInstaller (`renderflow_studio.spec`) to build the executable and NSIS (`installer/installer.nsi`) to generate the setup wizard.*
+*Note: This script uses PyInstaller (`narrato.spec`) to build the executable and NSIS (`installer/installer.nsi`) to generate the setup wizard.*
 
 ---
 
@@ -108,7 +108,7 @@ remotion_canvas/
 ├── main.py                   # Entry point for the application
 ├── setup.py                  # Environment initialization script
 ├── build.ps1                 # Build script for PyInstaller & NSIS
-└── renderflow_studio.spec    # PyInstaller specification
+└── narrato.spec              # PyInstaller specification
 ```
 
 ## 📝 License

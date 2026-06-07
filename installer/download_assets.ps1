@@ -5,13 +5,13 @@
 $ProgressPreference = 'SilentlyContinue'
 
 # Target paths in AppData
-$appdataPath = Join-Path $env:LOCALAPPDATA "RenderFlowStudio"
+$appdataPath = Join-Path $env:LOCALAPPDATA "Narrato"
 $binPath = Join-Path $appdataPath "bin"
 $nodePath = $binPath
 
 # Terminate any running instances of the app to prevent file lock errors during overwrite
-Write-Host "Checking for running instances of RenderFlow Studio..."
-Stop-Process -Name "RenderFlowStudio" -Force -ErrorAction SilentlyContinue
+Write-Host "Checking for running instances of Narrato..."
+Stop-Process -Name "Narrato" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
 # Function to test network connectivity
@@ -60,8 +60,8 @@ function Download-FileWithProgress {
     $responseStream = $response.GetResponseStream()
     $targetStream = [System.IO.File]::Create($OutFile)
     
-    # 100 KB buffer
-    $buffer = New-Object Byte[] 102400
+    # 1 MB buffer for faster throughput
+    $buffer = New-Object Byte[] 1048576
     $totalRead = 0
     $lastReport = 0
     
@@ -157,7 +157,7 @@ if (-not $ffmpegExists) {
     New-Item -ItemType Directory -Path $ffmpegExtract -Force | Out-Null
     
     try {
-        Download-FileWithProgressAndRetry -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $ffmpegZip -Name "FFmpeg/FFprobe Bundle"
+        Download-FileWithProgressAndRetry -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile $ffmpegZip -Name "FFmpeg/FFprobe Bundle"
         
         Write-Host "Extracting FFmpeg binaries..."
         Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegExtract -Force

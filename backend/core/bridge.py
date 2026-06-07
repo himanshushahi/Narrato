@@ -501,10 +501,17 @@ def get_ytdlp_version():
     import subprocess
     ytdlp_path = get_ytdlp_path()
     try:
+        import subprocess
+        import os
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
         res = subprocess.run(
             [ytdlp_path, "--version"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, timeout=10
+            text=True, timeout=10, startupinfo=startupinfo
         )
         if res.returncode == 0 and res.stdout.strip():
             return {"installed": True, "version": res.stdout.strip(), "path": ytdlp_path}
@@ -541,10 +548,15 @@ def update_ytdlp():
             current_version = None
             ytdlp_path = get_ytdlp_path()
             try:
+                import os
+                startupinfo = None
+                if os.name == 'nt':
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 res = subprocess.run(
                     [ytdlp_path, "--version"],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, timeout=10
+                    text=True, timeout=10, startupinfo=startupinfo
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     current_version = res.stdout.strip()
@@ -622,10 +634,15 @@ def update_ytdlp():
             import subprocess
             new_version = "unknown"
             try:
+                import os
+                startupinfo = None
+                if os.name == 'nt':
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 res = subprocess.run(
                     [str(target_path), "--version"],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, timeout=10
+                    text=True, timeout=10, startupinfo=startupinfo
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     new_version = res.stdout.strip()

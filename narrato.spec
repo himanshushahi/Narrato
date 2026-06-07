@@ -3,7 +3,7 @@ import os
 import sys
 
 # Workaround for PyInstaller path/zipfile creation bugs on Python 3.14
-os.makedirs("build/renderflow", exist_ok=True)
+os.makedirs("build/narrato", exist_ok=True)
 os.makedirs("build/main", exist_ok=True)
 
 from PyInstaller.utils.hooks import collect_data_files
@@ -13,6 +13,8 @@ block_cipher = None
 # Collect web assets and auxiliary packages
 datas = [
     ('frontend/dist', 'frontend/dist'),
+    ('frontend/dist-remotion', 'frontend/dist-remotion'),
+    ('frontend/dist-render', 'frontend/dist-render'),
 ]
 
 # Collect Eel's and Kokoro's internal assets
@@ -56,7 +58,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='RenderFlowStudio',
+    name='Narrato',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -67,6 +69,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='frontend/public/logo.ico',
 )
 
 coll = COLLECT(
@@ -77,5 +80,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='RenderFlowStudio',
+    name='Narrato',
 )

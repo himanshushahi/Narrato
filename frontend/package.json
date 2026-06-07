@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:remotion": "npx remotion bundle src/components/video/root.ts --out-dir dist-remotion",
+    "build:render": "npx esbuild src/render.mjs --bundle --platform=node --target=node20 --format=esm --outfile=dist-render/render.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

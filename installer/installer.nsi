@@ -6,17 +6,18 @@ Unicode true
 Var RemoveAppData
 Var RemoveAppDataCheckbox
 
-Name "RenderFlow Studio"
-OutFile "RenderFlowStudio_Setup.exe"
-InstallDir "$PROGRAMFILES64\RenderFlow Studio"
-InstallDirRegKey HKCU "Software\RenderFlow Studio" "InstallDir"
+Name "Narrato"
+OutFile "Narrato_Setup.exe"
+InstallDir "$PROGRAMFILES64\Narrato"
+InstallDirRegKey HKCU "Software\Narrato" "InstallDir"
 
 ; Request administrative privileges to install into Program Files
 RequestExecutionLevel admin
 
 ; Modern UI Appearance
 !define MUI_ABORTWARNING
-!define MUI_ICON "..\frontend\src\assets\react.svg"  ; Use react logo as placeholder if icon isn't custom yet
+!define MUI_ICON "..\frontend\public\logo.ico"
+!define MUI_UNICON "..\frontend\public\logo.ico"
 
 ; Welcome, Directory selection, Progress and Finish Pages
 !insertmacro MUI_PAGE_WELCOME
@@ -50,23 +51,24 @@ Section "Install"
 
   ; Succeeded or skipped because they exist. Now extract application files to installation folder.
   SetOutPath "$INSTDIR"
-  File /r "..\dist\RenderFlowStudio\*"
+  File /r "..\dist\Narrato\*"
+  File "..\frontend\public\logo.ico"
 
   ; Write uninstall information into Windows registry
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\RenderFlow Studio" "DisplayName" "RenderFlow Studio"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\RenderFlow Studio" "UninstallString" '"$INSTDIR\uninstall.exe"'
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\RenderFlow Studio" "DisplayIcon" '"$INSTDIR\RenderFlowStudio.exe"'
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\RenderFlow Studio" "Publisher" "Himanshu Kumar Shahi"
-  WriteRegStr HKCU "Software\RenderFlow Studio" "InstallDir" "$INSTDIR"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Narrato" "DisplayName" "Narrato"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Narrato" "UninstallString" '"$INSTDIR\uninstall.exe"'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Narrato" "DisplayIcon" '"$INSTDIR\logo.ico"'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Narrato" "Publisher" "Himanshu Kumar Shahi"
+  WriteRegStr HKCU "Software\Narrato" "InstallDir" "$INSTDIR"
 
   ; Create uninstaller executable
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   ; Create shortcuts in Start Menu and Desktop
-  CreateDirectory "$SMPROGRAMS\RenderFlow Studio"
-  CreateShortcut "$SMPROGRAMS\RenderFlow Studio\RenderFlow Studio.lnk" "$INSTDIR\RenderFlowStudio.exe"
-  CreateShortcut "$SMPROGRAMS\RenderFlow Studio\Uninstall RenderFlow Studio.lnk" "$INSTDIR\uninstall.exe"
-  CreateShortcut "$DESKTOP\RenderFlow Studio.lnk" "$INSTDIR\RenderFlowStudio.exe"
+  CreateDirectory "$SMPROGRAMS\Narrato"
+  CreateShortcut "$SMPROGRAMS\Narrato\Narrato.lnk" "$INSTDIR\Narrato.exe" "" "$INSTDIR\logo.ico" 0
+  CreateShortcut "$SMPROGRAMS\Narrato\Uninstall Narrato.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\logo.ico" 0
+  CreateShortcut "$DESKTOP\Narrato.lnk" "$INSTDIR\Narrato.exe" "" "$INSTDIR\logo.ico" 0
 SectionEnd
 
 Function un.AppDataPage
@@ -76,7 +78,7 @@ Function un.AppDataPage
     Abort
   ${EndIf}
   
-  !insertmacro MUI_HEADER_TEXT "Uninstall RenderFlow Studio" "Choose whether to remove application data."
+  !insertmacro MUI_HEADER_TEXT "Uninstall Narrato" "Choose whether to remove application data."
   
   ${NSD_CreateLabel} 0 0 100% 30u "The uninstaller can remove the application's configuration, logs, and database files in addition to the program files.$\r$\n$\r$\nDo you want to completely remove all application data, or leave it for future installations?"
   Pop $0
@@ -101,17 +103,17 @@ Section "Uninstall"
   RMDir /r "$INSTDIR"
 
   ; Delete shortcuts
-  Delete "$SMPROGRAMS\RenderFlow Studio\RenderFlow Studio.lnk"
-  Delete "$SMPROGRAMS\RenderFlow Studio\Uninstall RenderFlow Studio.lnk"
-  RMDir "$SMPROGRAMS\RenderFlow Studio"
-  Delete "$DESKTOP\RenderFlow Studio.lnk"
+  Delete "$SMPROGRAMS\Narrato\Narrato.lnk"
+  Delete "$SMPROGRAMS\Narrato\Uninstall Narrato.lnk"
+  RMDir "$SMPROGRAMS\Narrato"
+  Delete "$DESKTOP\Narrato.lnk"
 
   ; Delete registry keys
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\RenderFlow Studio"
-  DeleteRegKey HKCU "Software\RenderFlow Studio"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Narrato"
+  DeleteRegKey HKCU "Software\Narrato"
 
   ; Delete AppData if requested
   ${If} $RemoveAppData == ${BST_CHECKED}
-    RMDir /r "$LOCALAPPDATA\RenderFlowStudio"
+    RMDir /r "$LOCALAPPDATA\Narrato"
   ${EndIf}
 SectionEnd

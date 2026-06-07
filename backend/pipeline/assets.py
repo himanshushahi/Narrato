@@ -83,7 +83,11 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15):
     
     try:
         logger.info(f"Executing yt-dlp command: {' '.join(cmd)}")
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90, startupinfo=startupinfo)
         
         # Prioritize checking if the file was downloaded successfully (yt-dlp may return non-zero when aborting remaining search items)
         if dest_path.exists() and dest_path.stat().st_size > 0:

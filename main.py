@@ -46,7 +46,7 @@ def main():
     if os.name == 'nt':
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("himanshushahi.renderflow_studio.1.0")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("himanshushahi.narrato.1.0")
         except Exception:
             pass
 

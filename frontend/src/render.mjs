@@ -10,7 +10,6 @@
  */
 
 import http from "http";
-import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { readFileSync, existsSync, rmSync, mkdirSync, statSync, createReadStream } from "fs";
 import { resolve, dirname } from "path";
@@ -105,7 +104,8 @@ if (!propsPath || !outputPath) {
     "  --ffprobe <path>       Path to ffprobe binary\n" +
     "  --hw-accel <mode>      Hardware acceleration: disable | if-possible | required (default: disable)\n" +
     "  --gl <mode>            Chromium GL mode: angle, egl, swiftshader, etc.\n" +
-    "  --frames <range>       Frame range: start-end (e.g., 0-4639)"
+    "  --frames <range>       Frame range: start-end (e.g., 0-4639)\n" +
+    "  --bundle-dir <path>    Path to the pre-bundled Remotion project (required)"
   );
   process.exit(1);
 }
@@ -121,6 +121,12 @@ const hwAccelValue     = getArg("--hw-accel") ?? "disable";
 const glMode           = getArg("--gl") ?? undefined;
 const framesArg        = getArg("--frames");
 const concurrencyArg   = getArg("--concurrency");
+const bundleDir        = getArg("--bundle-dir");
+
+if (!bundleDir) {
+  console.error("Missing required argument: --bundle-dir");
+  process.exit(1);
+}
 
 // Concurrency: use explicit value or 75% of CPUs (floor at 2)
 const cpuCount = os.cpus().length;
@@ -144,18 +150,7 @@ if (framesArg) {
   }
 }
 
-// ─── Temp & Cache Directories ─────────────────────────────────────────────────
-// Persistent webpack cache survives across renders (biggest speed win)
-const persistentCacheDir = resolve(frontendRoot, "..", ".cache", "remotion-webpack");
-// Bundle output gets wiped each render
-const bundleOutputDir = resolve(frontendRoot, "..", ".cache", "remotion-bundle");
-
-try {
-  if (existsSync(bundleOutputDir)) {
-    rmSync(bundleOutputDir, { recursive: true, force: true });
-  }
-} catch (_) {}
-mkdirSync(persistentCacheDir, { recursive: true });
+// The bundle directory is provided via --bundle-dir
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 console.log(`   ⚙️  Codec:        ${codec} (CRF ${crf})`);
@@ -195,17 +190,8 @@ async function main() {
   const inputProps = rewriteUrls(inputPropsRaw);
 
   // ── Bundle ──────────────────────────────────────────────────────────────────
-  console.log("Bundling Remotion project...");
-  const t0 = Date.now();
-
-  const bundleLocation = await bundle({
-    entryPoint: resolve(frontendRoot, "src", "components", "video", "root.ts"),
-    enableCaching: true,
-    cacheLocation: persistentCacheDir,
-    outDir: bundleOutputDir,
-  });
-
-  console.log(`Bundle ready in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  const bundleLocation = resolve(bundleDir);
+  console.log(`Using pre-bundled project at: ${bundleLocation}`);
 
   // ── Select Composition ──────────────────────────────────────────────────────
   const scenes = inputProps.scenes || [];
@@ -285,15 +271,6 @@ async function main() {
   } finally {
     // ── Cleanup ─────────────────────────────────────────────────────────────────
     assetServer.close();
-    
-    // Delay bundle cleanup to avoid file lock issues
-    setTimeout(() => {
-      try {
-        if (existsSync(bundleOutputDir)) {
-          rmSync(bundleOutputDir, { recursive: true, force: true });
-        }
-      } catch (_) {}
-    }, 2000);
   }
 }
 

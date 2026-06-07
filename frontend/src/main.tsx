@@ -3,6 +3,10 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
 import { initializeEelListeners } from './store/eelListeners'
+import { disableBrowserShortcutsInProduction } from './utils/browserShortcuts'
+
+// Initialize security/native-feel behaviors
+disableBrowserShortcutsInProduction();
 
 // Early initialize Eel listeners to map incoming Python callback calls directly to Zustand state
 try {

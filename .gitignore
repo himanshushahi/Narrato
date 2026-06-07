@@ -18,6 +18,10 @@ build/
 *.dylib
 models/
 
+# Frontend builds
+frontend/dist-remotion/
+frontend/dist-render/
+
 # Project Specific (Temporary/Generated data)
 temp/
 storage/
@@ -36,3 +40,5 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+frontend\dist-remotion

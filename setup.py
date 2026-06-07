@@ -137,7 +137,7 @@ def main():
     ensure_virtual_env()
 
     print("==========================================")
-    print("      RenderFlow Studio Setup Helper      ")
+    print("      Narrato Setup Helper      ")
     print("==========================================\n")
     
     deps_ok = check_python_dependencies()

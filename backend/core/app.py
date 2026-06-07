@@ -38,7 +38,7 @@ def serve_media():
     return response
 
 def main():
-    logger.info("Starting RenderFlow Studio...")
+    logger.info("Starting Narrato...")
     
     # 1. Initialize DB tables
     init_db()
@@ -48,6 +48,8 @@ def main():
     
     # 3. Spin up background queue worker
     global_queue_manager.start()
+    
+    user_data_dir = os.path.join(os.path.expanduser("~"), ".narrato_profile")
     
     env = os.environ.get("ENVIRONMENT", "development")
     logger.info(f"App environment set to: {env}")
@@ -76,7 +78,8 @@ def main():
                 host="127.0.0.1",
                 port=8888,
                 mode="chrome",
-                shutdown_delay=2.0
+                shutdown_delay=2.0,
+                cmdline_args=["--auto-open-devtools-for-tabs", f"--user-data-dir={user_data_dir}"]
             )
         except Exception as e:
             logger.error(f"Eel start failed (ensure Vite is running on port 5173 first): {e}")
@@ -100,7 +103,8 @@ def main():
             eel.start(
                 "index.html",
                 size=(1280, 800),
-                shutdown_delay=2.0
+                shutdown_delay=2.0,
+                cmdline_args=[f"--user-data-dir={user_data_dir}"]
             )
         except (SystemExit, KeyboardInterrupt):
             logger.info("Application closed by user.")
