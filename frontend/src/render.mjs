@@ -16,8 +16,6 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import os from "os";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const frontendRoot = resolve(__dirname, "..");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 /**

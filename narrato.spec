@@ -15,6 +15,7 @@ datas = [
     ('frontend/dist', 'frontend/dist'),
     ('frontend/dist-remotion', 'frontend/dist-remotion'),
     ('frontend/dist-render', 'frontend/dist-render'),
+    ('frontend/dist-render/node_modules', 'frontend/dist-render/node_modules'),
 ]
 
 # Collect Eel's and Kokoro's internal assets

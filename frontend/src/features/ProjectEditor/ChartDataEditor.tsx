@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { VscLoading, VscSparkle } from 'react-icons/vsc';
+import { callEel } from '../../utils/eel-bridge';
 
 export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const [loading, setLoading] = useState(false);
@@ -10,19 +11,17 @@ export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onC
     if (!prompt) return;
     setLoading(true);
     try {
-      if (window.eel) {
-        const res = await window.eel.generate_chart_data_api(prompt)();
-        if (res.success && res.data) {
-          onChange({
-            ...visualMeta,
-            data: res.data,
-            title: res.title || prompt.toUpperCase(),
-            chart_type: res.chart_type || 'bar',
-            chart_prompt: prompt
-          });
-        } else {
-          alert(`Failed to generate data: ${res.error}`);
-        }
+      const res = await callEel<{ success: boolean; data?: any; title?: string; chart_type?: string; error?: string }>('generate_chart_data_api', prompt);
+      if (res?.success && res.data) {
+        onChange({
+          ...visualMeta,
+          data: res.data,
+          title: res.title || prompt.toUpperCase(),
+          chart_type: res.chart_type || 'bar',
+          chart_prompt: prompt
+        });
+      } else {
+        alert(`Failed to generate data: ${res?.error || 'Unknown error'}`);
       }
     } catch (e) {
       console.error(e);

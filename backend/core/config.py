@@ -112,3 +112,18 @@ def get_node_path():
     if local_node.exists():
         return str(local_node.resolve())
     return "node"
+
+def get_remotion_cache_dir() -> Path:
+    """Returns a writable directory for Remotion's internal cache (.remotion folder).
+
+    In production, this points to LOCALAPPDATA/Narrato/cache/remotion to avoid
+    permission issues when installed in C:\Program Files.
+    In development, it points to frontend/node_modules/.remotion as usual.
+    """
+    if getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production":
+        cache_dir = BASE_DIR / "cache" / "remotion"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
+    else:
+        # Dev mode: use the standard location
+        return Path(__file__).resolve().parent.parent.parent / "frontend" / "node_modules" / ".remotion"

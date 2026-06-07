@@ -9,6 +9,7 @@ import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { VscPlay, VscTrash, VscAdd, VscFolderOpened, VscCircleFilled, VscLayers, VscLoading } from 'react-icons/vsc';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { callEel } from '../utils/eel-bridge';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -32,24 +33,20 @@ export const Dashboard: React.FC = () => {
 
     setLoading(true);
     try {
-      if (window.eel) {
-        const res = await window.eel.create_new_project(name, prompt, language, 'nitish_rajput', durationMode)();
-        if (res.success && res.project_id) {
-          fetchProjects();
-          setShowModal(false);
-          setName('');
-          setPrompt('');
-          // Redirect directly to the editor workspace
-          navigate(`/editor/${res.project_id}`);
-        } else {
-          addToast("Error: " + (res.error || "Failed to create project"), 'error');
-        }
-      } else {
-        addToast("Eel is not connected. Project creation is mocked.", 'warning');
+      const res = await callEel<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, prompt, language, 'nitish_rajput', durationMode);
+      if (res?.success && res.project_id) {
+        fetchProjects();
         setShowModal(false);
+        setName('');
+        setPrompt('');
+        // Redirect directly to the editor workspace
+        navigate(`/editor/${res.project_id}`);
+      } else {
+        addToast("Error: " + (res?.error || "Failed to create project"), 'error');
       }
     } catch (err) {
       console.error(err);
+      addToast("Failed to create project: Backend not responding", 'error');
     } finally {
       setLoading(false);
     }

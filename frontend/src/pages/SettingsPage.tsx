@@ -14,6 +14,7 @@ import {
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
 } from 'react-icons/vsc';
 import { MdOutlineMovie } from 'react-icons/md';
+import { callEel } from '../utils/eel-bridge';
 
 export const SettingsPage: React.FC = () => {
   const settings = useSettingsStore((state) => state.settings);
@@ -60,10 +61,8 @@ export const SettingsPage: React.FC = () => {
   // Detect GPU availability on load
   useEffect(() => {
     const detectGPU = async () => {
-      if (window.eel) {
-        const available = await window.eel.check_nvidia_gpu_available()();
-        setGpuAvailable(available);
-      }
+      const available = await callEel<boolean>('check_nvidia_gpu_available');
+      setGpuAvailable(available);
     };
     detectGPU();
   }, []);
@@ -71,17 +70,15 @@ export const SettingsPage: React.FC = () => {
   // Check yt-dlp version on mount and after updates
   useEffect(() => {
     const checkYtdlpVersion = async () => {
-      if (window.eel) {
-        try {
-          const info = await window.eel.get_ytdlp_version()();
-          setYtdlpInstalled(info.installed);
-          setYtdlpVersion(info.version);
-          setYtdlpPath(info.path);
-        } catch {
-          setYtdlpInstalled(false);
-          setYtdlpVersion(null);
-          setYtdlpPath(null);
-        }
+      try {
+        const info = await callEel<{ installed: boolean; version?: string; path?: string }>('get_ytdlp_version');
+        setYtdlpInstalled(info?.installed || false);
+        setYtdlpVersion(info?.version || null);
+        setYtdlpPath(info?.path || null);
+      } catch {
+        setYtdlpInstalled(false);
+        setYtdlpVersion(null);
+        setYtdlpPath(null);
       }
     };
     checkYtdlpVersion();
@@ -130,10 +127,8 @@ export const SettingsPage: React.FC = () => {
   }, [kokoroDownload.status]);
 
   const checkKokoroAssets = async () => {
-    if (window.eel) {
-      const ok = await window.eel.check_kokoro_downloaded()();
-      setKokoroInstalled(ok);
-    }
+    const ok = await callEel<boolean>('check_kokoro_downloaded');
+    setKokoroInstalled(ok);
   };
 
   // Check Whisper model downloads
@@ -142,10 +137,8 @@ export const SettingsPage: React.FC = () => {
   }, [formData.whisper_model, whisperDownload.status]);
 
   const checkWhisperAssets = async () => {
-    if (window.eel) {
-      const ok = await window.eel.check_whisper_downloaded(formData.whisper_model)();
-      setWhisperInstalled(ok);
-    }
+    const ok = await callEel<boolean>('check_whisper_downloaded', formData.whisper_model);
+    setWhisperInstalled(ok);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -191,44 +184,38 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleBrowseWorkspace = async () => {
-    if (window.eel) {
-      const path = await window.eel.browse_workspace_directory()();
-      if (path) {
-        setFormData(prev => ({ ...prev, workspace_directory: path }));
-      }
+    const path = await callEel<string>('browse_workspace_directory');
+    if (path) {
+      setFormData(prev => ({ ...prev, workspace_directory: path }));
     }
   };
 
   const handleBrowseBGM = async () => {
-    if (window.eel) {
-      const path = await window.eel.browse_bg_music_file()();
-      if (path) {
-        setFormData(prev => ({ ...prev, bg_music_path: path }));
-      }
+    const path = await callEel<string>('browse_bg_music_file');
+    if (path) {
+      setFormData(prev => ({ ...prev, bg_music_path: path }));
     }
   };
 
   const handlePlayPreview = async () => {
-    if (!previewText.trim() || !window.eel) return;
+    if (!previewText.trim()) return;
     setPreviewLoading(true);
     setPreviewError('');
     setPreviewAudioUrl('');
     try {
       const voice = formData.tts_engine === 'kokoro' ? formData.kokoro_voice : formData.tts_voice;
-      const res = await window.eel.generate_voice_preview(
+      const res = await callEel<{ success: boolean; audio_path?: string; error?: string }>('generate_voice_preview',
         previewText,
         formData.tts_engine,
         voice,
         formData.tts_speed,
         formData.tts_pitch,
         appLanguage
-      )();
+      );
 
-      if (res && res.success && res.audio_path) {
+      if (res?.success && res.audio_path) {
         // Narrato serves previews via /api/media
-        const audioUrl = window.location.port === "5173"
-          ? `http://localhost:8888/api/media?path=${encodeURIComponent(res.audio_path)}`
-          : `/api/media?path=${encodeURIComponent(res.audio_path)}`;
+        const audioUrl = `/api/media?path=${encodeURIComponent(res.audio_path)}`;
         setPreviewAudioUrl(`${audioUrl}&t=${Date.now()}`);
       } else {
         setPreviewError(res?.error || 'Failed to generate voice preview.');

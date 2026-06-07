@@ -38,6 +38,9 @@ export default defineConfig({
       '/eel': {
         target: 'http://127.0.0.1:8888',
         ws: true,
+      },
+      '/api/media': {
+        target: 'http://127.0.0.1:8888',
       }
     }
   }

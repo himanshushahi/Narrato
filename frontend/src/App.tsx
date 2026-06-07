@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import { useProjectStore } from './store/useProjectStore';
 import { useSettingsStore } from './store/useSettingsStore';
 import { initializeEelListeners } from './store/eelListeners';
+import { eelConnection, useEelConnection, waitForEelConnection } from './utils/eel-bridge';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const ProjectEditor = React.lazy(() => import('./pages/ProjectEditor'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
@@ -12,7 +13,7 @@ import { ToastContainer } from './components/ui/Toast';
 import { ConfirmModal } from './components/ui/ConfirmModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscSettings, VscLayers, VscPulse, VscLayoutSidebarLeft, VscAccount, VscDebugDisconnect
+  VscSettings, VscLayers, VscPulse, VscLayoutSidebarLeft, VscAccount, VscDebugDisconnect, VscLoading
 } from 'react-icons/vsc';
 
 function Sidebar() {
@@ -125,18 +126,48 @@ function Sidebar() {
   );
 }
 
+function ConnectionStatusBanner() {
+  const { isConnected, isConnecting, error, retryCount } = useEelConnection();
+
+  // Don't show if connected
+  if (isConnected) return null;
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="fixed top-0 left-0 right-0 z-50 bg-red-500/90 text-white text-xs py-2 px-4 flex items-center justify-center gap-2 font-bold backdrop-blur-md">
+        <VscDebugDisconnect /> {error}
+      </div>
+    );
+  }
+
+  // Show connecting state
+  if (isConnecting) {
+    return (
+      <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500/90 text-zinc-950 text-xs py-2 px-4 flex items-center justify-center gap-2 font-bold backdrop-blur-md">
+        <VscLoading className="animate-spin" /> Connecting to backend... (attempt {retryCount})
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function App() {
-  const [connectionError, setConnectionError] = useState(false);
+  const [connectionInitialized, setConnectionInitialized] = useState(false);
 
   useEffect(() => {
-    try {
-      initializeEelListeners();
-      useProjectStore.getState().fetchProjects();
-      useSettingsStore.getState().fetchSettings();
-    } catch (error) {
-      console.error("Eel initialization failed", error);
-      setConnectionError(true);
-    }
+    // Initialize stores
+    useProjectStore.getState().fetchProjects();
+    useSettingsStore.getState().fetchSettings();
+
+    // Wait for eel connection to be established (with timeout)
+    waitForEelConnection(15000).then((connected) => {
+      setConnectionInitialized(true);
+      if (!connected) {
+        console.warn("[App] Backend connection timeout - features may not work until restart");
+      }
+    });
   }, []);
 
   return (
@@ -149,11 +180,8 @@ export default function App() {
 
         {/* Workspace views split */}
         <div className="flex-1 flex flex-col min-w-0 relative bg-zinc-950/20">
-          {connectionError && (
-            <div className="absolute top-0 left-0 right-0 z-50 bg-amber-500/90 text-zinc-950 text-xs py-1.5 px-4 flex items-center justify-center gap-2 font-bold backdrop-blur-md">
-              <VscDebugDisconnect /> Backend disconnected. Running in preview mode.
-            </div>
-          )}
+          {/* Connection status banner - visible only when not connected */}
+          <ConnectionStatusBanner />
 
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative">
             <AnimatePresence mode="wait">

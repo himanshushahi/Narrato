@@ -5,7 +5,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from backend.database.db import get_setting, update_project
-from backend.core.config import get_exports_dir, get_temp_dir, get_node_path
+from backend.core.config import get_exports_dir, get_temp_dir, get_node_path, get_remotion_cache_dir
 from backend.core.logger import logger
 
 def clean_media_path(path_str):
@@ -183,9 +183,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         cmd.extend(["--hw-accel", "disable"])
 
     logger.info(f"Executing render.mjs in {frontend_dir}: {' '.join(cmd)}")
-    
+
     env = os.environ.copy()
     env["NODE_OPTIONS"] = "--max-old-space-size=8192"
+
+    # Fix #2: Redirect Remotion's cache folder to a writable location
+    # This prevents EPERM errors when installed in C:\Program Files
+    remotion_cache_dir = get_remotion_cache_dir()
+    env["REMOTION_FOLDER"] = str(remotion_cache_dir)
+    logger.info(f"Remotion cache directory: {remotion_cache_dir}")
     
     startupinfo = None
     if os.name == "nt":

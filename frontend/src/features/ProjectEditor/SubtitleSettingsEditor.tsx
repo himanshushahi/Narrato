@@ -104,7 +104,7 @@ export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, 
         const link = document.createElement('link');
         link.id = id;
         link.rel = 'stylesheet';
-        link.href = `http://localhost:8888/api/media?path=${encodeURIComponent(res.css_path)}`;
+        link.href = `/api/media?path=${encodeURIComponent(res.css_path)}`;
         document.head.appendChild(link);
       }
     } else {

@@ -196,7 +196,7 @@ def download_google_font(font_family):
             # Replace remote URL with local API endpoint URL
             # Note: The UI will load the CSS via media server, so it should request fonts via media server too.
             import urllib.parse
-            local_url = f"http://localhost:8888/api/media?path={urllib.parse.quote(str(local_font_path))}"
+            local_url = f"/api/media?path={urllib.parse.quote(str(local_font_path))}"
             css_content = css_content.replace(font_url, local_url)
             
         with open(css_file, "w", encoding="utf-8") as f:

@@ -70,6 +70,33 @@ Write-Host "[INFO] Pre-bundling Remotion composition..." -ForegroundColor Cyan
 npm run build:remotion
 Write-Host "[INFO] Compiling production rendering script..." -ForegroundColor Cyan
 npm run build:render
+
+# Copy required node_modules for @remotion/renderer to work in production
+# These are externalized by esbuild and must be present at runtime
+Write-Host "[INFO] Copying required node_modules for production render..." -ForegroundColor Cyan
+$NodeModulesDest = Join-Path $FrontendFolder "dist-render/node_modules"
+if (Test-Path $NodeModulesDest) {
+    Remove-Item -Path $NodeModulesDest -Recurse -Force -ErrorAction SilentlyContinue
+}
+$RequiredPackages = @(
+    "@remotion/renderer",
+    "@remotion/bundler",
+    "remotion",
+    "execa",
+    "get-port",
+    "zod",
+    "dotenv",
+    "dotenv-expand"
+)
+foreach ($Pkg in $RequiredPackages) {
+    $Src = Join-Path $FrontendFolder "node_modules/$Pkg"
+    $Dest = Join-Path $NodeModulesDest $Pkg
+    if (Test-Path $Src) {
+        New-Item -ItemType Directory -Path (Split-Path $Dest -Parent) -Force | Out-Null
+        Copy-Item -Path $Src -Destination $Dest -Recurse -Force
+        Write-Host "  Copied: $Pkg" -ForegroundColor Gray
+    }
+}
 Pop-Location
 
 if (!(Test-Path $WebFolder)) {

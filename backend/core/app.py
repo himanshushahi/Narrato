@@ -103,6 +103,7 @@ def main():
             eel.start(
                 "index.html",
                 size=(1280, 800),
+                port=0,
                 shutdown_delay=2.0,
                 cmdline_args=[f"--user-data-dir={user_data_dir}"]
             )

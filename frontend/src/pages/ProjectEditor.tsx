@@ -17,6 +17,7 @@ import { PIPELINE_STAGES } from '../features/ProjectEditor/constants';
 import { SubVisualsEditor } from '../features/ProjectEditor/SubVisualsEditor';
 import { SubVisualsView } from '../features/ProjectEditor/SubVisualsView';
 import { SubtitleSettingsEditor } from '../features/ProjectEditor/SubtitleSettingsEditor';
+import { callEel } from '../utils/eel-bridge';
 
 export const ProjectEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -175,7 +176,7 @@ export const ProjectEditor: React.FC = () => {
             const link = document.createElement('link');
             link.id = id;
             link.rel = 'stylesheet';
-            link.href = `http://localhost:8888/api/media?path=${encodeURIComponent(res.css_path)}`;
+            link.href = `/api/media?path=${encodeURIComponent(res.css_path)}`;
             document.head.appendChild(link);
           }
         }
@@ -227,42 +228,40 @@ export const ProjectEditor: React.FC = () => {
   const loadFiles = async (projId: string) => {
     setLoadingScript(true);
     try {
-      if (window.eel) {
-        const project = await window.eel.db_get_project(projId)();
-        if (project) {
-          if (project.script_path) {
-            const script = await window.eel.read_json_file(project.script_path)();
-            setScriptData(script);
-          }
-          if (project.assets_manifest_path) {
-            const manifest = await window.eel.read_json_file(project.assets_manifest_path)();
-            // Transform visual_path → visual_url for the player
-            // The manifest stores absolute file paths, but the Remotion player needs HTTP URLs
-            // served through the Bottle media server (same pattern as audio URLs)
-            const enrichedManifest = (manifest || []).map((scene: any) => {
-              const enrichedSubVisuals = (scene.sub_visuals || []).map((sv: any) => ({
-                ...sv,
-                visual_url: sv.visual_path
-                  ? `http://localhost:8888/api/media?path=${encodeURIComponent(sv.visual_path)}`
-                  : ''
-              }));
+      const project = await callEel<any>('db_get_project', projId);
+      if (project) {
+        if (project.script_path) {
+          const script = await callEel<any>('read_json_file', project.script_path);
+          setScriptData(script);
+        }
+        if (project.assets_manifest_path) {
+          const manifest = await callEel<any>('read_json_file', project.assets_manifest_path);
+          // Transform visual_path → visual_url for the player
+          // The manifest stores absolute file paths, but the Remotion player needs HTTP URLs
+          // served through the Bottle media server (same pattern as audio URLs)
+          const enrichedManifest = (manifest || []).map((scene: any) => {
+            const enrichedSubVisuals = (scene.sub_visuals || []).map((sv: any) => ({
+              ...sv,
+              visual_url: sv.visual_path
+                ? `/api/media?path=${encodeURIComponent(sv.visual_path)}`
+                : ''
+            }));
 
-              return {
-                ...scene,
-                visual_url: scene.visual_path
-                  ? `http://localhost:8888/api/media?path=${encodeURIComponent(scene.visual_path)}`
-                  : '',
-                sub_visuals: enrichedSubVisuals
-              };
-            });
-            setManifestData(enrichedManifest);
-            // Also reset original manifest data when loading fresh files
-            setOriginalManifestData(enrichedManifest);
-          }
-          if (project.transcription_path) {
-            const transcript = await window.eel.read_json_file(project.transcription_path)();
-            setTranscriptionData(transcript || { segments: [] });
-          }
+            return {
+              ...scene,
+              visual_url: scene.visual_path
+                ? `/api/media?path=${encodeURIComponent(scene.visual_path)}`
+                : '',
+              sub_visuals: enrichedSubVisuals
+            };
+          });
+          setManifestData(enrichedManifest);
+          // Also reset original manifest data when loading fresh files
+          setOriginalManifestData(enrichedManifest);
+        }
+        if (project.transcription_path) {
+          const transcript = await callEel<any>('read_json_file', project.transcription_path);
+          setTranscriptionData(transcript || { segments: [] });
         }
       }
     } catch (e) {
@@ -435,7 +434,7 @@ export const ProjectEditor: React.FC = () => {
   };
 
   const handleSaveCard = async (cardKey?: string, index?: number) => {
-    if (!id || !scriptData || !window.eel || !selectedProject.script_path) return;
+    if (!id || !scriptData || !selectedProject.script_path) return;
 
     if (cardKey) {
       setSavingCardKey(cardKey);
@@ -461,7 +460,7 @@ export const ProjectEditor: React.FC = () => {
       }
     }
 
-    const success = await window.eel.save_json_file(selectedProject.script_path, scriptData)();
+    const success = await callEel<boolean>('save_json_file', selectedProject.script_path, scriptData);
     if (success) {
       // Build the full manifest with live sub_visuals from scriptData
       const buildLiveManifest = () => {
@@ -514,7 +513,7 @@ export const ProjectEditor: React.FC = () => {
       const liveManifest = buildLiveManifest();
 
       // Use the new save_project_with_cleanup API to save and cleanup assets
-      const cleanupResult = await window.eel.save_project_with_cleanup(id, scriptData, liveManifest)();
+      const cleanupResult = await callEel<any>('save_project_with_cleanup', id, scriptData, liveManifest);
 
       if (cleanupResult) {
         console.log(`Assets cleaned: ${cleanupResult.deleted_files?.length || 0} deleted, ${cleanupResult.preserved_files?.length || 0} preserved`);
@@ -551,7 +550,7 @@ export const ProjectEditor: React.FC = () => {
 
             if (hasChanged && liveSv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(liveSv.visual_type)) {
               try {
-                await window.eel.fetch_single_scene_asset(id, manifestIndex, subIdx, liveSv.visual_type, liveSv.visual_cue || '')();
+                await callEel('fetch_single_scene_asset', id, manifestIndex, subIdx, liveSv.visual_type, liveSv.visual_cue || '');
               } catch (e) {
                 console.error("Failed to fetch updated sub_visual", subIdx, e);
               }
@@ -581,10 +580,10 @@ export const ProjectEditor: React.FC = () => {
   };
 
   const handleSaveTranscription = async () => {
-    if (!id || !transcriptionData || !window.eel || !selectedProject.transcription_path) return;
+    if (!id || !transcriptionData || !selectedProject.transcription_path) return;
     setIsSavingSubtitles(true);
     try {
-      const success = await window.eel.save_json_file(selectedProject.transcription_path, transcriptionData)();
+      const success = await callEel<boolean>('save_json_file', selectedProject.transcription_path, transcriptionData);
       if (success) {
         addToast("Subtitles saved successfully!", 'success');
         // Reload files so the Remotion player gets the new data.
@@ -602,16 +601,14 @@ export const ProjectEditor: React.FC = () => {
 
 
   const handleRewriteSection = async (type: string, index: number) => {
-    if (!id || !scriptData || !window.eel || !selectedProject.script_path) return;
+    if (!id || !scriptData || !selectedProject.script_path) return;
     setRewritingIdx(index);
     setRewritingType(type);
 
     try {
-      const res = await window.eel.regenerate_script_section(
-        index, type, scriptData, rewritePrompt, selectedProject.language
-      )();
+      const res = await callEel<{ success: boolean; data?: any; error?: string }>('regenerate_script_section', index, type, scriptData, rewritePrompt, selectedProject.language);
 
-      if (res.success && res.data) {
+      if (res?.success && res.data) {
         const updated = { ...scriptData };
         if (type === 'introduction') {
           updated.introduction = res.data;
@@ -622,13 +619,13 @@ export const ProjectEditor: React.FC = () => {
         }
 
         setScriptData(updated);
-        await window.eel.save_json_file(selectedProject.script_path, updated)();
+        await callEel('save_json_file', selectedProject.script_path, updated);
         setEditingCard(null);
         setRewritePrompt('');
         setScriptChangedAlert(true);
         addToast("LLM rewrite completed and saved! Click 'Sync Audio & Subtitles' or 'Resume Pipeline' to rebuild voiceover.", 'success');
       } else {
-        addToast("Rewrite failed: " + (res.error || "Unknown error"), 'error');
+        addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
       }
     } catch (err) {
       console.error(err);
@@ -641,14 +638,14 @@ export const ProjectEditor: React.FC = () => {
   // Convert local project assets directory file paths to media streaming URLs
   const getAudioSourceUrl = () => {
     if (selectedProject.audio_path) {
-      return `http://localhost:8888/api/media?path=${encodeURIComponent(selectedProject.audio_path)}&t=${reloadKey}`;
+      return `/api/media?path=${encodeURIComponent(selectedProject.audio_path)}&t=${reloadKey}`;
     }
     return '';
   };
 
   const getBGMUrl = () => {
     if (selectedProject.bg_music_path) {
-      return `http://localhost:8888/api/media?path=${encodeURIComponent(selectedProject.bg_music_path)}&t=${reloadKey}`;
+      return `/api/media?path=${encodeURIComponent(selectedProject.bg_music_path)}&t=${reloadKey}`;
     }
     return '';
   };

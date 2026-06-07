@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useUIStore } from './useUIStore';
+import { callEel, waitForEelConnection } from '../utils/eel-bridge';
 
 export interface Project {
   id: string;
@@ -45,7 +46,7 @@ interface ProjectStore {
   tasks: Record<string, Task>;
   queue: QueueState;
   activeTask: Task | null;
-  
+
   setProjects: (projects: Project[]) => void;
   setSelectedProject: (project: Project | null) => void;
   setTasks: (tasks: Record<string, Task>) => void;
@@ -57,6 +58,14 @@ interface ProjectStore {
   resumePipeline: (projectId: string) => Promise<{ success: boolean; error?: string }>;
   cancelPipeline: (projectId: string) => Promise<void>;
   downloadFont: (fontFamily: string) => Promise<{ success: boolean; css_path?: string }>;
+}
+
+/**
+ * Safely call an eel function, waiting for connection if needed.
+ * Returns null if eel is not available or connection fails.
+ */
+async function safeEelCall<T>(fnName: string, ...args: any[]): Promise<T | null> {
+  return callEel<T>(fnName, ...args);
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
@@ -72,84 +81,87 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   setProjects: (projects) => set({ projects }),
   setSelectedProject: (project) => set({ selectedProject: project }),
   setTasks: (tasks) => set({ tasks }),
-  
+
   fetchProjects: async () => {
-    if (window.eel) {
-      const list = await window.eel.db_get_projects()();
-      set({ projects: list || [] });
+    const result = await safeEelCall<any[]>('db_get_projects');
+    if (result) {
+      set({ projects: result || [] });
     }
   },
 
   fetchProjectDetail: async (projectId) => {
-    if (window.eel) {
-      const project = await window.eel.db_get_project(projectId)();
-      const tasksList = await window.eel.db_get_project_tasks(projectId)();
-      
-      const tasksMap: Record<string, Task> = {};
-      if (tasksList) {
-        tasksList.forEach(t => {
-          tasksMap[t.step] = t;
-        });
-      }
-      
-      set({ selectedProject: project, tasks: tasksMap });
+    const project = await safeEelCall<any>('db_get_project', projectId);
+    if (!project) return;
+
+    const tasksList = await safeEelCall<any[]>('db_get_project_tasks', projectId);
+
+    const tasksMap: Record<string, Task> = {};
+    if (tasksList) {
+      tasksList.forEach(t => {
+        tasksMap[t.step] = t;
+      });
     }
+
+    set({ selectedProject: project, tasks: tasksMap });
   },
 
   deleteProject: async (projectId) => {
-    if (window.eel) {
-      await window.eel.db_delete_project(projectId)();
+    const result = await safeEelCall<boolean>('db_delete_project', projectId);
+    if (result !== null) {
       get().fetchProjects();
       if (get().selectedProject?.id === projectId) {
         set({ selectedProject: null, tasks: {} });
       }
       useUIStore.getState().addToast("Project deleted successfully.", "success");
+    } else {
+      useUIStore.getState().addToast("Failed to delete project: Backend not connected", "error");
     }
   },
 
   updateProject: async (projectId, updates) => {
-    if (window.eel) {
-      const res = await window.eel.db_update_project(projectId, updates)();
-      if (res.success) {
-        get().fetchProjectDetail(projectId);
-        return true;
-      } else {
-        useUIStore.getState().addToast(`Failed to update project: ${res.error}`, "error");
-        return false;
-      }
+    const res = await safeEelCall<{ success: boolean; error?: string }>('db_update_project', projectId, updates);
+    if (res?.success) {
+      get().fetchProjectDetail(projectId);
+      return true;
+    } else if (res?.error) {
+      useUIStore.getState().addToast(`Failed to update project: ${res.error}`, "error");
+      return false;
     }
+    useUIStore.getState().addToast("Failed to update project: Backend not connected", "error");
     return false;
   },
 
   startPipeline: async (projectId, steps) => {
-    if (window.eel) {
-      const res = await window.eel.start_processing_pipeline(projectId, steps)();
+    // Wait for eel connection before starting pipeline
+    const connected = await waitForEelConnection(10000);
+    if (!connected) {
+      return { success: false, error: "Backend not connected. Please wait a moment and try again." };
+    }
+
+    const res = await safeEelCall<{ success: boolean; error?: string }>('start_processing_pipeline', projectId, steps);
+    if (res) {
       get().fetchProjectDetail(projectId);
       return res;
     }
-    return { success: false, error: "Eel connection missing" };
+    return { success: false, error: "Failed to start pipeline: Backend not responding" };
   },
 
   resumePipeline: async (projectId) => {
-    if (window.eel) {
-      const res = await window.eel.resume_processing_pipeline(projectId)();
+    const res = await safeEelCall<{ success: boolean; error?: string }>('resume_processing_pipeline', projectId);
+    if (res) {
       get().fetchProjectDetail(projectId);
       return res;
     }
-    return { success: false, error: "Eel connection missing" };
+    return { success: false, error: "Failed to resume pipeline: Backend not responding" };
   },
 
   cancelPipeline: async (projectId) => {
-    if (window.eel) {
-      await window.eel.cancel_processing_pipeline(projectId)();
-      get().fetchProjectDetail(projectId);
-    }
+    await safeEelCall('cancel_processing_pipeline', projectId);
+    get().fetchProjectDetail(projectId);
   },
 
   downloadFont: async (fontFamily: string) => {
-    if (window.eel) {
-      return await window.eel.download_google_font(fontFamily)();
-    }
-    return { success: false, error: "Eel connection missing" };
+    const result = await safeEelCall<{ success: boolean; css_path?: string }>('download_google_font', fontFamily);
+    return result || { success: false, error: "Backend not connected" };
   }
 }));

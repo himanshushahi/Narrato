@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useUIStore } from './useUIStore';
+import { callEel, waitForEelConnection } from '../utils/eel-bridge';
 
 export interface SubtitlePreset {
   id: string;
@@ -70,7 +71,7 @@ interface SettingsStore {
   whisperDownload: WhisperDownload;
   downloadedWhisperModels: DownloadedWhisperModel[];
   ytdlpUpdate: YtdlpUpdate;
-  
+
   setSettings: (settings: Settings) => void;
   fetchSettings: () => Promise<void>;
   saveSettings: (settings: Settings) => Promise<void>;
@@ -79,6 +80,14 @@ interface SettingsStore {
   fetchDownloadedWhisperModels: () => Promise<void>;
   deleteWhisperModel: (id: string) => Promise<boolean>;
   updateYtdlp: () => Promise<void>;
+}
+
+/**
+ * Safely call an eel function, waiting for connection if needed.
+ * Returns null if eel is not available or connection fails.
+ */
+async function safeEelCall<T>(fnName: string, ...args: any[]): Promise<T | null> {
+  return callEel<T>(fnName, ...args);
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -133,58 +142,44 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setSettings: (settings) => set({ settings }),
   
   fetchSettings: async () => {
-    if (window.eel) {
-      const data = await window.eel.db_get_settings()();
-      if (data) set({ settings: data });
-    }
+    const data = await safeEelCall<any>('db_get_settings');
+    if (data) set({ settings: data });
   },
 
   saveSettings: async (newSettings) => {
-    if (window.eel) {
-      await window.eel.db_update_settings(newSettings)();
-      set({ settings: newSettings });
-    }
+    await safeEelCall<void>('db_update_settings', newSettings);
+    set({ settings: newSettings });
   },
 
   downloadKokoro: async () => {
-    if (window.eel) {
-      set({ kokoroDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
-      await window.eel.start_kokoro_download()();
-    }
+    set({ kokoroDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
+    await safeEelCall<void>('start_kokoro_download');
   },
 
   downloadWhisper: async (modelSize) => {
-    if (window.eel) {
-      set({ whisperDownload: { active: true, progress: 0, status: "started", error: "" } });
-      await window.eel.start_whisper_download(modelSize)();
-    }
+    set({ whisperDownload: { active: true, progress: 0, status: "started", error: "" } });
+    await safeEelCall<void>('start_whisper_download', modelSize);
   },
 
   fetchDownloadedWhisperModels: async () => {
-    if (window.eel) {
-      const models = await window.eel.get_downloaded_whisper_models()();
-      set({ downloadedWhisperModels: models || [] });
-    }
+    const models = await safeEelCall<any[]>('get_downloaded_whisper_models');
+    set({ downloadedWhisperModels: models || [] });
   },
 
   deleteWhisperModel: async (id) => {
-    if (window.eel) {
-      const res = await window.eel.delete_whisper_model(id)();
-      if (res?.success) {
-        useUIStore.getState().addToast(`Deleted Whisper model: ${id}`, "success");
-        get().fetchDownloadedWhisperModels();
-        return true;
-      } else {
-        useUIStore.getState().addToast(`Failed to delete Whisper model: ${id}`, "error");
-      }
+    const res = await safeEelCall<{ success: boolean }>('delete_whisper_model', id);
+    if (res?.success) {
+      useUIStore.getState().addToast(`Deleted Whisper model: ${id}`, "success");
+      get().fetchDownloadedWhisperModels();
+      return true;
+    } else {
+      useUIStore.getState().addToast(`Failed to delete Whisper model: ${id}`, "error");
     }
     return false;
   },
 
   updateYtdlp: async () => {
-    if (window.eel) {
-      set({ ytdlpUpdate: { active: true, progress: 0, status: "started", error: "" } });
-      await window.eel.update_ytdlp()();
-    }
+    set({ ytdlpUpdate: { active: true, progress: 0, status: "started", error: "" } });
+    await safeEelCall<void>('update_ytdlp');
   }
 }));
