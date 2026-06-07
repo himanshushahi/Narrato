@@ -20,7 +20,6 @@ export interface Settings {
   tts_speed: string;
   tts_pitch: string;
   kokoro_voice: string;
-  workspace_directory: string;
   bg_music_path: string;
   bg_music_volume: string;
   pexels_api_key: string;
@@ -103,7 +102,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     tts_speed: "1.0",
     tts_pitch: "0",
     kokoro_voice: "hf_alpha",
-    workspace_directory: "",
     bg_music_path: "",
     bg_music_volume: "0.15",
     pexels_api_key: "",

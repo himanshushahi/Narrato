@@ -183,13 +183,6 @@ export const SettingsPage: React.FC = () => {
     });
   };
 
-  const handleBrowseWorkspace = async () => {
-    const path = await callEel<string>('browse_workspace_directory');
-    if (path) {
-      setFormData(prev => ({ ...prev, workspace_directory: path }));
-    }
-  };
-
   const handleBrowseBGM = async () => {
     const path = await callEel<string>('browse_bg_music_file');
     if (path) {
@@ -711,24 +704,6 @@ export const SettingsPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left side: Directory paths */}
                 <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Workspace Folder Path</label>
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <CustomInput
-                          type="text"
-                          name="workspace_directory"
-                          value={formData.workspace_directory || ''}
-                          onChange={handleInputChange}
-                          placeholder="Defaults to %LOCALAPPDATA%/Narrato"
-                        />
-                      </div>
-                      <GlowButton variant="secondary" size="sm" type="button" onClick={handleBrowseWorkspace} icon={<VscFolderOpened />}>
-                        Browse
-                      </GlowButton>
-                    </div>
-                  </div>
-
                   <div className="space-y-1">
                     <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Default Background Music track</label>
                     <div className="flex gap-2">

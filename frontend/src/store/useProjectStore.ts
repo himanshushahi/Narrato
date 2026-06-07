@@ -22,6 +22,7 @@ export interface Project {
   bg_music_path?: string;
   bg_music_volume?: number;
   subtitle_settings?: string;
+  export_folder: string;
 }
 
 export interface Task {

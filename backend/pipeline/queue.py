@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import traceback
+from pathlib import Path
 from backend.core.logger import logger
 from backend.database.db import (
     get_project, update_project, create_task, update_task, get_project_tasks, get_task

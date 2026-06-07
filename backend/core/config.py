@@ -41,16 +41,7 @@ DB_PATH = BASE_DIR / "storage" / "narrato.db"
 BIN_DIR = BASE_DIR / "bin"
 
 def get_workspace_dir() -> Path:
-    """Dynamically resolves the active workspace directory path."""
-    from backend.database.db import get_setting
-    try:
-        custom_path = get_setting("workspace_directory")
-        if custom_path:
-            p = Path(custom_path).resolve()
-            if p.exists():
-                return p
-    except Exception:
-        pass
+    """Returns the base application data directory (AppData in prod, app root in dev)."""
     return BASE_DIR
 
 def get_storage_dir() -> Path:

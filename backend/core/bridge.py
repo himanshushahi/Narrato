@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 import eel
 import json
 import os
@@ -19,21 +20,22 @@ _whisper_download_active = False
 _ytdlp_update_active = False
 
 @eel.expose
-def browse_workspace_directory():
-    """Opens folder explorer for workspace directory."""
-    logger.info("Bridge API: browse_workspace_directory called")
+def browse_export_directory():
+    """Opens folder explorer for selecting an export directory."""
+    logger.info("Bridge API: browse_export_directory called")
     try:
         import tkinter as tk
         from tkinter import filedialog
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
-        dir_path = filedialog.askdirectory(title="Select Workspace Folder")
+        dir_path = filedialog.askdirectory(title="Select Export Folder")
         root.destroy()
         return dir_path
     except Exception as e:
         logger.error(f"Folder explorer error: {e}")
         return ""
+
 
 @eel.expose
 def browse_bg_music_file():
@@ -78,6 +80,7 @@ def db_delete_project(project_id):
     if proj:
         from backend.core.config import get_storage_dir
         proj_dir = get_storage_dir() / project_id
+            
         if proj_dir.exists():
             import shutil
             try:
@@ -102,9 +105,9 @@ def db_update_settings(settings_dict):
     return True
 
 @eel.expose
-def create_new_project(name, prompt, language="hi", style="nitish_rajput", duration_mode="medium"):
+def create_new_project(name, prompt, export_folder, language="hi", style="nitish_rajput", duration_mode="medium"):
     try:
-        project_id = create_project(name, prompt, language, style, duration_mode)
+        project_id = create_project(name, prompt, export_folder, language, style, duration_mode)
         return {"project_id": project_id, "success": True}
     except Exception as e:
         logger.error(f"Error creating project: {e}")

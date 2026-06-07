@@ -54,6 +54,22 @@ def main():
     env = os.environ.get("ENVIRONMENT", "development")
     logger.info(f"App environment set to: {env}")
     
+    chrome_args = [
+        f"--user-data-dir={user_data_dir}",
+        "--disable-features=PasswordManager,DownloadBubble,DownloadBubbleV2,AutofillServerCommunication,MediaRouter,DialMediaRouteProvider",
+        "--disable-save-password-bubble",
+        "--disable-extensions",
+        "--disable-default-apps",
+        "--no-default-browser-check",
+        "--no-first-run",
+        "--disable-sync",
+        "--disable-translate",
+        "--disable-infobars",
+        "--disable-notifications",
+        "--disable-pinch",
+        "--overscroll-history-navigation=0"
+    ]
+    
     if env == "development":
         # In dev, the React app runs via Vite on 5173
         dummy_dir = os.path.join(os.path.dirname(__file__), "dummy")
@@ -79,7 +95,7 @@ def main():
                 port=8888,
                 mode="chrome",
                 shutdown_delay=2.0,
-                cmdline_args=[f"--user-data-dir={user_data_dir}"]
+                cmdline_args=chrome_args
             )
         except Exception as e:
             logger.error(f"Eel start failed (ensure Vite is running on port 5173 first): {e}")
@@ -105,7 +121,7 @@ def main():
                 size=(1280, 800),
                 port=0,
                 shutdown_delay=2.0,
-                cmdline_args=[f"--user-data-dir={user_data_dir}"]
+                cmdline_args=chrome_args
             )
         except (SystemExit, KeyboardInterrupt):
             logger.info("Application closed by user.")

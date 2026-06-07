@@ -5,7 +5,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from backend.database.db import get_setting, update_project
-from backend.core.config import get_exports_dir, get_temp_dir, get_node_path, get_remotion_cache_dir
+from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir
 from backend.core.logger import logger
 
 def clean_media_path(path_str):
@@ -94,7 +94,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     progress_cb(2.0, "Wrote render properties. Starting Remotion CLI...")
 
     # Define output paths
-    exports_dir = get_exports_dir()
+    if project_dict.get('export_folder'):
+        exports_dir = Path(project_dict['export_folder'])
+    else:
+        from backend.core.config import get_exports_dir
+        exports_dir = get_exports_dir()
+        
     exports_dir.mkdir(parents=True, exist_ok=True)
     
     # Safe project filename

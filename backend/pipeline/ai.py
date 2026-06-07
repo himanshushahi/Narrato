@@ -322,6 +322,8 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
     model = get_setting("openai_model") or "gpt-4o"
     
+    logger.info(f"LLM Call: Provider={llm_provider}, Model={model}, BaseURL={base_url}")
+    
     if not api_key:
         raise ValueError("OpenAI API key is missing. Please configure it in the settings panel.")
         
@@ -360,6 +362,7 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
         try:
+            logger.info(f"Sending LLM request to {url} (Attempt {attempt+1}/{max_retries})...")
             response = requests.post(url, headers=headers, json=data, timeout=120)
             response.raise_for_status()
             break
@@ -638,6 +641,7 @@ RULES:
                 "response_format": {"type": "json_object"}
             }
 
+        logger.info(f"Sending LLM chart request to {url} with model {model}...")
         response = requests.post(url, headers=headers, json=data, timeout=45)
         response.raise_for_status()
         res_data = response.json()

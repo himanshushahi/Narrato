@@ -21,6 +21,7 @@ export const Dashboard: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [language, setLanguage] = useState('hi');
   const [durationMode, setDurationMode] = useState('medium');
+  const [exportFolder, setExportFolder] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -30,15 +31,20 @@ export const Dashboard: React.FC = () => {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !prompt.trim()) return;
+    if (!exportFolder.trim()) {
+      addToast("Please select an export destination folder", "error");
+      return;
+    }
 
     setLoading(true);
     try {
-      const res = await callEel<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, prompt, language, 'nitish_rajput', durationMode);
+      const res = await callEel<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, prompt, exportFolder, language, 'nitish_rajput', durationMode);
       if (res?.success && res.project_id) {
         fetchProjects();
         setShowModal(false);
         setName('');
         setPrompt('');
+        setExportFolder('');
         // Redirect directly to the editor workspace
         navigate(`/editor/${res.project_id}`);
       } else {
@@ -49,6 +55,13 @@ export const Dashboard: React.FC = () => {
       addToast("Failed to create project: Backend not responding", 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBrowseFolder = async () => {
+    const dir = await callEel<string>('browse_export_directory');
+    if (dir) {
+      setExportFolder(dir);
     }
   };
 
@@ -168,6 +181,13 @@ export const Dashboard: React.FC = () => {
                           <div className="text-xs text-stone-300 font-medium">4K</div>
                         </div>
                       </div>
+                      
+                      <div className="mb-4">
+                         <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><VscFolderOpened /> Export Folder</div>
+                         <div className="text-xs text-stone-300 font-medium truncate" title={project.export_folder || 'Default Workspace'}>
+                           {project.export_folder || 'Default Workspace'}
+                         </div>
+                      </div>
 
                       <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                         <GlowButton
@@ -255,6 +275,27 @@ export const Dashboard: React.FC = () => {
                       onChange={(e) => setPrompt(e.target.value)}
                       className="bg-stone-950"
                     />
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-400 mb-2 uppercase tracking-wider">Export Destination Folder <span className="text-red-500">*</span></label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={exportFolder}
+                          placeholder="Select where the final video will be saved"
+                          className="flex-1 bg-stone-950 border border-stone-800 text-stone-200 text-sm rounded-lg px-4 py-2.5 outline-none font-medium"
+                        />
+                        <GlowButton
+                          type="button"
+                          onClick={handleBrowseFolder}
+                          icon={<VscFolderOpened />}
+                          variant="secondary"
+                        >
+                          Browse
+                        </GlowButton>
+                      </div>
+                    </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <CustomSelect
