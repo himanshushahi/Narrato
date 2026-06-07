@@ -3,8 +3,7 @@ import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-ro
 import { Suspense } from 'react';
 import { useProjectStore } from './store/useProjectStore';
 import { useSettingsStore } from './store/useSettingsStore';
-import { initializeEelListeners } from './store/eelListeners';
-import { eelConnection, useEelConnection, waitForEelConnection } from './utils/eel-bridge';
+import { useEelConnection, waitForEelConnection } from './utils/eel-bridge';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const ProjectEditor = React.lazy(() => import('./pages/ProjectEditor'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
@@ -154,8 +153,6 @@ function ConnectionStatusBanner() {
 }
 
 export default function App() {
-  const [connectionInitialized, setConnectionInitialized] = useState(false);
-
   useEffect(() => {
     // Initialize stores
     useProjectStore.getState().fetchProjects();
@@ -163,7 +160,6 @@ export default function App() {
 
     // Wait for eel connection to be established (with timeout)
     waitForEelConnection(15000).then((connected) => {
-      setConnectionInitialized(true);
       if (!connected) {
         console.warn("[App] Backend connection timeout - features may not work until restart");
       }

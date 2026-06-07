@@ -19,7 +19,7 @@
       before eel.js is available. The eel-bridge.ts module will handle reconnection
       if the WebSocket backend isn't ready yet.
     -->
-    <script type="text/javascript" src="/eel.js"></script>
+    <script>document.write('<script type="text/javascript" src="/eel.js"><\/script>');</script>
 
     <!--
       Pre-register exposed functions to avoid "function not found" errors

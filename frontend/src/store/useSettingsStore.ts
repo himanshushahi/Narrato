@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useUIStore } from './useUIStore';
-import { callEel, waitForEelConnection } from '../utils/eel-bridge';
+import { callEel } from '../utils/eel-bridge';
 
 export interface SubtitlePreset {
   id: string;

@@ -71,8 +71,8 @@ class EelConnectionMonitor {
       this.notifyListeners();
       return;
     }
-
-    const ws = window.eel._websocket as WebSocket | undefined;
+    const eelAny = window.eel as any;
+    const ws = eelAny._websocket as WebSocket | undefined;
 
     // Check connection state
     if (ws && ws.readyState === 1) { // OPEN
@@ -108,14 +108,16 @@ class EelConnectionMonitor {
     this.notifyListeners();
 
     this.reconnectTimeout = window.setTimeout(() => {
-      if (!window.eel) return;
+      const eelAny = window.eel as any;
+      if (!eelAny) return;
 
       try {
-        const websocketAddr = (window.eel._host + '/eel').replace('http', 'ws');
+        const websocketAddr = (eelAny._host + '/eel').replace('http', 'ws');
+        console.log(`[EelConnection] Connecting WebSocket to ${websocketAddr}`);
 
         // Close existing connection if any
-        if (window.eel._websocket) {
-          window.eel._websocket.close();
+        if (eelAny._websocket) {
+          eelAny._websocket.close();
         }
 
         // Create new WebSocket connection
@@ -247,16 +249,25 @@ export function useEelConnection(): EelConnectionState {
  * Waits for eel to be connected, with timeout
  */
 export async function waitForEelConnection(timeoutMs: number = 10000): Promise<boolean> {
-  if (window.eel?.isConnected) return true;
+  const eelAny = window.eel as any;
+  if (eelAny?.isConnected) return true;
 
   return new Promise((resolve) => {
     const startTime = Date.now();
 
     const check = () => {
-      if (window.eel?._websocket?.readyState === 1) {
-        resolve(true);
-        return;
+      if (import.meta.env.MODE === 'production') {
+        if (eelAny?._websocket?.readyState === 1) {
+          resolve(true);
+          return;
+        }
+      } else {
+        if (eelAny?._websocket?.readyState === 1) {
+          resolve(true);
+          return;
+        }
       }
+      
       if (Date.now() - startTime > timeoutMs) {
         resolve(false);
         return;

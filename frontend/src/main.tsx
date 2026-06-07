@@ -4,7 +4,7 @@ import './index.css'
 import App from './App'
 import { initializeEelListeners } from './store/eelListeners'
 import { disableBrowserShortcutsInProduction } from './utils/browserShortcuts'
-import { eelConnection } from './utils/eel-bridge'
+
 
 // Initialize security/native-feel behaviors
 disableBrowserShortcutsInProduction();

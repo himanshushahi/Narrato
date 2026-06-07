@@ -1,7 +1,7 @@
 import { useProjectStore } from './useProjectStore';
 import { useSettingsStore } from './useSettingsStore';
 import { useUIStore } from './useUIStore';
-import { eelConnection, waitForEelConnection } from '../utils/eel-bridge';
+import { eelConnection } from '../utils/eel-bridge';
 
 /**
  * Initialize Eel listeners and start connection monitoring.

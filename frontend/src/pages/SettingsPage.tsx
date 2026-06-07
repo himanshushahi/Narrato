@@ -62,7 +62,7 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     const detectGPU = async () => {
       const available = await callEel<boolean>('check_nvidia_gpu_available');
-      setGpuAvailable(available);
+      setGpuAvailable(!!available);
     };
     detectGPU();
   }, []);
@@ -128,7 +128,7 @@ export const SettingsPage: React.FC = () => {
 
   const checkKokoroAssets = async () => {
     const ok = await callEel<boolean>('check_kokoro_downloaded');
-    setKokoroInstalled(ok);
+    setKokoroInstalled(!!ok);
   };
 
   // Check Whisper model downloads
@@ -138,7 +138,7 @@ export const SettingsPage: React.FC = () => {
 
   const checkWhisperAssets = async () => {
     const ok = await callEel<boolean>('check_whisper_downloaded', formData.whisper_model);
-    setWhisperInstalled(ok);
+    setWhisperInstalled(!!ok);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
