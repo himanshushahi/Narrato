@@ -290,7 +290,7 @@ export async function callEel<T>(fnName: string, ...args: any[]): Promise<T | nu
       console.warn(`[EelBridge] Function ${fnName} not found`);
       return null;
     }
-    return await fn(...args) as T;
+    return await fn(...args)() as T;
   } catch (error) {
     console.error(`[EelBridge] Call to ${fnName} failed:`, error);
     return null;

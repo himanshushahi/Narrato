@@ -79,7 +79,7 @@ def main():
                 port=8888,
                 mode="chrome",
                 shutdown_delay=2.0,
-                cmdline_args=["--auto-open-devtools-for-tabs", f"--user-data-dir={user_data_dir}"]
+                cmdline_args=[f"--user-data-dir={user_data_dir}"]
             )
         except Exception as e:
             logger.error(f"Eel start failed (ensure Vite is running on port 5173 first): {e}")

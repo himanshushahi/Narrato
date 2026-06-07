@@ -628,26 +628,6 @@ export const SettingsPage: React.FC = () => {
                       value={formData.tts_speed}
                       onChange={(val) => handleSelectChange('tts_speed', val)}
                     />
-                    {!kokoroInstalled && (
-                      <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-4 space-y-3">
-                        <p className="text-[10px] text-amber-200/70">Kokoro models are required for offline generation. Size is ~120MB.</p>
-                        {kokoroDownload.active ? (
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-[10px] text-amber-400 font-medium">
-                              <span>Downloading {kokoroDownload.file === 'voices' ? 'voices' : 'model'}...</span>
-                              <span>{kokoroDownload.progress}%</span>
-                            </div>
-                            <div className="w-full bg-black/50 rounded-full h-1 border border-amber-800/20">
-                              <div className="h-full bg-amber-500" style={{ width: `${kokoroDownload.progress}%` }} />
-                            </div>
-                          </div>
-                        ) : (
-                          <GlowButton variant="secondary" size="sm" fullWidth onClick={downloadKokoro} type="button" icon={<VscCloudDownload />}>
-                            Download Kokoro Assets
-                          </GlowButton>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -694,6 +674,28 @@ export const SettingsPage: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Kokoro Download UI - appears after preview tester */}
+                {formData.tts_engine === 'kokoro' && !kokoroInstalled && (
+                  <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-4 space-y-3">
+                    <p className="text-[10px] text-amber-200/70">Kokoro models are required for offline generation. Size is ~120MB.</p>
+                    {kokoroDownload.active ? (
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-[10px] text-amber-400 font-medium">
+                          <span>Downloading {kokoroDownload.file === 'voices' ? 'voices' : 'model'}...</span>
+                          <span>{kokoroDownload.progress}%</span>
+                        </div>
+                        <div className="w-full bg-black/50 rounded-full h-1 border border-amber-800/20">
+                          <div className="h-full bg-amber-500" style={{ width: `${kokoroDownload.progress}%` }} />
+                        </div>
+                      </div>
+                    ) : (
+                      <GlowButton variant="secondary" size="sm" fullWidth onClick={downloadKokoro} type="button" icon={<VscCloudDownload />}>
+                        Download Kokoro Assets
+                      </GlowButton>
+                    )}
+                  </div>
+                )}
               </div>
             </GlassCard>
           </motion.div>

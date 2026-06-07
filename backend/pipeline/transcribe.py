@@ -6,15 +6,34 @@ from backend.core.logger import logger
 from backend.database.db import get_setting, update_project
 
 def get_whisper_model_path(model_size):
+    if not model_size:
+        return None
+
+    whisper_dir = get_models_dir() / "whisper"
+
+    # Handle both naming conventions:
+    # 1. "collabora/faster-whisper-small-hindi" (nested in collabora folder)
+    # 2. "collabora_faster-whisper-small-hindi" (flat folder name)
     safe_dir_name = model_size.replace("/", "_") if "/" in model_size else model_size
-    whisper_dir = get_models_dir() / "whisper" / safe_dir_name
-    if (whisper_dir / "model.bin").exists() and (whisper_dir / "config.json").exists():
-        return str(whisper_dir)
-        
+
+    # First check the flat folder name (e.g., "collabora_faster-whisper-small-hindi")
+    flat_dir = whisper_dir / safe_dir_name
+    if (flat_dir / "model.bin").exists() and (flat_dir / "config.json").exists():
+        return str(flat_dir)
+
+    # Then check the nested path (e.g., "collabora/faster-whisper-small-hindi")
+    nested_dir = whisper_dir / model_size  # Use original with "/"
+    if (nested_dir / "model.bin").exists() and (nested_dir / "config.json").exists():
+        return str(nested_dir)
+
+    # Fallback: recursively search for the model
     for root, dirs, files in os.walk(str(whisper_dir)):
         if "model.bin" in files and "config.json" in files:
-            return root
-            
+            # Check if this folder matches our model
+            folder_name = os.path.basename(root)
+            if folder_name == safe_dir_name or folder_name == model_size.split("/")[-1]:
+                return root
+
     return None
 
 def check_whisper_assets(model_size):
@@ -25,15 +44,26 @@ def list_downloaded_whisper_models():
     whisper_base_dir = get_models_dir() / "whisper"
     if not whisper_base_dir.exists():
         return models
-    
+
     for item in whisper_base_dir.iterdir():
         if item.is_dir():
+            # Skip folders that only contain other model folders (like "collabora" containing "faster-whisper-small-hindi")
+            # A real model folder should have model.bin at its top level or one level deep
+            has_model_at_root = (item / "model.bin").exists()
+
+            if not has_model_at_root:
+                # Check if this folder only contains subdirectories that are actual models
+                subdirs = [d for d in item.iterdir() if d.is_dir()]
+                if subdirs and not any((item / "config.json").exists() for item in item.iterdir() if item.is_file()):
+                    # This is a parent folder, skip it - the actual models will be listed separately
+                    continue
+
             has_model = False
             for root, dirs, files in os.walk(str(item)):
                 if "model.bin" in files:
                     has_model = True
                     break
-            
+
             if has_model:
                 total_size = 0
                 for root, dirs, files in os.walk(str(item)):
@@ -41,7 +71,7 @@ def list_downloaded_whisper_models():
                         fp = os.path.join(root, f)
                         if not os.path.islink(fp):
                             total_size += os.path.getsize(fp)
-                
+
                 size_mb = total_size / (1024 * 1024)
                 models.append({
                     "id": item.name,
@@ -64,11 +94,15 @@ def delete_whisper_model(safe_dir_name):
 def download_whisper_model_files(model_size, progress_callback=None):
     import huggingface_hub
     import tqdm.std
-    
+
+    if not model_size:
+        logger.error("No Whisper model size provided for download.")
+        return False
+
     safe_dir_name = model_size.replace("/", "_") if "/" in model_size else model_size
     whisper_dir = get_models_dir() / "whisper" / safe_dir_name
     whisper_dir.mkdir(parents=True, exist_ok=True)
-    
+
     repo_id = model_size if "/" in model_size else f"Systran/faster-whisper-{model_size}"
     
     # Save original tqdm methods
