@@ -18,7 +18,15 @@ import {
 function Sidebar() {
   const location = useLocation();
   const queue = useProjectStore((state) => state.queue);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    return localStorage.getItem('sidebar_collapsed') === 'true';
+  });
+
+  const toggleSidebar = () => {
+    const newVal = !collapsed;
+    setCollapsed(newVal);
+    localStorage.setItem('sidebar_collapsed', String(newVal));
+  };
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/' || location.pathname === '';
@@ -89,8 +97,8 @@ function Sidebar() {
           >
             <VscPulse className="text-[var(--color-accent-light)] text-lg animate-pulse" />
             {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <div className="font-bold text-[var(--color-accent-light)] uppercase tracking-widest text-[9px]">Pipeline Active</div>
+              <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
+                <div className="font-bold text-[var(--color-accent-light)] uppercase tracking-widest text-[9px] truncate">Pipeline Active</div>
                 <div className="text-[10px] text-stone-300 mt-0.5 truncate">Rendering video...</div>
               </div>
             )}
@@ -100,20 +108,20 @@ function Sidebar() {
         <div className={`flex flex-col gap-4 border-t border-stone-800 pt-4`}>
           <div className={`flex items-center gap-2 ${collapsed ? 'justify-center flex-col' : 'justify-between'}`}>
             {!collapsed && (
-              <div className="flex items-center gap-2 px-2">
-                <div className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center text-stone-400 border border-stone-700 shadow-inner">
+              <div className="flex items-center gap-2 px-2 overflow-hidden whitespace-nowrap">
+                <div className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center text-stone-400 border border-stone-700 shadow-inner shrink-0">
                   <VscAccount />
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-stone-200">Local Studio</span>
-                  <span className="text-[9px] text-emerald-400 font-semibold flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Online
+                <div className="flex flex-col overflow-hidden min-w-0">
+                  <span className="text-xs font-bold text-stone-200 truncate">Local Studio</span>
+                  <span className="text-[9px] text-emerald-400 font-semibold flex items-center gap-1 truncate">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" /> Online
                   </span>
                 </div>
               </div>
             )}
             <button
-              onClick={() => setCollapsed(!collapsed)}
+              onClick={toggleSidebar}
               className="p-2.5 text-stone-500 hover:text-white hover:bg-stone-800/50 rounded-md transition-colors"
             >
               <VscLayoutSidebarLeft className="text-lg" />

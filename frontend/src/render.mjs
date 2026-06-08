@@ -4,18 +4,16 @@
  * This replaces the `remotion render` CLI to enable:
  *   1. Hardware-accelerated encoding (NVENC) via `hardwareAcceleration` param
  *   2. Custom FFmpeg/FFprobe binaries via `ffmpegExecutable`/`ffprobeExecutable`
- *   3. Webpack cache persistence for faster subsequent renders
+ *   3. Resumable chunked rendering via frames and audio extraction
  * 
  * Called from Python: node render.mjs --props <path> --output <path> [options]
  */
 
 import http from "http";
-import { renderMedia, selectComposition } from "@remotion/renderer";
-import { readFileSync, existsSync, rmSync, mkdirSync, statSync, createReadStream } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { renderMedia, selectComposition, renderFrames } from "@remotion/renderer";
+import { readFileSync, existsSync, statSync, createReadStream } from "fs";
+import { resolve } from "path";
 import os from "os";
-
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 /**
@@ -89,26 +87,13 @@ const getArg = (flag) => {
 const propsPath    = getArg("--props");
 const outputPath   = getArg("--output");
 
-if (!propsPath || !outputPath) {
-  console.error(
-    "Usage: node render.mjs --props <path> --output <path> [options]\n" +
-    "Options:\n" +
-    "  --fps <value>          Frames per second (default: 30)\n" +
-    "  --codec <name>         Video codec: h264, h265, vp8, vp9 (default: h264)\n" +
-    "  --crf <value>          Constant rate factor (default: 18)\n" +
-    "  --scale <value>        Output scale multiplier (default: 1)\n" +
-    "  --concurrency <n>      Parallel render workers (default: 75% of CPUs)\n" +
-    "  --ffmpeg <path>        Path to ffmpeg binary\n" +
-    "  --ffprobe <path>       Path to ffprobe binary\n" +
-    "  --hw-accel <mode>      Hardware acceleration: disable | if-possible | required (default: disable)\n" +
-    "  --gl <mode>            Chromium GL mode: angle, egl, swiftshader, etc.\n" +
-    "  --frames <range>       Frame range: start-end (e.g., 0-4639)\n" +
-    "  --bundle-dir <path>    Path to the pre-bundled Remotion project (required)"
-  );
+if (!propsPath) {
+  console.error("Usage: node render.mjs --props <path> [options]");
   process.exit(1);
 }
 
 // Parse all options with defaults
+const mode             = getArg("--mode") ?? "video"; // "video" | "frames" | "audio"
 const fps              = parseInt(getArg("--fps") ?? "30", 10);
 const codec            = getArg("--codec") ?? "h264";
 const crf              = parseInt(getArg("--crf") ?? "18", 10);
@@ -118,6 +103,8 @@ const ffprobeExecutable= getArg("--ffprobe") ? resolve(getArg("--ffprobe")) : un
 const hwAccelValue     = getArg("--hw-accel") ?? "disable";
 const glMode           = getArg("--gl") ?? undefined;
 const framesArg        = getArg("--frames");
+const resumeFromArg    = getArg("--resume-from");
+const framesDir        = getArg("--frames-dir");
 const concurrencyArg   = getArg("--concurrency");
 const bundleDir        = getArg("--bundle-dir");
 
@@ -126,7 +113,7 @@ if (!bundleDir) {
   process.exit(1);
 }
 
-// Concurrency: use explicit value or 75% of CPUs (floor at 2)
+// Concurrency: use explicit value or CPUs - 1
 const cpuCount = os.cpus().length;
 let concurrencyValue;
 if (concurrencyArg) {
@@ -136,30 +123,8 @@ if (concurrencyArg) {
     concurrencyValue = parseInt(concurrencyArg, 10);
   }
 } else {
-  concurrencyValue = Math.max(2, Math.floor(cpuCount * 0.75));
+  concurrencyValue = Math.max(1, cpuCount - 1);
 }
-
-// Parse frame range
-let frameRange = null;
-if (framesArg) {
-  const parts = framesArg.split("-");
-  if (parts.length === 2) {
-    frameRange = [parseInt(parts[0], 10), parseInt(parts[1], 10)];
-  }
-}
-
-// The bundle directory is provided via --bundle-dir
-
-// ─── Logging ──────────────────────────────────────────────────────────────────
-console.log(`   ⚙️  Codec:        ${codec} (CRF ${crf})`);
-console.log(`   ⚙️  Resolution:   scale=${scale}`);
-console.log(`   ⚙️  FPS:          ${fps}`);
-console.log(`   ⚙️  Concurrency:  ${concurrencyValue} / ${cpuCount} CPUs`);
-console.log(`   ⚙️  HW accel:     ${hwAccelValue}`);
-if (ffmpegExecutable)  console.log(`   ⚙️  FFmpeg:       ${ffmpegExecutable}`);
-if (ffprobeExecutable) console.log(`   ⚙️  FFprobe:      ${ffprobeExecutable}`);
-if (glMode)            console.log(`   ⚙️  GL mode:      ${glMode}`);
-if (frameRange)        console.log(`   ⚙️  Frames:       ${frameRange[0]}-${frameRange[1]}`);
 
 // ─── Main Render ──────────────────────────────────────────────────────────────
 async function main() {
@@ -168,7 +133,6 @@ async function main() {
   // ── Start Asset Server ──────────────────────────────────────────────────────
   const { server: assetServer, url: assetServerUrl } = await startAssetServer();
 
-  // Rewrite file:/// URLs to point to our highly-concurrent Node.js server
   function rewriteUrls(obj) {
     if (typeof obj === "string" && obj.startsWith("file:///")) {
       const actualPath = obj.replace("file:///", "");
@@ -187,7 +151,6 @@ async function main() {
   
   const inputProps = rewriteUrls(inputPropsRaw);
 
-  // ── Bundle ──────────────────────────────────────────────────────────────────
   const bundleLocation = resolve(bundleDir);
   console.log(`Using pre-bundled project at: ${bundleLocation}`);
 
@@ -204,75 +167,108 @@ async function main() {
     inputProps,
   });
 
-  // Override composition dimensions/timing from our settings
   composition.durationInFrames = durationInFrames;
   composition.fps = fps;
-  // Scale is handled by the scale parameter in renderMedia, not by changing dimensions
 
-  // ── Build Render Options ────────────────────────────────────────────────────
-  const renderOptions = {
+  // Parse frame range
+  let frameRange = null;
+  if (resumeFromArg) {
+    frameRange = [parseInt(resumeFromArg, 10), durationInFrames - 1];
+  } else if (framesArg) {
+    const parts = framesArg.split("-");
+    if (parts.length === 2) {
+      frameRange = [parseInt(parts[0], 10), parseInt(parts[1], 10)];
+    }
+  }
+
+  // ── Build Common Render Options ──────────────────────────────────────────────
+  const commonOptions = {
     composition,
     serveUrl: bundleLocation,
-    codec,
-    outputLocation: resolve(outputPath),
     inputProps,
-    crf,
     scale,
-    imageFormat: "jpeg",
-    jpegQuality: 80,
     concurrency: concurrencyValue,
-    hardwareAcceleration: hwAccelValue,
-    offthreadVideoCacheSizeInBytes: 1 * 1024 * 1024 * 1024, // 1 GB cache
-    timeoutInMilliseconds: 300_000, // 5 min per frame timeout
+    timeoutInMilliseconds: 300_000,
     chromiumOptions: {
       disableWebSecurity: true,
       args: [
-        "--disable-dev-shm-usage", // Prevents memory crashes
-        "--allow-file-access-from-files", // Allows direct local file loading
-        "--enable-accelerated-2d-canvas", // Enable GPU-accelerated 2D canvas
-        "--enable-gpu-rasterization", // Enable GPU rasterization
-        "--enable-zero-copy", // Enable zero-copy rasterizer
-        "--force-color-profile=srgb", // Ensure consistent color
-        "--font-render-hinting=medium", // Reduce font hinting artifacts
-        "--disable-font-subpixel-positioning", // Fix font subpixel flickering
-        "--disable-skia-runtime-opts", // Disable SIMD that can cause flickering
+        "--disable-dev-shm-usage",
+        "--allow-file-access-from-files",
+        "--enable-accelerated-2d-canvas",
+        "--enable-gpu-rasterization",
+        "--enable-zero-copy",
+        "--force-color-profile=srgb",
+        "--font-render-hinting=medium",
+        "--disable-font-subpixel-positioning",
+        "--disable-skia-runtime-opts",
       ],
-      forceDeviceScaleFactor: 1, // Prevent DPI-based scaling artifacts
-    },
-    onProgress: ({ progress }) => {
-      const pct = (progress * 100).toFixed(1);
-      // Write progress in a format Python can parse
-      process.stdout.write(`\rRender progress: ${pct}%  `);
+      forceDeviceScaleFactor: 1,
     },
   };
 
-  // Add FFmpeg executables if provided
-  if (ffmpegExecutable) {
-    renderOptions.ffmpegExecutable = ffmpegExecutable;
-  }
-  if (ffprobeExecutable) {
-    renderOptions.ffprobeExecutable = ffprobeExecutable;
-  }
-
-  // Add frame range if specified
-  if (frameRange) {
-    renderOptions.frameRange = frameRange;
-  }
+  if (ffmpegExecutable) commonOptions.ffmpegExecutable = ffmpegExecutable;
+  if (ffprobeExecutable) commonOptions.ffprobeExecutable = ffprobeExecutable;
+  if (frameRange) commonOptions.frameRange = frameRange;
 
   // ── Render ──────────────────────────────────────────────────────────────────
-  console.log("Rendering video...");
+  console.log(`Rendering in ${mode} mode...`);
   const t1 = Date.now();
   
   try {
-    await renderMedia(renderOptions);
-    console.log(`\nVideo rendered in ${((Date.now() - t1) / 1000).toFixed(1)}s: ${outputPath}`);
+    if (mode === "frames") {
+      if (!framesDir) throw new Error("--frames-dir is required for frames mode");
+      
+      const totalToRender = frameRange ? (frameRange[1] - frameRange[0] + 1) : durationInFrames;
+      
+      await renderFrames({
+        ...commonOptions,
+        outputDir: resolve(framesDir),
+        imageFormat: "webp",
+        onFrameUpdate: (renderedCount) => {
+          const pct = ((renderedCount / totalToRender) * 100).toFixed(1);
+          process.stdout.write(`\rRender progress: ${pct}%  `);
+        },
+      });
+      console.log(`\nFrames rendered in ${((Date.now() - t1) / 1000).toFixed(1)}s: ${framesDir}`);
+    } 
+    else if (mode === "audio") {
+      if (!outputPath) throw new Error("--output is required for audio mode");
+      
+      await renderMedia({
+        ...commonOptions,
+        outputLocation: resolve(outputPath),
+        codec: outputPath.endsWith(".mp3") ? "mp3" : "wav",
+        onProgress: ({ progress }) => {
+          const pct = (progress * 100).toFixed(1);
+          process.stdout.write(`\rRender progress: ${pct}%  `);
+        },
+      });
+      console.log(`\nAudio rendered in ${((Date.now() - t1) / 1000).toFixed(1)}s: ${outputPath}`);
+    } 
+    else {
+      // "video" mode fallback
+      if (!outputPath) throw new Error("--output is required for video mode");
+      
+      await renderMedia({
+        ...commonOptions,
+        outputLocation: resolve(outputPath),
+        codec,
+        crf,
+        hardwareAcceleration: hwAccelValue,
+        imageFormat: "webp",
+        onProgress: ({ progress }) => {
+          const pct = (progress * 100).toFixed(1);
+          process.stdout.write(`\rRender progress: ${pct}%  `);
+        },
+      });
+      console.log(`\nVideo rendered in ${((Date.now() - t1) / 1000).toFixed(1)}s: ${outputPath}`);
+    }
   } finally {
-    // ── Cleanup ─────────────────────────────────────────────────────────────────
     assetServer.close();
   }
 }
 
 main().catch((err) => {
-  console.error("Render failed:", err.message || err);
+  console.error("\nRender failed:", err.message || err);
   process.exit(1);
 });

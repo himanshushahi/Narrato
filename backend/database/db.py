@@ -99,6 +99,15 @@ def init_db():
             "openai_api_key": "",
             "openai_base_url": "https://api.openai.com/v1",
             "openai_model": "gpt-4o",
+            "openai_temperature": "0.7",
+            "openai_max_tokens": "4096",
+            "openai_top_p": "1.0",
+            "nvidia_api_key": "",
+            "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
+            "nvidia_model": "meta/llama-3.1-8b-instruct",
+            "nvidia_temperature": "0.7",
+            "nvidia_max_tokens": "4096",
+            "nvidia_top_p": "1.0",
             "whisper_model": "base",
             "whisper_device": "cpu", # 'cpu' or 'cuda'
             "tts_engine": "edge", # 'edge' or 'kokoro'

@@ -91,7 +91,7 @@ def delete_whisper_model(safe_dir_name):
             return False
     return False
 
-def download_whisper_model_files(model_size, progress_callback=None):
+def download_whisper_model_files(model_size, progress_callback=None, cancel_event=None):
     import huggingface_hub
     import tqdm.std
 
@@ -142,6 +142,10 @@ def download_whisper_model_files(model_size, progress_callback=None):
                             progress_callback(pct)
                         except Exception:
                             pass
+                            
+            if cancel_event and cancel_event.is_set():
+                raise InterruptedError("Cancelled")
+                
         return res
 
     def custom_close(self):
@@ -236,7 +240,7 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         logger.info(f"Local Whisper model '{model_size}' missing. Fetching now...")
         def dl_cb(pct):
             progress_cb(pct * 0.4, f"Downloading Whisper model... {pct:.0f}%") # first 40% of step is model download
-        download_whisper_model_files(model_size, dl_cb)
+        download_whisper_model_files(model_size, dl_cb, cancel_event)
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")

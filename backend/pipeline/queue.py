@@ -39,11 +39,8 @@ class QueueManager:
 
     def queue_project(self, project_id, steps, is_resume=False):
         """Adds a project to the queue list for sequential processing."""
-        # Clean cancel event if it exists
-        if project_id in self._cancel_events:
-            self._cancel_events[project_id].clear()
-        else:
-            self._cancel_events[project_id] = threading.Event()
+        # Always create a new cancel event when queuing so active workers retaining the old event stay cancelled
+        self._cancel_events[project_id] = threading.Event()
 
         # Update database project status
         update_project(project_id, status='queued')
@@ -88,6 +85,7 @@ class QueueManager:
         for t in tasks:
             if t['status'] in ('running', 'pending'):
                 update_task(t['id'], status='failed', message='Cancelled by user')
+                self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelled by user', 'failed')
 
         if self._active_project_id == project_id:
             self._active_project_id = None

@@ -50,7 +50,7 @@ def search_pexels_video(query, api_key):
         logger.warning(f"Pexels video search failed for '{query}': {e}")
     return None
 
-def download_youtube_video(query, dest_path, start_offset=15, duration=15):
+def download_youtube_video(query, dest_path, start_offset=15, duration=15, cancel_event=None):
     """
     Downloads a short clip from YouTube matching the query using yt-dlp.
     Quality defaults to 1080p, falls back to 720p or lower.
@@ -87,15 +87,37 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15):
         if os.name == 'nt':
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90, startupinfo=startupinfo)
+            
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo)
+        
+        stdout, stderr = "", ""
+        while True:
+            if cancel_event and cancel_event.is_set():
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                if dest_path.exists():
+                    try: dest_path.unlink()
+                    except: pass
+                raise InterruptedError("Cancelled")
+                
+            try:
+                out, err = process.communicate(timeout=0.5)
+                stdout = out or ""
+                stderr = err or ""
+                break
+            except subprocess.TimeoutExpired:
+                continue
         
         # Prioritize checking if the file was downloaded successfully (yt-dlp may return non-zero when aborting remaining search items)
         if dest_path.exists() and dest_path.stat().st_size > 0:
             logger.info(f"Successfully downloaded YouTube clip to {dest_path}")
             return True
             
-        if res.returncode != 0:
-            logger.error(f"yt-dlp failed with returncode {res.returncode}. stderr: {res.stderr}")
+        if process.returncode != 0:
+            logger.error(f"yt-dlp failed with returncode {process.returncode}. stderr: {stderr}")
             return False
             
         logger.error(f"yt-dlp command finished but dest_path {dest_path} was not created.")
@@ -104,7 +126,7 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15):
         logger.error(f"Exception while executing yt-dlp: {e}")
         return False
 
-def download_asset(url, dest_path):
+def download_asset(url, dest_path, cancel_event=None):
     """Downloads a binary asset from a URL and saves it."""
     try:
         logger.info(f"Downloading stock asset from: {url}")
@@ -113,13 +135,19 @@ def download_asset(url, dest_path):
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         with open(dest_path, "wb") as f:
             for chunk in res.iter_content(chunk_size=8192):
-                f.write(chunk)
+                if cancel_event and cancel_event.is_set():
+                    f.close()
+                    if dest_path.exists():
+                        dest_path.unlink()
+                    raise InterruptedError("Cancelled")
+                if chunk:
+                    f.write(chunk)
         return True
     except Exception as e:
         logger.error(f"Failed to download stock asset from {url}: {e}")
     return False
 
-def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key):
+def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, cancel_event):
     """Downloads a single sub-visual asset. Returns updated sub_visual dict."""
     visual_type = sub_visual.get("visual_type", "scene")
     visual_cue = sub_visual.get("visual_cue", "")
@@ -142,7 +170,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key):
         start_offset = int(visual_meta.get("start_offset", 15))
         duration = int(visual_meta.get("duration", 15))
         
-        yt_success = download_youtube_video(visual_cue, dest_file, start_offset=start_offset, duration=duration)
+        yt_success = download_youtube_video(visual_cue, dest_file, start_offset=start_offset, duration=duration, cancel_event=cancel_event)
         if yt_success:
             sub_visual["visual_path"] = str(dest_file)
         else:
@@ -160,7 +188,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key):
                     
             if asset_url:
                 dest_file_fb = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
-                if download_asset(asset_url, dest_file_fb):
+                if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
                     sub_visual["visual_path"] = str(dest_file_fb)
                     sub_visual["visual_type"] = fallback_type
                     logger.info(f"Saved fallback {fallback_type} for [{seg_idx}:{sub_idx}].")
@@ -183,7 +211,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key):
             
         if asset_url:
             dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
-            if download_asset(asset_url, dest_file):
+            if download_asset(asset_url, dest_file, cancel_event=cancel_event):
                 sub_visual["visual_path"] = str(dest_file)
                 logger.info(f"Saved asset_{seg_idx:03d}_{sub_idx:02d}{ext}")
     # Programmatic types (chart, map, document, network) don't need downloads
@@ -229,7 +257,7 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
             
-            _fetch_single_sub_visual(sub_visual, assets_dir, idx, sub_idx, api_key)
+            _fetch_single_sub_visual(sub_visual, assets_dir, idx, sub_idx, api_key, cancel_event)
             
             completed_sub_visuals += 1
             progress_cb(

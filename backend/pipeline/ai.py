@@ -16,9 +16,10 @@ SUB_VISUAL_SCHEMA = {
     "properties": {
         "visual_cue": {"type": "string"},
         "visual_type": {"type": "string"},
+        "transition": {"type": "string"},
         "visual_meta": {"type": "object"}
     },
-    "required": ["visual_cue", "visual_type"]
+    "required": ["visual_cue", "visual_type", "transition"]
 }
 
 # Schema validations for JSON parsing
@@ -109,7 +110,7 @@ SINGLE_SCENE_JSON_SCHEMA = SCENE_JSON_SCHEMA
 
 def fix_unescaped_quotes(s):
     """Escapes raw double quotes inside string fields in JSON string."""
-    keys_pattern = r'("(?:title|hook|visual_cue|visual_type|visual_meta|scene_number|narration|summary|cta|introduction|scenes|conclusion)")\s*:\s*'
+    keys_pattern = r'("(?:title|hook|visual_cue|visual_type|transition|visual_meta|scene_number|narration|summary|cta|introduction|scenes|conclusion)")\s*:\s*'
     matches = list(re.finditer(keys_pattern, s))
     if not matches:
         return s
@@ -318,14 +319,26 @@ def fetch_real_news(query):
 def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     from backend.database.db import get_setting
     llm_provider = get_setting("llm_provider") or "openai"
-    api_key = get_setting("openai_api_key")
-    base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-    model = get_setting("openai_model") or "gpt-4o"
+    
+    if llm_provider == "nvidia":
+        api_key = get_setting("nvidia_api_key")
+        base_url = get_setting("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
+        model = get_setting("nvidia_model") or "meta/llama-3.1-8b-instruct"
+        temperature = float(get_setting("nvidia_temperature") or 0.7)
+        max_tokens = int(get_setting("nvidia_max_tokens") or 4096)
+        top_p = float(get_setting("nvidia_top_p") or 1.0)
+    else:
+        api_key = get_setting("openai_api_key")
+        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
+        model = get_setting("openai_model") or "gpt-4o"
+        temperature = float(get_setting("openai_temperature") or 0.7)
+        max_tokens = int(get_setting("openai_max_tokens") or 4096)
+        top_p = float(get_setting("openai_top_p") or 1.0)
     
     logger.info(f"LLM Call: Provider={llm_provider}, Model={model}, BaseURL={base_url}")
     
     if not api_key:
-        raise ValueError("OpenAI API key is missing. Please configure it in the settings panel.")
+        raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
         
     url = f"{base_url.rstrip('/')}/chat/completions"
     headers = {
@@ -340,8 +353,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "temperature": 0.7,
-            "guided_json": schema
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": top_p
         }
     else:
         data = {
@@ -350,7 +364,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "temperature": 0.7,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": top_p,
             "response_format": {"type": "json_object"}
         }
 
@@ -363,7 +379,23 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
             raise InterruptedError("Cancelled")
         try:
             logger.info(f"Sending LLM request to {url} (Attempt {attempt+1}/{max_retries})...")
-            response = requests.post(url, headers=headers, json=data, timeout=120)
+            
+            import concurrent.futures
+            import time
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(requests.post, url, headers=headers, json=data, timeout=300)
+            
+            # Poll the future and cancel_event
+            while not future.done():
+                if cancel_event.is_set():
+                    # If cancelled, abandon the thread and raise
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise InterruptedError("Cancelled")
+                time.sleep(0.5)
+            
+            response = future.result()
+            executor.shutdown(wait=False)
+            
             response.raise_for_status()
             break
         except requests.exceptions.HTTPError as e:
@@ -397,9 +429,10 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     progress_cb(5.0, "Preparing to generate script...")
     
     # Check API key before starting
-    api_key = get_setting("openai_api_key")
+    llm_provider = get_setting("llm_provider") or "openai"
+    api_key = get_setting("nvidia_api_key") if llm_provider == "nvidia" else get_setting("openai_api_key")
     if not api_key:
-        raise ValueError("OpenAI API key is missing. Please configure it in the settings panel.")
+        raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
 
     if duration_mode == "short":
         target_minutes = 2
@@ -436,9 +469,14 @@ CRITICAL INSTRUCTIONS ON QUANTITY:
 
 Format Example (Media):
 "sub_visuals": [
-  { "visual_type": "scene", "visual_cue": "protesters matching", "visual_meta": {} },
-  { "visual_type": "portrait", "visual_cue": "angry protester face", "visual_meta": {} }
+  { "visual_type": "scene", "visual_cue": "protesters matching", "transition": "fade", "visual_meta": {} },
+  { "visual_type": "portrait", "visual_cue": "angry protester face", "transition": "zoom_in", "visual_meta": {} }
 ]
+
+Transitions (`transition` field):
+Every sub_visual MUST include a `transition` property to define how it enters the screen.
+- Available options: "fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "none" (hard cut).
+- Use "none" for fast-paced sequences, "fade" for emotional/slow scenes, and "glitch" for hacking/tech/intense moments.
 
 Visual Type Rules (`visual_type`, `visual_cue` & `visual_meta`):
 For each sub_visual you create, you must choose ONE `visual_type` from the available options. The `visual_cue` and `visual_meta` MUST follow strict rules based on the chosen type:
@@ -529,12 +567,15 @@ Context for this scene: {context}
 Write the narration and visual details for this scene."""
 
         import time
-        import random
-        time.sleep(random.uniform(0.5, 3.0))
+        
+        # Staggered delay to prevent rate limit spikes for all providers
+        time.sleep(idx * 2.0)
 
         return _call_llm_json(scene_system_prompt, scene_user_prompt, SINGLE_SCENE_JSON_SCHEMA, cancel_event)
 
-    max_workers = min(10, total_chapters) if total_chapters > 0 else 1
+    # Use max 2 workers for all providers to avoid strict concurrent request limits
+    max_workers = min(2, total_chapters) if total_chapters > 0 else 1
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_idx = {executor.submit(generate_single_scene, i, chapter): i for i, chapter in enumerate(chapters)}
         

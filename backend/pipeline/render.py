@@ -3,6 +3,7 @@ import json
 import re
 import subprocess
 import shutil
+import hashlib
 from pathlib import Path
 from backend.database.db import get_setting, update_project
 from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir
@@ -19,8 +20,43 @@ def requests_quote(string):
     import requests
     return requests.utils.quote(string)
 
+def compute_hash(props_dict, render_settings):
+    """Computes a SHA-256 hash of the render properties and settings to detect changes."""
+    data = {"props": props_dict, "settings": render_settings}
+    data_str = json.dumps(data, sort_keys=True)
+    return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
+
+def get_highest_contiguous_frame(frames_dir):
+    """Finds the highest contiguous frame-XXXXX.webp in the directory."""
+    if not frames_dir.exists():
+        return -1
+    
+    frame_files = list(frames_dir.glob("element-*.webp"))
+    if not frame_files:
+        return -1
+        
+    frame_numbers = []
+    for f in frame_files:
+        match = re.search(r"element-(\d+)\.webp", f.name)
+        if match:
+            frame_numbers.append(int(match.group(1)))
+            
+    if not frame_numbers:
+        return -1
+        
+    frame_numbers.sort()
+    
+    highest = -1
+    for i, num in enumerate(frame_numbers):
+        if num == highest + 1:
+            highest = num
+        else:
+            break
+            
+    return highest
+
 def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
-    """Compiles the React Remotion canvas into an MP4 file."""
+    """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering."""
     manifest_path = Path(project_dict['assets_manifest_path'])
     transcribe_path = Path(project_dict['transcription_path'])
     audio_path = Path(project_dict['audio_path'])
@@ -42,12 +78,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         transcript = json.load(f)
 
     # Convert local absolute paths in scenes/audios into Bottle media serving URLs
-    # Remotion Chrome sandbox cannot fetch directly from local disk absolute paths
     for sc in scenes:
         sc["audio_url"] = clean_media_path(sc["audio_path"])
         
-        # Process sub_visuals: convert each sub_visual's visual_path to a URL
-        # and compute duration for each sub_visual (equal split of scene duration)
         sub_visuals = sc.get("sub_visuals", [])
         scene_duration = float(sc.get("duration") or 0.0)
         num_subs = len(sub_visuals) if sub_visuals else 1
@@ -63,8 +96,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         sc["sub_visuals"] = sub_visuals
 
     bg_music_url = ""
-    if project_dict.get("bg_music_path"):
-        bg_music_url = clean_media_path(project_dict["bg_music_path"])
+    bg_path_str = project_dict.get("bg_music_path")
+    if bg_path_str:
+        if Path(bg_path_str).exists():
+            bg_music_url = clean_media_path(bg_path_str)
+        else:
+            logger.warning(f"Background music file not found at {bg_path_str}. Proceeding without background music.")
 
     subtitle_settings = {}
     if project_dict.get("subtitle_settings"):
@@ -72,6 +109,16 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             subtitle_settings = json.loads(project_dict["subtitle_settings"])
         except Exception as e:
             logger.error(f"Failed to parse subtitle_settings: {e}")
+
+    # Fetch rendering settings
+    render_resolution = get_setting("render_resolution") or "1080p"
+    render_concurrency = get_setting("render_concurrency") or "logical"
+    render_fps = get_setting("render_fps") or "30"
+    render_crf = get_setting("render_crf") or "18"
+    render_codec = get_setting("render_codec") or "h264"
+    render_hardware = get_setting("render_hardware") or "cpu"
+
+    fps = int(render_fps)
 
     props = {
         "audioUrl": clean_media_path(str(audio_path)),
@@ -81,7 +128,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "transcription": transcript,
         "style": project_dict.get("style", "nitish_rajput"),
         "language": project_dict.get("language", "hi"),
-        "fps": int(get_setting("render_fps") or 30),
+        "fps": fps,
         "subtitleSettings": subtitle_settings
     }
 
@@ -91,7 +138,50 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         json.dump(props, f, indent=2, ensure_ascii=False)
 
     logger.info(f"Wrote render props to {props_path}")
-    progress_cb(2.0, "Wrote render properties. Starting Remotion CLI...")
+
+    render_settings = {
+        "resolution": render_resolution,
+        "concurrency": render_concurrency,
+        "fps": fps,
+        "crf": render_crf,
+        "codec": render_codec,
+        "hardware": render_hardware
+    }
+
+    cache_hash = compute_hash(props, render_settings)
+    cache_dir = project_dir / "render_cache"
+    frames_dir = cache_dir / "frames"
+    cached_audio_path = cache_dir / "audio.wav"
+    hash_file = cache_dir / "hash.txt"
+
+    if cache_dir.exists() and hash_file.exists():
+        with open(hash_file, "r") as f:
+            existing_hash = f.read().strip()
+        if existing_hash != cache_hash:
+            logger.info("Project or settings changed. Invalidating render cache.")
+            shutil.rmtree(cache_dir, ignore_errors=True)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            with open(hash_file, "w") as f:
+                f.write(cache_hash)
+        else:
+            logger.info("Render cache hash matches. Will resume if possible.")
+            if not frames_dir.exists():
+                frames_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        logger.info("No valid render cache found. Creating new cache.")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        with open(hash_file, "w") as f:
+            f.write(cache_hash)
+
+    highest_frame = get_highest_contiguous_frame(frames_dir)
+    if highest_frame >= 0:
+        for f in frames_dir.glob("element-*.webp"):
+            match = re.search(r"element-(\d+)\.webp", f.name)
+            if match and int(match.group(1)) > highest_frame:
+                logger.info(f"Deleting dangling frame: {f.name}")
+                f.unlink()
 
     # Define output paths
     if project_dict.get('export_folder'):
@@ -102,37 +192,20 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         
     exports_dir.mkdir(parents=True, exist_ok=True)
     
-    # Safe project filename
     safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', project_dict['name'])
     output_mp4_path = exports_dir / f"{safe_name}.mp4"
 
-    # 2. Run custom render script (programmatic renderMedia API)
     frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
     render_script = frontend_dir / "dist-render" / "render.mjs"
-    
     if not render_script.exists():
-        # Fallback to dev script if compiled version not found
         render_script = frontend_dir / "src" / "render.mjs"
-        
     if not render_script.exists():
         raise FileNotFoundError(f"Render script not found: {render_script}")
         
     bundle_dir = frontend_dir / "dist-remotion"
     abs_bundle_dir = str(bundle_dir.resolve()).replace('\\', '/')
-    
-    # Normalize props path relative to frontend folder or pass absolute
     abs_props_path = str(props_path.resolve()).replace('\\', '/')
-    abs_output_path = str(output_mp4_path.resolve()).replace('\\', '/')
-
-    # Fetch rendering settings
-    render_resolution = get_setting("render_resolution") or "1080p"
-    render_concurrency = get_setting("render_concurrency") or "logical"
-    render_fps = get_setting("render_fps") or "30"
-    render_crf = get_setting("render_crf") or "18"
-    render_codec = get_setting("render_codec") or "h264"
-    render_hardware = get_setting("render_hardware") or "cpu"
     
-    # Map concurrency
     if render_concurrency == "logical":
         concurrency_arg = "100%"
     elif render_concurrency == "physical":
@@ -140,100 +213,140 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     else:
         concurrency_arg = render_concurrency
     
-    # Map resolution to scale
-    scale_map = {
-        "720p": "0.6666666666666666",
-        "1080p": "1",
-        "1440p": "1.3333333333333333",
-        "4k": "2"
-    }
+    scale_map = {"720p": "0.6666666666666666", "1080p": "1", "1440p": "1.3333333333333333", "4k": "2"}
     scale_arg = scale_map.get(render_resolution.lower(), "1")
 
-    # Calculate exact duration
-    fps = int(render_fps)
     total_duration = sum(float(sc.get("duration") or 0.0) for sc in scenes)
     total_frames = max(150, int(total_duration * fps))
-    frames_arg = f"0-{total_frames - 1}"
 
-    # Build command using render.mjs (programmatic API)
     node_exe = get_node_path()
-    
-    cmd = [
-        node_exe,
-        str(render_script),
-        "--props", abs_props_path,
-        "--output", abs_output_path,
-        "--fps", str(fps),
-        "--codec", render_codec,
-        "--crf", str(render_crf),
-        "--scale", scale_arg,
-        "--concurrency", concurrency_arg,
-        "--frames", frames_arg,
-        "--bundle-dir", abs_bundle_dir,
-    ]
-    
-    # Pass portable FFmpeg/FFprobe binaries if available
     bin_dir = frontend_dir.parent / "bin"
     ffmpeg_exe = bin_dir / "ffmpeg.exe"
     ffprobe_exe = bin_dir / "ffprobe.exe"
-    if ffmpeg_exe.exists():
-        cmd.extend(["--ffmpeg", str(ffmpeg_exe.resolve())])
-    if ffprobe_exe.exists():
-        cmd.extend(["--ffprobe", str(ffprobe_exe.resolve())])
-    
-    # Hardware acceleration: use "if-possible" for CUDA (graceful NVENC fallback)
-    if render_hardware == "cuda":
-        cmd.extend(["--hw-accel", "if-possible"])
-    else:
-        cmd.extend(["--hw-accel", "disable"])
 
-    logger.info(f"Executing render.mjs in {frontend_dir}: {' '.join(cmd)}")
+    def run_node_process(cmd, progress_weight, base_progress, label):
+        env = os.environ.copy()
+        env["NODE_OPTIONS"] = "--max-old-space-size=8192"
+        remotion_cache_dir = get_remotion_cache_dir()
+        env["REMOTION_FOLDER"] = str(remotion_cache_dir)
+        
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-    env = os.environ.copy()
-    env["NODE_OPTIONS"] = "--max-old-space-size=8192"
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(frontend_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            universal_newlines=True,
+            startupinfo=startupinfo,
+            env=env
+        )
 
-    # Fix #2: Redirect Remotion's cache folder to a writable location
-    # This prevents EPERM errors when installed in C:\Program Files
-    remotion_cache_dir = get_remotion_cache_dir()
-    env["REMOTION_FOLDER"] = str(remotion_cache_dir)
-    logger.info(f"Remotion cache directory: {remotion_cache_dir}")
-    
-    startupinfo = None
-    if os.name == "nt":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        progress_regex = re.compile(r"Render progress:\s*([\d.]+)%")
+        bundle_regex = re.compile(r"Bundle ready in")
 
-    process = subprocess.Popen(
-        cmd,
-        cwd=str(frontend_dir),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
-        universal_newlines=True,
-        startupinfo=startupinfo,
-        env=env
-    )
+        try:
+            buffer = ""
+            last_output_lines = []
+            while True:
+                if cancel_event.is_set():
+                    logger.warning("Render cancelled by user. Terminating process.")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    raise InterruptedError("Cancelled")
 
-    # Progress regex patterns for render.mjs output
-    progress_regex = re.compile(r"Render progress:\s*([\d.]+)%")
-    bundle_regex = re.compile(r"Bundle ready in")
+                char = process.stdout.read(1)
+                if not char and process.poll() is not None:
+                    break
+                    
+                if char in ('\r', '\n'):
+                    line = buffer
+                    buffer = ""
+                    if not line.strip():
+                        continue
 
-    try:
-        buffer = ""
+                    stripped = line.strip()
+                    if stripped:
+                        progress_match = progress_regex.search(stripped)
+                        
+                        skip_log = False
+                        if progress_match:
+                            pct_val = float(progress_match.group(1))
+                            if not hasattr(run_node_process, '_last_logged_pct'):
+                                run_node_process._last_logged_pct = -1
+                            if abs(pct_val - run_node_process._last_logged_pct) < 5.0 and pct_val < 100:
+                                skip_log = True
+                            else:
+                                run_node_process._last_logged_pct = pct_val
+
+                        if not skip_log:
+                            logger.info(f"[{label}]: {stripped}")
+                            
+                        last_output_lines.append(stripped)
+                        if len(last_output_lines) > 20:
+                            last_output_lines.pop(0)
+                            
+                        if progress_match:
+                            pct_val = float(progress_match.group(1))
+                            pct = base_progress + (pct_val / 100.0) * progress_weight
+                            progress_cb(min(99.0, pct), f"Rendering {label.lower()}... {pct_val:.1f}%")
+                        elif bundle_regex.search(stripped):
+                            progress_cb(base_progress, f"Bundling complete. Starting {label.lower()} render...")
+                else:
+                    buffer += char
+
+            process.wait()
+
+            if hasattr(run_node_process, '_last_logged_pct'):
+                del run_node_process._last_logged_pct
+
+            if process.returncode != 0:
+                error_details = "\n".join(last_output_lines)
+                raise RuntimeError(f"{label} process failed with exit code {process.returncode}.\nLast output:\n{error_details}")
+
+        except Exception as e:
+            raise e
+
+    def run_ffmpeg(cmd, base_progress, progress_weight):
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            universal_newlines=True,
+            startupinfo=startupinfo
+        )
+        
+        frame_regex = re.compile(r"frame=\s*(\d+)")
+        last_logged_pct = -1
         last_output_lines = []
+        buffer = ""
+        
         while True:
             if cancel_event.is_set():
-                logger.warning("Render cancelled by user. Terminating Remotion process.")
                 process.terminate()
-                try:
-                    process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    process.kill()
+                try: process.wait(timeout=3)
+                except: process.kill()
                 raise InterruptedError("Cancelled")
-
+                
             char = process.stdout.read(1)
             if not char and process.poll() is not None:
                 break
@@ -241,70 +354,117 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             if char in ('\r', '\n'):
                 line = buffer
                 buffer = ""
-                if not line.strip():
-                    continue
-
+                if not line.strip(): continue
                 stripped = line.strip()
-                if stripped:
-                    progress_match = progress_regex.search(stripped)
-                    
-                    # Throttle progress logs (only log every 5%)
-                    skip_log = False
-                    if progress_match:
-                        pct_val = float(progress_match.group(1))
-                        if not hasattr(render_pipeline, '_last_logged_pct'):
-                            render_pipeline._last_logged_pct = -1
-                        if abs(pct_val - render_pipeline._last_logged_pct) < 5.0 and pct_val < 100:
-                            skip_log = True
-                        else:
-                            render_pipeline._last_logged_pct = pct_val
-
-                    if not skip_log:
-                        logger.info(f"[Remotion]: {stripped}")
+                
+                last_output_lines.append(stripped)
+                if len(last_output_lines) > 20: last_output_lines.pop(0)
+                
+                match = frame_regex.search(stripped)
+                if match and total_frames > 0:
+                    f = int(match.group(1))
+                    pct_val = min(100.0, (f / total_frames) * 100.0)
+                    if pct_val - last_logged_pct >= 5.0 or pct_val >= 100:
+                        last_logged_pct = pct_val
+                        logger.info(f"[FFmpeg]: {stripped}")
                         
-                    # Always append to error output buffer in case it fails
-                    last_output_lines.append(stripped)
-                    if len(last_output_lines) > 20:
-                        last_output_lines.pop(0)
-                        
-                    # Parse progress and update callback
-                    if progress_match:
-                        pct_val = float(progress_match.group(1))
-                        # Map render progress (0-100%) to pipeline progress (5-99%)
-                        pct = 5.0 + (pct_val / 100.0) * 94.0
-                        progress_cb(min(99.0, pct), f"Rendering... {pct_val:.1f}%")
-                    elif bundle_regex.search(stripped):
-                        progress_cb(5.0, "Bundling complete. Starting render...")
-                    elif "Bundling" in stripped:
-                        progress_cb(3.0, "Bundling Remotion project...")
-                    elif "Selecting composition" in stripped:
-                        progress_cb(4.0, "Preparing composition...")
+                    pct = base_progress + (pct_val / 100.0) * progress_weight
+                    progress_cb(min(99.0, pct), f"Muxing video... {pct_val:.1f}%")
             else:
                 buffer += char
-
+                
         process.wait()
-
-        # Clean up the function-level progress tracker
-        if hasattr(render_pipeline, '_last_logged_pct'):
-            del render_pipeline._last_logged_pct
-
         if process.returncode != 0:
             error_details = "\n".join(last_output_lines)
-            raise RuntimeError(f"Remotion render failed with exit code {process.returncode}.\nLast output:\n{error_details}")
+            raise RuntimeError(f"FFmpeg failed with exit code {process.returncode}.\nLast output:\n{error_details}")
 
-    except Exception as e:
-        if output_mp4_path.exists():
-            try:
-                output_mp4_path.unlink()
-            except Exception:
-                pass
-        raise e
+    base_node_cmd = [
+        node_exe,
+        str(render_script),
+        "--props", abs_props_path,
+        "--fps", str(fps),
+        "--codec", render_codec,
+        "--crf", str(render_crf),
+        "--scale", scale_arg,
+        "--concurrency", concurrency_arg,
+        "--bundle-dir", abs_bundle_dir,
+    ]
+    if ffmpeg_exe.exists(): base_node_cmd.extend(["--ffmpeg", str(ffmpeg_exe.resolve())])
+    if ffprobe_exe.exists(): base_node_cmd.extend(["--ffprobe", str(ffprobe_exe.resolve())])
+    if render_hardware == "cuda": base_node_cmd.extend(["--hw-accel", "if-possible"])
+    else: base_node_cmd.extend(["--hw-accel", "disable"])
+
+    # Phase 1: Render Frames
+    if highest_frame < total_frames - 1:
+        progress_cb(10.0, "Starting frame rendering...")
+        cmd_frames = list(base_node_cmd)
+        cmd_frames.extend([
+            "--mode", "frames",
+            "--frames-dir", str(frames_dir.resolve()).replace('\\', '/')
+        ])
+        if highest_frame >= 0:
+            cmd_frames.extend(["--resume-from", str(highest_frame + 1)])
+            
+        logger.info(f"Executing frames render: {' '.join(cmd_frames)}")
+        run_node_process(cmd_frames, progress_weight=70.0, base_progress=10.0, label="Frames")
+    else:
+        logger.info("All frames already rendered. Skipping frame render phase.")
+
+    # Phase 2: Render Audio
+    if not cached_audio_path.exists():
+        progress_cb(80.0, "Extracting audio track...")
+        cmd_audio = list(base_node_cmd)
+        cmd_audio.extend([
+            "--mode", "audio",
+            "--output", str(cached_audio_path.resolve()).replace('\\', '/')
+        ])
+        logger.info(f"Executing audio render: {' '.join(cmd_audio)}")
+        run_node_process(cmd_audio, progress_weight=10.0, base_progress=80.0, label="Audio")
+    else:
+        logger.info("Audio already extracted. Skipping audio render phase.")
+
+    # Phase 3: FFmpeg Muxing
+    progress_cb(90.0, "Muxing final video...")
+    ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
+    
+    # Auto-detect frame padding
+    frame_files_list = list(frames_dir.glob("element-*.webp"))
+    if not frame_files_list:
+        raise RuntimeError(f"No frames found in {frames_dir}")
+        
+    sample_name = frame_files_list[0].name
+    match = re.search(r"element-(\d+)\.webp", sample_name)
+    if match:
+        padding = len(match.group(1))
+        frame_input_pattern = f"element-%0{padding}d.webp"
+    else:
+        frame_input_pattern = "element-%04d.webp"
+
+    ffmpeg_cmd = [
+        ffmpeg_bin, "-y",
+        "-threads", str(max(1, (os.cpu_count() or 4) - 1)),
+        "-framerate", str(fps),
+        "-i", str(frames_dir / frame_input_pattern),
+        "-i", str(cached_audio_path),
+        "-c:v", "libx264" if render_codec == "h264" else render_codec,
+        "-preset", "fast",
+        "-crf", str(render_crf),
+        "-movflags", "+faststart",
+        "-c:a", "aac",
+        "-b:a", "256k",
+        "-pix_fmt", "yuv420p",
+        str(output_mp4_path)
+    ]
+    
+    logger.info(f"Running FFmpeg muxing: {' '.join(ffmpeg_cmd)}")
+    run_ffmpeg(ffmpeg_cmd, base_progress=90.0, progress_weight=9.0)
+
+    # Cleanup frames after successful mux
+    shutil.rmtree(frames_dir, ignore_errors=True)
 
     if not output_mp4_path.exists():
-        error_details = "\n".join(last_output_lines)
-        raise FileNotFoundError(f"Remotion compiler completed but output file was not found at: {output_mp4_path}\nLast output before crash:\n{error_details}")
+        raise FileNotFoundError(f"Pipeline completed but output file was not found at: {output_mp4_path}")
 
     update_project(project_dict['id'], video_path=str(output_mp4_path))
     progress_cb(100.0, "Video compilation complete!")
     logger.info(f"Video compiled successfully! MP4 exported to: {output_mp4_path}")
-

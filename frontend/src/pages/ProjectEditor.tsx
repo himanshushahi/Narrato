@@ -58,16 +58,16 @@ export const ProjectEditor: React.FC = () => {
       const type = manifestScene.section_type;
       let liveSubVisuals: any[] = [];
 
-      if (type === 'introduction' && scriptData.introduction) {
-        liveSubVisuals = scriptData.introduction.sub_visuals || [];
-      } else if (type === 'conclusion' && scriptData.conclusion) {
-        liveSubVisuals = scriptData.conclusion.sub_visuals || [];
-      } else if (type === 'scene' && scriptData.scenes) {
+      if (type === 'introduction' && scriptData?.introduction) {
+        liveSubVisuals = scriptData.introduction?.sub_visuals || [];
+      } else if (type === 'conclusion' && scriptData?.conclusion) {
+        liveSubVisuals = scriptData.conclusion?.sub_visuals || [];
+      } else if (type === 'scene' && Array.isArray(scriptData?.scenes)) {
         const currentIdx = sceneCounter;
         sceneCounter++;
         const scriptScene = scriptData.scenes[currentIdx];
         if (scriptScene) {
-          liveSubVisuals = scriptScene.sub_visuals || [];
+          liveSubVisuals = scriptScene?.sub_visuals || [];
         }
       }
 
@@ -305,15 +305,15 @@ export const ProjectEditor: React.FC = () => {
       const type = manifestScene.section_type;
       let liveSubVisuals: any[] = [];
 
-      if (type === 'introduction' && scriptData.introduction) {
-        liveSubVisuals = scriptData.introduction.sub_visuals || [];
-      } else if (type === 'conclusion' && scriptData.conclusion) {
-        liveSubVisuals = scriptData.conclusion.sub_visuals || [];
-      } else if (type === 'scene' && scriptData.scenes) {
+      if (type === 'introduction' && scriptData?.introduction) {
+        liveSubVisuals = scriptData.introduction?.sub_visuals || [];
+      } else if (type === 'conclusion' && scriptData?.conclusion) {
+        liveSubVisuals = scriptData.conclusion?.sub_visuals || [];
+      } else if (type === 'scene' && Array.isArray(scriptData?.scenes)) {
         const scriptScene = scriptData.scenes[sceneCounter];
         sceneCounter++;
         if (scriptScene) {
-          liveSubVisuals = scriptScene.sub_visuals || [];
+          liveSubVisuals = scriptScene?.sub_visuals || [];
         }
       }
 
@@ -471,16 +471,16 @@ export const ProjectEditor: React.FC = () => {
           const type = manifestScene.section_type;
           let liveSubVisuals: any[] = [];
 
-          if (type === 'introduction' && scriptData.introduction) {
-            liveSubVisuals = scriptData.introduction.sub_visuals || [];
-          } else if (type === 'conclusion' && scriptData.conclusion) {
-            liveSubVisuals = scriptData.conclusion.sub_visuals || [];
-          } else if (type === 'scene' && scriptData.scenes) {
+          if (type === 'introduction' && scriptData?.introduction) {
+            liveSubVisuals = scriptData.introduction?.sub_visuals || [];
+          } else if (type === 'conclusion' && scriptData?.conclusion) {
+            liveSubVisuals = scriptData.conclusion?.sub_visuals || [];
+          } else if (type === 'scene' && Array.isArray(scriptData?.scenes)) {
             const currentIdx = sceneCounter;
             sceneCounter++;
             const scriptScene = scriptData.scenes[currentIdx];
             if (scriptScene) {
-              liveSubVisuals = scriptScene.sub_visuals || [];
+              liveSubVisuals = scriptScene?.sub_visuals || [];
             }
           }
 
@@ -1071,14 +1071,15 @@ export const ProjectEditor: React.FC = () => {
                               >
                                 <CustomTextarea
                                   rows={3}
-                                  value={scriptData.introduction.hook}
+                                  value={scriptData.introduction?.hook || ''}
                                   onChange={(e) => {
                                     const copy = { ...scriptData };
+                                    copy.introduction = copy.introduction || {};
                                     copy.introduction.hook = e.target.value;
                                     setScriptData(copy);
                                   }}
                                 />
-                                <SubVisualsEditor subVisuals={scriptData.introduction.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; copy.introduction.sub_visuals = newSubs; setScriptData(copy); }} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
+                                <SubVisualsEditor subVisuals={scriptData.introduction?.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; copy.introduction = copy.introduction || {}; copy.introduction.sub_visuals = newSubs; setScriptData(copy); }} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
 
                                 {/* LLM Rewrite sub-section */}
                                 <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1112,8 +1113,8 @@ export const ProjectEditor: React.FC = () => {
                                 transition={{ duration: 0.15 }}
                                 className="space-y-2"
                               >
-                                <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.introduction.hook}</p>
-                                <SubVisualsView subVisuals={scriptData.introduction.sub_visuals || []} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
+                                <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.introduction?.hook || ''}</p>
+                                <SubVisualsView subVisuals={scriptData.introduction?.sub_visuals || []} timings={introTimings} activeIdx={introActiveSubIdx} onSeek={handleSeek} />
                               </motion.div>
                             )}
                           </AnimatePresence>
@@ -1122,7 +1123,7 @@ export const ProjectEditor: React.FC = () => {
                     })()}
 
                     {/* Scenes Map */}
-                    {scriptData.scenes.map((scene: any, idx: number) => {
+                    {(scriptData.scenes || []).map((scene: any, idx: number) => {
                       const cardKey = `scene_${idx}`;
                       const isEditing = editingCard === cardKey;
 
@@ -1195,11 +1196,11 @@ export const ProjectEditor: React.FC = () => {
                                   value={scene.narration}
                                   onChange={(e) => {
                                     const copy = { ...scriptData };
-                                    copy.scenes[idx].narration = e.target.value;
+                                    if(copy.scenes && copy.scenes[idx]) copy.scenes[idx].narration = e.target.value;
                                     setScriptData(copy);
                                   }}
                                 />
-                                <SubVisualsEditor subVisuals={scene.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
+                                <SubVisualsEditor subVisuals={scene?.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; if(copy.scenes && copy.scenes[idx]) copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
 
                                 {/* AI Rewrite controls */}
                                 <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1244,7 +1245,7 @@ export const ProjectEditor: React.FC = () => {
 
                     {/* Conclusion Card */}
                     {(() => {
-                      const concSceneIdx = (scriptData.introduction ? 1 : 0) + scriptData.scenes.length;
+                      const concSceneIdx = (scriptData.introduction ? 1 : 0) + (scriptData.scenes?.length || 0);
                       const concTimings = sceneTimings[concSceneIdx]?.subs;
                       const isConcActive = activeSceneIdx === concSceneIdx;
                       const concActiveSubIdx = isConcActive ? activeSubIdx : -1;
@@ -1307,9 +1308,10 @@ export const ProjectEditor: React.FC = () => {
                                 <CustomTextarea
                                   label="Summary Text"
                                   rows={2}
-                                  value={scriptData.conclusion.summary}
+                                  value={scriptData.conclusion?.summary || ''}
                                   onChange={(e) => {
                                     const copy = { ...scriptData };
+                                    copy.conclusion = copy.conclusion || {};
                                     copy.conclusion.summary = e.target.value;
                                     setScriptData(copy);
                                   }}
@@ -1317,14 +1319,15 @@ export const ProjectEditor: React.FC = () => {
                                 <CustomTextarea
                                   label="Call To Action (CTA)"
                                   rows={2}
-                                  value={scriptData.conclusion.cta}
+                                  value={scriptData.conclusion?.cta || ''}
                                   onChange={(e) => {
                                     const copy = { ...scriptData };
+                                    copy.conclusion = copy.conclusion || {};
                                     copy.conclusion.cta = e.target.value;
                                     setScriptData(copy);
                                   }}
                                 />
-                                <SubVisualsEditor subVisuals={scriptData.conclusion.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; copy.conclusion.sub_visuals = newSubs; setScriptData(copy); }} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
+                                <SubVisualsEditor subVisuals={scriptData.conclusion?.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; copy.conclusion = copy.conclusion || {}; copy.conclusion.sub_visuals = newSubs; setScriptData(copy); }} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
 
                                 {/* AI Rewrite controls */}
                                 <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1358,9 +1361,9 @@ export const ProjectEditor: React.FC = () => {
                                 transition={{ duration: 0.15 }}
                                 className="space-y-2"
                               >
-                                <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.conclusion.summary}</p>
-                                <p className="text-xs text-amber-500 font-bold leading-relaxed font-sans">{scriptData.conclusion.cta}</p>
-                                <SubVisualsView subVisuals={scriptData.conclusion.sub_visuals || []} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
+                                <p className="text-xs text-stone-200 leading-relaxed font-sans">{scriptData.conclusion?.summary || ''}</p>
+                                <p className="text-xs text-amber-500 font-bold leading-relaxed font-sans">{scriptData.conclusion?.cta || ''}</p>
+                                <SubVisualsView subVisuals={scriptData.conclusion?.sub_visuals || []} timings={concTimings} activeIdx={concActiveSubIdx} onSeek={handleSeek} />
                               </motion.div>
                             )}
                           </AnimatePresence>

@@ -14,8 +14,12 @@ export const TRANSITION_TYPE_OPTIONS = [
   { value: 'subtle_slide', label: 'Subtle Slide (Default)' },
   { value: 'fade', label: 'Fade' },
   { value: 'zoom_in', label: 'Zoom In' },
+  { value: 'zoom_out', label: 'Zoom Out' },
   { value: 'slide_left', label: 'Slide Left' },
   { value: 'slide_right', label: 'Slide Right' },
+  { value: 'slide_up', label: 'Slide Up' },
+  { value: 'slide_down', label: 'Slide Down' },
+  { value: 'glitch', label: 'Glitch' },
   { value: 'none', label: 'None (Cut)' },
 ];
 

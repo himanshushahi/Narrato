@@ -20,7 +20,7 @@ KOKORO_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/downlo
 def check_kokoro_assets():
     return KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists()
 
-def download_file_with_progress(url, dest_path, progress_callback=None):
+def download_file_with_progress(url, dest_path, progress_callback=None, cancel_event=None):
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Downloading {url} to {dest_path}")
     
@@ -38,6 +38,8 @@ def download_file_with_progress(url, dest_path, progress_callback=None):
             
             with open(dest_path, "wb") as f:
                 while True:
+                    if cancel_event and cancel_event.is_set():
+                        raise InterruptedError("Cancelled")
                     buffer = response.read(block_size)
                     if not buffer:
                         break
@@ -167,7 +169,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     sections = []
     
     # Intro
-    if "introduction" in script and "hook" in script["introduction"]:
+    if script.get("introduction") and isinstance(script["introduction"], dict) and "hook" in script["introduction"]:
         sections.append({
             "type": "introduction",
             "title": "Introduction",
@@ -175,7 +177,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         })
         
     # Scenes
-    for scene in script.get("scenes", []):
+    for scene in script.get("scenes", []) or []:
         scene_num = scene.get("scene_number", 0)
         sections.append({
             "type": "scene",
@@ -184,7 +186,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         })
         
     # Conclusion
-    if "conclusion" in script:
+    if script.get("conclusion") and isinstance(script["conclusion"], dict):
         conclusion_text = f"{script['conclusion'].get('summary', '')} {script['conclusion'].get('cta', '')}"
         sections.append({
             "type": "conclusion",
@@ -221,10 +223,20 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         seg_file = voice_dir / f"segment_{idx:03d}.wav"
         
         # Synthesize audio segment
-        if engine == "kokoro":
-            generate_kokoro_tts(sec['text'], str(seg_file), voice=voice, speed=speed, lang=kokoro_lang)
-        else:
-            generate_edge_tts(sec['text'], str(seg_file), voice=voice, speed=str(speed), pitch=pitch)
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            if engine == "kokoro":
+                future = executor.submit(generate_kokoro_tts, sec['text'], str(seg_file), voice=voice, speed=speed, lang=kokoro_lang)
+            else:
+                future = executor.submit(generate_edge_tts, sec['text'], str(seg_file), voice=voice, speed=str(speed), pitch=pitch)
+                
+            while not future.done():
+                if cancel_event.is_set():
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise InterruptedError("Cancelled")
+                import time
+                time.sleep(0.5)
+            future.result()
 
         duration = get_audio_duration(str(seg_file))
         temp_files.append(str(seg_file))

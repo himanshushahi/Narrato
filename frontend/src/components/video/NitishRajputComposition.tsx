@@ -147,7 +147,7 @@ export const NitishRajputComposition = ({
 
       {/* 3. Chronological Scene Sequences */}
       {scenes.map((scene, idx) => {
-        const durationFrames = Math.max(30, Math.ceil(scene.duration * 30));
+        const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
         const currentOffset = frameOffset;
         frameOffset += durationFrames;
 
