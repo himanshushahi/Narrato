@@ -174,15 +174,26 @@ def create_project(name, prompt, export_folder, language="hi", style="nitish_raj
     bg_music_path = get_setting("bg_music_path") or ""
     bg_music_volume = float(get_setting("bg_music_volume") or 0.15)
     
-    # Handle default subtitle preset
-    default_preset_id = get_setting("default_subtitle_preset_id")
+    # Handle default styling presets
+    project_settings_dict = {}
+    
+    default_sub_preset_id = get_setting("default_subtitle_preset_id")
     subtitle_presets = get_setting("subtitle_presets") or []
-    project_settings = None
-    if default_preset_id and subtitle_presets:
+    if default_sub_preset_id and subtitle_presets:
         for preset in subtitle_presets:
-            if preset.get("id") == default_preset_id:
-                project_settings = json.dumps(preset.get("settings", {}))
+            if preset.get("id") == default_sub_preset_id:
+                project_settings_dict.update(preset.get("settings", {}))
                 break
+                
+    default_brand_preset_id = get_setting("default_branding_preset_id")
+    branding_presets = get_setting("branding_presets") or []
+    if default_brand_preset_id and branding_presets:
+        for preset in branding_presets:
+            if preset.get("id") == default_brand_preset_id:
+                project_settings_dict.update(preset.get("settings", {}))
+                break
+                
+    project_settings = json.dumps(project_settings_dict) if project_settings_dict else None
         
     with get_db_connection() as conn:
         conn.execute("""

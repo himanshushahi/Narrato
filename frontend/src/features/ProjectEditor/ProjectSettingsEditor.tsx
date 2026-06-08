@@ -9,16 +9,30 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 
+const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor'];
+const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'chart_primary_color', 'chart_text_color'];
+
+const extractKeys = (obj: any, keys: string[]) => {
+  return keys.reduce((acc: any, key) => {
+    if (obj[key] !== undefined) acc[key] = obj[key];
+    return acc;
+  }, {});
+};
+
 export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, onUpdate: (newSettings: any) => void }) => {
   const [downloading, setDownloading] = useState(false);
   const [presetName, setPresetName] = useState("");
   const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [brandingPresetName, setBrandingPresetName] = useState("");
+  const [selectedBrandingPresetId, setSelectedBrandingPresetId] = useState("");
   const { downloadFont } = useProjectStore();
   const { addToast } = useUIStore();
   const { settings: globalSettings, saveSettings } = useSettingsStore();
 
   const presets = globalSettings?.subtitle_presets || [];
   const defaultPresetId = globalSettings?.default_subtitle_preset_id;
+  const brandingPresets = globalSettings?.branding_presets || [];
+  const defaultBrandingPresetId = globalSettings?.default_branding_preset_id;
 
   const handleSavePreset = async () => {
     const trimmedName = presetName.trim();
@@ -29,18 +43,19 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
 
     const existingIndex = presets.findIndex((p: any) => p.name.toLowerCase() === trimmedName.toLowerCase());
     let updatedPresets = [...presets];
+    const extractedSettings = extractKeys(settings, SUBTITLE_KEYS);
 
     if (existingIndex >= 0) {
       updatedPresets[existingIndex] = {
         ...updatedPresets[existingIndex],
-        settings: { ...settings }
+        settings: extractedSettings
       };
       addToast(`Preset "${trimmedName}" updated!`, "success");
     } else {
       updatedPresets.push({
         id: crypto.randomUUID(),
         name: trimmedName,
-        settings: { ...settings }
+        settings: extractedSettings
       });
       addToast(`Preset "${trimmedName}" saved!`, "success");
     }
@@ -52,6 +67,39 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
     setPresetName("");
   };
 
+  const handleSaveBrandingPreset = async () => {
+    const trimmedName = brandingPresetName.trim();
+    if (!trimmedName) {
+      addToast("Please enter a preset name", "error");
+      return;
+    }
+
+    const existingIndex = brandingPresets.findIndex((p: any) => p.name.toLowerCase() === trimmedName.toLowerCase());
+    let updatedPresets = [...brandingPresets];
+    const extractedSettings = extractKeys(settings, BRANDING_KEYS);
+
+    if (existingIndex >= 0) {
+      updatedPresets[existingIndex] = {
+        ...updatedPresets[existingIndex],
+        settings: extractedSettings
+      };
+      addToast(`Branding Preset "${trimmedName}" updated!`, "success");
+    } else {
+      updatedPresets.push({
+        id: crypto.randomUUID(),
+        name: trimmedName,
+        settings: extractedSettings
+      });
+      addToast(`Branding Preset "${trimmedName}" saved!`, "success");
+    }
+
+    await saveSettings({
+      ...globalSettings,
+      branding_presets: updatedPresets
+    });
+    setBrandingPresetName("");
+  };
+
   const handleLoadPreset = (presetId: string) => {
     setSelectedPresetId(presetId);
     if (!presetId) {
@@ -60,9 +108,23 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
     }
     const preset = presets.find((p: any) => p.id === presetId);
     if (preset) {
-      onUpdate(preset.settings);
+      onUpdate({ ...settings, ...preset.settings });
       setPresetName(preset.name);
       addToast(`Loaded preset "${preset.name}"`, "success");
+    }
+  };
+
+  const handleLoadBrandingPreset = (presetId: string) => {
+    setSelectedBrandingPresetId(presetId);
+    if (!presetId) {
+      setBrandingPresetName("");
+      return;
+    }
+    const preset = brandingPresets.find((p: any) => p.id === presetId);
+    if (preset) {
+      onUpdate({ ...settings, ...preset.settings });
+      setBrandingPresetName(preset.name);
+      addToast(`Loaded branding preset "${preset.name}"`, "success");
     }
   };
 
@@ -78,6 +140,18 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
     addToast("Preset deleted", "info");
   };
 
+  const handleDeleteBrandingPreset = async (presetId: string) => {
+    const updatedPresets = brandingPresets.filter((p: any) => p.id !== presetId);
+    const isDefault = defaultBrandingPresetId === presetId;
+
+    await saveSettings({
+      ...globalSettings,
+      branding_presets: updatedPresets,
+      default_branding_preset_id: isDefault ? undefined : defaultBrandingPresetId
+    });
+    addToast("Branding preset deleted", "info");
+  };
+
   const handleSetDefaultPreset = async (presetId: string) => {
     const isCurrentlyDefault = defaultPresetId === presetId;
     await saveSettings({
@@ -88,6 +162,19 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
       addToast("Set as default preset", "success");
     } else {
       addToast("Removed default preset", "info");
+    }
+  };
+
+  const handleSetDefaultBrandingPreset = async (presetId: string) => {
+    const isCurrentlyDefault = defaultBrandingPresetId === presetId;
+    await saveSettings({
+      ...globalSettings,
+      default_branding_preset_id: isCurrentlyDefault ? undefined : presetId
+    });
+    if (!isCurrentlyDefault) {
+      addToast("Set as default branding preset", "success");
+    } else {
+      addToast("Removed default branding preset", "info");
     }
   };
 
@@ -261,6 +348,68 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
       {/* GLOBAL BRANDING SECTION */}
       <div>
         <h3 className="text-xs font-black text-stone-300 uppercase tracking-widest font-sans mb-3">Global Branding</h3>
+
+        {/* BRANDING PRESETS SECTION */}
+        <div className="bg-stone-950 p-3 rounded-lg border border-stone-800 space-y-3 mb-4">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Branding Presets</label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <CustomSelect
+                options={[
+                  { value: '', label: 'Load a preset...' },
+                  ...brandingPresets.map((p: any) => ({ value: p.id, label: p.name }))
+                ]}
+                value={selectedBrandingPresetId}
+                onChange={handleLoadBrandingPreset}
+              />
+            </div>
+
+            <div className="flex items-center gap-1 flex-1">
+              <input
+                type="text"
+                placeholder="Preset Name..."
+                value={brandingPresetName}
+                onChange={(e) => setBrandingPresetName(e.target.value)}
+                className="w-full bg-stone-900 border border-stone-700 rounded-md px-3 py-2 text-sm text-stone-200 placeholder-stone-600 focus:outline-none focus:border-[var(--color-accent-primary)]/50 focus:ring-1 focus:ring-[var(--color-accent-primary)]/50 transition-colors"
+              />
+              <button
+                onClick={handleSaveBrandingPreset}
+                className="p-2 bg-[var(--color-accent-primary)] cursor-pointer hover:bg-[var(--color-accent-light)] hover:text-[var(--color-brand-950)] text-white rounded-md transition-colors"
+                title="Save current branding as preset"
+              >
+                <VscSave />
+              </button>
+            </div>
+          </div>
+
+          {brandingPresets.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-800/50">
+              {brandingPresets.map((p: any) => (
+                <div key={p.id} className="flex items-center gap-1 bg-stone-900 border border-stone-700 rounded pl-2 pr-1 py-1 text-xs text-stone-300">
+                  <span className="truncate max-w-[120px] font-medium">{p.name}</span>
+                  <button
+                    onClick={() => handleSetDefaultBrandingPreset(p.id)}
+                    className={`p-1 rounded hover:bg-stone-800 transition-colors ${defaultBrandingPresetId === p.id ? 'text-[var(--color-accent-primary)]' : 'text-stone-500 hover:text-stone-300'}`}
+                    title={defaultBrandingPresetId === p.id ? "Remove as default" : "Set as default for new projects"}
+                  >
+                    <VscStarFull />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteBrandingPreset(p.id)}
+                    className="p-1 rounded hover:bg-red-900/50 hover:text-red-400 text-stone-500 transition-colors"
+                    title="Delete preset"
+                  >
+                    <VscTrash />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <h4 className="text-[9px] text-stone-500 uppercase font-bold tracking-wider mb-2">Chapter Name</h4>

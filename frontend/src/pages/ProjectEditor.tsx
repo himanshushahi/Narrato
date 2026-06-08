@@ -10,7 +10,8 @@ import { AnimatedTabs } from '../components/ui/AnimatedTabs';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscPlay, VscSave, VscFlame, VscArrowLeft, VscSparkle,
-  VscPulse, VscCheck, VscError, VscLoading, VscCircleFilled, VscWarning
+  VscPulse, VscCheck, VscError, VscLoading, VscCircleFilled, VscWarning,
+  VscEdit, VscTrash
 } from 'react-icons/vsc';
 
 import { PIPELINE_STAGES } from '../features/ProjectEditor/constants';
@@ -24,7 +25,7 @@ export const ProjectEditor: React.FC = () => {
   const {
     selectedProject, tasks, fetchProjectDetail, startPipeline, cancelPipeline, queue, updateProject, downloadFont
   } = useProjectStore();
-  const { addToast } = useUIStore();
+  const { addToast, showConfirm } = useUIStore();
   const { settings } = useSettingsStore();
 
   const [scriptData, setScriptData] = useState<any>(null);
@@ -44,6 +45,7 @@ export const ProjectEditor: React.FC = () => {
   const [originalManifestData, setOriginalManifestData] = useState<any[]>([]);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const [savingCardKey, setSavingCardKey] = useState<string | null>(null);
+  const [sceneToDelete, setSceneToDelete] = useState<number | null>(null);
   const [wasActive, setWasActive] = useState(false);
   const [reloadKey] = useState(0);
 
@@ -178,11 +180,11 @@ export const ProjectEditor: React.FC = () => {
 
   const handleSettingsUpdate = (newSettings: any) => {
     setLocalProjectSettings(newSettings);
-    
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
+
     saveTimeoutRef.current = setTimeout(async () => {
       if (selectedProject?.id) {
         await updateProject(selectedProject.id, { project_settings: JSON.stringify(newSettings) });
@@ -454,6 +456,39 @@ export const ProjectEditor: React.FC = () => {
       console.error(err);
       addToast("Failed to start pipeline", 'error');
     }
+  };
+
+  const confirmDeleteScene = async () => {
+    if (sceneToDelete === null || !scriptData || !manifestData || !id || !selectedProject.script_path) return;
+    const idx = sceneToDelete;
+
+    const newScriptData = { ...scriptData };
+    if (newScriptData.scenes) {
+      newScriptData.scenes.splice(idx, 1);
+    }
+
+    // Find the corresponding scene in manifestData and remove it
+    let sceneCounter = 0;
+    const newManifestData = manifestData.filter((item: any) => {
+      if (item.section_type === 'scene') {
+        if (sceneCounter === idx) {
+          sceneCounter++;
+          return false; // Remove this one
+        }
+        sceneCounter++;
+      }
+      return true;
+    });
+
+    const success = await callEel<any>('save_project_with_cleanup', id, newScriptData, newManifestData);
+    if (success) {
+      await loadFiles(id);
+      addToast("Scene deleted successfully! Please resume pipeline to sync audio.", 'success');
+      setScriptChangedAlert(true);
+    } else {
+      addToast("Failed to delete scene.", 'error');
+    }
+    setSceneToDelete(null);
   };
 
   const handleSaveCard = async (cardKey?: string, index?: number) => {
@@ -1195,12 +1230,22 @@ export const ProjectEditor: React.FC = () => {
                                   </button>
                                 </>
                               ) : (
-                                <button
-                                  onClick={() => handleStartEdit(cardKey)}
-                                  className="text-[10px] text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer"
-                                >
-                                  Edit
-                                </button>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => handleStartEdit(cardKey)}
+                                    className="text-[10px] flex items-center gap-1 text-stone-400 hover:text-white px-2 py-1 rounded border border-stone-800 bg-stone-950/30 cursor-pointer transition-colors"
+                                    title="Edit Scene"
+                                  >
+                                    <VscEdit /> Edit
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setSceneToDelete(idx); }}
+                                    className="text-[10px] flex items-center justify-center text-stone-500 hover:text-red-400 p-1.5 rounded border border-transparent hover:border-red-900/50 hover:bg-red-950/30 cursor-pointer transition-colors"
+                                    title="Delete Scene"
+                                  >
+                                    <VscTrash />
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -1221,7 +1266,7 @@ export const ProjectEditor: React.FC = () => {
                                   value={scene.title || ''}
                                   onChange={(e) => {
                                     const copy = { ...scriptData };
-                                    if(copy.scenes && copy.scenes[idx]) copy.scenes[idx].title = e.target.value;
+                                    if (copy.scenes && copy.scenes[idx]) copy.scenes[idx].title = e.target.value;
                                     setScriptData(copy);
                                   }}
                                 />
@@ -1230,11 +1275,11 @@ export const ProjectEditor: React.FC = () => {
                                   value={scene.narration}
                                   onChange={(e) => {
                                     const copy = { ...scriptData };
-                                    if(copy.scenes && copy.scenes[idx]) copy.scenes[idx].narration = e.target.value;
+                                    if (copy.scenes && copy.scenes[idx]) copy.scenes[idx].narration = e.target.value;
                                     setScriptData(copy);
                                   }}
                                 />
-                                <SubVisualsEditor subVisuals={scene?.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; if(copy.scenes && copy.scenes[idx]) copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
+                                <SubVisualsEditor subVisuals={scene?.sub_visuals || []} onChange={(newSubs) => { const copy = { ...scriptData }; if (copy.scenes && copy.scenes[idx]) copy.scenes[idx].sub_visuals = newSubs; setScriptData(copy); }} timings={timings} activeIdx={activeSubIdxForScene} onSeek={handleSeek} />
 
                                 {/* AI Rewrite controls */}
                                 <div className="border-t border-stone-800/80 pt-3 mt-2">
@@ -1430,6 +1475,39 @@ export const ProjectEditor: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {sceneToDelete !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-stone-900 border border-stone-800 rounded-xl p-6 shadow-2xl max-w-sm w-full mx-4 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-red-600/80"></div>
+            <div className="flex items-start gap-4">
+              <div className="bg-red-500/10 text-red-500 p-3 rounded-full shrink-0">
+                <VscTrash className="text-xl" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-stone-200 font-sans tracking-tight mb-2">Delete Scene?</h3>
+                <p className="text-xs text-stone-400 leading-relaxed">
+                  Are you sure you want to permanently delete this scene? This will also remove any associated visual assets. This action cannot be undone.
+                </p>
+                <div className="flex items-center gap-3 mt-6">
+                  <button
+                    onClick={() => setSceneToDelete(null)}
+                    className="flex-1 px-4 py-2 text-xs font-bold text-stone-300 hover:text-white bg-stone-800 hover:bg-stone-700 rounded transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDeleteScene}
+                    className="flex-1 px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded shadow-sm shadow-red-900/20 transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
