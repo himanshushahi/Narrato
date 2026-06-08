@@ -26,34 +26,36 @@ def compute_hash(props_dict, render_settings):
     data_str = json.dumps(data, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
-def get_highest_contiguous_frame(frames_dir):
-    """Finds the highest contiguous frame-XXXXX.webp in the directory."""
+def get_missing_frame_ranges(frames_dir, total_frames):
+    """Finds all missing frame ranges from 0 to total_frames - 1."""
     if not frames_dir.exists():
-        return -1
+        return f"0-{total_frames - 1}"
     
-    frame_files = list(frames_dir.glob("element-*.webp"))
-    if not frame_files:
-        return -1
-        
-    frame_numbers = []
-    for f in frame_files:
+    existing_frames = set()
+    for f in frames_dir.glob("element-*.webp"):
         match = re.search(r"element-(\d+)\.webp", f.name)
         if match:
-            frame_numbers.append(int(match.group(1)))
+            existing_frames.add(int(match.group(1)))
             
-    if not frame_numbers:
-        return -1
-        
-    frame_numbers.sort()
+    missing_ranges = []
+    start = None
     
-    highest = -1
-    for i, num in enumerate(frame_numbers):
-        if num == highest + 1:
-            highest = num
+    for i in range(total_frames):
+        if i not in existing_frames:
+            if start is None:
+                start = i
         else:
-            break
-            
-    return highest
+            if start is not None:
+                missing_ranges.append(f"{start}-{i - 1}")
+                start = None
+                
+    if start is not None:
+        missing_ranges.append(f"{start}-{total_frames - 1}")
+        
+    if not missing_ranges:
+        return ""
+        
+    return ",".join(missing_ranges)
 
 def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering."""
@@ -176,14 +178,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         with open(hash_file, "w") as f:
             f.write(cache_hash)
 
-    highest_frame = get_highest_contiguous_frame(frames_dir)
-    if highest_frame >= 0:
-        for f in frames_dir.glob("element-*.webp"):
-            match = re.search(r"element-(\d+)\.webp", f.name)
-            if match and int(match.group(1)) > highest_frame:
-                logger.info(f"Deleting dangling frame: {f.name}")
-                f.unlink()
+    total_duration = sum(float(sc.get("duration") or 0.0) for sc in scenes)
+    import math
+    total_frames = max(fps * 5, math.ceil(total_duration * fps))
 
+    missing_ranges_str = get_missing_frame_ranges(frames_dir, total_frames)
+    if missing_ranges_str:
+        logger.info(f"Missing frame ranges to render: {missing_ranges_str}")
+    else:
+        logger.info("All frames are already rendered.")
     # Define output paths
     if project_dict.get('export_folder'):
         exports_dir = Path(project_dict['export_folder'])
@@ -217,8 +220,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     scale_map = {"720p": "0.6666666666666666", "1080p": "1", "1440p": "1.3333333333333333", "4k": "2"}
     scale_arg = scale_map.get(render_resolution.lower(), "1")
 
-    total_duration = sum(float(sc.get("duration") or 0.0) for sc in scenes)
-    total_frames = max(150, int(total_duration * fps))
+    total_duration_dup = sum(float(sc.get("duration") or 0.0) for sc in scenes)
+    total_frames_dup = max(fps * 5, math.ceil(total_duration_dup * fps))
 
     node_exe = get_node_path()
     bin_dir = frontend_dir.parent / "bin"
@@ -396,20 +399,21 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     else: base_node_cmd.extend(["--hw-accel", "disable"])
 
     # Phase 1: Render Frames
-    if highest_frame < total_frames - 1:
+    missing_ranges_str = get_missing_frame_ranges(frames_dir, total_frames)
+    if missing_ranges_str:
         progress_cb(10.0, "Starting frame rendering...")
         cmd_frames = list(base_node_cmd)
         cmd_frames.extend([
             "--mode", "frames",
             "--frames-dir", str(frames_dir.resolve()).replace('\\', '/')
         ])
-        if highest_frame >= 0:
-            cmd_frames.extend(["--resume-from", str(highest_frame + 1)])
-            
+        cmd_frames.extend(["--frames", missing_ranges_str])
+        
         logger.info(f"Executing frames render: {' '.join(cmd_frames)}")
         run_node_process(cmd_frames, progress_weight=70.0, base_progress=10.0, label="Frames")
     else:
         logger.info("All frames already rendered. Skipping frame render phase.")
+        progress_cb(80.0, "All frames already rendered.")
 
     # Phase 2: Render Audio
     if not cached_audio_path.exists():

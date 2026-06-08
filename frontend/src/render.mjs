@@ -49,14 +49,17 @@ function startAssetServer() {
             'Content-Length': chunksize,
             'Content-Type': fullPath.endsWith('.mp4') ? 'video/mp4' : 
                             fullPath.endsWith('.mp3') ? 'audio/mpeg' : 'application/octet-stream',
+            'Connection': 'close'
           };
           res.writeHead(206, head);
           file.pipe(res);
         } else {
           const head = {
+            'Accept-Ranges': 'bytes',
             'Content-Length': fileSize,
             'Content-Type': fullPath.endsWith('.mp4') ? 'video/mp4' : 
                             fullPath.endsWith('.mp3') ? 'audio/mpeg' : 'application/octet-stream',
+            'Connection': 'close'
           };
           res.writeHead(200, head);
           createReadStream(fullPath).pipe(res);
@@ -170,14 +173,17 @@ async function main() {
   composition.durationInFrames = durationInFrames;
   composition.fps = fps;
 
-  // Parse frame range
-  let frameRange = null;
+  // Parse frame ranges
+  let frameRanges = [];
   if (resumeFromArg) {
-    frameRange = [parseInt(resumeFromArg, 10), durationInFrames - 1];
+    frameRanges.push([parseInt(resumeFromArg, 10), durationInFrames - 1]);
   } else if (framesArg) {
-    const parts = framesArg.split("-");
-    if (parts.length === 2) {
-      frameRange = [parseInt(parts[0], 10), parseInt(parts[1], 10)];
+    const segments = framesArg.split(",");
+    for (const seg of segments) {
+      const parts = seg.split("-");
+      if (parts.length === 2) {
+        frameRanges.push([parseInt(parts[0], 10), parseInt(parts[1], 10)]);
+      }
     }
   }
 
@@ -208,7 +214,7 @@ async function main() {
 
   if (ffmpegExecutable) commonOptions.ffmpegExecutable = ffmpegExecutable;
   if (ffprobeExecutable) commonOptions.ffprobeExecutable = ffprobeExecutable;
-  if (frameRange) commonOptions.frameRange = frameRange;
+  // Frame range will be set per renderFrames call
 
   // ── Render ──────────────────────────────────────────────────────────────────
   console.log(`Rendering in ${mode} mode...`);
@@ -218,17 +224,25 @@ async function main() {
     if (mode === "frames") {
       if (!framesDir) throw new Error("--frames-dir is required for frames mode");
       
-      const totalToRender = frameRange ? (frameRange[1] - frameRange[0] + 1) : durationInFrames;
+      const ranges = frameRanges.length > 0 ? frameRanges : [[0, durationInFrames - 1]];
+      let totalToRender = 0;
+      for (const r of ranges) totalToRender += (r[1] - r[0] + 1);
       
-      await renderFrames({
-        ...commonOptions,
-        outputDir: resolve(framesDir),
-        imageFormat: "webp",
-        onFrameUpdate: (renderedCount) => {
-          const pct = ((renderedCount / totalToRender) * 100).toFixed(1);
-          process.stdout.write(`\rRender progress: ${pct}%  `);
-        },
-      });
+      let overallRendered = 0;
+      
+      for (const range of ranges) {
+        await renderFrames({
+          ...commonOptions,
+          frameRange: range,
+          outputDir: resolve(framesDir),
+          imageFormat: "webp",
+          onFrameUpdate: (renderedCount) => {
+            const pct = (((overallRendered + renderedCount) / totalToRender) * 100).toFixed(1);
+            process.stdout.write(`\rRender progress: ${pct}%  `);
+          },
+        });
+        overallRendered += (range[1] - range[0] + 1);
+      }
       console.log(`\nFrames rendered in ${((Date.now() - t1) / 1000).toFixed(1)}s: ${framesDir}`);
     } 
     else if (mode === "audio") {

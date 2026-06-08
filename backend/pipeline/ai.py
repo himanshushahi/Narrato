@@ -317,6 +317,9 @@ def fetch_real_news(query):
 
 def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     from backend.database.db import get_setting
+    from openai import OpenAI
+    import openai
+    
     llm_provider = get_setting("llm_provider") or "openai"
     
     if llm_provider == "nvidia":
@@ -339,35 +342,27 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     if not api_key:
         raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
         
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url.rstrip('/') if base_url else None
+    )
+    
+    kwargs = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "top_p": top_p,
+        "stream": True
     }
     
     if llm_provider == "nvidia":
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "top_p": top_p
-        }
+        kwargs["extra_body"] = {"guided_json": schema}
     else:
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "top_p": top_p,
-            "response_format": {"type": "json_object"}
-        }
+        kwargs["response_format"] = {"type": "json_object"}
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
@@ -377,33 +372,19 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
         try:
-            logger.info(f"Sending LLM request to {url} (Attempt {attempt+1}/{max_retries})...")
+            logger.info(f"Sending LLM request via OpenAI SDK (Attempt {attempt+1}/{max_retries})...")
             
-            data["stream"] = True
-            
-            # Use short connect timeout, longer read timeout between chunks
-            response = requests.post(url, headers=headers, json=data, stream=True, timeout=(15, 60))
-            response.raise_for_status()
+            response_stream = client.chat.completions.create(**kwargs)
             
             raw_content = ""
-            for line in response.iter_lines():
+            for chunk in response_stream:
                 if cancel_event.is_set():
-                    response.close()
+                    response_stream.close()
                     raise InterruptedError("Cancelled")
-                if line:
-                    decoded_line = line.decode('utf-8').strip()
-                    if decoded_line.startswith("data: "):
-                        decoded_line = decoded_line[6:]
-                    if decoded_line == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(decoded_line)
-                        if "choices" in chunk and len(chunk["choices"]) > 0:
-                            delta = chunk["choices"][0].get("delta", {})
-                            if "content" in delta and delta["content"]:
-                                raw_content += delta["content"]
-                    except Exception:
-                        pass
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta_content = chunk.choices[0].delta.content
+                    if delta_content:
+                        raw_content += delta_content
                         
             if not raw_content.strip():
                 raise ValueError("API returned an empty response. It may have failed internally.")
@@ -415,21 +396,24 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                 
             return parsed_json
             
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 429 and attempt < max_retries - 1:
+        except openai.RateLimitError as e:
+            if attempt < max_retries - 1:
                 import time
                 import random
                 sleep_time = (2 ** attempt) + random.uniform(0, 1)
                 logger.warning(f"Rate limited (429). Retrying in {sleep_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(sleep_time)
-            elif response.status_code == 400 and attempt < max_retries - 1 and "response_format" in data:
+            else:
+                raise e
+        except openai.BadRequestError as e:
+            if attempt < max_retries - 1 and "response_format" in kwargs:
                 logger.warning(f"Provider rejected request (HTTP 400). It might not support response_format. Stripping it and retrying... (Attempt {attempt+1}/{max_retries})")
-                del data["response_format"]
+                del kwargs["response_format"]
                 import time
                 time.sleep(1.0)
             else:
                 try:
-                    logger.error(f"HTTP Error {response.status_code}: {response.text}")
+                    logger.error(f"Bad Request Error: {e.response.text if hasattr(e, 'response') else e}")
                 except Exception:
                     pass
                 if attempt >= max_retries - 1:
@@ -674,12 +658,18 @@ def generate_chart_data(prompt):
     logger.info(f"Generating chart data for prompt: '{prompt}'")
     
     llm_provider = get_setting("llm_provider") or "openai"
-    api_key = get_setting("openai_api_key")
-    base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-    model = get_setting("openai_model") or "gpt-4o"
+    
+    if llm_provider == "nvidia":
+        api_key = get_setting("nvidia_api_key")
+        base_url = get_setting("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
+        model = get_setting("nvidia_model") or "meta/llama-3.1-8b-instruct"
+    else:
+        api_key = get_setting("openai_api_key")
+        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
+        model = get_setting("openai_model") or "gpt-4o"
 
     if not api_key:
-        return {"success": False, "error": "LLM API key is missing. Please configure it in settings."}
+        return {"success": False, "error": f"{llm_provider.title()} API key is missing. Please configure it in settings."}
 
     system_prompt = """You are an expert data analyst and researcher.
 Your task is to generate realistic, accurate, or highly plausible chart data based on the user's prompt.
@@ -703,39 +693,52 @@ RULES:
 """
 
     user_prompt = f"Generate chart data for this topic: '{prompt}'"
-
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+    
+    from openai import OpenAI
+    import openai
+    
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url.rstrip('/') if base_url else None
+    )
 
     try:
-        if llm_provider == "nvidia":
-            data = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.7
-            }
-        else:
-            data = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.7,
-                "response_format": {"type": "json_object"}
-            }
+        kwargs = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.7
+        }
 
-        logger.info(f"Sending LLM chart request to {url} with model {model}...")
-        response = requests.post(url, headers=headers, json=data, timeout=45)
-        response.raise_for_status()
-        res_data = response.json()
-        raw_content = res_data["choices"][0]["message"]["content"]
+        if llm_provider == "nvidia":
+            schema = {
+                "type": "object",
+                "properties": {
+                    "chart_type": {"type": "string"},
+                    "title": {"type": "string"},
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string"},
+                                "value": {"type": "number"}
+                            },
+                            "required": ["label", "value"]
+                        }
+                    }
+                },
+                "required": ["chart_type", "title", "data"]
+            }
+            kwargs["extra_body"] = {"guided_json": schema}
+        else:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        logger.info(f"Sending LLM chart request via OpenAI SDK with model {model}...")
+        response = client.chat.completions.create(**kwargs)
+        raw_content = response.choices[0].message.content
         
         parsed_json = clean_json_response(raw_content)
         

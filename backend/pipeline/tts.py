@@ -105,10 +105,36 @@ def generate_kokoro_tts(text, output_path, voice="af_bella", speed=1.0, lang="en
         raise FileNotFoundError("Kokoro model files are missing. Please download them first.")
     from kokoro_onnx import Kokoro
     import soundfile as sf
+    import re
+    import numpy as np
+    
     logger.info(f"Generating Kokoro-TTS. Voice: {voice}, Speed: {speed}")
     kokoro = Kokoro(str(KOKORO_MODEL_PATH), str(KOKORO_VOICES_PATH))
-    samples, sample_rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)
-    sf.write(output_path, samples, sample_rate)
+    
+    # The kokoro-onnx model crashes if phonemes exceed 510 (approx 3-5 sentences)
+    # Split text by sentence-ending punctuation (English and Hindi)
+    chunks = re.split(r'(?<=[.!?|।\n])\s+', text.strip())
+    
+    all_samples = []
+    final_sr = 24000
+    
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+            
+        try:
+            samples, sr = kokoro.create(chunk, voice=voice, speed=speed, lang=lang)
+            all_samples.append(samples)
+            final_sr = sr
+        except Exception as e:
+            logger.warning(f"Kokoro failed on chunk '{chunk[:30]}...': {e}")
+            
+    if all_samples:
+        final_samples = np.concatenate(all_samples)
+        sf.write(output_path, final_samples, final_sr)
+    else:
+        sf.write(output_path, np.array([], dtype=np.float32), final_sr)
 
 def concat_audio_files_ffmpeg(audio_files, output_path):
     if not audio_files:
