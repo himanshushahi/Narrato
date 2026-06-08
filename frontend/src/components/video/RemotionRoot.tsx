@@ -20,7 +20,8 @@ export const RemotionRoot: React.FC = () => {
           scenes: [],
           transcription: { language: 'hi', segments: [] },
           style: 'nitish_rajput',
-          language: 'hi'
+          language: 'hi',
+          videoFormat: 'landscape'
         } as CompositionProps}
         calculateMetadata={({ props }) => {
           const fps = (props as any).fps || 30;
@@ -31,9 +32,12 @@ export const RemotionRoot: React.FC = () => {
           );
           // At least 5 sec fallback, otherwise compute from total scene durations
           const totalFrames = Math.max(fps * 5, Math.ceil(totalDuration * fps));
+          const isPortrait = (props as any).videoFormat === 'portrait';
           return {
             durationInFrames: totalFrames,
             fps: fps,
+            width: isPortrait ? 1080 : 1920,
+            height: isPortrait ? 1920 : 1080,
           };
         }}
       />

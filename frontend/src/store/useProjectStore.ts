@@ -12,6 +12,7 @@ export interface Project {
   language: string;
   style: string;
   duration_mode: string;
+  video_format?: string;
   script_path?: string;
   audio_path?: string;
   transcription_path?: string;

@@ -20,6 +20,7 @@ export const Dashboard: React.FC = () => {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [language, setLanguage] = useState('hi');
+  const [videoFormat, setVideoFormat] = useState('landscape');
   const [durationMode, setDurationMode] = useState('medium');
   const [exportFolder, setExportFolder] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,7 +39,7 @@ export const Dashboard: React.FC = () => {
 
     setLoading(true);
     try {
-      const res = await callEel<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, prompt, exportFolder, language, 'nitish_rajput', durationMode);
+      const res = await callEel<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, prompt, exportFolder, language, 'nitish_rajput', durationMode, videoFormat);
       if (res?.success && res.project_id) {
         fetchProjects();
         setShowModal(false);
@@ -173,12 +174,16 @@ export const Dashboard: React.FC = () => {
                         <div>
                           <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider mb-1">Duration</div>
                           <div className="text-xs text-stone-300 font-medium capitalize">
-                            {project.duration_mode === 'short' ? '2m' : project.duration_mode === 'medium' ? '5m' : '10m'}
+                            {project.video_format === 'portrait' 
+                              ? (project.duration_mode === 'short' ? '60s' : project.duration_mode === 'medium' ? '90s' : '2m')
+                              : (project.duration_mode === 'extra_long' ? '15m' : project.duration_mode === 'long' ? '10m' : '5m')}
                           </div>
                         </div>
                         <div>
-                          <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider mb-1">Resolution</div>
-                          <div className="text-xs text-stone-300 font-medium">4K</div>
+                          <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider mb-1">Format</div>
+                          <div className="text-xs text-stone-300 font-medium capitalize">
+                            {project.video_format === 'portrait' ? 'Portrait (Shorts)' : 'Landscape (Video)'}
+                          </div>
                         </div>
                       </div>
                       
@@ -310,11 +315,34 @@ export const Dashboard: React.FC = () => {
                       />
 
                       <CustomSelect
-                        label="Duration Mode"
+                        label="Video Format"
                         options={[
-                          { value: 'short', label: 'Short (~2m)' },
+                          { value: 'landscape', label: 'Landscape (YouTube)' },
+                          { value: 'portrait', label: 'Portrait (Reels/Shorts)' }
+                        ]}
+                        value={videoFormat}
+                        onChange={(val) => {
+                          setVideoFormat(val);
+                          // Reset duration to a valid default when format changes
+                          if (val === 'landscape' && durationMode === 'short') {
+                             setDurationMode('medium');
+                          } else if (val === 'portrait' && durationMode === 'extra_long') {
+                             setDurationMode('long');
+                          }
+                        }}
+                        className="bg-stone-950"
+                      />
+                      
+                      <CustomSelect
+                        label="Duration Mode"
+                        options={videoFormat === 'portrait' ? [
+                          { value: 'short', label: 'Short (~60s)' },
+                          { value: 'medium', label: 'Medium (~90s)' },
+                          { value: 'long', label: 'Long (~2m)' }
+                        ] : [
                           { value: 'medium', label: 'Medium (~5m)' },
-                          { value: 'long', label: 'Long (~10m)' }
+                          { value: 'long', label: 'Long (~10m)' },
+                          { value: 'extra_long', label: 'Extra Long (~15m)' }
                         ]}
                         value={durationMode}
                         onChange={setDurationMode}

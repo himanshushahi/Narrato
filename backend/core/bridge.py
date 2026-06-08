@@ -105,9 +105,9 @@ def db_update_settings(settings_dict):
     return True
 
 @eel.expose
-def create_new_project(name, prompt, export_folder, language="hi", style="nitish_rajput", duration_mode="medium"):
+def create_new_project(name, prompt, export_folder, language="hi", style="nitish_rajput", duration_mode="medium", video_format="landscape"):
     try:
-        project_id = create_project(name, prompt, export_folder, language, style, duration_mode)
+        project_id = create_project(name, prompt, export_folder, language, style, duration_mode, video_format)
         return {"project_id": project_id, "success": True}
     except Exception as e:
         logger.error(f"Error creating project: {e}")

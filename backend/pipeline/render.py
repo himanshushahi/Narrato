@@ -128,6 +128,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "transcription": transcript,
         "style": project_dict.get("style", "nitish_rajput"),
         "language": project_dict.get("language", "hi"),
+        "videoFormat": project_dict.get("video_format", "landscape"),
         "fps": fps,
         "subtitleSettings": subtitle_settings
     }

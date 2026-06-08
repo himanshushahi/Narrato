@@ -702,6 +702,7 @@ export const ProjectEditor: React.FC = () => {
               transcription={transcriptionData}
               styleType={selectedProject.style}
               language={selectedProject.language}
+              videoFormat={selectedProject.video_format || 'landscape'}
               subtitleSettings={parsedSubtitleSettings}
               onFrameUpdate={setCurrentFrame}
             />
@@ -952,7 +953,7 @@ export const ProjectEditor: React.FC = () => {
           {/* Settings reference details */}
           <div className="bg-stone-900/30 border border-stone-800/40 p-4 rounded-lg text-xs text-stone-500 space-y-2">
             <h3 className="font-bold text-stone-400 uppercase tracking-wider text-[10px] mb-1">Canvas Specifications</h3>
-            <p>• Output Format: {settings?.render_codec === 'hevc_nvenc' || settings?.render_codec === 'h265' ? 'H.265' : 'H.264'} MP4 | aspect 16:9 ({settings?.render_resolution === '4k' ? '3840x2160' : '1920x1080'}) at {settings?.render_fps || 30} fps</p>
+            <p>• Output Format: {settings?.render_codec === 'hevc_nvenc' || settings?.render_codec === 'h265' ? 'H.265' : 'H.264'} MP4 | aspect {selectedProject.video_format === 'portrait' ? '9:16' : '16:9'} ({settings?.render_resolution === '4k' ? (selectedProject.video_format === 'portrait' ? '2160x3840' : '3840x2160') : (selectedProject.video_format === 'portrait' ? '1080x1920' : '1920x1080')}) at {settings?.render_fps || 30} fps</p>
             <p>• Visual overlay includes dust scratches and radial vignettes.</p>
             <p>• Subtitles are synced word-by-word with spring animations.</p>
           </div>

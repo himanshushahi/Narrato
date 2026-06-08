@@ -10,6 +10,7 @@ interface Props {
   transcription: Transcription;
   styleType?: string;
   language?: string;
+  videoFormat?: string;
   subtitleSettings?: any;
   onFrameUpdate?: (frame: number) => void;
 }
@@ -26,6 +27,7 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   transcription = { segments: [] },
   styleType = 'nitish_rajput',
   language = 'hi',
+  videoFormat = 'landscape',
   subtitleSettings = {},
   onFrameUpdate
 }, ref) => {
@@ -77,13 +79,14 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       transcription,
       style: styleType,
       language,
+      videoFormat,
       subtitleSettings
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, scenes, transcription, styleType, language, subtitleSettings]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, scenes, transcription, styleType, language, videoFormat, subtitleSettings]);
 
   if (!scenes || scenes.length === 0) {
     return (
-      <div className="w-full h-full flex flex-col justify-center items-center bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 p-8 text-center">
+      <div className={`flex flex-col justify-center items-center bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 p-8 text-center ${videoFormat === 'portrait' ? 'aspect-[9/16] w-auto mx-auto max-h-[70vh]' : 'w-full aspect-video'}`}>
         <svg className="w-16 h-16 text-zinc-600 mb-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
         </svg>
@@ -94,15 +97,15 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   }
 
   return (
-    <div className="w-full aspect-video bg-black rounded-lg overflow-hidden border border-zinc-800 shadow-2xl relative">
+    <div className={`w-full bg-black rounded-lg overflow-hidden border border-zinc-800 shadow-2xl relative ${videoFormat === 'portrait' ? 'aspect-[9/16] w-auto mx-auto max-h-[70vh]' : 'aspect-video'}`}>
       <Player
         ref={playerRef}
         component={NitishRajputComposition}
         inputProps={inputProps as any}
         durationInFrames={durationInFrames}
         fps={30}
-        compositionWidth={1920}
-        compositionHeight={1080}
+        compositionWidth={videoFormat === 'portrait' ? 1080 : 1920}
+        compositionHeight={videoFormat === 'portrait' ? 1920 : 1080}
         style={{
           width: '100%',
           height: '100%',

@@ -39,6 +39,7 @@ def init_db():
                 language TEXT DEFAULT 'hi',
                 style TEXT DEFAULT 'nitish_rajput',
                 duration_mode TEXT DEFAULT 'medium',
+                video_format TEXT DEFAULT 'landscape',
                 script_path TEXT,
                 audio_path TEXT,
                 transcription_path TEXT,
@@ -55,6 +56,11 @@ def init_db():
         """)
 
         # Add subtitle_settings and export_folder to existing databases
+        try:
+            cursor.execute("ALTER TABLE projects ADD COLUMN video_format TEXT DEFAULT 'landscape'")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+            
         try:
             cursor.execute("ALTER TABLE projects ADD COLUMN subtitle_settings TEXT")
         except sqlite3.OperationalError:
@@ -150,7 +156,7 @@ def init_db():
     logger.info("Database initialized successfully.")
 
 # Project Operations
-def create_project(name, prompt, export_folder, language="hi", style="nitish_rajput", duration_mode="medium"):
+def create_project(name, prompt, export_folder, language="hi", style="nitish_rajput", duration_mode="medium", video_format="landscape"):
     project_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
     
@@ -175,10 +181,10 @@ def create_project(name, prompt, export_folder, language="hi", style="nitish_raj
         
     with get_db_connection() as conn:
         conn.execute("""
-            INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, subtitle_settings, export_folder)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (project_id, name, prompt, now, now, language, style, duration_mode, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, subtitle_settings, export_folder))
-    logger.info(f"Created project in database: {name} (ID: {project_id}, Lang: {language}, Style: {style}, ExportFolder: {export_folder})")
+            INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, subtitle_settings, export_folder)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (project_id, name, prompt, now, now, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, subtitle_settings, export_folder))
+    logger.info(f"Created project in database: {name} (ID: {project_id}, Lang: {language}, Style: {style}, Format: {video_format}, ExportFolder: {export_folder})")
     return project_id
 
 def get_project(project_id):

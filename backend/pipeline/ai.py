@@ -1,5 +1,4 @@
 import concurrent.futures
-import os
 import json
 import re
 import requests
@@ -380,24 +379,42 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
         try:
             logger.info(f"Sending LLM request to {url} (Attempt {attempt+1}/{max_retries})...")
             
-            import concurrent.futures
-            import time
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            future = executor.submit(requests.post, url, headers=headers, json=data, timeout=300)
+            data["stream"] = True
             
-            # Poll the future and cancel_event
-            while not future.done():
-                if cancel_event.is_set():
-                    # If cancelled, abandon the thread and raise
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    raise InterruptedError("Cancelled")
-                time.sleep(0.5)
-            
-            response = future.result()
-            executor.shutdown(wait=False)
-            
+            # Use short connect timeout, longer read timeout between chunks
+            response = requests.post(url, headers=headers, json=data, stream=True, timeout=(15, 60))
             response.raise_for_status()
-            break
+            
+            raw_content = ""
+            for line in response.iter_lines():
+                if cancel_event.is_set():
+                    response.close()
+                    raise InterruptedError("Cancelled")
+                if line:
+                    decoded_line = line.decode('utf-8').strip()
+                    if decoded_line.startswith("data: "):
+                        decoded_line = decoded_line[6:]
+                    if decoded_line == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(decoded_line)
+                        if "choices" in chunk and len(chunk["choices"]) > 0:
+                            delta = chunk["choices"][0].get("delta", {})
+                            if "content" in delta and delta["content"]:
+                                raw_content += delta["content"]
+                    except Exception:
+                        pass
+                        
+            if not raw_content.strip():
+                raise ValueError("API returned an empty response. It may have failed internally.")
+                
+            parsed_json = clean_json_response(raw_content)
+            
+            if cancel_event.is_set():
+                raise InterruptedError("Cancelled")
+                
+            return parsed_json
+            
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429 and attempt < max_retries - 1:
                 import time
@@ -405,15 +422,28 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                 sleep_time = (2 ** attempt) + random.uniform(0, 1)
                 logger.warning(f"Rate limited (429). Retrying in {sleep_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(sleep_time)
+            elif response.status_code == 400 and attempt < max_retries - 1 and "response_format" in data:
+                logger.warning(f"Provider rejected request (HTTP 400). It might not support response_format. Stripping it and retrying... (Attempt {attempt+1}/{max_retries})")
+                del data["response_format"]
+                import time
+                time.sleep(1.0)
             else:
+                try:
+                    logger.error(f"HTTP Error {response.status_code}: {response.text}")
+                except Exception:
+                    pass
+                if attempt >= max_retries - 1:
+                    raise e
+                import time
+                time.sleep(2.0)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"LLM request or parsing failed ({type(e).__name__}: {e}). Retrying... (Attempt {attempt+1}/{max_retries})")
+                import time
+                time.sleep(2.0)
+            else:
+                logger.error(f"Max retries exceeded. Last error: {type(e).__name__}: {e}")
                 raise e
-    res_data = response.json()
-    raw_content = res_data["choices"][0]["message"]["content"]
-    
-    if cancel_event.is_set():
-        raise InterruptedError("Cancelled")
-        
-    return clean_json_response(raw_content)
 
 
 def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_event):
@@ -424,8 +454,9 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     prompt_desc = project_dict['prompt']
     language = project_dict.get('language', 'hi')
     duration_mode = project_dict.get('duration_mode', 'medium')
+    video_format = project_dict.get('video_format', 'landscape')
     
-    logger.info(f"Generating script for topic: '{topic}' (Lang: {language}, Dur: {duration_mode})")
+    logger.info(f"Generating script for topic: '{topic}' (Lang: {language}, Dur: {duration_mode}, Format: {video_format})")
     progress_cb(5.0, "Preparing to generate script...")
     
     # Check API key before starting
@@ -434,21 +465,38 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     if not api_key:
         raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
 
-    if duration_mode == "short":
-        target_minutes = 2
-        min_scenes = 8
-        max_scenes = 12
-        sentence_rule = "Write narration in engaging sentences (25-35 words per scene) to keep visuals changing rapidly."
-    elif duration_mode == "long":
-        target_minutes = 10
-        min_scenes = 35
-        max_scenes = 45
-        sentence_rule = "Write detailed narration paragraphs (35-50 words per scene)."
-    else: # medium
-        target_minutes = 5
-        min_scenes = 18
-        max_scenes = 24
-        sentence_rule = "Write engaging narration (30-40 words per scene)."
+    if video_format == "portrait":
+        if duration_mode == "short": # 60s
+            target_minutes = 1
+            min_scenes = 4
+            max_scenes = 6
+            sentence_rule = "Write narration in very short, punchy sentences (15-20 words per scene) to keep visual pacing extremely fast."
+        elif duration_mode == "long": # 2 mins
+            target_minutes = 2
+            min_scenes = 8
+            max_scenes = 12
+            sentence_rule = "Write narration in short sentences (20-30 words per scene) for a fast-paced vertical video."
+        else: # medium (90s)
+            target_minutes = 1.5
+            min_scenes = 6
+            max_scenes = 8
+            sentence_rule = "Write narration in quick sentences (20-25 words per scene)."
+    else:
+        if duration_mode == "extra_long":
+            target_minutes = 15
+            min_scenes = 55
+            max_scenes = 65
+            sentence_rule = "Write detailed narration paragraphs (40-60 words per scene)."
+        elif duration_mode == "long":
+            target_minutes = 10
+            min_scenes = 35
+            max_scenes = 45
+            sentence_rule = "Write detailed narration paragraphs (35-50 words per scene)."
+        else: # medium
+            target_minutes = 5
+            min_scenes = 18
+            max_scenes = 24
+            sentence_rule = "Write engaging narration (30-40 words per scene)."
         
     lang_instruction = f"""LANGUAGE RULES:
 - The spoken text (hook, narration, summary, cta) MUST be written in the native script of the requested language (code: '{language}'). 
@@ -573,8 +621,9 @@ Write the narration and visual details for this scene."""
 
         return _call_llm_json(scene_system_prompt, scene_user_prompt, SINGLE_SCENE_JSON_SCHEMA, cancel_event)
 
-    # Use max 2 workers for all providers to avoid strict concurrent request limits
-    max_workers = min(2, total_chapters) if total_chapters > 0 else 1
+    # Use max_workers=1 to process sequentially and avoid strict concurrent request limits
+    # (NVIDIA NIM, Groq, and other APIs often limit concurrent requests to 1 on free/standard tiers)
+    max_workers = 1
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_idx = {executor.submit(generate_single_scene, i, chapter): i for i, chapter in enumerate(chapters)}
