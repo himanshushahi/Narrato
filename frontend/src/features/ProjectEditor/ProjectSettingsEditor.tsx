@@ -9,7 +9,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 
-export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, onUpdate: (newSettings: any) => void }) => {
+export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, onUpdate: (newSettings: any) => void }) => {
   const [downloading, setDownloading] = useState(false);
   const [presetName, setPresetName] = useState("");
   const [selectedPresetId, setSelectedPresetId] = useState("");
@@ -260,7 +260,7 @@ export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, 
 
       {/* GLOBAL BRANDING SECTION */}
       <div>
-        <h3 className="text-[10px] font-black text-stone-300 uppercase tracking-widest font-sans mb-3">Global Branding</h3>
+        <h3 className="text-xs font-black text-stone-300 uppercase tracking-widest font-sans mb-3">Global Branding</h3>
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <h4 className="text-[9px] text-stone-500 uppercase font-bold tracking-wider mb-2">Chapter Name</h4>
@@ -324,6 +324,21 @@ export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, 
                   onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, lower_third_y: parseInt(e.target.value) }) }}
                 />
               </div>
+            </div>
+          </div>
+          <div className="col-span-2 mt-2">
+            <h4 className="text-[9px] text-stone-500 uppercase font-bold tracking-wider mb-2">Animated Charts</h4>
+            <div className="grid grid-cols-2 gap-4 bg-stone-950/50 p-3 rounded border border-stone-800/60">
+              <CustomColorInput
+                label="Chart Primary Color"
+                value={settings.chart_primary_color || '#fbbf24'}
+                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, chart_primary_color: e.target.value }) }}
+              />
+              <CustomColorInput
+                label="Chart Text Color"
+                value={settings.chart_text_color || '#fef3c7'}
+                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, chart_text_color: e.target.value }) }}
+              />
             </div>
           </div>
         </div>

@@ -16,7 +16,7 @@ import {
 import { PIPELINE_STAGES } from '../features/ProjectEditor/constants';
 import { SubVisualsEditor } from '../features/ProjectEditor/SubVisualsEditor';
 import { SubVisualsView } from '../features/ProjectEditor/SubVisualsView';
-import { SubtitleSettingsEditor } from '../features/ProjectEditor/SubtitleSettingsEditor';
+import { ProjectSettingsEditor } from '../features/ProjectEditor/ProjectSettingsEditor';
 import { callEel } from '../utils/eel-bridge';
 
 export const ProjectEditor: React.FC = () => {
@@ -81,7 +81,7 @@ export const ProjectEditor: React.FC = () => {
           lsv.visual_type !== osv.visual_type ||
           lsv.visual_cue !== osv.visual_cue ||
           JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
-        const visualUrl = requiresNewAsset ? '' : (osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '');
+        const visualUrl = osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '';
         return {
           ...osv,
           visual_type: lsv.visual_type,
@@ -161,20 +161,40 @@ export const ProjectEditor: React.FC = () => {
     setOriginalManifestData([]);
   };
 
-  const parsedSubtitleSettings = useMemo(() => {
-    if (!selectedProject?.subtitle_settings) return {};
-    try {
-      return JSON.parse(selectedProject.subtitle_settings);
-    } catch (e) {
-      return {};
-    }
-  }, [selectedProject?.subtitle_settings]);
+  const [localProjectSettings, setLocalProjectSettings] = useState<any>({});
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (parsedSubtitleSettings.fontFamily) {
-      downloadFont(parsedSubtitleSettings.fontFamily).then(res => {
+    if (selectedProject?.project_settings) {
+      try {
+        setLocalProjectSettings(JSON.parse(selectedProject.project_settings));
+      } catch (e) {
+        setLocalProjectSettings({});
+      }
+    } else {
+      setLocalProjectSettings({});
+    }
+  }, [selectedProject?.project_settings]);
+
+  const handleSettingsUpdate = (newSettings: any) => {
+    setLocalProjectSettings(newSettings);
+    
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(async () => {
+      if (selectedProject?.id) {
+        await updateProject(selectedProject.id, { project_settings: JSON.stringify(newSettings) });
+      }
+    }, 1000);
+  };
+
+  useEffect(() => {
+    if (localProjectSettings.fontFamily) {
+      downloadFont(localProjectSettings.fontFamily).then(res => {
         if (res.success && res.css_path) {
-          const id = `font-${parsedSubtitleSettings.fontFamily.replace(/\s/g, '')}`;
+          const id = `font-${localProjectSettings.fontFamily.replace(/\s/g, '')}`;
           if (!document.getElementById(id)) {
             const link = document.createElement('link');
             link.id = id;
@@ -185,7 +205,7 @@ export const ProjectEditor: React.FC = () => {
         }
       });
     }
-  }, [parsedSubtitleSettings.fontFamily, downloadFont]);
+  }, [localProjectSettings.fontFamily, downloadFont]);
 
   useEffect(() => {
     if (id) {
@@ -706,7 +726,7 @@ export const ProjectEditor: React.FC = () => {
               styleType={selectedProject.style}
               language={selectedProject.language}
               videoFormat={selectedProject.video_format || 'landscape'}
-              subtitleSettings={parsedSubtitleSettings}
+              subtitleSettings={localProjectSettings}
               onFrameUpdate={setCurrentFrame}
             />
           </div>
@@ -1392,11 +1412,9 @@ export const ProjectEditor: React.FC = () => {
 
             {activeTab === 'subtitles' && (
               <div className="flex-1 flex flex-col gap-6 h-full min-h-[500px]">
-                <SubtitleSettingsEditor
-                  settings={parsedSubtitleSettings}
-                  onUpdate={async (newSettings) => {
-                    await updateProject(selectedProject.id, { subtitle_settings: JSON.stringify(newSettings) });
-                  }}
+                <ProjectSettingsEditor
+                  settings={localProjectSettings}
+                  onUpdate={handleSettingsUpdate}
                 />
                 <div className="flex-1 min-h-[400px]">
                   <SubtitleEditor

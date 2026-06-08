@@ -50,19 +50,24 @@ def init_db():
                 tts_speed REAL DEFAULT 1.0,
                 bg_music_path TEXT,
                 bg_music_volume REAL DEFAULT 0.15,
-                subtitle_settings TEXT,
+                project_settings TEXT,
                 export_folder TEXT
             )
         """)
 
-        # Add subtitle_settings and export_folder to existing databases
+        # Add project_settings and export_folder to existing databases
         try:
             cursor.execute("ALTER TABLE projects ADD COLUMN video_format TEXT DEFAULT 'landscape'")
         except sqlite3.OperationalError:
             pass # Column already exists
             
         try:
-            cursor.execute("ALTER TABLE projects ADD COLUMN subtitle_settings TEXT")
+            cursor.execute("ALTER TABLE projects RENAME COLUMN subtitle_settings TO project_settings")
+        except sqlite3.OperationalError:
+            pass # Column doesn't exist or already renamed
+            
+        try:
+            cursor.execute("ALTER TABLE projects ADD COLUMN project_settings TEXT")
         except sqlite3.OperationalError:
             pass # Column already exists
             
@@ -172,18 +177,18 @@ def create_project(name, prompt, export_folder, language="hi", style="nitish_raj
     # Handle default subtitle preset
     default_preset_id = get_setting("default_subtitle_preset_id")
     subtitle_presets = get_setting("subtitle_presets") or []
-    subtitle_settings = None
+    project_settings = None
     if default_preset_id and subtitle_presets:
         for preset in subtitle_presets:
             if preset.get("id") == default_preset_id:
-                subtitle_settings = json.dumps(preset.get("settings", {}))
+                project_settings = json.dumps(preset.get("settings", {}))
                 break
         
     with get_db_connection() as conn:
         conn.execute("""
-            INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, subtitle_settings, export_folder)
+            INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, project_settings, export_folder)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (project_id, name, prompt, now, now, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, subtitle_settings, export_folder))
+        """, (project_id, name, prompt, now, now, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, project_settings, export_folder))
     logger.info(f"Created project in database: {name} (ID: {project_id}, Lang: {language}, Style: {style}, Format: {video_format}, ExportFolder: {export_folder})")
     return project_id
 

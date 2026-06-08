@@ -8,9 +8,10 @@ interface Props {
   type: 'chart' | 'map' | 'document' | 'network';
   meta: any;
   durationInFrames: number;
+  subtitleSettings?: any;
 }
 
-export const DataVisualizations: React.FC<Props> = ({ type, meta }) => {
+export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettings }) => {
   const frame = useCurrentFrame();
 
   // Growth animation for charts and vectors
@@ -50,6 +51,9 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta }) => {
 
     // No zoom - static stable frame
     const zoomScale = 1;
+    
+    const primaryColor = subtitleSettings?.chart_primary_color || '#fbbf24';
+    const textColor = subtitleSettings?.chart_text_color || '#fef3c7';
 
     return (
       <div style={{
@@ -84,7 +88,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta }) => {
               fontFamily: 'Montserrat, sans-serif',
               fontWeight: 900,
               fontSize: 56,
-              color: '#fef3c7',
+              color: textColor,
               textAlign: 'center',
               textTransform: 'uppercase',
               letterSpacing: 4,
@@ -102,16 +106,16 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta }) => {
             <svg width={chartWidth} height={chartHeight} style={{ overflow: 'visible' }}>
                 <defs>
                     <linearGradient id="barGradientFront" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#fbbf24" />
-                        <stop offset="100%" stopColor="#b45309" />
+                        <stop offset="0%" stopColor={primaryColor} />
+                        <stop offset="100%" stopColor={primaryColor} stopOpacity={0.6} />
                     </linearGradient>
                     <linearGradient id="barGradientSide" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#d97706" />
-                        <stop offset="100%" stopColor="#78350f" />
+                        <stop offset="0%" stopColor={primaryColor} stopOpacity={0.8} />
+                        <stop offset="100%" stopColor={primaryColor} stopOpacity={0.3} />
                     </linearGradient>
                     <linearGradient id="barGradientTop" x1="0" y1="0" x2="1" y2="1">
-                        <stop offset="0%" stopColor="#fde68a" />
-                        <stop offset="100%" stopColor="#f59e0b" />
+                        <stop offset="0%" stopColor={primaryColor} stopOpacity={0.9} />
+                        <stop offset="100%" stopColor={primaryColor} stopOpacity={0.5} />
                     </linearGradient>
                     <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
                         <feGaussianBlur stdDeviation="12" result="blur" />
@@ -158,7 +162,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta }) => {
                                     return `${x},${y}`;
                                 }).join(' L ')}`}
                                 fill="none"
-                                stroke="#fbbf24"
+                                stroke={primaryColor}
                                 strokeWidth="8"
                                 filter="url(#glow)"
                             />
@@ -172,8 +176,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta }) => {
                                 return (
                                     <g key={`node-${i}`} transform={`translate(${x}, ${y})`} opacity={nodeAnim}>
                                         <circle r={10} fill="#fffbeb" />
-                                        <circle r={20} fill="none" stroke="#fbbf24" strokeWidth="4" opacity="0.8" filter="url(#glow)" />
-                                        <text y={-30} fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="800" textAnchor="middle"
+                                        <circle r={20} fill="none" stroke={primaryColor} strokeWidth="4" opacity="0.8" filter="url(#glow)" />
+                                        <text y={-30} fill={textColor} fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="800" textAnchor="middle"
                                             style={{
                                                 WebkitFontSmoothing: 'antialiased',
                                                 MozOsxFontSmoothing: 'grayscale',
@@ -225,7 +229,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta }) => {
                                         {/* Value Label */}
                                         <text
                                             x={x + barWidth / 2} y={y - depth - 20}
-                                            fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="900" textAnchor="middle"
+                                            fill={textColor} fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="900" textAnchor="middle"
                                             opacity={animProgress}
                                             style={{
                                                 WebkitFontSmoothing: 'antialiased',

@@ -105,12 +105,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         else:
             logger.warning(f"Background music file not found at {bg_path_str}. Proceeding without background music.")
 
-    subtitle_settings = {}
-    if project_dict.get("subtitle_settings"):
+    project_settings = {}
+    if project_dict.get("project_settings"):
         try:
-            subtitle_settings = json.loads(project_dict["subtitle_settings"])
+            project_settings = json.loads(project_dict["project_settings"])
         except Exception as e:
-            logger.error(f"Failed to parse subtitle_settings: {e}")
+            logger.error(f"Failed to parse project_settings: {e}")
 
     # Fetch rendering settings
     render_resolution = get_setting("render_resolution") or "1080p"
@@ -132,7 +132,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "language": project_dict.get("language", "hi"),
         "videoFormat": project_dict.get("video_format", "landscape"),
         "fps": fps,
-        "subtitleSettings": subtitle_settings
+        "subtitleSettings": project_settings
     }
 
     # Write props to a JSON file

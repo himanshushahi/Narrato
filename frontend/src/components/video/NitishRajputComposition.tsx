@@ -102,7 +102,7 @@ export const NitishRajputComposition = ({
             backgroundColor: '#1c1917', 
             backgroundImage: 'radial-gradient(circle, #292524 0%, #0c0a09 100%)' 
           }} />
-          <DataVisualizations type={type} meta={meta} durationInFrames={durationFrames} />
+          <DataVisualizations type={type} meta={meta} durationInFrames={durationFrames} subtitleSettings={subtitleSettings} />
         </div>
       );
     }
