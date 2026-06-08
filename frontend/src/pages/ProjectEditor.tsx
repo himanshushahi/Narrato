@@ -57,6 +57,7 @@ export const ProjectEditor: React.FC = () => {
     return manifestData.map((manifestScene: any) => {
       const type = manifestScene.section_type;
       let liveSubVisuals: any[] = [];
+      let liveTitle = manifestScene.title;
 
       if (type === 'introduction' && scriptData?.introduction) {
         liveSubVisuals = scriptData.introduction?.sub_visuals || [];
@@ -68,6 +69,7 @@ export const ProjectEditor: React.FC = () => {
         const scriptScene = scriptData.scenes[currentIdx];
         if (scriptScene) {
           liveSubVisuals = scriptScene?.sub_visuals || [];
+          if (scriptScene.title !== undefined) liveTitle = scriptScene.title;
         }
       }
 
@@ -95,6 +97,7 @@ export const ProjectEditor: React.FC = () => {
 
       return {
         ...manifestScene,
+        title: liveTitle,
         sub_visuals: resolvedSubVisuals,
         audio_url: resolvedAudioUrl
       };
@@ -965,7 +968,7 @@ export const ProjectEditor: React.FC = () => {
             <AnimatedTabs
               tabs={[
                 { id: 'script', label: 'Documentary Script' },
-                { id: 'subtitles', label: 'Subtitles' }
+                { id: 'subtitles', label: 'Customization' }
               ]}
               activeTab={activeTab}
               onChange={(id) => setActiveTab(id as 'script' | 'subtitles')}
@@ -1192,6 +1195,16 @@ export const ProjectEditor: React.FC = () => {
                                 transition={{ duration: 0.15 }}
                                 className="space-y-3"
                               >
+                                <CustomInput
+                                  label="Chapter Name"
+                                  type="text"
+                                  value={scene.title || ''}
+                                  onChange={(e) => {
+                                    const copy = { ...scriptData };
+                                    if(copy.scenes && copy.scenes[idx]) copy.scenes[idx].title = e.target.value;
+                                    setScriptData(copy);
+                                  }}
+                                />
                                 <CustomTextarea
                                   rows={3}
                                   value={scene.narration}

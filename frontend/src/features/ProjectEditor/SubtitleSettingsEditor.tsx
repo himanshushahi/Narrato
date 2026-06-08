@@ -3,6 +3,7 @@ import { CustomInput } from '../../components/ui/CustomInput';
 import { CustomSelect } from '../../components/ui/CustomSelect';
 import { CustomColorInput } from '../../components/ui/CustomColorInput';
 import { CustomCheckbox } from '../../components/ui/CustomCheckbox';
+import { CustomRange } from '../../components/ui/CustomRange';
 import { VscLoading, VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -253,6 +254,79 @@ export const SubtitleSettingsEditor = ({ settings, onUpdate }: { settings: any, 
             </div>
           </div>
         )}
+      </div>
+
+      <hr className="border-stone-800" />
+
+      {/* GLOBAL BRANDING SECTION */}
+      <div>
+        <h3 className="text-[10px] font-black text-stone-300 uppercase tracking-widest font-sans mb-3">Global Branding</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <h4 className="text-[9px] text-stone-500 uppercase font-bold tracking-wider mb-2">Chapter Name</h4>
+            <div className="grid grid-cols-2 gap-4 bg-stone-950/50 p-3 rounded border border-stone-800/60">
+              <div className="col-span-2">
+                <CustomCheckbox
+                  label="Hide Chapter Name"
+                  checked={settings.hide_chapter_name === true}
+                  onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, hide_chapter_name: e.target.checked }) }}
+                />
+              </div>
+              {!settings.hide_chapter_name && (
+                <>
+                  <CustomColorInput
+                    label="Text Color"
+                    value={settings.chapter_text_color || '#d6d3d1'}
+                    onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, chapter_text_color: e.target.value }) }}
+                  />
+                  <CustomColorInput
+                    label="Border Color"
+                    value={settings.chapter_border_color || '#b45309'}
+                    onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, chapter_border_color: e.target.value }) }}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+          <div className="col-span-2 mt-2">
+            <h4 className="text-[9px] text-stone-500 uppercase font-bold tracking-wider mb-2">Universal Lower Third</h4>
+            <div className="grid grid-cols-2 gap-4 bg-stone-950/50 p-3 rounded border border-stone-800/60">
+              <CustomColorInput
+                label="Primary/Accent Color"
+                value={settings.lower_third_primary_color || '#fbbf24'}
+                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, lower_third_primary_color: e.target.value }) }}
+              />
+              <CustomColorInput
+                label="Title Color"
+                value={settings.lower_third_title_color || '#fef3c7'}
+                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, lower_third_title_color: e.target.value }) }}
+              />
+              <CustomColorInput
+                label="Description Color"
+                value={settings.lower_third_subtitle_color || '#d6d3d1'}
+                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, lower_third_subtitle_color: e.target.value }) }}
+              />
+              <div className="col-span-2 grid grid-cols-2 gap-4">
+                <CustomRange
+                  label="Horizontal Position (X)"
+                  min="0"
+                  max="100"
+                  value={settings.lower_third_x !== undefined ? settings.lower_third_x : 5}
+                  valueDisplay={`${settings.lower_third_x !== undefined ? settings.lower_third_x : 5}%`}
+                  onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, lower_third_x: parseInt(e.target.value) }) }}
+                />
+                <CustomRange
+                  label="Vertical Position (Y)"
+                  min="0"
+                  max="100"
+                  value={settings.lower_third_y !== undefined ? settings.lower_third_y : 15}
+                  valueDisplay={`${settings.lower_third_y !== undefined ? settings.lower_third_y : 15}%`}
+                  onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, lower_third_y: parseInt(e.target.value) }) }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

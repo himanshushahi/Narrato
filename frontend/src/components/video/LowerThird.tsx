@@ -5,9 +5,23 @@ interface Props {
   title: string;
   subtitle?: string;
   durationInFrames: number;
+  positionX?: number;
+  positionY?: number;
+  primaryColor?: string;
+  titleColor?: string;
+  subtitleColor?: string;
 }
 
-export const LowerThird: React.FC<Props> = ({ title, subtitle, durationInFrames }) => {
+export const LowerThird: React.FC<Props> = ({ 
+  title, 
+  subtitle, 
+  durationInFrames, 
+  positionX = 5, 
+  positionY = 15, 
+  primaryColor = '#fbbf24',
+  titleColor = '#fef3c7',
+  subtitleColor = '#d6d3d1'
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -28,16 +42,17 @@ export const LowerThird: React.FC<Props> = ({ title, subtitle, durationInFrames 
 
   // Calculate final position
   // Starts at -100% (offscreen left), slides in to 0%, slides out to -100%
-  const translateX = entrance === 1 ? -100 * exit : -100 * (1 - entrance);
+  const translateX = -100 * (1 - entrance) - 100 * exit;
 
   if (!title) return null;
 
   return (
     <div style={{
       position: 'absolute',
-      bottom: 280,
-      left: 60,
+      bottom: `${positionY}%`,
+      left: `${positionX}%`,
       transform: `translateX(${translateX}%)`,
+      opacity: Math.max(0, Math.min(1, entrance - exit)),
       display: 'flex',
       flexDirection: 'column',
       zIndex: 20
@@ -46,8 +61,8 @@ export const LowerThird: React.FC<Props> = ({ title, subtitle, durationInFrames 
       <div style={{
         width: '100%',
         height: 6,
-        backgroundColor: '#fbbf24',
-        boxShadow: '0 0 10px rgba(251, 191, 36, 0.5)'
+        backgroundColor: primaryColor,
+        boxShadow: `0 0 10px ${primaryColor}80`
       }} />
       
       {/* Glassmorphism Card */}
@@ -56,7 +71,7 @@ export const LowerThird: React.FC<Props> = ({ title, subtitle, durationInFrames 
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
         padding: '20px 40px',
-        borderLeft: '4px solid #b45309',
+        borderLeft: `4px solid ${primaryColor}`,
         borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         borderRight: '1px solid rgba(255, 255, 255, 0.1)',
         boxShadow: '10px 15px 30px rgba(0,0,0,0.6)'
@@ -65,7 +80,7 @@ export const LowerThird: React.FC<Props> = ({ title, subtitle, durationInFrames 
           fontFamily: 'Montserrat, sans-serif',
           fontWeight: 900,
           fontSize: 42,
-          color: '#fef3c7',
+          color: titleColor,
           margin: 0,
           textTransform: 'uppercase',
           letterSpacing: 2,
@@ -79,7 +94,7 @@ export const LowerThird: React.FC<Props> = ({ title, subtitle, durationInFrames 
             fontFamily: 'Merriweather, serif',
             fontWeight: 400,
             fontSize: 24,
-            color: '#d6d3d1',
+            color: subtitleColor,
             margin: '8px 0 0 0',
             letterSpacing: 1
           }}>

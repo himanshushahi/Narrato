@@ -154,9 +154,6 @@ export const NitishRajputComposition = ({
         const subVisuals = scene.sub_visuals || [];
         const numSubs = subVisuals.length;
 
-        // Find the first lower_third in any sub_visual's visual_meta
-        const lowerThirdMeta = subVisuals.find(sv => sv.visual_meta?.lower_third)?.visual_meta?.lower_third;
-
         return (
           <Sequence
             key={idx}
@@ -173,6 +170,8 @@ export const NitishRajputComposition = ({
                   ? durationFrames - subFrom 
                   : baseSubDuration;
 
+                const ltMeta = subVis.visual_meta?.lower_third;
+
                 return (
                   <Sequence
                     key={subIdx}
@@ -182,6 +181,20 @@ export const NitishRajputComposition = ({
                     <TransitionWrapper durationInFrames={Math.max(1, subDuration)} type={subVis.transition_type}>
                       {renderSubVisual(subVis, Math.max(1, subDuration))}
                     </TransitionWrapper>
+                    {ltMeta && (
+                      <div style={{ position: 'absolute', inset: 0, zIndex: 30, pointerEvents: 'none' }}>
+                        <LowerThird 
+                          title={ltMeta.title}
+                          subtitle={ltMeta.subtitle}
+                          durationInFrames={Math.max(1, subDuration)}
+                          positionX={subtitleSettings?.lower_third_x !== undefined ? subtitleSettings.lower_third_x : 5}
+                          positionY={subtitleSettings?.lower_third_y !== undefined ? subtitleSettings.lower_third_y : 15}
+                          primaryColor={subtitleSettings?.lower_third_primary_color || '#fbbf24'}
+                          titleColor={subtitleSettings?.lower_third_title_color || '#fef3c7'}
+                          subtitleColor={subtitleSettings?.lower_third_subtitle_color || '#d6d3d1'}
+                        />
+                      </div>
+                    )}
                   </Sequence>
                 );
               })
@@ -191,30 +204,23 @@ export const NitishRajputComposition = ({
             )}
             
             {/* Title watermark on upper corner */}
-            <div style={{
-              position: 'absolute',
-              top: 50,
-              left: 60,
-              fontFamily: 'Montserrat, sans-serif',
-              fontWeight: 800,
-              fontSize: 24,
-              color: '#d6d3d1',
-              textTransform: 'uppercase',
-              letterSpacing: 2,
-              opacity: 0.6,
-              borderLeft: '4px solid #b45309',
-              paddingLeft: 12
-            }}>
-              {scene.title}
-            </div>
-
-            {/* Lower Third overlay if any sub_visual requested it */}
-            {lowerThirdMeta && (
-              <LowerThird 
-                title={lowerThirdMeta.title}
-                subtitle={lowerThirdMeta.subtitle}
-                durationInFrames={durationFrames}
-              />
+            {!subtitleSettings?.hide_chapter_name && scene.title && (
+              <div style={{
+                position: 'absolute',
+                top: 50,
+                left: 60,
+                fontFamily: 'Montserrat, sans-serif',
+                fontWeight: 800,
+                fontSize: 24,
+                color: subtitleSettings?.chapter_text_color || '#d6d3d1',
+                textTransform: 'uppercase',
+                letterSpacing: 2,
+                opacity: 0.6,
+                borderLeft: `4px solid ${subtitleSettings?.chapter_border_color || '#b45309'}`,
+                paddingLeft: 12
+              }}>
+                {scene.title}
+              </div>
             )}
           </Sequence>
         );
