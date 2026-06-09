@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscPlay, VscSave, VscFlame, VscArrowLeft, VscSparkle,
   VscPulse, VscCheck, VscError, VscLoading, VscCircleFilled, VscWarning,
-  VscEdit, VscTrash
+  VscEdit, VscTrash, VscAdd
 } from 'react-icons/vsc';
 
 import { PIPELINE_STAGES } from '../features/ProjectEditor/constants';
@@ -19,6 +19,45 @@ import { SubVisualsEditor } from '../features/ProjectEditor/SubVisualsEditor';
 import { SubVisualsView } from '../features/ProjectEditor/SubVisualsView';
 import { ProjectSettingsEditor } from '../features/ProjectEditor/ProjectSettingsEditor';
 import { callEel } from '../utils/eel-bridge';
+
+// Estimate spoken duration in seconds from narration text
+// Uses ~15 characters/second which works for both English and character-based languages
+const estimateTextDuration = (text: string | undefined | null): number => {
+  if (!text || text.trim() === '') return 5; // default 5 seconds for empty/placeholder text
+  return Math.max(5, Math.ceil(text.length / 15));
+};
+
+// Compute a deterministic SHA-256 hash for the entire script narration.
+// Uses the exact same input format as the backend's compute_script_content_hash()
+// in backend/pipeline/assets.py — only narration text, no sub-visuals.
+// This ensures the hash stored in the manifest (from backend) matches
+// the hash computed on the frontend for change detection.
+const computeScriptContentHash = async (scriptData: any): Promise<string> => {
+  if (!scriptData) return '';
+
+  const parts: string[] = [];
+
+  // Introduction narration
+  const intro = scriptData.introduction || {};
+  parts.push(`intro:${intro.hook || ''}`);
+
+  // Each scene's narration
+  const scenes = scriptData.scenes || [];
+  for (let i = 0; i < scenes.length; i++) {
+    parts.push(`scene_${i}:${scenes[i].narration || ''}`);
+  }
+
+  // Conclusion narration
+  const conclusion = scriptData.conclusion || {};
+  parts.push(`conclusion:${(conclusion.summary || '') + (conclusion.cta || '')}`);
+
+  const contentStr = parts.join('\n');
+  const encoder = new TextEncoder();
+  const data = encoder.encode(contentStr);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
 
 export const ProjectEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -51,6 +90,9 @@ export const ProjectEditor: React.FC = () => {
 
   const [currentFrame, setCurrentFrame] = useState(0);
   const playerRef = useRef<RemotionVideoPlayerRef>(null);
+  // Tracks the content hash from the last time the pipeline ran (stored in manifest).
+  // Updated during loadFiles() and used by handleResumePipeline to detect content changes.
+  const storedContentHashRef = useRef<string>('');
 
   const getLiveScenes = React.useCallback(() => {
     if (!manifestData || !scriptData) return manifestData;
@@ -97,11 +139,22 @@ export const ProjectEditor: React.FC = () => {
 
       const resolvedAudioUrl = manifestScene.audio_url ? `${manifestScene.audio_url}&t=${reloadKey}` : '';
 
+      // When duration is 0 (e.g. for newly added scenes not yet through TTS),
+      // estimate it from the narration text so the preview shows a reasonable length.
+      const sceneDuration = manifestScene.duration > 0
+        ? manifestScene.duration
+        : estimateTextDuration(
+            type === 'introduction' ? scriptData?.introduction?.hook
+            : type === 'conclusion' ? scriptData?.conclusion?.summary
+            : scriptData?.scenes?.[sceneCounter - 1]?.narration
+          );
+
       return {
         ...manifestScene,
         title: liveTitle,
         sub_visuals: resolvedSubVisuals,
-        audio_url: resolvedAudioUrl
+        audio_url: resolvedAudioUrl,
+        duration: sceneDuration
       };
     });
   }, [manifestData, scriptData, reloadKey]);
@@ -283,6 +336,9 @@ export const ProjectEditor: React.FC = () => {
           setManifestData(enrichedManifest);
           // Also reset original manifest data when loading fresh files
           setOriginalManifestData(enrichedManifest);
+          // Extract the stored content hash (set by the backend after pipeline runs)
+          // All manifest entries share the same hash; read from the first available entry
+          storedContentHashRef.current = enrichedManifest[0]?._content_hash || '';
         }
         if (project.transcription_path) {
           const transcript = await callEel<any>('read_json_file', project.transcription_path);
@@ -343,17 +399,16 @@ export const ProjectEditor: React.FC = () => {
       }
 
       const origSubVisuals = manifestScene.sub_visuals || [];
+      // Only visual_type and visual_cue determine which media assets to fetch.
+      // transition_type and visual_meta are render-only fields — changes to them
+      // should trigger re-render, not re-download.
       const relevantLiveSubVisuals = liveSubVisuals.map((lsv: any) => ({
         visual_type: lsv.visual_type,
         visual_cue: lsv.visual_cue,
-        transition_type: lsv.transition_type,
-        visual_meta: lsv.visual_meta
       }));
       const relevantOrigSubVisuals = origSubVisuals.map((osv: any) => ({
         visual_type: osv.visual_type,
         visual_cue: osv.visual_cue,
-        transition_type: osv.transition_type,
-        visual_meta: osv.visual_meta
       }));
       if (JSON.stringify(relevantLiveSubVisuals) !== JSON.stringify(relevantOrigSubVisuals)) {
         changed = true;
@@ -425,16 +480,33 @@ export const ProjectEditor: React.FC = () => {
       };
 
       let stepsToRun: string[] = [];
+
+      // 1. If narration or scenes changed (known via alert flag), full rebuild from voiceover
       if (scriptChangedAlert) {
         stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
-      } else if (hasVisualEdits()) {
-        stepsToRun = limitSteps(['fetch_assets', 'render']);
       } else {
-        // Find remaining steps
-        const completedSteps = new Set(Object.values(tasks).filter(t => t.status === 'completed').map(t => t.step));
-        let remainingSteps = allSteps.filter(s => !completedSteps.has(s));
-        if (remainingSteps.length === 0) remainingSteps = ['render'];
-        stepsToRun = limitSteps(remainingSteps);
+        // 2. Check for scene count mismatch (scene added/deleted without the alert flag)
+        const manifestSceneCount = manifestData?.filter((m: any) => m.section_type === 'scene').length || 0;
+        const scriptSceneCount = scriptData?.scenes?.length || 0;
+        const sceneCountChanged = manifestSceneCount !== scriptSceneCount;
+
+        // 3. Check content hash — if it changed from the last pipeline run, voiceover is stale
+        // Uses SHA-256 matching the backend's compute_script_content_hash() so that
+        // the hash stored in the manifest on last save/pipeline-run is comparable.
+        const currentHash = await computeScriptContentHash(scriptData);
+        const hashChanged = !!storedContentHashRef.current && storedContentHashRef.current !== currentHash;
+
+        if (sceneCountChanged || hashChanged) {
+          stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+        } else if (hasVisualEdits()) {
+          stepsToRun = limitSteps(['fetch_assets', 'render']);
+        } else {
+          // Find remaining steps
+          const completedSteps = new Set(Object.values(tasks).filter(t => t.status === 'completed').map(t => t.step));
+          let remainingSteps = allSteps.filter(s => !completedSteps.has(s));
+          if (remainingSteps.length === 0) remainingSteps = ['render'];
+          stepsToRun = limitSteps(remainingSteps);
+        }
       }
 
       if (stepsToRun.length === 0) {
@@ -545,10 +617,12 @@ export const ProjectEditor: React.FC = () => {
           const origSubVisuals = manifestScene.sub_visuals || [];
           const mergedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
             const osv = origSubVisuals[idx] || {};
+            // Only visual_type and visual_cue determine which media file to fetch.
+            // visual_meta (lower_third, chart data, etc.) doesn't change the media,
+            // so it should NOT trigger re-download.
             const requiresNewAsset =
               lsv.visual_type !== osv.visual_type ||
-              lsv.visual_cue !== osv.visual_cue ||
-              JSON.stringify(lsv.visual_meta || {}) !== JSON.stringify(osv.visual_meta || {});
+              lsv.visual_cue !== osv.visual_cue;
 
             if (!requiresNewAsset) {
               return {
@@ -561,8 +635,19 @@ export const ProjectEditor: React.FC = () => {
             return lsv;
           });
 
+          // If duration is 0 (new scene not yet through TTS), estimate from text
+          const sceneText = type === 'introduction'
+            ? scriptData?.introduction?.hook
+            : type === 'conclusion'
+              ? scriptData?.conclusion?.summary
+              : scriptData?.scenes?.[sceneCounter - 1]?.narration;
+          const sceneDuration = manifestScene.duration > 0
+            ? manifestScene.duration
+            : estimateTextDuration(sceneText);
+
           return {
             ...manifestScene,
+            duration: sceneDuration,
             sub_visuals: mergedSubVisuals
           };
         });
@@ -593,16 +678,17 @@ export const ProjectEditor: React.FC = () => {
             const liveSv = liveSubVisuals[subIdx];
             const origSv = origSubVisuals[subIdx] || {};
 
-            // Compare only the relevant fields that trigger asset fetching
+            // Compare only the fields that determine which media file to fetch.
+            // visual_meta (lower_third position, chart data, etc.) affects
+            // rendering but not the media file itself -- exclude it to avoid
+            // unnecessary re-downloads when only meta changes.
             const liveKey = JSON.stringify({
               visual_type: liveSv.visual_type,
-              visual_cue: liveSv.visual_cue,
-              visual_meta: liveSv.visual_meta
+              visual_cue: liveSv.visual_cue
             });
             const origKey = JSON.stringify({
               visual_type: origSv.visual_type,
-              visual_cue: origSv.visual_cue,
-              visual_meta: origSv.visual_meta
+              visual_cue: origSv.visual_cue
             });
             const hasChanged = liveKey !== origKey;
 
@@ -622,8 +708,15 @@ export const ProjectEditor: React.FC = () => {
       setEditingCard(null);
       setSavingCardKey(null);
 
+      // Detect if this is a new scene being saved for the first time.
+      // insertAndSaveNewScene opens edit mode without setting originalScriptData,
+      // so narrationChanged is false. We detect this case to still flag the pipeline.
+      const isNewSceneSave = index !== undefined && !originalScriptData;
+
+      const contentChanged = narrationChanged || isNewSceneSave;
+
       // Show appropriate toast based on what changed
-      if (narrationChanged) {
+      if (contentChanged) {
         addToast("Narration text updated! We recommend resuming/syncing the pipeline to regenerate voiceover and subtitles.", 'warning', 6000);
         setScriptChangedAlert(true);
       } else if (cleanupResult?.deleted_files && cleanupResult.deleted_files.length > 0) {
@@ -664,7 +757,23 @@ export const ProjectEditor: React.FC = () => {
     setRewritingType(type);
 
     try {
-      const res = await callEel<{ success: boolean; data?: any; error?: string }>('regenerate_script_section', index, type, scriptData, rewritePrompt, selectedProject.language);
+      let res;
+
+      // Check if this is a new/blank scene — use generation instead of rewrite
+      const isNewScene = type === 'scenes' &&
+        scriptData.scenes && scriptData.scenes[index] &&
+        (!scriptData.scenes[index].narration || scriptData.scenes[index].narration.trim() === '');
+
+      if (isNewScene) {
+        res = await callEel<{ success: boolean; data?: any; error?: string }>(
+          'add_scene_with_ai',
+          scriptData,
+          rewritePrompt || `Create content for ${scriptData.scenes[index].title || 'this scene'}`,
+          selectedProject.language
+        );
+      } else {
+        res = await callEel<{ success: boolean; data?: any; error?: string }>('regenerate_script_section', index, type, scriptData, rewritePrompt, selectedProject.language);
+      }
 
       if (res?.success && res.data) {
         const updated = { ...scriptData };
@@ -677,11 +786,21 @@ export const ProjectEditor: React.FC = () => {
         }
 
         setScriptData(updated);
-        await callEel('save_json_file', selectedProject.script_path, updated);
-        setEditingCard(null);
-        setRewritePrompt('');
-        setScriptChangedAlert(true);
-        addToast("LLM rewrite completed and saved! Click 'Sync Audio & Subtitles' or 'Resume Pipeline' to rebuild voiceover.", 'success');
+
+        if (isNewScene) {
+          // For new scenes: populate the editor but DON'T auto-save.
+          // Keep the edit card open so the user can review, make tweaks,
+          // then manually click "Save" which triggers the full asset-fetch flow.
+          setRewritePrompt('');
+          addToast("AI content generated! Review and click Save to fetch visuals.", 'success');
+        } else {
+          // For existing scenes: auto-save is fine, close the editor
+          await callEel('save_json_file', selectedProject.script_path, updated);
+          setEditingCard(null);
+          setRewritePrompt('');
+          setScriptChangedAlert(true);
+          addToast("LLM rewrite completed and saved! Click 'Sync Audio & Subtitles' or 'Resume Pipeline' to rebuild voiceover.", 'success');
+        }
       } else {
         addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
       }
@@ -691,6 +810,95 @@ export const ProjectEditor: React.FC = () => {
       setRewritingIdx(null);
       setRewritingType('');
     }
+  };
+
+  const insertAndSaveNewScene = async (newScene: any, insertAfterIdx: number) => {
+    if (!id || !scriptData || !selectedProject?.script_path) return;
+
+    const insertPosition = insertAfterIdx >= 0 ? insertAfterIdx + 1 : (scriptData.scenes?.length || 0);
+
+    // 1. Insert into scriptData.scenes
+    const newScriptData = { ...scriptData };
+    const scenesCopy = [...(newScriptData.scenes || [])];
+
+    newScene.scene_number = insertPosition + 1;
+    scenesCopy.splice(insertPosition, 0, newScene);
+
+    // Re-number all subsequent scenes
+    for (let i = insertPosition + 1; i < scenesCopy.length; i++) {
+      scenesCopy[i].scene_number = i + 1;
+    }
+    newScriptData.scenes = scenesCopy;
+
+    setScriptData(newScriptData);
+
+    // 2. Create manifest placeholder entry
+    // Estimate initial duration from narration text so the preview shows a reasonable length
+    // (will be replaced by real audio duration when TTS pipeline runs)
+    const initialDuration = estimateTextDuration(newScene.narration);
+    const newManifestEntry = {
+      section_type: "scene",
+      title: newScene.title || "New Scene",
+      text: newScene.narration || "",
+      duration: initialDuration,
+      audio_path: "",
+      audio_file: "",
+      audio_url: "",
+      sub_visuals: (newScene.sub_visuals || []).map((sv: any) => ({
+        visual_type: sv.visual_type || "scene",
+        visual_cue: sv.visual_cue || "",
+        transition_type: sv.transition_type || sv.transition || "fade",
+        visual_meta: sv.visual_meta || {},
+        visual_path: "",
+        visual_url: ""
+      }))
+    };
+
+    // 3. Find insertion point in manifest
+    // Manifest order: intro (idx 0), scenes (1 to N), conclusion (last)
+    let manifestInsertIdx = manifestData ? manifestData.length : 0;
+    let sceneIdx = 0;
+    if (manifestData) {
+      for (let i = 1; i < manifestData.length; i++) {
+        if (manifestData[i].section_type === 'scene') {
+          if (sceneIdx === insertPosition) {
+            manifestInsertIdx = i;
+            break;
+          }
+          sceneIdx++;
+        }
+      }
+      // If we reached the end without finding the exact position, insert before conclusion
+      if (manifestInsertIdx === manifestData.length) {
+        // Find last scene entry and insert after it (before conclusion)
+        for (let i = manifestData.length - 1; i >= 0; i--) {
+          if (manifestData[i].section_type === 'scene') {
+            manifestInsertIdx = i + 1;
+            break;
+          }
+        }
+      }
+    }
+
+    const newManifestData = manifestData ? [...manifestData] : [];
+    newManifestData.splice(manifestInsertIdx, 0, newManifestEntry);
+    setManifestData(newManifestData);
+
+    // 4. Save to disk
+    const cleanupResult = await callEel<any>(
+      'save_project_with_cleanup',
+      id,
+      newScriptData,
+      newManifestData
+    );
+
+    if (cleanupResult?.success === false) {
+      addToast("Scene saved but asset cleanup had warnings", 'warning', 5000);
+    }
+
+    // 5. Open the new scene in edit mode (no loadFiles — data was just saved locally)
+    setEditingCard(`scene_${insertPosition}`);
+    setScriptChangedAlert(true);
   };
 
   // Convert local project assets directory file paths to media streaming URLs
@@ -1192,8 +1400,8 @@ export const ProjectEditor: React.FC = () => {
                       const activeSubIdxForScene = isActive ? activeSubIdx : -1;
 
                       return (
+                        <React.Fragment key={idx}>
                         <motion.div
-                          key={idx}
                           layout
                           className={`p-5 rounded-xl border transition-all ${isEditing ? 'bg-stone-900 border-amber-600/60 shadow-lg' : isActive ? 'bg-black/20 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.03)]' : 'bg-black/10 border-stone-800 hover:border-stone-700'}`}
                         >
@@ -1319,8 +1527,46 @@ export const ProjectEditor: React.FC = () => {
                             )}
                           </AnimatePresence>
                         </motion.div>
+                          {/* Insert button between scenes */}
+                          {!editingCard && !loadingScript && (
+                            <button
+                              onClick={async () => {
+                                const blankScene = {
+                                  scene_number: idx + 2,
+                                  title: "New Scene",
+                                  narration: "",
+                                  sub_visuals: [{ visual_type: "scene", visual_cue: "", transition: "fade", visual_meta: {} }]
+                                };
+                                await insertAndSaveNewScene(blankScene, idx);
+                              }}
+                              className="w-full flex items-center justify-center gap-1 py-1 text-stone-600 hover:text-amber-400 hover:bg-stone-800/30 rounded-lg border border-dashed border-transparent hover:border-amber-600/30 text-xs transition-all cursor-pointer my-1"
+                              title="Insert scene here"
+                            >
+                              <VscAdd className="text-sm" /> Insert Scene
+                            </button>
+                          )}
+                        </React.Fragment>
                       );
                     })}
+
+                    {/* Add Scene button at end of scenes list */}
+                    {!loadingScript && (
+                      <button
+                        onClick={async () => {
+                          const lastIdx = (scriptData.scenes?.length || 1) - 1;
+                          const blankScene = {
+                            scene_number: lastIdx + 2,
+                            title: "New Scene",
+                            narration: "",
+                            sub_visuals: [{ visual_type: "scene", visual_cue: "", transition: "fade", visual_meta: {} }]
+                          };
+                          await insertAndSaveNewScene(blankScene, lastIdx);
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-3 text-stone-400 hover:text-amber-400 border border-dashed border-stone-700 hover:border-amber-600/40 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                      >
+                        <VscAdd className="text-sm" /> Add Scene
+                      </button>
+                    )}
 
                     {/* Conclusion Card */}
                     {(() => {

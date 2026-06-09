@@ -79,6 +79,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     with open(transcribe_path, "r", encoding="utf-8") as f:
         transcript = json.load(f)
 
+    # Strip internal pipeline metadata (_content_hash) that doesn't affect rendering output.
+    # This prevents metadata changes (e.g. first save after hash system was introduced) from
+    # invalidating the render cache and forcing a full re-render.
+    for sc in scenes:
+        sc.pop("_content_hash", None)
+
     # Convert local absolute paths in scenes/audios into Bottle media serving URLs
     for sc in scenes:
         sc["audio_url"] = clean_media_path(sc["audio_path"])
@@ -220,13 +226,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     scale_map = {"720p": "0.6666666666666666", "1080p": "1", "1440p": "1.3333333333333333", "4k": "2"}
     scale_arg = scale_map.get(render_resolution.lower(), "1")
 
-    total_duration_dup = sum(float(sc.get("duration") or 0.0) for sc in scenes)
-    total_frames_dup = max(fps * 5, math.ceil(total_duration_dup * fps))
-
     node_exe = get_node_path()
     bin_dir = frontend_dir.parent / "bin"
     ffmpeg_exe = bin_dir / "ffmpeg.exe"
     ffprobe_exe = bin_dir / "ffprobe.exe"
+
+    # Closure variable for mapping Remotion sub-range progress to overall frame progress
+    # when resuming from cached frames. Set before the Frames rendering call; stays 0
+    # for Audio phase and any non-Frames mode where there's no sub-range to offset.
+    first_missing_frame_pct = 0.0
 
     def run_node_process(cmd, progress_weight, base_progress, label):
         env = os.environ.copy()
@@ -302,8 +310,13 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                             
                         if progress_match:
                             pct_val = float(progress_match.group(1))
-                            pct = base_progress + (pct_val / 100.0) * progress_weight
-                            progress_cb(min(99.0, pct), f"Rendering {label.lower()}... {pct_val:.1f}%")
+                            # Map Remotion sub-range progress to overall frame progress so the
+                            # displayed percentage reflects all frames, not just the missing range.
+                            # E.g. when resuming from frame 2250 of 11701, the first progress
+                            # shows ~19.2% instead of 0.0%.
+                            overall_pct = first_missing_frame_pct + (pct_val / 100.0) * (100.0 - first_missing_frame_pct)
+                            pct = base_progress + (overall_pct / 100.0) * progress_weight
+                            progress_cb(min(99.0, pct), f"Rendering {label.lower()}... {overall_pct:.1f}%")
                         elif bundle_regex.search(stripped):
                             progress_cb(base_progress, f"Bundling complete. Starting {label.lower()} render...")
                 else:
@@ -401,6 +414,14 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     # Phase 1: Render Frames
     missing_ranges_str = get_missing_frame_ranges(frames_dir, total_frames)
     if missing_ranges_str:
+        # Compute the overall frame progress offset so the progress display reflects all
+        # frames, not just the sub-range being rendered now.
+        try:
+            first_missing = int(missing_ranges_str.split(",")[0].split("-")[0])
+            first_missing_frame_pct = (first_missing / total_frames) * 100.0 if total_frames > 0 else 0.0
+        except (ValueError, IndexError):
+            first_missing_frame_pct = 0.0
+
         progress_cb(10.0, "Starting frame rendering...")
         cmd_frames = list(base_node_cmd)
         cmd_frames.extend([
@@ -414,6 +435,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     else:
         logger.info("All frames already rendered. Skipping frame render phase.")
         progress_cb(80.0, "All frames already rendered.")
+
+    # Reset the frame progress offset — the Audio phase has no cached sub-range to offset.
+    first_missing_frame_pct = 0.0
 
     # Phase 2: Render Audio
     if not cached_audio_path.exists():
@@ -432,18 +456,35 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     progress_cb(90.0, "Muxing final video...")
     ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
     
-    # Auto-detect frame padding
+    # Normalize frame filenames to consistent padding.
+    # Remotion's renderFrames may produce unpadded names for single-frame ranges
+    # (e.g. element-474.webp) mixed with padded names for multi-frame ranges.
+    # Without normalization, FFmpeg's %0Nd pattern misses unpadded files and
+    # produces a truncated video — only N frames are encoded instead of all.
     frame_files_list = list(frames_dir.glob("element-*.webp"))
     if not frame_files_list:
         raise RuntimeError(f"No frames found in {frames_dir}")
-        
-    sample_name = frame_files_list[0].name
-    match = re.search(r"element-(\d+)\.webp", sample_name)
-    if match:
-        padding = len(match.group(1))
-        frame_input_pattern = f"element-%0{padding}d.webp"
-    else:
-        frame_input_pattern = "element-%04d.webp"
+
+    max_frame = 0
+    for f in frame_files_list:
+        m = re.search(r"element-(\d+)\.webp", f.name)
+        if m:
+            max_frame = max(max_frame, int(m.group(1)))
+
+    normalized_padding = max(len(str(max_frame)), 4)
+    for f in frame_files_list:
+        m = re.search(r"element-(\d+)\.webp", f.name)
+        if m:
+            frame_num = int(m.group(1))
+            expected_name = f"element-{frame_num:0{normalized_padding}d}.webp"
+            if f.name != expected_name:
+                dest = f.parent / expected_name
+                if not dest.exists():
+                    f.rename(dest)
+                else:
+                    f.unlink()
+
+    frame_input_pattern = f"element-%0{normalized_padding}d.webp"
 
     ffmpeg_cmd = [
         ffmpeg_bin, "-y",
@@ -464,8 +505,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     logger.info(f"Running FFmpeg muxing: {' '.join(ffmpeg_cmd)}")
     run_ffmpeg(ffmpeg_cmd, base_progress=90.0, progress_weight=9.0)
 
-    # Cleanup frames after successful mux
-    shutil.rmtree(frames_dir, ignore_errors=True)
+    # Frames cache preserved for future resume
 
     if not output_mp4_path.exists():
         raise FileNotFoundError(f"Pipeline completed but output file was not found at: {output_mp4_path}")

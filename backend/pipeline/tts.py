@@ -309,7 +309,90 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     merged_audio_path = project_dir / "voiceover.wav"
     concat_audio_files_ffmpeg(temp_files, str(merged_audio_path))
     
-    # Save manifest
+    # Save manifest with content hash for change detection on pipeline resume
+    from backend.pipeline.assets import compute_script_content_hash
+    content_hash = compute_script_content_hash(script)
+    for entry in manifest_entries:
+        if isinstance(entry, dict):
+            entry["_content_hash"] = content_hash
+
+    # Preserve visual_path/visual_url from existing manifest for unchanged sub-visuals.
+    # This prevents re-downloading all assets when only voiceover is regenerated.
+    # Matches sub-visuals by content (visual_type + visual_cue) rather than by
+    # position, so it works correctly even when scenes are inserted or reordered.
+    old_manifest_path = voice_dir / "manifest.json"
+    if old_manifest_path.exists():
+        try:
+            with open(old_manifest_path, "r", encoding="utf-8") as f:
+                old_manifest = json.load(f)
+
+            for new_entry in manifest_entries:
+                new_sub_visuals = new_entry.get("sub_visuals", [])
+
+                # Find the best-matching old entry by counting how many sub-visuals
+                # share the same content-determining fields (visual_type, visual_cue).
+                best_old_entry = None
+                best_match_count = -1
+                for old_entry in old_manifest:
+                    old_sub_visuals = old_entry.get("sub_visuals", [])
+                    count = sum(
+                        1 for nsv in new_sub_visuals
+                        for osv in old_sub_visuals
+                        if (nsv.get("visual_type") == osv.get("visual_type")
+                            and nsv.get("visual_cue") == osv.get("visual_cue"))
+                    )
+                    if count > best_match_count:
+                        best_match_count = count
+                        best_old_entry = old_entry
+
+                if best_old_entry is None or best_match_count < 1:
+                    continue
+
+                old_sub_visuals = best_old_entry.get("sub_visuals", [])
+                for nsv in new_sub_visuals:
+                    # Find the matching sub-visual by content within the chosen old entry
+                    osv = next(
+                        (osv for osv in old_sub_visuals
+                         if (nsv.get("visual_type") == osv.get("visual_type")
+                             and nsv.get("visual_cue") == osv.get("visual_cue")
+                             and json.dumps(nsv.get("visual_meta", {}), sort_keys=True, default=str)
+                             == json.dumps(osv.get("visual_meta", {}), sort_keys=True, default=str))),
+                        None
+                    )
+                    if osv:
+                        if osv.get("visual_path"):
+                            nsv["visual_path"] = osv["visual_path"]
+                        if osv.get("visual_url"):
+                            nsv["visual_url"] = osv["visual_url"]
+        except Exception as e:
+            logger.warning(f"Could not preserve visual_path from old manifest: {e}")
+
+    # Verify preserved visual_path files still exist on disk.
+    # Scene insertion/deletion shifts array positions, and cleanup_removed_assets
+    # deletes files at old positions. The content-matched preservation above may
+    # have copied dangling references. Check each preserved path and update to
+    # the new position filename if the old file was cleaned up.
+    for entry in manifest_entries:
+        scene_idx = entry.get("index", 0)
+        for sub_idx, sv in enumerate(entry.get("sub_visuals", [])):
+            vp = sv.get("visual_path", "")
+            if vp and not Path(vp).exists():
+                # Try the new position filename
+                assets_dir = project_dir / "assets"
+                found = False
+                for ext in (".mp4", ".jpg", ".png", ".jpeg"):
+                    candidate = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}{ext}"
+                    if candidate.exists():
+                        sv["visual_path"] = str(candidate)
+                        sv["visual_url"] = ""  # Will be recomputed by render_pipeline
+                        logger.info(f"Updated stale visual_path for [{scene_idx}:{sub_idx}] to {candidate}")
+                        found = True
+                        break
+                if not found:
+                    sv["visual_path"] = ""
+                    sv["visual_url"] = ""
+                    logger.info(f"Cleared stale visual_path for [{scene_idx}:{sub_idx}] - will re-download")
+
     manifest_path = voice_dir / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_entries, f, indent=2, ensure_ascii=False)

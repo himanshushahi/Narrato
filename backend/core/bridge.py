@@ -403,6 +403,103 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         logger.error(f"Failed to regenerate section: {e}")
         return {"success": False, "error": str(e)}
 
+@eel.expose
+def add_scene_with_ai(full_script, user_prompt, language="hi"):
+    """Generates a single new scene using AI, with full script context for narrative coherence."""
+    logger.info(f"Bridge API: add_scene_with_ai — user_prompt: '{user_prompt[:80]}...'")
+
+    llm_provider = get_setting("llm_provider") or "openai"
+    api_key = get_setting("openai_api_key")
+    base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
+    model = get_setting("openai_model") or "gpt-4o"
+
+    if not api_key:
+        return {"success": False, "error": "Please configure an OpenAI API Key first."}
+
+    # Build script context summary for LLM
+    existing_scenes = full_script.get("scenes", [])
+    scenes_summary = "\n".join(
+        f"  Scene {s.get('scene_number', i + 1)}: \"{s.get('title', 'Untitled')}\" — {s.get('narration', '')[:120]}..."
+        for i, s in enumerate(existing_scenes)
+    )
+    intro_hook = full_script.get("introduction", {}).get("hook", "")[:200]
+    conclusion_summary = full_script.get("conclusion", {}).get("summary", "")[:200]
+
+    system_prompt = (
+        "You are an expert documentary scriptwriter. Your task is to create a BRAND NEW scene "
+        "to insert into an existing documentary script. The new scene must fit naturally into the "
+        "narrative flow, maintaining consistent tone, style, and pacing with the surrounding content.\n\n"
+        "HERE IS THE FULL SCRIPT CONTEXT:\n"
+        f"Documentary Title: \"{full_script.get('title', 'Untitled')}\"\n"
+        f"Introduction Hook: \"{intro_hook}\"\n"
+        f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
+        f"Conclusion: \"{conclusion_summary}\"\n\n"
+        "IMPORTANT: Every scene MUST include a 'sub_visuals' array with 2-4 sub-visual entries for fast-paced visual cuts.\n"
+        "Each sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {} }\n"
+        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network'.\n"
+        "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
+        "- For media types (scene, image, portrait, youtube, parallax): provide 2-4 sub_visuals with DIFFERENT keywords.\n"
+        "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
+        "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
+        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
+        "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
+        "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
+        "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
+        "- If visual_type is 'network', visual_meta must contain: { \"nodes\": [...], \"edges\": [...] }\n\n"
+        "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
+        "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\", \"sub_visuals\": [...] }\n"
+    )
+
+    if language != "en":
+        system_prompt += f"The narration text MUST be written in the requested language (code: '{language}'). Visual suggestions (visual_cue, visual_meta) MUST remain in English.\n\n"
+    else:
+        system_prompt += "The narration text MUST be written in English.\n\n"
+
+    from backend.pipeline.ai import SCENE_JSON_SCHEMA
+
+    user_prompt = (
+        f"Generate a new scene for this documentary based on the following description:\n\n"
+        f"{user_prompt}\n\n"
+        f"Make the scene fit naturally with the existing narrative. "
+        f"The scene_number will be assigned by the system, so just put 1 as a placeholder."
+    )
+
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    if llm_provider == "nvidia":
+        data = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.7,
+            "guided_json": SCENE_JSON_SCHEMA
+        }
+    else:
+        data = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.7,
+            "response_format": {"type": "json_object"}
+        }
+
+    try:
+        res = requests_post(url, headers, data)
+        scene_data = clean_json_response_bridge(res)
+        return {"success": True, "data": scene_data}
+    except Exception as e:
+        logger.error(f"Failed to generate new scene: {e}")
+        return {"success": False, "error": str(e)}
+
+
 def requests_post(url, headers, json_data):
     import requests
     response = requests.post(url, headers=headers, json=json_data, timeout=60)
@@ -704,7 +801,7 @@ def save_project_with_cleanup(project_id, script_data, manifest_data):
         dict: {success: bool, script_saved: bool, cleanup_result: {...}, error?: str}
     """
     from backend.database.db import get_project
-    from backend.pipeline.assets import cleanup_removed_assets
+    from backend.pipeline.assets import cleanup_removed_assets, compute_script_content_hash
 
     result = {"success": True, "script_saved": False, "cleanup_result": None}
 
@@ -720,8 +817,11 @@ def save_project_with_cleanup(project_id, script_data, manifest_data):
             if not script_success:
                 logger.warning("Script file save failed, but continuing with cleanup")
 
-        # 2. Cleanup removed assets and save manifest
-        cleanup_result = cleanup_removed_assets(project_id, manifest_data)
+        # Compute a content hash from the script narration for change detection
+        content_hash = compute_script_content_hash(script_data)
+
+        # 2. Cleanup removed assets and save manifest (with content hash embedded)
+        cleanup_result = cleanup_removed_assets(project_id, manifest_data, content_hash=content_hash)
         result["cleanup_result"] = cleanup_result
 
         if not cleanup_result.get("success"):

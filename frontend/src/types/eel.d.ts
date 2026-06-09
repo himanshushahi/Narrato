@@ -23,6 +23,7 @@ interface Eel {
   start_whisper_download: EelCall<[string], any>;
   check_nvidia_gpu_available: EelCall<[], boolean>;
   regenerate_script_section: EelCall<[number, string, any, string, string], any>;
+  add_scene_with_ai: EelCall<[any, string, string], any>;
   generate_voice_preview: EelCall<[string, string, string, string, string, string], any>;
   get_audio_base64: EelCall<[string], string>;
   open_exports_folder: EelCall<[], boolean>;
