@@ -93,8 +93,17 @@
   background: var(--color-brand-600);
 }
 
-/* 
-  Global Utility Classes for Archival/Vintage UI 
+/* Hide scrollbar but keep scrollable */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+  Global Utility Classes for Archival/Vintage UI
 */
 
 .bg-cinematic {

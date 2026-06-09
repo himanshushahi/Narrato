@@ -5,7 +5,7 @@ import { useProjectStore } from './store/useProjectStore';
 import { useSettingsStore } from './store/useSettingsStore';
 import { useEelConnection, waitForEelConnection } from './utils/eel-bridge';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
-const ProjectEditor = React.lazy(() => import('./pages/ProjectEditor'));
+const EditorWorkspace = React.lazy(() => import('./features/EditorWorkspace/EditorWorkspace'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
 import TerminalLogs from './components/ui/TerminalLogs';
 import { ToastContainer } from './components/ui/Toast';
@@ -133,34 +133,37 @@ function Sidebar() {
   );
 }
 
-function ConnectionStatusBanner() {
-  const { isConnected, isConnecting, error, retryCount } = useEelConnection();
+// function ConnectionStatusBanner() {
+//   const { isConnected, isConnecting, error, retryCount } = useEelConnection();
 
-  // Don't show if connected
-  if (isConnected) return null;
+//   // Don't show if connected
+//   if (isConnected) return null;
 
-  // Show error state
-  if (error) {
-    return (
-      <div className="fixed top-0 left-0 right-0 z-50 bg-red-500/90 text-white text-xs py-2 px-4 flex items-center justify-center gap-2 font-bold backdrop-blur-md">
-        <VscDebugDisconnect /> {error}
-      </div>
-    );
-  }
+//   // Show error state
+//   if (error) {
+//     return (
+//       <div className="fixed top-0 left-0 right-0 z-50 bg-red-500/90 text-white text-xs py-2 px-4 flex items-center justify-center gap-2 font-bold backdrop-blur-md">
+//         <VscDebugDisconnect /> {error}
+//       </div>
+//     );
+//   }
 
-  // Show connecting state
-  if (isConnecting) {
-    return (
-      <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500/90 text-zinc-950 text-xs py-2 px-4 flex items-center justify-center gap-2 font-bold backdrop-blur-md">
-        <VscLoading className="animate-spin" /> Connecting to backend... (attempt {retryCount})
-      </div>
-    );
-  }
+//   // Show connecting state
+//   if (isConnecting) {
+//     return (
+//       <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500/90 text-zinc-950 text-xs py-2 px-4 flex items-center justify-center gap-2 font-bold backdrop-blur-md">
+//         <VscLoading className="animate-spin" /> Connecting to backend... (attempt {retryCount})
+//       </div>
+//     );
+//   }
 
-  return null;
-}
+//   return null;
+// }
 
-export default function App() {
+function AppContent() {
+  const location = useLocation();
+  const isEditorRoute = location.pathname.startsWith('/editor');
+
   useEffect(() => {
     // Initialize stores
     useProjectStore.getState().fetchProjects();
@@ -174,19 +177,33 @@ export default function App() {
     });
   }, []);
 
-  return (
-    <Router>
-      {/* Cinematic Background Layer */}
-      <div className="bg-cinematic fixed inset-0 z-0 pointer-events-none" />
+  // Full-screen editor layout (no sidebar, no terminal)
+  if (isEditorRoute) {
+    return (
+      <>
+        <div className="bg-cinematic fixed inset-0 z-0 pointer-events-none" />
+        {/* <ConnectionStatusBanner /> */}
+        <div className="h-screen w-screen text-stone-100 overflow-hidden font-sans relative z-10">
+          <Suspense fallback={<div className="h-screen w-screen flex items-center justify-center bg-zinc-950 text-white font-mono">Loading Editor...</div>}>
+            <Routes>
+              <Route path="/editor/:id" element={<EditorWorkspace />} />
+            </Routes>
+          </Suspense>
+        </div>
+        <ToastContainer />
+        <ConfirmModal />
+      </>
+    );
+  }
 
+  // Standard layout with sidebar
+  return (
+    <>
+      <div className="bg-cinematic fixed inset-0 z-0 pointer-events-none" />
       <div className="h-screen w-screen flex text-stone-100 overflow-hidden font-sans relative z-10">
         <Sidebar />
-
-        {/* Workspace views split */}
         <div className="flex-1 flex flex-col min-w-0 relative bg-zinc-950/20">
-          {/* Connection status banner - visible only when not connected */}
-          <ConnectionStatusBanner />
-
+          {/* <ConnectionStatusBanner /> */}
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative">
             <AnimatePresence mode="wait">
               <Suspense fallback={<div className="h-screen w-screen flex items-center justify-center bg-zinc-950 text-white font-mono">Loading Module...</div>}>
@@ -194,11 +211,6 @@ export default function App() {
                   <Route path="/" element={
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="min-h-full">
                       <Dashboard />
-                    </motion.div>
-                  } />
-                  <Route path="/editor/:id" element={
-                    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="min-h-full">
-                      <ProjectEditor />
                     </motion.div>
                   } />
                   <Route path="/settings" element={
@@ -210,12 +222,19 @@ export default function App() {
               </Suspense>
             </AnimatePresence>
           </div>
-
           <TerminalLogs />
         </div>
       </div>
       <ToastContainer />
       <ConfirmModal />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <Router>
+      <AppContent />
     </Router>
   );
 }

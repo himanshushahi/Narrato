@@ -56,7 +56,7 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
               />
             )}
             <span className="relative z-10 flex items-center gap-2">
-              {tab.icon && <span className={isActive && !isDisabled ? 'text-[var(--color-accent-primary)]' : ''}>{tab.icon}</span>}
+              {tab.icon && <span className={isActive && !isDisabled ? 'text-white' : 'text-current'}>{tab.icon}</span>}
               {tab.label}
             </span>
           </button>
