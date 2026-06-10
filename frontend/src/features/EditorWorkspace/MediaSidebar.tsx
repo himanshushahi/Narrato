@@ -1,13 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLayers, VscPackage, VscMusic,
   VscSearch, VscAdd, VscWarning,
   VscCheck, VscLoading, VscListFlat, VscSymbolField,
-  VscRefresh, VscPlay
+  VscRefresh, VscPlay, VscTrash
 } from 'react-icons/vsc';
 import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
+import { CustomAudioPlayer } from '../../components/ui/CustomAudioPlayer';
 import { useEditorStore, LeftPanelTab } from '../../store/useEditorStore';
+import { useProjectStore } from '../../store/useProjectStore';
+import { callEel } from '../../utils/eel-bridge';
 import { formatTime } from '../../features/ProjectEditor/constants';
 import { useProjectAssets, AssetEntry } from './hooks/useProjectAssets';
 
@@ -167,6 +170,54 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
     isScanning,
     refresh,
   } = useProjectAssets(projectId, manifestData, sceneTimings, sceneTitles, reloadTrigger, isFetchingAssets);
+
+  // ---- Music tab state ----
+  const selectedProject = useProjectStore((s) => s.selectedProject);
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const fetchProjectDetail = useProjectStore((s) => s.fetchProjectDetail);
+  const [uploading, setUploading] = useState(false);
+  const [localVolume, setLocalVolume] = useState<number>(
+    selectedProject?.bg_music_volume ?? 0.15,
+  );
+
+  const bgMusicPath = selectedProject?.bg_music_path || '';
+  const bgMusicUrl = bgMusicPath
+    ? `/api/media?path=${encodeURIComponent(bgMusicPath)}&t=${reloadTrigger}`
+    : '';
+  const bgMusicFilename = bgMusicPath ? bgMusicPath.split(/[/\\]/).pop() || 'Unknown' : '';
+  const bgMusicExt = bgMusicPath ? (bgMusicPath.split('.').pop() || '').toLowerCase() : '';
+
+  // Keep localVolume in sync when project data reloads
+  useEffect(() => {
+    if (selectedProject?.bg_music_volume !== undefined) {
+      setLocalVolume(selectedProject.bg_music_volume);
+    }
+  }, [selectedProject?.bg_music_volume]);
+
+  const handleUploadMusic = useCallback(async () => {
+    if (!projectId) return;
+    setUploading(true);
+    try {
+      const result = await callEel<{ success: boolean }>('upload_project_bg_music', projectId);
+      if (result?.success) {
+        fetchProjectDetail(projectId);
+      }
+    } catch (e) {
+      console.error('Failed to upload bg music:', e);
+    } finally {
+      setUploading(false);
+    }
+  }, [projectId, fetchProjectDetail]);
+
+  const handleRemoveMusic = useCallback(async () => {
+    if (!projectId) return;
+    await updateProject(projectId, { bg_music_path: '' });
+  }, [projectId, updateProject]);
+
+  const handleVolumeSave = useCallback(async () => {
+    if (!projectId) return;
+    await updateProject(projectId, { bg_music_volume: localVolume });
+  }, [projectId, localVolume, updateProject]);
 
   // Filter & sort assets
   const filteredAssets = useMemo(() => {
@@ -450,20 +501,106 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
     </div>
   );
 
-  const renderMusicTab = () => (
-    <div className="flex flex-col h-full p-4 text-center">
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
-          <VscMusic className="text-2xl text-zinc-600" />
+  const renderMusicTab = () => {
+    if (!bgMusicPath) {
+      return (
+        <div className="flex flex-col h-full p-4 text-center">
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
+              <VscMusic className="text-2xl text-zinc-600" />
+            </div>
+            <p className="text-sm text-zinc-400 font-medium mb-1">No Background Music</p>
+            <p className="text-[10px] text-zinc-600 mb-4 max-w-45 leading-relaxed">
+              Upload a custom soundtrack for this project
+            </p>
+            <button
+              onClick={handleUploadMusic}
+              disabled={uploading}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {uploading ? (
+                <VscLoading className="text-xs animate-spin" />
+              ) : (
+                <VscAdd />
+              )}
+              {uploading ? 'Uploading...' : 'Upload Music'}
+            </button>
+          </div>
         </div>
-        <p className="text-sm text-zinc-400 font-medium mb-1">Music Library</p>
-        <p className="text-[10px] text-zinc-600 mb-4 max-w-45">Select background music for your project</p>
-        <button className="flex items-center gap-1.5 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg text-xs font-bold transition-all">
-          <VscAdd /> Upload Music
-        </button>
+      );
+    }
+
+    const fileBadge = bgMusicExt ? fileTypeBadge('.' + bgMusicExt) : null;
+
+    return (
+      <div className="flex flex-col h-full p-3 space-y-4">
+        {/* File info card */}
+        <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-xl p-3 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 shrink-0 rounded-lg flex items-center justify-center ${fileBadge?.color || 'bg-zinc-800/50'}`}>
+              {fileBadge?.icon || <VscMusic className="text-lg text-zinc-500" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-zinc-200 truncate">{bgMusicFilename}</p>
+              <p className="text-[9px] text-zinc-500 font-mono mt-0.5">
+                {fileBadge?.label || bgMusicExt.toUpperCase() || 'AUDIO'}
+              </p>
+            </div>
+          </div>
+
+          {/* Custom audio preview */}
+          <CustomAudioPlayer src={bgMusicUrl} volume={localVolume} />
+        </div>
+
+        {/* Volume control */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-zinc-400">Volume</span>
+            <span className="text-[9px] font-mono text-zinc-500">{Math.round(localVolume * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="0.5"
+            step="0.01"
+            value={localVolume}
+            onChange={(e) => setLocalVolume(parseFloat(e.target.value))}
+            onMouseUp={handleVolumeSave}
+            onKeyUp={(e) => {
+              if (e.key === 'Enter' || e.key === 'Escape') handleVolumeSave();
+            }}
+            className="w-full h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-blue-500
+              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5
+              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500
+              [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-zinc-900
+              [&::-webkit-slider-thumb]:shadow-md"
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2">
+          <button
+            onClick={handleUploadMusic}
+            disabled={uploading}
+            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {uploading ? (
+              <VscLoading className="text-xs animate-spin" />
+            ) : (
+              <VscAdd />
+            )}
+            Replace
+          </button>
+          <button
+            onClick={handleRemoveMusic}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-600/20 rounded-lg text-[10px] font-bold transition-all"
+          >
+            <VscTrash /> Remove
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderTabContent = () => {
     switch (leftPanelTab) {

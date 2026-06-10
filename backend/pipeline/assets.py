@@ -311,20 +311,34 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         raise InterruptedError("Cancelled")
 
     # 2. Fetch background music
-    # If settings specify bg_music_path, copy it or download default
-    bg_music_setting = get_setting("bg_music_path")
-    if bg_music_setting and os.path.exists(bg_music_setting):
-        logger.info(f"Copying configured background music track: {bg_music_setting}")
-        local_music = project_dir / "bg_music.mp3"
-        import shutil
-        try:
-            shutil.copy(bg_music_setting, local_music)
-            update_project(project_dict['id'], bg_music_path=str(local_music))
-        except Exception as e:
-            logger.warning(f"Failed to copy background music: {e}")
+    # Priority: project-level bg_music_path > global setting > nothing
+    import shutil
+
+    project_bg = project_dict.get("bg_music_path")
+    if project_bg and os.path.exists(project_bg):
+        logger.info(f"Using project-level background music: {project_bg}")
+        src_ext = os.path.splitext(project_bg)[1].lower() or ".mp3"
+        local_music = project_dir / f"bg_music{src_ext}"
+        if str(local_music) != project_bg:
+            try:
+                shutil.copy(project_bg, local_music)
+                update_project(project_dict['id'], bg_music_path=str(local_music))
+            except Exception as e:
+                logger.warning(f"Failed to copy project background music: {e}")
+        else:
+            logger.info("Project bg_music already in standard location.")
     else:
-        # Check if project folder has a bg_music or default music, or we can just download a copyright free track
-        logger.info("No custom background music set. Visual playback will have no sound effects overlay.")
+        bg_music_setting = get_setting("bg_music_path")
+        if bg_music_setting and os.path.exists(bg_music_setting):
+            logger.info(f"Copying configured background music track: {bg_music_setting}")
+            local_music = project_dir / "bg_music.mp3"
+            try:
+                shutil.copy(bg_music_setting, local_music)
+                update_project(project_dict['id'], bg_music_path=str(local_music))
+            except Exception as e:
+                logger.warning(f"Failed to copy background music: {e}")
+        else:
+            logger.info("No custom background music set. Visual playback will have no sound effects overlay.")
 
     # 3. Update manifest
     with open(manifest_path, "w", encoding="utf-8") as f:

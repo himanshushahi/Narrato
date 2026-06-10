@@ -32,6 +32,7 @@ interface Eel {
   update_ytdlp: EelCall<[], { status: string }>;
   save_project_with_cleanup: EelCall<[string, any, any], any>;
   db_update_project: EelCall<[string, any], any>;
+  upload_project_bg_music: EelCall<[string], { success: boolean; path: string | null; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
   download_google_font: EelCall<[string], any>;
   get_downloaded_whisper_models: EelCall<[], any[]>;
   delete_whisper_model: EelCall<[string], any>;

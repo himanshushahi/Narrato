@@ -58,6 +58,60 @@ def browse_bg_music_file():
         return ""
 
 @eel.expose
+def upload_project_bg_music(project_id):
+    """Open file dialog, copy selected audio to project dir, update DB.
+
+    Returns:
+        dict with {success, path, filename, size_bytes, extension}
+        or {success: false, error} on failure / cancel.
+    """
+    logger.info(f"Bridge API: upload_project_bg_music called for {project_id}")
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        import shutil
+        from pathlib import Path
+        from backend.core.config import get_storage_dir
+        from backend.database.db import update_project
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        file_path = filedialog.askopenfilename(
+            title="Select Background Music",
+            filetypes=[("Audio Files", "*.mp3 *.wav *.ogg *.flac *.m4a"), ("All Files", "*.*")]
+        )
+        root.destroy()
+
+        if not file_path:
+            return {"success": False, "path": None, "error": "No file selected"}
+
+        # Copy to project directory
+        proj_dir = get_storage_dir() / project_id
+        proj_dir.mkdir(parents=True, exist_ok=True)
+
+        src = Path(file_path)
+        ext = src.suffix.lower()
+        dest = proj_dir / f"bg_music{ext}"
+
+        shutil.copy(str(src), str(dest))
+
+        # Update project DB
+        update_project(project_id, bg_music_path=str(dest))
+
+        stat = dest.stat()
+        return {
+            "success": True,
+            "path": str(dest),
+            "filename": dest.name,
+            "size_bytes": stat.st_size,
+            "extension": ext,
+        }
+    except Exception as e:
+        logger.error(f"upload_project_bg_music error: {e}")
+        return {"success": False, "path": None, "error": str(e)}
+
+@eel.expose
 def db_get_projects():
     return get_all_projects()
 
