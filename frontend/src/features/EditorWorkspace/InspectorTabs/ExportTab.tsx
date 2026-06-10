@@ -5,7 +5,6 @@ import {
 } from 'react-icons/vsc';
 import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
 import { Task } from '../../../store/useProjectStore';
-import { CustomSelect } from '../../../components/ui/CustomSelect';
 
 interface ExportTabProps {
   tasks: Record<string, Task>;
@@ -126,38 +125,6 @@ export const ExportTab: React.FC<ExportTabProps> = ({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4">
-        {/* Export Settings */}
-        <div className="glass-panel rounded-xl p-4 space-y-3">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Export Settings</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <CustomSelect
-              label="Resolution"
-              options={[
-                { value: '1080p', label: '1080p (Full HD)' },
-                { value: '4k', label: '4K (Ultra HD)' },
-              ]}
-              value="1080p"
-              onChange={() => {}}
-            />
-            <CustomSelect
-              label="Format"
-              options={[{ value: 'mp4', label: 'MP4 (H.264)' }]}
-              value="mp4"
-              onChange={() => {}}
-            />
-          </div>
-          <CustomSelect
-            label="Frame Rate"
-            options={[
-              { value: '24', label: '24 fps (Cinematic)' },
-              { value: '30', label: '30 fps (Standard)' },
-              { value: '60', label: '60 fps (Smooth)' },
-            ]}
-            value="30"
-            onChange={() => {}}
-          />
-        </div>
-
         {/* Production Pipeline */}
         <div className="glass-panel rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">

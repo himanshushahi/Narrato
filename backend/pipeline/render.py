@@ -118,13 +118,13 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         except Exception as e:
             logger.error(f"Failed to parse project_settings: {e}")
 
-    # Fetch rendering settings
-    render_resolution = get_setting("render_resolution") or "1080p"
-    render_concurrency = get_setting("render_concurrency") or "logical"
-    render_fps = get_setting("render_fps") or "30"
-    render_crf = get_setting("render_crf") or "18"
-    render_codec = get_setting("render_codec") or "h264"
-    render_hardware = get_setting("render_hardware") or "cpu"
+    # Fetch rendering settings — project_settings override global defaults
+    render_resolution = project_settings.get("render_resolution") or get_setting("render_resolution") or "1080p"
+    render_concurrency = project_settings.get("render_concurrency") or get_setting("render_concurrency") or "logical"
+    render_fps = project_settings.get("render_fps") or get_setting("render_fps") or "30"
+    render_crf = project_settings.get("render_crf") or get_setting("render_crf") or "18"
+    render_codec = project_settings.get("render_codec") or get_setting("render_codec") or "h264"
+    render_hardware = project_settings.get("render_hardware") or get_setting("render_hardware") or "cpu"
 
     fps = int(render_fps)
 

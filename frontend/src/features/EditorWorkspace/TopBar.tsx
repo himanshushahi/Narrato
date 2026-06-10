@@ -1,10 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import {
-  VscArrowLeft, VscSave, VscSettings, VscPulse, VscCheck, VscError, VscLoading, VscExport, VscFlame
+  VscArrowLeft, VscSave, VscSettings, VscPulse, VscCheck, VscError, VscLoading, VscFlame
 } from 'react-icons/vsc';
 import { useProjectStore } from '../../store/useProjectStore';
-import { useEditorStore } from '../../store/useEditorStore';
 
 const statusConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   idle: {
@@ -43,7 +42,6 @@ export const TopBar: React.FC<TopBarProps> = ({
   hasScriptData, onTriggerFullPipeline
 }) => {
   const selectedProject = useProjectStore((s) => s.selectedProject);
-  const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
 
   const deriveStatus = () => {
     if (isPipelineRunning) return 'generating';
@@ -123,15 +121,6 @@ export const TopBar: React.FC<TopBarProps> = ({
             <VscSave className="text-sm" />
           )}
           Save
-        </button>
-
-        {/* Export button */}
-        <button
-          onClick={() => setInspectorTab('export')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/20 hover:border-emerald-600/40 text-[11px] font-bold transition-all cursor-pointer"
-        >
-          <VscExport className="text-sm" />
-          Export
         </button>
 
         <div className="w-px h-6 bg-zinc-800" />

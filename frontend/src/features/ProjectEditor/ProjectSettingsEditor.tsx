@@ -201,16 +201,16 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
   };
 
   return (
-    <div className="bg-stone-900/60 p-5 rounded-xl border border-stone-800 space-y-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-black text-stone-300 uppercase tracking-widest font-sans">Subtitle Styling</h3>
+    <div className="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800/60 space-y-3">
+      <div className="flex items-center justify-between pb-1 border-b border-zinc-800/40">
+        <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Subtitle Styling</h3>
         {downloading && <span className="text-[10px] text-amber-500 font-bold flex items-center gap-1"><VscLoading className="animate-spin text-sm" /> Downloading Font...</span>}
       </div>
 
       {/* PRESETS SECTION */}
-      <div className="bg-stone-950 p-3 rounded-lg border border-stone-800 space-y-3">
+      <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-800 space-y-3">
         <div className="flex items-center justify-between">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Presets</label>
+          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Presets</label>
         </div>
 
         <div className="flex items-center gap-2">
@@ -231,7 +231,7 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
               placeholder="Preset Name..."
               value={presetName}
               onChange={(e) => setPresetName(e.target.value)}
-              className="w-full bg-stone-900 border border-stone-700 rounded-md px-3 py-2 text-sm text-stone-200 placeholder-stone-600 focus:outline-none focus:border-[var(--color-accent-primary)]/50 focus:ring-1 focus:ring-[var(--color-accent-primary)]/50 transition-colors"
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[var(--color-accent-primary)]/50 focus:ring-1 focus:ring-[var(--color-accent-primary)]/50 transition-colors"
             />
             <button
               onClick={handleSavePreset}
@@ -244,20 +244,20 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
         </div>
 
         {presets.length > 0 && (
-          <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-800/50">
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-800/50">
             {presets.map((p: any) => (
-              <div key={p.id} className="flex items-center gap-1 bg-stone-900 border border-stone-700 rounded pl-2 pr-1 py-1 text-xs text-stone-300">
+              <div key={p.id} className="flex items-center gap-1 bg-zinc-900 border border-zinc-700 rounded pl-2 pr-1 py-1 text-xs text-zinc-300">
                 <span className="truncate max-w-[120px] font-medium">{p.name}</span>
                 <button
                   onClick={() => handleSetDefaultPreset(p.id)}
-                  className={`p-1 rounded hover:bg-stone-800 transition-colors ${defaultPresetId === p.id ? 'text-[var(--color-accent-primary)]' : 'text-stone-500 hover:text-stone-300'}`}
+                  className={`p-1 rounded hover:bg-zinc-800 transition-colors ${defaultPresetId === p.id ? 'text-[var(--color-accent-primary)]' : 'text-zinc-500 hover:text-zinc-300'}`}
                   title={defaultPresetId === p.id ? "Remove as default" : "Set as default for new projects"}
                 >
                   <VscStarFull />
                 </button>
                 <button
                   onClick={() => handleDeletePreset(p.id)}
-                  className="p-1 rounded hover:bg-red-900/50 hover:text-red-400 text-stone-500 transition-colors"
+                  className="p-1 rounded hover:bg-red-900/50 hover:text-red-400 text-zinc-500 transition-colors"
                   title="Delete preset"
                 >
                   <VscTrash />
@@ -267,7 +267,7 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
           </div>
         )}
       </div>
-      <hr className="border-stone-800" />
+      <hr className="border-zinc-800" />
 
       <div className="grid grid-cols-2 gap-4">
         <CustomSelect
@@ -343,16 +343,16 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
         )}
       </div>
 
-      <hr className="border-stone-800" />
+      <hr className="border-zinc-800" />
 
       {/* GLOBAL BRANDING SECTION */}
       <div>
-        <h3 className="text-xs font-black text-stone-300 uppercase tracking-widest font-sans mb-3">Global Branding</h3>
+        <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300 mb-3">Global Branding</h3>
 
         {/* BRANDING PRESETS SECTION */}
-        <div className="bg-stone-950 p-3 rounded-lg border border-stone-800 space-y-3 mb-4">
+        <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-800 space-y-3 mb-4">
           <div className="flex items-center justify-between">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Branding Presets</label>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Branding Presets</label>
           </div>
 
           <div className="flex items-center gap-2">
@@ -373,7 +373,7 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
                 placeholder="Preset Name..."
                 value={brandingPresetName}
                 onChange={(e) => setBrandingPresetName(e.target.value)}
-                className="w-full bg-stone-900 border border-stone-700 rounded-md px-3 py-2 text-sm text-stone-200 placeholder-stone-600 focus:outline-none focus:border-[var(--color-accent-primary)]/50 focus:ring-1 focus:ring-[var(--color-accent-primary)]/50 transition-colors"
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-[var(--color-accent-primary)]/50 focus:ring-1 focus:ring-[var(--color-accent-primary)]/50 transition-colors"
               />
               <button
                 onClick={handleSaveBrandingPreset}
@@ -386,20 +386,20 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
           </div>
 
           {brandingPresets.length > 0 && (
-            <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-800/50">
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-800/50">
               {brandingPresets.map((p: any) => (
-                <div key={p.id} className="flex items-center gap-1 bg-stone-900 border border-stone-700 rounded pl-2 pr-1 py-1 text-xs text-stone-300">
+                <div key={p.id} className="flex items-center gap-1 bg-zinc-900 border border-zinc-700 rounded pl-2 pr-1 py-1 text-xs text-zinc-300">
                   <span className="truncate max-w-[120px] font-medium">{p.name}</span>
                   <button
                     onClick={() => handleSetDefaultBrandingPreset(p.id)}
-                    className={`p-1 rounded hover:bg-stone-800 transition-colors ${defaultBrandingPresetId === p.id ? 'text-[var(--color-accent-primary)]' : 'text-stone-500 hover:text-stone-300'}`}
+                    className={`p-1 rounded hover:bg-zinc-800 transition-colors ${defaultBrandingPresetId === p.id ? 'text-[var(--color-accent-primary)]' : 'text-zinc-500 hover:text-zinc-300'}`}
                     title={defaultBrandingPresetId === p.id ? "Remove as default" : "Set as default for new projects"}
                   >
                     <VscStarFull />
                   </button>
                   <button
                     onClick={() => handleDeleteBrandingPreset(p.id)}
-                    className="p-1 rounded hover:bg-red-900/50 hover:text-red-400 text-stone-500 transition-colors"
+                    className="p-1 rounded hover:bg-red-900/50 hover:text-red-400 text-zinc-500 transition-colors"
                     title="Delete preset"
                   >
                     <VscTrash />
@@ -412,8 +412,8 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
 
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
-            <h4 className="text-[9px] text-stone-500 uppercase font-bold tracking-wider mb-2">Chapter Name</h4>
-            <div className="grid grid-cols-2 gap-4 bg-stone-950/50 p-3 rounded border border-stone-800/60">
+            <h4 className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-2">Chapter Name</h4>
+            <div className="grid grid-cols-2 gap-4 bg-zinc-950/50 p-3 rounded border border-zinc-800/60">
               <div className="col-span-2">
                 <CustomCheckbox
                   label="Hide Chapter Name"
@@ -438,8 +438,8 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
             </div>
           </div>
           <div className="col-span-2 mt-2">
-            <h4 className="text-[9px] text-stone-500 uppercase font-bold tracking-wider mb-2">Universal Lower Third</h4>
-            <div className="grid grid-cols-2 gap-4 bg-stone-950/50 p-3 rounded border border-stone-800/60">
+            <h4 className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-2">Universal Lower Third</h4>
+            <div className="grid grid-cols-2 gap-4 bg-zinc-950/50 p-3 rounded border border-zinc-800/60">
               <CustomColorInput
                 label="Primary/Accent Color"
                 value={settings.lower_third_primary_color || '#fbbf24'}
@@ -476,8 +476,8 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
             </div>
           </div>
           <div className="col-span-2 mt-2">
-            <h4 className="text-[9px] text-stone-500 uppercase font-bold tracking-wider mb-2">Animated Charts</h4>
-            <div className="grid grid-cols-2 gap-4 bg-stone-950/50 p-3 rounded border border-stone-800/60">
+            <h4 className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-2">Animated Charts</h4>
+            <div className="grid grid-cols-2 gap-4 bg-zinc-950/50 p-3 rounded border border-zinc-800/60">
               <CustomColorInput
                 label="Chart Primary Color"
                 value={settings.chart_primary_color || '#fbbf24'}

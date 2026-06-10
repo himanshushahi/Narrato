@@ -72,8 +72,8 @@ const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
   { id: 'script', label: 'Script', icon: <VscEdit /> },
   { id: 'subtitle', label: 'Subtitle', icon: <VscSymbolKeyword /> },
   { id: 'voice', label: 'Voice', icon: <VscAccount /> },
-  { id: 'export', label: 'Export', icon: <VscExport /> },
   { id: 'settings', label: 'Settings', icon: <VscSettingsGear /> },
+  { id: 'export', label: 'Export', icon: <VscExport /> },
 ];
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
