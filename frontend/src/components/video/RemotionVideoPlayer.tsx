@@ -13,10 +13,14 @@ interface Props {
   videoFormat?: string;
   subtitleSettings?: any;
   onFrameUpdate?: (frame: number) => void;
+  onPlayStateChange?: (playing: boolean) => void;
 }
 
 export interface RemotionVideoPlayerRef {
   seekTo: (frame: number) => void;
+  toggle: () => void;
+  play: () => void;
+  pause: () => void;
 }
 
 export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
@@ -29,7 +33,8 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   language = 'hi',
   videoFormat = 'landscape',
   subtitleSettings = {},
-  onFrameUpdate
+  onFrameUpdate,
+  onPlayStateChange
 }, ref) => {
 
   const playerRef = useRef<PlayerRef>(null);
@@ -39,27 +44,49 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       if (playerRef.current) {
         playerRef.current.seekTo(frame);
       }
-    }
+    },
+    toggle: () => {
+      if (playerRef.current) {
+        playerRef.current.toggle();
+      }
+    },
+    play: () => {
+      if (playerRef.current) {
+        playerRef.current.play();
+      }
+    },
+    pause: () => {
+      if (playerRef.current) {
+        playerRef.current.pause();
+      }
+    },
   }));
 
   const hasScenes = scenes && scenes.length > 0;
 
   useEffect(() => {
-    if (!onFrameUpdate || !hasScenes) return;
+    if (!hasScenes) return;
 
     let lastFrame = -1;
+    let lastPlaying: boolean | null = null;
     const interval = setInterval(() => {
       if (playerRef.current) {
         const frame = playerRef.current.getCurrentFrame();
         if (frame !== lastFrame) {
           lastFrame = frame;
-          onFrameUpdate(frame);
+          onFrameUpdate?.(frame);
+        }
+        // Sync playing state from player to store
+        const playing = playerRef.current.isPlaying();
+        if (playing !== lastPlaying) {
+          lastPlaying = playing;
+          onPlayStateChange?.(playing);
         }
       }
     }, 200); // poll at ~5fps to prevent React render lag
 
     return () => clearInterval(interval);
-  }, [onFrameUpdate, hasScenes]);
+  }, [onFrameUpdate, onPlayStateChange, hasScenes]);
 
   // Dynamically compute the total duration of the video based on segment synthesis times
   const durationInFrames = useMemo(() => {
@@ -110,8 +137,9 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
           width: '100%',
           height: '100%',
         }}
-        controls
+        controls={false}
         loop
+        spaceKeyToPlayOrPause={false}
       />
 
       {/* Dynamic duration indicator badge */}

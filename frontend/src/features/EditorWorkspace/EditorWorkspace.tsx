@@ -8,6 +8,7 @@ import { usePipeline } from './hooks/usePipeline';
 import { useScriptEditing } from './hooks/useScriptEditing';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { ResizeHandle } from './components/ResizeHandle';
+import { callEel } from '../../utils/eel-bridge';
 
 import { TopBar } from './TopBar';
 import { MediaSidebar } from './MediaSidebar';
@@ -78,6 +79,7 @@ export const EditorWorkspace: React.FC = () => {
 
   const {
     editingCard, setEditingCard, rewritePrompt, setRewritePrompt,
+    rewritingSection,
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
@@ -120,6 +122,9 @@ export const EditorWorkspace: React.FC = () => {
   }, [editingCard, handleSaveCard, id, scriptData, selectedProject]);
 
   const handlePlayPause = useCallback(() => {
+    if (playerRef.current) {
+      playerRef.current.toggle();
+    }
     setIsPlaying(!isPlaying);
   }, [isPlaying, setIsPlaying]);
 
@@ -134,11 +139,31 @@ export const EditorWorkspace: React.FC = () => {
     insertAndSaveNewScene(blankScene, lastIdx);
   }, [scriptData, insertAndSaveNewScene]);
 
-  const handleStyleChange = useCallback((style: string) => {
-    if (id) {
-      updateProject(id, { style });
+  const handleResizeScene = useCallback(async (sceneIndex: number, newDurationSeconds: number) => {
+    if (!id) return;
+    const result = await callEel<any>('update_scene_duration', id, sceneIndex, newDurationSeconds);
+    if (result?.success) {
+      loadFiles(id);
     }
-  }, [id, updateProject]);
+  }, [id, loadFiles]);
+
+  const handleReorderScene = useCallback(async (fromIndex: number, toIndex: number) => {
+    if (!id) return;
+    // Convert timeline-relative indices to scene-relative (exclude intro at 0, conclusion at last)
+    const sceneFromIdx = fromIndex - 1;
+    const sceneToIdx = toIndex - 1;
+    if (sceneFromIdx < 0 || sceneToIdx < 0) return;
+
+    const sceneCount = sceneTimings.length - 2; // exclude intro and conclusion
+    const newOrder = Array.from({ length: sceneCount }, (_, i) => i);
+    const [moved] = newOrder.splice(sceneFromIdx, 1);
+    newOrder.splice(sceneToIdx, 0, moved);
+
+    const result = await callEel<any>('reorder_scenes', id, newOrder);
+    if (result?.success) {
+      loadFiles(id);
+    }
+  }, [id, sceneTimings, loadFiles]);
 
   const handleVoiceChange = useCallback((engine: string, voice: string) => {
     if (id) {
@@ -153,13 +178,6 @@ export const EditorWorkspace: React.FC = () => {
     onUndo: () => {},
     onOpenCommandPalette: () => setCommandPaletteOpen(true),
   });
-
-  // Delete scene modal handler
-  useEffect(() => {
-    if (sceneToDelete !== null) {
-      confirmDeleteScene();
-    }
-  }, [sceneToDelete]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const audioUrl = selectedProject?.audio_path
     ? `/api/media?path=${encodeURIComponent(selectedProject.audio_path)}&t=${reloadKey}`
@@ -185,7 +203,7 @@ export const EditorWorkspace: React.FC = () => {
       style={{
         display: 'grid',
         gridTemplateColumns: `${leftPanelWidth}px 1fr ${rightPanelWidth}px`,
-        gridTemplateRows: `56px 1fr ${timelineHeight}px`,
+        gridTemplateRows: `56px minmax(0, 1fr) ${timelineHeight}px`,
         gridTemplateAreas: `
           "topbar  topbar  topbar"
           "sidebar main    inspector"
@@ -253,6 +271,7 @@ export const EditorWorkspace: React.FC = () => {
           setEditingCard={setEditingCard}
           rewritePrompt={rewritePrompt}
           setRewritePrompt={setRewritePrompt}
+          rewritingSection={rewritingSection}
           savingCardKey={savingCardKey}
           isSaving={savingCardKey !== null}
           onSaveCard={handleSaveCard}
@@ -280,8 +299,6 @@ export const EditorWorkspace: React.FC = () => {
           onTranscriptionChange={setTranscriptionData}
           onSaveTranscription={handleSaveTranscription}
 
-          selectedStyle={safeProject.style}
-          onStyleChange={handleStyleChange}
           ttsEngine={safeProject.tts_engine}
           ttsVoice={safeProject.tts_voice}
           onVoiceChange={handleVoiceChange}
@@ -304,6 +321,9 @@ export const EditorWorkspace: React.FC = () => {
             setSelectedSceneIndex(globalIdx);
             setSceneToDelete(idx);
           }}
+          onResizeScene={handleResizeScene}
+          onReorderScene={handleReorderScene}
+          readOnly
         />
       </div>
 

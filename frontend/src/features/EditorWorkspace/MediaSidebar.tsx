@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscFiles, VscLayers, VscPackage, VscAccount, VscMusic, VscSymbolClass,
+  VscLayers, VscPackage, VscMusic,
   VscSearch, VscAdd
 } from 'react-icons/vsc';
 import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
@@ -16,12 +16,9 @@ interface MediaSidebarProps {
 }
 
 const tabConfig: { id: LeftPanelTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'media', label: 'Media', icon: <VscFiles /> },
   { id: 'scenes', label: 'Scenes', icon: <VscLayers /> },
   { id: 'assets', label: 'Assets', icon: <VscPackage /> },
-  { id: 'voice', label: 'Voice', icon: <VscAccount /> },
   { id: 'music', label: 'Music', icon: <VscMusic /> },
-  { id: 'templates', label: 'Templates', icon: <VscSymbolClass /> },
 ];
 
 export const MediaSidebar: React.FC<MediaSidebarProps> = ({ scriptData, sceneTimings, onSeek, onAddScene }) => {
@@ -114,29 +111,29 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({ scriptData, sceneTim
     </div>
   );
 
-  const renderMediaTab = () => (
+  const renderAssetsTab = () => (
     <div className="flex flex-col h-full p-4 text-center">
       <div className="flex-1 flex flex-col items-center justify-center">
         <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
-          <VscFiles className="text-2xl text-zinc-600" />
+          <VscPackage className="text-2xl text-zinc-600" />
         </div>
-        <p className="text-sm text-zinc-400 font-medium mb-1">Media Library</p>
-        <p className="text-[10px] text-zinc-600 mb-4 max-w-45">Upload images and videos for your documentary</p>
-        <button className="flex items-center gap-1.5 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg text-xs font-bold transition-all">
-          <VscAdd /> Upload Media
-        </button>
+        <p className="text-sm text-zinc-400 font-medium mb-1">Assets</p>
+        <p className="text-[10px] text-zinc-600 mb-4 max-w-45">Manage project assets and resources</p>
       </div>
     </div>
   );
 
-  const renderPlaceholderTab = (label: string, icon: React.ReactNode) => (
+  const renderMusicTab = () => (
     <div className="flex flex-col h-full p-4 text-center">
       <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
-          {icon}
+        <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
+          <VscMusic className="text-2xl text-zinc-600" />
         </div>
-        <p className="text-sm text-zinc-400 font-medium mb-1">{label}</p>
-        <p className="text-[10px] text-zinc-600">Coming soon</p>
+        <p className="text-sm text-zinc-400 font-medium mb-1">Music Library</p>
+        <p className="text-[10px] text-zinc-600 mb-4 max-w-45">Select background music for your project</p>
+        <button className="flex items-center gap-1.5 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg text-xs font-bold transition-all">
+          <VscAdd /> Upload Music
+        </button>
       </div>
     </div>
   );
@@ -144,11 +141,8 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({ scriptData, sceneTim
   const renderTabContent = () => {
     switch (leftPanelTab) {
       case 'scenes': return renderScenesTab();
-      case 'media': return renderMediaTab();
-      case 'assets': return renderPlaceholderTab('Assets', <VscPackage className="text-xl text-zinc-600" />);
-      case 'voice': return renderPlaceholderTab('Voice Library', <VscAccount className="text-xl text-zinc-600" />);
-      case 'music': return renderPlaceholderTab('Music Library', <VscMusic className="text-xl text-zinc-600" />);
-      case 'templates': return renderPlaceholderTab('Templates', <VscSymbolClass className="text-xl text-zinc-600" />);
+      case 'assets': return renderAssetsTab();
+      case 'music': return renderMusicTab();
     }
   };
 

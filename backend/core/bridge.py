@@ -836,3 +836,243 @@ def save_project_with_cleanup(project_id, script_data, manifest_data):
 
     return result
 
+
+@eel.expose
+def update_scene_duration(project_id, scene_index, new_duration_seconds):
+    """
+    Update a single scene's duration in the manifest file.
+
+    Args:
+        project_id: Project identifier
+        scene_index: 0-based index in the manifest array (scenes-only, after intro)
+        new_duration_seconds: New duration in seconds (must be >= 1.0)
+
+    Returns:
+        dict: {success: bool, error?: str}
+    """
+    from backend.database.db import get_project
+
+    try:
+        # 1. Validate parameters
+        if new_duration_seconds < 1.0:
+            return {"success": False, "error": "Duration must be at least 1.0 seconds"}
+
+        # 2. Load project
+        project = get_project(project_id)
+        if not project:
+            return {"success": False, "error": "Project not found"}
+
+        manifest_path = project.get("assets_manifest_path")
+        if not manifest_path or not os.path.exists(manifest_path):
+            return {"success": False, "error": "Manifest not found"}
+
+        # 3. Load manifest
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        # 4. Validate scene_index
+        if scene_index < 0 or scene_index >= len(manifest):
+            return {"success": False, "error": f"Scene index {scene_index} out of range"}
+
+        manifest_entry = manifest[scene_index]
+        if not manifest_entry.get("section_type") == "scene":
+            return {"success": False, "error": f"Entry at index {scene_index} is not a scene"}
+
+        # 5. Update duration
+        old_duration = manifest_entry.get("duration", 0)
+        manifest_entry["duration"] = new_duration_seconds
+        logger.info(f"Updated scene {scene_index} duration: {old_duration}s -> {new_duration_seconds}s")
+
+        # 6. Remove content hash so pipeline knows to re-check
+        for entry in manifest:
+            if "_content_hash" in entry:
+                del entry["_content_hash"]
+
+        # 7. Write manifest back
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"update_scene_duration failed: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@eel.expose
+def reorder_scenes(project_id, new_scene_order):
+    """
+    Reorder scenes in both script and manifest, cleaning up orphaned assets.
+
+    Args:
+        project_id: Project identifier
+        new_scene_order: list of int — current scene indices in their new desired order.
+                         e.g. [2, 0, 1] means move current scene[2] to position 0,
+                         scene[0] to position 1, scene[1] to position 2.
+
+    Returns:
+        dict: {success: bool, error?: str}
+    """
+    from backend.database.db import get_project
+    from backend.pipeline.assets import cleanup_removed_assets
+
+    try:
+        # 1. Load project
+        project = get_project(project_id)
+        if not project:
+            return {"success": False, "error": "Project not found"}
+
+        script_path = project.get("script_path")
+        manifest_path = project.get("assets_manifest_path")
+        if not script_path or not os.path.exists(script_path):
+            return {"success": False, "error": "Script not found"}
+        if not manifest_path or not os.path.exists(manifest_path):
+            return {"success": False, "error": "Manifest not found"}
+
+        # 2. Load script and manifest
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        # 3. Validate
+        script_scenes = script.get("scenes", [])
+        if len(new_scene_order) != len(script_scenes):
+            return {"success": False, "error": f"Scene count mismatch: {len(new_scene_order)} vs {len(script_scenes)}"}
+
+        # Validate all indices are valid
+        expected_set = set(range(len(script_scenes)))
+        if set(new_scene_order) != expected_set:
+            return {"success": False, "error": "Invalid scene order indices"}
+
+        # 4. Reorder script scenes
+        reordered_script_scenes = [script_scenes[i] for i in new_scene_order]
+        for idx, scene in enumerate(reordered_script_scenes):
+            scene["scene_number"] = idx + 1
+        script["scenes"] = reordered_script_scenes
+
+        # 5. Reorder manifest scenes
+        # Manifest structure: [intro(0), scene_1, scene_2, ..., scene_N, conclusion(last)]
+        manifest_intro = None
+        manifest_conclusion = None
+        manifest_scenes = []
+
+        for entry in manifest:
+            st = entry.get("section_type")
+            if st == "introduction":
+                manifest_intro = entry
+            elif st == "conclusion":
+                manifest_conclusion = entry
+            elif st == "scene":
+                manifest_scenes.append(entry)
+
+        if len(manifest_scenes) != len(script_scenes):
+            return {"success": False, "error": f"Manifest scene count ({len(manifest_scenes)}) doesn't match script ({len(script_scenes)})"}
+
+        reordered_manifest_scenes = [manifest_scenes[i] for i in new_scene_order]
+
+        # Rebuild manifest preserving intro and conclusion
+        new_manifest = []
+        if manifest_intro:
+            new_manifest.append(manifest_intro)
+        new_manifest.extend(reordered_manifest_scenes)
+        if manifest_conclusion:
+            new_manifest.append(manifest_conclusion)
+
+        # 6. Save script
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(script, f, indent=2, ensure_ascii=False)
+
+        # 7. Use cleanup_removed_assets to save manifest (preserves visual_path by content-match)
+        cleanup_result = cleanup_removed_assets(project_id, new_manifest)
+
+        if not cleanup_result.get("success"):
+            return {"success": False, "error": cleanup_result.get("error", "Cleanup failed")}
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"reorder_scenes failed: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@eel.expose
+def delete_scene(project_id, scene_index):
+    """
+    Delete a scene from both script and manifest, cleaning up its assets.
+
+    Args:
+        project_id: Project identifier
+        scene_index: 0-based index in scriptData.scenes[] to remove
+
+    Returns:
+        dict: {success: bool, error?: str}
+    """
+    from backend.database.db import get_project
+    from backend.pipeline.assets import cleanup_removed_assets
+
+    try:
+        # 1. Load project
+        project = get_project(project_id)
+        if not project:
+            return {"success": False, "error": "Project not found"}
+
+        script_path = project.get("script_path")
+        manifest_path = project.get("assets_manifest_path")
+        if not script_path or not os.path.exists(script_path):
+            return {"success": False, "error": "Script not found"}
+        if not manifest_path or not os.path.exists(manifest_path):
+            return {"success": False, "error": "Manifest not found"}
+
+        # 2. Load script and manifest
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        # 3. Validate
+        script_scenes = script.get("scenes", [])
+        if scene_index < 0 or scene_index >= len(script_scenes):
+            return {"success": False, "error": f"Scene index {scene_index} out of range (0-{len(script_scenes)-1})"}
+
+        # 4. Remove from script
+        removed_scene = script_scenes.pop(scene_index)
+        logger.info(f"Deleted scene {scene_index}: '{removed_scene.get('title', '')}'")
+
+        # Re-number remaining scenes
+        for idx, scene in enumerate(script_scenes):
+            scene["scene_number"] = idx + 1
+
+        # 5. Remove corresponding entry from manifest
+        # Find the Nth scene entry in manifest (skip intro)
+        manifest_scene_count = 0
+        manifest_remove_idx = -1
+        for i, entry in enumerate(manifest):
+            if entry.get("section_type") == "scene":
+                if manifest_scene_count == scene_index:
+                    manifest_remove_idx = i
+                    break
+                manifest_scene_count += 1
+
+        if manifest_remove_idx >= 0:
+            removed = manifest.pop(manifest_remove_idx)
+            logger.info(f"Removed corresponding manifest entry for scene {scene_index}")
+
+        # 6. Save script
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(script, f, indent=2, ensure_ascii=False)
+
+        # 7. Save manifest via cleanup (handles orphaned asset cleanup)
+        cleanup_result = cleanup_removed_assets(project_id, manifest)
+
+        if not cleanup_result.get("success"):
+            return {"success": False, "error": cleanup_result.get("error", "Cleanup failed")}
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"delete_scene failed: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+

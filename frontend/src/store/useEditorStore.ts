@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
-export type LeftPanelTab = 'media' | 'scenes' | 'assets' | 'voice' | 'music' | 'templates';
-export type InspectorTab = 'script' | 'subtitle' | 'voice' | 'style' | 'export';
+export type LeftPanelTab = 'scenes' | 'assets' | 'music';
+export type InspectorTab = 'script' | 'subtitle' | 'voice' | 'export' | 'settings';
 
 interface EditorStore {
   // Panel dimensions (resizable like VS Code)
@@ -23,6 +23,9 @@ interface EditorStore {
   // Video playback
   isPlaying: boolean;
 
+  // Timeline zoom (pixels per second)
+  timelineZoom: number;
+
   // Actions
   setLeftPanelWidth: (w: number) => void;
   setRightPanelWidth: (w: number) => void;
@@ -33,6 +36,7 @@ interface EditorStore {
   setSelectedSubVisualIndex: (idx: number | null) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setIsPlaying: (playing: boolean) => void;
+  setTimelineZoom: (zoom: number) => void;
 }
 
 const STORAGE_KEY = 'narrato_editor_layout';
@@ -53,6 +57,7 @@ const saveLayout = (state: Partial<EditorStore>) => {
       timelineHeight: state.timelineHeight,
       leftPanelTab: state.leftPanelTab,
       inspectorTab: state.inspectorTab,
+      timelineZoom: state.timelineZoom,
     }));
   } catch { /* ignore */ }
 };
@@ -63,6 +68,7 @@ const defaults = {
   timelineHeight: 200,
   leftPanelTab: 'scenes' as LeftPanelTab,
   inspectorTab: 'script' as InspectorTab,
+  timelineZoom: 60,
 };
 
 const persisted = loadLayout();
@@ -78,6 +84,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
   selectedSubVisualIndex: null,
   commandPaletteOpen: false,
   isPlaying: false,
+  timelineZoom: persisted.timelineZoom ?? defaults.timelineZoom,
 
   // Actions
   setLeftPanelWidth: (w) => set((s) => { const next = { ...s, leftPanelWidth: w }; saveLayout(next); return next; }),
@@ -89,4 +96,5 @@ export const useEditorStore = create<EditorStore>((set) => ({
   setSelectedSubVisualIndex: (idx) => set({ selectedSubVisualIndex: idx }),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
+  setTimelineZoom: (zoom) => set((s) => { const next = { ...s, timelineZoom: zoom }; saveLayout(next); return next; }),
 }));

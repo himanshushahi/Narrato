@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import {
-  VscArrowLeft, VscSave, VscAccount, VscSettings, VscPulse, VscCheck, VscError, VscLoading, VscExport, VscFlame
+  VscArrowLeft, VscSave, VscSettings, VscPulse, VscCheck, VscError, VscLoading, VscExport, VscFlame
 } from 'react-icons/vsc';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -71,7 +71,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <div className="w-px h-6 bg-zinc-800" />
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <div>
             <h1 className="text-sm font-bold text-white font-sans tracking-tight leading-tight">
               {projectName}
@@ -145,10 +145,6 @@ export const TopBar: React.FC<TopBarProps> = ({
           <VscSettings className="text-lg" />
         </Link>
 
-        {/* User avatar */}
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-xs font-bold shadow-lg shadow-blue-500/20">
-          <VscAccount className="text-sm" />
-        </div>
       </div>
     </div>
   );

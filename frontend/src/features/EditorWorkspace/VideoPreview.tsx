@@ -33,6 +33,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
 
   const togglePlay = () => {
     if (playerRef.current) {
+      playerRef.current.toggle();
       setIsPlaying(!isPlaying);
     }
   };
@@ -115,6 +116,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               videoFormat={videoFormat}
               subtitleSettings={subtitleSettings}
               onFrameUpdate={onFrameUpdate}
+              onPlayStateChange={setIsPlaying}
             />
           </div>
         </motion.div>

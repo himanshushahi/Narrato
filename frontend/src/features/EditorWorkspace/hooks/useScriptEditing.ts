@@ -13,6 +13,7 @@ export interface UseScriptEditingReturn {
   setEditingCard: (key: string | null) => void;
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
+  rewritingSection: string | null;
   savingCardKey: string | null;
   sceneToDelete: number | null;
   localProjectSettings: any;
@@ -51,6 +52,7 @@ export function useScriptEditing(
   const [sceneToDelete, setSceneToDelete] = useState<number | null>(null);
   const [localProjectSettings, setLocalProjectSettings] = useState<any>({});
   const [isSavingSubtitles, setIsSavingSubtitles] = useState(false);
+  const [rewritingSection, setRewritingSection] = useState<string | null>(null);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -201,6 +203,9 @@ export function useScriptEditing(
   const handleRewriteSection = useCallback(async (type: string, index: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
 
+    const sectionKey = type === 'introduction' ? 'intro' : type === 'conclusion' ? 'conclusion' : `scene_${index}`;
+    setRewritingSection(sectionKey);
+
     try {
       let res;
       const isNewScene = type === 'scenes' && scriptData.scenes?.[index] &&
@@ -227,18 +232,22 @@ export function useScriptEditing(
 
         if (isNewScene) {
           setRewritePrompt('');
+          setRewritingSection(null);
           addToast("AI content generated! Review and click Save to fetch visuals.", 'success');
         } else {
           await callEel('save_json_file', selectedProject.script_path, updated);
           setEditingCard(null);
           setRewritePrompt('');
+          setRewritingSection(null);
           setScriptChangedAlert(true);
           addToast("LLM rewrite completed and saved! Click 'Sync Audio & Subtitles' or 'Resume Pipeline' to rebuild voiceover.", 'success');
         }
       } else {
+        setRewritingSection(null);
         addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
       }
     } catch (err) {
+      setRewritingSection(null);
       console.error(err);
     }
   }, [projectId, scriptData, selectedProject, rewritePrompt, setScriptData, addToast]);
@@ -340,6 +349,7 @@ export function useScriptEditing(
   return {
     editingCard, setEditingCard,
     rewritePrompt, setRewritePrompt,
+    rewritingSection,
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
     scriptChangedAlert, setScriptChangedAlert,

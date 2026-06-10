@@ -17,6 +17,7 @@ interface ScriptTabProps {
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   savingCardKey: string | null;
+  rewritingSection: string | null;
   isSaving: boolean;
   onSeek: (frame: number) => void;
   onSaveCard: (cardKey?: string, index?: number) => void;
@@ -30,7 +31,7 @@ interface ScriptTabProps {
 
 export const ScriptTab: React.FC<ScriptTabProps> = ({
   scriptData, sceneTimings, activeSceneIdx, activeSubIdx,
-  editingCard, rewritePrompt, setRewritePrompt, savingCardKey,
+  editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection,
   onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onInsertScene,
   onSetSceneToDelete, onSetScriptData
 }) => {
@@ -101,6 +102,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                   prompt={rewritePrompt}
                   onPromptChange={setRewritePrompt}
                   onRewrite={() => onRewriteSection('introduction', 0)}
+                  isRewriting={rewritingSection === 'intro'}
                 />
               </div>
             ) : (
@@ -180,6 +182,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                     prompt={rewritePrompt}
                     onPromptChange={setRewritePrompt}
                     onRewrite={() => onRewriteSection('scenes', idx)}
+                    isRewriting={rewritingSection === `scene_${idx}`}
                   />
                 </div>
               ) : (
@@ -297,6 +300,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                   prompt={rewritePrompt}
                   onPromptChange={setRewritePrompt}
                   onRewrite={() => onRewriteSection('conclusion', 0)}
+                  isRewriting={rewritingSection === 'conclusion'}
                 />
               </div>
             ) : (
@@ -424,9 +428,10 @@ interface AIRewriteSectionProps {
   prompt: string;
   onPromptChange: (p: string) => void;
   onRewrite: () => void;
+  isRewriting?: boolean;
 }
 
-const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptChange, onRewrite }) => (
+const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptChange, onRewrite, isRewriting }) => (
   <div className="border-t border-zinc-800/80 pt-3 mt-2">
     <div className="flex items-end gap-2">
       <div className="flex-1">
@@ -436,13 +441,15 @@ const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptCha
           placeholder="e.g., make it more dramatic..."
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
+          disabled={isRewriting}
         />
       </div>
       <button
         onClick={onRewrite}
-        className="bg-zinc-800 hover:bg-blue-600 hover:text-white text-zinc-300 border border-zinc-700 px-3 py-2.5 rounded text-[10px] font-bold transition-all flex items-center gap-1 shrink-0 h-[42px]"
+        disabled={isRewriting}
+        className="bg-zinc-800 hover:bg-blue-600 hover:text-white text-zinc-300 border border-zinc-700 px-3 py-2.5 rounded text-[10px] font-bold transition-all flex items-center gap-1 shrink-0 h-[42px] disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <VscSparkle /> AI Rewrite
+        {isRewriting ? <><VscLoading className="animate-spin" /> Rewriting...</> : <><VscSparkle /> AI Rewrite</>}
       </button>
     </div>
   </div>

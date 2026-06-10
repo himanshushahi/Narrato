@@ -1,17 +1,16 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscEdit, VscSymbolClass, VscAccount,
+  VscEdit, VscAccount, VscSettingsGear,
   VscExport, VscSymbolKeyword
 } from 'react-icons/vsc';
 import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
 import { useEditorStore, InspectorTab } from '../../store/useEditorStore';
 import { ScriptTab } from './InspectorTabs/ScriptTab';
-
 import { SubtitleTab } from './InspectorTabs/SubtitleTab';
 import { VoiceTab } from './InspectorTabs/VoiceTab';
-import { VisualStyleTab } from './InspectorTabs/VisualStyleTab';
 import { ExportTab } from './InspectorTabs/ExportTab';
+import { SettingsTab } from './InspectorTabs/SettingsTab';
 import { Task } from '../../store/useProjectStore';
 
 interface InspectorPanelProps {
@@ -30,6 +29,7 @@ interface InspectorPanelProps {
   setEditingCard: (key: string | null) => void;
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
+  rewritingSection: string | null;
   savingCardKey: string | null;
   isSaving: boolean;
   onSaveCard: (cardKey?: string, index?: number) => void;
@@ -60,8 +60,6 @@ interface InspectorPanelProps {
   onSaveTranscription: () => void;
 
   // Project props
-  selectedStyle: string;
-  onStyleChange: (style: string) => void;
   ttsEngine?: string;
   ttsVoice?: string;
   onVoiceChange: (engine: string, voice: string) => void;
@@ -74,20 +72,20 @@ const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
   { id: 'script', label: 'Script', icon: <VscEdit /> },
   { id: 'subtitle', label: 'Subtitle', icon: <VscSymbolKeyword /> },
   { id: 'voice', label: 'Voice', icon: <VscAccount /> },
-  { id: 'style', label: 'Style', icon: <VscSymbolClass /> },
   { id: 'export', label: 'Export', icon: <VscExport /> },
+  { id: 'settings', label: 'Settings', icon: <VscSettingsGear /> },
 ];
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   scriptData, manifestData, transcriptionData, sceneTimings,
   currentFrame, activeSceneIdx, activeSubIdx, localProjectSettings, projectId,
-  editingCard, setEditingCard, rewritePrompt, setRewritePrompt, savingCardKey, isSaving,
+  editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
   onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription,
-  selectedStyle, onStyleChange, ttsEngine, ttsVoice, onVoiceChange,
+  ttsEngine, ttsVoice, onVoiceChange,
   onSeek,
 }) => {
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
@@ -109,6 +107,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             setEditingCard={setEditingCard}
             rewritePrompt={rewritePrompt}
             setRewritePrompt={setRewritePrompt}
+            rewritingSection={rewritingSection}
             savingCardKey={savingCardKey}
             isSaving={isSaving}
             onSeek={onSeek}
@@ -142,13 +141,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             onVoiceChange={onVoiceChange}
           />
         );
-      case 'style':
-        return (
-          <VisualStyleTab
-            currentStyle={selectedStyle}
-            onStyleChange={onStyleChange}
-          />
-        );
       case 'export':
         return (
           <ExportTab
@@ -164,6 +156,13 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             onTriggerFullPipeline={onTriggerFullPipeline}
             onResumePipeline={onResumePipeline}
             onCancelPipeline={onCancelPipeline}
+          />
+        );
+      case 'settings':
+        return (
+          <SettingsTab
+            localProjectSettings={localProjectSettings}
+            onSettingsUpdate={onSettingsUpdate}
           />
         );
     }
