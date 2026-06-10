@@ -254,7 +254,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
   const renderScenesTab = () => (
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-zinc-800/40">
-        <div className="flex items-center gap-2 bg-zinc-900/50 rounded-lg px-3 py-2 border border-zinc-800/40">
+        <div className="flex items-center gap-2  rounded-lg px-3 py-2 border border-zinc-800/40">
           <VscSearch className="text-zinc-500 text-sm shrink-0" />
           <input
             type="text"
@@ -379,7 +379,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
     <div className="flex flex-col h-full">
       {/* Search + toolbar */}
       <div className="p-3 border-b border-zinc-800/40 space-y-2">
-        <div className="flex items-center gap-2 bg-zinc-900/50 rounded-lg px-3 py-2 border border-zinc-800/40">
+        <div className="flex items-center gap-2  rounded-lg px-3 py-2 border border-zinc-800/40">
           <VscSearch className="text-zinc-500 text-sm shrink-0" />
           <input
             type="text"

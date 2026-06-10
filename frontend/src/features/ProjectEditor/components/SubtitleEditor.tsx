@@ -115,7 +115,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 onClick={() => {
                   onPlaySegment(Math.floor(segment.start * 30));
                 }}
-                className="flex items-center gap-1 text-[9px] text-zinc-500 hover:text-white px-2 py-1 rounded transition-colors"
+                className="flex items-center gap-1 text-[9px] text-zinc-500 hover:text-white px-2 py-1 rounded transition-colors cursor-pointer"
               >
                 <VscPlay className="text-[9px]" />
                 Preview

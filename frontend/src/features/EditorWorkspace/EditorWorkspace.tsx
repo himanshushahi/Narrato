@@ -215,7 +215,7 @@ export const EditorWorkspace: React.FC = () => {
       </div>
 
       {/* Media Sidebar */}
-      <div style={{ gridArea: 'sidebar' }} className="relative overflow-y-auto">
+      <div style={{ gridArea: 'sidebar' }} className="relative overflow-y-auto bg-zinc-950/80">
         <MediaSidebar
           scriptData={scriptData}
           manifestData={manifestData}
@@ -251,7 +251,7 @@ export const EditorWorkspace: React.FC = () => {
       </div>
 
       {/* Inspector Panel */}
-      <div style={{ gridArea: 'inspector' }} className="relative overflow-y-auto">
+      <div style={{ gridArea: 'inspector' }} className="relative overflow-y-auto bg-zinc-950/80">
         <ResizeHandle direction="vertical" target="rightPanel" side="left" />
         <InspectorPanel
           scriptData={scriptData}

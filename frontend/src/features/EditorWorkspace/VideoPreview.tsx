@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { VscPlay, VscDebugPause, VscScreenFull, VscScreenNormal, VscLoading, VscSettingsGear } from 'react-icons/vsc';
+import { VscPlay, VscDebugPause, VscScreenFull, VscScreenNormal, VscLoading } from 'react-icons/vsc';
 import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../../components/video/RemotionVideoPlayer';
 import { useEditorStore } from '../../store/useEditorStore';
 
@@ -122,9 +122,6 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
               {activeSceneLabel}
             </span>
           )}
-          <button className="w-6 h-6 flex items-center justify-center rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors cursor-pointer">
-            <VscSettingsGear className="text-xs" />
-          </button>
         </div>
       </div>
 
