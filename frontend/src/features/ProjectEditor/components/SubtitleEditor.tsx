@@ -9,6 +9,11 @@ interface SubtitleEditorProps {
   onPlaySegment: (startFrame: number) => void;
   onSave: () => void;
   isSaving?: boolean;
+  /** When true, the internal header (title, advanced toggle, save btn) is hidden
+   *  because the parent provides its own. advancedMode must also be provided
+   *  so the parent drives the advanced edit mode externally. */
+  embedded?: boolean;
+  advancedMode?: boolean;
 }
 
 export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
@@ -16,10 +21,18 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   onChange,
   onPlaySegment,
   onSave,
-  isSaving = false
+  isSaving = false,
+  embedded = false,
+  advancedMode: externalAdvancedMode
 }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [advancedMode, setAdvancedMode] = useState<boolean>(false);
+  const [internalAdvancedMode, setInternalAdvancedMode] = useState<boolean>(false);
+  const advancedMode = externalAdvancedMode !== undefined ? externalAdvancedMode : internalAdvancedMode;
+  const setAdvancedMode = (value: boolean) => {
+    if (externalAdvancedMode === undefined) {
+      setInternalAdvancedMode(value);
+    }
+  };
 
   if (!transcription || !transcription.segments || transcription.segments.length === 0) {
     return (
@@ -56,30 +69,31 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-transparent">
-      {/* Compact header */}
-      <div className="sticky top-0 z-10 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800/50 px-4 py-2.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h3 className="text-xs font-bold text-zinc-300">Subtitles</h3>
-            <CustomToggle
-              label="ADVANCED"
-              checked={advancedMode}
-              onChange={(e) => setAdvancedMode(e.target.checked)}
-            />
+      {!embedded && (
+        <div className="sticky top-0 z-10 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800/50 px-4 py-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <h3 className="text-xs font-bold text-zinc-300">Subtitles</h3>
+              <CustomToggle
+                label="ADVANCED"
+                checked={advancedMode}
+                onChange={(e) => setAdvancedMode(e.target.checked)}
+              />
+            </div>
+            <button
+              onClick={onSave}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/20 text-[10px] font-bold transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {isSaving ? <VscLoading className="animate-spin text-[10px]" /> : <VscSave className="text-[10px]" />}
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
           </div>
-          <button
-            onClick={onSave}
-            disabled={isSaving}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/20 text-[10px] font-bold transition-all disabled:opacity-50"
-          >
-            {isSaving ? <VscLoading className="animate-spin text-[10px]" /> : <VscSave className="text-[10px]" />}
-            {isSaving ? 'Saving...' : 'Save'}
-          </button>
+          {advancedMode && (
+            <p className="text-[10px] text-zinc-500 mt-1.5">Edit individual words. Be careful with leading/trailing spaces.</p>
+          )}
         </div>
-        {advancedMode && (
-          <p className="text-[10px] text-zinc-500 mt-1.5">Edit individual words. Be careful with leading/trailing spaces.</p>
-        )}
-      </div>
+      )}
 
       {/* Segment list */}
       <div className="flex-1 overflow-y-auto space-y-2 p-4">

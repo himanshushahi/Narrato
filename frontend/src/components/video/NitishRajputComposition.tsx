@@ -51,6 +51,7 @@ export interface Props {
   audioUrl: string;
   bgMusicUrl?: string;
   bgMusicVolume?: number;
+  voiceoverVolume?: number;
   scenes: Scene[];
   transcription: Transcription;
   style?: string;
@@ -68,6 +69,7 @@ export const NitishRajputComposition = ({
   audioUrl,
   bgMusicUrl,
   bgMusicVolume = 0.15,
+  voiceoverVolume = 1.0,
   scenes = [],
   transcription = { language: '', segments: [] },
   style = 'nitish_rajput',
@@ -134,7 +136,7 @@ export const NitishRajputComposition = ({
   return (
     <div style={{ flex: 1, backgroundColor: '#0c0a09', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
       {/* 1. Spoken Narration Track */}
-      {audioUrl && <Audio src={audioUrl} />}
+      {audioUrl && <Audio src={audioUrl} volume={voiceoverVolume} />}
 
       {/* 2. Ambient Soundtrack */}
       {bgMusicUrl && (

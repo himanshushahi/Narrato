@@ -12,6 +12,7 @@ interface VideoPreviewProps {
   audioUrl: string;
   bgMusicUrl: string;
   bgMusicVolume?: number;
+  voiceoverVolume?: number;
   styleType?: string;
   language?: string;
   videoFormat?: string;
@@ -23,7 +24,7 @@ interface VideoPreviewProps {
 
 export const VideoPreview: React.FC<VideoPreviewProps> = ({
   playerRef, liveScenes, transcriptionData, currentFrame,
-  audioUrl, bgMusicUrl, bgMusicVolume, styleType, language, videoFormat, subtitleSettings,
+  audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
   onFrameUpdate, isPipelineRunning, pipelineProgress
 }) => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
@@ -167,6 +168,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                   audioUrl={audioUrl}
                   bgMusicUrl={bgMusicUrl}
                   bgMusicVolume={bgMusicVolume}
+                  voiceoverVolume={voiceoverVolume}
                   scenes={liveScenes}
                   transcription={transcriptionData}
                   styleType={styleType}

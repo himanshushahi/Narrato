@@ -19,7 +19,6 @@ import { InspectorPanel } from './InspectorPanel';
 export const EditorWorkspace: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const selectedProject = useProjectStore((s) => s.selectedProject);
-  const updateProject = useProjectStore((s) => s.updateProject);
   const [projectReady, setProjectReady] = useState(false);
 
   // Mark project as ready when selectedProject is set from the store
@@ -165,12 +164,6 @@ export const EditorWorkspace: React.FC = () => {
     }
   }, [id, sceneTimings, loadFiles]);
 
-  const handleVoiceChange = useCallback((engine: string, voice: string) => {
-    if (id) {
-      updateProject(id, { tts_engine: engine, tts_voice: voice });
-    }
-  }, [id, updateProject]);
-
   // Keyboard shortcuts
   useKeyboardShortcuts({
     onSave: handleSave,
@@ -193,8 +186,6 @@ export const EditorWorkspace: React.FC = () => {
     language: 'en' as const,
     video_format: 'landscape' as const,
     bg_music_volume: 0.15,
-    tts_engine: undefined,
-    tts_voice: undefined,
   };
 
   return (
@@ -249,6 +240,7 @@ export const EditorWorkspace: React.FC = () => {
           audioUrl={audioUrl}
           bgMusicUrl={bgMusicUrl}
           bgMusicVolume={safeProject.bg_music_volume}
+          voiceoverVolume={parseFloat(localProjectSettings?.voiceover_volume || '1.0')}
           styleType={safeProject.style}
           language={safeProject.language}
           videoFormat={safeProject.video_format || 'landscape'}
@@ -303,10 +295,6 @@ export const EditorWorkspace: React.FC = () => {
           onSettingsUpdate={handleSettingsUpdate}
           onTranscriptionChange={setTranscriptionData}
           onSaveTranscription={handleSaveTranscription}
-
-          ttsEngine={safeProject.tts_engine}
-          ttsVoice={safeProject.tts_voice}
-          onVoiceChange={handleVoiceChange}
 
           onSeek={handleSeek}
         />

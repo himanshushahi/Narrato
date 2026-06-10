@@ -223,17 +223,26 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     voice_dir = project_dir / "voiceover"
     voice_dir.mkdir(parents=True, exist_ok=True)
 
-    engine = get_setting("tts_engine") or "edge"
-    speed = float(get_setting("tts_speed") or 1.0)
-    pitch = get_setting("tts_pitch") or "0"
+    # Read project settings for voice override (project-specific overrides global)
+    project_settings_raw = project_dict.get("project_settings")
+    project_settings = {}
+    if project_settings_raw:
+        try:
+            project_settings = json.loads(project_settings_raw)
+        except Exception:
+            pass
+
+    engine = project_settings.get("tts_engine") or get_setting("tts_engine") or "edge"
+    speed = float(project_settings.get("tts_speed") or get_setting("tts_speed") or 1.0)
+    pitch = project_settings.get("tts_pitch") or get_setting("tts_pitch") or "0"
     language = project_dict.get("language", "hi")
 
     if engine == "edge":
-        voice = get_setting("tts_voice")
+        voice = project_settings.get("tts_voice") or get_setting("tts_voice")
         if not voice:
             voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
     else:
-        voice = get_setting("kokoro_voice") or "af_bella"
+        voice = project_settings.get("kokoro_voice") or get_setting("kokoro_voice") or "af_bella"
 
     kokoro_lang = "hi" if language == "hi" else "en-us"
 

@@ -59,11 +59,6 @@ interface InspectorPanelProps {
   onTranscriptionChange: (data: any) => void;
   onSaveTranscription: () => void;
 
-  // Project props
-  ttsEngine?: string;
-  ttsVoice?: string;
-  onVoiceChange: (engine: string, voice: string) => void;
-
   // Navigation
   onSeek: (frame: number) => void;
 }
@@ -85,7 +80,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription,
-  ttsEngine, ttsVoice, onVoiceChange,
   onSeek,
 }) => {
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
@@ -136,9 +130,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
       case 'voice':
         return (
           <VoiceTab
-            ttsEngine={ttsEngine}
-            ttsVoice={ttsVoice}
-            onVoiceChange={onVoiceChange}
+            localProjectSettings={localProjectSettings}
+            onSettingsUpdate={onSettingsUpdate}
           />
         );
       case 'export':

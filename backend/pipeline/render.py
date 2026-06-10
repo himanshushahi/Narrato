@@ -132,6 +132,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "audioUrl": clean_media_path(str(audio_path)),
         "bgMusicUrl": bg_music_url,
         "bgMusicVolume": float(project_dict.get("bg_music_volume") or 0.15),
+        "voiceoverVolume": float(project_settings.get("voiceover_volume") or 1.0),
         "scenes": scenes,
         "transcription": transcript,
         "style": project_dict.get("style", "nitish_rajput"),
