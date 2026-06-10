@@ -227,9 +227,14 @@ export const EditorWorkspace: React.FC = () => {
       <div style={{ gridArea: 'sidebar' }} className="relative overflow-y-auto">
         <MediaSidebar
           scriptData={scriptData}
+          manifestData={manifestData}
           sceneTimings={sceneTimings}
           onSeek={handleSeek}
           onAddScene={handleAddScene}
+          projectId={id}
+          isPipelineRunning={isRunning}
+          activeTaskStep={activeTaskStep}
+          reloadTrigger={reloadKey}
         />
         <ResizeHandle direction="vertical" target="leftPanel" side="right" />
       </div>

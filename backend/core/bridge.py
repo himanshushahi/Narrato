@@ -156,6 +156,53 @@ def save_json_file(file_path, data):
         return False
 
 @eel.expose
+def scan_assets_directory(project_id):
+    """Scan the project's assets directory and return file details.
+
+    Provides disk-level truth about downloaded files, useful for real-time
+    updates during the fetch_assets pipeline step (files appear on disk as
+    they're written, even though the manifest JSON is only updated at the end).
+
+    Args:
+        project_id: Project identifier
+
+    Returns:
+        dict: {files: [{filename, path, size_bytes, last_modified, extension}],
+               total_size: int, total_files: int}
+    """
+    from backend.database.db import get_project
+    from backend.core.config import get_storage_dir
+
+    project = get_project(project_id)
+    if not project:
+        return {"files": [], "total_size": 0, "total_files": 0}
+
+    assets_dir = get_storage_dir() / project_id / "assets"
+    if not assets_dir.exists():
+        return {"files": [], "total_size": 0, "total_files": 0}
+
+    files = []
+    total_size = 0
+    try:
+        for entry in sorted(assets_dir.iterdir()):
+            if entry.is_file():
+                stat = entry.stat()
+                ext = entry.suffix.lower()
+                files.append({
+                    "filename": entry.name,
+                    "path": str(entry),
+                    "size_bytes": stat.st_size,
+                    "last_modified": stat.st_mtime,
+                    "extension": ext,
+                })
+                total_size += stat.st_size
+    except Exception as e:
+        logger.error(f"Failed to scan assets directory: {e}")
+
+    return {"files": files, "total_size": total_size, "total_files": len(files)}
+
+
+@eel.expose
 def download_google_font(font_family):
     import urllib.request
     import re

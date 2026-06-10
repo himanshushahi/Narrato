@@ -1,27 +1,68 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLayers, VscPackage, VscMusic,
-  VscSearch, VscAdd
+  VscSearch, VscAdd, VscWarning,
+  VscCheck, VscLoading, VscListFlat, VscSymbolField,
+  VscRefresh, VscPlay
 } from 'react-icons/vsc';
 import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
 import { useEditorStore, LeftPanelTab } from '../../store/useEditorStore';
 import { formatTime } from '../../features/ProjectEditor/constants';
+import { useProjectAssets, AssetEntry } from './hooks/useProjectAssets';
 
 interface MediaSidebarProps {
   scriptData: any;
-  sceneTimings: Array<{ start: number; end: number }>;
+  manifestData: any[];
+  sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
   onSeek?: (frame: number) => void;
   onAddScene?: () => void;
+  projectId?: string;
+  isPipelineRunning?: boolean;
+  activeTaskStep?: any;
+  reloadTrigger?: number;
 }
 
-const tabConfig: { id: LeftPanelTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'scenes', label: 'Scenes', icon: <VscLayers /> },
-  { id: 'assets', label: 'Assets', icon: <VscPackage /> },
-  { id: 'music', label: 'Music', icon: <VscMusic /> },
-];
+/** Format bytes to a human-readable string */
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const size = bytes / Math.pow(1024, i);
+  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+};
 
-export const MediaSidebar: React.FC<MediaSidebarProps> = ({ scriptData, sceneTimings, onSeek, onAddScene }) => {
+/** Visual type to display label mapping */
+const VISUAL_TYPE_LABELS: Record<string, string> = {
+  youtube: 'YouTube Clip',
+  scene: 'Stock Video',
+  image: 'Stock Photo',
+  portrait: 'Stock Photo',
+  parallax: 'Parallax Image',
+  chart: 'Chart Data',
+  map: 'Map Data',
+  document: 'Document',
+  network: 'Network Diagram',
+};
+
+/** Guess if a file is a video by its extension */
+const isVideoFile = (ext?: string): boolean => ext === '.mp4' || ext === '.webm';
+
+/** Guess if a file is an image by its extension */
+const isImageFile = (ext?: string): boolean =>
+  ext === '.jpg' || ext === '.jpeg' || ext === '.png' || ext === '.webp';
+
+/** Returns a display icon and label for a given file extension */
+const fileTypeBadge = (ext: string): { icon: React.ReactNode; label: string; color: string } => {
+  if (isVideoFile(ext)) return { icon: <VscPlay />, label: 'MP4', color: 'text-blue-400 bg-blue-500/10' };
+  if (isImageFile(ext)) return { icon: <VscPackage />, label: ext.replace('.', '').toUpperCase(), color: 'text-amber-400 bg-amber-500/10' };
+  return { icon: <VscPackage />, label: (ext || 'FILE').replace('.', '').toUpperCase(), color: 'text-zinc-400 bg-zinc-500/10' };
+};
+
+export const MediaSidebar: React.FC<MediaSidebarProps> = ({
+  scriptData, manifestData, sceneTimings, onSeek, onAddScene,
+  projectId, activeTaskStep, reloadTrigger = 0,
+}) => {
   const leftPanelWidth = useEditorStore((s) => s.leftPanelWidth);
   const leftPanelTab = useEditorStore((s) => s.leftPanelTab);
   const setLeftPanelTab = useEditorStore((s) => s.setLeftPanelTab);
@@ -30,20 +71,188 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({ scriptData, sceneTim
   const hasIntro = !!scriptData?.introduction;
   const hasConclusion = !!scriptData?.conclusion;
 
+  // ---- Assets tab state ----
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [assetSearch, setAssetSearch] = useState('');
+
+  // ---- Scenes tab state ----
+  const [sceneSearch, setSceneSearch] = useState('');
+
+  /** Filtered scene items for the scenes tab */
+  const filteredScenes = useMemo(() => {
+    const q = sceneSearch.trim().toLowerCase();
+    if (!q) return null; // null = no filtering, show everything
+
+    const results: Array<{
+      type: 'intro' | 'scene' | 'conclusion';
+      number: string;
+      title: string;
+      subtitle: string;
+      sceneIndex: number;
+    }> = [];
+
+    // Check introduction
+    if (hasIntro) {
+      const introText = [
+        'introduction', '0',
+        scriptData?.introduction?.hook || '',
+      ].join(' ').toLowerCase();
+      if (introText.includes(q)) {
+        results.push({
+          type: 'intro',
+          number: '0',
+          title: 'Introduction',
+          subtitle: scriptData?.introduction?.hook?.slice(0, 60) || 'Hook',
+          sceneIndex: 0,
+        });
+      }
+    }
+
+    // Check scenes
+    (scenes || []).forEach((scene: any, idx: number) => {
+      const sceneText = [
+        String(idx + 1), scene.title || '', scene.narration || '',
+      ].join(' ').toLowerCase();
+      if (sceneText.includes(q)) {
+        results.push({
+          type: 'scene',
+          number: String(idx + 1),
+          title: scene.title || `Scene ${idx + 1}`,
+          subtitle: scene.narration
+            ? scene.narration.slice(0, 60) + (scene.narration.length > 60 ? '...' : '')
+            : 'No narration',
+          sceneIndex: (hasIntro ? 1 : 0) + idx,
+        });
+      }
+    });
+
+    // Check conclusion
+    if (hasConclusion) {
+      const concText = [
+        'conclusion', String(scenes.length + 1),
+        scriptData?.conclusion?.summary || '',
+        scriptData?.conclusion?.cta || '',
+      ].join(' ').toLowerCase();
+      if (concText.includes(q)) {
+        results.push({
+          type: 'conclusion',
+          number: String(scenes.length + 1),
+          title: 'Conclusion',
+          subtitle: 'Summary & CTA',
+          sceneIndex: sceneTimings.length - 1,
+        });
+      }
+    }
+
+    return results;
+  }, [sceneSearch, hasIntro, hasConclusion, scenes, scriptData, sceneTimings]);
+
+  // Derive scene titles from scriptData
+  const sceneTitles = useMemo(() => {
+    const titles: string[] = [];
+    if (hasIntro) titles.push('Introduction');
+    (scenes || []).forEach((s: any) => titles.push(s.title || 'Untitled'));
+    if (hasConclusion) titles.push('Conclusion');
+    return titles;
+  }, [scriptData, hasIntro, hasConclusion]);
+
+  const isFetchingAssets = activeTaskStep?.step === 'fetch_assets' && activeTaskStep?.status === 'running';
+
+  const {
+    assets,
+    totalSize,
+    downloadedCount,
+    pendingCount,
+    totalDownloadable,
+    isScanning,
+    refresh,
+  } = useProjectAssets(projectId, manifestData, sceneTimings, sceneTitles, reloadTrigger, isFetchingAssets);
+
+  // Filter & sort assets
+  const filteredAssets = useMemo(() => {
+    let list = assets;
+    if (assetSearch.trim()) {
+      const q = assetSearch.toLowerCase();
+      list = list.filter(
+        (a) =>
+          a.sceneTitle.toLowerCase().includes(q) ||
+          a.visualCue.toLowerCase().includes(q) ||
+          a.visualType.toLowerCase().includes(q) ||
+          a.visualPath?.toLowerCase().includes(q),
+      );
+    }
+    // Sort by scene index, then sub index
+    return [...list].sort((a, b) => a.sceneIndex - b.sceneIndex || a.subIndex - b.subIndex);
+  }, [assets, assetSearch]);
+
+  // ---- Tab config with dynamic labels ----
+  const tabConfig = useMemo(() => {
+    const assetsLabel =
+      totalDownloadable > 0
+        ? `Assets (${downloadedCount}/${totalDownloadable})`
+        : 'Assets';
+    return [
+      { id: 'scenes' as LeftPanelTab, label: 'Scenes', icon: <VscLayers /> },
+      { id: 'assets' as LeftPanelTab, label: assetsLabel, icon: <VscPackage /> },
+      { id: 'music' as LeftPanelTab, label: 'Music', icon: <VscMusic /> },
+    ];
+  }, [totalDownloadable, downloadedCount]);
+
+  // ---- Tab renderers ----
+
   const renderScenesTab = () => (
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-zinc-800/40">
         <div className="flex items-center gap-2 bg-zinc-900/50 rounded-lg px-3 py-2 border border-zinc-800/40">
-          <VscSearch className="text-zinc-500 text-sm" />
+          <VscSearch className="text-zinc-500 text-sm shrink-0" />
           <input
             type="text"
             placeholder="Search scenes..."
+            value={sceneSearch}
+            onChange={(e) => setSceneSearch(e.target.value)}
             className="bg-transparent text-xs text-zinc-300 placeholder-zinc-600 outline-none w-full"
           />
+          {sceneSearch && (
+            <button
+              onClick={() => setSceneSearch('')}
+              className="text-zinc-600 hover:text-zinc-400 text-xs shrink-0"
+            >
+              &times;
+            </button>
+          )}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1">
+        {sceneSearch.trim() ? (
+          /* ---- Search results ---- */
+          filteredScenes!.length === 0 ? (
+            <div className="text-center py-8 px-4">
+              <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
+                <VscSearch className="text-lg text-zinc-600" />
+              </div>
+              <p className="text-xs text-zinc-500">No scenes match <span className="text-zinc-400 font-mono">"{sceneSearch}"</span></p>
+              <button
+                onClick={() => setSceneSearch('')}
+                className="mt-3 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Clear search
+              </button>
+            </div>
+          ) : (
+            filteredScenes!.map((item) => (
+              <SceneListItem
+                key={`${item.type}-${item.sceneIndex}`}
+                number={item.number}
+                title={item.title}
+                subtitle={item.subtitle}
+                timing={sceneTimings[item.sceneIndex]}
+                onClick={() => onSeek?.(sceneTimings[item.sceneIndex]?.start || 0)}
+              />
+            ))
+          )
+        ) : (
+          <>
         {/* Introduction */}
         {hasIntro && (
           <SceneListItem
@@ -107,18 +316,136 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({ scriptData, sceneTim
             <VscAdd className="text-xs" /> Add Scene
           </button>
         )}
+          </>
+        )}
       </div>
     </div>
   );
 
+  // ---- Assets Tab ----
+
   const renderAssetsTab = () => (
-    <div className="flex flex-col h-full p-4 text-center">
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
-          <VscPackage className="text-2xl text-zinc-600" />
+    <div className="flex flex-col h-full">
+      {/* Search + toolbar */}
+      <div className="p-3 border-b border-zinc-800/40 space-y-2">
+        <div className="flex items-center gap-2 bg-zinc-900/50 rounded-lg px-3 py-2 border border-zinc-800/40">
+          <VscSearch className="text-zinc-500 text-sm shrink-0" />
+          <input
+            type="text"
+            placeholder="Search assets..."
+            value={assetSearch}
+            onChange={(e) => setAssetSearch(e.target.value)}
+            className="bg-transparent text-xs text-zinc-300 placeholder-zinc-600 outline-none w-full"
+          />
+          {assetSearch && (
+            <button
+              onClick={() => setAssetSearch('')}
+              className="text-zinc-600 hover:text-zinc-400 text-xs"
+            >
+              &times;
+            </button>
+          )}
         </div>
-        <p className="text-sm text-zinc-400 font-medium mb-1">Assets</p>
-        <p className="text-[10px] text-zinc-600 mb-4 max-w-45">Manage project assets and resources</p>
+        <div className="flex items-center justify-between">
+          {/* Summary */}
+          <div className="text-[9px] text-zinc-500">
+            {totalDownloadable > 0 ? (
+              <span>
+                <span className="text-zinc-300">{downloadedCount}</span>
+                <span className="text-zinc-600">/{totalDownloadable}</span>
+                <span className="text-zinc-600"> &middot; </span>
+                <span className="text-zinc-400">{formatFileSize(totalSize)}</span>
+              </span>
+            ) : (
+              <span className="text-zinc-600">No assets</span>
+            )}
+          </div>
+          {/* View toggle */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-1 rounded text-[10px] transition-colors ${
+                viewMode === 'list'
+                  ? 'text-blue-400 bg-blue-600/20'
+                  : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+              title="List view"
+            >
+              <VscListFlat />
+            </button>
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-1 rounded text-[10px] transition-colors ${
+                viewMode === 'grid'
+                  ? 'text-blue-400 bg-blue-600/20'
+                  : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+              title="Grid view"
+            >
+              <VscSymbolField />
+            </button>
+            <button
+              onClick={refresh}
+              disabled={isScanning}
+              className={`p-1 rounded text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors ${
+                isScanning ? 'animate-spin pointer-events-none' : ''
+              }`}
+              title="Refresh assets from disk"
+            >
+              <VscRefresh />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Download progress banner */}
+      <DownloadProgressBanner
+        isFetching={isFetchingAssets}
+        progress={activeTaskStep?.progress}
+        message={activeTaskStep?.message}
+        downloadedCount={downloadedCount}
+        pendingCount={pendingCount}
+      />
+
+      {/* Asset list */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        {filteredAssets.length === 0 ? (
+          <AssetsEmptyState
+            searchActive={assetSearch.trim().length > 0}
+            hasManifest={manifestData.length > 0}
+            isFetching={isFetchingAssets}
+          />
+        ) : viewMode === 'list' ? (
+          <div className="p-2 space-y-1">
+            {filteredAssets.map((asset) => (
+              <AssetListItem
+                key={asset.key}
+                asset={asset}
+                isFetching={isFetchingAssets}
+                onClick={() => {
+                  if (asset.timing && onSeek && !asset.isProgrammatic) {
+                    onSeek(asset.timing.start);
+                  }
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="p-2 grid grid-cols-2 gap-2">
+            {filteredAssets.map((asset) => (
+              <AssetGridItem
+                key={asset.key}
+                asset={asset}
+                isFetching={isFetchingAssets}
+                onClick={() => {
+                  if (asset.timing && onSeek && !asset.isProgrammatic) {
+                    onSeek(asset.timing.start);
+                  }
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -173,6 +500,315 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({ scriptData, sceneTim
     </div>
   );
 };
+
+/* ============================================================
+   Assets Sub-components
+   ============================================================ */
+
+/** Banner shown during the fetch_assets pipeline step */
+const DownloadProgressBanner: React.FC<{
+  isFetching: boolean;
+  progress?: number;
+  message?: string;
+  downloadedCount: number;
+  pendingCount: number;
+}> = ({ isFetching, progress, message, downloadedCount, pendingCount }) => {
+  if (!isFetching) return null;
+
+  const pct = Math.round(progress ?? 0);
+  const total = downloadedCount + pendingCount;
+
+  return (
+    <div className="px-3 py-2.5 bg-blue-950/30 border-b border-blue-900/40">
+      <div className="flex items-center gap-2 mb-1.5">
+        <VscLoading className="text-blue-400 text-xs animate-spin shrink-0" />
+        <span className="text-[10px] text-blue-300 font-medium truncate">
+          {message || 'Downloading visual assets...'}
+        </span>
+      </div>
+      <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <motion.div
+          className="h-full bg-linear-to-r from-blue-500 to-cyan-400 rounded-full"
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.4, ease: 'easeOut' }}
+        />
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-[8px] text-blue-400/70">{pct}%</span>
+        <span className="text-[8px] text-blue-400/70">{downloadedCount}/{total} files on disk</span>
+      </div>
+    </div>
+  );
+};
+
+/** Empty state for assets tab */
+const AssetsEmptyState: React.FC<{
+  searchActive: boolean;
+  hasManifest: boolean;
+  isFetching: boolean;
+}> = ({ searchActive, hasManifest, isFetching }) => {
+  if (isFetching) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+        <VscLoading className="text-xl text-blue-500 animate-spin mb-3" />
+        <p className="text-xs text-zinc-400 font-medium">Fetching assets...</p>
+        <p className="text-[9px] text-zinc-600 mt-1">Assets will appear here as they download</p>
+      </div>
+    );
+  }
+
+  if (searchActive) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+        <VscSearch className="text-lg text-zinc-600 mb-3" />
+        <p className="text-xs text-zinc-500 font-medium">No assets match your search</p>
+        <p className="text-[9px] text-zinc-600 mt-1">Try a different search term</p>
+      </div>
+    );
+  }
+
+  if (!hasManifest) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+        <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
+          <VscPackage className="text-2xl text-zinc-600" />
+        </div>
+        <p className="text-sm text-zinc-400 font-medium mb-1">No Assets Yet</p>
+        <p className="text-[10px] text-zinc-600 mb-4 max-w-45 leading-relaxed">
+          Generate a script and run the pipeline to download visual assets.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+      <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
+        <VscWarning className="text-xl text-zinc-600" />
+      </div>
+      <p className="text-xs text-zinc-500 font-medium">No downloadable assets found</p>
+      <p className="text-[9px] text-zinc-600 mt-1">All sub-visuals may be programmatic (charts, maps, etc.)</p>
+    </div>
+  );
+};
+
+/** Single asset item in list view */
+const AssetListItem: React.FC<{
+  asset: AssetEntry;
+  isFetching: boolean;
+  onClick: () => void;
+}> = ({ asset, isFetching, onClick }) => {
+  const hasFile = asset.fileExists && !asset.isProgrammatic;
+  const ext = asset.extension || (asset.visualPath ? '.' + asset.visualPath.split('.').pop() : '');
+
+  return (
+    <div
+      onClick={onClick}
+      className={`flex items-start gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer group
+        ${hasFile
+          ? 'bg-zinc-900/30 border-zinc-800/40 hover:bg-zinc-800/40 hover:border-zinc-700/50'
+          : asset.isProgrammatic
+            ? 'bg-zinc-900/10 border-zinc-800/20 opacity-50 cursor-default'
+            : 'bg-zinc-900/10 border-zinc-800/20'
+        }`}
+    >
+      {/* Thumbnail — image preview for photos, video poster for videos */}
+      <div className="w-9 h-9 shrink-0 rounded-md overflow-hidden bg-zinc-800/80 border border-zinc-700/40 flex items-center justify-center">
+        {hasFile && isImageFile(ext) && asset.visualUrl ? (
+          <img
+            src={asset.visualUrl}
+            alt=""
+            className="w-full h-full object-cover"
+            loading="lazy"
+            draggable={false}
+          />
+        ) : hasFile && isVideoFile(ext) && asset.visualUrl ? (
+          <div className="relative w-full h-full">
+            <video
+              src={asset.visualUrl}
+              className="w-full h-full object-cover"
+              preload="metadata"
+              muted
+              playsInline
+              onLoadedMetadata={(e) => {
+                const v = e.currentTarget;
+                v.currentTime = Math.min(0.5, v.duration / 2);
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-4 h-4 rounded-full bg-black/50 flex items-center justify-center">
+                <VscPlay className="text-blue-300 text-[7px] ml-px" />
+              </div>
+            </div>
+          </div>
+        ) : hasFile ? (
+          (() => {
+            const badge = fileTypeBadge(ext);
+            return (
+              <div className={`w-full h-full flex flex-col items-center justify-center ${badge.color}`}>
+                <span className="text-[10px]">{badge.icon}</span>
+                <span className="text-[6px] font-bold leading-none mt-0.5">{badge.label}</span>
+              </div>
+            );
+          })()
+        ) : (
+          <div className="flex items-center justify-center w-full h-full">
+            {asset.isProgrammatic ? (
+              <span className="text-[9px] font-bold text-purple-500/60 uppercase">Gen</span>
+            ) : isFetching ? (
+              <VscLoading className="text-zinc-600 text-xs animate-spin" />
+            ) : (
+              <VscPackage className="text-zinc-600 text-sm" />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-semibold text-zinc-200 truncate">
+            {asset.sceneTitle}
+          </span>
+          <span className="text-[8px] text-zinc-600 font-mono shrink-0">
+            #{asset.sceneIndex}-{asset.subIndex}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[8px] text-zinc-500 capitalize truncate">
+            {VISUAL_TYPE_LABELS[asset.visualType] || asset.visualType}
+          </span>
+          {hasFile && (
+            <>
+              <span className="text-zinc-700 text-[8px]">&middot;</span>
+              <span className="text-[8px] text-zinc-500 font-mono">{formatFileSize(asset.fileSize || 0)}</span>
+            </>
+          )}
+        </div>
+        {asset.visualCue && (
+          <p className="text-[8px] text-zinc-600 truncate mt-0.5">
+            Cue: {asset.visualCue}
+          </p>
+        )}
+      </div>
+
+      {/* Status badge */}
+      <div className="shrink-0 mt-0.5">
+        {hasFile ? (
+          <span className="flex items-center gap-0.5 text-[8px] text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded-full">
+            <VscCheck className="text-[7px]" /> OK
+          </span>
+        ) : asset.isProgrammatic ? (
+          <span className="text-[8px] text-purple-500/50 bg-purple-500/10 px-1.5 py-0.5 rounded-full">
+            Gen.
+          </span>
+        ) : isFetching ? (
+          <span className="text-[8px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded-full animate-pulse">
+            DL
+          </span>
+        ) : (
+          <span className="text-[8px] text-zinc-600 bg-zinc-800/50 px-1.5 py-0.5 rounded-full">
+            Pend.
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** Single asset item in grid view */
+const AssetGridItem: React.FC<{
+  asset: AssetEntry;
+  isFetching: boolean;
+  onClick: () => void;
+}> = ({ asset, isFetching, onClick }) => {
+  const hasFile = asset.fileExists && !asset.isProgrammatic;
+  const ext = asset.extension || '';
+
+  return (
+    <div
+      onClick={onClick}
+      className={`relative rounded-lg overflow-hidden border transition-all cursor-pointer group
+        ${hasFile
+          ? 'bg-zinc-900/30 border-zinc-800/40 hover:border-blue-600/40'
+          : asset.isProgrammatic
+            ? 'bg-zinc-900/10 border-zinc-800/20 opacity-50 cursor-default'
+            : 'bg-zinc-900/10 border-zinc-800/20'
+        }`}
+    >
+      {/* Thumbnail area — image preview for photos, video poster for videos */}
+      <div className="aspect-video bg-zinc-800/60 flex items-center justify-center overflow-hidden relative">
+        {hasFile && isImageFile(ext) && asset.visualUrl ? (
+          <img
+            src={asset.visualUrl}
+            alt={asset.visualCue || 'Asset'}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            draggable={false}
+          />
+        ) : hasFile && isVideoFile(ext) && asset.visualUrl ? (
+          <div className="relative w-full h-full">
+            <video
+              src={asset.visualUrl}
+              className="w-full h-full object-cover"
+              preload="metadata"
+              muted
+              playsInline
+              onLoadedMetadata={(e) => {
+                const v = e.currentTarget;
+                v.currentTime = Math.min(0.5, v.duration / 2);
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
+                <VscPlay className="text-blue-300 text-sm ml-0.5" />
+              </div>
+            </div>
+          </div>
+        ) : hasFile ? (
+          (() => {
+            const badge = fileTypeBadge(ext);
+            return (
+              <div className={`w-full h-full flex flex-col items-center justify-center ${badge.color}`}>
+                <span className="text-lg">{badge.icon}</span>
+                <span className="text-[9px] font-bold mt-1 uppercase">{badge.label}</span>
+              </div>
+            );
+          })()
+        ) : (
+          <div className="flex flex-col items-center justify-center text-zinc-600">
+            {asset.isProgrammatic ? (
+              <>
+                <VscSymbolField className="text-lg" />
+                <span className="text-[7px] mt-1 uppercase">Generated</span>
+              </>
+            ) : isFetching ? (
+              <VscLoading className="text-lg animate-spin text-blue-500" />
+            ) : (
+              <VscPackage className="text-lg" />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Info row */}
+      <div className="p-1.5">
+        <p className="text-[8px] font-medium text-zinc-300 truncate">
+          {asset.sceneTitle}
+        </p>
+        <p className="text-[7px] text-zinc-500 truncate mt-0.5">
+          #{asset.sceneIndex}-{asset.subIndex}
+          {hasFile && <> &middot; {formatFileSize(asset.fileSize || 0)}</>}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================
+   Scene List Item (unchanged from original)
+   ============================================================ */
 
 interface SceneListItemProps {
   number: string;
