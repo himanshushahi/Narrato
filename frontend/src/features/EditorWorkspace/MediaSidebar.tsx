@@ -19,7 +19,6 @@ interface MediaSidebarProps {
   manifestData: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
   onSeek?: (frame: number) => void;
-  onAddScene?: () => void;
   projectId?: string;
   isPipelineRunning?: boolean;
   activeTaskStep?: any;
@@ -63,7 +62,7 @@ const fileTypeBadge = (ext: string): { icon: React.ReactNode; label: string; col
 };
 
 export const MediaSidebar: React.FC<MediaSidebarProps> = ({
-  scriptData, manifestData, sceneTimings, onSeek, onAddScene,
+  scriptData, manifestData, sceneTimings, onSeek,
   projectId, activeTaskStep, reloadTrigger = 0,
 }) => {
   const leftPanelWidth = useEditorStore((s) => s.leftPanelWidth);
@@ -321,15 +320,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
             <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
               <VscLayers className="text-lg text-zinc-600" />
             </div>
-            <p className="text-xs text-zinc-500 mb-3">No scenes created</p>
-            {onAddScene && (
-              <button
-                onClick={onAddScene}
-                className="flex items-center gap-1.5 mx-auto px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg text-[10px] font-bold transition-all"
-              >
-                <VscAdd className="text-xs" /> Generate Scene
-              </button>
-            )}
+            <p className="text-xs text-zinc-500">No scenes created</p>
           </div>
         ) : (
           scenes.map((scene: any, idx: number) => {
@@ -359,14 +350,6 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
           />
         )}
 
-        {onAddScene && (
-          <button
-            onClick={onAddScene}
-            className="w-full flex items-center justify-center gap-1 py-2 mt-2 text-zinc-500 hover:text-blue-400 border border-dashed border-zinc-700 hover:border-blue-600/40 rounded-lg text-[10px] transition-all"
-          >
-            <VscAdd className="text-xs" /> Add Scene
-          </button>
-        )}
           </>
         )}
       </div>
@@ -506,22 +489,22 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
       return (
         <div className="flex flex-col h-full p-4 text-center">
           <div className="flex-1 flex flex-col items-center justify-center">
-            <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
-              <VscMusic className="text-2xl text-zinc-600" />
+            <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-zinc-800/60 to-zinc-900/60 border border-zinc-700/50 flex items-center justify-center shadow-lg shadow-black/20">
+              <VscMusic className="text-2xl text-zinc-500" />
             </div>
-            <p className="text-sm text-zinc-400 font-medium mb-1">No Background Music</p>
-            <p className="text-[10px] text-zinc-600 mb-4 max-w-45 leading-relaxed">
-              Upload a custom soundtrack for this project
+            <p className="text-sm text-zinc-300 font-medium mb-1">No Background Music</p>
+            <p className="text-[10px] text-zinc-600 mb-5 max-w-45 leading-relaxed">
+              Upload a soundtrack to enhance your video
             </p>
             <button
               onClick={handleUploadMusic}
               disabled={uploading}
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600/25 to-cyan-600/15 hover:from-blue-600/35 hover:to-cyan-600/25 text-blue-300 border border-blue-500/25 rounded-xl text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/5"
             >
               {uploading ? (
-                <VscLoading className="text-xs animate-spin" />
+                <VscLoading className="text-sm animate-spin" />
               ) : (
-                <VscAdd />
+                <VscAdd className="text-sm" />
               )}
               {uploading ? 'Uploading...' : 'Upload Music'}
             </button>
@@ -533,12 +516,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
     const fileBadge = bgMusicExt ? fileTypeBadge('.' + bgMusicExt) : null;
 
     return (
-      <div className="flex flex-col h-full p-3 space-y-4">
+      <div className="flex flex-col h-full p-3 space-y-3">
         {/* File info card */}
-        <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-xl p-3 space-y-3">
+        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-3 space-y-3">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 shrink-0 rounded-lg flex items-center justify-center ${fileBadge?.color || 'bg-zinc-800/50'}`}>
-              {fileBadge?.icon || <VscMusic className="text-lg text-zinc-500" />}
+            <div className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center ${fileBadge?.color || 'bg-zinc-800/50'}`}>
+              {fileBadge?.icon || <VscMusic className="text-base text-zinc-500" />}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-zinc-200 truncate">{bgMusicFilename}</p>
@@ -549,11 +532,13 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
           </div>
 
           {/* Custom audio preview */}
-          <CustomAudioPlayer src={bgMusicUrl} volume={localVolume} />
+          <div className="border-t border-zinc-800/40 pt-2.5">
+            <CustomAudioPlayer src={bgMusicUrl} volume={localVolume} />
+          </div>
         </div>
 
-        {/* Volume control */}
-        <div className="space-y-2">
+        {/* Volume control — in its own card */}
+        <div className="bg-zinc-900/30 border border-zinc-800/40 rounded-xl p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-medium text-zinc-400">Volume</span>
             <span className="text-[9px] font-mono text-zinc-500">{Math.round(localVolume * 100)}%</span>
@@ -577,23 +562,23 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
           />
         </div>
 
-        {/* Actions */}
-        <div className="flex gap-2">
+        {/* Actions — equal-width buttons */}
+        <div className="flex gap-2 pt-1">
           <button
             onClick={handleUploadMusic}
             disabled={uploading}
-            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/30 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2.5 bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-600/25 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {uploading ? (
               <VscLoading className="text-xs animate-spin" />
             ) : (
-              <VscAdd />
+              <VscRefresh />
             )}
             Replace
           </button>
           <button
             onClick={handleRemoveMusic}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-600/20 rounded-lg text-[10px] font-bold transition-all"
+            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2.5 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-600/20 rounded-lg text-[10px] font-bold transition-all"
           >
             <VscTrash /> Remove
           </button>

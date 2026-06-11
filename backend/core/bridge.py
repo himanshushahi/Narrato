@@ -184,10 +184,6 @@ def cancel_processing_pipeline(project_id):
     return True
 
 @eel.expose
-def get_active_queue():
-    return global_queue_manager.get_queue_status()
-
-@eel.expose
 def read_json_file(file_path):
     if not file_path or not os.path.exists(file_path):
         return None
@@ -647,37 +643,6 @@ def generate_voice_preview(text, engine, voice, speed, pitch, language):
         logger.error(f"Preview generation failed: {e}")
         return {"success": False, "error": str(e)}
     return {"success": False, "error": "Unknown error generating audio."}
-
-@eel.expose
-def get_audio_base64(file_path):
-    import base64
-    if not file_path or not os.path.exists(file_path):
-        return ""
-    try:
-        with open(file_path, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("utf-8")
-            return f"data:audio/wav;base64,{encoded}"
-    except Exception as e:
-        logger.error(f"Failed to encode audio file to base64: {e}")
-        return ""
-
-@eel.expose
-def open_exports_folder():
-    import subprocess
-    import platform
-    from backend.core.config import get_exports_dir
-    exports_dir = get_exports_dir()
-    try:
-        if platform.system() == "Windows":
-            os.startfile(str(exports_dir))
-        elif platform.system() == "Darwin":
-            subprocess.run(["open", str(exports_dir)])
-        else:
-            subprocess.run(["xdg-open", str(exports_dir)])
-        return True
-    except Exception as e:
-        logger.error(f"Failed to open exports directory: {e}")
-        return False
 
 def setup_bridge_callbacks():
     def safe_log_stream(msg):
