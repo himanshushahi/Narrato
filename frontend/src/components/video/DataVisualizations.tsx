@@ -3,6 +3,7 @@ import { useCurrentFrame, spring, interpolate } from 'remotion';
 import * as d3Geo from 'd3-geo';
 import * as topojson from 'topojson-client';
 import worldData from './world-110m.json';
+import { PaperTexture } from './PaperTexture';
 
 interface Props {
   type: 'chart' | 'map' | 'document' | 'network';
@@ -443,19 +444,22 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
     );
   };
 
-  // Render Archival Document / Newspaper print
+  // Render hyper-realistic Archival Document / Newspaper
   const renderDocument = () => {
-    // If real news data is fetched, we use it, otherwise fallback to old behavior
     const text = meta.doc_text || 'Archival record text excerpt goes here.';
-    const title = meta.title || 'THE CLASSIFIED ARCHIVES'; // Masthead
+    const title = meta.title || 'THE CLASSIFIED ARCHIVES';
     const subTitle = meta.subtitle || 'BREAKING NEWS';
     const headline = meta.headline || 'Exclusive Report Uncovers Hidden Details';
     const source = meta.source || 'The Associated Press';
+    const section = meta.section || '';
+    const pullQuote = meta.pull_quote || '';
+    const showImage = meta.show_image || false;
+    const imageUrl = meta.image_url || '';
+    const imageCaption = meta.image_caption || '';
 
     // Typewriter text progress
     const charCount = text.length;
-    // Slow down the typing so it fits the frame better, or scale dynamically
-    const textProgress = Math.floor(interpolate(frame, [10, 120], [0, charCount], {
+    const textProgress = Math.floor(interpolate(frame, [10, 130], [0, charCount], {
       extrapolateLeft: 'clamp',
       extrapolateRight: 'clamp'
     }));
@@ -477,6 +481,38 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
       afterHighlight = parts.slice(1).join(highlightTarget);
     }
 
+    // ---- Animation values ----
+
+    // Page unfold from center fold (frames 0-25)
+    const unfoldProgress = interpolate(frame, [0, 25], [1, 0], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    });
+    const clipInset = unfoldProgress * 50;
+
+    // Masthead fade-in (frames 10-20)
+    const mastheadOpacity = interpolate(frame, [10, 20], [0, 1], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    });
+
+    // Headline ink stamp reveal (frames 25-40)
+    const inkScale = interpolate(frame, [25, 40], [1.05, 1.0], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    });
+    const inkOpacity = interpolate(frame, [25, 40], [0.7, 1.0], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    });
+    const inkBlur = interpolate(frame, [25, 40], [2, 0], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    });
+
+    // Typewriter cursor blink
+    const cursorVisible = frame % 15 < 7;
+
     return (
       <div style={{
         display: 'flex',
@@ -484,128 +520,253 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        padding: 50,
-        boxSizing: 'border-box'
+        padding: 40,
+        boxSizing: 'border-box',
+        position: 'relative',
+        overflow: 'hidden',
       }}>
-        {/* Newspaper Paper Container */}
+        {/* --- Wooden Desk Background --- */}
         <div style={{
-          width: 1400,
-          minHeight: 850,
-          backgroundColor: '#f4f0e6', // Vintage newspaper tone
-          border: '1px solid #dcd7cd',
-          padding: '40px 60px',
-          boxShadow: '0 25px 50px rgba(0,0,0,0.85), inset 0 0 100px rgba(0,0,0,0.05)',
+          position: 'absolute',
+          inset: 0,
+          background: 'linear-gradient(180deg, #2a221d 0%, #1a1512 100%)',
+          zIndex: 0,
+        }}>
+          <svg style={{ position: 'absolute', width: '100%', height: '100%', opacity: 0.04, mixBlendMode: 'overlay' }}>
+            <filter id="woodGrain_doc">
+              <feTurbulence type="fractalNoise" baseFrequency="0.01 0.2" numOctaves="3" />
+              <feColorMatrix type="matrix" values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0   0 0 0 0.3 0" />
+            </filter>
+            <rect width="100%" height="100%" filter="url(#woodGrain_doc)" />
+          </svg>
+        </div>
+
+        {/* --- Newspaper Paper Container --- */}
+        <div style={{
+          width: 'min(92%, 1200px)',
+          minHeight: 800,
+          background: 'linear-gradient(180deg, #e8dcc8 0%, #f4ece0 30%, #ede3d2 70%, #d4c9b4 100%)',
+          border: '1px solid #c4b8a2',
+          boxShadow: '0 30px 80px rgba(0,0,0,0.7), 0 10px 30px rgba(0,0,0,0.4), inset 0 0 80px rgba(28,25,23,0.06)',
           display: 'flex',
           flexDirection: 'column',
           color: '#1c1917',
           position: 'relative',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          transform: `rotate(-0.3deg) scaleY(${1 - unfoldProgress * 0.03})`,
+          clipPath: `inset(${clipInset}% 0 ${clipInset}% 0)`,
+          padding: '36px 48px 32px',
         }}>
+          {/* Paper Texture Overlay (grain, sepia, edge wear) */}
+          <PaperTexture opacity={0.5} sepiaIntensity={0.5} />
+
           {/* Masthead */}
           <div style={{
             textAlign: 'center',
-            paddingBottom: 10,
-            marginBottom: 10
+            paddingBottom: 8,
+            marginBottom: 8,
+            opacity: mastheadOpacity,
           }}>
             <h1 style={{
-              fontFamily: 'Merriweather, serif',
-              fontWeight: 800,
-              fontSize: 64,
+              fontFamily: "'Times New Roman', Times, serif",
+              fontWeight: 900,
+              fontSize: 56,
               textTransform: 'uppercase',
-              letterSpacing: 2,
+              letterSpacing: 4,
               margin: 0,
-              color: '#0c0a09'
+              color: '#0c0a09',
             }}>
               {title}
             </h1>
           </div>
 
-          {/* Newspaper Info Bar (Date, Issue, Volume) */}
+          {/* Info Bar (Date, Issue, Volume) */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
-            borderTop: '3px double #292524',
-            borderBottom: '1px solid #292524',
-            padding: '8px 10px',
-            marginBottom: 30,
-            fontFamily: 'Montserrat, sans-serif',
-            fontSize: 14,
-            fontWeight: 600,
-            color: '#44403c',
+            borderTop: '3px double #57534e',
+            borderBottom: '1px solid #78716c',
+            padding: '6px 8px',
+            marginBottom: 20,
+            fontFamily: "'Courier New', monospace",
+            fontSize: 12,
+            fontWeight: 400,
+            color: '#57534e',
             textTransform: 'uppercase',
-            letterSpacing: 1
+            letterSpacing: 0.5,
+            opacity: mastheadOpacity,
           }}>
             <span>Vol. XCIII... No. 31,520</span>
             <span>{dateStr}</span>
             <span>SPECIAL EDITION</span>
           </div>
 
-          {/* Headline */}
-          <div style={{ marginBottom: 25, textAlign: 'center' }}>
+          {/* Section Label (e.g. "National", "Technology") */}
+          {section && (
+            <div style={{
+              textAlign: 'center',
+              marginBottom: 10,
+              fontFamily: 'Montserrat, sans-serif',
+              fontSize: 11,
+              fontWeight: 700,
+              color: '#78716c',
+              textTransform: 'uppercase',
+              letterSpacing: 3,
+              opacity: mastheadOpacity,
+            }}>
+              ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+              <br />
+              {section}
+              <br />
+              ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+            </div>
+          )}
+
+          {/* Headline with Ink Stamp Animation */}
+          <div style={{
+            marginBottom: 16,
+            textAlign: 'center',
+            transform: `scale(${inkScale})`,
+            opacity: inkOpacity,
+            filter: inkBlur > 0 ? `blur(${inkBlur}px)` : undefined,
+          }}>
             <h2 style={{
               fontFamily: 'Merriweather, serif',
-              fontWeight: 700,
-              fontSize: 42,
-              lineHeight: 1.2,
+              fontWeight: 800,
+              fontSize: 32,
+              lineHeight: 1.15,
               color: '#0c0a09',
-              margin: 0
+              margin: 0,
+              textShadow: '0.5px 0.5px 0 rgba(0,0,0,0.08)',
             }}>
               {headline}
             </h2>
             <p style={{
               fontFamily: 'Montserrat, sans-serif',
-              fontWeight: 700,
-              fontSize: 16,
+              fontWeight: 600,
+              fontSize: 13,
               color: '#57534e',
-              marginTop: 15,
+              marginTop: 12,
+              marginBottom: 0,
               textTransform: 'uppercase',
-              letterSpacing: 1
+              letterSpacing: 0.8,
             }}>
               By {source} | {subTitle}
             </p>
           </div>
-          
-          <hr style={{ border: 'none', borderTop: '1px solid #a8a29e', marginBottom: 25 }} />
 
-          {/* Multi-column Body Content */}
+          {/* Featured Image (if enabled) */}
+          {showImage && (
+            <div style={{ marginBottom: 16, textAlign: 'center' }}>
+              <div style={{
+                display: 'inline-block',
+                border: '1px solid #a8a29e',
+                padding: 3,
+                backgroundColor: '#e8dcc8',
+              }}>
+                <div style={{
+                  width: '100%',
+                  maxWidth: 600,
+                  height: 220,
+                  backgroundColor: '#d4c9b4',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                  position: 'relative',
+                }}>
+                  {imageUrl ? (
+                    <img
+                      src={imageUrl}
+                      alt=""
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        filter: 'grayscale(100%) contrast(1.2)',
+                      }}
+                    />
+                  ) : (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <svg width="100%" height="100%">
+                        <defs>
+                          <pattern id="halftone_doc" width="8" height="8" patternUnits="userSpaceOnUse">
+                            <circle cx="2" cy="2" r="1.5" fill="#a8a29e" opacity="0.4" />
+                            <circle cx="6" cy="6" r="1" fill="#a8a29e" opacity="0.3" />
+                          </pattern>
+                        </defs>
+                        <rect width="100%" height="100%" fill="url(#halftone_doc)" />
+                        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle"
+                          fill="#78716c" fontFamily="Merriweather, serif" fontSize={18} fontStyle="italic">
+                          [ Newspaper Archive Photo ]
+                        </text>
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {imageCaption && (
+                <p style={{
+                  fontFamily: 'Merriweather, serif',
+                  fontSize: 11,
+                  fontStyle: 'italic',
+                  color: '#78716c',
+                  margin: '4px 0 0',
+                }}>
+                  {imageCaption}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Divider */}
+          <hr style={{
+            border: 'none',
+            borderTop: '1px solid #a8a29e',
+            marginBottom: 16,
+          }} />
+
+          {/* Two-Column Body Content with typewriter reveal */}
           <div style={{
             fontFamily: 'Merriweather, serif',
-            fontSize: 20,
-            lineHeight: 1.8,
+            fontSize: 16,
+            lineHeight: 1.7,
             color: '#1c1917',
             textAlign: 'justify',
-            columnCount: 3,
-            columnGap: 40,
-            columnRule: '1px solid #dcd7cd',
+            columnCount: 2,
+            columnGap: 48,
+            columnRule: '1px solid #d4c9b4',
+            columnFill: 'auto',
             whiteSpace: 'pre-wrap',
-            flex: 1
+            flex: 1,
           }}>
-            {/* Drop Cap for first letter, if typed */}
+            {/* Drop Cap for first letter */}
             {textProgress > 0 && (
               <span style={{
                 float: 'left',
-                fontSize: 68,
-                lineHeight: 0.8,
-                paddingTop: 8,
+                fontSize: 56,
+                lineHeight: 0.75,
+                paddingTop: 6,
                 paddingRight: 8,
-                paddingLeft: 3,
+                paddingLeft: 2,
                 fontWeight: 700,
-                color: '#0c0a09'
+                color: '#0c0a09',
+                textShadow: '1px 1px 0 rgba(0,0,0,0.08)',
               }}>
                 {text.charAt(0)}
               </span>
             )}
-            
-            {/* Text rendering with optional highlight */}
+
+            {/* Text rendering with optional amber highlight */}
             {highlightSegment ? (
               <>
                 {beforeHighlight.slice(textProgress > 0 ? 1 : 0, Math.max(0, textProgress))}
                 {textProgress > beforeHighlight.length && (
                   <span style={{
-                    backgroundColor: 'rgba(251, 191, 36, 0.4)', // Amber highlighter
-                    padding: '0 4px',
-                    borderRadius: '2px',
-                    boxShadow: '0 0 10px rgba(251, 191, 36, 0.2)'
+                    backgroundColor: 'rgba(251, 191, 36, 0.35)',
+                    padding: '0 3px',
+                    borderRadius: '1px',
+                    boxShadow: '0 0 6px rgba(251, 191, 36, 0.15)',
                   }}>
                     {highlightSegment.slice(0, Math.max(0, textProgress - beforeHighlight.length))}
                   </span>
@@ -617,25 +778,99 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
             ) : (
               text.slice(textProgress > 0 ? 1 : 0, textProgress)
             )}
-            
+
+            {/* Typewriter Cursor */}
             <span style={{
               display: 'inline-block',
-              width: 3,
-              height: 20,
+              width: 2,
+              height: 18,
               backgroundColor: '#1c1917',
               marginLeft: 2,
               verticalAlign: 'bottom',
-              opacity: (frame % 15 < 7) ? 1 : 0
+              opacity: cursorVisible ? 1 : 0,
             }} />
           </div>
 
-          {/* Faded edge overlay to simulate paper edges */}
+          {/* Pull Quote (shown if provided and text is long enough) */}
+          {pullQuote && text.length > 120 && (
+            <div style={{
+              textAlign: 'center',
+              padding: '12px 40px',
+              margin: '12px 0 4px',
+              borderTop: '1px solid #a8a29e',
+              borderBottom: '1px solid #a8a29e',
+              fontFamily: 'Merriweather, serif',
+              fontSize: 20,
+              fontStyle: 'italic',
+              lineHeight: 1.4,
+              color: '#44403c',
+            }}>
+              <span style={{ fontSize: 28, opacity: 0.5, verticalAlign: 'text-top', fontFamily: 'Georgia, serif' }}>{"“"}</span>
+              {' '}{pullQuote}{' '}
+              <span style={{ fontSize: 28, opacity: 0.5, verticalAlign: 'text-top', fontFamily: 'Georgia, serif' }}>{"”"}</span>
+            </div>
+          )}
+
+          {/* Footer Bar */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            borderTop: '1px solid #a8a29e',
+            paddingTop: 8,
+            marginTop: 12,
+            fontFamily: "'Courier New', monospace",
+            fontSize: 10,
+            color: '#78716c',
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+          }}>
+            <span>PAGE A1</span>
+            <span>{title}</span>
+            <span>{dateStr}</span>
+          </div>
+
+          {/* Fold line across horizontal center */}
+          <div style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: '50%',
+            height: 1,
+            backgroundColor: 'transparent',
+            boxShadow: '0 0.5px 0 rgba(0,0,0,0.06), 0 -0.5px 0 rgba(255,255,255,0.15)',
+            zIndex: 2,
+            pointerEvents: 'none',
+          }} />
+
+          {/* Edge wear / corner burn overlay */}
           <div style={{
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            boxShadow: 'inset 0 0 60px rgba(0,0,0,0.1)'
+            zIndex: 3,
+            background: `
+              radial-gradient(ellipse at 0% 0%, rgba(120,53,15,0.10) 0%, transparent 50%),
+              radial-gradient(ellipse at 100% 0%, rgba(120,53,15,0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 0% 100%, rgba(120,53,15,0.10) 0%, transparent 50%),
+              radial-gradient(ellipse at 100% 100%, rgba(120,53,15,0.08) 0%, transparent 50%)
+            `,
+            boxShadow: 'inset 0 0 60px rgba(28,25,23,0.08)',
           }} />
+
+          {/* Age spots / foxing (subtle paper discoloration) */}
+          {[0, 1, 2, 3].map((i) => (
+            <div key={`fox-${i}`} style={{
+              position: 'absolute',
+              width: [4, 3, 6, 2][i],
+              height: [4, 3, 6, 2][i],
+              borderRadius: '50%',
+              backgroundColor: 'rgba(120,53,15,0.04)',
+              left: [12, 75, 88, 45][i] + '%',
+              top: [18, 62, 40, 78][i] + '%',
+              pointerEvents: 'none',
+              zIndex: 3,
+            }} />
+          ))}
         </div>
       </div>
     );

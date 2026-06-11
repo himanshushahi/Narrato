@@ -2,7 +2,7 @@ import { CustomInput } from '../../components/ui/CustomInput';
 import { CustomSelect } from '../../components/ui/CustomSelect';
 import { MapLocationsEditor } from './MapLocationsEditor';
 import { ChartDataEditor } from './ChartDataEditor';
-import { DocumentHighlightEditor } from './DocumentHighlightEditor';
+import { NewspaperEditor } from './NewspaperEditor';
 import { NetworkDataEditor } from './NetworkDataEditor';
 import { LowerThirdEditor } from './LowerThirdEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
@@ -97,7 +97,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                 <ChartDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}
               {sv.visual_type === 'document' && (
-                <DocumentHighlightEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+                <NewspaperEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}
               {sv.visual_type === 'network' && (
                 <NetworkDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />

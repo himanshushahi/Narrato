@@ -60,6 +60,13 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
     meta.highlight_text = '';
     meta.source = 'Source';
     meta.date = new Date().getFullYear().toString();
+    meta.title = 'THE CLASSIFIED ARCHIVES';
+    meta.subtitle = 'BREAKING NEWS';
+    meta.section = '';
+    meta.pull_quote = '';
+    meta.show_image = false;
+    meta.image_url = '';
+    meta.image_caption = '';
   } else if (type === 'network') {
     meta.nodes = [{ id: '1', label: 'Entity 1', type: 'person' }];
     meta.edges = [];
