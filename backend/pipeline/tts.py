@@ -325,6 +325,17 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         if isinstance(entry, dict):
             entry["_content_hash"] = content_hash
 
+    # Save voiceover settings so the frontend can detect TTS engine/voice changes
+    # that aren't captured by the narration text hash. This ensures changing tts_engine
+    # (e.g. edge→kokoro) or tts_voice triggers voiceover re-generation.
+    # Stored as raw resolved values (not a hash) so the frontend can compare directly.
+    for entry in manifest_entries:
+        if isinstance(entry, dict):
+            entry["_voiceover_engine"] = engine
+            entry["_voiceover_voice"] = voice
+            entry["_voiceover_speed"] = speed
+            entry["_voiceover_pitch"] = pitch
+
     # Preserve visual_path/visual_url from existing manifest for unchanged sub-visuals.
     # This prevents re-downloading all assets when only voiceover is regenerated.
     # Matches sub-visuals by content (visual_type + visual_cue) rather than by

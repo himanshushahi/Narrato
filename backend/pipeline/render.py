@@ -20,10 +20,47 @@ def requests_quote(string):
     import requests
     return requests.utils.quote(string)
 
-def compute_hash(props_dict, render_settings):
-    """Computes a SHA-256 hash of the render properties and settings to detect changes."""
-    data = {"props": props_dict, "settings": render_settings}
-    data_str = json.dumps(data, sort_keys=True)
+def compute_frame_hash(props_dict, render_settings):
+    """Hash of frame-relevant properties only (scenes, transcription, resolution, fps).
+    Audio/encode settings don't affect pixel output, so they're excluded."""
+    frame_props = {
+        "scenes": props_dict["scenes"],
+        "transcription": props_dict["transcription"],
+        "subtitleSettings": props_dict.get("subtitleSettings", {}),
+        "style": props_dict.get("style"),
+        "language": props_dict.get("language"),
+        "videoFormat": props_dict.get("videoFormat"),
+        "fps": props_dict.get("fps"),
+        "resolution": render_settings.get("resolution"),
+    }
+    data_str = json.dumps(frame_props, sort_keys=True)
+    return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
+
+def compute_audio_hash(props_dict, render_settings):
+    """Hash of audio-relevant properties only (bg_music, volumes, narration path).
+    Scene visuals and encode settings don't affect the audio mix."""
+    scene_durations = [sc.get("duration") for sc in props_dict.get("scenes", [])]
+    audio_props = {
+        "audioUrl": props_dict.get("audioUrl"),
+        "bgMusicUrl": props_dict.get("bgMusicUrl"),
+        "bgMusicVolume": props_dict.get("bgMusicVolume"),
+        "voiceoverVolume": props_dict.get("voiceoverVolume"),
+        "scene_durations": scene_durations,
+    }
+    data_str = json.dumps(audio_props, sort_keys=True)
+    return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
+
+def compute_mux_hash(frame_hash, audio_hash, render_settings):
+    """Hash of final-output encoding parameters (CRF, codec, hardware).
+    These don't affect source material (frames/audio), only the compressed output."""
+    mux_props = {
+        "frame_hash": frame_hash,
+        "audio_hash": audio_hash,
+        "crf": render_settings.get("crf"),
+        "codec": render_settings.get("codec"),
+        "hardware": render_settings.get("hardware"),
+    }
+    data_str = json.dumps(mux_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
 def get_missing_frame_ranges(frames_dir, total_frames):
@@ -79,11 +116,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     with open(transcribe_path, "r", encoding="utf-8") as f:
         transcript = json.load(f)
 
-    # Strip internal pipeline metadata (_content_hash) that doesn't affect rendering output.
-    # This prevents metadata changes (e.g. first save after hash system was introduced) from
-    # invalidating the render cache and forcing a full re-render.
+    # Strip internal pipeline metadata (_content_hash, _voiceover_*) that doesn't affect
+    # rendering output. This prevents metadata changes (e.g. first save after hash system
+    # was introduced, or TTS engine/voice changes) from invalidating the render cache.
     for sc in scenes:
         sc.pop("_content_hash", None)
+        sc.pop("_voiceover_engine", None)
+        sc.pop("_voiceover_voice", None)
+        sc.pop("_voiceover_speed", None)
+        sc.pop("_voiceover_pitch", None)
 
     # Convert local absolute paths in scenes/audios into Bottle media serving URLs
     for sc in scenes:
@@ -158,42 +199,79 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "hardware": render_hardware
     }
 
-    cache_hash = compute_hash(props, render_settings)
+    # Compute three domain-specific hashes
+    frame_hash = compute_frame_hash(props, render_settings)
+    audio_hash = compute_audio_hash(props, render_settings)
+    mux_hash = compute_mux_hash(frame_hash, audio_hash, render_settings)
+
     cache_dir = project_dir / "render_cache"
     frames_dir = cache_dir / "frames"
     cached_audio_path = cache_dir / "audio.wav"
-    hash_file = cache_dir / "hash.txt"
 
-    if cache_dir.exists() and hash_file.exists():
-        with open(hash_file, "r") as f:
-            existing_hash = f.read().strip()
-        if existing_hash != cache_hash:
-            logger.info("Project or settings changed. Invalidating render cache.")
-            shutil.rmtree(cache_dir, ignore_errors=True)
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            frames_dir.mkdir(parents=True, exist_ok=True)
-            with open(hash_file, "w") as f:
-                f.write(cache_hash)
+    old_hash_file = cache_dir / "hash.txt"
+    frame_hash_file = cache_dir / "frame.hash.txt"
+    audio_hash_file = cache_dir / "audio.hash.txt"
+    mux_hash_file = cache_dir / "mux.hash.txt"
+
+    # ── Migration from old single-hash system ──────────────────────────────
+    if old_hash_file.exists() and not frame_hash_file.exists():
+        old_hash = old_hash_file.read_text().strip()
+        combined_hash = hashlib.sha256(
+            json.dumps({"props": props, "settings": render_settings}, sort_keys=True).encode('utf-8')
+        ).hexdigest()
+        if old_hash == combined_hash:
+            logger.info("Migrating old single-hash cache to multi-hash system.")
+            frame_hash_file.write_text(frame_hash)
+            audio_hash_file.write_text(audio_hash)
+            mux_hash_file.write_text(mux_hash)
         else:
-            logger.info("Render cache hash matches. Will resume if possible.")
-            if not frames_dir.exists():
+            logger.info("Old cache hash mismatch during migration. Invalidating all caches.")
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        old_hash_file.unlink(missing_ok=True)
+
+    # ── Ensure cache root exists ───────────────────────────────────────────
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Frame cache check ─────────────────────────────────────────────────
+    frame_cache_valid = False
+    if frame_hash_file.exists():
+        existing = frame_hash_file.read_text().strip()
+        if existing == frame_hash:
+            if frames_dir.exists():
+                frame_cache_valid = True
+                logger.info("Frame hash matches. Will resume if frames exist.")
+            else:
+                logger.info("Frame hash matches but frames/ missing. Re-creating.")
                 frames_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            logger.info("Frame hash changed. Invalidating frame cache.")
+            if frames_dir.exists():
+                shutil.rmtree(frames_dir, ignore_errors=True)
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            frame_hash_file.write_text(frame_hash)
     else:
-        logger.info("No valid render cache found. Creating new cache.")
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("No frame cache found. Creating new frame cache.")
         frames_dir.mkdir(parents=True, exist_ok=True)
-        with open(hash_file, "w") as f:
-            f.write(cache_hash)
+        frame_hash_file.write_text(frame_hash)
+
+    # ── Audio cache check ─────────────────────────────────────────────────
+    audio_cache_valid = False
+    if audio_hash_file.exists() and cached_audio_path.exists():
+        if audio_hash_file.read_text().strip() == audio_hash:
+            audio_cache_valid = True
+            logger.info("Audio hash matches. Will reuse cached audio.")
+
+    if not audio_cache_valid:
+        logger.info("Audio cache invalid or missing. Will re-render audio.")
+        if cached_audio_path.exists():
+            cached_audio_path.unlink()
+
+    # ── Mux hash tracking ──────────────────────────────────────────────────
+    mux_hash_file.write_text(mux_hash)
 
     total_duration = sum(float(sc.get("duration") or 0.0) for sc in scenes)
     import math
     total_frames = max(fps * 5, math.ceil(total_duration * fps))
-
-    missing_ranges_str = get_missing_frame_ranges(frames_dir, total_frames)
-    if missing_ranges_str:
-        logger.info(f"Missing frame ranges to render: {missing_ranges_str}")
-    else:
-        logger.info("All frames are already rendered.")
     # Define output paths
     if project_dict.get('export_folder'):
         exports_dir = Path(project_dict['export_folder'])
@@ -440,8 +518,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     # Reset the frame progress offset — the Audio phase has no cached sub-range to offset.
     first_missing_frame_pct = 0.0
 
-    # Phase 2: Render Audio
-    if not cached_audio_path.exists():
+    # Phase 2: Render Audio (only if cache invalid)
+    if not audio_cache_valid:
         progress_cb(80.0, "Extracting audio track...")
         cmd_audio = list(base_node_cmd)
         cmd_audio.extend([
@@ -450,8 +528,10 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         ])
         logger.info(f"Executing audio render: {' '.join(cmd_audio)}")
         run_node_process(cmd_audio, progress_weight=10.0, base_progress=80.0, label="Audio")
+        # Write audio hash AFTER successful render (atomic — avoids accepting partial render)
+        audio_hash_file.write_text(audio_hash)
     else:
-        logger.info("Audio already extracted. Skipping audio render phase.")
+        logger.info("Audio cache valid. Skipping audio render phase.")
 
     # Phase 3: FFmpeg Muxing
     progress_cb(90.0, "Muxing final video...")

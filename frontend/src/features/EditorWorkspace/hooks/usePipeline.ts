@@ -54,6 +54,10 @@ export function usePipeline(
   const [wasActive, setWasActive] = useState(false);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const storedContentHashRef = useRef<string>('');
+  const storedVoiceoverEngineRef = useRef<string>('');
+  const storedVoiceoverVoiceRef = useRef<string>('');
+  const storedVoiceoverSpeedRef = useRef<string>('');
+  const storedVoiceoverPitchRef = useRef<string>('');
   const previousTasksRef = useRef(tasks);
   const hasMountedRef = useRef(false);
 
@@ -78,6 +82,16 @@ export function usePipeline(
   useEffect(() => {
     if (manifestData?.[0]?._content_hash) {
       storedContentHashRef.current = manifestData[0]._content_hash;
+    }
+  }, [manifestData]);
+
+  // Extract stored voiceover settings from manifest
+  useEffect(() => {
+    if (manifestData?.[0]?._voiceover_engine !== undefined) {
+      storedVoiceoverEngineRef.current = manifestData[0]._voiceover_engine;
+      storedVoiceoverVoiceRef.current = manifestData[0]._voiceover_voice ?? '';
+      storedVoiceoverSpeedRef.current = String(manifestData[0]._voiceover_speed ?? '');
+      storedVoiceoverPitchRef.current = String(manifestData[0]._voiceover_pitch ?? '');
     }
   }, [manifestData]);
 
@@ -141,6 +155,41 @@ export function usePipeline(
     return changed;
   }, [manifestData, scriptData]);
 
+  /** Detect changes to voiceover settings (tts_engine, tts_voice, etc.) that aren't
+   * captured by the narration text hash. Only fires when the manifest has stored
+   * settings to compare against (otherwise it's a pre-existing voiceover). */
+  const voiceoverSettingsChanged = useCallback(() => {
+    const stored = storedVoiceoverEngineRef.current;
+    if (!stored || !manifestData?.[0]?._voiceover_engine) return false;
+
+    const selectedProject = useProjectStore.getState().selectedProject;
+    if (!selectedProject) return false;
+
+    let projectSettings: Record<string, any> = {};
+    try {
+      if (selectedProject.project_settings) {
+        projectSettings = JSON.parse(selectedProject.project_settings);
+      }
+    } catch { /* ignore parse errors */ }
+
+    const currentEngine = selectedProject.tts_engine || projectSettings.tts_engine || 'edge';
+    const currentSpeed = String(projectSettings.tts_speed ?? '1.0');
+    const currentPitch = String(projectSettings.tts_pitch ?? '0');
+    let currentVoice = '';
+    if (currentEngine === 'kokoro') {
+      currentVoice = projectSettings.kokoro_voice || '';
+    } else {
+      currentVoice = selectedProject.tts_voice || projectSettings.tts_voice || '';
+    }
+
+    return (
+      currentEngine !== storedVoiceoverEngineRef.current ||
+      currentVoice !== storedVoiceoverVoiceRef.current ||
+      currentSpeed !== storedVoiceoverSpeedRef.current ||
+      currentPitch !== storedVoiceoverPitchRef.current
+    );
+  }, [manifestData]);
+
   const canResumeFrom = useCallback((stageId: string) => {
     const stageIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
     if (stageIdx === -1) return false;
@@ -193,6 +242,8 @@ export function usePipeline(
 
         if (sceneCountChanged || hashChanged) {
           stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+        } else if (voiceoverSettingsChanged()) {
+          stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
         } else if (hasVisualEdits()) {
           stepsToRun = limitSteps(['fetch_assets', 'render']);
         } else {
@@ -220,7 +271,7 @@ export function usePipeline(
       console.error(err);
       addToast("Failed to start pipeline", 'error');
     }
-  }, [projectId, targetStage, scriptChangedAlert, manifestData, scriptData, tasks, hasVisualEdits, startPipeline, addToast, loadFiles]);
+  }, [projectId, targetStage, scriptChangedAlert, manifestData, scriptData, tasks, hasVisualEdits, voiceoverSettingsChanged, startPipeline, addToast, loadFiles]);
 
   const cancelPipelineAction = useCallback(() => {
     if (projectId) cancelPipeline(projectId);
