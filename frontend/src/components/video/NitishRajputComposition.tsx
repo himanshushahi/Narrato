@@ -111,9 +111,10 @@ export const NitishRajputComposition = ({
 
     if (type === 'parallax') {
       return (
-        <ParallaxImage 
+        <ParallaxImage
           backgroundUrl={url}
           foregroundUrl={meta.foreground_url}
+          meta={meta.parallax || meta}
           cue={subVis.visual_cue}
           durationInFrames={durationFrames}
         />
