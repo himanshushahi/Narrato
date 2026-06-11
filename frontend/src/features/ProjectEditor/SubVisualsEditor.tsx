@@ -5,6 +5,7 @@ import { ChartDataEditor } from './ChartDataEditor';
 import { NewspaperEditor } from './NewspaperEditor';
 import { NetworkDataEditor } from './NetworkDataEditor';
 import { ParallaxEditor } from './ParallaxEditor';
+import { NumberingEditor } from './NumberingEditor';
 import { TransformEditor } from './TransformEditor';
 import { LowerThirdEditor } from './LowerThirdEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
@@ -112,6 +113,9 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               )}
               {sv.visual_type === 'parallax' && (
                 <ParallaxEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              )}
+              {sv.visual_type === 'list' && (
+                <NumberingEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}
               <LowerThirdEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
 

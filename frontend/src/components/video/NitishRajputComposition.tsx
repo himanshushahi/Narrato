@@ -5,13 +5,14 @@ import { KineticSubtitles } from './KineticSubtitles';
 import { PanScanImage } from './PanScanImage';
 import { ParallaxImage } from './ParallaxImage';
 import { DataVisualizations } from './DataVisualizations';
+import { NumberingList } from './NumberingList';
 import { LowerThird } from './LowerThird';
 import { TransitionWrapper } from './TransitionWrapper';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
 
 export interface SubVisual {
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network';
+  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list';
   visual_cue: string;
   transition_type?: string;
   visual_url?: string;
@@ -133,6 +134,28 @@ export const NitishRajputComposition = ({
           durationInFrames={durationFrames}
           transform={transform}
         />
+      );
+    }
+
+    if (type === 'list') {
+      return (
+        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+          <ZoomWrapper transform={transform}>
+            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+              <div style={{
+                position: 'absolute', inset: 0,
+                backgroundColor: '#1c1917',
+                backgroundImage: 'radial-gradient(circle, #292524 0%, #0c0a09 100%)'
+              }} />
+              <NumberingList meta={meta} durationInFrames={durationFrames} subtitleSettings={subtitleSettings} cue={subVis.visual_cue} />
+            </div>
+          </ZoomWrapper>
+          <div style={{
+            position: 'absolute', inset: 0,
+            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
+            pointerEvents: 'none', zIndex: 10
+          }} />
+        </div>
       );
     }
 

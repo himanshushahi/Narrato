@@ -8,6 +8,7 @@ export const VISUAL_TYPE_OPTIONS = [
   { value: 'network', label: 'Network Diagram (String Board)' },
   { value: 'document', label: 'Archival Document' },
   { value: 'youtube', label: 'YouTube Video' },
+  { value: 'list', label: 'Numbered List' },
 ];
 
 export const TRANSITION_TYPE_OPTIONS = [
@@ -78,6 +79,11 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
     meta.person_name = 'Historical Figure';
   } else if (type === 'parallax') {
     meta.foreground_url = existingMeta?.foreground_url || '';
+  } else if (type === 'list') {
+    meta.number = 1;
+    meta.title = 'Item Title';
+    meta.description = 'Item description';
+    meta.icon = '';
   }
 
   return meta;

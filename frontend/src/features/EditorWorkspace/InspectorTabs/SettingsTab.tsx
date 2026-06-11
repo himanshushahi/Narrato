@@ -51,6 +51,29 @@ const HARDWARE_OPTIONS = [
   { value: 'cuda', label: 'GPU (CUDA NVENC)' },
 ];
 
+const NUMBER_STYLE_OPTIONS = [
+  { value: 'plain', label: 'Plain' },
+  { value: 'circle', label: 'Circle' },
+  { value: 'square', label: 'Square' },
+  { value: 'badge', label: 'Badge' },
+];
+
+const NUMBERING_FONT_OPTIONS = [
+  { value: 'Montserrat, sans-serif', label: 'Montserrat (Latin)' },
+  { value: 'Inter, sans-serif', label: 'Inter (Latin)' },
+  { value: 'Roboto, sans-serif', label: 'Roboto (Latin)' },
+  { value: 'Poppins, sans-serif', label: 'Poppins (Supports Hindi)' },
+  { value: 'Hind, sans-serif', label: 'Hind (Supports Hindi)' },
+  { value: 'Mukta, sans-serif', label: 'Mukta (Supports Hindi)' },
+  { value: 'Kalam, sans-serif', label: 'Kalam (Supports Hindi)' },
+  { value: 'Noto Sans Devanagari, sans-serif', label: 'Noto Sans Devanagari' },
+  { value: 'Lato, sans-serif', label: 'Lato (Latin)' },
+  { value: 'Oswald, sans-serif', label: 'Oswald (Latin)' },
+  { value: 'Raleway, sans-serif', label: 'Raleway (Latin)' },
+  { value: 'Anton, sans-serif', label: 'Anton (Latin)' },
+  { value: 'Bebas Neue, sans-serif', label: 'Bebas Neue (Latin)' },
+];
+
 // --- Reusable override row ---
 
 interface OverrideRowProps {
@@ -97,6 +120,20 @@ const OverrideRow: React.FC<OverrideRowProps> = ({
     </div>
   );
 };
+
+// --- Inline colour picker ---
+
+const ColorInput: React.FC<{ label: string; value: string; onChange: (val: string) => void }> = ({ label, value, onChange }) => (
+  <div className="flex items-center gap-2">
+    <input
+      type="color"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0"
+    />
+    <span className="text-[10px] text-stone-500 truncate">{label}</span>
+  </div>
+);
 
 // --- Helper: get nested key with dot notation or flat ---
 
@@ -211,6 +248,68 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             onChange={(v) => updateKey('render_hardware', v)}
           />
         </OverrideRow>
+      </div>
+
+      {/* ════ Numbering Style ════ */}
+      <div className="bg-zinc-900/60 rounded-xl p-4 border border-zinc-800/60 space-y-3">
+        <div className="flex items-center gap-2 pb-1 border-b border-zinc-800/40">
+          <span className="text-xs text-zinc-500">🔢</span>
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
+            Numbering Style
+          </h3>
+          <span className="text-[8px] text-zinc-600 ml-auto">Applies to all list visuals</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <CustomSelect
+            label="Number Badge Style"
+            options={NUMBER_STYLE_OPTIONS}
+            value={localProjectSettings.numbering_number_style || 'plain'}
+            onChange={(v) => updateKey('numbering_number_style', v)}
+          />
+          <CustomSelect
+            label="Font Family"
+            options={NUMBERING_FONT_OPTIONS}
+            value={localProjectSettings.numbering_font_family || 'Montserrat, sans-serif'}
+            onChange={(v) => updateKey('numbering_font_family', v)}
+          />
+        </div>
+
+        <div className="pt-2">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block mb-2">Colours</label>
+          <div className="grid grid-cols-3 gap-3">
+            <ColorInput
+              label="Title"
+              value={localProjectSettings.numbering_title_color || '#fef3c7'}
+              onChange={(v) => updateKey('numbering_title_color', v)}
+            />
+            <ColorInput
+              label="Description"
+              value={localProjectSettings.numbering_description_color || '#d6d3d1'}
+              onChange={(v) => updateKey('numbering_description_color', v)}
+            />
+            <ColorInput
+              label="Number"
+              value={localProjectSettings.numbering_number_color || '#fbbf24'}
+              onChange={(v) => updateKey('numbering_number_color', v)}
+            />
+            <ColorInput
+              label="Num Background"
+              value={localProjectSettings.numbering_number_bg_color || 'rgba(251,191,36,0.15)'}
+              onChange={(v) => updateKey('numbering_number_bg_color', v)}
+            />
+            <ColorInput
+              label="Num Border"
+              value={localProjectSettings.numbering_number_border_color || '#b45309'}
+              onChange={(v) => updateKey('numbering_number_border_color', v)}
+            />
+            <ColorInput
+              label="Accent / Glow"
+              value={localProjectSettings.numbering_accent_color || '#f59e0b'}
+              onChange={(v) => updateKey('numbering_accent_color', v)}
+            />
+          </div>
+        </div>
       </div>
 
       {/* ════ Subtitle Styling + Branding (existing) ════ */}
