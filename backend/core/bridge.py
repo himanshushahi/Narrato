@@ -39,11 +39,20 @@ def browse_export_directory():
 
 @eel.expose
 def browse_bg_music_file():
-    """Opens file explorer to select background soundtrack."""
+    """Opens file explorer to select background soundtrack.
+
+    Immediately copies the selected file to {BASE_DIR}/assets/bg_music.{ext}
+    so the file is stable and won't break if the original is moved or deleted.
+    Returns the stable path, or empty string if cancelled or on error.
+    """
     logger.info("Bridge API: browse_bg_music_file called")
     try:
         import tkinter as tk
         from tkinter import filedialog
+        import shutil
+        from pathlib import Path
+        from backend.core.config import get_assets_dir
+
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
@@ -52,10 +61,66 @@ def browse_bg_music_file():
             filetypes=[("Audio Files", "*.mp3 *.wav *.ogg *.flac *.m4a"), ("All Files", "*.*")]
         )
         root.destroy()
-        return file_path
+
+        if not file_path:
+            return ""
+
+        src = Path(file_path).resolve()
+        ext = src.suffix.lower() or ".mp3"
+        assets_dir = get_assets_dir()
+        dest = (assets_dir / f"bg_music{ext}").resolve()
+
+        # No-op if the file is already in the assets directory
+        if src == dest:
+            logger.info(f"Background music already in assets dir: {dest}")
+            return str(dest)
+
+        logger.info(f"Copying background music: {src} -> {dest}")
+
+        # Clean up stale bg_music files with a different extension
+        # (e.g. old .wav when new selection is .mp3).
+        for old in assets_dir.glob("bg_music.*"):
+            if old.resolve() != dest:
+                try:
+                    old.unlink()
+                    logger.info(f"Removed stale background music: {old}")
+                except Exception as e:
+                    logger.warning(f"Could not remove stale bg_music {old}: {e}")
+
+        shutil.copy(str(src), str(dest))
+        logger.info(f"Background music copied successfully to {dest}")
+        return str(dest)
+
     except Exception as e:
-        logger.error(f"File explorer error: {e}")
+        logger.error(f"browse_bg_music_file error: {e}")
         return ""
+
+@eel.expose
+def clear_bg_music():
+    """Deletes the stored background music file from assets dir and clears the setting."""
+    logger.info("Bridge API: clear_bg_music called")
+    try:
+        from backend.core.config import get_assets_dir
+        from backend.database.db import update_settings
+
+        assets_dir = get_assets_dir()
+        deleted = False
+        for old in assets_dir.glob("bg_music.*"):
+            try:
+                old.unlink()
+                logger.info(f"Deleted background music file: {old}")
+                deleted = True
+            except Exception as e:
+                logger.warning(f"Could not delete bg_music file {old}: {e}")
+
+        # Also try to clean old path from settings regardless of file deletion
+        update_settings({"bg_music_path": ""})
+        logger.info("Cleared bg_music_path setting.")
+
+        return {"success": True, "deleted_file": deleted}
+    except Exception as e:
+        logger.error(f"clear_bg_music error: {e}")
+        return {"success": False, "error": str(e)}
 
 @eel.expose
 def upload_project_bg_music(project_id):

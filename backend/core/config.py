@@ -55,7 +55,7 @@ def get_temp_dir() -> Path:
     return d
 
 def get_fonts_dir() -> Path:
-    d = BASE_DIR / "fonts"
+    d = BASE_DIR / "assets" / "fonts"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -72,6 +72,16 @@ def get_logs_dir() -> Path:
 
 def get_exports_dir() -> Path:
     d = get_workspace_dir() / "exports"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def get_assets_dir() -> Path:
+    """Returns the stable directory for globally-managed assets (e.g. bg_music).
+
+    Dev: {project_root}/assets/
+    Prod: %LOCALAPPDATA%/Narrato/assets/
+    """
+    d = BASE_DIR / "assets"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

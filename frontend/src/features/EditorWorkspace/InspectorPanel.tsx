@@ -51,6 +51,7 @@ interface InspectorPanelProps {
   onSetTargetStage: (stage: string) => void;
   onTriggerFullPipeline: () => void;
   onResumePipeline: () => void;
+  onResumeFromStage: (stageId: string) => void;
   onCancelPipeline: () => void;
 
   // Subtitle props
@@ -78,7 +79,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
-  onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onCancelPipeline,
+  onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription,
   onSeek,
 }) => {
@@ -148,6 +149,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             onSetTargetStage={onSetTargetStage}
             onTriggerFullPipeline={onTriggerFullPipeline}
             onResumePipeline={onResumePipeline}
+            onResumeFromStage={onResumeFromStage}
             onCancelPipeline={onCancelPipeline}
           />
         );

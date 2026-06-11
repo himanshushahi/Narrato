@@ -171,6 +171,9 @@ export const SettingsPage: React.FC = () => {
     const path = await callEel<string>('browse_bg_music_file');
     if (path) {
       setFormData(prev => ({ ...prev, bg_music_path: path }));
+      // Immediately persist so the DB matches the file in assets/ — prevents
+      // orphaned files if the user refreshes before clicking "Save Preferences".
+      await saveSettings({ ...formData, bg_music_path: path });
     }
   };
 
@@ -740,7 +743,16 @@ export const SettingsPage: React.FC = () => {
                         Browse
                       </GlowButton>
                       {formData.bg_music_path && (
-                        <GlowButton variant="ghost" size="sm" type="button" onClick={() => setFormData(prev => ({ ...prev, bg_music_path: '' }))}>
+                        <GlowButton variant="ghost" size="sm" type="button" onClick={async () => {
+                          const res = await callEel<{ success: boolean }>('clear_bg_music');
+                          if (res?.success) {
+                            const cleared = { ...formData, bg_music_path: '' };
+                            setFormData(cleared);
+                            await saveSettings(cleared);
+                            setSaveStatus('success');
+                            setTimeout(() => setSaveStatus(''), 2000);
+                          }
+                        }}>
                           Clear
                         </GlowButton>
                       )}

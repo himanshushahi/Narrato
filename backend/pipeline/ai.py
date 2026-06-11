@@ -491,49 +491,25 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
 """
 
     visual_rules = """
-Sub-Visuals System (`sub_visuals` array):
-Every scene, introduction, and conclusion MUST include a `sub_visuals` array. This creates fast-paced visual cuts instead of one static visual.
+SUB-VISUALS: Every scene, intro & conclusion needs a `sub_visuals` array.
 
-CRITICAL INSTRUCTIONS ON QUANTITY:
-- If using MEDIA types (scene, image, portrait, youtube, parallax), your array MUST contain EXACTLY 2 to 4 sub_visuals IN TOTAL. Do NOT generate more than 4 sub_visuals for a single scene.
-- If using PROGRAMMATIC types (chart, map, document, network), your array MUST contain EXACTLY 1 sub_visual, since these take time to animate.
-- Do NOT try to use every available visual type. ONLY pick the 2 to 4 most relevant types for the current narration.
+QUANTITY: 2-4 items for MEDIA types (scene/image/parallax/portrait/youtube). Exactly 1 for PROGRAMMATIC types (chart/map/document/network).
 
-Format Example (Media):
-"sub_visuals": [
-  { "visual_type": "scene", "visual_cue": "protesters matching", "transition": "fade", "visual_meta": {} },
-  { "visual_type": "portrait", "visual_cue": "angry protester face", "transition": "zoom_in", "visual_meta": {} }
-]
+EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "transition": "fade"|"slide_left"|"slide_right"|"slide_up"|"slide_down"|"zoom_in"|"zoom_out"|"glitch"|"none", "visual_meta": dict as below}
 
-Transitions (`transition` field):
-Every sub_visual MUST include a `transition` property to define how it enters the screen.
-- Available options: "fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "none" (hard cut).
-- Use "none" for fast-paced sequences, "fade" for emotional/slow scenes, and "glitch" for hacking/tech/intense moments.
+- scene/image/parallax: visual_meta {} (portrait may add {"person_name": str})
+- youtube: visual_meta {"start_offset": 15, "duration": 15, "skip_intro": true}
+- chart: visual_meta {"chart_type": "bar"|"line", "data": [{"label": str, "value": number}]}
+- map: visual_meta {"map_style": "vintage", "locations": [{"name": str, "coord": [lat, lon]}]} (2 locations)
+- document: visual_meta {"headline": str, "doc_text": str, "highlight_text": str, "source": str, "date": str}
+- network: visual_meta {"nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
+- Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
+"""
 
-Visual Type Rules (`visual_type`, `visual_cue` & `visual_meta`):
-For each sub_visual you create, you must choose ONE `visual_type` from the available options. The `visual_cue` and `visual_meta` MUST follow strict rules based on the chosen type:
-- 'scene' (B-roll), 'image' (Stock Image), 'parallax' (2.5D Photo), 'portrait':
-  -> `visual_cue`: MUST be a simple, concrete search keyword for Pexels/Stock media (e.g., "worried businessman", "ancient Indian port").
-  -> `visual_meta`: {} (Empty object. For 'portrait', you may optionally provide { "person_name": "Name" }).
-- 'youtube' (YouTube Video):
-  -> `visual_cue`: MUST be a full sentence describing the exact YouTube search query.
-  -> `visual_meta`: MUST contain { "start_offset": 15, "duration": 15, "skip_intro": true }.
-- 'chart' (Animated Chart):
-  -> `visual_cue`: Description of the chart.
-  -> `visual_meta`: MUST contain { "chart_type": "bar"|"line", "data": [{ "label": "X", "value": Y }] }.
-- 'map' (Vintage Map):
-  -> `visual_cue`: Description of the journey.
-  -> `visual_meta`: MUST contain { "map_style": "vintage", "locations": [{ "name": "City", "coord": [lat, lon] }] }. Provide exactly two locations to animate a travel line.
-- 'document' (Archival Document):
-  -> `visual_cue`: MUST be a search query for fetching historical news.
-  -> `visual_meta`: MUST contain { "headline": "exact news headline", "doc_text": "newspaper excerpt", "highlight_text": "short phrase to highlight", "source": "Publisher", "date": "Month DD, YYYY" }.
-- 'network' (Network Diagram):
-  -> `visual_cue`: Description of the relationship.
-  -> `visual_meta`: MUST contain { "nodes": [{ "id": "1", "label": "Name", "type": "person"|"entity" }], "edges": [{ "source": "1", "target": "2" }] }.
-
-Universal Lower Thirds (Global Overlay):
-- 'lower_third' is a GLOBAL property that can be used SIMULTANEOUSLY with ANY of the 8 `visual_type` options.
-- Format: Inject it into the `visual_meta` object: { "lower_third": { "title": "India", "subtitle": "1992" } }
+    narration_emphasis = """
+CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
+- The `narration` field is the spoken voiceover. It MUST be a non-empty string. EACH scene MUST have narration.
+- Do NOT skip narration. Do NOT leave it blank or null. This field is more important than sub_visuals.
 """
     
     # 1. Generate Outline
@@ -558,7 +534,8 @@ Generate a {min_scenes} to {max_scenes} chapter outline."""
 Write the introduction (hook) and the conclusion (summary and call to action) for this documentary based on the provided outline.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 {lang_instruction}
-{visual_rules}"""
+{visual_rules}
+{narration_emphasis}"""
 
     outline_json_str = json.dumps(outline_data, ensure_ascii=False)
     base_user_prompt = f"""Topic: "{topic}"
@@ -590,7 +567,8 @@ You are writing ONE specific scene (Scene {scene_num}: {chapter_title}) for a do
 {sentence_rule}
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 {lang_instruction}
-{visual_rules}"""
+{visual_rules}
+{narration_emphasis}"""
 
         scene_user_prompt = f"""Topic: "{topic}"
 This Scene: Scene {scene_num}: {chapter_title}
@@ -643,6 +621,69 @@ Write the narration and visual details for this scene."""
         "scenes": scenes_array,
         "conclusion": base_data.get("conclusion")
     }
+
+    # Repair LLM output: ensure text fields are strings (not nested objects/dicts)
+    def _safe_str(val):
+        """Convert a value to string if it isn't one already, handling nested dicts."""
+        if isinstance(val, str):
+            return val
+        if isinstance(val, dict):
+            # LLM sometimes returns {"text": "..."} or similar nested structure
+            for key in ("text", "content", "value", "hook", "summary", "cta"):
+                if key in val:
+                    inner = _safe_str(val[key])
+                    if inner:
+                        return inner
+            # Fallback: join all string values
+            parts = [str(v) for v in val.values() if isinstance(v, (str, int, float))]
+            return " ".join(parts) if parts else ""
+        if isinstance(val, list):
+            return " ".join(str(v) for v in val)
+        return str(val) if val is not None else ""
+
+    intro = final_script.get("introduction") or {}
+    if isinstance(intro, dict):
+        intro["hook"] = _safe_str(intro.get("hook", ""))
+        intro["transition"] = _safe_str(intro.get("transition", ""))
+
+    conclusion = final_script.get("conclusion") or {}
+    if isinstance(conclusion, dict):
+        conclusion["summary"] = _safe_str(conclusion.get("summary", ""))
+        conclusion["cta"] = _safe_str(conclusion.get("cta", ""))
+
+    for scene in final_script.get("scenes", []):
+        if isinstance(scene, dict):
+            scene["narration"] = _safe_str(scene.get("narration", ""))
+            scene["title"] = _safe_str(scene.get("title", ""))
+
+    # Fallback: fill empty narration from chapter context (LLM sometimes skips it)
+    for i, scene in enumerate(final_script.get("scenes", [])):
+        if isinstance(scene, dict) and not scene.get("narration", "").strip():
+            if i < len(chapters):
+                fallback = f"{chapters[i].get('chapter_title', '')}: {chapters[i].get('historical_context', '')}"
+                scene["narration"] = fallback.strip()
+                logger.warning(f"Scene {i+1} had empty narration; filled from chapter context.")
+    if isinstance(intro, dict) and not intro.get("hook", "").strip():
+        intro["hook"] = topic  # fallback
+    if isinstance(conclusion, dict) and not conclusion.get("summary", "").strip():
+        conclusion["summary"] = f"In conclusion, {topic} remains a significant chapter in history."
+
+    # Validate script content — catch empty/bad output before saving
+    errors = []
+    if not intro.get("hook", "").strip():
+        errors.append("introduction has empty narration")
+    if not conclusion.get("summary", "").strip():
+        errors.append("conclusion has empty summary")
+    if not final_script.get("scenes"):
+        errors.append("no scenes were generated")
+    else:
+        for i, scene in enumerate(final_script["scenes"]):
+            if not scene.get("narration", "").strip():
+                errors.append(f"scene {i+1} has empty narration")
+    if errors:
+        error_msg = "Script validation failed: " + "; ".join(errors)
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     script_path = project_dir / "script.json"
     with open(script_path, "w", encoding="utf-8") as f:

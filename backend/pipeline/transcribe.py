@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 from pathlib import Path
 from backend.core.config import get_models_dir
 from backend.core.logger import logger
@@ -225,15 +226,69 @@ def export_vtt(segments, file_path):
             text = seg["text"].strip()
             f.write(f"{idx}\n{start} --> {end}\n{text}\n\n")
 
+def _resolve_whisper_settings(project_dict):
+    """Resolve whisper settings from project_settings (per-project) or global settings.
+
+    Returns (model_size, device) tuple.
+    """
+    project_settings = {}
+    raw = project_dict.get("project_settings")
+    if raw:
+        if isinstance(raw, str):
+            try:
+                project_settings = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        elif isinstance(raw, dict):
+            project_settings = raw
+
+    model_size = project_settings.get("whisper_model") or get_setting("whisper_model") or "base"
+    device = project_settings.get("whisper_device") or get_setting("whisper_device") or "cpu"
+    language = project_dict.get("language", "hi")
+
+    return model_size, device, language
+
+
+def _compute_transcribe_hash(model_size, device, language):
+    """Compute a hash of the transcription settings for cache invalidation."""
+    raw = f"{model_size}|{device}|{language}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _read_stored_transcribe_hash(project_dir):
+    """Read the stored transcribe hash from the project directory."""
+    hash_file = Path(project_dir) / "transcribe.hash.txt"
+    if hash_file.exists():
+        return hash_file.read_text().strip()
+    return None
+
+
+def _write_transcribe_hash(project_dir, hash_value):
+    """Write the transcribe hash to the project directory."""
+    hash_file = Path(project_dir) / "transcribe.hash.txt"
+    hash_file.parent.mkdir(parents=True, exist_ok=True)
+    hash_file.write_text(hash_value)
+
+
+def is_transcribe_stale(project_dict, project_dir):
+    """Check if whisper settings have changed since the last transcription.
+
+    Returns True if transcription should be re-run.
+    """
+    model_size, device, language = _resolve_whisper_settings(project_dict)
+    current_hash = _compute_transcribe_hash(model_size, device, language)
+    stored_hash = _read_stored_transcribe_hash(project_dir)
+    return stored_hash != current_hash
+
+
 def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Whisper alignment transcription step of pipeline."""
     audio_path = project_dict['audio_path']
     if not audio_path or not os.path.exists(audio_path):
         raise FileNotFoundError(f"Voiceover audio file not found: {audio_path}")
 
-    model_size = get_setting("whisper_model") or "base"
-    device = get_setting("whisper_device") or "cpu"
-    language = project_dict.get("language", "hi")
+    # Resolve settings — project-level overrides beat global settings
+    model_size, device, language = _resolve_whisper_settings(project_dict)
 
     # 1. Download model files if not exist
     if not check_whisper_assets(model_size):
@@ -307,5 +362,10 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     export_vtt(segments, str(sub_dir / "subtitles.vtt"))
 
     update_project(project_dict['id'], transcription_path=str(json_path))
+
+    # Store content hash for cache invalidation on resume
+    transcribe_hash = _compute_transcribe_hash(model_size, device, language)
+    _write_transcribe_hash(project_dir, transcribe_hash)
+
     progress_cb(100.0, "Transcription completed!")
     logger.info(f"Transcription completed. Output JSON: {json_path}")

@@ -52,6 +52,29 @@ class QueueManager:
             completed_steps = {t['step'] for t in tasks if t['status'] == 'completed'}
             all_steps = ['generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets', 'render']
             remaining_steps = [s for s in all_steps if s not in completed_steps]
+
+            # Check if whisper settings changed — if so, re-run transcribe even if it was completed
+            if 'transcribe' not in remaining_steps:
+                proj = get_project(project_id)
+                if proj:
+                    from backend.core.config import get_storage_dir
+                    proj_dir = get_storage_dir() / project_id
+                    from backend.pipeline.transcribe import is_transcribe_stale
+                    if is_transcribe_stale(proj, proj_dir):
+                        logger.info("Whisper settings changed — marking transcribe for re-run.")
+                        # Insert transcribe before the first remaining step that comes
+                        # after it in pipeline order (e.g. fetch_assets, render)
+                        transcribe_idx = all_steps.index('transcribe')
+                        insert_at = next(
+                            (i for i, rs in enumerate(remaining_steps)
+                             if all_steps.index(rs) > transcribe_idx),
+                            len(remaining_steps)
+                        )
+                        remaining_steps.insert(insert_at, 'transcribe')
+
+                        # Reset the transcribe task so it runs fresh
+                        create_task(project_id, 'transcribe')
+
             # Ensure we have at least render
             if not remaining_steps:
                 remaining_steps = ['render']

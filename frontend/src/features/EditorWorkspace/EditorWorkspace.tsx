@@ -73,7 +73,7 @@ export const EditorWorkspace: React.FC = () => {
   const {
     tasks, queue, isRunning, targetStage, activeTaskStep, scriptChangedAlert,
     setTargetStage, triggerFullPipeline,
-    handleResumePipeline, cancelPipeline
+    handleResumePipeline, handleResumeFromStage, cancelPipeline
   } = usePipeline(id, scriptData, manifestData, loadFiles);
 
   const {
@@ -289,6 +289,7 @@ export const EditorWorkspace: React.FC = () => {
           onSetTargetStage={setTargetStage}
           onTriggerFullPipeline={triggerFullPipeline}
           onResumePipeline={handleResumePipeline}
+          onResumeFromStage={handleResumeFromStage}
           onCancelPipeline={cancelPipeline}
 
           isSavingSubtitles={isSavingSubtitles}

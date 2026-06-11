@@ -18,13 +18,14 @@ interface ExportTabProps {
   onSetTargetStage: (stage: string) => void;
   onTriggerFullPipeline: () => void;
   onResumePipeline: () => void;
+  onResumeFromStage: (stageId: string) => void;
   onCancelPipeline: () => void;
 }
 
 export const ExportTab: React.FC<ExportTabProps> = ({
   tasks, isRunning, targetStage, activeTaskStep,
   scriptChangedAlert, hasScriptData,
-  onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onCancelPipeline
+  onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline
 }) => {
   const renderStage = (stage: typeof PIPELINE_STAGES[0], idx: number) => {
     const task = tasks[stage.id];
@@ -46,21 +47,22 @@ export const ExportTab: React.FC<ExportTabProps> = ({
     return (
       <div
         key={stage.id}
+        title={canClick ? `Click to re-run from ${stage.title}` : ''}
         className={`relative pl-9 pr-2 pb-4 last:pb-1 flex flex-col transition-all duration-200
           ${canClick ? 'cursor-pointer hover:bg-zinc-800/30 rounded-lg' : ''}`}
         onClick={() => {
-          if (canClick && isCompleted) {
-            // Re-run from this stage - handled by onResumePipeline with smart detection
+          if (canClick) {
+            onResumeFromStage(stage.id);
           }
         }}
       >
         {/* Connecting line */}
         {idx < PIPELINE_STAGES.length - 1 && (
-          <div className={`absolute left-[13px] top-5 bottom-0 w-[2px] transition-colors ${isCompleted ? 'bg-emerald-500/30' : 'bg-zinc-800'}`} />
+          <div className={`absolute left-[13px] top-4.5 bottom-0 w-0.5 transition-colors ${isCompleted ? 'bg-emerald-500/30' : 'bg-zinc-800'}`} />
         )}
 
         {/* Status dot */}
-        <div className="absolute left-1.5 top-0.5">
+        <div className="absolute left-1.5 top-0">
           {isCompleted ? (
             <div className="w-[18px] h-[18px] rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
               <VscCheck className="text-[9px]" />
@@ -169,7 +171,7 @@ export const ExportTab: React.FC<ExportTabProps> = ({
                     <button
                       key={stage.id}
                       onClick={() => onSetTargetStage(stage.id)}
-                      className={`flex-1 text-[8px] py-1.5 px-0.5 font-bold uppercase tracking-wider rounded transition-all ${
+                      className={`flex-1 text-[8px] py-1.5 px-0.5 font-bold uppercase tracking-wider rounded transition-all cursor-pointer ${
                         isSelected ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
                       }`}
                     >
@@ -183,7 +185,7 @@ export const ExportTab: React.FC<ExportTabProps> = ({
             {isRunning ? (
               <button
                 onClick={onCancelPipeline}
-                className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-1.5 animate-pulse"
+                className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-1.5 animate-pulse cursor-pointer"
               >
                 <VscError className="text-sm" /> Cancel Pipeline
               </button>
@@ -192,14 +194,14 @@ export const ExportTab: React.FC<ExportTabProps> = ({
                 {!hasScriptData ? (
                   <button
                     onClick={onTriggerFullPipeline}
-                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white py-2.5 rounded text-[10px] font-bold transition-all shadow-md flex items-center justify-center gap-1.5"
+                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white py-2.5 rounded text-[10px] font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <VscFlame className="text-sm" /> Generate Video
                   </button>
                 ) : (
                   <button
                     onClick={onResumePipeline}
-                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white py-2.5 rounded text-[10px] font-bold transition-all shadow-md flex items-center justify-center gap-1.5"
+                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white py-2.5 rounded text-[10px] font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <VscPlay className="text-sm" /> Resume Pipeline
                   </button>
