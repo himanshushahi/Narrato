@@ -1,5 +1,7 @@
 import React, { useMemo } from 'react';
 import { Img, useCurrentFrame, interpolate, spring, useVideoConfig } from 'remotion';
+import { ZoomWrapper } from './ZoomWrapper';
+import { SubVisualTransform } from './SubVisualTransform';
 
 // ─── easing helper ──────────────────────────────────────────────
 const easeInOutCubic = (t: number): number =>
@@ -38,6 +40,8 @@ interface Props {
   /** Visual cue / search text — currently unused by render, but passed through for data completeness */
   cue?: string;
   durationInFrames: number;
+  /** User-configured zoom & pan offset applied to the parallax image layers */
+  transform?: SubVisualTransform;
 }
 
 // ─── defaults ────────────────────────────────────────────────────
@@ -62,6 +66,7 @@ export const ParallaxImage: React.FC<Props> = ({
   foregroundUrl,
   meta: rawMeta,
   durationInFrames,
+  transform,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -215,40 +220,42 @@ export const ParallaxImage: React.FC<Props> = ({
       overflow: 'hidden', position: 'relative',
       perspective: '1200px',
     }}>
-      {/* ── 1. Background layer ──────────────────────────────── */}
-      <Img
-        src={backgroundUrl}
-        style={imgStyle(bg, 0, 0, {
-          filter: `blur(${m.bg_blur}px) brightness(${foregroundUrl ? 0.7 : 1})`,
-        })}
-      />
-
-      {/* ── 2. Midground — only when a foreground exists ────── */}
-      {mg && foregroundUrl && (
+      <ZoomWrapper transform={transform}>
+        {/* ── 1. Background layer ──────────────────────────────── */}
         <Img
           src={backgroundUrl}
-          style={imgStyle(mg, 5, m.depth_z * 0.5, {
-            filter: `blur(${m.bg_blur * 0.3}px) brightness(0.85)`,
-            opacity: 0.6,
-            maskImage: 'radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 80%)',
-            WebkitMaskImage: 'radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 80%)',
+          style={imgStyle(bg, 0, 0, {
+            filter: `blur(${m.bg_blur}px) brightness(${foregroundUrl ? 0.7 : 1})`,
           })}
         />
-      )}
 
-      {/* ── 3. Foreground subject (cutout) ──────────────────── */}
-      {fg && foregroundUrl && (
-        <Img
-          src={foregroundUrl}
-          style={imgStyle(fg, 10, m.depth_z, {
-            objectFit: 'contain',
-            filter: `
-              brightness(${m.fg_brightness})
-              drop-shadow(0px 20px 40px rgba(0,0,0,0.7))
-            `,
-          })}
-        />
-      )}
+        {/* ── 2. Midground — only when a foreground exists ────── */}
+        {mg && foregroundUrl && (
+          <Img
+            src={backgroundUrl}
+            style={imgStyle(mg, 5, m.depth_z * 0.5, {
+              filter: `blur(${m.bg_blur * 0.3}px) brightness(0.85)`,
+              opacity: 0.6,
+              maskImage: 'radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 80%)',
+              WebkitMaskImage: 'radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 80%)',
+            })}
+          />
+        )}
+
+        {/* ── 3. Foreground subject (cutout) ──────────────────── */}
+        {fg && foregroundUrl && (
+          <Img
+            src={foregroundUrl}
+            style={imgStyle(fg, 10, m.depth_z, {
+              objectFit: 'contain',
+              filter: `
+                brightness(${m.fg_brightness})
+                drop-shadow(0px 20px 40px rgba(0,0,0,0.7))
+              `,
+            })}
+          />
+        )}
+      </ZoomWrapper>
 
       {/* ── 4. Vignette overlay ─────────────────────────────── */}
       <div style={{

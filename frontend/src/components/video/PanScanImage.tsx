@@ -1,14 +1,17 @@
 import React from 'react';
 import { useCurrentFrame, interpolate, Img, Video } from 'remotion';
+import { ZoomWrapper } from './ZoomWrapper';
+import { SubVisualTransform } from './SubVisualTransform';
 
 interface Props {
   src: string;
   type: string;
   cue: string;
   durationInFrames: number;
+  transform?: SubVisualTransform;
 }
 
-export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames }) => {
+export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, transform }) => {
   const frame = useCurrentFrame();
 
   // Create alternating pan directions based on the length of the visual cue
@@ -80,19 +83,20 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames }) =>
         }} />
 
         {/* Vintage card */}
-        <div style={{
-          position: 'relative',
-          width: 700,
-          backgroundColor: '#eae6df',
-          padding: '30px 30px 80px 30px',
-          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)',
-          borderRadius: 4,
-          border: '1px solid #dcd7cd',
-          transform: `rotate(${directionSeed - 2}deg) scale(${scale * 0.9})`,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center'
-        }}>
+        <ZoomWrapper transform={transform}>
+          <div style={{
+            position: 'relative',
+            width: 700,
+            backgroundColor: '#eae6df',
+            padding: '30px 30px 80px 30px',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)',
+            borderRadius: 4,
+            border: '1px solid #dcd7cd',
+            transform: `rotate(${directionSeed - 2}deg) scale(${scale * 0.9})`,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
+          }}>
           {/* Card inner photo placeholder */}
           <div style={{
             width: '100%',
@@ -127,6 +131,7 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames }) =>
             {cue}
           </div>
         </div>
+        </ZoomWrapper>
       </div>
     );
   }
@@ -136,30 +141,32 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames }) =>
 
   return (
     <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', backgroundColor: '#000' }}>
-      {/* Wrapper div receives the transform! This prevents Chrome GPU flickering on Video tags! */}
-      <div style={{
-        width: '100%',
-        height: '100%',
-        transform: `scale(${scale}) translate3d(${x}px, ${y}px, 0)`,
-        willChange: 'transform',
-        transformOrigin: 'center center',
-      }}>
-        {isVideo ? (
-          <Video
-            src={src}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            muted={true}
-            volume={0}
-            startFrom={0}
-            loop
-          />
-        ) : (
-          <Img
-            src={src}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        )}
-      </div>
+      <ZoomWrapper transform={transform}>
+        {/* Wrapper div receives the Ken Burns transform! This prevents Chrome GPU flickering on Video tags! */}
+        <div style={{
+          width: '100%',
+          height: '100%',
+          transform: `scale(${scale}) translate3d(${x}px, ${y}px, 0)`,
+          willChange: 'transform',
+          transformOrigin: 'center center',
+        }}>
+          {isVideo ? (
+            <Video
+              src={src}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              muted={true}
+              volume={0}
+              startFrom={0}
+              loop
+            />
+          ) : (
+            <Img
+              src={src}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+          )}
+        </div>
+      </ZoomWrapper>
     </div>
   );
 };

@@ -68,15 +68,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
         position: 'relative',
         overflow: 'hidden'
       }}>
-        {/* Background Vintage Vignette */}
-        <div style={{
-            position: 'absolute',
-            inset: 0,
-            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
-            pointerEvents: 'none',
-            zIndex: 10
-        }} />
-
         <div style={{
             position: 'absolute',
             width: chartWidth,
@@ -429,14 +420,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                     );
                 })}
             </svg>
-            
-            {/* Vignette Overlay for Vintage feel */}
-            <div style={{
-                position: 'absolute',
-                inset: 0,
-                boxShadow: 'inset 0 0 150px rgba(0,0,0,0.8)',
-                pointerEvents: 'none'
-            }} />
         </div>
 
 
@@ -1033,13 +1016,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
             );
           })}
         </div>
-
-        <div style={{
-            position: 'absolute',
-            inset: 0,
-            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
-            pointerEvents: 'none'
-        }} />
       </div>
     );
   };

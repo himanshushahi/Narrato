@@ -137,6 +137,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             visual_cue: lsv.visual_cue,
             transition_type: lsv.transition_type,
             visual_meta: lsv.visual_meta,
+            transform: lsv.transform,
             visual_url: visualUrl,
             duration: osv.duration
           };

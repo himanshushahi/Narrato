@@ -5,6 +5,7 @@ import { ChartDataEditor } from './ChartDataEditor';
 import { NewspaperEditor } from './NewspaperEditor';
 import { NetworkDataEditor } from './NetworkDataEditor';
 import { ParallaxEditor } from './ParallaxEditor';
+import { TransformEditor } from './TransformEditor';
 import { LowerThirdEditor } from './LowerThirdEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
 import { BiTrashAlt } from 'react-icons/bi';
@@ -71,6 +72,12 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                   <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />
                 </div>
               </div>
+
+              {/* Always-visible Camera Transform controls */}
+              <TransformEditor
+                transform={sv.transform}
+                onChange={(newTransform) => handleUpdate(idx, 'transform', newTransform)}
+              />
 
               {sv.visual_type === 'youtube' && (
                 <div className="col-span-2 space-y-4 mt-2 bg-stone-950/60 p-3.5 rounded-lg border border-stone-800">
