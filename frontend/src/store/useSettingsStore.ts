@@ -44,6 +44,8 @@ export interface Settings {
   render_hardware: string;
   subtitle_presets?: SubtitlePreset[];
   default_subtitle_preset_id?: string;
+  branding_presets?: SubtitlePreset[];
+  default_branding_preset_id?: string;
 }
 
 export interface KokoroDownload {

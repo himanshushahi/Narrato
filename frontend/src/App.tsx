@@ -3,7 +3,7 @@ import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-ro
 import { Suspense } from 'react';
 import { useProjectStore } from './store/useProjectStore';
 import { useSettingsStore } from './store/useSettingsStore';
-import { useEelConnection, waitForEelConnection } from './utils/eel-bridge';
+import { waitForEelConnection } from './utils/eel-bridge';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const EditorWorkspace = React.lazy(() => import('./features/EditorWorkspace/EditorWorkspace'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
@@ -12,7 +12,7 @@ import { ToastContainer } from './components/ui/Toast';
 import { ConfirmModal } from './components/ui/ConfirmModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscSettings, VscLayers, VscPulse, VscLayoutSidebarLeft, VscAccount, VscDebugDisconnect, VscLoading
+  VscSettings, VscLayers, VscPulse, VscLayoutSidebarLeft, VscAccount
 } from 'react-icons/vsc';
 
 function Sidebar() {

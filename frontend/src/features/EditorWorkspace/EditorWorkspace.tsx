@@ -221,7 +221,6 @@ export const EditorWorkspace: React.FC = () => {
           manifestData={manifestData}
           sceneTimings={sceneTimings}
           onSeek={handleSeek}
-          onAddScene={handleAddScene}
           projectId={id}
           isPipelineRunning={isRunning}
           activeTaskStep={activeTaskStep}

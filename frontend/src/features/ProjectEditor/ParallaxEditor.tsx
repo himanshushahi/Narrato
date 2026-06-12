@@ -65,7 +65,7 @@ export const ParallaxEditor = ({
   const p = visualMeta.parallax ?? {};
 
   const val = (key: keyof typeof DEFAULTS): number =>
-    p[key] !== undefined ? p[key] : DEFAULTS[key];
+    p[key] !== undefined ? p[key] : (DEFAULTS[key] as number);
 
   const strVal = (key: 'camera_path'): string =>
     p[key] ?? DEFAULTS[key];
