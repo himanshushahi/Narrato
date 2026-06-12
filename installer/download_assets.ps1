@@ -227,5 +227,62 @@ if (-not $nodeExists) {
     Write-Host "[INFO] Node.js portable already exists in AppData. Skipping download."
 }
 
+# 4. Download and extract Chrome Headless Shell for Remotion rendering
+# Remotion requires Chrome Headless Shell to render frames. Without pre-bundling,
+# it downloads at first render time which requires internet and causes delays.
+# The cache dir structure must match Remotion's getDownloadsCacheDir() resolution:
+#   {cache_dir}/node_modules/.remotion/chrome-headless-shell/{platform}/{archive_contents}
+$chromeVersion = "149.0.7790.0"
+$remotionCacheDir = Join-Path $appdataPath "cache\remotion"
+$remotionModulesDir = Join-Path $remotionCacheDir "node_modules\.remotion"
+$chromeDownloadsDir = Join-Path $remotionModulesDir "chrome-headless-shell"
+$chromePlatformDir = Join-Path $chromeDownloadsDir "win64"
+$chromeExePath = Join-Path $chromePlatformDir "chrome-headless-shell-win64\chrome-headless-shell.exe"
+$chromeVersionFile = Join-Path $chromeDownloadsDir "VERSION"
+
+# Also create an anchor package.json so Remotion's root-finding walk stops here
+$anchorPkg = Join-Path $remotionCacheDir "package.json"
+
+$chromeExists = (Test-Path $chromeExePath) -and (Test-Path $chromeVersionFile) -and ((Get-Content $chromeVersionFile -ErrorAction SilentlyContinue) -eq $chromeVersion)
+if (-not $chromeExists) {
+    Write-Host "`n--- DOWNLOADING CHROME HEADLESS SHELL FOR REMOTION ---"
+    $chromeZip = Join-Path $tempDir "chrome-headless-shell-win64.zip"
+    
+    # Ensure directories exist
+    New-Item -ItemType Directory -Path $remotionCacheDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $chromePlatformDir -Force | Out-Null
+    
+    # Create anchor package.json for Remotion's root-finding
+    if (-not (Test-Path $anchorPkg)) {
+        Set-Content -Path $anchorPkg -Value '{"name":"remotion-cache","private":true}'
+    }
+    
+    # Clean existing chrome installation if version mismatch
+    if (Test-Path $chromePlatformDir) {
+        Remove-Item -Path $chromePlatformDir -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Path $chromePlatformDir -Force | Out-Null
+    }
+    
+    try {
+        $chromeUrl = "https://storage.googleapis.com/chrome-for-testing-public/$chromeVersion/win64/chrome-headless-shell-win64.zip"
+        Download-FileWithProgressAndRetry -Uri $chromeUrl -OutFile $chromeZip -Name "Chrome Headless Shell"
+        
+        Write-Host "Extracting Chrome Headless Shell..."
+        Expand-Archive -Path $chromeZip -DestinationPath $chromePlatformDir -Force
+        
+        # Write VERSION file so Remotion recognizes the installed version
+        Set-Content -Path $chromeVersionFile -Value $chromeVersion -NoNewline
+        
+        Write-Host "[SUCCESS] Chrome Headless Shell extracted to: $chromePlatformDir"
+    } catch {
+        Write-Error "[ERROR] Failed to download or extract Chrome Headless Shell: $_"
+        exit 1
+    } finally {
+        if (Test-Path $chromeZip) { Remove-Item -Path $chromeZip -Force -ErrorAction SilentlyContinue }
+    }
+} else {
+    Write-Host "[INFO] Chrome Headless Shell already exists and version matches ($chromeVersion). Skipping download."
+}
+
 Write-Host "`n[SUCCESS] All assets downloaded successfully."
 exit 0

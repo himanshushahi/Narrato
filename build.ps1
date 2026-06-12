@@ -81,12 +81,15 @@ if (Test-Path $NodeModulesDest) {
 $RequiredPackages = @(
     "@remotion/renderer",
     "@remotion/bundler",
+    "@remotion/streaming",
+    "@remotion/licensing",
+    "@remotion/compositor-win32-x64-msvc",
     "remotion",
     "execa",
-    "get-port",
     "zod",
     "dotenv",
-    "dotenv-expand"
+    "ws",
+    "source-map"
 )
 foreach ($Pkg in $RequiredPackages) {
     $Src = Join-Path $FrontendFolder "node_modules/$Pkg"

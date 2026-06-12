@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import re
 import subprocess
@@ -319,7 +320,19 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         env = os.environ.copy()
         env["NODE_OPTIONS"] = "--max-old-space-size=8192"
         remotion_cache_dir = get_remotion_cache_dir()
-        env["REMOTION_FOLDER"] = str(remotion_cache_dir)
+
+        # In production, redirect cwd to a writable directory so Remotion's
+        # getDownloadsCacheDir() doesn't try to create .remotion inside the
+        # read-only Program Files installation directory.
+        # Also place an anchor package.json so Remotion's root-finding walk
+        # stops here instead of traversing up to a read-only parent.
+        if getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production":
+            node_cwd = str(remotion_cache_dir)
+            anchor_pkg = remotion_cache_dir / "package.json"
+            if not anchor_pkg.exists():
+                anchor_pkg.write_text('{"name":"remotion-cache","private":true}')
+        else:
+            node_cwd = str(frontend_dir)
         
         startupinfo = None
         if os.name == "nt":
@@ -328,7 +341,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
         process = subprocess.Popen(
             cmd,
-            cwd=str(frontend_dir),
+            cwd=node_cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
