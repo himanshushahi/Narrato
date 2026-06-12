@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useProjectStore, Project } from '../store/useProjectStore';
 import { useUIStore } from '../store/useUIStore';
+import { useEditorStore } from '../store/useEditorStore';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GlowButton } from '../components/ui/GlowButton';
 import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
@@ -46,6 +47,10 @@ export const Dashboard: React.FC = () => {
         setName('');
         setPrompt('');
         setExportFolder('');
+        
+        // Open export tab for newly created project
+        useEditorStore.getState().setInspectorTab('export');
+
         // Redirect directly to the editor workspace
         navigate(`/editor/${res.project_id}`);
       } else {

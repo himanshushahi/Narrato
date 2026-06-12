@@ -237,10 +237,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
 
   // ---- Tab config with dynamic labels ----
   const tabConfig = useMemo(() => {
-    const assetsLabel =
-      totalDownloadable > 0
-        ? `Assets (${downloadedCount}/${totalDownloadable})`
-        : 'Assets';
+    const assetsLabel = 'Assets';
     return [
       { id: 'scenes' as LeftPanelTab, label: 'Scenes', icon: <VscLayers /> },
       { id: 'assets' as LeftPanelTab, label: assetsLabel, icon: <VscPackage /> },
@@ -385,8 +382,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
           <div className="text-[9px] text-zinc-500">
             {totalDownloadable > 0 ? (
               <span>
-                <span className="text-zinc-300">{downloadedCount}</span>
-                <span className="text-zinc-600">/{totalDownloadable}</span>
+                <span className="text-zinc-300">{totalDownloadable} Items</span>
                 <span className="text-zinc-600"> &middot; </span>
                 <span className="text-zinc-400">{formatFileSize(totalSize)}</span>
               </span>
@@ -658,7 +654,6 @@ const DownloadProgressBanner: React.FC<{
       </div>
       <div className="flex justify-between mt-1">
         <span className="text-[8px] text-blue-400/70">{pct}%</span>
-        <span className="text-[8px] text-blue-400/70">{downloadedCount}/{total} files on disk</span>
       </div>
     </div>
   );
