@@ -496,7 +496,7 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "Format your output strictly as a JSON object containing the modified segment.\n\n"
         "IMPORTANT: Every segment MUST include a 'sub_visuals' array with 2-4 sub-visual entries for fast-paced visual cuts.\n"
         "Each sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }\n"
-        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list'.\n"
+        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
         "TYPE SELECTION GUIDE — match the visual to the narration content:\n"
         "- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings (e.g. \"Top 5 rivers\", \"3 reasons why\"). Each item = its own sub-visual.\n"
         "- chart: USE THIS for statistics, percentages, comparisons, or data trends.\n"
@@ -505,6 +505,7 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "- network: USE THIS for connections between people, organizations, or relationships.\n"
         "- portrait: USE THIS when introducing a specific person/historical figure.\n"
         "- parallax: USE THIS for dramatic layered depth reveals.\n"
+        "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
         "- scene/image: Default visual support for general narration.\n"
         "- youtube: ONLY for specific video footage or interview clips.\n"
         "- For media types (scene, image, portrait, youtube, parallax): provide 2-4 sub_visuals with DIFFERENT keywords.\n"
@@ -513,6 +514,7 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
         "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
         "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"Exact news headline\", \"doc_text\": \"Detailed newspaper excerpt matching the narration\", \"source\": \"Name of Publisher\", \"date\": \"Month DD, YYYY\" }\n"
+        "- If visual_type is 'custom_html', visual_meta must contain: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
     )
     
     if language != "en":
@@ -609,7 +611,7 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         f"Conclusion: \"{conclusion_summary}\"\n\n"
         "IMPORTANT: Every scene MUST include a 'sub_visuals' array with 2-4 sub-visual entries for fast-paced visual cuts.\n"
         "Each sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {} }\n"
-        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list'.\n"
+        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
         "TYPE SELECTION GUIDE — match the visual to the narration content:\n"
         "- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings (e.g. \"Top 5 rivers\", \"3 reasons why\"). Each item = its own sub-visual.\n"
         "- chart: USE THIS for statistics, percentages, comparisons, or data trends.\n"
@@ -618,6 +620,7 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         "- network: USE THIS for connections between people, organizations, or relationships.\n"
         "- portrait: USE THIS when introducing a specific person/historical figure.\n"
         "- parallax: USE THIS for dramatic layered depth reveals.\n"
+        "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
         "- scene/image: Default visual support for general narration.\n"
         "- youtube: ONLY for specific video footage or interview clips.\n"
         "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
@@ -630,7 +633,8 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
         "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
         "- If visual_type is 'network', visual_meta must contain: { \"nodes\": [...], \"edges\": [...] }\n"
-        "- If visual_type is 'list', visual_meta must contain: { \"number\": int (the rank, starting from 1), \"title\": str (the item name), \"description\": str (optional ~10-20 word fact) }\n\n"
+        "- If visual_type is 'list', visual_meta must contain: { \"number\": int (the rank, starting from 1), \"title\": str (the item name), \"description\": str (optional ~10-20 word fact) }\n"
+        "- If visual_type is 'custom_html', visual_meta must contain: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n\n"
         "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
         "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\", \"sub_visuals\": [...] }\n"
     )

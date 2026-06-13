@@ -501,6 +501,7 @@ SUB-VISUALS: Every scene, intro & conclusion needs a `sub_visuals` array.
 - network: USE THIS for connections between people, organizations, relationships, conspiracy boards, or criminal networks.
 - portrait: USE THIS when introducing or focusing on a specific historical figure or person.
 - parallax: USE THIS for dramatic visual reveals with layered depth (background + foreground separation).
+- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations not covered by other types.
 - scene/image: Default visual support for general narration, atmosphere, establishing shots.
 - youtube: ONLY when the narration references specific video footage, interviews, or archival news clips.
 
@@ -514,7 +515,8 @@ EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "tran
 - map: visual_meta {"map_style": "vintage", "locations": [{"name": str, "coord": [lat, lon]}]} (2 locations)
 - document: visual_meta {"title": str (masthead name, e.g. "THE WASHINGTON POST" — upper!), "headline": str (main headline), "subtitle": str (e.g. "BREAKING NEWS" or "EXCLUSIVE"), "doc_text": str (200-500 char article body — write realistic newspaper prose), "highlight_text": str (optional ~2-4 word phrase to visually highlight with amber marker), "source": str (news agency, e.g. "Reuters"), "date": str (formatted date e.g. "Monday, June 11, 2026"), "section": str (one of: National|International|Business|Technology|Science|Politics|Opinion|Culture|Sports), "pull_quote": str (a 6-15 word dramatic quote from the doc_text that will appear as a centered featured quote), "show_image": bool (true if a striking image would accompany this story), "image_url": str (""), "image_caption": str ("" if no url)}
 - network: visual_meta {"nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
-- list: full-screen numbered rank item. Shows ONE item full screen with large number. Generate MULTIPLE list sub-visuals (one per item) for rankings/countdowns/top-N lists. visual_meta: {"number": int (the rank, starting from 1), "title": str (the item name, e.g. "Ganga River"), "description": str (optional ~10-20 word fact about this item, e.g. "The longest river in India, flowing over 2,525 km")}.
+- list: visual_meta {"number": int (the rank, starting from 1), "title": str (the item name, e.g. "Ganga River"), "description": str (optional ~10-20 word fact about this item, e.g. "The longest river in India, flowing over 2,525 km")}
+- custom_html: visual_meta {"html": str (raw HTML snippet), "css": str (raw CSS styling)}. Provide fully responsive HTML and beautifully styled CSS.
 - Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
 """
 

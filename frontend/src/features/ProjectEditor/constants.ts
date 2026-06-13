@@ -9,6 +9,7 @@ export const VISUAL_TYPE_OPTIONS = [
   { value: 'document', label: 'Archival Document' },
   { value: 'youtube', label: 'YouTube Video' },
   { value: 'list', label: 'Numbered List' },
+  { value: 'custom_html', label: 'Custom HTML / CSS' },
 ];
 
 export const TRANSITION_TYPE_OPTIONS = [
@@ -83,6 +84,9 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
     meta.number = 1;
     meta.title = 'Item Title';
     meta.description = 'Item description';
+  } else if (type === 'custom_html') {
+    meta.html = '<div class="custom-box">Hello Custom HTML</div>';
+    meta.css = '.custom-box { color: white; font-size: 60px; text-align: center; }';
   }
 
   return meta;

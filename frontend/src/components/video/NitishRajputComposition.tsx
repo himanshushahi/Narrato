@@ -10,9 +10,10 @@ import { LowerThird } from './LowerThird';
 import { TransitionWrapper } from './TransitionWrapper';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
+import { CustomHtmlVisual } from './CustomHtmlVisual';
 
 export interface SubVisual {
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list';
+  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html';
   visual_cue: string;
   transition_type?: string;
   visual_url?: string;
@@ -155,6 +156,16 @@ export const NitishRajputComposition = ({
             boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
             pointerEvents: 'none', zIndex: 10
           }} />
+        </div>
+      );
+    }
+
+    if (type === 'custom_html') {
+      return (
+        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+          <ZoomWrapper transform={transform}>
+            <CustomHtmlVisual meta={meta} />
+          </ZoomWrapper>
         </div>
       );
     }
