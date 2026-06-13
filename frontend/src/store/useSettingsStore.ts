@@ -42,6 +42,7 @@ export interface Settings {
   render_crf: string;
   render_codec: string;
   render_hardware: string;
+  render_timeout: string;
   subtitle_presets?: SubtitlePreset[];
   default_subtitle_preset_id?: string;
   branding_presets?: SubtitlePreset[];
@@ -132,9 +133,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     render_resolution: "1080p",
     render_concurrency: "logical",
     render_fps: "30",
-    render_crf: "18",
+    render_crf: "23",
     render_codec: "h264",
-    render_hardware: "cpu"
+    render_hardware: "cpu",
+    render_timeout: "600000"
   },
   kokoroDownload: {
     active: false,

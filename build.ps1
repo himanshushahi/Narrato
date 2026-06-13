@@ -71,35 +71,36 @@ npm run build:remotion
 Write-Host "[INFO] Compiling production rendering script..." -ForegroundColor Cyan
 npm run build:render
 
-# Copy required node_modules for @remotion/renderer to work in production
-# These are externalized by esbuild and must be present at runtime
-Write-Host "[INFO] Copying required node_modules for production render..." -ForegroundColor Cyan
-$NodeModulesDest = Join-Path $FrontendFolder "dist-render/node_modules"
-if (Test-Path $NodeModulesDest) {
-    Remove-Item -Path $NodeModulesDest -Recurse -Force -ErrorAction SilentlyContinue
+# Generate package.json with versions from frontend/package.json and install deps
+# The render.mjs imports @remotion/renderer at runtime (externalized by esbuild).
+# Let npm resolve the full dependency tree including peer deps (react, react-dom)
+# and platform-specific optional deps (compositor binary) instead of a fragile
+# hand-maintained Copy-Item list.
+Write-Host "[INFO] Installing render script production dependencies..." -ForegroundColor Cyan
+$DistRenderDir = Join-Path $FrontendFolder "dist-render"
+$RenderPkgJson = Join-Path $DistRenderDir "package.json"
+
+# Read versions from frontend/package.json to avoid version drift
+$FrontendPkg = Get-Content (Join-Path $FrontendFolder "package.json") | ConvertFrom-Json
+$RendererVer = $FrontendPkg.devDependencies["@remotion/renderer"]
+$ReactVer    = $FrontendPkg.dependencies.react
+$ReactDomVer = $FrontendPkg.dependencies["react-dom"]
+
+@"
+{
+  "name": "narrato-render",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@remotion/renderer": "$RendererVer",
+    "react": "$ReactVer",
+    "react-dom": "$ReactDomVer"
+  }
 }
-$RequiredPackages = @(
-    "@remotion/renderer",
-    "@remotion/bundler",
-    "@remotion/streaming",
-    "@remotion/licensing",
-    "@remotion/compositor-win32-x64-msvc",
-    "remotion",
-    "execa",
-    "zod",
-    "dotenv",
-    "ws",
-    "source-map"
-)
-foreach ($Pkg in $RequiredPackages) {
-    $Src = Join-Path $FrontendFolder "node_modules/$Pkg"
-    $Dest = Join-Path $NodeModulesDest $Pkg
-    if (Test-Path $Src) {
-        New-Item -ItemType Directory -Path (Split-Path $Dest -Parent) -Force | Out-Null
-        Copy-Item -Path $Src -Destination $Dest -Recurse -Force
-        Write-Host "  Copied: $Pkg" -ForegroundColor Gray
-    }
-}
+"@ | Out-File -Encoding utf8 $RenderPkgJson
+Push-Location $DistRenderDir
+npm install --production --prefer-offline --no-audit --no-fund
+Pop-Location
 Pop-Location
 
 if (!(Test-Path $WebFolder)) {

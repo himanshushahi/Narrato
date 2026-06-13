@@ -302,6 +302,14 @@ export const SettingsPage: React.FC = () => {
     { value: '28', label: 'Lower Quality (CRF 28 - Smallest)' }
   ];
 
+  const renderTimeoutOptions: SelectOption[] = [
+    { value: '300000', label: '5 min (Default)' },
+    { value: '600000', label: '10 min' },
+    { value: '900000', label: '15 min' },
+    { value: '1800000', label: '30 min' },
+    { value: '3600000', label: '60 min' },
+  ];
+
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: { opacity: 1, transition: { staggerChildren: 0.08 } }
@@ -845,6 +853,12 @@ export const SettingsPage: React.FC = () => {
                     options={renderCrfOptions}
                     value={formData.render_crf || '18'}
                     onChange={(val) => handleSelectChange('render_crf', val)}
+                  />
+                  <CustomSelect
+                    label="Render Timeout"
+                    options={renderTimeoutOptions}
+                    value={formData.render_timeout || '600000'}
+                    onChange={(val) => handleSelectChange('render_timeout', val)}
                   />
                 </div>
               </div>

@@ -51,6 +51,14 @@ const HARDWARE_OPTIONS = [
   { value: 'cuda', label: 'GPU (CUDA NVENC)' },
 ];
 
+const TIMEOUT_OPTIONS = [
+  { value: '300000', label: '5 min (Default)' },
+  { value: '600000', label: '10 min' },
+  { value: '900000', label: '15 min' },
+  { value: '1800000', label: '30 min' },
+  { value: '3600000', label: '60 min' },
+];
+
 const NUMBER_STYLE_OPTIONS = [
   { value: 'plain', label: 'Plain' },
   { value: 'circle', label: 'Circle' },
@@ -246,6 +254,19 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             options={HARDWARE_OPTIONS}
             value={projectVal('render_hardware') || globalSettings.render_hardware || 'cpu'}
             onChange={(v) => updateKey('render_hardware', v)}
+          />
+        </OverrideRow>
+
+        <OverrideRow
+          label="Render Timeout"
+          globalValue={globalSettings.render_timeout || '600000'}
+          projectValue={projectVal('render_timeout')}
+          onReset={() => resetKey('render_timeout')}
+        >
+          <CustomSelect
+            options={TIMEOUT_OPTIONS}
+            value={projectVal('render_timeout') || globalSettings.render_timeout || '600000'}
+            onChange={(v) => updateKey('render_timeout', v)}
           />
         </OverrideRow>
       </div>

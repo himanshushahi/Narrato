@@ -80,12 +80,56 @@ python main.py
 
 ## 📦 Building & Packaging
 
-To bundle the application into a standalone Windows executable and generate an installer:
+### Prerequisites (one-time setup)
+
+| Tool | Required | Install Command (Windows) |
+|------|----------|---------------------------|
+| Python 3.10+ | ✅ Yes | `winget install Python.Python.3.12` |
+| Node.js 18+ (npm) | ✅ Yes | `winget install OpenJS.NodeJS.LTS` |
+| NSIS | ⚠️ Optional | `winget install NSIS.NSIS` |
+| Git | ⚠️ Optional | `winget install Git.Git` |
+
+### Build Command
+
+After prerequisites are installed, run:
 
 ```powershell
-powershell ./build.ps1
+powershell -ExecutionPolicy Bypass -File ./build.ps1
 ```
-*Note: This script uses PyInstaller (`narrato.spec`) to build the executable and NSIS (`installer/installer.nsi`) to generate the setup wizard.*
+
+### What the build script does
+
+1. **Python environment** — Creates/activates `.venv`, installs `requirements.txt` + `pyinstaller`
+2. **Binaries** — Runs `download_binaries.py` (ffmpeg, yt-dlp, node)
+3. **Frontend (Vite)** — `npm install` → `npm run build` → `npm run build:remotion` → `npm run build:render`
+4. **Render deps** — Generates `frontend/dist-render/package.json` with exact versions, runs `npm install --production`
+5. **PyInstaller** — Builds `dist/Narrato/Narrato.exe` using `narrato.spec`
+6. **NSIS Installer** — Creates `installer/Narrato_Setup.exe` (requires NSIS)
+
+### Output Artifacts
+
+| Artifact | Path | Purpose |
+|----------|------|---------|
+| Portable exe | `dist/Narrato/Narrato.exe` | **Test this first** — standalone, no install |
+| NSIS installer | `installer/Narrato_Setup.exe` | **Distribute this** — installs to `Program Files` |
+
+### Recommended Test Workflow
+
+```powershell
+# 1. Build
+powershell -ExecutionPolicy Bypass -File ./build.ps1
+
+# 2. Test portable (no admin needed)
+.\dist\Narrato\Narrato.exe
+
+# 3. If good, test installer (requires admin)
+.\installer\Narrato_Setup.exe
+# Installs to: C:\Program Files\Narrato\Narrato.exe
+```
+
+*Notes:*
+- The portable exe and installed exe share the same AppData folder (`%LOCALAPPDATA%\Narrato`) for database, models, exports, and cache.
+- If NSIS is not installed, the script skips installer generation with a warning.
 
 ---
 

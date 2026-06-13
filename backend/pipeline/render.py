@@ -201,8 +201,10 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     render_crf = project_settings.get("render_crf") or get_setting("render_crf") or "18"
     render_codec = project_settings.get("render_codec") or get_setting("render_codec") or "h264"
     render_hardware = project_settings.get("render_hardware") or get_setting("render_hardware") or "cpu"
+    render_timeout = project_settings.get("render_timeout") or get_setting("render_timeout") or "600000"
 
     fps = int(render_fps)
+    timeout_ms = int(render_timeout)
 
     props = {
         "audioUrl": clean_media_path(str(audio_path)),
@@ -480,6 +482,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "--scale", scale_arg,
         "--concurrency", concurrency_arg,
         "--bundle-dir", abs_bundle_dir,
+        "--timeout", str(timeout_ms),
     ]
     if ffmpeg_exe.exists(): base_node_cmd.extend(["--ffmpeg", str(ffmpeg_exe.resolve())])
     if ffprobe_exe.exists(): base_node_cmd.extend(["--ffprobe", str(ffprobe_exe.resolve())])

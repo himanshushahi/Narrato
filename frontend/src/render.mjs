@@ -110,6 +110,7 @@ const resumeFromArg    = getArg("--resume-from");
 const framesDir        = getArg("--frames-dir");
 const concurrencyArg   = getArg("--concurrency");
 const bundleDir        = getArg("--bundle-dir");
+const timeoutArg       = getArg("--timeout");
 
 if (!bundleDir) {
   console.error("Missing required argument: --bundle-dir");
@@ -188,13 +189,14 @@ async function main() {
   }
 
   // ── Build Common Render Options ──────────────────────────────────────────────
+  const timeoutMs = timeoutArg ? parseInt(timeoutArg, 10) : 300_000;
   const commonOptions = {
     composition,
     serveUrl: bundleLocation,
     inputProps,
     scale,
     concurrency: concurrencyValue,
-    timeoutInMilliseconds: 300_000,
+    timeoutInMilliseconds: timeoutMs,
     chromiumOptions: {
       disableWebSecurity: true,
       args: [

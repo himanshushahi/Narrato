@@ -80,10 +80,10 @@ Function un.AppDataPage
   
   !insertmacro MUI_HEADER_TEXT "Uninstall Narrato" "Choose whether to remove application data."
   
-  ${NSD_CreateLabel} 0 0 100% 30u "The uninstaller can remove the application's configuration, logs, and database files in addition to the program files.$\r$\n$\r$\nDo you want to completely remove all application data, or leave it for future installations?"
+  ${NSD_CreateLabel} 0 0 100% 30u "The uninstaller can remove the application's configuration, logs, database, downloaded models, exports, and cache files in addition to the program files.$\r$\n$\r$\nDo you want to completely remove all application data, or leave it for future installations?"
   Pop $0
   
-  ${NSD_CreateCheckbox} 0 50u 100% 10u "Remove application data completely (database, settings, and logs)"
+  ${NSD_CreateCheckbox} 0 50u 100% 10u "Remove application data completely (database, settings, logs, downloaded models, exports, and cache)"
   Pop $RemoveAppDataCheckbox
   
   ; Default to leaving appdata intact (uncheck)

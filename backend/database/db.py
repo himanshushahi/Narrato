@@ -135,9 +135,10 @@ def init_db():
             "render_resolution": "1080p",
             "render_concurrency": "logical",
             "render_fps": "30",
-            "render_crf": "18",
+            "render_crf": "23",
             "render_codec": "h264",
-            "render_hardware": "cpu"
+            "render_hardware": "cpu",
+            "render_timeout": "600000"
         }
         for k, v in default_settings.items():
             cursor.execute(
