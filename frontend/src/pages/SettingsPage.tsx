@@ -143,11 +143,11 @@ export const SettingsPage: React.FC = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev: SettingsType) => ({ ...prev, [name]: value }));
   };
 
   const handleSelectChange = (name: string, value: string) => {
-    setFormData(prev => {
+    setFormData((prev: SettingsType) => {
       const updated = { ...prev, [name]: value };
       if (name === 'app_language') {
         const lang = value as 'hi' | 'en';
@@ -170,7 +170,7 @@ export const SettingsPage: React.FC = () => {
   const handleBrowseBGM = async () => {
     const path = await callEel<string>('browse_bg_music_file');
     if (path) {
-      setFormData(prev => ({ ...prev, bg_music_path: path }));
+      setFormData((prev: SettingsType) => ({ ...prev, bg_music_path: path }));
       // Immediately persist so the DB matches the file in assets/ — prevents
       // orphaned files if the user refreshes before clicking "Save Preferences".
       await saveSettings({ ...formData, bg_music_path: path });
@@ -770,7 +770,7 @@ export const SettingsPage: React.FC = () => {
                     step="0.01"
                     name="bg_music_volume"
                     value={formData.bg_music_volume}
-                    onChange={(e) => setFormData(prev => ({ ...prev, bg_music_volume: e.target.value }))}
+                    onChange={(e) => setFormData((prev: SettingsType) => ({ ...prev, bg_music_volume: e.target.value }))}
                   />
 
                   <CustomRange
@@ -781,7 +781,7 @@ export const SettingsPage: React.FC = () => {
                     step="0.01"
                     name="sfx_volume"
                     value={formData.sfx_volume}
-                    onChange={(e) => setFormData(prev => ({ ...prev, sfx_volume: e.target.value }))}
+                    onChange={(e) => setFormData((prev: SettingsType) => ({ ...prev, sfx_volume: e.target.value }))}
                   />
                 </div>
               </div>

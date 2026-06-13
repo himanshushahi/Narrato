@@ -77,6 +77,7 @@ export const SubVisualsDurationBar: React.FC<SubVisualsDurationBarProps> = ({ su
         window.removeEventListener('pointerup', handlePointerUp);
       };
     }
+    return undefined;
   }, [isDragging, ratios]);
 
   if (numSubs <= 1 || totalDurationFrames === 0) return null;

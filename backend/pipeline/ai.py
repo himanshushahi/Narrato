@@ -67,19 +67,7 @@ CONCLUSION_JSON_SCHEMA = {
     "required": ["summary", "cta", "sub_visuals"]
 }
 
-SCRIPT_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "title": {"type": "string"},
-        "introduction": INTRO_JSON_SCHEMA,
-        "scenes": {
-            "type": "array",
-            "items": SCENE_JSON_SCHEMA
-        },
-        "conclusion": CONCLUSION_JSON_SCHEMA
-    },
-    "required": ["title", "introduction", "scenes", "conclusion"]
-}
+
 
 
 OUTLINE_JSON_SCHEMA = {
@@ -286,40 +274,7 @@ def clean_json_response(raw_response):
     logger.error(f"Failed all JSON parsing attempts. Raw response length: {len(raw_response)}")
     raise ValueError("LLM response could not be parsed into valid JSON.")
 
-def fetch_real_news(query):
-    """Fetches real news using Google News RSS."""
-    try:
-        url = 'https://news.google.com/rss/search?q=' + urllib.parse.quote(query) + '&hl=en-US&gl=US&ceid=US:en'
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        xml_data = urllib.request.urlopen(req, timeout=10).read()
-        root = ET.fromstring(xml_data)
-        item = root.find('.//item')
-        if item is not None:
-            title = item.find('title').text if item.find('title') is not None else ""
-            title = html.unescape(title)
-            source_el = item.find('source')
-            source = source_el.text if source_el is not None else "THE DAILY CHRONICLE"
-            source = html.unescape(source)
-            desc = item.find('description').text if item.find('description') is not None else ""
-            
-            desc_clean = re.sub(r'<[^>]+>', ' ', desc)
-            desc_clean = html.unescape(desc_clean)
-            desc_clean = re.sub(r'\s+', ' ', desc_clean).strip()
-            
-            headline = title
-            if source and title.endswith(f" - {source}"):
-                headline = title[:-(len(source) + 3)]
-                
-            return {
-                "title": source.upper(),
-                "doc_text": headline + "\n\n" + desc_clean,
-                "headline": headline,
-                "snippet": desc_clean[:400] + "..." if len(desc_clean) > 400 else desc_clean,
-                "source": source
-            }
-    except Exception as e:
-        logger.warning(f"Failed to fetch real news for query '{query}': {e}")
-    return None
+
 
 def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     from backend.database.db import get_setting
@@ -457,33 +412,27 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
 
     if video_format == "portrait":
         if duration_mode == "short": # 60s
-            target_minutes = 1
             min_scenes = 4
             max_scenes = 6
             sentence_rule = "Write narration in very short, punchy sentences (15-20 words per scene) to keep visual pacing extremely fast."
         elif duration_mode == "long": # 2 mins
-            target_minutes = 2
             min_scenes = 8
             max_scenes = 12
             sentence_rule = "Write narration in short sentences (20-30 words per scene) for a fast-paced vertical video."
         else: # medium (90s)
-            target_minutes = 1.5
             min_scenes = 6
             max_scenes = 8
             sentence_rule = "Write narration in quick sentences (20-25 words per scene)."
     else:
         if duration_mode == "extra_long":
-            target_minutes = 15
             min_scenes = 55
             max_scenes = 65
             sentence_rule = "Write detailed narration paragraphs (40-60 words per scene)."
         elif duration_mode == "long":
-            target_minutes = 10
             min_scenes = 35
             max_scenes = 45
             sentence_rule = "Write detailed narration paragraphs (35-50 words per scene)."
         else: # medium
-            target_minutes = 5
             min_scenes = 18
             max_scenes = 24
             sentence_rule = "Write engaging narration (30-40 words per scene)."

@@ -17,9 +17,6 @@ def clean_media_path(path_str):
     normalized = str(Path(path_str).resolve()).replace('\\', '/')
     return f"file:///{normalized}"
 
-def requests_quote(string):
-    import requests
-    return requests.utils.quote(string)
 
 def compute_frame_hash(props_dict, render_settings):
     """Hash of frame-relevant properties only (scenes, transcription, resolution, fps).

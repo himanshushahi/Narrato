@@ -65,11 +65,6 @@ def get_models_dir() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-def get_logs_dir() -> Path:
-    d = get_workspace_dir() / "logs"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
 def get_exports_dir() -> Path:
     d = get_workspace_dir() / "exports"
     d.mkdir(parents=True, exist_ok=True)

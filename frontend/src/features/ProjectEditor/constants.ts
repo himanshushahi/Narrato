@@ -25,13 +25,7 @@ export const TRANSITION_TYPE_OPTIONS = [
   { value: 'none', label: 'None (Cut)' },
 ];
 
-export const TARGET_STAGE_OPTIONS = [
-  { value: 'render', label: 'Run Full Pipeline' },
-  { value: 'generate_script', label: 'Stop after: Scripting' },
-  { value: 'generate_voiceover', label: 'Stop after: Voiceover' },
-  { value: 'transcribe', label: 'Stop after: Transcription' },
-  { value: 'fetch_assets', label: 'Stop after: Visuals' },
-];
+
 
 export const PIPELINE_STAGES = [
   { id: 'generate_script', title: 'Script Generation', desc: 'AI scriptwriting & cues formulation' },

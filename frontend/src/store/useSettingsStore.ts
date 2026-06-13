@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { useUIStore } from './useUIStore';
 import { callEel } from '../utils/eel-bridge';
 
-export interface SubtitlePreset {
+interface SubtitlePreset {
   id: string;
   name: string;
   settings: any;
@@ -48,7 +48,7 @@ export interface Settings {
   default_branding_preset_id?: string;
 }
 
-export interface KokoroDownload {
+interface KokoroDownload {
   active: boolean;
   file: string;
   progress: number;
@@ -56,19 +56,19 @@ export interface KokoroDownload {
   error: string;
 }
 
-export interface WhisperDownload {
+interface WhisperDownload {
   active: boolean;
   progress: number;
   status: string;
   error: string;
 }
 
-export interface DownloadedWhisperModel {
+interface DownloadedWhisperModel {
   id: string;
   size_mb: number;
 }
 
-export interface YtdlpUpdate {
+interface YtdlpUpdate {
   active: boolean;
   progress: number;
   status: string; // '', 'downloading', 'completed', 'failed'

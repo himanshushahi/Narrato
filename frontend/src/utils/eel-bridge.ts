@@ -10,28 +10,22 @@
  * exponential backoff until the backend is ready.
  */
 
-import React from 'react';
 
-export interface EelConnectionState {
-  isConnected: boolean;
-  isConnecting: boolean;
-  error: string | null;
-  retryCount: number;
-}
+
 
 const MAX_RETRIES = 15;
 const INITIAL_RETRY_DELAY = 300;
 const MAX_RETRY_DELAY = 4000;
 
 class EelConnectionMonitor {
-  state: EelConnectionState = {
+  state: { isConnected: boolean; isConnecting: boolean; error: string | null; retryCount: number } = {
     isConnected: false,
     isConnecting: true,
     error: null,
     retryCount: 0
   };
 
-  private listeners: Set<(state: EelConnectionState) => void> = new Set();
+  private listeners: Set<(state: { isConnected: boolean; isConnecting: boolean; error: string | null; retryCount: number }) => void> = new Set();
   private checkInterval: number | null = null;
   private reconnectTimeout: number | null = null;
 
@@ -39,7 +33,7 @@ class EelConnectionMonitor {
     this.startMonitoring();
   }
 
-  subscribe(listener: (state: EelConnectionState) => void): () => void {
+  subscribe(listener: (state: { isConnected: boolean; isConnecting: boolean; error: string | null; retryCount: number }) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -229,21 +223,7 @@ class EelConnectionMonitor {
 // Singleton instance
 export const eelConnection = new EelConnectionMonitor();
 
-// React hook for connection state
-export function useEelConnection(): EelConnectionState {
-  const [state, setState] = React.useState<EelConnectionState>({
-    isConnected: false,
-    isConnecting: true,
-    error: null,
-    retryCount: 0
-  });
 
-  React.useEffect(() => {
-    return eelConnection.subscribe(setState);
-  }, []);
-
-  return state;
-}
 
 /**
  * Waits for eel to be connected, with timeout

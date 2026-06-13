@@ -37,7 +37,7 @@ export interface Task {
   updated_at: string;
 }
 
-export interface QueueState {
+interface QueueState {
   active: string | null;
   queued: string[];
 }

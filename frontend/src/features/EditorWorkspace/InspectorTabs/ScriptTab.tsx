@@ -398,7 +398,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             onSetScriptData(copy);
                           }}
                           timings={concTimings}
-                          totalDurationFrames={sceneTimings[concGlobalIdx] ? sceneTimings[concGlobalIdx].end - sceneTimings[concGlobalIdx].start : 0}
+                          totalDurationFrames={sceneTimings[concSceneIdx] ? sceneTimings[concSceneIdx].end - sceneTimings[concSceneIdx].start : 0}
                           activeIdx={concActiveSubIdx}
                           onSeek={onSeek}
                           onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}

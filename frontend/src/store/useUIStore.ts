@@ -7,7 +7,7 @@ export interface Toast {
   duration?: number;
 }
 
-export interface ConfirmState {
+interface ConfirmState {
   isOpen: boolean;
   title: string;
   message: string;

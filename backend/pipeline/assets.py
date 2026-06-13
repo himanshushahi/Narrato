@@ -269,7 +269,7 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         manifest = json.load(f)
 
     api_key = get_setting("pexels_api_key")
-    use_pexels = get_setting("use_pexels")
+
 
     if not api_key:
         logger.warning("Pexels API key is not configured. Falling back to internal programmatic layouts.")

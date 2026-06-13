@@ -40,7 +40,7 @@ export interface TranscriptionWord {
   word: string;
 }
 
-export interface TranscriptionSegment {
+interface TranscriptionSegment {
   id: number;
   start: number;
   end: number;
