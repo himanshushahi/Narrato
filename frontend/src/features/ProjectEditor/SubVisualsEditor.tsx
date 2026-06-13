@@ -11,9 +11,13 @@ import { TransformEditor } from './TransformEditor';
 import { LowerThirdEditor } from './LowerThirdEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
 import { BiTrashAlt } from 'react-icons/bi';
-import { BsPlus } from 'react-icons/bs';
+import { BsPlus, BsStars, BsSendFill } from 'react-icons/bs';
+import { useState } from 'react';
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void> }) => {
+  const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
+  const [aiPromptText, setAiPromptText] = useState('');
+  const [isRewriting, setIsRewriting] = useState(false);
   const handleUpdate = (idx: number, field: string, val: any) => {
     const copy = [...subVisuals];
     if (field === 'visual_type' && copy[idx][field] === val) {
@@ -53,8 +57,54 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
           <div key={idx}
             onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
             className={`bg-stone-900/60 p-3 rounded border space-y-3 relative cursor-pointer transition-colors ${isActive ? 'border-amber-500/60 bg-amber-900/10 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-stone-800 hover:border-stone-700'}`}>
-            <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="absolute top-2 right-2 text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded cursor-pointer"><BiTrashAlt size={15} /></button>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="absolute top-2 right-2 flex gap-1">
+              {onRewriteSubVisual && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); setAiPromptIdx(aiPromptIdx === idx ? null : idx); }} className="text-amber-500 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded cursor-pointer" title="AI Magic Rewrite"><BsStars size={15} /></button>
+              )}
+              <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded cursor-pointer"><BiTrashAlt size={15} /></button>
+            </div>
+            
+            {aiPromptIdx === idx && onRewriteSubVisual && (
+              <div className="bg-amber-950/40 p-2.5 rounded border border-amber-900/50 mt-8 mb-2 relative" onClick={e => e.stopPropagation()}>
+                <div className="flex gap-2">
+                  <input 
+                    autoFocus
+                    type="text" 
+                    placeholder={`e.g. Change this to a pie chart...`}
+                    className="flex-1 bg-black/50 border border-amber-900/50 rounded px-3 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
+                    value={aiPromptText}
+                    onChange={e => setAiPromptText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && aiPromptText.trim() && !isRewriting) {
+                        e.preventDefault();
+                        setIsRewriting(true);
+                        onRewriteSubVisual(idx, aiPromptText).finally(() => {
+                          setIsRewriting(false);
+                          setAiPromptIdx(null);
+                          setAiPromptText('');
+                        });
+                      }
+                    }}
+                  />
+                  <button 
+                    disabled={isRewriting || !aiPromptText.trim()}
+                    onClick={() => {
+                      setIsRewriting(true);
+                      onRewriteSubVisual(idx, aiPromptText).finally(() => {
+                        setIsRewriting(false);
+                        setAiPromptIdx(null);
+                        setAiPromptText('');
+                      });
+                    }}
+                    className="bg-amber-600 hover:bg-amber-500 text-white px-3 rounded flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isRewriting ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <BsSendFill size={12} />}
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            <div className={`flex items-center gap-2 mb-1 ${aiPromptIdx === idx ? 'mt-2' : ''}`}>
               <div className={`text-xs font-bold ${isActive ? 'text-amber-400' : 'text-stone-500'}`}>Sub-Visual {idx + 1}</div>
               {timing && (
                 <div className="text-[9px] font-mono bg-stone-950 px-1.5 py-0.5 rounded text-stone-400 border border-stone-800">

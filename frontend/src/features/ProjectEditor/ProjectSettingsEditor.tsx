@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CustomInput } from '../../components/ui/CustomInput';
+
 import { CustomSelect } from '../../components/ui/CustomSelect';
 import { CustomColorInput } from '../../components/ui/CustomColorInput';
 import { CustomCheckbox } from '../../components/ui/CustomCheckbox';

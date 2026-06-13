@@ -300,52 +300,52 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
           )
         ) : (
           <>
-        {/* Introduction */}
-        {hasIntro && (
-          <SceneListItem
-            number="0"
-            title="Introduction"
-            subtitle="Hook"
-            timing={sceneTimings[0]}
-            onClick={() => onSeek?.(sceneTimings[0]?.start || 0)}
-          />
-        )}
-
-        {/* Scenes */}
-        {scenes.length === 0 ? (
-          <div className="text-center py-8 px-4">
-            <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
-              <VscLayers className="text-lg text-zinc-600" />
-            </div>
-            <p className="text-xs text-zinc-500">No scenes created</p>
-          </div>
-        ) : (
-          scenes.map((scene: any, idx: number) => {
-            const globalIdx = (hasIntro ? 1 : 0) + idx;
-            const timing = sceneTimings[globalIdx];
-            return (
+            {/* Introduction */}
+            {hasIntro && (
               <SceneListItem
-                key={idx}
-                number={String(idx + 1)}
-                title={scene.title || `Scene ${idx + 1}`}
-                subtitle={scene.narration ? scene.narration.slice(0, 60) + (scene.narration.length > 60 ? '...' : '') : 'No narration'}
-                timing={timing}
-                onClick={() => onSeek?.(timing?.start || 0)}
+                number="0"
+                title="Introduction"
+                subtitle="Hook"
+                timing={sceneTimings[0]}
+                onClick={() => onSeek?.(sceneTimings[0]?.start || 0)}
               />
-            );
-          })
-        )}
+            )}
 
-        {/* Conclusion */}
-        {hasConclusion && (
-          <SceneListItem
-            number={String(scenes.length + 1)}
-            title="Conclusion"
-            subtitle="Summary & CTA"
-            timing={sceneTimings[sceneTimings.length - 1]}
-            onClick={() => onSeek?.(sceneTimings[sceneTimings.length - 1]?.start || 0)}
-          />
-        )}
+            {/* Scenes */}
+            {scenes.length === 0 ? (
+              <div className="text-center py-8 px-4">
+                <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
+                  <VscLayers className="text-lg text-zinc-600" />
+                </div>
+                <p className="text-xs text-zinc-500">No scenes created</p>
+              </div>
+            ) : (
+              scenes.map((scene: any, idx: number) => {
+                const globalIdx = (hasIntro ? 1 : 0) + idx;
+                const timing = sceneTimings[globalIdx];
+                return (
+                  <SceneListItem
+                    key={idx}
+                    number={String(idx + 1)}
+                    title={scene.title || `Scene ${idx + 1}`}
+                    subtitle={scene.narration ? scene.narration.slice(0, 60) + (scene.narration.length > 60 ? '...' : '') : 'No narration'}
+                    timing={timing}
+                    onClick={() => onSeek?.(timing?.start || 0)}
+                  />
+                );
+              })
+            )}
+
+            {/* Conclusion */}
+            {hasConclusion && (
+              <SceneListItem
+                number={String(scenes.length + 1)}
+                title="Conclusion"
+                subtitle="Summary & CTA"
+                timing={sceneTimings[sceneTimings.length - 1]}
+                onClick={() => onSeek?.(sceneTimings[sceneTimings.length - 1]?.start || 0)}
+              />
+            )}
 
           </>
         )}
@@ -394,22 +394,20 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
           <div className="flex items-center gap-1">
             <button
               onClick={() => setViewMode('list')}
-              className={`p-1 rounded text-[10px] transition-colors ${
-                viewMode === 'list'
-                  ? 'text-blue-400 bg-blue-600/20'
-                  : 'text-zinc-600 hover:text-zinc-400'
-              }`}
+              className={`p-1 rounded text-[10px] transition-colors ${viewMode === 'list'
+                ? 'text-blue-400 bg-blue-600/20'
+                : 'text-zinc-600 hover:text-zinc-400'
+                }`}
               title="List view"
             >
               <VscListFlat />
             </button>
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-1 rounded text-[10px] transition-colors ${
-                viewMode === 'grid'
-                  ? 'text-blue-400 bg-blue-600/20'
-                  : 'text-zinc-600 hover:text-zinc-400'
-              }`}
+              className={`p-1 rounded text-[10px] transition-colors ${viewMode === 'grid'
+                ? 'text-blue-400 bg-blue-600/20'
+                : 'text-zinc-600 hover:text-zinc-400'
+                }`}
               title="Grid view"
             >
               <VscSymbolField />
@@ -417,9 +415,8 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
             <button
               onClick={refresh}
               disabled={isScanning}
-              className={`p-1 rounded text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors ${
-                isScanning ? 'animate-spin pointer-events-none' : ''
-              }`}
+              className={`p-1 rounded text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors ${isScanning ? 'animate-spin pointer-events-none' : ''
+                }`}
               title="Refresh assets from disk"
             >
               <VscRefresh />
@@ -630,11 +627,10 @@ const DownloadProgressBanner: React.FC<{
   message?: string;
   downloadedCount: number;
   pendingCount: number;
-}> = ({ isFetching, progress, message, downloadedCount, pendingCount }) => {
+}> = ({ isFetching, progress, message }) => {
   if (!isFetching) return null;
 
   const pct = Math.round(progress ?? 0);
-  const total = downloadedCount + pendingCount;
 
   return (
     <div className="px-3 py-2.5 bg-blue-950/30 border-b border-blue-900/40">

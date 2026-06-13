@@ -80,7 +80,7 @@ export const EditorWorkspace: React.FC = () => {
     editingCard, setEditingCard, rewritePrompt, setRewritePrompt,
     rewritingSection,
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
-    handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection,
+    handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription
   } = useScriptEditing(
@@ -274,6 +274,7 @@ export const EditorWorkspace: React.FC = () => {
           onStartEdit={handleStartEdit}
           onCancelEdit={handleCancelEdit}
           onRewriteSection={handleRewriteSection}
+          onRewriteSubVisual={handleRewriteSubVisual}
           onInsertScene={insertAndSaveNewScene}
           onSetSceneToDelete={setSceneToDelete}
           onSetScriptData={setScriptData}

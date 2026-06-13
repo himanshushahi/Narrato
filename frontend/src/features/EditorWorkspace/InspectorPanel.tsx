@@ -36,6 +36,7 @@ interface InspectorPanelProps {
   onStartEdit: (cardKey: string) => void;
   onCancelEdit: () => void;
   onRewriteSection: (type: string, index: number) => void;
+  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
@@ -76,7 +77,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   scriptData, manifestData, transcriptionData, sceneTimings,
   currentFrame, activeSceneIdx, activeSubIdx, localProjectSettings, projectId,
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
-  onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onInsertScene,
+  onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
@@ -110,6 +111,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             onStartEdit={onStartEdit}
             onCancelEdit={onCancelEdit}
             onRewriteSection={onRewriteSection}
+            onRewriteSubVisual={onRewriteSubVisual}
             onInsertScene={onInsertScene}
             onSetSceneToDelete={onSetSceneToDelete}
             onSetScriptData={onSetScriptData}

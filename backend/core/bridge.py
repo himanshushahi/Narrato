@@ -579,6 +579,98 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         return {"success": False, "error": str(e)}
 
 @eel.expose
+def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite_prompt, language="hi"):
+    """Regenerates a single sub-visual using LLM, preserving the rest of the scene."""
+    logger.info(f"Bridge API: regenerate_sub_visual index {scene_idx} ({section_type}) sub {sub_idx}")
+    
+    llm_provider = get_setting("llm_provider") or "openai"
+    api_key = get_setting("openai_api_key")
+    base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
+    model = get_setting("openai_model") or "gpt-4o"
+    
+    if not api_key:
+        raise ValueError("Please configure an OpenAI API Key first.")
+        
+    system_prompt = (
+        "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
+        "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
+        "Your task is to rewrite the visual details (like chart data, document text, network nodes, map locations, or custom HTML/CSS) "
+        "based strictly on the user's request. Do NOT change the narration.\n"
+        "Format your output strictly as a SINGLE JSON object containing the modified sub_visual.\n\n"
+        "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {} }\n"
+        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
+        "TYPE SELECTION GUIDE:\n"
+        "- list: USE THIS when enumerating ranked items, countdowns, top-N lists. visual_meta: { \"number\": int, \"title\": str, \"description\": str }\n"
+        "- chart: USE THIS for statistics. visual_meta: { \"chart_type\": \"bar\"|\"line\"|\"pie\", \"title\": str, \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
+        "- map: USE THIS for geography. visual_meta: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
+        "- document: USE THIS for historical claims. visual_meta: { \"headline\": \"Exact news headline\", \"doc_text\": \"Detailed newspaper excerpt matching the narration\", \"source\": \"Name of Publisher\", \"date\": \"Month DD, YYYY\" }\n"
+        "- network: USE THIS for connections between people. visual_meta: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
+        "- custom_html: USE THIS for custom layouts. visual_meta: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
+        "- Any type: add {\"lower_third\": {\"title\": str, \"subtitle\": str}} for overlay text.\n"
+    )
+    
+    from backend.pipeline.ai import SUB_VISUAL_SCHEMA
+    
+    if section_type == "introduction":
+        section = full_script.get("introduction", {})
+    elif section_type == "conclusion":
+        section = full_script.get("conclusion", {})
+    else:
+        scenes = full_script.get("scenes", [])
+        if scene_idx >= len(scenes):
+            return {"success": False, "error": "Invalid scene index"}
+        section = scenes[scene_idx]
+        
+    sub_visuals = section.get("sub_visuals", [])
+    if sub_idx >= len(sub_visuals):
+        return {"success": False, "error": "Invalid sub visual index"}
+        
+    target_sub_visual = sub_visuals[sub_idx]
+    prompt_struct = "Expected: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {} }"
+    
+    user_prompt = (
+        f"Context (Narration of this scene):\n\"{section.get('narration', section.get('hook', section.get('summary', '')))}\"\n\n"
+        f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
+        f"Rewrite Instruction: {rewrite_prompt}\n\n"
+        f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
+    )
+    
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    if llm_provider == "nvidia":
+        data = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.7,
+            "guided_json": SUB_VISUAL_SCHEMA
+        }
+    else:
+        data = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.7,
+            "response_format": {"type": "json_object"}
+        }
+    
+    try:
+        res = requests_post(url, headers, data)
+        rewritten_data = clean_json_response_bridge(res)
+        return {"success": True, "data": rewritten_data}
+    except Exception as e:
+        logger.error(f"Failed to regenerate sub visual: {e}")
+        return {"success": False, "error": str(e)}
+
+@eel.expose
 def add_scene_with_ai(full_script, user_prompt, language="hi"):
     """Generates a single new scene using AI, with full script context for narrative coherence."""
     logger.info(f"Bridge API: add_scene_with_ai — user_prompt: '{user_prompt[:80]}...'")

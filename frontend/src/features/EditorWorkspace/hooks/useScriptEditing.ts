@@ -24,6 +24,7 @@ export interface UseScriptEditingReturn {
   handleCancelEdit: () => void;
   handleSaveCard: (cardKey?: string, index?: number) => Promise<void>;
   handleRewriteSection: (type: string, index: number) => Promise<void>;
+  handleRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
   insertAndSaveNewScene: (newScene: any, insertAfterIdx: number) => Promise<void>;
   confirmDeleteScene: () => Promise<void>;
   setSceneToDelete: (idx: number | null) => void;
@@ -121,7 +122,7 @@ export function useScriptEditing(
         if (scriptData.introduction?.hook !== originalScriptData.introduction?.hook) narrationChanged = true;
       } else if (cardKey === 'conclusion') {
         if (scriptData.conclusion?.summary !== originalScriptData.conclusion?.summary ||
-            scriptData.conclusion?.cta !== originalScriptData.conclusion?.cta) narrationChanged = true;
+          scriptData.conclusion?.cta !== originalScriptData.conclusion?.cta) narrationChanged = true;
       } else if (index !== undefined && scriptData.scenes && originalScriptData.scenes) {
         if (scriptData.scenes[index]?.narration !== originalScriptData.scenes[index]?.narration) narrationChanged = true;
       }
@@ -156,7 +157,7 @@ export function useScriptEditing(
 
         const sceneText = type === 'introduction' ? scriptData?.introduction?.hook
           : type === 'conclusion' ? scriptData?.conclusion?.summary
-          : scriptData?.scenes?.[sceneCounter - 1]?.narration;
+            : scriptData?.scenes?.[sceneCounter - 1]?.narration;
         const sceneDuration = manifestScene.duration > 0 ? manifestScene.duration : estimateTextDuration(sceneText);
 
         return { ...manifestScene, duration: sceneDuration, sub_visuals: mergedSubVisuals };
@@ -251,6 +252,35 @@ export function useScriptEditing(
       console.error(err);
     }
   }, [projectId, scriptData, selectedProject, rewritePrompt, setScriptData, addToast]);
+
+  const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
+    if (!projectId || !scriptData || !selectedProject?.script_path) return;
+    try {
+      const res = await callEel<{ success: boolean; data?: any; error?: string }>(
+        'regenerate_sub_visual', sceneIdx, sectionType, subIdx, scriptData, prompt, selectedProject.language
+      );
+      if (res?.success && res.data) {
+        const updated = { ...scriptData };
+        
+        let targetSection;
+        if (sectionType === 'introduction') targetSection = updated.introduction;
+        else if (sectionType === 'conclusion') targetSection = updated.conclusion;
+        else targetSection = updated.scenes?.[sceneIdx];
+
+        if (targetSection && targetSection.sub_visuals) {
+          targetSection.sub_visuals[subIdx] = res.data;
+          setScriptData(updated);
+          await callEel('save_json_file', selectedProject.script_path, updated);
+          addToast("Sub-Visual updated successfully!", 'success');
+        }
+      } else {
+        addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast("Rewrite failed", 'error');
+    }
+  }, [projectId, scriptData, selectedProject, setScriptData, addToast]);
 
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
@@ -354,7 +384,7 @@ export function useScriptEditing(
     localProjectSettings, isSavingSubtitles,
     scriptChangedAlert, setScriptChangedAlert,
     handleStartEdit, handleCancelEdit,
-    handleSaveCard, handleRewriteSection,
+    handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,
     setSceneToDelete, handleSettingsUpdate, handleSaveTranscription,
   };
