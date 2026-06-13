@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { VscLoading } from 'react-icons/vsc';
+import { CustomSelect } from '../../components/ui/CustomSelect';
 
 export const MapLocationsEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const locations = visualMeta?.locations || [];
@@ -48,6 +49,22 @@ export const MapLocationsEditor = ({ visualMeta, onChange }: { visualMeta: any, 
   return (
     <div className="col-span-2 space-y-3 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
       <div className="flex justify-between items-center text-xs">
+        <label className="text-stone-400 font-bold uppercase tracking-wider">Map Style Theme</label>
+      </div>
+      <div>
+        <CustomSelect
+          options={[
+            { value: 'vintage', label: 'Vintage (Default)' },
+            { value: 'modern_dark', label: 'Modern Dark' },
+            { value: 'minimal_light', label: 'Minimal Light' },
+            { value: 'nautical_blue', label: 'Nautical Blue' },
+          ]}
+          value={visualMeta.map_style || 'vintage'}
+          onChange={(val) => onChange({ ...visualMeta, map_style: val })}
+        />
+      </div>
+
+      <div className="flex justify-between items-center text-xs pt-2 border-t border-stone-800/50">
         <label className="text-stone-400 font-bold uppercase tracking-wider">Map Locations (Lat, Lon):</label>
         <button type="button" onClick={handleAdd} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">
           + Add Point

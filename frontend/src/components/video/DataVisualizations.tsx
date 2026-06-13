@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, spring, interpolate } from 'remotion';
+import { useCurrentFrame, spring, interpolate, useVideoConfig } from 'remotion';
 import * as d3Geo from 'd3-geo';
 import * as topojson from 'topojson-client';
 import worldData from './world-110m.json';
@@ -264,9 +264,54 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
       { name: 'End', coord: [51.5074, -0.1278] } // London
     ];
 
-    // Map container size
-    const width = 1920;
-    const height = 1080;
+    const mapStyle = meta.map_style || 'vintage';
+    const { width, height } = useVideoConfig();
+
+    let theme = {
+      bg: '#292524',
+      grid: '#44403c',
+      landFill: '#3f3f46',
+      landStroke: '#57534e',
+      route: '#f59e0b',
+      nodeFill: '#ef4444',
+      nodeGlow: 'rgba(239, 68, 68, 0.3)',
+      textFill: '#f5f5f4'
+    };
+
+    if (mapStyle === 'modern_dark') {
+      theme = {
+        bg: '#0f172a',
+        grid: '#1e293b',
+        landFill: '#020617',
+        landStroke: '#334155',
+        route: '#06b6d4',
+        nodeFill: '#0ea5e9',
+        nodeGlow: 'rgba(6, 182, 212, 0.4)',
+        textFill: '#f8fafc'
+      };
+    } else if (mapStyle === 'minimal_light') {
+      theme = {
+        bg: '#f8fafc',
+        grid: '#e2e8f0',
+        landFill: '#e2e8f0',
+        landStroke: '#94a3b8',
+        route: '#ef4444',
+        nodeFill: '#b91c1c',
+        nodeGlow: 'rgba(239, 68, 68, 0.2)',
+        textFill: '#0f172a'
+      };
+    } else if (mapStyle === 'nautical_blue') {
+      theme = {
+        bg: '#083344',
+        grid: '#164e63',
+        landFill: '#0e7490',
+        landStroke: '#0891b2',
+        route: '#ffffff',
+        nodeFill: '#fde047',
+        nodeGlow: 'rgba(253, 224, 71, 0.4)',
+        textFill: '#ffffff'
+      };
+    }
 
     // Compute bounding box for given locations to focus map
     let projection = d3Geo.geoMercator().scale(300).translate([width / 2, height / 1.5]);
@@ -328,22 +373,22 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
             {/* SVG Topographical Map */}
             <svg width={width} height={height} style={{ position: 'absolute', inset: 0 }}>
                 {/* Background Ocean Color */}
-                <rect width="100%" height="100%" fill="#292524" />
+                <rect width="100%" height="100%" fill={theme.bg} />
                 
                 {/* Vintage Grid lines background */}
                 <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-                    <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#44403c" strokeWidth="1" />
+                    <path d="M 60 0 L 0 0 0 60" fill="none" stroke={theme.grid} strokeWidth="1" />
                 </pattern>
                 <rect width="100%" height="100%" fill="url(#grid)" />
 
                 {/* Country Borders */}
-                <g opacity="0.8">
+                <g opacity={mapStyle === 'minimal_light' ? "1" : "0.8"}>
                     {(countries as any).features.map((feature: any, i: number) => (
                         <path 
                             key={i} 
                             d={pathGenerator(feature) || ""} 
-                            fill="#3f3f46" 
-                            stroke="#57534e" 
+                            fill={theme.landFill} 
+                            stroke={theme.landStroke} 
                             strokeWidth="1.5" 
                             strokeLinejoin="round" 
                         />
@@ -358,9 +403,9 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                         coordinates: locations.map((loc: any) => [loc.coord[1], loc.coord[0]])
                     } as any) || ""}
                     fill="none"
-                    stroke="#f59e0b"
-                    strokeWidth="5"
-                    strokeDasharray="15 10"
+                    stroke={theme.route}
+                    strokeWidth={mapStyle === 'minimal_light' ? "6" : "5"}
+                    strokeDasharray={mapStyle === 'nautical_blue' ? "5 10" : "15 10"}
                     style={{
                         strokeDashoffset: lineDraw
                     }}
@@ -386,22 +431,22 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                 cx={cx}
                                 cy={cy}
                                 r={25}
-                                fill="rgba(239, 68, 68, 0.3)"
+                                fill={theme.nodeGlow}
                             />
                             {/* Outer circle */}
                             <circle
                                 cx={cx}
                                 cy={cy}
                                 r={8}
-                                fill="#ef4444"
-                                stroke="#ffffff"
+                                fill={theme.nodeFill}
+                                stroke={mapStyle === 'minimal_light' ? '#ffffff' : theme.bg}
                                 strokeWidth="2"
                             />
                             {/* Text Label */}
                             <text
                                 x={cx + 15}
                                 y={cy + 6}
-                                fill="#f5f5f4"
+                                fill={theme.textFill}
                                 fontFamily="Montserrat, sans-serif"
                                 fontWeight="800"
                                 fontSize="24"
