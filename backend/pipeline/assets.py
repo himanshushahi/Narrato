@@ -83,6 +83,144 @@ def search_pexels_video(query, api_key):
         logger.warning(f"Pexels video search failed for '{query}': {e}")
     return None
 
+def _get_original_wikimedia_url(image_filename, headers):
+    """Resolve a Wikimedia image filename to its original (full-resolution) URL.
+
+    Uses the imageinfo API which returns the canonical download URL for the
+    original file on Wikimedia Commons. With proper User-Agent and Referer
+    headers this URL is generally accessible for download.
+    """
+    if not image_filename:
+        return None
+
+    # The pageimage field comes without a namespace prefix (e.g. "Harshad_Mehta.jpg")
+    # but imageinfo expects the full File: prefixed title.
+    if not image_filename.startswith("File:"):
+        image_filename = f"File:{image_filename}"
+
+    api_url = "https://en.wikipedia.org/w/api.php"
+    params = {
+        "action": "query",
+        "titles": image_filename,
+        "prop": "imageinfo",
+        "iiprop": "url",
+        "format": "json",
+    }
+    res = requests.get(api_url, params=params, headers=headers, timeout=10)
+    res.raise_for_status()
+    data = res.json()
+
+    query_pages = data.get("query", {}).get("pages", {})
+    for page_id, page_data in query_pages.items():
+        if page_id == "-1":
+            continue
+        image_info = page_data.get("imageinfo", [])
+        if image_info:
+            return image_info[0].get("url", "")
+
+    return None
+
+
+def search_wikipedia_image(query):
+    """Searches Wikipedia for a person/entity and returns the main image URL.
+
+    Uses the Wikipedia API to find the best-matching page and retrieves its
+    primary (infobox) image in original quality. Falls back to a 1920px
+    thumbnail if the original cannot be obtained.
+
+    This is ideal for 'portrait' type sub-visuals where Pexels stock photos
+    would be inaccurate for specific people.
+    """
+    if not query or not query.strip():
+        return None
+
+    headers = {
+        "User-Agent": WIKIMEDIA_USER_AGENT,
+    }
+    api_url = "https://en.wikipedia.org/w/api.php"
+    search_query = query.strip()
+
+    try:
+        # Step 1: Search Wikipedia for the best-matching page
+        search_params = {
+            "action": "query",
+            "list": "search",
+            "srsearch": search_query,
+            "srlimit": 3,
+            "format": "json"
+        }
+        res = requests.get(api_url, params=search_params, headers=headers, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+
+        pages = data.get("query", {}).get("search", [])
+        if not pages:
+            logger.warning(f"Wikipedia search returned no results for '{query}'")
+            return None
+
+        page_title = pages[0].get("title", "")
+        if not page_title:
+            return None
+
+        logger.info(f"Wikipedia: found page '{page_title}' for query '{query}'")
+
+        # Step 2: Get the page's primary image info (filename + thumbnail)
+        image_params = {
+            "action": "query",
+            "titles": page_title,
+            "prop": "pageimages",
+            "piprop": "thumbnail",
+            "pithumbsize": 1920,
+            "format": "json"
+        }
+        res = requests.get(api_url, params=image_params, headers=headers, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+
+        thumbnail_url = None
+        image_filename = None
+
+        for page_id, page_data in data.get("query", {}).get("pages", {}).items():
+            if page_id == "-1":
+                continue
+            # pageimage holds the raw filename (e.g. "Harshad_Mehta.jpg")
+            image_filename = page_data.get("pageimage", "")
+            # Fallback thumbnail in case original resolution is unavailable
+            thumb = page_data.get("thumbnail", {})
+            thumbnail_url = thumb.get("source", "")
+            break
+
+        # Step 3: Resolve the original (full-resolution) file URL via imageinfo API
+        if image_filename:
+            try:
+                original_url = _get_original_wikimedia_url(image_filename, headers)
+                if original_url:
+                    # Force HTTPS (defensive — Wikipedia already returns https)
+                    if original_url.startswith("http://"):
+                        original_url = "https://" + original_url[7:]
+                    logger.info(f"Wikipedia: found ORIGINAL image for '{page_title}': {original_url}")
+                    return original_url
+            except Exception as e:
+                logger.warning(f"Wikipedia: imageinfo API failed for '{image_filename}': {e}")
+
+        # Step 4: Fallback to the 1920px thumbnail URL
+        if thumbnail_url:
+            if thumbnail_url.startswith("http://"):
+                thumbnail_url = "https://" + thumbnail_url[7:]
+            logger.info(f"Wikipedia: using thumbnail (original unavailable) for '{page_title}': {thumbnail_url}")
+            return thumbnail_url
+
+        logger.warning(f"Wikipedia: no image found for page '{page_title}'")
+        return None
+
+    except requests.RequestException as e:
+        logger.warning(f"Wikipedia API request failed for '{query}': {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Wikipedia search failed for '{query}': {e}")
+        return None
+
+
 def download_youtube_video(query, dest_path, start_offset=15, duration=15, cancel_event=None):
     """
     Downloads a short clip from YouTube matching the query using yt-dlp.
@@ -159,11 +297,26 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15, cance
         logger.error(f"Exception while executing yt-dlp: {e}")
         return False
 
+WIKIMEDIA_USER_AGENT = "RemotionCanvas/1.0 (documentary video generator; mailto:dev@remotioncanvas.local)"
+
+
 def download_asset(url, dest_path, cancel_event=None):
-    """Downloads a binary asset from a URL and saves it."""
+    """Downloads a binary asset from a URL and saves it.
+
+    Wikimedia Commons blocks requests without a proper User-Agent header,
+    so we always send one — it's harmless for other CDNs (Pexels, etc.)
+    and essential for Wikimedia-hosted images.
+    """
     try:
         logger.info(f"Downloading stock asset from: {url}")
-        res = requests.get(url, stream=True, timeout=30)
+        headers = {
+            "User-Agent": WIKIMEDIA_USER_AGENT,
+        }
+        # Wikimedia also checks Referer in some cases — sending one that
+        # matches a legitimate Wikipedia page context avoids further blocks.
+        if "wikimedia.org" in url or "wikipedia.org" in url:
+            headers["Referer"] = "https://en.wikipedia.org/"
+        res = requests.get(url, headers=headers, stream=True, timeout=30)
         res.raise_for_status()
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         with open(dest_path, "wb") as f:
@@ -234,8 +387,6 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
                     logger.info(f"Saved fallback {fallback_type} for [{seg_idx}:{sub_idx}].")
 
     elif visual_type in ("scene", "portrait", "image", "parallax") and api_key:
-        logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Pexels: '{visual_cue}' (type: {visual_type})")
-
         asset_url = None
         ext = ".jpg"
 
@@ -244,8 +395,17 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
             asset_url = search_pexels_video(visual_cue, api_key)
             ext = ".mp4"
 
-        # Fallback to image search if video not found or type is image/portrait/parallax
+        # For portrait: try Wikipedia first for accurate images of specific people
+        if not asset_url and visual_type == "portrait":
+            search_term = visual_cue or visual_meta.get("person_name", "")
+            logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Wikipedia portrait search: '{search_term}'")
+            asset_url = search_wikipedia_image(search_term)
+            ext = ".jpg"
+
+        # Fallback to Pexels image search if Wikipedia didn't find anything
+        # or if type is image/parallax (which don't use Wikipedia)
         if not asset_url:
+            logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Pexels fallback: '{visual_cue}' (type: {visual_type})")
             asset_url = search_pexels_photo(visual_cue, api_key)
             ext = ".jpg"
 

@@ -452,7 +452,7 @@ SUB-VISUALS: Every scene, intro & conclusion needs a `sub_visuals` array.
 - map: USE THIS when discussing geography, routes, locations, territories, borders, or movement between places (e.g. "Alexander's march", "Viking trade routes").
 - document: USE THIS for historical claims, news events, classified archives, newspaper-style reveals, or documentary evidence.
 - network: USE THIS for connections between people, organizations, relationships, conspiracy boards, or criminal networks.
-- portrait: USE THIS when introducing or focusing on a specific historical figure or person.
+- portrait: USE THIS when you need an ACCURATE real image of a specific real-world entity — person, place, landmark, monument, event, building, invention, or any other Wikipedia-notable subject.
 - parallax: USE THIS for dramatic visual reveals with layered depth (background + foreground separation).
 - custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations not covered by other types.
 - scene/image: Default visual support for general narration, atmosphere, establishing shots.
@@ -463,6 +463,7 @@ QUANTITY: 2-4 items for MEDIA types (scene/image/parallax/portrait/youtube). Exa
 EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "transition": "fade"|"slide_left"|"slide_right"|"slide_up"|"slide_down"|"zoom_in"|"zoom_out"|"glitch"|"none", "visual_meta": dict as below}
 
 - scene/image/parallax: visual_meta {} (portrait may add {"person_name": str})
+- PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name (e.g. "entity name", NOT "entity name speaking in public" or "a photo of entity name"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.
 - youtube: visual_meta {"start_offset": 15, "duration": 15, "skip_intro": true}
 - chart: visual_meta {"chart_type": "bar"|"line"|"pie", "title": str, "data": [{"label": str, "value": number}]}
 - map: visual_meta {"map_style": "vintage", "locations": [{"name": str, "coord": [lat, lon]}]} (2 locations)

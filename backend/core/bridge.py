@@ -553,7 +553,7 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "- map: USE THIS for geography, routes, locations, or movement between places.\n"
         "- document: USE THIS for historical claims, news events, or archival evidence.\n"
         "- network: USE THIS for connections between people, organizations, or relationships.\n"
-        "- portrait: USE THIS when introducing a specific person/historical figure.\n"
+        "- portrait: USE THIS when you need an ACCURATE real image of a specific real-world entity — person, place, landmark, monument, event, building, or any other Wikipedia-notable subject.\n"
         "- parallax: USE THIS for dramatic layered depth reveals.\n"
         "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
         "- scene/image: Default visual support for general narration.\n"
@@ -563,7 +563,8 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
         "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"
         "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
-        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
+        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.
+- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name (e.g. "entity name", NOT "entity name speaking in public" or "a portrait of entity name"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.\n"
         "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
         "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
         "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
@@ -647,6 +648,7 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
         "- custom_html: USE THIS for custom layouts. visual_meta: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
         "- Any type: add {\"lower_third\": {\"title\": str, \"subtitle\": str}} for overlay text.\n"
         "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
+        "- PORTRAIT CRITICAL: For 'portrait' type, visual_cue must be ONLY the person's full name (e.g. \"Harshad Mehta\", not \"Harshad Mehta speaking in public\"). This is used as a Wikipedia search query.\n"
     )
     
     if section_type == "introduction":
@@ -720,7 +722,7 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         "- map: USE THIS for geography, routes, locations, or movement between places.\n"
         "- document: USE THIS for historical claims, news events, or archival evidence.\n"
         "- network: USE THIS for connections between people, organizations, or relationships.\n"
-        "- portrait: USE THIS when introducing a specific person/historical figure.\n"
+        "- portrait: USE THIS when you need an ACCURATE real image of a specific real-world entity — person, place, landmark, monument, event, building, or any other Wikipedia-notable subject.\n"
         "- parallax: USE THIS for dramatic layered depth reveals.\n"
         "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
         "- scene/image: Default visual support for general narration.\n"
@@ -730,7 +732,8 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
         "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"
         "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
-        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
+        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.
+- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name (e.g. "entity name", NOT "entity name speaking in public" or "a portrait of entity name"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.\n"
         "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
         "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
         "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
