@@ -9,7 +9,7 @@ export const VISUAL_TYPE_OPTIONS = [
   { value: 'document', label: 'Archival Document' },
   { value: 'youtube', label: 'YouTube Video' },
   { value: 'list', label: 'Numbered List' },
-  { value: 'custom_html', label: 'Custom HTML / CSS' },
+  { value: 'custom_html', label: 'Html' },
 ];
 
 export const TRANSITION_TYPE_OPTIONS = [

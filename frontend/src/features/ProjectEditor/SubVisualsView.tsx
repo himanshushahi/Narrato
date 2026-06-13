@@ -18,7 +18,7 @@ export const SubVisualsView = ({ subVisuals, timings, activeIdx, onSeek }: { sub
                   {formatTime(timing.start)}
                 </span>
               )}
-              <span>Layer: <strong className={isActive ? 'text-amber-300 capitalize' : 'text-stone-300 capitalize'}>{sv.visual_type}</strong></span>
+              <span>Layer: <strong className={isActive ? 'text-amber-300 capitalize' : 'text-stone-300 capitalize'}>{sv.visual_type === 'custom_html' ? 'Html' : sv.visual_type}</strong></span>
             </div>
             <div className="pl-6 flex items-center gap-2">
               <span>Cue: <strong className={isActive ? 'text-amber-200' : 'text-stone-300'}>{sv.visual_cue}</strong></span>
