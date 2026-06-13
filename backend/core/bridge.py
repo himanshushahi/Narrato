@@ -3,6 +3,7 @@ import eel
 import json
 import os
 import threading
+import requests
 from pathlib import Path
 from backend.core.logger import logger, register_log_callback
 from backend.database.db import (
@@ -14,10 +15,45 @@ from backend.pipeline.tts import (
     check_kokoro_assets, download_file_with_progress, KOKORO_MODEL_URL, KOKORO_MODEL_PATH,
     KOKORO_VOICES_URL, KOKORO_VOICES_PATH
 )
+from backend.pipeline.ai import (
+    INTRO_JSON_SCHEMA, CONCLUSION_JSON_SCHEMA, SCENE_JSON_SCHEMA, SUB_VISUAL_SCHEMA, 
+    clean_json_response
+)
 
 _kokoro_download_active = False
 _whisper_download_active = False
 _ytdlp_update_active = False
+
+def _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_key, base_url, model):
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    data = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.7
+    }
+    
+    if llm_provider == "nvidia":
+        data["guided_json"] = schema
+    else:
+        data["response_format"] = {"type": "json_object"}
+        
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=60)
+        response.raise_for_status()
+        res = response.json()["choices"][0]["message"]["content"]
+        rewritten_data = clean_json_response(res)
+        return {"success": True, "data": rewritten_data}
+    except Exception as e:
+        logger.error(f"Failed direct LLM call: {e}")
+        return {"success": False, "error": str(e)}
 
 @eel.expose
 def browse_export_directory():
@@ -541,7 +577,6 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
     else:
         system_prompt += "The rewritten narration text MUST be written in English.\n\n"
         
-    from backend.pipeline.ai import INTRO_JSON_SCHEMA, CONCLUSION_JSON_SCHEMA, SCENE_JSON_SCHEMA
     if section_type == "introduction":
         target_content = full_script.get("introduction", {})
         prompt_struct = "Expected: { \"hook\": \"text\", \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }] }"
@@ -562,40 +597,7 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         f"Generate the rewritten JSON segment now. Structure matches: {prompt_struct}."
     )
     
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    if llm_provider == "nvidia":
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.7,
-            "guided_json": schema
-        }
-    else:
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.7,
-            "response_format": {"type": "json_object"}
-        }
-    
-    try:
-        res = requests_post(url, headers, data)
-        rewritten_data = clean_json_response_bridge(res)
-        return {"success": True, "data": rewritten_data}
-    except Exception as e:
-        logger.error(f"Failed to regenerate section: {e}")
-        return {"success": False, "error": str(e)}
+    return _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_key, base_url, model)
 
 @eel.expose
 def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite_prompt, language="hi"):
@@ -629,8 +631,6 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
         "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
     )
     
-    from backend.pipeline.ai import SUB_VISUAL_SCHEMA
-    
     if section_type == "introduction":
         section = full_script.get("introduction", {})
     elif section_type == "conclusion":
@@ -660,40 +660,7 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
         f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
     )
     
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    if llm_provider == "nvidia":
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.7,
-            "guided_json": SUB_VISUAL_SCHEMA
-        }
-    else:
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.7,
-            "response_format": {"type": "json_object"}
-        }
-    
-    try:
-        res = requests_post(url, headers, data)
-        rewritten_data = clean_json_response_bridge(res)
-        return {"success": True, "data": rewritten_data}
-    except Exception as e:
-        logger.error(f"Failed to regenerate sub visual: {e}")
-        return {"success": False, "error": str(e)}
+    return _call_llm_api_direct(system_prompt, user_prompt, SUB_VISUAL_SCHEMA, llm_provider, api_key, base_url, model)
 
 @eel.expose
 def add_scene_with_ai(full_script, user_prompt, language="hi"):
@@ -761,8 +728,6 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
     else:
         system_prompt += "The narration text MUST be written in English.\n\n"
 
-    from backend.pipeline.ai import SCENE_JSON_SCHEMA
-
     user_prompt = (
         f"Generate a new scene for this documentary based on the following description:\n\n"
         f"{user_prompt}\n\n"
@@ -770,51 +735,9 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         f"The scene_number will be assigned by the system, so just put 1 as a placeholder."
     )
 
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-
-    if llm_provider == "nvidia":
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.7,
-            "guided_json": SCENE_JSON_SCHEMA
-        }
-    else:
-        data = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.7,
-            "response_format": {"type": "json_object"}
-        }
-
-    try:
-        res = requests_post(url, headers, data)
-        scene_data = clean_json_response_bridge(res)
-        return {"success": True, "data": scene_data}
-    except Exception as e:
-        logger.error(f"Failed to generate new scene: {e}")
-        return {"success": False, "error": str(e)}
+    return _call_llm_api_direct(system_prompt, user_prompt, SCENE_JSON_SCHEMA, llm_provider, api_key, base_url, model)
 
 
-def requests_post(url, headers, json_data):
-    import requests
-    response = requests.post(url, headers=headers, json=json_data, timeout=60)
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
-
-def clean_json_response_bridge(raw_text):
-    from backend.pipeline.ai import clean_json_response
-    return clean_json_response(raw_text)
 
 @eel.expose
 def generate_voice_preview(text, engine, voice, speed, pitch, language):

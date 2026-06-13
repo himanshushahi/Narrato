@@ -706,6 +706,86 @@ const AssetsEmptyState: React.FC<{
   );
 };
 
+const AssetThumbnail: React.FC<{
+  asset: AssetEntry;
+  isFetching: boolean;
+  size?: 'small' | 'large';
+}> = ({ asset, isFetching, size = 'small' }) => {
+  const hasFile = asset.fileExists && !asset.isProgrammatic;
+  const ext = asset.extension || (asset.visualPath ? '.' + asset.visualPath.split('.').pop() : '');
+
+  if (hasFile && isImageFile(ext) && asset.visualUrl) {
+    return (
+      <img
+        src={asset.visualUrl}
+        alt={asset.visualCue || ''}
+        className="w-full h-full object-cover"
+        loading="lazy"
+        draggable={false}
+      />
+    );
+  }
+
+  if (hasFile && isVideoFile(ext) && asset.visualUrl) {
+    const playCircleClass = size === 'small' ? 'w-4 h-4' : 'w-8 h-8';
+    const playIconClass = size === 'small' ? 'text-[7px] ml-px' : 'text-sm ml-0.5';
+
+    return (
+      <div className="relative w-full h-full">
+        <video
+          src={asset.visualUrl}
+          className="w-full h-full object-cover"
+          preload="metadata"
+          muted
+          playsInline
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            v.currentTime = Math.min(0.5, v.duration / 2);
+          }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className={`${playCircleClass} rounded-full bg-black/50 flex items-center justify-center`}>
+            <VscPlay className={`text-blue-300 ${playIconClass}`} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (hasFile) {
+    const badge = fileTypeBadge(ext as string);
+    const iconClass = size === 'small' ? 'text-[10px]' : 'text-lg';
+    const labelClass = size === 'small' ? 'text-[6px] mt-0.5' : 'text-[9px] mt-1';
+
+    return (
+      <div className={`w-full h-full flex flex-col items-center justify-center ${badge.color}`}>
+        <span className={iconClass}>{badge.icon}</span>
+        <span className={`font-bold leading-none uppercase ${labelClass}`}>{badge.label}</span>
+      </div>
+    );
+  }
+
+  const defaultIconClass = size === 'small' ? 'text-zinc-600 text-sm' : 'text-zinc-600 text-lg';
+  const loadingClass = size === 'small' ? 'text-zinc-600 text-xs animate-spin' : 'text-blue-500 text-lg animate-spin';
+
+  return (
+    <div className="flex flex-col items-center justify-center w-full h-full text-zinc-600">
+      {asset.isProgrammatic ? (
+        <>
+          {size === 'large' && <VscSymbolField className="text-lg" />}
+          <span className={`font-bold uppercase ${size === 'small' ? 'text-[9px] text-purple-500/60' : 'text-[7px] mt-1 font-normal'}`}>
+            {size === 'small' ? 'Gen' : 'Generated'}
+          </span>
+        </>
+      ) : isFetching ? (
+        <VscLoading className={loadingClass} />
+      ) : (
+        <VscPackage className={defaultIconClass} />
+      )}
+    </div>
+  );
+};
+
 /** Single asset item in list view */
 const AssetListItem: React.FC<{
   asset: AssetEntry;
@@ -713,7 +793,6 @@ const AssetListItem: React.FC<{
   onClick: () => void;
 }> = ({ asset, isFetching, onClick }) => {
   const hasFile = asset.fileExists && !asset.isProgrammatic;
-  const ext = asset.extension || (asset.visualPath ? '.' + asset.visualPath.split('.').pop() : '');
 
   return (
     <div
@@ -728,54 +807,7 @@ const AssetListItem: React.FC<{
     >
       {/* Thumbnail — image preview for photos, video poster for videos */}
       <div className="w-9 h-9 shrink-0 rounded-md overflow-hidden bg-zinc-800/80 border border-zinc-700/40 flex items-center justify-center">
-        {hasFile && isImageFile(ext) && asset.visualUrl ? (
-          <img
-            src={asset.visualUrl}
-            alt=""
-            className="w-full h-full object-cover"
-            loading="lazy"
-            draggable={false}
-          />
-        ) : hasFile && isVideoFile(ext) && asset.visualUrl ? (
-          <div className="relative w-full h-full">
-            <video
-              src={asset.visualUrl}
-              className="w-full h-full object-cover"
-              preload="metadata"
-              muted
-              playsInline
-              onLoadedMetadata={(e) => {
-                const v = e.currentTarget;
-                v.currentTime = Math.min(0.5, v.duration / 2);
-              }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-4 h-4 rounded-full bg-black/50 flex items-center justify-center">
-                <VscPlay className="text-blue-300 text-[7px] ml-px" />
-              </div>
-            </div>
-          </div>
-        ) : hasFile ? (
-          (() => {
-            const badge = fileTypeBadge(ext);
-            return (
-              <div className={`w-full h-full flex flex-col items-center justify-center ${badge.color}`}>
-                <span className="text-[10px]">{badge.icon}</span>
-                <span className="text-[6px] font-bold leading-none mt-0.5">{badge.label}</span>
-              </div>
-            );
-          })()
-        ) : (
-          <div className="flex items-center justify-center w-full h-full">
-            {asset.isProgrammatic ? (
-              <span className="text-[9px] font-bold text-purple-500/60 uppercase">Gen</span>
-            ) : isFetching ? (
-              <VscLoading className="text-zinc-600 text-xs animate-spin" />
-            ) : (
-              <VscPackage className="text-zinc-600 text-sm" />
-            )}
-          </div>
-        )}
+        <AssetThumbnail asset={asset} isFetching={isFetching} size="small" />
       </div>
 
       {/* Info */}
@@ -837,7 +869,6 @@ const AssetGridItem: React.FC<{
   onClick: () => void;
 }> = ({ asset, isFetching, onClick }) => {
   const hasFile = asset.fileExists && !asset.isProgrammatic;
-  const ext = asset.extension || '';
 
   return (
     <div
@@ -852,57 +883,7 @@ const AssetGridItem: React.FC<{
     >
       {/* Thumbnail area — image preview for photos, video poster for videos */}
       <div className="aspect-video bg-zinc-800/60 flex items-center justify-center overflow-hidden relative">
-        {hasFile && isImageFile(ext) && asset.visualUrl ? (
-          <img
-            src={asset.visualUrl}
-            alt={asset.visualCue || 'Asset'}
-            className="w-full h-full object-cover"
-            loading="lazy"
-            draggable={false}
-          />
-        ) : hasFile && isVideoFile(ext) && asset.visualUrl ? (
-          <div className="relative w-full h-full">
-            <video
-              src={asset.visualUrl}
-              className="w-full h-full object-cover"
-              preload="metadata"
-              muted
-              playsInline
-              onLoadedMetadata={(e) => {
-                const v = e.currentTarget;
-                v.currentTime = Math.min(0.5, v.duration / 2);
-              }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
-                <VscPlay className="text-blue-300 text-sm ml-0.5" />
-              </div>
-            </div>
-          </div>
-        ) : hasFile ? (
-          (() => {
-            const badge = fileTypeBadge(ext);
-            return (
-              <div className={`w-full h-full flex flex-col items-center justify-center ${badge.color}`}>
-                <span className="text-lg">{badge.icon}</span>
-                <span className="text-[9px] font-bold mt-1 uppercase">{badge.label}</span>
-              </div>
-            );
-          })()
-        ) : (
-          <div className="flex flex-col items-center justify-center text-zinc-600">
-            {asset.isProgrammatic ? (
-              <>
-                <VscSymbolField className="text-lg" />
-                <span className="text-[7px] mt-1 uppercase">Generated</span>
-              </>
-            ) : isFetching ? (
-              <VscLoading className="text-lg animate-spin text-blue-500" />
-            ) : (
-              <VscPackage className="text-lg" />
-            )}
-          </div>
-        )}
+        <AssetThumbnail asset={asset} isFetching={isFetching} size="large" />
       </div>
 
       {/* Info row */}

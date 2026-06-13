@@ -92,6 +92,43 @@ def get_missing_frame_ranges(frames_dir, total_frames):
         
     return ",".join(missing_ranges)
 
+def _stream_process_output(process, cancel_event, line_callback, label="Process"):
+    """Helper to stream subprocess output line by line, handle cancellation, and collect error context."""
+    buffer = ""
+    last_output_lines = []
+    
+    while True:
+        if cancel_event.is_set():
+            logger.warning(f"{label} cancelled by user. Terminating process.")
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            raise InterruptedError("Cancelled")
+
+        char = process.stdout.read(1)
+        if not char and process.poll() is not None:
+            break
+            
+        if char in ('\r', '\n'):
+            line = buffer
+            buffer = ""
+            stripped = line.strip()
+            if not stripped:
+                continue
+                
+            last_output_lines.append(stripped)
+            if len(last_output_lines) > 20:
+                last_output_lines.pop(0)
+                
+            line_callback(stripped)
+        else:
+            buffer += char
+            
+    process.wait()
+    return process.returncode, last_output_lines
+
 def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering."""
     manifest_path = Path(project_dict['assets_manifest_path'])
@@ -354,71 +391,42 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         bundle_regex = re.compile(r"Bundle ready in")
 
         try:
-            buffer = ""
-            last_output_lines = []
-            while True:
-                if cancel_event.is_set():
-                    logger.warning("Render cancelled by user. Terminating process.")
-                    process.terminate()
-                    try:
-                        process.wait(timeout=3)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                    raise InterruptedError("Cancelled")
+            def handle_line(stripped):
+                progress_match = progress_regex.search(stripped)
+                
+                skip_log = False
+                if progress_match:
+                    pct_val = float(progress_match.group(1))
+                    if not hasattr(run_node_process, '_last_logged_pct'):
+                        run_node_process._last_logged_pct = -1
+                    if abs(pct_val - run_node_process._last_logged_pct) < 5.0 and pct_val < 100:
+                        skip_log = True
+                    else:
+                        run_node_process._last_logged_pct = pct_val
 
-                char = process.stdout.read(1)
-                if not char and process.poll() is not None:
-                    break
+                if not skip_log:
+                    logger.info(f"[{label}]: {stripped}")
                     
-                if char in ('\r', '\n'):
-                    line = buffer
-                    buffer = ""
-                    if not line.strip():
-                        continue
+                if progress_match:
+                    pct_val = float(progress_match.group(1))
+                    # Map Remotion sub-range progress to overall frame progress so the
+                    # displayed percentage reflects all frames, not just the missing range.
+                    # E.g. when resuming from frame 2250 of 11701, the first progress
+                    # shows ~19.2% instead of 0.0%.
+                    overall_pct = first_missing_frame_pct + (pct_val / 100.0) * (100.0 - first_missing_frame_pct)
+                    pct = base_progress + (overall_pct / 100.0) * progress_weight
+                    progress_cb(min(99.0, pct), f"Rendering {label.lower()}... {overall_pct:.1f}%")
+                elif bundle_regex.search(stripped):
+                    progress_cb(base_progress, f"Bundling complete. Starting {label.lower()} render...")
 
-                    stripped = line.strip()
-                    if stripped:
-                        progress_match = progress_regex.search(stripped)
-                        
-                        skip_log = False
-                        if progress_match:
-                            pct_val = float(progress_match.group(1))
-                            if not hasattr(run_node_process, '_last_logged_pct'):
-                                run_node_process._last_logged_pct = -1
-                            if abs(pct_val - run_node_process._last_logged_pct) < 5.0 and pct_val < 100:
-                                skip_log = True
-                            else:
-                                run_node_process._last_logged_pct = pct_val
-
-                        if not skip_log:
-                            logger.info(f"[{label}]: {stripped}")
-                            
-                        last_output_lines.append(stripped)
-                        if len(last_output_lines) > 20:
-                            last_output_lines.pop(0)
-                            
-                        if progress_match:
-                            pct_val = float(progress_match.group(1))
-                            # Map Remotion sub-range progress to overall frame progress so the
-                            # displayed percentage reflects all frames, not just the missing range.
-                            # E.g. when resuming from frame 2250 of 11701, the first progress
-                            # shows ~19.2% instead of 0.0%.
-                            overall_pct = first_missing_frame_pct + (pct_val / 100.0) * (100.0 - first_missing_frame_pct)
-                            pct = base_progress + (overall_pct / 100.0) * progress_weight
-                            progress_cb(min(99.0, pct), f"Rendering {label.lower()}... {overall_pct:.1f}%")
-                        elif bundle_regex.search(stripped):
-                            progress_cb(base_progress, f"Bundling complete. Starting {label.lower()} render...")
-                else:
-                    buffer += char
-
-            process.wait()
+            returncode, last_output_lines = _stream_process_output(process, cancel_event, handle_line, label)
 
             if hasattr(run_node_process, '_last_logged_pct'):
                 del run_node_process._last_logged_pct
 
-            if process.returncode != 0:
+            if returncode != 0:
                 error_details = "\n".join(last_output_lines)
-                raise RuntimeError(f"{label} process failed with exit code {process.returncode}.\nLast output:\n{error_details}")
+                raise RuntimeError(f"{label} process failed with exit code {returncode}.\nLast output:\n{error_details}")
 
         except Exception as e:
             raise e
@@ -442,47 +450,25 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         )
         
         frame_regex = re.compile(r"frame=\s*(\d+)")
-        last_logged_pct = -1
-        last_output_lines = []
-        buffer = ""
+        last_logged_pct = [-1]
         
-        while True:
-            if cancel_event.is_set():
-                process.terminate()
-                try: process.wait(timeout=3)
-                except: process.kill()
-                raise InterruptedError("Cancelled")
+        def handle_line(stripped):
+            match = frame_regex.search(stripped)
+            if match and total_frames > 0:
+                f = int(match.group(1))
+                pct_val = min(100.0, (f / total_frames) * 100.0)
+                if pct_val - last_logged_pct[0] >= 5.0 or pct_val >= 100:
+                    last_logged_pct[0] = pct_val
+                    logger.info(f"[FFmpeg]: {stripped}")
+                    
+                pct = base_progress + (pct_val / 100.0) * progress_weight
+                progress_cb(min(99.0, pct), f"Muxing video... {pct_val:.1f}%")
+
+        returncode, last_output_lines = _stream_process_output(process, cancel_event, handle_line, "FFmpeg")
                 
-            char = process.stdout.read(1)
-            if not char and process.poll() is not None:
-                break
-                
-            if char in ('\r', '\n'):
-                line = buffer
-                buffer = ""
-                if not line.strip(): continue
-                stripped = line.strip()
-                
-                last_output_lines.append(stripped)
-                if len(last_output_lines) > 20: last_output_lines.pop(0)
-                
-                match = frame_regex.search(stripped)
-                if match and total_frames > 0:
-                    f = int(match.group(1))
-                    pct_val = min(100.0, (f / total_frames) * 100.0)
-                    if pct_val - last_logged_pct >= 5.0 or pct_val >= 100:
-                        last_logged_pct = pct_val
-                        logger.info(f"[FFmpeg]: {stripped}")
-                        
-                    pct = base_progress + (pct_val / 100.0) * progress_weight
-                    progress_cb(min(99.0, pct), f"Muxing video... {pct_val:.1f}%")
-            else:
-                buffer += char
-                
-        process.wait()
-        if process.returncode != 0:
+        if returncode != 0:
             error_details = "\n".join(last_output_lines)
-            raise RuntimeError(f"FFmpeg failed with exit code {process.returncode}.\nLast output:\n{error_details}")
+            raise RuntimeError(f"FFmpeg failed with exit code {returncode}.\nLast output:\n{error_details}")
 
     base_node_cmd = [
         node_exe,

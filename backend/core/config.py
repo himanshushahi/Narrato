@@ -113,7 +113,7 @@ def get_remotion_cache_dir() -> Path:
     """Returns a writable directory for Remotion's internal cache (.remotion folder).
 
     In production, this points to LOCALAPPDATA/Narrato/cache/remotion to avoid
-    permission issues when installed in C:\Program Files.
+    permission issues when installed in C:\\Program Files.
     In development, it points to frontend/node_modules/.remotion as usual.
     """
     if getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production":

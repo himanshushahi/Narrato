@@ -9,6 +9,7 @@ import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
 import { CustomRange } from '../components/ui/CustomRange';
 import { motion, Variants } from 'framer-motion';
+import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../features/Settings/voiceConstants';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
@@ -253,36 +254,10 @@ export const SettingsPage: React.FC = () => {
     { value: 'medium', label: 'Medium (~1.5GB) - High Accuracy' }
   ];
 
-  const edgeVoiceOptions: SelectOption[] = [
-    { value: 'en-US-AndrewNeural', label: 'English US (Andrew - Male)' },
-    { value: 'en-US-EmmaNeural', label: 'English US (Emma - Female)' },
-    { value: 'hi-IN-SwaraNeural', label: 'Hindi India (Swara - Female)' },
-    { value: 'hi-IN-MadhurNeural', label: 'Hindi India (Madhur - Male)' }
-  ];
-
-  const edgeRateOptions: SelectOption[] = [
-    { value: '0.8', label: '0.8x (Slow)' },
-    { value: '1.0', label: '1.0x (Normal)' },
-    { value: '1.2', label: '1.2x (Fast)' },
-    { value: '1.4', label: '1.4x (Fastest)' }
-  ];
-
-  const edgePitchOptions: SelectOption[] = [
-    { value: '-5Hz', label: '-5Hz (Deeper)' },
-    { value: '0Hz', label: '0Hz (Default)' },
-    { value: '+5Hz', label: '+5Hz (Higher)' }
-  ];
-
-  const kokoroVoiceOptions: SelectOption[] = [
-    { value: 'af_bella', label: 'Bella (US Female - Soft)' },
-    { value: 'af_sarah', label: 'Sarah (US Female - Engaging)' },
-    { value: 'am_adam', label: 'Adam (US Male - Deep)' },
-    { value: 'am_michael', label: 'Michael (US Male - Cinematic)' },
-    { value: 'hf_alpha', label: 'Alpha (Hindi Female)' },
-    { value: 'hf_beta', label: 'Beta (Hindi Female)' },
-    { value: 'hm_omega', label: 'Omega (Hindi Male)' },
-    { value: 'hm_psi', label: 'Psi (Hindi Male)' }
-  ];
+  const edgeVoiceOptions = EDGE_VOICE_OPTIONS;
+  const edgeRateOptions = SPEED_OPTIONS;
+  const edgePitchOptions = PITCH_OPTIONS;
+  const kokoroVoiceOptions = KOKORO_VOICE_OPTIONS;
 
   const filteredEdgeVoiceOptions = edgeVoiceOptions.filter(opt =>
     appLanguage === 'hi' ? opt.value.startsWith('hi-') : !opt.value.startsWith('hi-')

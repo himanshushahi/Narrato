@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { VscAccount, VscCheck, VscPlay, VscLoading, VscRefresh, VscUnmute } from 'react-icons/vsc';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useProjectStore } from '../../../store/useProjectStore';
-import { CustomSelect, SelectOption } from '../../../components/ui/CustomSelect';
+import { CustomSelect } from '../../../components/ui/CustomSelect';
 import { CustomRange } from '../../../components/ui/CustomRange';
 import { AnimatedTabs, Tab } from '../../../components/ui/AnimatedTabs';
 import { callEel } from '../../../utils/eel-bridge';
@@ -15,36 +15,7 @@ interface VoiceTabProps {
 
 // ─── Option lists ───────────────────────────────────────────
 
-const EDGE_VOICE_OPTIONS: SelectOption[] = [
-  { value: 'en-US-AndrewNeural', label: 'Andrew (English US - Male)' },
-  { value: 'en-US-EmmaNeural', label: 'Emma (English US - Female)' },
-  { value: 'hi-IN-SwaraNeural', label: 'Swara (Hindi India - Female)' },
-  { value: 'hi-IN-MadhurNeural', label: 'Madhur (Hindi India - Male)' },
-];
-
-const KOKORO_VOICE_OPTIONS: SelectOption[] = [
-  { value: 'af_bella', label: 'Bella (US Female - Soft)' },
-  { value: 'af_sarah', label: 'Sarah (US Female - Engaging)' },
-  { value: 'am_adam', label: 'Adam (US Male - Deep)' },
-  { value: 'am_michael', label: 'Michael (US Male - Cinematic)' },
-  { value: 'hf_alpha', label: 'Alpha (Hindi Female)' },
-  { value: 'hf_beta', label: 'Beta (Hindi Female)' },
-  { value: 'hm_omega', label: 'Omega (Hindi Male)' },
-  { value: 'hm_psi', label: 'Psi (Hindi Male)' },
-];
-
-const SPEED_OPTIONS: SelectOption[] = [
-  { value: '0.8', label: '0.8x (Slow)' },
-  { value: '1.0', label: '1.0x (Normal)' },
-  { value: '1.2', label: '1.2x (Fast)' },
-  { value: '1.4', label: '1.4x (Fastest)' },
-];
-
-const PITCH_OPTIONS: SelectOption[] = [
-  { value: '-5Hz', label: '-5Hz (Deeper)' },
-  { value: '0Hz', label: '0Hz (Default)' },
-  { value: '+5Hz', label: '+5Hz (Higher)' },
-];
+import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../../Settings/voiceConstants';
 
 const ENGINE_TABS: Tab[] = [
   { id: 'edge', label: 'Edge-TTS (Online)' },

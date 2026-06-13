@@ -6,8 +6,6 @@ from backend.database.db import get_setting, update_project
 from backend.core.logger import logger
 import urllib.request
 import urllib.parse
-import xml.etree.ElementTree as ET
-import html
 
 # Schema for individual sub-visual entries
 SUB_VISUAL_SCHEMA = {

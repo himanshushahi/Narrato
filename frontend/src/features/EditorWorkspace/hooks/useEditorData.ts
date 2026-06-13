@@ -2,11 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { callEel } from '../../../utils/eel-bridge';
 
-/** Estimate spoken duration in seconds from narration text */
-const estimateTextDuration = (text: string | undefined | null): number => {
-  if (!text || text.trim() === '') return 5;
-  return Math.max(5, Math.ceil(text.length / 15));
-};
+import { estimateTextDuration } from '../../../utils/duration';
 
 export interface UseEditorDataReturn {
   scriptData: any;
