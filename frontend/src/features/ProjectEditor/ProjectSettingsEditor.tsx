@@ -201,7 +201,7 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
   };
 
   return (
-    <div className="bg-zinc-900/60 p-4 rounded-xl border border-zinc-800/60 space-y-3">
+    <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800/60 space-y-3">
       <div className="flex items-center justify-between pb-1 border-b border-zinc-800/40">
         <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Subtitle Styling</h3>
         {downloading && <span className="text-[10px] text-amber-500 font-bold flex items-center gap-1"><VscLoading className="animate-spin text-sm" /> Downloading Font...</span>}
