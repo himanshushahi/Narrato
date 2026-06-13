@@ -287,3 +287,25 @@ export async function callEel<T>(fnName: string, ...args: any[]): Promise<T | nu
     return null;
   }
 }
+
+/**
+ * Safe wrapper for eel calls that propagates connection or execution exceptions to the caller
+ */
+export async function callEelOrThrow<T>(fnName: string, ...args: any[]): Promise<T> {
+  if (!window.eel) {
+    throw new Error(`[EelBridge] Cannot call ${fnName}: eel not loaded`);
+  }
+
+  // Wait for connection (up to 5 seconds)
+  const connected = await waitForEelConnection(5000);
+  if (!connected) {
+    throw new Error(`[EelBridge] Cannot call ${fnName}: backend not connected`);
+  }
+
+  const fn = (window.eel as any)[fnName];
+  if (!fn) {
+    throw new Error(`[EelBridge] Function ${fnName} not found`);
+  }
+
+  return await fn(...args)() as T;
+}

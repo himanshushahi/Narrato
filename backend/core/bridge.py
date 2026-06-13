@@ -523,7 +523,7 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
     model = get_setting("openai_model") or "gpt-4o"
     
     if not api_key:
-        raise ValueError("Please configure an OpenAI API Key first.")
+        return {"success": False, "error": "Please configure an OpenAI API Key first."}
         
     # Build script context summary for LLM
     existing_scenes = full_script.get("scenes", [])
@@ -610,7 +610,7 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
     model = get_setting("openai_model") or "gpt-4o"
     
     if not api_key:
-        raise ValueError("Please configure an OpenAI API Key first.")
+        return {"success": False, "error": "Please configure an OpenAI API Key first."}
         
     system_prompt = (
         "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "

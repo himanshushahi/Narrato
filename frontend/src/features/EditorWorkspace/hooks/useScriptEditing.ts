@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
-import { callEel } from '../../../utils/eel-bridge';
+import { callEel, callEelOrThrow } from '../../../utils/eel-bridge';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -89,6 +89,7 @@ export function useScriptEditing(
     setOriginalScriptData(JSON.parse(JSON.stringify(scriptData)));
     setOriginalManifestData(JSON.parse(JSON.stringify(manifestData)));
     setEditingCard(cardKey);
+    setRewritePrompt('');
   }, [scriptData, manifestData]);
 
   const handleCancelEdit = useCallback(() => {
@@ -96,6 +97,7 @@ export function useScriptEditing(
     setEditingCard(null);
     setOriginalScriptData(null);
     setOriginalManifestData([]);
+    setRewritePrompt('');
   }, [originalScriptData, setScriptData]);
 
   const handleSettingsUpdate = useCallback((newSettings: any) => {
@@ -183,6 +185,7 @@ export function useScriptEditing(
       await loadFiles(projectId);
       setEditingCard(null);
       setSavingCardKey(null);
+      setRewritePrompt('');
 
       const isNewSceneSave = index !== undefined && !originalScriptData;
       const contentChanged = narrationChanged || isNewSceneSave;
@@ -210,13 +213,13 @@ export function useScriptEditing(
         (!scriptData.scenes[index].narration || scriptData.scenes[index].narration.trim() === '');
 
       if (isNewScene) {
-        res = await callEel<{ success: boolean; data?: any; error?: string }>(
+        res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
           'add_scene_with_ai', scriptData,
           rewritePrompt || `Create content for ${scriptData.scenes[index].title || 'this scene'}`,
           selectedProject.language
         );
       } else {
-        res = await callEel<{ success: boolean; data?: any; error?: string }>(
+        res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
           'regenerate_script_section', index, type, scriptData, rewritePrompt, selectedProject.language
         );
       }
@@ -244,16 +247,17 @@ export function useScriptEditing(
         setRewritingSection(null);
         addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       setRewritingSection(null);
       console.error(err);
+      addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
     }
   }, [projectId, scriptData, selectedProject, rewritePrompt, setScriptData, addToast]);
 
   const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
     try {
-      const res = await callEel<{ success: boolean; data?: any; error?: string }>(
+      const res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
         'regenerate_sub_visual', sceneIdx, sectionType, subIdx, scriptData, prompt, selectedProject.language
       );
       if (res?.success && res.data) {
@@ -273,9 +277,9 @@ export function useScriptEditing(
       } else {
         addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      addToast("Rewrite failed", 'error');
+      addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
     }
   }, [projectId, scriptData, selectedProject, setScriptData, addToast]);
 

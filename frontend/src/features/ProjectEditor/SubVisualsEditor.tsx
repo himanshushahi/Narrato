@@ -71,7 +71,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
             className={`p-4 rounded-xl border space-y-4 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}>
             <div className="absolute top-2 right-2 flex gap-1">
               {onRewriteSubVisual && (
-                <button type="button" onClick={(e) => { e.stopPropagation(); setAiPromptIdx(aiPromptIdx === idx ? null : idx); }} className="text-amber-500/80 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded-md cursor-pointer transition-colors" title="AI Magic Rewrite"><BsStars size={14} /></button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); if (aiPromptIdx === idx) { setAiPromptIdx(null); setAiPromptText(''); } else { setAiPromptIdx(idx); setAiPromptText(''); } }} className="text-amber-500/80 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded-md cursor-pointer transition-colors" title="AI Magic Rewrite"><BsStars size={14} /></button>
               )}
               <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="text-red-500/70 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md cursor-pointer transition-colors opacity-0 group-hover:opacity-100"><BiTrashAlt size={14} /></button>
             </div>
