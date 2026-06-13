@@ -558,7 +558,7 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
         "- scene/image: Default visual support for general narration.\n"
         "- youtube: ONLY for specific video footage or interview clips.\n"
-        "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
+        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
         "- For media types (scene, image, portrait, youtube, parallax): provide 2-4 sub_visuals with DIFFERENT keywords.\n"
         "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
         "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"
@@ -647,7 +647,7 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
         "- network: USE THIS for connections between people. visual_meta: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
         "- custom_html: USE THIS for custom layouts. visual_meta: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
         "- Any type: add {\"lower_third\": {\"title\": str, \"subtitle\": str}} for overlay text.\n"
-        "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
+        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
         "- PORTRAIT CRITICAL: For 'portrait' type, visual_cue must be ONLY the person's full name (e.g. \"Harshad Mehta\", not \"Harshad Mehta speaking in public\"). This is used as a Wikipedia search query.\n"
     )
     
@@ -727,7 +727,7 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
         "- scene/image: Default visual support for general narration.\n"
         "- youtube: ONLY for specific video footage or interview clips.\n"
-        "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
+        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
         "- For media types (scene, image, portrait, youtube, parallax): provide 2-4 sub_visuals with DIFFERENT keywords.\n"
         "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
         "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"

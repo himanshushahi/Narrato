@@ -18,7 +18,7 @@ SUB_VISUAL_SCHEMA = {
         },
         "transition": {
             "type": "string",
-            "enum": ["fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "none"]
+            "enum": ["subtle_slide", "fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "none"]
         },
         "visual_meta": {"type": "object"}
     },
@@ -460,7 +460,7 @@ SUB-VISUALS: Every scene, intro & conclusion needs a `sub_visuals` array.
 
 QUANTITY: 2-4 items for MEDIA types (scene/image/parallax/portrait/youtube). Exactly 1 for PROGRAMMATIC types (chart/map/document/network). EXCEPTION: 'list' — generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals).
 
-EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "transition": "fade"|"slide_left"|"slide_right"|"slide_up"|"slide_down"|"zoom_in"|"zoom_out"|"glitch"|"none", "visual_meta": dict as below}
+EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "transition": "subtle_slide"|"fade"|"slide_left"|"slide_right"|"slide_up"|"slide_down"|"zoom_in"|"zoom_out"|"glitch"|"none", "visual_meta": dict as below}
 
 - scene/image/parallax: visual_meta {} (portrait may add {"person_name": str})
 - PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name (e.g. "entity name", NOT "entity name speaking in public" or "a photo of entity name"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.
