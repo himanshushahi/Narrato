@@ -132,6 +132,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             onSetScriptData(copy);
                           }}
                           timings={introTimings}
+                          totalDurationFrames={sceneTimings[0] ? sceneTimings[0].end - sceneTimings[0].start : 0}
                           activeIdx={introActiveSubIdx}
                           onSeek={onSeek}
                           onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
@@ -241,6 +242,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                                   onSetScriptData(copy);
                                 }}
                                 timings={timings}
+                                totalDurationFrames={sceneTimings[globalSceneIdx] ? sceneTimings[globalSceneIdx].end - sceneTimings[globalSceneIdx].start : 0}
                                 activeIdx={activeSubIdxForScene}
                                 onSeek={onSeek}
                                 onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
@@ -396,6 +398,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             onSetScriptData(copy);
                           }}
                           timings={concTimings}
+                          totalDurationFrames={sceneTimings[concGlobalIdx] ? sceneTimings[concGlobalIdx].end - sceneTimings[concGlobalIdx].start : 0}
                           activeIdx={concActiveSubIdx}
                           onSeek={onSeek}
                           onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}

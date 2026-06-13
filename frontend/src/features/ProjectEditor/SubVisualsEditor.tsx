@@ -1,5 +1,6 @@
 import { CustomInput } from '../../components/ui/CustomInput';
 import { CustomSelect } from '../../components/ui/CustomSelect';
+import { SubVisualsDurationBar } from './SubVisualsDurationBar';
 import { MapLocationsEditor } from './MapLocationsEditor';
 import { ChartDataEditor } from './ChartDataEditor';
 import { NewspaperEditor } from './NewspaperEditor';
@@ -14,7 +15,7 @@ import { BiTrashAlt } from 'react-icons/bi';
 import { BsPlus, BsStars, BsSendFill } from 'react-icons/bs';
 import { useState } from 'react';
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void> }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0 }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
@@ -46,9 +47,20 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center mb-2">
         <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">Sub-Visuals (Cuts)</label>
       </div>
+      
+      <SubVisualsDurationBar 
+        subVisuals={subVisuals} 
+        onChange={(ratios) => {
+          const copy = [...subVisuals];
+          ratios.forEach((r, i) => copy[i].duration_ratio = r);
+          onChange(copy);
+        }} 
+        totalDurationFrames={totalDurationFrames} 
+      />
+
       {subVisuals.map((sv: any, idx: number) => {
         const isActive = activeIdx === idx;
         const timing = timings?.[idx];

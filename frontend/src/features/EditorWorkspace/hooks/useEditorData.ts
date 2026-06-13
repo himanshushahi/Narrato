@@ -214,13 +214,25 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
 
       let subs: any[] = [];
       if (numSubs > 0) {
+        let ratios = subVisuals.map((sv: any) => sv.duration_ratio);
+        const hasValidRatios = ratios.every((r: any) => typeof r === 'number' && !isNaN(r)) && 
+                               Math.abs(ratios.reduce((a: number, b: number) => a + b, 0) - 1.0) < 0.01;
+        
+        if (!hasValidRatios) {
+          ratios = Array(numSubs).fill(1.0 / numSubs);
+        }
+
+        let currentOffset = start;
         subs = subVisuals.map((_: any, idx: number) => {
-          const baseSubDuration = Math.floor(durationFrames / numSubs);
-          const subFrom = start + idx * baseSubDuration;
           const subDuration = idx === numSubs - 1
-            ? durationFrames - (idx * baseSubDuration)
-            : baseSubDuration;
-          return { start: subFrom, end: subFrom + Math.max(1, subDuration) };
+            ? end - currentOffset // Last subvisual gets remainder
+            : Math.max(1, Math.floor(durationFrames * ratios[idx]));
+            
+          const subFrom = currentOffset;
+          const subEnd = subFrom + Math.max(1, subDuration);
+          currentOffset = subEnd;
+          
+          return { start: subFrom, end: subEnd };
         });
       }
 

@@ -14,8 +14,14 @@ SUB_VISUAL_SCHEMA = {
     "type": "object",
     "properties": {
         "visual_cue": {"type": "string"},
-        "visual_type": {"type": "string"},
-        "transition": {"type": "string"},
+        "visual_type": {
+            "type": "string",
+            "enum": ["chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html"]
+        },
+        "transition": {
+            "type": "string",
+            "enum": ["fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "none"]
+        },
         "visual_meta": {"type": "object"}
     },
     "required": ["visual_cue", "visual_type", "transition"]

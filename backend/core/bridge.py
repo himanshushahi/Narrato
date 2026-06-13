@@ -489,11 +489,25 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
     if not api_key:
         raise ValueError("Please configure an OpenAI API Key first.")
         
+    # Build script context summary for LLM
+    existing_scenes = full_script.get("scenes", [])
+    scenes_summary = "\n".join(
+        f"  Scene {s.get('scene_number', i + 1)}: \"{s.get('title', 'Untitled')}\" — {s.get('narration', '')[:120]}..."
+        for i, s in enumerate(existing_scenes)
+    )
+    intro_hook = full_script.get("introduction", {}).get("hook", "")[:200]
+    conclusion_summary = full_script.get("conclusion", {}).get("summary", "")[:200]
+    
     system_prompt = (
         "You are an expert AI scriptwriter. You will receive a script segment, "
         "and a prompt request explaining how to modify or rewrite this segment. "
         "Your task is to rewrite the narration and visual details. Preserve the scene numbers/schema format. "
         "Format your output strictly as a JSON object containing the modified segment.\n\n"
+        "HERE IS THE FULL SCRIPT CONTEXT (For maintaining narrative flow and consistency):\n"
+        f"Documentary Title: \"{full_script.get('title', 'Untitled')}\"\n"
+        f"Introduction Hook: \"{intro_hook}\"\n"
+        f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
+        f"Conclusion: \"{conclusion_summary}\"\n\n"
         "IMPORTANT: Every segment MUST include a 'sub_visuals' array with 2-4 sub-visual entries for fast-paced visual cuts.\n"
         "Each sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }\n"
         "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
@@ -508,12 +522,17 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
         "- scene/image: Default visual support for general narration.\n"
         "- youtube: ONLY for specific video footage or interview clips.\n"
+        "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
         "- For media types (scene, image, portrait, youtube, parallax): provide 2-4 sub_visuals with DIFFERENT keywords.\n"
         "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
         "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"
         "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
         "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
-        "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"Exact news headline\", \"doc_text\": \"Detailed newspaper excerpt matching the narration\", \"source\": \"Name of Publisher\", \"date\": \"Month DD, YYYY\" }\n"
+        "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
+        "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
+        "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
+        "- If visual_type is 'network', visual_meta must contain: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
+        "- If visual_type is 'list', visual_meta must contain: { \"number\": int (the rank, starting from 1), \"title\": str (the item name), \"description\": str (optional ~10-20 word fact) }\n"
         "- If visual_type is 'custom_html', visual_meta must contain: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
     )
     
@@ -607,6 +626,7 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
         "- network: USE THIS for connections between people. visual_meta: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
         "- custom_html: USE THIS for custom layouts. visual_meta: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
         "- Any type: add {\"lower_third\": {\"title\": str, \"subtitle\": str}} for overlay text.\n"
+        "Transitions ('transition' field): choose from 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
     )
     
     from backend.pipeline.ai import SUB_VISUAL_SCHEMA
@@ -628,7 +648,12 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
     target_sub_visual = sub_visuals[sub_idx]
     prompt_struct = "Expected: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {} }"
     
+    scene_title = section.get('title', 'Introduction/Conclusion')
+    doc_title = full_script.get('title', 'Untitled')
+    
     user_prompt = (
+        f"Documentary Title: \"{doc_title}\"\n"
+        f"Scene Title: \"{scene_title}\"\n"
         f"Context (Narration of this scene):\n\"{section.get('narration', section.get('hook', section.get('summary', '')))}\"\n\n"
         f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
         f"Rewrite Instruction: {rewrite_prompt}\n\n"
