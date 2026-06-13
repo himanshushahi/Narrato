@@ -70,6 +70,7 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
     meta.image_url = '';
     meta.image_caption = '';
   } else if (type === 'network') {
+    meta.theme = 'conspiracy_board';
     meta.nodes = [{ id: '1', label: 'Entity 1', type: 'person' }];
     meta.edges = [];
   } else if (type === 'youtube') {

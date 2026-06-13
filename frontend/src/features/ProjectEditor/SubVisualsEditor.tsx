@@ -44,7 +44,6 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">Sub-Visuals (Cuts)</label>
-        <button type="button" onClick={handleAdd} className="text-[10px] bg-amber-600/20 text-amber-400 hover:bg-amber-600/40 px-2 py-1 rounded flex items-center gap-1 cursor-pointer"><BsPlus size={20} /> Add Sub-Visual</button>
       </div>
       {subVisuals.map((sv: any, idx: number) => {
         const isActive = activeIdx === idx;
@@ -65,8 +64,10 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               {isActive && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
             </div>
             <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
-              <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
-              <div className="flex gap-2">
+              <div className="col-span-2">
+                <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
+              </div>
+              <div className="col-span-2 flex gap-2">
                 <div className="w-1/2">
                   <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
                 </div>
@@ -84,7 +85,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               {sv.visual_type === 'youtube' && (
                 <div className="col-span-2 space-y-4 mt-2 bg-stone-950/60 p-3.5 rounded-lg border border-stone-800">
                   <div className="space-y-1.5">
-                    <div className="flex justify-between items-center text-xs">
+                     <div className="flex justify-between items-center text-xs">
                       <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
                       <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15}s</span>
                     </div>
@@ -128,6 +129,10 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
         )
       })}
       {subVisuals.length === 0 && <p className="text-xs text-stone-500 italic">No sub-visuals. A default black screen will be shown.</p>}
+      
+      <button type="button" onClick={handleAdd} className="w-full py-3 mt-2 text-xs font-bold uppercase tracking-wider bg-amber-600/10 text-amber-500 hover:bg-amber-600/20 border border-amber-600/30 border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors">
+        <BsPlus size={20} /> Add New Sub-Visual
+      </button>
     </div>
   );
 };

@@ -987,6 +987,51 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
     ];
 
     const zoomScale = 1;
+    const theme = meta.theme || 'conspiracy_board';
+    
+    const themeStyles = {
+      conspiracy_board: {
+        bgCol: '#1c1917',
+        bgStyle: 'radial-gradient(#ffffff 2px, transparent 2px)',
+        bgSize: '40px 40px',
+        bgOpacity: 0.1,
+        lineCol: '#ef4444',
+        lineGlow: 'drop-shadow(0px 5px 10px rgba(0,0,0,0.5))',
+        nodeBg: '#f5f5f4',
+        nodeBorder: '#44403c',
+        nodeText: '#1c1917',
+        pinCol: '#ef4444',
+        nodeShadow: '0 15px 25px rgba(0,0,0,0.8)'
+      },
+      corporate: {
+        bgCol: '#ffffff',
+        bgStyle: 'radial-gradient(#94a3b8 2px, transparent 2px)',
+        bgSize: '30px 30px',
+        bgOpacity: 0.15,
+        lineCol: '#3b82f6',
+        lineGlow: 'none',
+        nodeBg: '#ffffff',
+        nodeBorder: '#e2e8f0',
+        nodeText: '#1e293b',
+        pinCol: 'transparent',
+        nodeShadow: '0 4px 15px rgba(0,0,0,0.05)'
+      },
+      cyberpunk: {
+        bgCol: '#000000',
+        bgStyle: 'linear-gradient(0deg, transparent 24%, rgba(16, 185, 129, .1) 25%, rgba(16, 185, 129, .1) 26%, transparent 27%, transparent 74%, rgba(16, 185, 129, .1) 75%, rgba(16, 185, 129, .1) 76%, transparent 77%, transparent), linear-gradient(90deg, transparent 24%, rgba(16, 185, 129, .1) 25%, rgba(16, 185, 129, .1) 26%, transparent 27%, transparent 74%, rgba(16, 185, 129, .1) 75%, rgba(16, 185, 129, .1) 76%, transparent 77%, transparent)',
+        bgSize: '50px 50px',
+        bgOpacity: 0.8,
+        lineCol: '#10b981',
+        lineGlow: 'drop-shadow(0px 0px 8px #10b981)',
+        nodeBg: '#022c22',
+        nodeBorder: '#10b981',
+        nodeText: '#34d399',
+        pinCol: 'transparent',
+        nodeShadow: '0 0 20px rgba(16, 185, 129, 0.4)'
+      }
+    };
+
+    const s = themeStyles[theme as keyof typeof themeStyles] || themeStyles.conspiracy_board;
 
     return (
       <div style={{
@@ -995,16 +1040,16 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        backgroundColor: '#1c1917',
+        backgroundColor: s.bgCol,
         position: 'relative',
         overflow: 'hidden'
       }}>
         <div style={{
           position: 'absolute',
           inset: 0,
-          opacity: 0.1,
-          backgroundImage: 'radial-gradient(#ffffff 2px, transparent 2px)',
-          backgroundSize: '40px 40px'
+          opacity: s.bgOpacity,
+          backgroundImage: s.bgStyle,
+          backgroundSize: s.bgSize
         }} />
         
         <div style={{
@@ -1038,11 +1083,11 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                   y1={sourceNode.y}
                   x2={targetNode.x}
                   y2={targetNode.y}
-                  stroke="#ef4444"
+                  stroke={s.lineCol}
                   strokeWidth="6"
                   strokeDasharray={dist}
                   strokeDashoffset={lineDraw}
-                  style={{ filter: 'drop-shadow(0px 5px 10px rgba(0,0,0,0.5))' }}
+                  style={{ filter: s.lineGlow }}
                 />
               );
             })}
@@ -1072,10 +1117,10 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                 <div style={{
                   width: node.type === 'person' ? 140 : 100,
                   height: node.type === 'person' ? 140 : 100,
-                  backgroundColor: '#f5f5f4',
+                  backgroundColor: s.nodeBg,
                   borderRadius: node.type === 'person' ? '50%' : '12px',
-                  border: '4px solid #44403c',
-                  boxShadow: '0 15px 25px rgba(0,0,0,0.8)',
+                  border: `4px solid ${s.nodeBorder}`,
+                  boxShadow: s.nodeShadow,
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'center',
@@ -1084,32 +1129,34 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                   {node.image ? (
                     <img src={node.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
-                    <span style={{ fontSize: 40, color: '#1c1917' }}>{node.label.charAt(0)}</span>
+                    <span style={{ fontSize: 40, color: s.nodeText, fontWeight: 'bold' }}>{node.label.charAt(0).toUpperCase()}</span>
                   )}
                 </div>
                 {/* Pin */}
-                <div style={{
-                  position: 'absolute',
-                  top: -15,
-                  width: 20,
-                  height: 20,
-                  backgroundColor: '#ef4444',
-                  borderRadius: '50%',
-                  boxShadow: 'inset -2px -2px 6px rgba(0,0,0,0.4), 0 5px 10px rgba(0,0,0,0.6)'
-                }} />
+                {s.pinCol !== 'transparent' && (
+                  <div style={{
+                    position: 'absolute',
+                    top: -15,
+                    width: 20,
+                    height: 20,
+                    backgroundColor: s.pinCol,
+                    borderRadius: '50%',
+                    boxShadow: 'inset -2px -2px 6px rgba(0,0,0,0.4), 0 5px 10px rgba(0,0,0,0.6)'
+                  }} />
+                )}
                 
+                {/* Label */}
                 <div style={{
                   marginTop: 15,
-                  backgroundColor: '#f5f5f4',
-                  padding: '5px 15px',
-                  borderRadius: 4,
-                  boxShadow: '0 5px 15px rgba(0,0,0,0.5)',
+                  padding: '8px 16px',
+                  backgroundColor: s.nodeBg,
+                  border: `2px solid ${s.nodeBorder}`,
+                  borderRadius: 6,
+                  color: s.nodeText,
                   fontFamily: 'Montserrat, sans-serif',
-                  fontWeight: 800,
-                  fontSize: 20,
-                  color: '#1c1917',
-                  WebkitFontSmoothing: 'antialiased',
-                  MozOsxFontSmoothing: 'grayscale',
+                  fontWeight: 700,
+                  fontSize: 22,
+                  boxShadow: s.nodeShadow
                 }}>
                   {node.label}
                 </div>

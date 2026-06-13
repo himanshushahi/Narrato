@@ -632,7 +632,7 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
         "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
         "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
-        "- If visual_type is 'network', visual_meta must contain: { \"nodes\": [...], \"edges\": [...] }\n"
+        "- If visual_type is 'network', visual_meta must contain: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
         "- If visual_type is 'list', visual_meta must contain: { \"number\": int (the rank, starting from 1), \"title\": str (the item name), \"description\": str (optional ~10-20 word fact) }\n"
         "- If visual_type is 'custom_html', visual_meta must contain: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n\n"
         "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
