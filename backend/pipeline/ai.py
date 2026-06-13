@@ -510,7 +510,7 @@ EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "tran
 
 - scene/image/parallax: visual_meta {} (portrait may add {"person_name": str})
 - youtube: visual_meta {"start_offset": 15, "duration": 15, "skip_intro": true}
-- chart: visual_meta {"chart_type": "bar"|"line", "data": [{"label": str, "value": number}]}
+- chart: visual_meta {"chart_type": "bar"|"line"|"pie", "title": str, "data": [{"label": str, "value": number}]}
 - map: visual_meta {"map_style": "vintage", "locations": [{"name": str, "coord": [lat, lon]}]} (2 locations)
 - document: visual_meta {"title": str (masthead name, e.g. "THE WASHINGTON POST" — upper!), "headline": str (main headline), "subtitle": str (e.g. "BREAKING NEWS" or "EXCLUSIVE"), "doc_text": str (200-500 char article body — write realistic newspaper prose), "highlight_text": str (optional ~2-4 word phrase to visually highlight with amber marker), "source": str (news agency, e.g. "Reuters"), "date": str (formatted date e.g. "Monday, June 11, 2026"), "section": str (one of: National|International|Business|Technology|Science|Politics|Opinion|Culture|Sports), "pull_quote": str (a 6-15 word dramatic quote from the doc_text that will appear as a centered featured quote), "show_image": bool (true if a striking image would accompany this story), "image_url": str (""), "image_caption": str ("" if no url)}
 - network: visual_meta {"nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
@@ -730,7 +730,7 @@ You must return your output strictly as a JSON object containing a "data" array.
 
 CRITICAL JSON SCHEMA:
 {
-  "chart_type": "bar" or "line",
+  "chart_type": "bar", "line", or "pie",
   "title": "A short, punchy title for this chart (max 5 words)",
   "data": [
     { "label": "Short Label 1", "value": 100 },

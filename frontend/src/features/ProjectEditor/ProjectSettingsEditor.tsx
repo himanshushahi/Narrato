@@ -290,10 +290,12 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
           value={settings.fontFamily || 'Montserrat'}
           onChange={handleFontChange}
         />
-        <CustomInput
+        <CustomRange
           label="Font Size"
-          type="number"
+          min="20"
+          max="150"
           value={settings.fontSize !== undefined ? settings.fontSize : 54}
+          valueDisplay={`${settings.fontSize !== undefined ? settings.fontSize : 54}px`}
           onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, fontSize: parseInt(e.target.value) || 54 }) }}
         />
         <CustomColorInput
@@ -317,10 +319,12 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
           value={settings.textTransform || 'uppercase'}
           onChange={(val) => { setSelectedPresetId(""); onUpdate({ ...settings, textTransform: val }) }}
         />
-        <CustomInput
+        <CustomRange
           label="Y Position (px from bottom)"
-          type="number"
+          min="0"
+          max="1500"
           value={settings.bottomOffset !== undefined ? settings.bottomOffset : 120}
+          valueDisplay={`${settings.bottomOffset !== undefined ? settings.bottomOffset : 120}px`}
           onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, bottomOffset: parseInt(e.target.value) || 0 }) }}
         />
         <div className="flex flex-col gap-1.5 justify-center mt-2 col-span-2">

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { VscLoading } from 'react-icons/vsc';
 import { CustomSelect } from '../../components/ui/CustomSelect';
+import { useUIStore } from '../../store/useUIStore';
 
 export const MapLocationsEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const locations = visualMeta?.locations || [];
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
+  const { addToast } = useUIStore();
 
   const handleUpdate = (idx: number, field: string, val: string) => {
     const newLocs = [...locations];
@@ -36,11 +38,11 @@ export const MapLocationsEditor = ({ visualMeta, onChange }: { visualMeta: any, 
         newLocs[idx].coord[1] = parseFloat(data[0].lon);
         onChange({ ...visualMeta, locations: newLocs });
       } else {
-        alert(`Could not find coordinates for "${name}"`);
+        addToast(`Could not find coordinates for "${name}"`, 'error');
       }
     } catch (e) {
       console.error(e);
-      alert("Failed to fetch coordinates.");
+      addToast("Failed to fetch coordinates.", 'error');
     } finally {
       setLoadingIdx(null);
     }

@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { VscLoading, VscSparkle } from 'react-icons/vsc';
+import { CustomSelect } from '../../components/ui/CustomSelect';
 import { callEel } from '../../utils/eel-bridge';
+import { useUIStore } from '../../store/useUIStore';
 
 export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const [loading, setLoading] = useState(false);
+  const { addToast } = useUIStore();
   const prompt = visualMeta?.chart_prompt || '';
   const data = visualMeta?.data || [];
 
@@ -21,11 +24,11 @@ export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onC
           chart_prompt: prompt
         });
       } else {
-        alert(`Failed to generate data: ${res?.error || 'Unknown error'}`);
+        addToast(`Failed to generate data: ${res?.error || 'Unknown error'}`, 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Error generating chart data.');
+      addToast('Error generating chart data.', 'error');
     } finally {
       setLoading(false);
     }
@@ -73,7 +76,32 @@ export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onC
         </div>
       </div>
 
-      <div className="border-t border-stone-800 pt-3">
+      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-stone-800">
+        <div className="space-y-1">
+          <label className="text-stone-400 font-bold uppercase tracking-wider text-[10px]">Chart Title</label>
+          <input
+            type="text"
+            value={visualMeta.title || ''}
+            onChange={(e) => onChange({ ...visualMeta, title: e.target.value })}
+            placeholder="e.g. Statistical Overview"
+            className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-stone-400 font-bold uppercase tracking-wider text-[10px]">Chart Type</label>
+          <CustomSelect
+            options={[
+              { value: 'bar', label: 'Bar Chart' },
+              { value: 'line', label: 'Line Chart' },
+              { value: 'pie', label: 'Pie Chart' },
+            ]}
+            value={visualMeta.chart_type || 'bar'}
+            onChange={(val) => onChange({ ...visualMeta, chart_type: val })}
+          />
+        </div>
+      </div>
+
+      <div className="border-t border-stone-800 pt-3 mt-3">
         <div className="flex justify-between items-center text-xs mb-2">
           <label className="text-stone-400 font-bold uppercase tracking-wider">Manual Editor:</label>
           <button type="button" onClick={addDataRow} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">

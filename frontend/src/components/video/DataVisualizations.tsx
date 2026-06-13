@@ -1,6 +1,7 @@
 import React from 'react';
 import { useCurrentFrame, spring, interpolate, useVideoConfig } from 'remotion';
 import * as d3Geo from 'd3-geo';
+import * as d3Shape from 'd3-shape';
 import * as topojson from 'topojson-client';
 import worldData from './world-110m.json';
 import { PaperTexture } from './PaperTexture';
@@ -14,6 +15,7 @@ interface Props {
 
 export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettings }) => {
   const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
 
   // Growth animation for charts and vectors
   const animProgress = spring({
@@ -32,9 +34,9 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
       { label: 'Apr', value: 65 }
     ];
 
-    const chartWidth = 1400;
-    const chartHeight = 750;
-    const padding = { top: 180, right: 80, bottom: 80, left: 140 };
+    const chartWidth = width * 0.85;
+    const chartHeight = height * 0.65;
+    const padding = { top: chartHeight * 0.2, right: chartWidth * 0.05, bottom: chartHeight * 0.15, left: chartWidth * 0.1 };
     const innerWidth = chartWidth - padding.left - padding.right;
     const innerHeight = chartHeight - padding.top - padding.bottom;
 
@@ -79,7 +81,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
             <h2 style={{
               fontFamily: 'Montserrat, sans-serif',
               fontWeight: 900,
-              fontSize: 56,
+              fontSize: Math.min(width * 0.035, 56),
               color: textColor,
               textAlign: 'center',
               textTransform: 'uppercase',
@@ -115,8 +117,62 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                     </filter>
                 </defs>
 
-                <g transform={`translate(${padding.left}, ${padding.top})`}>
-                    {/* Y-Axis Grid Lines */}
+                {chartType === 'pie' ? (
+                  <g transform={`translate(${padding.left + innerWidth / 2}, ${padding.top + innerHeight / 2})`}>
+                      {(() => {
+                          const pieGenerator = d3Shape.pie<any>().value(d => d.value).sort(null);
+                          const pieData = pieGenerator(rawData);
+                          const radius = Math.min(innerWidth, innerHeight) / 2;
+                          const arcGenerator = d3Shape.arc<any>().innerRadius(0).outerRadius(radius);
+                          const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#14b8a6'];
+                          
+                          return pieData.map((d, i) => {
+                              const sliceAnim = interpolate(animProgress, [0, 1], [0, d.endAngle - d.startAngle]);
+                              const currentArc = d3Shape.arc<any>()
+                                  .innerRadius(0)
+                                  .outerRadius(radius * (0.5 + animProgress * 0.5)) // pop out effect
+                                  .startAngle(d.startAngle)
+                                  .endAngle(d.startAngle + sliceAnim);
+
+                              const centroid = arcGenerator.centroid(d);
+                              
+                              return (
+                                  <g key={`pie-${i}`}>
+                                      <path 
+                                          d={currentArc(d as any) || ""} 
+                                          fill={colors[i % colors.length]} 
+                                          stroke="#1c1917" 
+                                          strokeWidth="6" 
+                                          filter="url(#glow)"
+                                      />
+                                      {animProgress > 0.5 && (
+                                        <>
+                                          <text
+                                              transform={`translate(${centroid[0] * 1.35}, ${centroid[1] * 1.35})`}
+                                              fill={textColor} fontFamily="Montserrat, sans-serif" fontSize="36" fontWeight="900" textAnchor="middle"
+                                              opacity={(animProgress - 0.5) * 2}
+                                              style={{ textShadow: '0px 4px 12px rgba(0,0,0,0.9)', WebkitFontSmoothing: 'antialiased' }}
+                                          >
+                                              {formatValue(d.data.value)}
+                                          </text>
+                                          <text
+                                              transform={`translate(${centroid[0] * 1.35}, ${centroid[1] * 1.35 + 40})`}
+                                              fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="24" fontWeight="700" textAnchor="middle"
+                                              opacity={(animProgress - 0.5) * 2}
+                                              style={{ textShadow: '0px 4px 12px rgba(0,0,0,0.9)', WebkitFontSmoothing: 'antialiased' }}
+                                          >
+                                              {d.data.label}
+                                          </text>
+                                        </>
+                                      )}
+                                  </g>
+                              );
+                          });
+                      })()}
+                  </g>
+                ) : (
+                  <g transform={`translate(${padding.left}, ${padding.top})`}>
+                      {/* Y-Axis Grid Lines */}
                     {[0, 0.25, 0.5, 0.75, 1].map((tick, i) => {
                         const y = innerHeight - (innerHeight * tick);
                         const val = maxVal * tick;
@@ -246,7 +302,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                             })}
                         </g>
                     )}
-                </g>
+                  </g>
+                )}
             </svg>
         </div>
       </div>
@@ -265,7 +322,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
     ];
 
     const mapStyle = meta.map_style || 'vintage';
-    const { width, height } = useVideoConfig();
 
     let theme = {
       bg: '#292524',
@@ -918,8 +974,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
       const angle = (i / rawNodes.length) * Math.PI * 2;
       return {
         ...n,
-        x: 960 + Math.cos(angle) * 350,
-        y: 540 + Math.sin(angle) * 350
+        x: (width / 2) + Math.cos(angle) * (Math.min(width, height) * 0.35),
+        y: (height / 2) + Math.sin(angle) * (Math.min(width, height) * 0.35)
       };
     });
     
@@ -953,12 +1009,12 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
         
         <div style={{
           position: 'absolute',
-          width: 1920,
-          height: 1080,
+          width: width,
+          height: height,
           transform: `scale(${zoomScale})`
         }}>
           {/* Draw Edges */}
-          <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
+          <svg width={width} height={height} style={{ position: 'absolute', inset: 0 }}>
             {edges.map((edge: any, i: number) => {
               const sourceNode = nodes.find((n: any) => n.id === edge.source);
               const targetNode = nodes.find((n: any) => n.id === edge.target);

@@ -1,14 +1,16 @@
 import { useState } from 'react';
+import { useUIStore } from '../../store/useUIStore';
 
 export const NetworkDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
   const [jsonText, setJsonText] = useState(() => JSON.stringify({ nodes: visualMeta?.nodes || [], edges: visualMeta?.edges || [] }, null, 2));
+  const { addToast } = useUIStore();
 
   const handleSave = () => {
     try {
       const parsed = JSON.parse(jsonText);
       onChange({ ...visualMeta, nodes: parsed.nodes, edges: parsed.edges });
     } catch (e) {
-      alert("Invalid JSON format");
+      addToast("Invalid JSON format", "error");
     }
   };
 
