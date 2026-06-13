@@ -98,7 +98,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                 onEdit={() => onStartEdit('intro')}
                 onSave={() => onSaveCard('introduction')}
                 onCancel={onCancelEdit}
-                disabled={savingCardKey !== null}
+                disabled={savingCardKey !== null || rewritingSection !== null}
               >
                 {isEditing ? (
                   <EditFormFields>
@@ -198,7 +198,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                       onSave={() => onSaveCard(cardKey, idx)}
                       onCancel={onCancelEdit}
                       onDelete={() => onSetSceneToDelete(idx)}
-                      disabled={savingCardKey !== null}
+                      disabled={savingCardKey !== null || rewritingSection !== null}
                     >
                       {isEditing ? (
                         <EditFormFields>
@@ -349,7 +349,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                 onEdit={() => onStartEdit('conclusion')}
                 onSave={() => onSaveCard('conclusion')}
                 onCancel={onCancelEdit}
-                disabled={savingCardKey !== null}
+                disabled={savingCardKey !== null || rewritingSection !== null}
               >
                 {isEditing ? (
                   <EditFormFields>

@@ -83,7 +83,6 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
     meta.number = 1;
     meta.title = 'Item Title';
     meta.description = 'Item description';
-    meta.icon = '';
   }
 
   return meta;

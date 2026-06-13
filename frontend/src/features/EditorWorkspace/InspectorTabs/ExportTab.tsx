@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscWarning, VscFlame
@@ -27,6 +27,8 @@ export const ExportTab: React.FC<ExportTabProps> = ({
   scriptChangedAlert, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline
 }) => {
+  const [confirmStageId, setConfirmStageId] = useState<string | null>(null);
+
   const renderStage = (stage: typeof PIPELINE_STAGES[0], idx: number) => {
     const task = tasks[stage.id];
     const isRunningStage = isRunning && (activeTaskStep?.step === stage.id || task?.status === 'running');
@@ -52,7 +54,7 @@ export const ExportTab: React.FC<ExportTabProps> = ({
           ${canClick ? 'cursor-pointer hover:bg-zinc-800/30 rounded-lg' : ''}`}
         onClick={() => {
           if (canClick) {
-            onResumeFromStage(stage.id);
+            setConfirmStageId(stage.id === confirmStageId ? null : stage.id);
           }
         }}
       >
@@ -85,19 +87,17 @@ export const ExportTab: React.FC<ExportTabProps> = ({
         {/* Content */}
         <div className="flex items-center justify-between">
           <div>
-            <span className={`text-[10px] font-bold transition-colors ${
-              isRunningStage ? 'text-blue-400' : isCompleted ? 'text-zinc-300' : isFailed ? 'text-red-400' : 'text-zinc-500'
-            }`}>
+            <span className={`text-[10px] font-bold transition-colors ${isRunningStage ? 'text-blue-400' : isCompleted ? 'text-zinc-300' : isFailed ? 'text-red-400' : 'text-zinc-500'
+              }`}>
               {stage.title}
             </span>
             <span className="text-[8px] text-zinc-600 block">{stage.desc}</span>
           </div>
-          <span className={`text-[8px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border shrink-0 ${
-            isCompleted ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+          <span className={`text-[8px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border shrink-0 ${isCompleted ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
             isRunningStage ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse' :
-            isFailed ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-            'bg-zinc-900 text-zinc-600 border-zinc-800'
-          }`}>
+              isFailed ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                'bg-zinc-900 text-zinc-600 border-zinc-800'
+            }`}>
             {isCompleted ? 'Done' : isRunningStage ? `${progress.toFixed(0)}%` : isFailed ? 'Failed' : 'Waiting'}
           </span>
         </div>
@@ -119,6 +119,39 @@ export const ExportTab: React.FC<ExportTabProps> = ({
           <p className="text-[9px] text-red-400 mt-1 font-mono bg-red-950/20 px-2 py-1 rounded border border-red-500/10">
             {message}
           </p>
+        )}
+
+        {/* Inline confirmation dropdown */}
+        {confirmStageId === stage.id && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 top-8 z-20 bg-zinc-800 border border-zinc-600 shadow-2xl shadow-black/50 rounded-lg p-3 w-48"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[10px] text-zinc-300 font-medium mb-3 leading-relaxed">
+              Run from <strong>{stage.title}</strong>?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmStageId(null);
+                }}
+                className="flex-1 text-[9px] py-1.5 cursor-pointer font-bold bg-zinc-900 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded border border-zinc-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmStageId(null);
+                  onResumeFromStage(stage.id);
+                }}
+                className="flex-1 flex items-center cursor-pointer justify-center gap-1 text-[9px] py-1.5 font-bold bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+              >
+                <VscPlay className="text-[10px]" /> Run
+              </button>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -171,9 +204,8 @@ export const ExportTab: React.FC<ExportTabProps> = ({
                     <button
                       key={stage.id}
                       onClick={() => onSetTargetStage(stage.id)}
-                      className={`flex-1 text-[8px] py-1.5 px-0.5 font-bold uppercase tracking-wider rounded transition-all cursor-pointer ${
-                        isSelected ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
-                      }`}
+                      className={`flex-1 text-[8px] py-1.5 px-0.5 font-bold uppercase tracking-wider rounded transition-all cursor-pointer ${isSelected ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+                        }`}
                     >
                       {shortNames[stage.id] || stage.id}
                     </button>

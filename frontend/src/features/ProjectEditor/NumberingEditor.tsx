@@ -7,26 +7,14 @@ export const NumberingEditor = ({ visualMeta, onChange }: { visualMeta: any, onC
   return (
     <div className="col-span-2 space-y-3 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
       {/* ═══════ Item Fields ═══════ */}
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="text-stone-500 text-[10px] uppercase font-bold tracking-wider block mb-1">Number</label>
-          <input
-            type="number" min={1} max={999}
-            value={visualMeta.number ?? 1}
-            onChange={(e) => update('number', parseInt(e.target.value) || 1)}
-            className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
-          />
-        </div>
-        <div>
-          <label className="text-stone-500 text-[10px] uppercase font-bold tracking-wider block mb-1">Icon (emoji)</label>
-          <input
-            type="text" maxLength={2}
-            value={visualMeta.icon || ''}
-            onChange={(e) => update('icon', e.target.value)}
-            className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white text-center focus:outline-none focus:border-amber-500/50"
-            placeholder="🏔️"
-          />
-        </div>
+      <div>
+        <label className="text-stone-500 text-[10px] uppercase font-bold tracking-wider block mb-1">Number</label>
+        <input
+          type="number" min={1} max={999}
+          value={visualMeta.number ?? 1}
+          onChange={(e) => update('number', parseInt(e.target.value) || 1)}
+          className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+        />
       </div>
 
       <div>
