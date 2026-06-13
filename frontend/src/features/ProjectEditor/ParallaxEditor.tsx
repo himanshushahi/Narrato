@@ -35,10 +35,10 @@ interface SliderFieldProps {
 }
 
 const SliderField = ({ label, value, min, max, step, unit, onChange }: SliderFieldProps) => (
-  <div className="space-y-1">
-    <div className="flex justify-between items-center text-xs">
-      <label className="text-stone-400 font-medium">{label}</label>
-      <span className="text-amber-400 font-mono font-bold text-[11px]">
+  <div className="space-y-1.5">
+    <div className="flex justify-between items-center text-xs mb-1.5">
+      <label className="text-stone-400/80 font-medium tracking-wide">{label}</label>
+      <span className="text-amber-500 font-mono font-bold text-[11px] bg-black/30 px-2 py-0.5 rounded border border-white/5 shadow-inner">
         {value}{unit ?? ''}
       </span>
     </div>
@@ -49,7 +49,7 @@ const SliderField = ({ label, value, min, max, step, unit, onChange }: SliderFie
       step={step}
       value={value}
       onChange={e => onChange(parseFloat(e.target.value))}
-      className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-amber-500"
+      className="w-full h-1.5 bg-black/40 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30 transition-all shadow-inner border border-white/5"
     />
   </div>
 );
@@ -85,46 +85,46 @@ export const ParallaxEditor = ({
   };
 
   return (
-    <div className="col-span-2 space-y-4 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
+    <div className="col-span-2 space-y-5 mt-3 pt-3 border-t border-white/5">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">
+      <div className="flex justify-between items-center mb-1">
+        <label className="text-stone-400/80 font-medium tracking-wide text-xs">
           2.5D Parallax Depth
         </label>
         <button
           type="button"
           onClick={resetAll}
-          className="flex items-center gap-1 text-[10px] text-stone-500 hover:text-amber-400 bg-stone-800/50 hover:bg-stone-800 px-2 py-1 rounded transition-colors cursor-pointer"
+          className="flex items-center gap-1 text-[10px] text-stone-400 hover:text-amber-400 bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1 rounded-md transition-colors cursor-pointer"
         >
           <BiReset size={12} /> Reset
         </button>
       </div>
 
       {/* Foreground URL (existing field) */}
-      <div className="space-y-1">
-        <label className="text-stone-400 font-medium text-xs">Foreground Cutout URL</label>
+      <div className="space-y-1.5">
+        <label className="text-stone-400/80 font-medium tracking-wide mb-1 ml-1 text-[10px]">Foreground Cutout URL</label>
         <input
           type="text"
           value={visualMeta.foreground_url ?? ''}
           onChange={e => onChange({ ...visualMeta, foreground_url: e.target.value })}
-          className="w-full bg-stone-950 border border-stone-800 rounded px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50 font-mono"
+          className="w-full bg-black/20 border border-white/5 rounded-lg px-3 py-2 text-[11px] text-white focus:outline-none focus:border-amber-500/50 focus:bg-black/40 transition-all duration-300 font-mono"
           placeholder="URL to transparent PNG cutout, or leave empty for single-layer pan"
         />
       </div>
 
       {/* Camera Path preset */}
-      <div className="space-y-1">
-        <label className="text-stone-400 font-medium text-xs">Camera Path</label>
-        <div className="flex flex-wrap gap-1.5">
+      <div className="space-y-1.5">
+        <label className="text-stone-400/80 font-medium tracking-wide mb-1 ml-1 text-[10px]">Camera Path</label>
+        <div className="flex flex-wrap gap-2">
           {CAMERA_PATHS.map(cp => (
             <button
               key={cp.value}
               type="button"
               onClick={() => update('camera_path', cp.value)}
-              className={`text-[10px] px-2.5 py-1.5 rounded font-semibold transition-all cursor-pointer ${
+              className={`text-[10px] px-3 py-1.5 rounded-lg font-semibold transition-all duration-300 cursor-pointer ${
                 strVal('camera_path') === cp.value
-                  ? 'bg-amber-600/30 text-amber-300 border border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.15)]'
-                  : 'bg-stone-800/50 text-stone-400 hover:text-stone-200 border border-stone-700/50 hover:border-stone-600'
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]'
+                  : 'bg-black/20 text-stone-400 hover:text-stone-300 border border-white/5 hover:border-white/10 hover:bg-black/30'
               }`}
             >
               {cp.label}
@@ -224,9 +224,9 @@ export const ParallaxEditor = ({
       </div>
 
       {/* Tips */}
-      <details className="text-[10px] text-stone-500">
-        <summary className="cursor-pointer hover:text-stone-300 font-medium">Tips</summary>
-        <ul className="mt-1.5 space-y-1 pl-4 list-disc">
+      <details className="text-[10px] text-stone-500 bg-black/20 p-3 rounded-lg border border-white/5">
+        <summary className="cursor-pointer hover:text-stone-300 font-medium tracking-wide">Tips & Guide</summary>
+        <ul className="mt-2 space-y-1.5 pl-4 list-disc marker:text-stone-700">
           <li><strong>Orbit</strong> works best when you have a foreground cutout — it circles around the subject</li>
           <li><strong>Float</strong> is great for subtle, dreamy movement on single images</li>
           <li><strong>Ken Burns</strong> is the classic documentary slow pan-and-zoom</li>

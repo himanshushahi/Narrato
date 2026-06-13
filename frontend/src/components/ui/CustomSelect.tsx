@@ -59,13 +59,13 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
 
   return (
     <div className={`space-y-1.5 w-full relative ${isOpen ? 'z-50' : 'z-10'}`} ref={containerRef}>
-      {label && <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">{label}</label>}
+      {label && <label className="block text-[10px] text-stone-400/80 font-medium tracking-wide mb-1 ml-1">{label}</label>}
 
       <div className="relative cursor-pointer">
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className={`w-full cursor-pointer flex items-center justify-between px-4 py-2.5 bg-[var(--color-brand-950)]/50 border ${isOpen ? 'border-[var(--color-accent-primary)] ring-1 ring-[var(--color-accent-primary)]' : 'border-slate-700/50'} rounded-md text-slate-200 focus:outline-none transition-all text-sm group ${className}`}
+          className={`w-full cursor-pointer flex items-center justify-between px-3 py-2 bg-black/20 border ${isOpen ? 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-black/40' : 'border-white/5 hover:border-white/10'} rounded-lg text-stone-200 focus:outline-none transition-all duration-300 text-xs group ${className}`}
         >
           <div className="flex items-center gap-3 truncate">
             {icon && <span className="text-slate-500 group-hover:text-[var(--color-accent-primary)] transition-colors">{icon}</span>}
@@ -74,7 +74,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
           <motion.div
             animate={{ rotate: isOpen ? 180 : 0 }}
             transition={{ duration: 0.2 }}
-            className="text-slate-500 ml-2 shrink-0"
+            className={`ml-2 shrink-0 transition-colors duration-300 ${isOpen ? 'text-amber-500' : 'text-stone-500 group-hover:text-stone-400'}`}
           >
             <VscChevronDown />
           </motion.div>
@@ -87,7 +87,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: dropdownDirection === 'up' ? 10 : -10, scale: 0.95 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
-              className={`absolute  z-50 w-full left-0 bg-[var(--color-brand-900)] border border-slate-700 shadow-2xl rounded-md overflow-hidden backdrop-blur-xl ${dropdownDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'
+              className={`absolute z-50 w-full left-0 bg-stone-950/90 border border-white/10 shadow-[0_8px_30px_rgba(0,0,0,0.5)] rounded-lg overflow-hidden backdrop-blur-xl ${dropdownDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'
                 }`}
             >
               <div className="max-h-60  overflow-y-auto custom-scrollbar p-1.5 space-y-0.5">
@@ -101,13 +101,13 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                         onChange(opt.value);
                         setIsOpen(false);
                       }}
-                      className={`w-full cursor-pointer flex items-center justify-between px-3 py-2.5 rounded-sm text-sm text-left transition-colors ${isSelected
-                        ? 'bg-[var(--color-accent-primary)]/20 text-[var(--color-accent-light)] font-bold'
-                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white font-medium'
+                      className={`w-full cursor-pointer flex items-center justify-between px-3 py-2 rounded-md text-xs text-left transition-colors duration-200 ${isSelected
+                        ? 'bg-amber-500/20 text-amber-400 font-bold'
+                        : 'text-stone-300 hover:bg-white/5 hover:text-white font-medium'
                         }`}
                     >
                       <span className="truncate">{opt.label}</span>
-                      {isSelected && <VscCheck className="text-[var(--color-accent-primary)] shrink-0" />}
+                      {isSelected && <VscCheck className="text-amber-500 shrink-0" />}
                     </button>
                   );
                 })}

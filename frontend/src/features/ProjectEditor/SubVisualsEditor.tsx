@@ -56,12 +56,12 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
         return (
           <div key={idx}
             onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
-            className={`bg-stone-900/60 p-3 rounded border space-y-3 relative cursor-pointer transition-colors ${isActive ? 'border-amber-500/60 bg-amber-900/10 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'border-stone-800 hover:border-stone-700'}`}>
+            className={`p-4 rounded-xl border space-y-4 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}>
             <div className="absolute top-2 right-2 flex gap-1">
               {onRewriteSubVisual && (
-                <button type="button" onClick={(e) => { e.stopPropagation(); setAiPromptIdx(aiPromptIdx === idx ? null : idx); }} className="text-amber-500 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded cursor-pointer" title="AI Magic Rewrite"><BsStars size={15} /></button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); setAiPromptIdx(aiPromptIdx === idx ? null : idx); }} className="text-amber-500/80 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded-md cursor-pointer transition-colors" title="AI Magic Rewrite"><BsStars size={14} /></button>
               )}
-              <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="text-red-500 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded cursor-pointer"><BiTrashAlt size={15} /></button>
+              <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="text-red-500/70 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md cursor-pointer transition-colors opacity-0 group-hover:opacity-100"><BiTrashAlt size={14} /></button>
             </div>
             
             {aiPromptIdx === idx && onRewriteSubVisual && (
@@ -104,26 +104,24 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               </div>
             )}
             
-            <div className={`flex items-center gap-2 mb-1 ${aiPromptIdx === idx ? 'mt-2' : ''}`}>
-              <div className={`text-xs font-bold ${isActive ? 'text-amber-400' : 'text-stone-500'}`}>Sub-Visual {idx + 1}</div>
+            <div className={`flex items-center gap-2 mb-2 ${aiPromptIdx === idx ? 'mt-2' : ''}`}>
+              <div className={`text-xs font-bold tracking-wide ${isActive ? 'text-amber-400' : 'text-stone-400 group-hover:text-stone-300'}`}>Layer {idx + 1}</div>
               {timing && (
-                <div className="text-[9px] font-mono bg-stone-950 px-1.5 py-0.5 rounded text-stone-400 border border-stone-800">
-                  [{formatTime(timing.start)} - {formatTime(timing.end)}]
+                <div className="text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded-full text-stone-500 border border-white/5">
+                  {formatTime(timing.start)} - {formatTime(timing.end)}
                 </div>
               )}
               {isActive && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
             </div>
-            <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
+            <div className="grid grid-cols-2 gap-4" onClick={e => e.stopPropagation()}>
               <div className="col-span-2">
-                <CustomInput label="Visual Cue Keyword" type="text" value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
+                <CustomInput label="Visual Cue Keyword" type="text" placeholder="e.g. A bustling city at night..." value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
               </div>
-              <div className="col-span-2 flex gap-2">
-                <div className="w-1/2">
-                  <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
-                </div>
-                <div className="w-1/2">
-                  <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />
-                </div>
+              <div className="col-span-1">
+                <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
+              </div>
+              <div className="col-span-1">
+                <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />
               </div>
 
               {/* Always-visible Camera Transform controls */}
@@ -133,11 +131,11 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               />
 
               {sv.visual_type === 'youtube' && (
-                <div className="col-span-2 space-y-4 mt-2 bg-stone-950/60 p-3.5 rounded-lg border border-stone-800">
+                <div className="col-span-2 mt-2 bg-white/5 backdrop-blur-sm p-4 rounded-xl border border-white/10 shadow-lg">
                   <div className="space-y-1.5">
                      <div className="flex justify-between items-center text-xs">
                       <label className="text-stone-400 font-bold uppercase tracking-wider">Start Offset (Skip Intro):</label>
-                      <span className="text-[var(--color-accent-light)] font-mono font-bold">{sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15}s</span>
+                      <span className="text-amber-500 font-mono font-bold">{sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15}s</span>
                     </div>
                     <input type="range" min="0" max="120" step="1" value={sv.visual_meta?.start_offset !== undefined ? sv.visual_meta.start_offset : 15} onChange={(e) => handleUpdateMeta(idx, { ...sv.visual_meta, start_offset: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-[var(--color-accent-primary)]" />
                   </div>

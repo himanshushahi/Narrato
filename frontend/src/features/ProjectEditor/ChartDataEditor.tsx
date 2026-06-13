@@ -57,38 +57,39 @@ export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onC
         <div className="flex justify-between items-center text-xs mb-2">
           <label className="text-stone-400 font-bold uppercase tracking-wider">✨ AI Data Generator:</label>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2">
           <input
             type="text"
             value={prompt}
             onChange={(e) => onChange({ ...visualMeta, chart_prompt: e.target.value })}
-            placeholder="e.g. Top 10 most populated countries in 2024"
-            className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+            placeholder="e.g. GDP of top 5 countries..."
+            className="flex-1 bg-black/20 border border-white/5 rounded-lg px-3 py-2 text-[11px] text-white focus:outline-none focus:border-amber-500/50 focus:bg-black/40 transition-all duration-300"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleFetch(); }}
           />
           <button
             type="button"
             onClick={handleFetch}
             disabled={loading || !prompt}
-            className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-zinc-950 px-3 py-1.5 rounded text-[11px] font-bold shrink-0 transition-colors flex items-center gap-1"
+            className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 disabled:opacity-50 px-3 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-all duration-300 flex items-center gap-1 shadow-[0_0_15px_rgba(245,158,11,0.1)]"
           >
             {loading ? <VscLoading className="animate-spin text-xs" /> : <VscSparkle className="text-xs" />} Generate
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-stone-800">
-        <div className="space-y-1">
-          <label className="text-stone-400 font-bold uppercase tracking-wider text-[10px]">Chart Title</label>
+      <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5 mt-2">
+        <div className="space-y-1.5">
+          <label className="text-stone-400/80 font-medium tracking-wide mb-1 ml-1 text-[10px]">Chart Title</label>
           <input
             type="text"
             value={visualMeta.title || ''}
             onChange={(e) => onChange({ ...visualMeta, title: e.target.value })}
             placeholder="e.g. Statistical Overview"
-            className="w-full bg-stone-950 border border-stone-800 rounded px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+            className="w-full bg-black/20 border border-white/5 rounded-lg px-3 py-2 text-[11px] text-white focus:outline-none focus:border-amber-500/50 focus:bg-black/40 transition-all duration-300"
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-stone-400 font-bold uppercase tracking-wider text-[10px]">Chart Type</label>
+        <div className="space-y-1.5">
+          <label className="text-stone-400/80 font-medium tracking-wide mb-1 ml-1 text-[10px]">Chart Type</label>
           <CustomSelect
             options={[
               { value: 'bar', label: 'Bar Chart' },
@@ -101,22 +102,22 @@ export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onC
         </div>
       </div>
 
-      <div className="border-t border-stone-800 pt-3 mt-3">
-        <div className="flex justify-between items-center text-xs mb-2">
-          <label className="text-stone-400 font-bold uppercase tracking-wider">Manual Editor:</label>
-          <button type="button" onClick={addDataRow} className="text-[10px] bg-stone-800 hover:bg-stone-700 px-2 py-1 rounded text-stone-300">
+      <div className="border-t border-white/5 pt-4 mt-4">
+        <div className="flex justify-between items-center text-xs mb-3">
+          <label className="text-stone-400/80 font-medium tracking-wide">Data Source</label>
+          <button type="button" onClick={addDataRow} className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1 rounded-md text-stone-300 transition-colors">
             + Add Row
           </button>
         </div>
         {data.length > 0 ? (
-          <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+          <div className="space-y-2 pr-2">
             {data.map((row: any, idx: number) => (
-              <div key={idx} className="flex gap-2 items-center">
+              <div key={idx} className="flex gap-2 items-center bg-black/10 p-1 rounded-lg border border-white/5">
                 <input
                   type="text"
                   value={row.label}
                   onChange={(e) => updateDataRow(idx, 'label', e.target.value)}
-                  className="flex-1 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+                  className="flex-1 bg-black/20 border border-transparent hover:border-white/10 rounded-md px-3 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50 focus:bg-black/40 transition-all"
                   placeholder="Label"
                 />
                 <input
@@ -124,10 +125,10 @@ export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onC
                   step="any"
                   value={row.value}
                   onChange={(e) => updateDataRow(idx, 'value', e.target.value)}
-                  className="w-24 bg-stone-950 border border-stone-800 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/50"
+                  className="w-24 bg-black/20 border border-transparent hover:border-white/10 rounded-md px-3 py-1.5 text-[11px] text-white focus:outline-none focus:border-amber-500/50 focus:bg-black/40 transition-all text-right"
                   placeholder="Value"
                 />
-                <button type="button" onClick={() => removeDataRow(idx)} className="text-red-400 hover:text-red-300 px-1.5 py-1 text-xs">✕</button>
+                <button type="button" onClick={() => removeDataRow(idx)} className="text-red-400/50 hover:text-red-400 px-2 py-1.5 text-xs transition-colors rounded hover:bg-red-500/10">✕</button>
               </div>
             ))}
           </div>

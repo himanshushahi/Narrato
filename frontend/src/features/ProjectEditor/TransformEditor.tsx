@@ -22,10 +22,10 @@ const SliderField = ({
   displayValue,
   onChange,
 }: SliderFieldProps) => (
-  <div className="space-y-1">
-    <div className="flex justify-between items-center text-xs">
-      <label className="text-stone-400 font-medium">{label}</label>
-      <span className="text-amber-400 font-mono font-bold text-[11px]">
+  <div className="space-y-1.5">
+    <div className="flex justify-between items-center text-xs mb-1.5">
+      <label className="text-stone-400/80 font-medium tracking-wide">{label}</label>
+      <span className="text-amber-500 font-mono font-bold text-[11px] bg-black/30 px-2 py-0.5 rounded border border-white/5 shadow-inner">
         {displayValue ?? value}
       </span>
     </div>
@@ -36,7 +36,7 @@ const SliderField = ({
       step={step}
       value={value}
       onChange={e => onChange(parseFloat(e.target.value))}
-      className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-amber-500"
+      className="w-full h-1.5 bg-black/40 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30 transition-all shadow-inner border border-white/5"
     />
   </div>
 );
@@ -62,16 +62,16 @@ export const TransformEditor = ({ transform, onChange }: Props) => {
     `${v >= 0 ? '+' : ''}${v}px`;
 
   return (
-    <div className="col-span-2 space-y-3 mt-2 bg-stone-900/60 p-3.5 rounded-lg border border-stone-800">
+    <div className="col-span-2 space-y-4 mt-3 pt-3 border-t border-white/5">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">
+      <div className="flex justify-between items-center mb-1">
+        <label className="text-stone-400/80 font-medium tracking-wide text-[10px]">
           Camera Transform
         </label>
         <button
           type="button"
           onClick={resetAll}
-          className="flex items-center gap-1 text-[10px] text-stone-500 hover:text-amber-400 bg-stone-800/50 hover:bg-stone-800 px-2 py-1 rounded transition-colors cursor-pointer"
+          className="flex items-center gap-1 text-[10px] text-stone-400 hover:text-amber-400 bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-1 rounded-md transition-colors cursor-pointer"
         >
           <BiReset size={12} /> Reset
         </button>

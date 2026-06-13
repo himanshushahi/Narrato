@@ -13,12 +13,12 @@ export const CustomInput: React.FC<CustomInputProps> = ({ label, icon, className
 
   return (
     <div className="space-y-1.5 w-full">
-      {label && <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">{label}</label>}
+      {label && <label className="block text-[10px] text-stone-400/80 font-medium tracking-wide mb-1 ml-1">{label}</label>}
       <div className="relative group flex items-center">
         <input
           type={inputType}
           autoComplete={isPassword ? 'new-password' : 'off'}
-          className={`w-full px-4 py-2.5 bg-[var(--color-brand-950)]/50 border border-slate-700/50 rounded-md text-slate-200 placeholder-slate-600 focus:outline-none focus:border-[var(--color-accent-primary)] focus:ring-1 focus:ring-[var(--color-accent-primary)] transition-all text-sm ${icon ? 'pl-10' : ''} ${isPassword ? 'pr-10' : ''} ${className}`}
+          className={`w-full px-3 py-2 bg-black/20 border border-white/5 rounded-lg text-stone-200 placeholder-stone-600 focus:outline-none focus:border-amber-500/50 focus:bg-black/40 focus:shadow-[0_0_15px_rgba(245,158,11,0.1)] transition-all duration-300 text-xs ${icon ? 'pl-9' : ''} ${isPassword ? 'pr-9' : ''} hover:border-white/10 ${className}`}
           {...props}
         />
         {icon && (
@@ -47,9 +47,9 @@ interface CustomTextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement
 export const CustomTextarea: React.FC<CustomTextareaProps> = ({ label, className = '', ...props }) => {
   return (
     <div className="space-y-1.5 w-full">
-      {label && <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">{label}</label>}
+      {label && <label className="block text-[10px] text-stone-400/80 font-medium tracking-wide mb-1 ml-1">{label}</label>}
       <textarea
-        className={`w-full px-4 py-3 bg-[var(--color-brand-950)]/50 border border-slate-700/50 rounded-md text-slate-200 placeholder-slate-600 focus:outline-none focus:border-[var(--color-accent-primary)] focus:ring-1 focus:ring-[var(--color-accent-primary)] transition-all text-sm leading-relaxed resize-none ${className}`}
+        className={`w-full px-3 py-2.5 bg-black/20 border border-white/5 rounded-lg text-stone-200 placeholder-stone-600 focus:outline-none focus:border-amber-500/50 focus:bg-black/40 focus:shadow-[0_0_15px_rgba(245,158,11,0.1)] transition-all duration-300 text-xs leading-relaxed resize-none hover:border-white/10 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent ${className}`}
         {...props}
       />
     </div>
