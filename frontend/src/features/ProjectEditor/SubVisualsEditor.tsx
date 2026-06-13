@@ -13,7 +13,7 @@ import { LowerThirdEditor } from './LowerThirdEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
 import { BiTrashAlt } from 'react-icons/bi';
 import { BsPlus, BsStars, BsSendFill } from 'react-icons/bs';
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 
 export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0 }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
@@ -41,6 +41,12 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
     onChange([...subVisuals, { visual_type: 'scene', visual_cue: '', visual_meta: {} }]);
   };
 
+  const handleInsert = (idx: number) => {
+    const copy = [...subVisuals];
+    copy.splice(idx, 0, { visual_type: 'scene', visual_cue: '', visual_meta: {} });
+    onChange(copy);
+  };
+
   const handleRemove = (idx: number) => {
     onChange(subVisuals.filter((_: any, i: number) => i !== idx));
   };
@@ -66,15 +72,25 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
         const timing = timings?.[idx];
 
         return (
-          <div key={idx}
-            onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
-            className={`p-4 rounded-xl border space-y-4 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}>
-            <div className="absolute top-2 right-2 flex gap-1">
-              {onRewriteSubVisual && (
-                <button type="button" onClick={(e) => { e.stopPropagation(); if (aiPromptIdx === idx) { setAiPromptIdx(null); setAiPromptText(''); } else { setAiPromptIdx(idx); setAiPromptText(''); } }} className="text-amber-500/80 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded-md cursor-pointer transition-colors" title="AI Magic Rewrite"><BsStars size={14} /></button>
-              )}
-              <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="text-red-500/70 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md cursor-pointer transition-colors opacity-0 group-hover:opacity-100"><BiTrashAlt size={14} /></button>
+          <Fragment key={idx}>
+            {/* Insert divider between cards */}
+            <div className="flex items-center gap-2 group/insert">
+              <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
+              <button type="button" onClick={(e) => { e.stopPropagation(); handleInsert(idx); }} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-stone-500 hover:text-amber-400 opacity-0 group-hover/insert:opacity-100 transition-all duration-200 px-2 py-1 rounded hover:bg-amber-500/10 cursor-pointer" title="Insert layer here">
+                <BsPlus size={14} /> Insert
+              </button>
+              <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
             </div>
+
+            <div key={idx}
+              onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
+              className={`p-4 rounded-xl border space-y-4 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}>
+              <div className="absolute top-2 right-2 flex gap-1">
+                {onRewriteSubVisual && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); if (aiPromptIdx === idx) { setAiPromptIdx(null); setAiPromptText(''); } else { setAiPromptIdx(idx); setAiPromptText(''); } }} className="text-amber-500/80 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded-md cursor-pointer transition-colors" title="AI Magic Rewrite"><BsStars size={14} /></button>
+                )}
+                <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="text-red-500/70 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md cursor-pointer transition-colors opacity-0 group-hover:opacity-100"><BiTrashAlt size={14} /></button>
+              </div>
             
             {aiPromptIdx === idx && onRewriteSubVisual && (
               <div className="bg-amber-950/40 p-2.5 rounded border border-amber-900/50 mt-8 mb-2 relative" onClick={e => e.stopPropagation()}>
@@ -186,6 +202,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
 
             </div>
           </div>
+          </Fragment>
         )
       })}
       {subVisuals.length === 0 && <p className="text-xs text-stone-500 italic">No sub-visuals. A default black screen will be shown.</p>}

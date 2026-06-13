@@ -145,13 +145,21 @@ export function useScriptEditing(
         }
 
         const origSubVisuals = manifestScene.sub_visuals || [];
-        const mergedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
-          const osv = origSubVisuals[idx] || {};
-          const requiresNewAsset = lsv.visual_type !== osv.visual_type || lsv.visual_cue !== osv.visual_cue;
-          if (!requiresNewAsset) {
-            return { ...lsv, visual_path: osv.visual_path, visual_url: osv.visual_url, duration: osv.duration };
+        // Match by content (type+cue) rather than by index,
+        // so inserted/deleted sub-visuals don't shift existing assets
+        const matchedIndices = new Set<number>();
+        const mergedSubVisuals = liveSubVisuals.map((lsv: any) => {
+          const matchIdx = origSubVisuals.findIndex((osv: any, i: number) =>
+            !matchedIndices.has(i) &&
+            osv.visual_type === lsv.visual_type &&
+            osv.visual_cue === lsv.visual_cue
+          );
+          if (matchIdx !== -1) {
+            matchedIndices.add(matchIdx);
+            const match = origSubVisuals[matchIdx];
+            return { ...lsv, visual_path: match.visual_path, visual_url: match.visual_url, duration: match.duration };
           }
-          return lsv;
+          return lsv; // New or changed sub-visual — no existing asset to carry over
         });
 
         const sceneText = type === 'introduction' ? scriptData?.introduction?.hook
@@ -164,20 +172,26 @@ export function useScriptEditing(
 
       await callEel<any>('save_project_with_cleanup', projectId, scriptData, liveManifest);
 
-      // Fetch updated assets for changed sub-visuals
+      // Fetch assets only for genuinely new/changed sub-visuals
       const origManifest = originalManifestData.length > 0 ? originalManifestData : manifestData;
       for (let mIdx = 0; mIdx < liveManifest.length; mIdx++) {
         const liveSubs = liveManifest[mIdx].sub_visuals || [];
         const origSubs = origManifest[mIdx]?.sub_visuals || [];
+        const matchedOrigIndices = new Set<number>();
         for (let sIdx = 0; sIdx < liveSubs.length; sIdx++) {
           const lsv = liveSubs[sIdx];
-          const osv = origSubs[sIdx] || {};
-          const changed = JSON.stringify({ visual_type: lsv.visual_type, visual_cue: lsv.visual_cue })
-            !== JSON.stringify({ visual_type: osv.visual_type, visual_cue: osv.visual_cue });
-          if (changed && lsv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(lsv.visual_type)) {
+          const origMatch = origSubs.findIndex((osv: any, i: number) =>
+            !matchedOrigIndices.has(i) &&
+            osv.visual_type === lsv.visual_type &&
+            osv.visual_cue === lsv.visual_cue &&
+            osv.visual_path
+          );
+          if (origMatch === -1 && lsv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(lsv.visual_type)) {
             try {
               await callEel('fetch_single_scene_asset', projectId, mIdx, sIdx, lsv.visual_type, lsv.visual_cue || '');
             } catch (e) { console.error("Failed to fetch asset", sIdx, e); }
+          } else if (origMatch !== -1) {
+            matchedOrigIndices.add(origMatch);
           }
         }
       }
