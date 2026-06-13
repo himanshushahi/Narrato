@@ -211,6 +211,10 @@ export function useScriptEditing(
       let res;
       const isNewScene = type === 'scenes' && scriptData.scenes?.[index] &&
         (!scriptData.scenes[index].narration || scriptData.scenes[index].narration.trim() === '');
+      const isNewIntroduction = type === 'introduction' &&
+        (!scriptData.introduction?.hook || scriptData.introduction?.hook.trim() === '');
+      const isNewConclusion = type === 'conclusion' &&
+        (!scriptData.conclusion?.summary || scriptData.conclusion?.summary.trim() === '');
 
       if (isNewScene) {
         res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
@@ -231,7 +235,7 @@ export function useScriptEditing(
         else updated.scenes[index] = res.data;
         setScriptData(updated);
 
-        if (isNewScene) {
+        if (isNewScene || isNewIntroduction || isNewConclusion) {
           setRewritePrompt('');
           setRewritingSection(null);
           addToast("AI content generated! Review and click Save to fetch visuals.", 'success');

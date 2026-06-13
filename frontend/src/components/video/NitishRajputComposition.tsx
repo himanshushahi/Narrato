@@ -21,6 +21,8 @@ export interface SubVisual {
   duration?: number;
   /** User-configured zoom & pan offset applied uniformly to this sub-visual */
   transform?: SubVisualTransform;
+  /** Proportional duration share within the scene (values sum to ~1.0). Set by Adjust Durations bar. */
+  duration_ratio?: number;
 }
 
 export interface Scene {
@@ -213,15 +215,21 @@ export const NitishRajputComposition = ({
             from={currentOffset}
             durationInFrames={durationFrames}
           >
-            {/* Sub-visual sequences: each gets an equal fraction of the scene duration */}
+            {/* Sub-visual sequences: each gets duration based on duration_ratio */}
             {numSubs > 0 ? (
               subVisuals.map((subVis, subIdx) => {
-                // Distribute frames equally, with last sub-visual getting any remainder
-                const baseSubDuration = Math.floor(durationFrames / numSubs);
-                const subFrom = subIdx * baseSubDuration;
-                const subDuration = subIdx === numSubs - 1 
-                  ? durationFrames - subFrom 
-                  : baseSubDuration;
+                // Distribute frames using duration_ratio if available, otherwise equally
+                const svRatios = subVisuals.map(sv => sv.duration_ratio);
+                const allValid = svRatios.every(r => typeof r === 'number' && !isNaN(r));
+                const hasValidRatios = allValid && svRatios.length > 0 &&
+                                       Math.abs((svRatios as number[]).reduce((a, b) => a + b, 0) - 1.0) < 0.01;
+                let subFrom = 0;
+                for (let i = 0; i < subIdx; i++) {
+                  subFrom += Math.max(1, Math.floor(durationFrames * (hasValidRatios ? ((svRatios[i] as number) || 1.0 / numSubs) : (1.0 / numSubs))));
+                }
+                const subDuration = subIdx === numSubs - 1
+                  ? Math.max(1, durationFrames - subFrom)
+                  : Math.max(1, Math.floor(durationFrames * (hasValidRatios ? ((svRatios[subIdx] as number) || 1.0 / numSubs) : (1.0 / numSubs))));
 
                 const ltMeta = subVis.visual_meta?.lower_third;
 

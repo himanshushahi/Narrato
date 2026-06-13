@@ -590,12 +590,30 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
         prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\", \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }] }"
         schema = SCENE_JSON_SCHEMA
-        
-    user_prompt = (
-        f"Original Segment:\n{json.dumps(target_content, indent=2)}\n\n"
-        f"Rewrite Instruction: {rewrite_prompt}\n\n"
-        f"Generate the rewritten JSON segment now. Structure matches: {prompt_struct}."
-    )
+
+    # Detect if content is empty — treat as "create new" instead of "rewrite existing"
+    content_is_empty = False
+    if section_type == "introduction":
+        content_is_empty = not target_content.get("hook", "").strip()
+    elif section_type == "conclusion":
+        content_is_empty = not target_content.get("summary", "").strip()
+    else:
+        content_is_empty = not target_content.get("narration", "").strip()
+
+    if content_is_empty:
+        section_label = section_type.replace("_", " ").title()
+        user_prompt = (
+            f"Create a brand new {section_label} section for this documentary based on the user's request below.\n"
+            f"Use the full script context above to ensure narrative consistency.\n\n"
+            f"User Request: {rewrite_prompt}\n\n"
+            f"Generate the JSON segment now. Structure matches: {prompt_struct}."
+        )
+    else:
+        user_prompt = (
+            f"Original Segment:\n{json.dumps(target_content, indent=2)}\n\n"
+            f"Rewrite Instruction: {rewrite_prompt}\n\n"
+            f"Generate the rewritten JSON segment now. Structure matches: {prompt_struct}."
+        )
     
     return _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_key, base_url, model)
 

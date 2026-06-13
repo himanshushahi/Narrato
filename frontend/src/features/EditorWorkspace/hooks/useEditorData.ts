@@ -134,6 +134,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             transition_type: lsv.transition_type,
             visual_meta: lsv.visual_meta,
             transform: lsv.transform,
+            duration_ratio: lsv.duration_ratio,
             visual_url: visualUrl,
             duration: osv.duration
           };

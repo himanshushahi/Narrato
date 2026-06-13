@@ -690,7 +690,7 @@ const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptCha
       </div>
       <button
         onClick={onRewrite}
-        disabled={isRewriting}
+        disabled={isRewriting || !prompt.trim()}
         className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800/80 hover:bg-blue-600/20 hover:text-blue-400 text-zinc-300 border border-zinc-700/60 hover:border-blue-600/30 rounded-lg text-[10px] font-bold transition-all shrink-0 h-9 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
       >
         {isRewriting ? (
