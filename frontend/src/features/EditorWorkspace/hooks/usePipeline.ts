@@ -103,7 +103,7 @@ export function usePipeline(
       return;
     }
 
-    const criticalSteps = ['generate_script', 'transcribe', 'fetch_assets'];
+    const criticalSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets'];
     let shouldReload = false;
     for (const step of criticalSteps) {
       const prevStatus = previousTasksRef.current[step]?.status;

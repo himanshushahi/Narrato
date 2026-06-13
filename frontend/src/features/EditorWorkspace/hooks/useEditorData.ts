@@ -27,7 +27,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const [manifestData, setManifestData] = useState<any[]>([]);
   const [transcriptionData, setTranscriptionData] = useState<any>({ segments: [] });
   const [loadingScript, setLoadingScript] = useState(false);
-  const [reloadKey] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Load project detail on mount
   useEffect(() => {
@@ -70,6 +70,11 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
           const transcript = await callEel<any>('read_json_file', project.transcription_path);
           setTranscriptionData(transcript || { segments: [] });
         }
+
+        // Update store with fresh project metadata (audio_path, transcription_path, etc.)
+        // and bust media cache so the preview player picks up new audio/subtitles
+        useProjectStore.getState().setSelectedProject(project);
+        setReloadKey(k => k + 1);
       }
     } catch (e) {
       console.error("Failed to load asset JSONs:", e);
