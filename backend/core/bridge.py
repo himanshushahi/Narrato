@@ -563,8 +563,8 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
         "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"
         "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
-        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.
-- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name (e.g. "entity name", NOT "entity name speaking in public" or "a portrait of entity name"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.\n"
+        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
+        "- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name (e.g. \"entity name\", NOT \"entity name speaking in public\" or \"a portrait of entity name\"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.\n"
         "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
         "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
         "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
@@ -732,8 +732,8 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
         "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"
         "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
-        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.
-- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name (e.g. "entity name", NOT "entity name speaking in public" or "a portrait of entity name"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.\n"
+        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
+        "- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name (e.g. \"entity name\", NOT \"entity name speaking in public\" or \"a portrait of entity name\"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.\n"
         "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
         "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
         "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
