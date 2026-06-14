@@ -417,10 +417,14 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_entries, f, indent=2, ensure_ascii=False)
 
+    # Sync resolved voice back to the project so the frontend's voiceoverSettingsChanged()
+    # comparison uses the same resolved value, not the DB-column default which may differ.
     update_project(
         project_dict['id'],
         audio_path=str(merged_audio_path),
-        assets_manifest_path=str(manifest_path) # Stores the video timeline details
+        assets_manifest_path=str(manifest_path),  # Stores the video timeline details
+        tts_engine=engine,  # Stores the resolved engine so DB column matches
+        tts_voice=voice,    # Stores the resolved voice so DB column matches
     )
     
     progress_cb(100.0, "Voiceover generation complete!")

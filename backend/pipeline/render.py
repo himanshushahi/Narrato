@@ -276,12 +276,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         if existing == frame_hash:
             if frames_dir.exists():
                 frame_cache_valid = True
-                logger.info("Frame hash matches. Will resume if frames exist.")
+                existing_count = len(list(frames_dir.glob("element-*.webp")))
+                logger.info(f"Frame hash matches. {existing_count} cached frames found. Will resume from missing ranges.")
             else:
                 logger.info("Frame hash matches but frames/ missing. Re-creating.")
                 frames_dir.mkdir(parents=True, exist_ok=True)
         else:
-            logger.info("Frame hash changed. Invalidating frame cache.")
+            existing_count = len(list(frames_dir.glob("element-*.webp"))) if frames_dir.exists() else 0
+            logger.info(f"Frame hash CHANGED (old:{existing[:12]}… != new:{frame_hash[:12]}…). "
+                        f"Invalidating {existing_count} cached frames.")
             if frames_dir.exists():
                 shutil.rmtree(frames_dir, ignore_errors=True)
             frames_dir.mkdir(parents=True, exist_ok=True)

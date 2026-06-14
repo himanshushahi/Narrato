@@ -39,6 +39,7 @@ export interface UsePipelineReturn {
   handleResumeFromStage: (stageId: string) => Promise<void>;
   handleResumePipeline: () => Promise<void>;
   cancelPipeline: () => void;
+  setScriptChangedAlert: (alert: boolean) => void;
 }
 
 export function usePipeline(
@@ -157,7 +158,16 @@ export function usePipeline(
 
   /** Detect changes to voiceover settings (tts_engine, tts_voice, etc.) that aren't
    * captured by the narration text hash. Only fires when the manifest has stored
-   * settings to compare against (otherwise it's a pre-existing voiceover). */
+   * settings to compare against (otherwise it's a pre-existing voiceover).
+   *
+   * IMPORTANT: voice resolution must match the backend's chain:
+   *   project_settings.tts_voice → selectedProject.tts_voice → language default
+   * The DB column (selectedProject.tts_voice) may have a hardcoded default like
+   * 'hi-IN-SwaraNeural' that doesn't match what the backend resolved. To prevent
+   * false positives, we check project_settings FIRST (user-explicit choice), then
+   * the DB column, then fall back to '' (language defaults cannot be matched by
+   * the frontend alone — the backend writes the resolved voice back to the column
+   * during generate_voiceover so subsequent comparisons are accurate). */
   const voiceoverSettingsChanged = useCallback(() => {
     const stored = storedVoiceoverEngineRef.current;
     if (!stored || !manifestData?.[0]?._voiceover_engine) return false;
@@ -172,14 +182,18 @@ export function usePipeline(
       }
     } catch { /* ignore parse errors */ }
 
-    const currentEngine = selectedProject.tts_engine || projectSettings.tts_engine || 'edge';
+    // Resolve engine: project_settings → DB column → default 'edge'
+    const currentEngine = projectSettings.tts_engine || selectedProject.tts_engine || 'edge';
     const currentSpeed = String(projectSettings.tts_speed ?? '1.0');
     const currentPitch = String(projectSettings.tts_pitch ?? '0');
+
+    // Resolve voice matching backend chain: project_settings → DB column → ''
+    // (language default is handled by the backend writing the resolved voice back)
     let currentVoice = '';
     if (currentEngine === 'kokoro') {
       currentVoice = projectSettings.kokoro_voice || '';
     } else {
-      currentVoice = selectedProject.tts_voice || projectSettings.tts_voice || '';
+      currentVoice = projectSettings.tts_voice || selectedProject.tts_voice || '';
     }
 
     return (
@@ -203,11 +217,64 @@ export function usePipeline(
 
   const handleResumeFromStage = useCallback(async (stageId: string) => {
     if (!projectId || !canResumeFrom(stageId)) return;
+    if (isRunning) {
+      addToast("Pipeline is already running. Please wait for it to complete before resuming.", 'warning', 4000);
+      return;
+    }
     const startIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
     if (startIdx === -1) return;
+
+    const allSteps = PIPELINE_STAGES.map(s => s.id);
     const endIdx = PIPELINE_STAGES.findIndex(s => s.id === targetStage);
     const finalEndIdx = endIdx !== -1 && endIdx >= startIdx ? endIdx : PIPELINE_STAGES.length - 1;
-    const stepsToRun = PIPELINE_STAGES.slice(startIdx, finalEndIdx + 1).map(s => s.id);
+
+    // Apply the same smart detection cascade as handleResumePipeline
+    // to determine which stages need re-running. Then merge with the
+    // forced start point.
+    const limitSteps = (steps: string[]) => {
+      if (endIdx === -1) return steps;
+      return steps.filter(step => allSteps.indexOf(step) <= endIdx);
+    };
+
+    let smartSteps: string[] = [];
+
+    if (scriptChangedAlert) {
+      smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+    } else {
+      const manifestSceneCount = manifestData?.filter((m: any) => m.section_type === 'scene').length || 0;
+      const scriptSceneCount = scriptData?.scenes?.length || 0;
+      const sceneCountChanged = manifestSceneCount !== scriptSceneCount;
+      const currentHash = await computeScriptContentHash(scriptData);
+      const hashChanged = !!storedContentHashRef.current && storedContentHashRef.current !== currentHash;
+
+      if (sceneCountChanged || hashChanged) {
+        smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+      } else if (voiceoverSettingsChanged()) {
+        smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+      } else if (hasVisualEdits()) {
+        smartSteps = limitSteps(['fetch_assets', 'render']);
+      } else {
+        const completedSteps = new Set(Object.values(tasks).filter(t => t.status === 'completed').map(t => t.step));
+        let remainingSteps = allSteps.filter(s => !completedSteps.has(s));
+        if (remainingSteps.length === 0) remainingSteps = ['render'];
+        smartSteps = limitSteps(remainingSteps);
+      }
+    }
+
+    // Step 1: Force-include the selected stage + all downstream (dependent) stages.
+    // In a linear pipeline, forcing a stage invalidates everything that consumes
+    // its output, so all downstream stages must re-run.
+    // Step 2: Merge with smart detection results that are at/after the selected stage.
+    const forcedRange = allSteps.slice(startIdx, finalEndIdx + 1);
+    const filteredSmart = smartSteps.filter(s => allSteps.indexOf(s) >= startIdx);
+    const stepsToRun = Array.from(new Set([...forcedRange, ...filteredSmart]))
+      .sort((a, b) => allSteps.indexOf(a) - allSteps.indexOf(b));
+
+    if (stepsToRun.length === 0) {
+      addToast("All selected stages are already completed.", 'warning', 5000);
+      return;
+    }
+
     setScriptChangedAlert(false);
     const res = await startPipeline(projectId, stepsToRun);
     if (res?.success) {
@@ -216,10 +283,14 @@ export function usePipeline(
       addToast(res?.error || "Failed to start pipeline", 'error');
     }
     loadFiles(projectId);
-  }, [projectId, targetStage, startPipeline, canResumeFrom, addToast, loadFiles]);
+  }, [projectId, targetStage, scriptChangedAlert, manifestData, scriptData, tasks, hasVisualEdits, voiceoverSettingsChanged, startPipeline, addToast, loadFiles, isRunning, canResumeFrom]);
 
   const handleResumePipeline = useCallback(async () => {
     if (!projectId) return;
+    if (isRunning) {
+      addToast("Pipeline is already running. Please wait for it to complete before resuming.", 'warning', 4000);
+      return;
+    }
     try {
       const allSteps = PIPELINE_STAGES.map(s => s.id);
       const endIdx = PIPELINE_STAGES.findIndex(s => s.id === targetStage);
@@ -271,7 +342,7 @@ export function usePipeline(
       console.error(err);
       addToast("Failed to start pipeline", 'error');
     }
-  }, [projectId, targetStage, scriptChangedAlert, manifestData, scriptData, tasks, hasVisualEdits, voiceoverSettingsChanged, startPipeline, addToast, loadFiles]);
+  }, [projectId, targetStage, scriptChangedAlert, manifestData, scriptData, tasks, hasVisualEdits, voiceoverSettingsChanged, startPipeline, addToast, loadFiles, isRunning]);
 
   const cancelPipelineAction = useCallback(() => {
     if (projectId) cancelPipeline(projectId);
@@ -279,7 +350,7 @@ export function usePipeline(
 
   return {
     tasks, queue, isRunning, targetStage, activeTaskStep, scriptChangedAlert,
-    setTargetStage,
+    setTargetStage, setScriptChangedAlert,
     triggerFullPipeline, handleResumeFromStage, handleResumePipeline,
     cancelPipeline: cancelPipelineAction,
   };

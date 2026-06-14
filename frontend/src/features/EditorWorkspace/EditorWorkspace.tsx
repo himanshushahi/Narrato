@@ -72,7 +72,7 @@ export const EditorWorkspace: React.FC = () => {
 
   const {
     tasks, queue, isRunning, targetStage, activeTaskStep, scriptChangedAlert,
-    setTargetStage, triggerFullPipeline,
+    setTargetStage, setScriptChangedAlert, triggerFullPipeline,
     handleResumePipeline, handleResumeFromStage, cancelPipeline
   } = usePipeline(id, scriptData, manifestData, loadFiles);
 
@@ -80,6 +80,8 @@ export const EditorWorkspace: React.FC = () => {
     editingCard, setEditingCard, rewritePrompt, setRewritePrompt,
     rewritingSection,
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
+    scriptChangedAlert: scriptEditingAlert,
+    setScriptChangedAlert: setScriptEditingAlert,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription
@@ -87,6 +89,27 @@ export const EditorWorkspace: React.FC = () => {
     id, scriptData, setScriptData, manifestData, setManifestData,
     transcriptionData, setTranscriptionData, loadFiles
   );
+
+  // Sync scriptEditing's alert to the pipeline hook so handleResumePipeline can use it.
+  // Use a ref to only propagate CHANGES — prevents a race where handleResumePipeline
+  // clears the pipeline's alert but this effect re-sets it from the still-true source.
+  const prevScriptEditingRef = useRef(scriptEditingAlert);
+  useEffect(() => {
+    if (scriptEditingAlert !== prevScriptEditingRef.current) {
+      setScriptChangedAlert(scriptEditingAlert);
+      prevScriptEditingRef.current = scriptEditingAlert;
+    }
+  }, [scriptEditingAlert, setScriptChangedAlert]);
+
+  // Clear both alerts when the pipeline finishes — narration is now synced
+  const prevRunningRef = useRef(isRunning);
+  useEffect(() => {
+    if (prevRunningRef.current && !isRunning) {
+      setScriptChangedAlert(false);
+      setScriptEditingAlert(false);
+    }
+    prevRunningRef.current = isRunning;
+  }, [isRunning, setScriptChangedAlert, setScriptEditingAlert]);
 
   // === Local state ===
   const [currentFrame, setCurrentFrame] = useState(0);
