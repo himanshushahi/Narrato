@@ -9,7 +9,7 @@ import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
 import { CustomRange } from '../components/ui/CustomRange';
 import { motion, Variants } from 'framer-motion';
-import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../features/Settings/voiceConstants';
+import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS, WHISPER_MODEL_OPTIONS } from '../features/Settings/voiceConstants';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
@@ -244,14 +244,6 @@ export const SettingsPage: React.FC = () => {
   const ttsEngineTabs: Tab[] = [
     { id: 'kokoro', label: 'Kokoro (Offline)' },
     { id: 'edge', label: 'Edge-TTS (Online)' }
-  ];
-
-  const whisperModelOptions: SelectOption[] = [
-    { value: 'tiny', label: 'Tiny (~75MB) - Fastest' },
-    { value: 'base', label: 'Base (~140MB) - Balanced' },
-    { value: 'small', label: 'Small (~460MB) - Good Accuracy' },
-    { value: 'collabora/faster-whisper-small-hindi', label: 'Small Hindi (~460MB) - Best for Hindi' },
-    { value: 'medium', label: 'Medium (~1.5GB) - High Accuracy' }
   ];
 
   const edgeVoiceOptions = EDGE_VOICE_OPTIONS;
@@ -495,7 +487,7 @@ export const SettingsPage: React.FC = () => {
 
                   <CustomSelect
                     label="Faster-Whisper Model Size"
-                    options={whisperModelOptions}
+                    options={WHISPER_MODEL_OPTIONS}
                     value={formData.whisper_model}
                     onChange={(val) => handleSelectChange('whisper_model', val)}
                   />

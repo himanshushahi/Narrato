@@ -1,8 +1,10 @@
 import React from 'react';
-import { VscSettingsGear, VscRefresh } from 'react-icons/vsc';
+import { VscSettingsGear, VscRefresh, VscServer } from 'react-icons/vsc';
 import { useSettingsStore } from '../../../store/useSettingsStore';
+import { useProjectStore } from '../../../store/useProjectStore';
 import { ProjectSettingsEditor } from '../../ProjectEditor/ProjectSettingsEditor';
 import { CustomSelect } from '../../../components/ui/CustomSelect';
+import { WHISPER_MODEL_OPTIONS } from '../../Settings/voiceConstants';
 
 interface SettingsTabProps {
   localProjectSettings: any;
@@ -153,6 +155,11 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   localProjectSettings, onSettingsUpdate
 }) => {
   const globalSettings = useSettingsStore((s) => s.settings);
+  const selectedProject = useProjectStore((s) => s.selectedProject);
+  const projectLanguage = selectedProject?.language || 'hi';
+
+  // If the global setting is something generic, but this is a Hindi project, the smart fallback should be the Hindi model
+  const effectiveGlobalWhisperModel = globalSettings.whisper_model || (projectLanguage === 'hi' ? 'collabora/faster-whisper-small-hindi' : 'base');
 
   // Merge helpers: update a single key in localProjectSettings
   const updateKey = (key: string, value: string) => {
@@ -169,6 +176,43 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-4">
+      {/* ════ Speech-to-Text (Whisper) ════ */}
+      <div className="bg-zinc-900/60 rounded-xl p-4 border border-zinc-800/60 space-y-3">
+        <div className="flex items-center gap-2 pb-1 border-b border-zinc-800/40">
+          <VscServer className="text-xs text-zinc-500" />
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
+            Speech-to-Text (Whisper)
+          </h3>
+          <span className="text-[8px] text-zinc-600 ml-auto">Overrides global</span>
+        </div>
+
+        <OverrideRow
+          label="Processing Hardware"
+          globalValue={globalSettings.whisper_device || 'cpu'}
+          projectValue={projectVal('whisper_device')}
+          onReset={() => resetKey('whisper_device')}
+        >
+          <CustomSelect
+            options={HARDWARE_OPTIONS}
+            value={projectVal('whisper_device') || globalSettings.whisper_device || 'cpu'}
+            onChange={(v) => updateKey('whisper_device', v)}
+          />
+        </OverrideRow>
+
+        <OverrideRow
+          label="Faster-Whisper Model Size"
+          globalValue={effectiveGlobalWhisperModel}
+          projectValue={projectVal('whisper_model')}
+          onReset={() => resetKey('whisper_model')}
+        >
+          <CustomSelect
+            options={WHISPER_MODEL_OPTIONS}
+            value={projectVal('whisper_model') || effectiveGlobalWhisperModel}
+            onChange={(v) => updateKey('whisper_model', v)}
+          />
+        </OverrideRow>
+      </div>
+
       {/* ════ Rendering Engine ════ */}
       <div className="bg-zinc-900/60 rounded-xl p-4 border border-zinc-800/60 space-y-3">
         <div className="flex items-center gap-2 pb-1 border-b border-zinc-800/40">
