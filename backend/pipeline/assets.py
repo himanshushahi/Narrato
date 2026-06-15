@@ -650,6 +650,40 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
                         preserved_files.append(str(file_path))
                         break  # Only count once per position
 
+    # Rename remaining asset files so their filenames match the new manifest indices.
+    # After scene deletion, old files like asset_005_00.jpg need to become asset_004_00.jpg
+    # if their manifest entry shifted from index 5 to index 4.
+    rename_count = 0
+    for scene_idx, segment in enumerate(new_manifest_data):
+        sub_visuals = segment.get("sub_visuals", [])
+        for sub_idx, sv in enumerate(sub_visuals):
+            old_path_str = sv.get("visual_path", "")
+            if not old_path_str:
+                continue
+            old_path = Path(old_path_str)
+            if not old_path.exists():
+                # File doesn't exist — clear the stale path reference
+                sv["visual_path"] = ""
+                continue
+            # Build the expected filename for this (scene_idx, sub_idx) position
+            expected_stem = f"asset_{scene_idx:03d}_{sub_idx:02d}"
+            actual_stem = old_path.stem
+            if actual_stem != expected_stem:
+                new_path = old_path.parent / f"{expected_stem}{old_path.suffix}"
+                try:
+                    # If target already exists (shouldn't normally), remove it first
+                    if new_path.exists():
+                        new_path.unlink()
+                    old_path.rename(new_path)
+                    sv["visual_path"] = str(new_path)
+                    rename_count += 1
+                    logger.info(f"Renamed asset: {old_path.name} -> {new_path.name}")
+                except Exception as e:
+                    logger.warning(f"Could not rename {old_path} -> {new_path}: {e}")
+
+    if rename_count > 0:
+        logger.info(f"Renamed {rename_count} asset files to match new manifest indices")
+
     # Embed content hash into each manifest entry for change detection on pipeline resume
     if content_hash:
         for entry in new_manifest_data:

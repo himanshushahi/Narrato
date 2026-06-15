@@ -6,6 +6,7 @@ from backend.database.db import get_setting, update_project
 from backend.core.logger import logger
 import urllib.request
 import urllib.parse
+from pathlib import Path
 
 # Schema for individual sub-visual entries
 SUB_VISUAL_SCHEMA = {
@@ -20,49 +21,49 @@ SUB_VISUAL_SCHEMA = {
             "type": "string",
             "enum": ["subtle_slide", "fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "none"]
         },
-        "visual_meta": {"type": "object"}
+        "visual_meta": {"type": "object"},
+        "duration": {"type": "number", "description": "Precise duration in seconds"}
     },
-    "required": ["visual_cue", "visual_type", "transition"]
+    "required": ["visual_cue", "visual_type", "transition", "duration"]
 }
 
 # Schema validations for JSON parsing
-INTRO_JSON_SCHEMA = {
+SCRIPT_INTRO_JSON_SCHEMA = {
     "type": "object",
     "properties": {
-        "hook": {"type": "string"},
-        "sub_visuals": {
-            "type": "array",
-            "items": SUB_VISUAL_SCHEMA
-        }
+        "hook": {"type": "string"}
     },
-    "required": ["hook", "sub_visuals"]
+    "required": ["hook"]
 }
 
-SCENE_JSON_SCHEMA = {
+SCRIPT_SCENE_JSON_SCHEMA = {
     "type": "object",
     "properties": {
         "scene_number": {"type": "integer"},
         "title": {"type": "string"},
-        "narration": {"type": "string"},
-        "sub_visuals": {
-            "type": "array",
-            "items": SUB_VISUAL_SCHEMA
-        }
+        "narration": {"type": "string"}
     },
-    "required": ["scene_number", "title", "narration", "sub_visuals"]
+    "required": ["scene_number", "title", "narration"]
 }
 
-CONCLUSION_JSON_SCHEMA = {
+SCRIPT_CONCLUSION_JSON_SCHEMA = {
     "type": "object",
     "properties": {
         "summary": {"type": "string"},
-        "cta": {"type": "string"},
+        "cta": {"type": "string"}
+    },
+    "required": ["summary", "cta"]
+}
+
+VISUALS_ARRAY_SCHEMA = {
+    "type": "object",
+    "properties": {
         "sub_visuals": {
             "type": "array",
             "items": SUB_VISUAL_SCHEMA
         }
     },
-    "required": ["summary", "cta", "sub_visuals"]
+    "required": ["sub_visuals"]
 }
 
 
@@ -91,13 +92,13 @@ OUTLINE_JSON_SCHEMA = {
 BASE_SCRIPT_JSON_SCHEMA = {
     "type": "object",
     "properties": {
-        "introduction": INTRO_JSON_SCHEMA,
-        "conclusion": CONCLUSION_JSON_SCHEMA
+        "introduction": SCRIPT_INTRO_JSON_SCHEMA,
+        "conclusion": SCRIPT_CONCLUSION_JSON_SCHEMA
     },
     "required": ["introduction", "conclusion"]
 }
 
-SINGLE_SCENE_JSON_SCHEMA = SCENE_JSON_SCHEMA
+SINGLE_SCENE_JSON_SCHEMA = SCRIPT_SCENE_JSON_SCHEMA
 
 def fix_unescaped_quotes(s):
     """Escapes raw double quotes inside string fields in JSON string."""
@@ -410,74 +411,41 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
 
     if video_format == "portrait":
         if duration_mode == "short": # 60s
-            min_scenes = 4
-            max_scenes = 6
-            sentence_rule = "Write narration in very short, punchy sentences (15-20 words per scene) to keep visual pacing extremely fast."
+            min_scenes, max_scenes = 4, 6
+            target_duration = 60
         elif duration_mode == "long": # 2 mins
-            min_scenes = 8
-            max_scenes = 12
-            sentence_rule = "Write narration in short sentences (20-30 words per scene) for a fast-paced vertical video."
+            min_scenes, max_scenes = 8, 12
+            target_duration = 120
         else: # medium (90s)
-            min_scenes = 6
-            max_scenes = 8
-            sentence_rule = "Write narration in quick sentences (20-25 words per scene)."
+            min_scenes, max_scenes = 6, 8
+            target_duration = 90
     else:
         if duration_mode == "extra_long":
-            min_scenes = 55
-            max_scenes = 65
-            sentence_rule = "Write detailed narration paragraphs (40-60 words per scene)."
+            min_scenes, max_scenes = 55, 65
+            target_duration = 600
         elif duration_mode == "long":
-            min_scenes = 35
-            max_scenes = 45
-            sentence_rule = "Write detailed narration paragraphs (35-50 words per scene)."
+            min_scenes, max_scenes = 35, 45
+            target_duration = 300
         else: # medium
-            min_scenes = 18
-            max_scenes = 24
-            sentence_rule = "Write engaging narration (30-40 words per scene)."
+            min_scenes, max_scenes = 18, 24
+            target_duration = 180
+
+    sentence_rule = f"LENGTH GUIDELINE: The target video duration is about {target_duration} seconds. Let the content dictate the length naturally without strictly counting words. Do not artificially limit the word count."
         
     lang_instruction = f"""LANGUAGE RULES:
 - The spoken text (hook, narration, summary, cta) MUST be written in the native script of the requested language (code: '{language}'). 
   For example, if the language is Hindi ('hi'), you MUST use the Devanagari script. Do NOT use English alphabet transliterations.
+  CRITICAL: This strictly applies to the Introduction and Conclusion as well!
 - The 'title' and 'chapter_title' fields can be in the requested language.
 - CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH, regardless of the script language. This is used as a search keyword for media APIs which only understand English.
 - CRITICAL: All 'visual_meta' text fields MUST ALWAYS be in English.
 """
 
-    visual_rules = """
-SUB-VISUALS: Every scene, intro & conclusion needs a `sub_visuals` array.
-
-=== TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL FOR THE CONTENT ===
-- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings (e.g. "Top 5 rivers", "3 reasons why", "countdown of events"). Each item = its own sub-visual.
-- chart: USE THIS when the narration contains statistics, percentages, comparisons, or data trends (e.g. "GDP grew 15%", "population comparison").
-- map: USE THIS when discussing geography, routes, locations, territories, borders, or movement between places (e.g. "Alexander's march", "Viking trade routes").
-- document: USE THIS for historical claims, news events, classified archives, newspaper-style reveals, or documentary evidence.
-- network: USE THIS for connections between people, organizations, relationships, conspiracy boards, or criminal networks.
-- portrait: USE THIS when you need an ACCURATE real image of a specific real-world entity — person, place, landmark, monument, event, building, invention, or any other Wikipedia-notable subject.
-- parallax: USE THIS for dramatic visual reveals with layered depth (background + foreground separation).
-- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations not covered by other types.
-- scene/image: Default visual support for general narration, atmosphere, establishing shots.
-- youtube: ONLY when the narration references specific video footage, interviews, or archival news clips.
-
-QUANTITY: 2-4 items for MEDIA types (scene/image/parallax/portrait/youtube). Exactly 1 for PROGRAMMATIC types (chart/map/document/network). EXCEPTION: 'list' — generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals).
-
-EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "transition": "subtle_slide"|"fade"|"slide_left"|"slide_right"|"slide_up"|"slide_down"|"zoom_in"|"zoom_out"|"glitch"|"none", "visual_meta": dict as below}
-
-- scene/image/parallax: visual_meta {} (portrait may add {"person_name": str})
-- PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name (e.g. "entity name", NOT "entity name speaking in public" or "a photo of entity name"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.
-- youtube: visual_meta {"start_offset": 15, "duration": 15, "skip_intro": true}
-- chart: visual_meta {"chart_type": "bar"|"line"|"pie", "title": str, "data": [{"label": str, "value": number}]}
-- map: visual_meta {"map_style": "vintage", "locations": [{"name": str, "coord": [lat, lon]}]} (2 locations)
-- document: visual_meta {"title": str (masthead name, e.g. "THE WASHINGTON POST" — upper!), "headline": str (main headline), "subtitle": str (e.g. "BREAKING NEWS" or "EXCLUSIVE"), "doc_text": str (200-500 char article body — write realistic newspaper prose), "highlight_text": str (optional ~2-4 word phrase to visually highlight with amber marker), "source": str (news agency, e.g. "Reuters"), "date": str (formatted date e.g. "Monday, June 11, 2026"), "section": str (one of: National|International|Business|Technology|Science|Politics|Opinion|Culture|Sports), "pull_quote": str (a 6-15 word dramatic quote from the doc_text that will appear as a centered featured quote), "show_image": bool (true if a striking image would accompany this story), "image_url": str (""), "image_caption": str ("" if no url)}
-- network: visual_meta {"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
-- list: visual_meta {"number": int (the rank, starting from 1), "title": str (the item name, e.g. "Ganga River"), "description": str (optional ~10-20 word fact about this item, e.g. "The longest river in India, flowing over 2,525 km")}
-- custom_html: visual_meta {"html": str (raw HTML snippet), "css": str (raw CSS styling)}. Provide fully responsive HTML and beautifully styled CSS.
-- Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
-"""
-
-    narration_emphasis = """
+    narration_emphasis = f"""
 CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
-- The `narration` field is the spoken voiceover. It MUST be a non-empty string. EACH scene MUST have narration.
-- Do NOT skip narration. Do NOT leave it blank or null. This field is more important than sub_visuals.
+- The `narration` field is the spoken voiceover. It MUST be a non-empty string.
+- Do NOT skip narration. Do NOT leave it blank or null.
+- {sentence_rule}
 """
     
     # 1. Generate Outline
@@ -501,8 +469,8 @@ Generate a {min_scenes} to {max_scenes} chapter outline."""
     base_system_prompt = f"""You are a master YouTube Documentary Scriptwriter.
 Write the introduction (hook) and the conclusion (summary and call to action) for this documentary based on the provided outline.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
+CRITICAL LANGUAGE REQUIREMENT: The Introduction (hook) and Conclusion (summary, cta) MUST be entirely in the requested language (code: '{language}'). Do NOT write them in English if '{language}' is not English.
 {lang_instruction}
-{visual_rules}
 {narration_emphasis}"""
 
     outline_json_str = json.dumps(outline_data, ensure_ascii=False)
@@ -532,17 +500,15 @@ Write the introduction and conclusion."""
         
         scene_system_prompt = f"""You are a master YouTube Documentary Scriptwriter.
 You are writing ONE specific scene (Scene {scene_num}: {chapter_title}) for a documentary.
-{sentence_rule}
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 {lang_instruction}
-{visual_rules}
 {narration_emphasis}"""
 
         scene_user_prompt = f"""Topic: "{topic}"
 This Scene: Scene {scene_num}: {chapter_title}
 Context for this scene: {context}
 {prev_context}
-Write the narration and visual details for this scene."""
+Write the narration for this scene."""
 
         import time
         
@@ -609,32 +575,48 @@ Write the narration and visual details for this scene."""
             return " ".join(str(v) for v in val)
         return str(val) if val is not None else ""
 
-    intro = final_script.get("introduction") or {}
-    if isinstance(intro, dict):
-        intro["hook"] = _safe_str(intro.get("hook", ""))
-        intro["transition"] = _safe_str(intro.get("transition", ""))
+    intro = final_script.get("introduction")
+    if not isinstance(intro, dict):
+        intro = {}
+        final_script["introduction"] = intro
+    intro["hook"] = _safe_str(intro.get("hook", ""))
+    intro["transition"] = _safe_str(intro.get("transition", ""))
 
-    conclusion = final_script.get("conclusion") or {}
-    if isinstance(conclusion, dict):
-        conclusion["summary"] = _safe_str(conclusion.get("summary", ""))
-        conclusion["cta"] = _safe_str(conclusion.get("cta", ""))
+    conclusion = final_script.get("conclusion")
+    if not isinstance(conclusion, dict):
+        conclusion = {}
+        final_script["conclusion"] = conclusion
+    conclusion["summary"] = _safe_str(conclusion.get("summary", ""))
+    conclusion["cta"] = _safe_str(conclusion.get("cta", ""))
 
-    for scene in final_script.get("scenes", []):
-        if isinstance(scene, dict):
-            scene["narration"] = _safe_str(scene.get("narration", ""))
-            scene["title"] = _safe_str(scene.get("title", ""))
+    scenes = final_script.get("scenes")
+    if not isinstance(scenes, list):
+        scenes = []
+        final_script["scenes"] = scenes
+
+    for i in range(len(scenes)):
+        if not isinstance(scenes[i], dict):
+            scenes[i] = {}
+        scenes[i]["narration"] = _safe_str(scenes[i].get("narration", ""))
+        scenes[i]["title"] = _safe_str(scenes[i].get("title", ""))
 
     # Fallback: fill empty narration from chapter context (LLM sometimes skips it)
     for i, scene in enumerate(final_script.get("scenes", [])):
-        if isinstance(scene, dict) and not scene.get("narration", "").strip():
+        if not scene.get("narration", "").strip():
             if i < len(chapters):
                 fallback = f"{chapters[i].get('chapter_title', '')}: {chapters[i].get('historical_context', '')}"
                 scene["narration"] = fallback.strip()
                 logger.warning(f"Scene {i+1} had empty narration; filled from chapter context.")
-    if isinstance(intro, dict) and not intro.get("hook", "").strip():
+    if not intro.get("hook", "").strip():
         intro["hook"] = topic  # fallback
-    if isinstance(conclusion, dict) and not conclusion.get("summary", "").strip():
+    if not conclusion.get("summary", "").strip():
         conclusion["summary"] = f"In conclusion, {topic} remains a significant chapter in history."
+
+    # Initialize empty sub_visuals for everything
+    intro["sub_visuals"] = []
+    conclusion["sub_visuals"] = []
+    for scene in final_script.get("scenes", []):
+        scene["sub_visuals"] = []
 
     # Validate script content — catch empty/bad output before saving
     errors = []
@@ -764,5 +746,170 @@ RULES:
     except Exception as e:
         logger.error(f"Failed to generate AI chart data: {e}")
         return {"success": False, "error": str(e)}
+
+
+def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event):
+    from backend.database.db import get_setting, update_project
+    from backend.core.logger import logger
+    
+    script_path = project_dir / "script.json"
+    manifest_path = Path(project_dict.get('assets_manifest_path', project_dir / "voiceover" / "manifest.json"))
+    transcription_path = Path(project_dict.get('transcription_path', project_dir / "subtitles" / "transcription.json"))
+    
+    if not script_path.exists():
+        raise FileNotFoundError("script.json is missing.")
+    if not manifest_path.exists():
+        raise FileNotFoundError("manifest.json is missing.")
+        
+    with open(script_path, "r", encoding="utf-8") as f:
+        script = json.load(f)
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+        
+    # Optional: Read transcription to provide word-level timings to the AI
+    transcription = {}
+    if transcription_path.exists():
+        with open(transcription_path, "r", encoding="utf-8") as f:
+            transcription = json.load(f)
+            
+    topic = project_dict['name']
+    language = project_dict.get('language', 'hi')
+    
+    progress_cb(10.0, "Preparing to generate visuals...")
+    logger.info("Starting Visuals Generation Pipeline...")
+    
+    visual_rules = """
+SUB-VISUALS: You must generate a `sub_visuals` array containing visual cues to match the spoken narration.
+
+=== TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL FOR THE CONTENT ===
+- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings.
+- chart: USE THIS when the narration contains statistics, percentages, comparisons, or data trends.
+- map: USE THIS when discussing geography, routes, locations, territories, borders.
+- document: USE THIS for historical claims, news events, classified archives, documentary evidence.
+- network: USE THIS for connections between people, organizations, relationships.
+- portrait: If the script wants the real things for person and places, use the portrait visual type.
+- parallax: USE THIS for dramatic visual reveals with layered depth.
+- custom_html: USE THIS for highly customized typography layouts or custom animations.
+- scene/image: Default visual support for general narration.
+- youtube: If the script wants real things other than person and places, use youtube video. We have only these two options (portrait and youtube) to get real visuals.
+
+QUANTITY: 2-4 items for MEDIA types. Exactly 1 for PROGRAMMATIC types. EXCEPTION: 'list' — 1 sub-visual PER ITEM.
+
+EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "transition": str, "visual_meta": dict, "duration": float}
+CRITICAL ON TRANSITIONS: Choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.
+CRITICAL ON DURATION: 
+- Each sub_visual MUST have a precise "duration" (in seconds).
+- The SUM of the durations of all sub_visuals MUST equal the provided Total Scene Duration.
+
+- scene/image/parallax: visual_meta {} (portrait may add {"person_name": str})
+- PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name.
+- youtube: visual_meta {"start_offset": 15, "duration": 15, "skip_intro": true}
+- chart: visual_meta {"chart_type": "bar"|"line"|"pie", "title": str, "data": [{"label": str, "value": number}]}
+- map: visual_meta {"map_style": "vintage", "locations": [{"name": str, "coord": [lat, lon]}]} (2 locations)
+- document: visual_meta {"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}
+- network: visual_meta {"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
+- list: visual_meta {"number": int, "title": str, "description": str}
+- custom_html: visual_meta {"html": str, "css": str}
+- Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
+"""
+    
+    visuals_system_prompt = f"""You are an expert Visual Director for a YouTube Documentary.
+You are given a transcribed narration and its exact duration.
+Generate visual cues with precise 'duration' values matching the spoken words.
+Return ONLY valid JSON matching the provided schema. No markdown backticks.
+CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH.
+{visual_rules}"""
+
+    total_scenes = len(manifest)
+    completed = 0
+    
+    # Load transcription for precise word-level timings
+    transcription_path = Path(project_dir) / "transcription.json"
+    transcription_data = None
+    if transcription_path.exists():
+        try:
+            with open(transcription_path, "r", encoding="utf-8") as f:
+                transcription_data = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load transcription: {e}")
+
+    cumulative_time = 0.0
+    
+    # Process each scene sequentially
+    for i, entry in enumerate(manifest):
+        if cancel_event.is_set():
+            raise InterruptedError("Cancelled")
+            
+        scene_type = entry.get("section_type")
+        scene_title = entry.get("title", "")
+        narration = entry.get("text", "")
+        duration = entry.get("duration", 15.0)
+        
+        # Get exact transcription words for this scene
+        word_timings = ""
+        if transcription_data and "segments" in transcription_data:
+            words_in_scene = []
+            for seg in transcription_data["segments"]:
+                for w in seg.get("words", []):
+                    w_start = w.get("start", 0)
+                    w_end = w.get("end", 0)
+                    if w_start >= cumulative_time and w_start < cumulative_time + duration:
+                        words_in_scene.append(f"{w.get('word', '').strip()} [{w_start - cumulative_time:.1f}s]")
+            if words_in_scene:
+                word_timings = "\nExact Spoken Words with Timestamps (Seconds from Scene Start):\n" + " ".join(words_in_scene) + "\n"
+
+        cumulative_time += duration
+        
+        user_prompt = f"""Topic: "{topic}"
+Scene: {scene_title} ({scene_type})
+Total Scene Duration: {duration} seconds
+
+Narration:
+{narration}
+{word_timings}
+Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST exactly equal {duration} seconds."""
+
+        import time
+        time.sleep(1.0)
+        
+        try:
+            visuals_data = _call_llm_json(visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, cancel_event)
+            entry["sub_visuals"] = visuals_data.get("sub_visuals", [])
+        except Exception as e:
+            logger.error(f"Failed to generate visuals for scene {i}: {e}")
+            entry["sub_visuals"] = [{"visual_type": "scene", "visual_cue": scene_title, "transition": "fade", "visual_meta": {}, "duration": duration}]
+            
+        completed += 1
+        progress_cb(10.0 + (completed / total_scenes) * 80.0, f"Generating visual cues... {completed}/{total_scenes}")
+
+    # Write back to manifest
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        
+    # Also update script.json so it matches the manifest
+    script_scenes = script.get("scenes", [])
+    manifest_scenes = [m for m in manifest if m.get("section_type") == "scene"]
+    
+    # Intro
+    manifest_intro = next((m for m in manifest if m.get("section_type") == "introduction"), None)
+    if manifest_intro and "introduction" in script:
+        script["introduction"]["sub_visuals"] = manifest_intro.get("sub_visuals", [])
+        
+    # Scenes
+    for i, sc in enumerate(script_scenes):
+        if i < len(manifest_scenes):
+            sc["sub_visuals"] = manifest_scenes[i].get("sub_visuals", [])
+            
+    # Conclusion
+    manifest_conclusion = next((m for m in manifest if m.get("section_type") == "conclusion"), None)
+    if manifest_conclusion and "conclusion" in script:
+        script["conclusion"]["sub_visuals"] = manifest_conclusion.get("sub_visuals", [])
+        
+    with open(script_path, "w", encoding="utf-8") as f:
+        json.dump(script, f, indent=2, ensure_ascii=False)
+        
+    progress_cb(100.0, "Visual generation complete!")
+    logger.info("Visual generation pipeline completed successfully.")
+
 
 

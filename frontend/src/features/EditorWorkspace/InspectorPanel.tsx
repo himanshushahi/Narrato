@@ -115,6 +115,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             onInsertScene={onInsertScene}
             onSetSceneToDelete={onSetSceneToDelete}
             onSetScriptData={onSetScriptData}
+            disabled={isPipelineRunning}
           />
         );
       case 'subtitle':

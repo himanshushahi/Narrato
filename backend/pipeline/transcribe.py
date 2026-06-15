@@ -80,6 +80,33 @@ def list_downloaded_whisper_models():
                 })
     return models
 
+def get_best_downloaded_whisper_model(fallback="small"):
+    """
+    Returns the highest quality standard multilingual/English Whisper model 
+    that is already downloaded on the system. If none are found, returns the fallback.
+    """
+    STANDARD_MODELS = [
+        "large-v3",
+        "large-v2",
+        "large",
+        "medium",
+        "small.en",
+        "small",
+        "base.en",
+        "base",
+        "tiny.en",
+        "tiny"
+    ]
+    
+    downloaded = list_downloaded_whisper_models()
+    downloaded_ids = [m["id"] for m in downloaded]
+    
+    for model in STANDARD_MODELS:
+        if model in downloaded_ids:
+            return model
+            
+    return fallback
+
 def delete_whisper_model(safe_dir_name):
     whisper_dir = get_models_dir() / "whisper" / safe_dir_name
     if whisper_dir.exists() and whisper_dir.is_dir():
@@ -245,6 +272,10 @@ def _resolve_whisper_settings(project_dict):
     model_size = project_settings.get("whisper_model") or get_setting("whisper_model") or "base"
     device = project_settings.get("whisper_device") or get_setting("whisper_device") or "cpu"
     language = project_dict.get("language", "hi")
+
+    # Safety check for older projects: If it's not a Hindi project but a Hindi-specific model is set, fallback to best downloaded
+    if language != "hi" and "hindi" in model_size.lower():
+        model_size = get_best_downloaded_whisper_model(fallback="small")
 
     return model_size, device, language
 

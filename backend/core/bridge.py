@@ -16,8 +16,8 @@ from backend.pipeline.tts import (
     KOKORO_VOICES_URL, KOKORO_VOICES_PATH
 )
 from backend.pipeline.ai import (
-    INTRO_JSON_SCHEMA, CONCLUSION_JSON_SCHEMA, SCENE_JSON_SCHEMA, SUB_VISUAL_SCHEMA, 
-    clean_json_response
+    SCRIPT_INTRO_JSON_SCHEMA, SCRIPT_CONCLUSION_JSON_SCHEMA, SCRIPT_SCENE_JSON_SCHEMA, 
+    SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, clean_json_response
 )
 
 _kokoro_download_active = False
@@ -537,60 +537,33 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
     system_prompt = (
         "You are an expert AI scriptwriter. You will receive a script segment, "
         "and a prompt request explaining how to modify or rewrite this segment. "
-        "Your task is to rewrite the narration and visual details. Preserve the scene numbers/schema format. "
+        "Your task is to rewrite ONLY the narration text (hook/narration/summary) and title. "
         "Format your output strictly as a JSON object containing the modified segment.\n\n"
         "HERE IS THE FULL SCRIPT CONTEXT (For maintaining narrative flow and consistency):\n"
         f"Documentary Title: \"{full_script.get('title', 'Untitled')}\"\n"
         f"Introduction Hook: \"{intro_hook}\"\n"
         f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
         f"Conclusion: \"{conclusion_summary}\"\n\n"
-        "IMPORTANT: Every segment MUST include a 'sub_visuals' array with 2-4 sub-visual entries for fast-paced visual cuts.\n"
-        "Each sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }\n"
-        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
-        "TYPE SELECTION GUIDE — match the visual to the narration content:\n"
-        "- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings (e.g. \"Top 5 rivers\", \"3 reasons why\"). Each item = its own sub-visual.\n"
-        "- chart: USE THIS for statistics, percentages, comparisons, or data trends.\n"
-        "- map: USE THIS for geography, routes, locations, or movement between places.\n"
-        "- document: USE THIS for historical claims, news events, or archival evidence.\n"
-        "- network: USE THIS for connections between people, organizations, or relationships.\n"
-        "- portrait: USE THIS when you need an ACCURATE real image of a specific real-world entity — person, place, landmark, monument, event, building, or any other Wikipedia-notable subject.\n"
-        "- parallax: USE THIS for dramatic layered depth reveals.\n"
-        "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
-        "- scene/image: Default visual support for general narration.\n"
-        "- youtube: ONLY for specific video footage or interview clips.\n"
-        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
-        "- For media types (scene, image, portrait, youtube, parallax): provide 2-4 sub_visuals with DIFFERENT keywords.\n"
-        "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
-        "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"
-        "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
-        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
-        "- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name (e.g. \"entity name\", NOT \"entity name speaking in public\" or \"a portrait of entity name\"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.\n"
-        "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
-        "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
-        "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
-        "- If visual_type is 'network', visual_meta must contain: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
-        "- If visual_type is 'list', visual_meta must contain: { \"number\": int (the rank, starting from 1), \"title\": str (the item name), \"description\": str (optional ~10-20 word fact) }\n"
-        "- If visual_type is 'custom_html', visual_meta must contain: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
     )
     
     if language != "en":
-        system_prompt += f"The rewritten narration text MUST be written in the requested language (code: '{language}'). Visual suggestions MUST remain in English.\n\n"
+        system_prompt += f"The rewritten narration text MUST be written in the requested language (code: '{language}').\n\n"
     else:
         system_prompt += "The rewritten narration text MUST be written in English.\n\n"
         
     if section_type == "introduction":
         target_content = full_script.get("introduction", {})
-        prompt_struct = "Expected: { \"hook\": \"text\", \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }] }"
-        schema = INTRO_JSON_SCHEMA
+        prompt_struct = "Expected: { \"hook\": \"text\" }"
+        schema = SCRIPT_INTRO_JSON_SCHEMA
     elif section_type == "conclusion":
         target_content = full_script.get("conclusion", {})
-        prompt_struct = "Expected: { \"summary\": \"text\", \"cta\": \"text\", \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }] }"
-        schema = CONCLUSION_JSON_SCHEMA
+        prompt_struct = "Expected: { \"summary\": \"text\", \"cta\": \"text\" }"
+        schema = SCRIPT_CONCLUSION_JSON_SCHEMA
     else:
         scenes = full_script.get("scenes", [])
         target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
-        prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\", \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"visual_meta\": {} }] }"
-        schema = SCENE_JSON_SCHEMA
+        prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }"
+        schema = SCRIPT_SCENE_JSON_SCHEMA
 
     # Detect if content is empty — treat as "create new" instead of "rewrite existing"
     content_is_empty = False
@@ -619,6 +592,70 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
     return _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_key, base_url, model)
 
 @eel.expose
+def regenerate_visuals_section(scene_idx, section_type, full_script, rewrite_prompt):
+    """Regenerates only the sub_visuals array for a scene."""
+    logger.info(f"Bridge API: regenerate_visuals_section index {scene_idx} ({section_type})")
+    
+    llm_provider = get_setting("llm_provider") or "openai"
+    api_key = get_setting("openai_api_key")
+    base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
+    model = get_setting("openai_model") or "gpt-4o"
+    
+    if not api_key:
+        return {"success": False, "error": "Please configure an OpenAI API Key first."}
+        
+    system_prompt = (
+        "You are an expert AI Visual Director. You will receive a script segment (narration) "
+        "and a prompt explaining how to modify or rewrite its visuals. "
+        "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
+        "Format your output strictly as a JSON object containing the 'sub_visuals' array.\n\n"
+        "IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n"
+        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
+        "TYPE SELECTION GUIDE — match the visual to the narration content:\n"
+        "- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings. Each item = its own sub-visual.\n"
+        "- chart: USE THIS for statistics, percentages, comparisons, or data trends.\n"
+        "- map: USE THIS for geography, routes, locations, or movement between places.\n"
+        "- document: USE THIS for historical claims, news events, or archival evidence.\n"
+        "- network: USE THIS for connections between people, organizations, or relationships.\n"
+        "- portrait: If the script wants the real things for person and places, use the portrait visual type.\n"
+        "- parallax: USE THIS for dramatic layered depth reveals.\n"
+        "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
+        "- scene/image: Default visual support for general narration.\n"
+        "- youtube: If the script wants real things other than person and places, use youtube video. We have only these two options (portrait and youtube) to get real visuals.\n"
+        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.\n"
+        "- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name. This exact string is used as a Wikipedia search query to fetch the real image.\n"
+    )
+    
+    if section_type == "introduction":
+        target_content = full_script.get("introduction", {})
+    elif section_type == "conclusion":
+        target_content = full_script.get("conclusion", {})
+    else:
+        scenes = full_script.get("scenes", [])
+        target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
+
+    # Read current visuals to provide as context
+    current_visuals = target_content.get("sub_visuals", [])
+    
+    # Try to sum existing durations or default to 15s
+    total_duration = sum(sv.get("duration", 0) for sv in current_visuals)
+    if total_duration <= 0:
+        total_duration = 15.0
+
+    prompt_struct = "Expected: { \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 15.0 }] }"
+    
+    user_prompt = (
+        f"Documentary Title: \"{full_script.get('title', 'Untitled')}\"\n"
+        f"Narration for this segment:\n\"{target_content.get('narration', target_content.get('hook', target_content.get('summary', '')))}\"\n\n"
+        f"Current Sub-Visuals:\n{json.dumps(current_visuals, indent=2)}\n\n"
+        f"Rewrite Instruction: {rewrite_prompt}\n\n"
+        f"Total Duration to fill: {total_duration} seconds.\n"
+        f"Generate the rewritten JSON sub_visuals array now. The sum of sub-visual durations MUST equal {total_duration}. Structure matches: {prompt_struct}."
+    )
+    
+    return _call_llm_api_direct(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, llm_provider, api_key, base_url, model)
+
+@eel.expose
 def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite_prompt, language="hi"):
     """Regenerates a single sub-visual using LLM, preserving the rest of the scene."""
     logger.info(f"Bridge API: regenerate_sub_visual index {scene_idx} ({section_type}) sub {sub_idx}")
@@ -637,7 +674,7 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
         "Your task is to rewrite the visual details (like chart data, document text, network nodes, map locations, or custom HTML/CSS) "
         "based strictly on the user's request. Do NOT change the narration.\n"
         "Format your output strictly as a SINGLE JSON object containing the modified sub_visual.\n\n"
-        "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {} }\n"
+        "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": float }\n"
         "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
         "TYPE SELECTION GUIDE:\n"
         "- list: USE THIS when enumerating ranked items, countdowns, top-N lists. visual_meta: { \"number\": int, \"title\": str, \"description\": str }\n"
@@ -645,9 +682,11 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
         "- map: USE THIS for geography. visual_meta: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
         "- document: USE THIS for historical claims. visual_meta: { \"headline\": \"Exact news headline\", \"doc_text\": \"Detailed newspaper excerpt matching the narration\", \"source\": \"Name of Publisher\", \"date\": \"Month DD, YYYY\" }\n"
         "- network: USE THIS for connections between people. visual_meta: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
+        "- portrait: If the script wants the real things for person and places, use the portrait visual type.\n"
+        "- youtube: If the script wants real things other than person and places, use youtube video. We have only these two options (portrait and youtube) to get real visuals.\n"
         "- custom_html: USE THIS for custom layouts. visual_meta: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
         "- Any type: add {\"lower_third\": {\"title\": str, \"subtitle\": str}} for overlay text.\n"
-        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
+        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.\n"
         "- PORTRAIT CRITICAL: For 'portrait' type, visual_cue must be ONLY the person's full name (e.g. \"Harshad Mehta\", not \"Harshad Mehta speaking in public\"). This is used as a Wikipedia search query.\n"
     )
     
@@ -666,7 +705,7 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
         return {"success": False, "error": "Invalid sub visual index"}
         
     target_sub_visual = sub_visuals[sub_idx]
-    prompt_struct = "Expected: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {} }"
+    prompt_struct = "Expected: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 4.5 }"
     
     scene_title = section.get('title', 'Introduction/Conclusion')
     doc_title = full_script.get('title', 'Untitled')
@@ -713,39 +752,14 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         f"Introduction Hook: \"{intro_hook}\"\n"
         f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
         f"Conclusion: \"{conclusion_summary}\"\n\n"
-        "IMPORTANT: Every scene MUST include a 'sub_visuals' array with 2-4 sub-visual entries for fast-paced visual cuts.\n"
-        "Each sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {} }\n"
-        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
-        "TYPE SELECTION GUIDE — match the visual to the narration content:\n"
-        "- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings (e.g. \"Top 5 rivers\", \"3 reasons why\"). Each item = its own sub-visual.\n"
-        "- chart: USE THIS for statistics, percentages, comparisons, or data trends.\n"
-        "- map: USE THIS for geography, routes, locations, or movement between places.\n"
-        "- document: USE THIS for historical claims, news events, or archival evidence.\n"
-        "- network: USE THIS for connections between people, organizations, or relationships.\n"
-        "- portrait: USE THIS when you need an ACCURATE real image of a specific real-world entity — person, place, landmark, monument, event, building, or any other Wikipedia-notable subject.\n"
-        "- parallax: USE THIS for dramatic layered depth reveals.\n"
-        "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
-        "- scene/image: Default visual support for general narration.\n"
-        "- youtube: ONLY for specific video footage or interview clips.\n"
-        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'.\n"
-        "- For media types (scene, image, portrait, youtube, parallax): provide 2-4 sub_visuals with DIFFERENT keywords.\n"
-        "- For programmatic types (chart, map, document, network): use exactly 1 sub_visual.\n"
-        "- For 'list': generate 1 sub-visual PER ITEM in the ranking (e.g. 5 items → 5 list sub-visuals). Each shows a single number full screen.\n"
-        "- Use 'youtube' only when the scene needs actual real footage, interviews, or historical news clips.\n"
-        "- Optimize visual_cue as a simple stock media keyword (nouns and adjectives in English) when visual_type is 'scene' or 'image'.\n"
-        "- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name (e.g. \"entity name\", NOT \"entity name speaking in public\" or \"a portrait of entity name\"). This exact string is used as a Wikipedia search query to fetch the real image, so it must be clean and searchable.\n"
-        "- If visual_type is 'document', visual_meta must contain: { \"headline\": \"...\", \"doc_text\": \"...\", \"source\": \"...\", \"date\": \"...\" }\n"
-        "- If visual_type is 'map', visual_meta must contain: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
-        "- If visual_type is 'chart', visual_meta must contain: { \"chart_type\": \"bar\"|\"line\", \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
-        "- If visual_type is 'network', visual_meta must contain: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
-        "- If visual_type is 'list', visual_meta must contain: { \"number\": int (the rank, starting from 1), \"title\": str (the item name), \"description\": str (optional ~10-20 word fact) }\n"
-        "- If visual_type is 'custom_html', visual_meta must contain: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n\n"
+        "IMPORTANT: You are generating ONLY the script/narration for this scene. "
+        "Do NOT generate visual cues or a sub_visuals array. The visual team will add visuals later based on your narration.\n\n"
         "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
-        "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\", \"sub_visuals\": [...] }\n"
+        "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }\n"
     )
 
     if language != "en":
-        system_prompt += f"The narration text MUST be written in the requested language (code: '{language}'). Visual suggestions (visual_cue, visual_meta) MUST remain in English.\n\n"
+        system_prompt += f"The narration text MUST be written in the requested language (code: '{language}').\n\n"
     else:
         system_prompt += "The narration text MUST be written in English.\n\n"
 
@@ -756,7 +770,10 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         f"The scene_number will be assigned by the system, so just put 1 as a placeholder."
     )
 
-    return _call_llm_api_direct(system_prompt, user_prompt, SCENE_JSON_SCHEMA, llm_provider, api_key, base_url, model)
+    result = _call_llm_api_direct(system_prompt, user_prompt, SCRIPT_SCENE_JSON_SCHEMA, llm_provider, api_key, base_url, model)
+    if result.get("success") and "data" in result:
+        result["data"]["sub_visuals"] = [] # Initialize empty sub_visuals
+    return result
 
 
 

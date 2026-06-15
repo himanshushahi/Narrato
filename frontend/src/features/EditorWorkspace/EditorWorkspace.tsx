@@ -111,6 +111,18 @@ export const EditorWorkspace: React.FC = () => {
     prevRunningRef.current = isRunning;
   }, [isRunning, setScriptChangedAlert, setScriptEditingAlert]);
 
+  // Auto-switch to Script tab when script generation finishes
+  const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+  const prevScriptGenStatusRef = useRef(tasks['generate_script']?.status);
+  
+  useEffect(() => {
+    const currentStatus = tasks['generate_script']?.status;
+    if (prevScriptGenStatusRef.current === 'running' && currentStatus === 'completed') {
+      setInspectorTab('script');
+    }
+    prevScriptGenStatusRef.current = currentStatus;
+  }, [tasks, setInspectorTab]);
+
   // === Local state ===
   const [currentFrame, setCurrentFrame] = useState(0);
   const playerRef = useRef<any>(null);

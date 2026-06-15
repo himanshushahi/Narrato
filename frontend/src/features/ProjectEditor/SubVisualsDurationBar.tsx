@@ -14,14 +14,24 @@ export const SubVisualsDurationBar: React.FC<SubVisualsDurationBarProps> = ({ su
   const numSubs = subVisuals.length;
 
   useEffect(() => {
-    let currentRatios = subVisuals.map(sv => sv.duration_ratio);
-    const hasValidRatios = currentRatios.every(r => typeof r === 'number' && !isNaN(r)) && 
-                           Math.abs(currentRatios.reduce((a, b) => a + b, 0) - 1.0) < 0.01;
+    const totalDurationSeconds = totalDurationFrames / 30;
+    let currentRatios = subVisuals.map(sv => {
+      if (typeof sv.duration_ratio === 'number' && !isNaN(sv.duration_ratio)) {
+        return sv.duration_ratio;
+      } else if (typeof sv.duration === 'number' && totalDurationSeconds > 0) {
+        return sv.duration / totalDurationSeconds;
+      }
+      return undefined;
+    });
+
+    const hasValidRatios = currentRatios.every(r => typeof r === 'number' && !isNaN(r as number)) && 
+                           Math.abs(currentRatios.reduce((a, b) => (a as number) + (b as number), 0) - 1.0) < 0.01;
     if (!hasValidRatios && numSubs > 0) {
+      // If we don't have valid ratios (e.g. sum doesn't equal 1), fall back to equal division
       currentRatios = Array(numSubs).fill(1.0 / numSubs);
     }
-    setRatios(currentRatios);
-  }, [subVisuals, numSubs]);
+    setRatios(currentRatios as number[]);
+  }, [subVisuals, numSubs, totalDurationFrames]);
 
   const MIN_SECONDS = 0.5;
   const totalDurationSeconds = totalDurationFrames / 30;

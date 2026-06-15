@@ -232,17 +232,17 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         except Exception:
             pass
 
-    engine = project_settings.get("tts_engine") or get_setting("tts_engine") or "edge"
-    speed = float(project_settings.get("tts_speed") or get_setting("tts_speed") or 1.0)
+    engine = project_settings.get("tts_engine") or project_dict.get("tts_engine") or get_setting("tts_engine") or "edge"
+    speed = float(project_settings.get("tts_speed") or project_dict.get("tts_speed") or get_setting("tts_speed") or 1.0)
     pitch = project_settings.get("tts_pitch") or get_setting("tts_pitch") or "0"
     language = project_dict.get("language", "hi")
 
     if engine == "edge":
-        voice = project_settings.get("tts_voice") or get_setting("tts_voice")
+        voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
         if not voice:
             voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
     else:
-        voice = project_settings.get("kokoro_voice") or get_setting("kokoro_voice") or "af_bella"
+        voice = project_settings.get("kokoro_voice") or project_dict.get("tts_voice") or get_setting("kokoro_voice") or "af_bella"
 
     kokoro_lang = "hi" if language == "hi" else "en-us"
 

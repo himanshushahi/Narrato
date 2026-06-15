@@ -188,28 +188,29 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
         animate={{ opacity: showOverlay ? 1 : 0 }}
         transition={{ duration: 0.15 }}
       >
-        <div
-          className="relative h-2 cursor-pointer group"
-          onClick={handleSeekBar}
-        >
-          {/* Track background */}
-          <div className="absolute inset-0 top-1/2 -translate-y-1/2 mx-4 h-1 rounded-full bg-zinc-800/60 overflow-hidden">
-            {/* Filled progress */}
+        <div className="px-4 py-2 w-full">
+          <div
+            className="relative h-2 cursor-pointer group"
+            onClick={handleSeekBar}
+          >
+            {/* Track background */}
+            <div className="absolute inset-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-zinc-800/60 overflow-hidden">
+              {/* Filled progress */}
+              <div
+                className="h-full bg-linear-to-r from-blue-600 to-cyan-500 rounded-full transition-[width] duration-75"
+                style={{ width: `${totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0}%` }}
+              />
+            </div>
+            {/* Hover target: larger invisible hit area */}
+            <div className="absolute inset-0 -top-2 -bottom-2" />
+            {/* Seek handle dot — visible on hover */}
             <div
-              className="h-full bg-linear-to-r from-blue-600 to-cyan-500 rounded-full transition-[width] duration-75"
-              style={{ width: `${totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0}%` }}
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white shadow-md shadow-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+              style={{
+                left: `${totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0}%`,
+              }}
             />
           </div>
-          {/* Hover target: larger invisible hit area */}
-          <div className="absolute inset-0" />
-          {/* Seek handle dot — visible on hover */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-md shadow-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-            style={{
-              left: `calc(${totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0}% + 10px)`,
-              marginLeft: '-6px',
-            }}
-          />
         </div>
       </motion.div>
 

@@ -17,8 +17,8 @@ interface ScriptTabProps {
   currentFrame: number;
   activeSceneIdx: number;
   activeSubIdx: number;
-  editingCard: string | null;
-  setEditingCard: (key: string | null) => void;
+  editingCard: { key: string, mode: 'script' | 'visuals' } | null;
+  setEditingCard: (card: { key: string, mode: 'script' | 'visuals' } | null) => void;
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   savingCardKey: string | null;
@@ -26,7 +26,7 @@ interface ScriptTabProps {
   isSaving: boolean;
   onSeek: (frame: number) => void;
   onSaveCard: (cardKey?: string, index?: number) => void;
-  onStartEdit: (cardKey: string) => void;
+  onStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   onCancelEdit: () => void;
   onRewriteSection: (type: string, index: number) => void;
   onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
@@ -85,7 +85,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
             const introTimings = sceneTimings[introSceneIdx]?.subs;
             const isIntroActive = activeSceneIdx === introSceneIdx;
             const introActiveSubIdx = isIntroActive ? activeSubIdx : -1;
-            const isEditing = editingCard === 'intro';
+            const isEditing = editingCard?.key === 'intro';
+            const editingMode = editingCard?.mode;
 
             return (
               <SceneCard
@@ -95,50 +96,55 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                 activeSubIdx={introActiveSubIdx}
                 timings={introTimings}
                 savingKey={savingCardKey === 'introduction'}
+                editingMode={editingMode}
                 onCardClick={() => { if (!isEditing && sceneTimings[introSceneIdx]) onSeek(sceneTimings[introSceneIdx].start); }}
-                onEdit={() => onStartEdit('intro')}
+                onEditScript={() => onStartEdit('intro', 'script')}
+                onEditVisuals={() => onStartEdit('intro', 'visuals')}
                 onSave={() => onSaveCard('introduction')}
                 onCancel={onCancelEdit}
                 disabled={savingCardKey !== null || rewritingSection !== null}
               >
                 {isEditing ? (
                   <EditFormFields>
-                    {/* Content section */}
-                    <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Hook Text">
-                      <InsetCard>
-                        <CustomTextarea
-                          rows={3}
-                          placeholder="Write an engaging hook..."
-                          value={scriptData.introduction?.hook || ''}
-                          onChange={(e) => {
-                            const copy = { ...scriptData };
-                            copy.introduction = copy.introduction || {};
-                            copy.introduction.hook = e.target.value;
-                            onSetScriptData(copy);
-                          }}
-                        />
-                      </InsetCard>
-                    </EditSection>
+                    {editingMode === 'script' && (
+                      <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Hook Text">
+                        <InsetCard>
+                          <CustomTextarea
+                            rows={3}
+                            placeholder="Write an engaging hook..."
+                            value={scriptData.introduction?.hook || ''}
+                            onChange={(e) => {
+                              const copy = { ...scriptData };
+                              copy.introduction = copy.introduction || {};
+                              copy.introduction.hook = e.target.value;
+                              onSetScriptData(copy);
+                            }}
+                          />
+                        </InsetCard>
+                      </EditSection>
+                    )}
 
                     {/* Visual Cues section */}
-                    <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
-                      <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
-                        <SubVisualsEditor
-                          subVisuals={scriptData.introduction?.sub_visuals || []}
-                          onChange={(newSubs) => {
-                            const copy = { ...scriptData };
-                            copy.introduction = copy.introduction || {};
-                            copy.introduction.sub_visuals = newSubs;
-                            onSetScriptData(copy);
-                          }}
-                          timings={introTimings}
-                          totalDurationFrames={sceneTimings[0] ? sceneTimings[0].end - sceneTimings[0].start : 0}
-                          activeIdx={introActiveSubIdx}
-                          onSeek={onSeek}
-                          onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
-                        />
-                      </div>
-                    </EditSection>
+                    {editingMode === 'visuals' && (
+                      <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
+                        <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
+                          <SubVisualsEditor
+                            subVisuals={scriptData.introduction?.sub_visuals || []}
+                            onChange={(newSubs) => {
+                              const copy = { ...scriptData };
+                              copy.introduction = copy.introduction || {};
+                              copy.introduction.sub_visuals = newSubs;
+                              onSetScriptData(copy);
+                            }}
+                            timings={introTimings}
+                            totalDurationFrames={sceneTimings[0] ? sceneTimings[0].end - sceneTimings[0].start : 0}
+                            activeIdx={introActiveSubIdx}
+                            onSeek={onSeek}
+                            onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
+                          />
+                        </div>
+                      </EditSection>
+                    )}
 
                     <AIRewriteSection
                       prompt={rewritePrompt}
@@ -181,7 +187,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
             <div className="space-y-3">
               {(scriptData.scenes || []).map((scene: any, idx: number) => {
                 const cardKey = `scene_${idx}`;
-                const isEditing = editingCard === cardKey;
+                const isEditing = editingCard?.key === cardKey;
+                const editingMode = editingCard?.mode;
                 const globalSceneIdx = idx + (scriptData.introduction ? 1 : 0);
                 const timings = sceneTimings[globalSceneIdx]?.subs;
                 const isActive = activeSceneIdx === globalSceneIdx;
@@ -196,8 +203,10 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                       activeSubIdx={activeSubIdxForScene}
                       timings={timings}
                       savingKey={savingCardKey === cardKey}
+                      editingMode={editingMode}
                       onCardClick={() => { if (!isEditing && sceneTimings[globalSceneIdx]) onSeek(sceneTimings[globalSceneIdx].start); }}
-                      onEdit={() => onStartEdit(cardKey)}
+                      onEditScript={() => onStartEdit(cardKey, 'script')}
+                      onEditVisuals={() => onStartEdit(cardKey, 'visuals')}
                       onSave={() => onSaveCard(cardKey, idx)}
                       onCancel={onCancelEdit}
                       onDelete={() => onSetSceneToDelete(idx)}
@@ -205,50 +214,53 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                     >
                       {isEditing ? (
                         <EditFormFields>
-                          {/* Content section */}
-                          <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Content">
-                            <InsetCard>
-                              <CustomInput
-                                label="Chapter Name"
-                                type="text"
-                                value={scene.title || ''}
-                                onChange={(e) => {
-                                  const copy = { ...scriptData };
-                                  if (copy.scenes?.[idx]) copy.scenes[idx].title = e.target.value;
-                                  onSetScriptData(copy);
-                                }}
-                              />
-                              <CustomTextarea
-                                rows={3}
-                                placeholder="Write the narration for this scene..."
-                                value={scene.narration}
-                                onChange={(e) => {
-                                  const copy = { ...scriptData };
-                                  if (copy.scenes?.[idx]) copy.scenes[idx].narration = e.target.value;
-                                  onSetScriptData(copy);
-                                }}
-                              />
-                            </InsetCard>
-                          </EditSection>
+                          {editingMode === 'script' && (
+                            <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Content">
+                              <InsetCard>
+                                <CustomInput
+                                  label="Chapter Name"
+                                  type="text"
+                                  value={scene.title || ''}
+                                  onChange={(e) => {
+                                    const copy = { ...scriptData };
+                                    if (copy.scenes?.[idx]) copy.scenes[idx].title = e.target.value;
+                                    onSetScriptData(copy);
+                                  }}
+                                />
+                                <CustomTextarea
+                                  rows={3}
+                                  placeholder="Write the narration for this scene..."
+                                  value={scene.narration}
+                                  onChange={(e) => {
+                                    const copy = { ...scriptData };
+                                    if (copy.scenes?.[idx]) copy.scenes[idx].narration = e.target.value;
+                                    onSetScriptData(copy);
+                                  }}
+                                />
+                              </InsetCard>
+                            </EditSection>
+                          )}
 
                           {/* Visual Cues section */}
-                          <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
-                            <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
-                              <SubVisualsEditor
-                                subVisuals={scene?.sub_visuals || []}
-                                onChange={(newSubs) => {
-                                  const copy = { ...scriptData };
-                                  if (copy.scenes?.[idx]) copy.scenes[idx].sub_visuals = newSubs;
-                                  onSetScriptData(copy);
-                                }}
-                                timings={timings}
-                                totalDurationFrames={sceneTimings[globalSceneIdx] ? sceneTimings[globalSceneIdx].end - sceneTimings[globalSceneIdx].start : 0}
-                                activeIdx={activeSubIdxForScene}
-                                onSeek={onSeek}
-                                onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
-                              />
-                            </div>
-                          </EditSection>
+                          {editingMode === 'visuals' && (
+                            <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
+                              <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
+                                <SubVisualsEditor
+                                  subVisuals={scene?.sub_visuals || []}
+                                  onChange={(newSubs) => {
+                                    const copy = { ...scriptData };
+                                    if (copy.scenes?.[idx]) copy.scenes[idx].sub_visuals = newSubs;
+                                    onSetScriptData(copy);
+                                  }}
+                                  timings={timings}
+                                  totalDurationFrames={sceneTimings[globalSceneIdx] ? sceneTimings[globalSceneIdx].end - sceneTimings[globalSceneIdx].start : 0}
+                                  activeIdx={activeSubIdxForScene}
+                                  onSeek={onSeek}
+                                  onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
+                                />
+                              </div>
+                            </EditSection>
+                          )}
 
                           <AIRewriteSection
                             prompt={rewritePrompt}
@@ -340,7 +352,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
             const concTimings = sceneTimings[concSceneIdx]?.subs;
             const isConcActive = activeSceneIdx === concSceneIdx;
             const concActiveSubIdx = isConcActive ? activeSubIdx : -1;
-            const isEditing = editingCard === 'conclusion';
+            const isEditing = editingCard?.key === 'conclusion';
+            const editingMode = editingCard?.mode;
 
             return (
               <SceneCard
@@ -350,61 +363,66 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                 activeSubIdx={concActiveSubIdx}
                 timings={concTimings}
                 savingKey={savingCardKey === 'conclusion'}
+                editingMode={editingMode}
                 onCardClick={() => { if (!isEditing && sceneTimings[concSceneIdx]) onSeek(sceneTimings[concSceneIdx].start); }}
-                onEdit={() => onStartEdit('conclusion')}
+                onEditScript={() => onStartEdit('conclusion', 'script')}
+                onEditVisuals={() => onStartEdit('conclusion', 'visuals')}
                 onSave={() => onSaveCard('conclusion')}
                 onCancel={onCancelEdit}
                 disabled={savingCardKey !== null || rewritingSection !== null}
               >
                 {isEditing ? (
                   <EditFormFields>
-                    {/* Content section */}
-                    <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Content">
-                      <InsetCard>
-                        <CustomTextarea
-                          label="Summary Text"
-                          rows={2}
-                          value={scriptData.conclusion?.summary || ''}
-                          onChange={(e) => {
-                            const copy = { ...scriptData };
-                            copy.conclusion = copy.conclusion || {};
-                            copy.conclusion.summary = e.target.value;
-                            onSetScriptData(copy);
-                          }}
-                        />
-                        <CustomTextarea
-                          label="Call To Action (CTA)"
-                          rows={2}
-                          value={scriptData.conclusion?.cta || ''}
-                          onChange={(e) => {
-                            const copy = { ...scriptData };
-                            copy.conclusion = copy.conclusion || {};
-                            copy.conclusion.cta = e.target.value;
-                            onSetScriptData(copy);
-                          }}
-                        />
-                      </InsetCard>
-                    </EditSection>
+                    {editingMode === 'script' && (
+                      <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Content">
+                        <InsetCard>
+                          <CustomTextarea
+                            label="Summary Text"
+                            rows={2}
+                            value={scriptData.conclusion?.summary || ''}
+                            onChange={(e) => {
+                              const copy = { ...scriptData };
+                              copy.conclusion = copy.conclusion || {};
+                              copy.conclusion.summary = e.target.value;
+                              onSetScriptData(copy);
+                            }}
+                          />
+                          <CustomTextarea
+                            label="Call To Action (CTA)"
+                            rows={2}
+                            value={scriptData.conclusion?.cta || ''}
+                            onChange={(e) => {
+                              const copy = { ...scriptData };
+                              copy.conclusion = copy.conclusion || {};
+                              copy.conclusion.cta = e.target.value;
+                              onSetScriptData(copy);
+                            }}
+                          />
+                        </InsetCard>
+                      </EditSection>
+                    )}
 
                     {/* Visual Cues section */}
-                    <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
-                      <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
-                        <SubVisualsEditor
-                          subVisuals={scriptData.conclusion?.sub_visuals || []}
-                          onChange={(newSubs) => {
-                            const copy = { ...scriptData };
-                            copy.conclusion = copy.conclusion || {};
-                            copy.conclusion.sub_visuals = newSubs;
-                            onSetScriptData(copy);
-                          }}
-                          timings={concTimings}
-                          totalDurationFrames={sceneTimings[concSceneIdx] ? sceneTimings[concSceneIdx].end - sceneTimings[concSceneIdx].start : 0}
-                          activeIdx={concActiveSubIdx}
-                          onSeek={onSeek}
-                          onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}
-                        />
-                      </div>
-                    </EditSection>
+                    {editingMode === 'visuals' && (
+                      <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
+                        <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
+                          <SubVisualsEditor
+                            subVisuals={scriptData.conclusion?.sub_visuals || []}
+                            onChange={(newSubs) => {
+                              const copy = { ...scriptData };
+                              copy.conclusion = copy.conclusion || {};
+                              copy.conclusion.sub_visuals = newSubs;
+                              onSetScriptData(copy);
+                            }}
+                            timings={concTimings}
+                            totalDurationFrames={sceneTimings[concSceneIdx] ? sceneTimings[concSceneIdx].end - sceneTimings[concSceneIdx].start : 0}
+                            activeIdx={concActiveSubIdx}
+                            onSeek={onSeek}
+                            onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}
+                          />
+                        </div>
+                      </EditSection>
+                    )}
 
                     <AIRewriteSection
                       prompt={rewritePrompt}
@@ -486,12 +504,14 @@ interface SceneCardProps {
   label: string;
   isActive: boolean;
   isEditing: boolean;
+  editingMode?: 'script' | 'visuals';
   activeSubIdx: number;
   timings: any[];
   savingKey: boolean;
   children: React.ReactNode;
   onCardClick: () => void;
-  onEdit: () => void;
+  onEditScript: () => void;
+  onEditVisuals: () => void;
   onSave: () => void;
   onCancel: () => void;
   onDelete?: () => void;
@@ -499,8 +519,8 @@ interface SceneCardProps {
 }
 
 const SceneCard: React.FC<SceneCardProps> = ({
-  label, isActive, isEditing, children, savingKey,
-  onCardClick, onEdit, onSave, onCancel, onDelete, disabled
+  label, isActive, isEditing, editingMode, children, savingKey,
+  onCardClick, onEditScript, onEditVisuals, onSave, onCancel, onDelete, disabled
 }) => (
   <motion.div
     layout
@@ -566,12 +586,22 @@ const SceneCard: React.FC<SceneCardProps> = ({
           </>
         ) : (
           <div className="flex items-center gap-0.5">
-            <button
-              onClick={onEdit}
-              className="text-[9px] flex items-center gap-1 text-zinc-400 hover:text-white px-2 py-1 rounded-lg border border-zinc-800/60 bg-zinc-900/50 hover:bg-zinc-800/80 transition-colors cursor-pointer"
-            >
-              <VscEdit className="text-[9px]" /> Edit
-            </button>
+            <div className="flex bg-zinc-900/50 rounded-lg border border-zinc-800/60 overflow-hidden">
+              <button
+                onClick={onEditScript}
+                disabled={disabled}
+                className="text-[9px] flex items-center gap-1 text-zinc-400 hover:text-white px-2 py-1 hover:bg-zinc-800 transition-colors cursor-pointer border-r border-zinc-800/60 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <VscEdit className="text-[9px]" /> Script
+              </button>
+              <button
+                onClick={onEditVisuals}
+                disabled={disabled}
+                className="text-[9px] flex items-center gap-1 text-zinc-400 hover:text-white px-2 py-1 hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <VscLayers className="text-[9px]" /> Visuals
+              </button>
+            </div>
             {onDelete && (
               <button
                 onClick={onDelete}

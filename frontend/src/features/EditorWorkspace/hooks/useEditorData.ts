@@ -129,8 +129,23 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
         }
 
         const origSubVisuals = manifestScene.sub_visuals || [];
+        // Match sub-visuals by content (visual_type + visual_cue) rather than by index.
+        // This prevents visual URL desync when sub-visuals are inserted, deleted, or reordered.
+        const matchedOrigIndices = new Set<number>();
         const resolvedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
-          const osv = origSubVisuals[idx] || {};
+          // Try content-based match first
+          let matchIdx = origSubVisuals.findIndex((osv: any, i: number) =>
+            !matchedOrigIndices.has(i) &&
+            osv.visual_type === lsv.visual_type &&
+            osv.visual_cue === lsv.visual_cue
+          );
+          // Fall back to same index if content match fails
+          if (matchIdx === -1 && idx < origSubVisuals.length && !matchedOrigIndices.has(idx)) {
+            matchIdx = idx;
+          }
+          const osv = matchIdx !== -1 ? origSubVisuals[matchIdx] : {};
+          if (matchIdx !== -1) matchedOrigIndices.add(matchIdx);
+
           const visualUrl = osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '';
           return {
             ...osv,

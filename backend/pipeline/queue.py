@@ -38,7 +38,12 @@ class QueueManager:
         logger.info("Background queue manager stopped.")
 
     def queue_project(self, project_id, steps, is_resume=False):
-        """Adds a project to the queue list for sequential processing."""
+        """
+        Adds a project to the queue list for sequential processing.
+        
+        Steps: 'generate_script', 'generate_voiceover', 'transcribe', 
+               'generate_visuals', 'fetch_assets', 'render'
+        """
         # Always create a new cancel event when queuing so active workers retaining the old event stay cancelled
         self._cancel_events[project_id] = threading.Event()
 
@@ -50,7 +55,7 @@ class QueueManager:
             # Look at completed tasks and run the remaining ones
             tasks = get_project_tasks(project_id)
             completed_steps = {t['step'] for t in tasks if t['status'] == 'completed'}
-            all_steps = ['generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets', 'render']
+            all_steps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']
             remaining_steps = [s for s in all_steps if s not in completed_steps]
 
             # Check if whisper settings changed — if so, re-run transcribe even if it was completed
@@ -251,6 +256,10 @@ class QueueManager:
         elif step == 'fetch_assets':
             from backend.pipeline.assets import fetch_assets_pipeline
             fetch_assets_pipeline(proj, proj_dir, progress_cb, cancel_event)
+            
+        elif step == 'generate_visuals':
+            from backend.pipeline.ai import generate_visuals_pipeline
+            generate_visuals_pipeline(proj, proj_dir, progress_cb, cancel_event)
             
         elif step == 'render':
             from backend.pipeline.render import render_pipeline

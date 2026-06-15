@@ -198,7 +198,7 @@ export const ExportTab: React.FC<ExportTabProps> = ({
                   const isSelected = PIPELINE_STAGES.indexOf(stage) <= targetIdx;
                   const shortNames: Record<string, string> = {
                     generate_script: 'Script', generate_voiceover: 'Voice',
-                    transcribe: 'Sync', fetch_assets: 'Visuals', render: 'Export'
+                    transcribe: 'Sync', generate_visuals: 'Generate Visuals', fetch_assets: 'Visuals', render: 'Export'
                   };
                   return (
                     <button

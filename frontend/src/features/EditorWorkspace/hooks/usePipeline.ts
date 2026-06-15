@@ -104,7 +104,7 @@ export function usePipeline(
       return;
     }
 
-    const criticalSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets'];
+    const criticalSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets'];
     let shouldReload = false;
     for (const step of criticalSteps) {
       const prevStatus = previousTasksRef.current[step]?.status;
@@ -123,7 +123,7 @@ export function usePipeline(
   const triggerFullPipeline = useCallback(async () => {
     if (!projectId) return;
     setScriptChangedAlert(false);
-    const allSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'fetch_assets', 'render'];
+    const allSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render'];
     const targetIdx = allSteps.indexOf(targetStage);
     const steps = allSteps.slice(0, targetIdx + 1);
     const res = await startPipeline(projectId, steps);
@@ -184,14 +184,19 @@ export function usePipeline(
 
     // Resolve engine: project_settings → DB column → default 'edge'
     const currentEngine = projectSettings.tts_engine || selectedProject.tts_engine || 'edge';
-    const currentSpeed = String(projectSettings.tts_speed ?? '1.0');
-    const currentPitch = String(projectSettings.tts_pitch ?? '0');
+    
+    // Resolve speed and pitch as numbers to avoid string mismatch (e.g. "1.0" !== "1")
+    const currentSpeed = parseFloat(String(projectSettings.tts_speed ?? '1.0'));
+    const storedSpeed = parseFloat(storedVoiceoverSpeedRef.current || '1.0');
+    
+    const currentPitch = parseFloat(String(projectSettings.tts_pitch ?? '0'));
+    const storedPitch = parseFloat(storedVoiceoverPitchRef.current || '0');
 
     // Resolve voice matching backend chain: project_settings → DB column → ''
     // (language default is handled by the backend writing the resolved voice back)
     let currentVoice = '';
     if (currentEngine === 'kokoro') {
-      currentVoice = projectSettings.kokoro_voice || '';
+      currentVoice = projectSettings.kokoro_voice || selectedProject.tts_voice || '';
     } else {
       currentVoice = projectSettings.tts_voice || selectedProject.tts_voice || '';
     }
@@ -199,8 +204,8 @@ export function usePipeline(
     return (
       currentEngine !== storedVoiceoverEngineRef.current ||
       currentVoice !== storedVoiceoverVoiceRef.current ||
-      currentSpeed !== storedVoiceoverSpeedRef.current ||
-      currentPitch !== storedVoiceoverPitchRef.current
+      currentSpeed !== storedSpeed ||
+      currentPitch !== storedPitch
     );
   }, [manifestData]);
 
@@ -239,7 +244,7 @@ export function usePipeline(
     let smartSteps: string[] = [];
 
     if (scriptChangedAlert) {
-      smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+      smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']);
     } else {
       const manifestSceneCount = manifestData?.filter((m: any) => m.section_type === 'scene').length || 0;
       const scriptSceneCount = scriptData?.scenes?.length || 0;
@@ -248,9 +253,9 @@ export function usePipeline(
       const hashChanged = !!storedContentHashRef.current && storedContentHashRef.current !== currentHash;
 
       if (sceneCountChanged || hashChanged) {
-        smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+        smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']);
       } else if (voiceoverSettingsChanged()) {
-        smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+        smartSteps = limitSteps(['generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']);
       } else if (hasVisualEdits()) {
         smartSteps = limitSteps(['fetch_assets', 'render']);
       } else {
@@ -302,7 +307,7 @@ export function usePipeline(
       let stepsToRun: string[] = [];
 
       if (scriptChangedAlert) {
-        stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+        stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']);
       } else {
         const manifestSceneCount = manifestData?.filter((m: any) => m.section_type === 'scene').length || 0;
         const scriptSceneCount = scriptData?.scenes?.length || 0;
@@ -312,9 +317,9 @@ export function usePipeline(
         const hashChanged = !!storedContentHashRef.current && storedContentHashRef.current !== currentHash;
 
         if (sceneCountChanged || hashChanged) {
-          stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+          stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']);
         } else if (voiceoverSettingsChanged()) {
-          stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'fetch_assets', 'render']);
+          stepsToRun = limitSteps(['generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']);
         } else if (hasVisualEdits()) {
           stepsToRun = limitSteps(['fetch_assets', 'render']);
         } else {

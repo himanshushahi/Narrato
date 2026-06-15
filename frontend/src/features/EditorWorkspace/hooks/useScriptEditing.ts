@@ -6,8 +6,8 @@ import { callEel, callEelOrThrow } from '../../../utils/eel-bridge';
 import { estimateTextDuration } from '../../../utils/duration';
 
 export interface UseScriptEditingReturn {
-  editingCard: string | null;
-  setEditingCard: (key: string | null) => void;
+  editingCard: { key: string, mode: 'script' | 'visuals' } | null;
+  setEditingCard: (card: { key: string, mode: 'script' | 'visuals' } | null) => void;
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   rewritingSection: string | null;
@@ -17,7 +17,7 @@ export interface UseScriptEditingReturn {
   isSavingSubtitles: boolean;
   scriptChangedAlert: boolean;
   setScriptChangedAlert: (alert: boolean) => void;
-  handleStartEdit: (cardKey: string) => void;
+  handleStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   handleCancelEdit: () => void;
   handleSaveCard: (cardKey?: string, index?: number) => Promise<void>;
   handleRewriteSection: (type: string, index: number) => Promise<void>;
@@ -42,7 +42,7 @@ export function useScriptEditing(
   const { selectedProject, updateProject, downloadFont } = useProjectStore();
   const { addToast } = useUIStore();
 
-  const [editingCard, setEditingCard] = useState<string | null>(null);
+  const [editingCard, setEditingCard] = useState<{ key: string, mode: 'script' | 'visuals' } | null>(null);
   const [rewritePrompt, setRewritePrompt] = useState('');
   const [originalScriptData, setOriginalScriptData] = useState<any>(null);
   const [originalManifestData, setOriginalManifestData] = useState<any[]>([]);
@@ -85,10 +85,10 @@ export function useScriptEditing(
     }
   }, [localProjectSettings.fontFamily, downloadFont]);
 
-  const handleStartEdit = useCallback((cardKey: string) => {
+  const handleStartEdit = useCallback((cardKey: string, mode: 'script' | 'visuals') => {
     setOriginalScriptData(JSON.parse(JSON.stringify(scriptData)));
     setOriginalManifestData(JSON.parse(JSON.stringify(manifestData)));
-    setEditingCard(cardKey);
+    setEditingCard({ key: cardKey, mode });
     setRewritePrompt('');
   }, [scriptData, manifestData]);
 
@@ -116,7 +116,7 @@ export function useScriptEditing(
     if (cardKey) setSavingCardKey(cardKey);
 
     let narrationChanged = false;
-    if (originalScriptData) {
+    if (originalScriptData && editingCard?.mode === 'script') {
       if (cardKey === 'introduction' || cardKey === 'intro') {
         if (scriptData.introduction?.hook !== originalScriptData.introduction?.hook) narrationChanged = true;
       } else if (cardKey === 'conclusion') {
@@ -237,16 +237,39 @@ export function useScriptEditing(
           selectedProject.language
         );
       } else {
-        res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
-          'regenerate_script_section', index, type, scriptData, rewritePrompt, selectedProject.language
-        );
+        if (editingCard?.mode === 'visuals') {
+          res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
+            'regenerate_visuals_section', index, type, scriptData, rewritePrompt
+          );
+        } else {
+          res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
+            'regenerate_script_section', index, type, scriptData, rewritePrompt, selectedProject.language
+          );
+        }
       }
 
       if (res?.success && res.data) {
         const updated = { ...scriptData };
-        if (type === 'introduction') updated.introduction = res.data;
-        else if (type === 'conclusion') updated.conclusion = res.data;
-        else updated.scenes[index] = res.data;
+        if (editingCard?.mode === 'visuals') {
+          // Visuals rewrite only returns the sub_visuals array, we merge it into the existing scene/section
+          if (type === 'introduction') updated.introduction.sub_visuals = res.data.sub_visuals || [];
+          else if (type === 'conclusion') updated.conclusion.sub_visuals = res.data.sub_visuals || [];
+          else updated.scenes[index].sub_visuals = res.data.sub_visuals || [];
+        } else {
+          // Script rewrite returns the whole section (without sub_visuals by default now)
+          // We need to merge existing sub_visuals back in if this wasn't a new scene
+          const newSection = res.data;
+          let oldSubVisuals = [];
+          if (type === 'introduction') oldSubVisuals = updated.introduction?.sub_visuals || [];
+          else if (type === 'conclusion') oldSubVisuals = updated.conclusion?.sub_visuals || [];
+          else if (!isNewScene) oldSubVisuals = updated.scenes[index]?.sub_visuals || [];
+          
+          newSection.sub_visuals = oldSubVisuals;
+          
+          if (type === 'introduction') updated.introduction = newSection;
+          else if (type === 'conclusion') updated.conclusion = newSection;
+          else updated.scenes[index] = newSection;
+        }
         setScriptData(updated);
 
         if (isNewScene || isNewIntroduction || isNewConclusion) {
@@ -348,33 +371,28 @@ export function useScriptEditing(
     setManifestData(newManifestData);
 
     await callEel<any>('save_project_with_cleanup', projectId, newScriptData, newManifestData);
-    setEditingCard(`scene_${insertPosition}`);
+    setEditingCard({ key: `scene_${insertPosition}`, mode: 'script' });
     setScriptChangedAlert(true);
   }, [projectId, scriptData, selectedProject, manifestData, setScriptData, setManifestData]);
 
   const confirmDeleteScene = useCallback(async () => {
-    if (sceneToDelete === null || !scriptData || !manifestData || !projectId || !selectedProject?.script_path) return;
+    if (sceneToDelete === null || !projectId) return;
     const idx = sceneToDelete;
 
-    const newScriptData = { ...scriptData };
-    if (newScriptData.scenes) newScriptData.scenes.splice(idx, 1);
-
-    let sceneCounter = 0;
-    const newManifestData = manifestData.filter((item: any) => {
-      if (item.section_type === 'scene') { return sceneCounter++ !== idx; }
-      return true;
-    });
-
-    const success = await callEel<any>('save_project_with_cleanup', projectId, newScriptData, newManifestData);
-    if (success) {
+    // Delegate entirely to the backend delete_scene API which handles:
+    // 1. Script scene removal + re-numbering
+    // 2. Manifest entry removal
+    // 3. Asset file cleanup + renaming to keep indices consistent
+    const result = await callEel<any>('delete_scene', projectId, idx);
+    if (result?.success) {
       await loadFiles(projectId);
       addToast("Scene deleted successfully! Please resume pipeline to sync audio.", 'success');
       setScriptChangedAlert(true);
     } else {
-      addToast("Failed to delete scene.", 'error');
+      addToast("Failed to delete scene: " + (result?.error || "Unknown error"), 'error');
     }
     setSceneToDelete(null);
-  }, [sceneToDelete, scriptData, manifestData, projectId, selectedProject, loadFiles, addToast]);
+  }, [sceneToDelete, projectId, loadFiles, addToast]);
 
   const handleSaveTranscription = useCallback(async () => {
     if (!projectId || !transcriptionData || !selectedProject?.transcription_path) return;

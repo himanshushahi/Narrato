@@ -166,16 +166,44 @@ def create_project(name, prompt, export_folder, language="hi", style="nitish_raj
     now = datetime.utcnow().isoformat()
     
     tts_engine = get_setting("tts_engine") or "edge"
-    tts_voice = get_setting("tts_voice") if tts_engine == "edge" else get_setting("kokoro_voice")
-    if not tts_voice:
-        tts_voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
-        
+    
+    if tts_engine == "edge":
+        tts_voice = get_setting("tts_voice")
+        if language == "hi" and tts_voice and not tts_voice.startswith("hi-"):
+            tts_voice = "hi-IN-SwaraNeural"
+        elif language == "en" and tts_voice and not tts_voice.startswith("en-"):
+            tts_voice = "en-US-AndrewNeural"
+            
+        if not tts_voice:
+            tts_voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
+    else:
+        tts_voice = get_setting("kokoro_voice")
+        if language == "hi" and tts_voice and not tts_voice.startswith("h"):
+            tts_voice = "hf_alpha"
+        elif language == "en" and tts_voice and tts_voice.startswith("h"):
+            tts_voice = "af_bella"
+            
+        if not tts_voice:
+            tts_voice = "hf_alpha" if language == "hi" else "af_bella"
+            
     tts_speed = float(get_setting("tts_speed") or 1.0)
     bg_music_path = get_setting("bg_music_path") or ""
     bg_music_volume = float(get_setting("bg_music_volume") or 0.15)
     
     # Handle default styling presets
     project_settings_dict = {}
+    
+    # Pin whisper_model to the language-appropriate default
+    whisper_model = get_setting("whisper_model") or "base"
+    if language == "hi" and whisper_model in ["small", "base"]:
+        whisper_model = "collabora/faster-whisper-small-hindi"
+    elif language != "hi" and whisper_model == "collabora/faster-whisper-small-hindi":
+        try:
+            from backend.pipeline.transcribe import get_best_downloaded_whisper_model
+            whisper_model = get_best_downloaded_whisper_model(fallback="small")
+        except ImportError:
+            whisper_model = "small"
+    project_settings_dict["whisper_model"] = whisper_model
     
     default_sub_preset_id = get_setting("default_subtitle_preset_id")
     subtitle_presets = get_setting("subtitle_presets") or []

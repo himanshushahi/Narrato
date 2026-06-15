@@ -61,10 +61,13 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
         subVisuals={subVisuals} 
         onChange={(ratios) => {
           const copy = [...subVisuals];
-          ratios.forEach((r, i) => copy[i].duration_ratio = r);
+          ratios.forEach((r, i) => {
+             copy[i].duration_ratio = r;
+             copy[i].duration = r * ((totalDurationFrames || 0) / 30);
+          });
           onChange(copy);
         }} 
-        totalDurationFrames={totalDurationFrames} 
+        totalDurationFrames={totalDurationFrames || 0} 
       />
 
       {subVisuals.map((sv: any, idx: number) => {
