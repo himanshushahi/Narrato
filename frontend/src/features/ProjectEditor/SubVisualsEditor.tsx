@@ -19,11 +19,31 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
+
+  const getValidVisualType = (type: string) => {
+    if (!type) return 'scene';
+    const t = String(type).toLowerCase();
+    if (VISUAL_TYPE_OPTIONS.some(o => o.value === t)) return t;
+    const match = VISUAL_TYPE_OPTIONS.find(o => o.label.toLowerCase() === t);
+    if (match) return match.value;
+    if (t.includes('parallax')) return 'parallax';
+    if (t.includes('portrait')) return 'portrait';
+    if (t.includes('youtube') || t.includes('video')) return 'youtube';
+    if (t.includes('image')) return 'image';
+    return 'scene';
+  };
+
   const handleUpdate = (idx: number, field: string, val: any) => {
     const copy = [...subVisuals];
     if (field === 'visual_type' && copy[idx][field] === val) {
       return;
     }
+    
+    // Sanitize visual_type if the user modifies another field but leaves the type untouched
+    if (field !== 'visual_type' && copy[idx].visual_type) {
+      copy[idx].visual_type = getValidVisualType(copy[idx].visual_type);
+    }
+
     copy[idx][field] = val;
     if (field === 'visual_type') {
       copy[idx].visual_meta = getDefaultMetaForType(val, copy[idx].visual_meta);
@@ -149,7 +169,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                 <CustomInput label="Visual Cue Keyword" type="text" placeholder="e.g. A bustling city at night..." value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
               </div>
               <div className="col-span-1">
-                <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={sv.visual_type || 'scene'} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
+                <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={getValidVisualType(sv.visual_type)} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
               </div>
               <div className="col-span-1">
                 <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />

@@ -777,9 +777,12 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
                         break  # Only count once per position
 
     # Rename remaining asset files so their filenames match the new manifest indices.
-    # After scene deletion, old files like asset_005_00.jpg need to become asset_004_00.jpg
-    # if their manifest entry shifted from index 5 to index 4.
-    rename_count = 0
+    # We do this in two passes with temporary names to avoid overwriting files 
+    # when scenes are INSERTED (which shifts indices up and causes collisions).
+    import uuid
+    rename_operations = []
+    
+    # Pass 1: Move mismatched files to safe temporary names
     for scene_idx, segment in enumerate(new_manifest_data):
         sub_visuals = segment.get("sub_visuals", [])
         for sub_idx, sv in enumerate(sub_visuals):
@@ -791,21 +794,31 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
                 # File doesn't exist — clear the stale path reference
                 sv["visual_path"] = ""
                 continue
-            # Build the expected filename for this (scene_idx, sub_idx) position
+            
             expected_stem = f"asset_{scene_idx:03d}_{sub_idx:02d}"
             actual_stem = old_path.stem
+            
             if actual_stem != expected_stem:
-                new_path = old_path.parent / f"{expected_stem}{old_path.suffix}"
+                tmp_path = old_path.parent / f"tmp_{uuid.uuid4().hex[:8]}_{old_path.name}"
                 try:
-                    # If target already exists (shouldn't normally), remove it first
-                    if new_path.exists():
-                        new_path.unlink()
-                    old_path.rename(new_path)
-                    sv["visual_path"] = str(new_path)
-                    rename_count += 1
-                    logger.info(f"Renamed asset: {old_path.name} -> {new_path.name}")
+                    old_path.rename(tmp_path)
+                    final_path = old_path.parent / f"{expected_stem}{old_path.suffix}"
+                    rename_operations.append((tmp_path, final_path, sv))
                 except Exception as e:
-                    logger.warning(f"Could not rename {old_path} -> {new_path}: {e}")
+                    logger.warning(f"Could not rename {old_path} to temp: {e}")
+
+    # Pass 2: Move temporary files to their final expected names
+    rename_count = 0
+    for tmp_path, final_path, sv in rename_operations:
+        try:
+            if final_path.exists():
+                final_path.unlink()
+            tmp_path.rename(final_path)
+            sv["visual_path"] = str(final_path)
+            rename_count += 1
+            logger.info(f"Renamed asset to {final_path.name}")
+        except Exception as e:
+            logger.warning(f"Could not finalize rename {tmp_path} -> {final_path}: {e}")
 
     if rename_count > 0:
         logger.info(f"Renamed {rename_count} asset files to match new manifest indices")

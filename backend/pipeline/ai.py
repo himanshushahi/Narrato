@@ -781,17 +781,24 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
     visual_rules = """
 SUB-VISUALS: You must generate a `sub_visuals` array containing visual cues to match the spoken narration.
 
+=== MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
+Be extremely creative! Do not just write simple text or rely solely on basic 'scene' types. Build a visually engaging documentary:
+- If explaining a concept, build a 'custom_html' animation or a 'network' diagram.
+- If making a claim, use a 'document' to flash dramatic evidence on screen.
+- If showing data, use a dynamic 'chart'.
+- Use the 'visual_meta' field to write evocative copy, inject dramatic headlines, and compose visually stunning overlays that directly complement the emotional and informational beat of the script. Feel free to hallucinate highly specific and thematic meta content.
+
 === TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL FOR THE CONTENT ===
-- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings.
-- chart: USE THIS when the narration contains statistics, percentages, comparisons, or data trends.
-- map: USE THIS when discussing geography, routes, locations, territories, borders.
-- document: USE THIS for historical claims, news events, classified archives, documentary evidence.
-- network: USE THIS for connections between people, organizations, relationships.
-- portrait: If the script wants the real things for person and places, use the portrait visual type.
-- parallax: USE THIS for dramatic visual reveals with layered depth.
-- custom_html: USE THIS for highly customized typography layouts or custom animations.
-- scene/image: Default visual support for general narration.
-- youtube: If the script wants real things other than person and places, use youtube video. We have only these two options (portrait and youtube) to get real visuals.
+- list: For ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings.
+- chart: For statistics, percentages, comparisons, or data trends.
+- map: For geography, routes, locations, territories, borders.
+- document: For historical claims, news events, classified archives, documentary evidence.
+- network: For connections between people, organizations, relationships.
+- portrait: For introducing real specific people or places.
+- parallax: For dramatic visual reveals with layered depth.
+- custom_html: For highly customized, creative typography layouts or custom animations. Use your CSS/HTML skills!
+- scene/image: Default fallback.
+- youtube: For real-world footage other than portraits.
 
 QUANTITY: 2-4 items for MEDIA types. Exactly 1 for PROGRAMMATIC types. EXCEPTION: 'list' — 1 sub-visual PER ITEM.
 
@@ -801,6 +808,7 @@ CRITICAL ON DURATION:
 - Each sub_visual MUST have a precise "duration" (in seconds).
 - The SUM of the durations of all sub_visuals MUST equal the provided Total Scene Duration.
 
+=== VISUAL META SCHEMAS (FILL THESE CREATIVELY) ===
 - scene/image/parallax: visual_meta {} (portrait may add {"person_name": str})
 - PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name.
 - youtube: visual_meta {"start_offset": 15, "duration": 15, "skip_intro": true}
@@ -901,6 +909,23 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
         
         try:
             visuals_data = _call_llm_json(visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, cancel_event)
+            
+            valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html"}
+            for sv in visuals_data.get("sub_visuals", []):
+                v_type = str(sv.get("visual_type", "")).lower()
+                if v_type not in valid_types:
+                    if "parallax" in v_type: sv["visual_type"] = "parallax"
+                    elif "portrait" in v_type: sv["visual_type"] = "portrait"
+                    elif "chart" in v_type: sv["visual_type"] = "chart"
+                    elif "map" in v_type: sv["visual_type"] = "map"
+                    elif "network" in v_type: sv["visual_type"] = "network"
+                    elif "document" in v_type: sv["visual_type"] = "document"
+                    elif "youtube" in v_type or "video" in v_type: sv["visual_type"] = "youtube"
+                    elif "list" in v_type: sv["visual_type"] = "list"
+                    elif "html" in v_type: sv["visual_type"] = "custom_html"
+                    elif "image" in v_type: sv["visual_type"] = "image"
+                    else: sv["visual_type"] = "scene"
+
             entry["sub_visuals"] = visuals_data.get("sub_visuals", [])
         except Exception as e:
             logger.error(f"Failed to generate visuals for scene {i}: {e}")

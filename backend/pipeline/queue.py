@@ -125,14 +125,11 @@ class QueueManager:
         tasks = get_project_tasks(project_id)
         for t in tasks:
             if t['status'] in ('running', 'pending'):
-                update_task(t['id'], status='failed', message='Cancelled by user')
-                self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelled by user', 'failed')
-
-        if self._active_project_id == project_id:
-            self._active_project_id = None
+                update_task(t['id'], status='failed', message='Cancelling...')
+                self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelling...', 'failed')
 
         self._broadcast_queue_status()
-        logger.info(f"Project {project_id} cancelled.")
+        logger.info(f"Project {project_id} cancel requested.")
 
     def get_queue_status(self):
         return {

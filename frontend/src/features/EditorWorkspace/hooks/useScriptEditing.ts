@@ -173,7 +173,7 @@ export function useScriptEditing(
       await callEel<any>('save_project_with_cleanup', projectId, scriptData, liveManifest);
 
       // Fetch assets only for genuinely new/changed sub-visuals
-      const origManifest = originalManifestData.length > 0 ? originalManifestData : manifestData;
+      const origManifest = originalManifestData && originalManifestData.length > 0 ? originalManifestData : manifestData;
       for (let mIdx = 0; mIdx < liveManifest.length; mIdx++) {
         const liveSubs = liveManifest[mIdx].sub_visuals || [];
         const origSubs = origManifest[mIdx]?.sub_visuals || [];

@@ -24,21 +24,55 @@ export function usePipeline(
   projectId: string | undefined,
   loadFiles: (projId: string) => Promise<void>
 ): UsePipelineReturn {
-  const { tasks, queue, startPipeline, cancelPipeline } = useProjectStore();
+  const { tasks, queue, startPipeline, cancelPipeline, selectedProject, updateProject } = useProjectStore();
   const { addToast } = useUIStore();
 
-  const [targetStage, setTargetStage] = useState('render');
+  const [targetStage, setTargetStageState] = useState('render');
+
+  // Initialize targetStage from project settings
+  useEffect(() => {
+    if (selectedProject?.project_settings) {
+      try {
+        const settings = JSON.parse(selectedProject.project_settings);
+        if (settings.targetStage) {
+          setTargetStageState((prev) => prev !== settings.targetStage ? settings.targetStage : prev);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [selectedProject?.project_settings]);
+
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setTargetStage = useCallback((stage: string) => {
+    setTargetStageState(stage);
+    if (selectedProject?.id) {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(async () => {
+        let settings: any = {};
+        try {
+          const currentProj = useProjectStore.getState().selectedProject;
+          if (currentProj?.project_settings) {
+            settings = JSON.parse(currentProj.project_settings);
+          }
+        } catch (e) {}
+        settings.targetStage = stage;
+        await updateProject(selectedProject.id, { project_settings: JSON.stringify(settings) });
+      }, 500);
+    }
+  }, [selectedProject?.id, updateProject]);
   const [wasActive, setWasActive] = useState(false);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
-
   const previousTasksRef = useRef(tasks);
   const hasMountedRef = useRef(false);
 
-  const isRunning = queue.active === projectId;
+  const isRunning = queue.active === projectId || (projectId ? queue.queued.includes(projectId) : false);
 
   const activeTaskStep = useMemo(() => {
     if (!isRunning) return null;
-    return Object.values(tasks).find(t => t.status === 'running') || null;
+    return Object.values(tasks).find(t => t.status === 'running') || 
+           Object.values(tasks).find(t => t.status === 'pending') || null;
   }, [isRunning, tasks]);
 
   // Monitor pipeline completion
@@ -103,7 +137,11 @@ export function usePipeline(
   }, [targetStage, tasks]);
 
   const handleResumeFromStage = useCallback(async (stageId: string) => {
-    if (!projectId || !canResumeFrom(stageId)) return;
+    if (!projectId) return;
+    if (!canResumeFrom(stageId)) {
+      addToast("Cannot start from this stage. Previous stages must be completed first.", 'warning', 4000);
+      return;
+    }
     if (isRunning) {
       addToast("Pipeline is already running. Please wait for it to complete before resuming.", 'warning', 4000);
       return;

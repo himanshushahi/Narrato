@@ -63,7 +63,7 @@ const saveLayout = (state: Partial<EditorStore>) => {
 };
 
 const defaults = {
-  leftPanelWidth: 280,
+  leftPanelWidth: 300,
   rightPanelWidth: 380,
   timelineHeight: 200,
   leftPanelTab: 'scenes' as LeftPanelTab,

@@ -28,12 +28,43 @@ export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
     }
   `;
 
+  const srcDoc = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800&display=swap" rel="stylesheet">
+        <style>
+          body { 
+            background-color: #0c0a09; /* Default dark background matching the video */
+            color: #ffffff;
+            margin: 0; 
+            padding: 0; 
+            width: 100vw; 
+            height: 100vh; 
+            overflow: hidden; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+          }
+          ${css}
+        </style>
+      </head>
+      <body>
+        <div class="w-full h-full flex flex-col items-center justify-center">
+          ${html}
+        </div>
+      </body>
+    </html>
+  `;
+
   return (
-    <div style={{ width, height }} className="absolute inset-0 overflow-hidden flex items-center justify-center">
-      <style>{css}</style>
-      <div 
-        className="w-full h-full flex flex-col items-center justify-center"
-        dangerouslySetInnerHTML={{ __html: html }} 
+    <div style={{ width, height }} className="absolute inset-0 overflow-hidden bg-transparent">
+      <iframe 
+        title="Custom HTML Sandbox"
+        srcDoc={srcDoc}
+        style={{ width: '100%', height: '100%', border: 'none', background: 'transparent' }}
+        sandbox="allow-scripts allow-same-origin"
+        allowTransparency={true}
       />
     </div>
   );
