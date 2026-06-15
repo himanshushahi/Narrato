@@ -25,15 +25,15 @@ interface InspectorPanelProps {
   projectId: string;
 
   // Script editing props
-  editingCard: string | null;
-  setEditingCard: (key: string | null) => void;
+  editingCard: { key: string; mode: "script" | "visuals"; } | null;
+  setEditingCard: (card: { key: string; mode: "script" | "visuals"; } | null) => void;
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   rewritingSection: string | null;
   savingCardKey: string | null;
   isSaving: boolean;
   onSaveCard: (cardKey?: string, index?: number) => void;
-  onStartEdit: (cardKey: string) => void;
+  onStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   onCancelEdit: () => void;
   onRewriteSection: (type: string, index: number) => void;
   onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
@@ -115,7 +115,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             onInsertScene={onInsertScene}
             onSetSceneToDelete={onSetSceneToDelete}
             onSetScriptData={onSetScriptData}
-            disabled={isPipelineRunning}
           />
         );
       case 'subtitle':

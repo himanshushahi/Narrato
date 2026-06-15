@@ -40,6 +40,72 @@ def compute_script_content_hash(script_data):
     content_str = "\n".join(parts)
     return hashlib.sha256(content_str.encode("utf-8")).hexdigest()
 
+def is_visuals_stale(project_dict, project_dir):
+    """Check if the sub-visual structure in script.json differs from manifest.json."""
+    script_path = project_dir / "script.json"
+    manifest_path = project_dir / "voiceover" / "manifest.json"
+    if not script_path.exists() or not manifest_path.exists():
+        return True
+        
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script_data = json.load(f)
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest_data = json.load(f)
+            
+        scene_counter = 0
+        for manifest_scene in manifest_data:
+            sec_type = manifest_scene.get("section_type")
+            live_sub_visuals = []
+            
+            if sec_type == 'introduction' and script_data.get('introduction'):
+                live_sub_visuals = script_data['introduction'].get('sub_visuals', [])
+            elif sec_type == 'conclusion' and script_data.get('conclusion'):
+                live_sub_visuals = script_data['conclusion'].get('sub_visuals', [])
+            elif sec_type == 'scene' and isinstance(script_data.get('scenes'), list):
+                if scene_counter < len(script_data['scenes']):
+                    script_scene = script_data['scenes'][scene_counter]
+                    live_sub_visuals = script_scene.get('sub_visuals', [])
+                scene_counter += 1
+                
+            orig_sub_visuals = manifest_scene.get("sub_visuals", [])
+            
+            relevant_live = [{"visual_type": lsv.get("visual_type"), "visual_cue": lsv.get("visual_cue")} for lsv in live_sub_visuals]
+            relevant_orig = [{"visual_type": osv.get("visual_type"), "visual_cue": osv.get("visual_cue")} for osv in orig_sub_visuals]
+            
+            if relevant_live != relevant_orig:
+                return True
+    except Exception as e:
+        logger.warning(f"Failed to check visuals staleness: {e}")
+        return True
+    return False
+
+def is_assets_stale(project_dict, project_dir):
+    """Check if any downloaded files referenced in assets_manifest.json are missing."""
+    assets_manifest_path = project_dir / "assets" / "assets_manifest.json"
+    if not assets_manifest_path.exists():
+        return True
+        
+    try:
+        with open(assets_manifest_path, "r", encoding="utf-8") as f:
+            assets_manifest = json.load(f)
+            
+        for scene in assets_manifest:
+            for sv in scene.get("sub_visuals", []):
+                v_path = sv.get("visual_path")
+                if v_path and not Path(v_path).exists():
+                    return True
+                    
+        bg_music = project_dict.get("bg_music_path")
+        if bg_music and not Path(bg_music).exists():
+            return True
+            
+    except Exception as e:
+        logger.warning(f"Failed to check assets staleness: {e}")
+        return True
+    return False
+
+
 def search_pexels_photo(query, api_key):
     """Searches Pexels for a photo matching the query. Returns url to download."""
     if not api_key:
@@ -504,6 +570,36 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
+    # 4. Save visual_paths back to script.json for persistence
+    script_path = project_dir / "script.json"
+    if script_path.exists():
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script = json.load(f)
+                
+            script_scenes = script.get("scenes", [])
+            manifest_scenes = [m for m in manifest if m.get("section_type") == "scene"]
+            
+            # Intro
+            manifest_intro = next((m for m in manifest if m.get("section_type") == "introduction"), None)
+            if manifest_intro and "introduction" in script:
+                script["introduction"]["sub_visuals"] = manifest_intro.get("sub_visuals", [])
+                
+            # Conclusion
+            manifest_conclusion = next((m for m in manifest if m.get("section_type") == "conclusion"), None)
+            if manifest_conclusion and "conclusion" in script:
+                script["conclusion"]["sub_visuals"] = manifest_conclusion.get("sub_visuals", [])
+                
+            # Scenes
+            for i, sc in enumerate(script_scenes):
+                if i < len(manifest_scenes):
+                    sc["sub_visuals"] = manifest_scenes[i].get("sub_visuals", [])
+                    
+            with open(script_path, "w", encoding="utf-8") as f:
+                json.dump(script, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Failed to persist visual_paths to script.json: {e}")
+
     progress_cb(100.0, "Asset downloading complete!")
     logger.info("Asset gathering pipeline step completed.")
 
@@ -577,6 +673,36 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
+
+    # 4. Save visual_path back to script.json for persistence
+    script_path = project_dir / "script.json"
+    if script_path.exists():
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script = json.load(f)
+
+            script_scenes = script.get("scenes", [])
+            manifest_scenes = [m for m in manifest if m.get("section_type") == "scene"]
+            
+            # Intro
+            manifest_intro = next((m for m in manifest if m.get("section_type") == "introduction"), None)
+            if manifest_intro and "introduction" in script:
+                script["introduction"]["sub_visuals"] = manifest_intro.get("sub_visuals", [])
+                
+            # Conclusion
+            manifest_conclusion = next((m for m in manifest if m.get("section_type") == "conclusion"), None)
+            if manifest_conclusion and "conclusion" in script:
+                script["conclusion"]["sub_visuals"] = manifest_conclusion.get("sub_visuals", [])
+                
+            # Scenes
+            for i, sc in enumerate(script_scenes):
+                if i < len(manifest_scenes):
+                    sc["sub_visuals"] = manifest_scenes[i].get("sub_visuals", [])
+
+            with open(script_path, "w", encoding="utf-8") as f:
+                json.dump(script, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Failed to persist single visual_path to script.json: {e}")
 
     return {"success": True, "segment": segment, "sub_visual": sub_visual}
 

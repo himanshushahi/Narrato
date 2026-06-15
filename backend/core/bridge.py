@@ -275,8 +275,8 @@ def start_processing_pipeline(project_id, steps):
     return {"success": success}
 
 @eel.expose
-def resume_processing_pipeline(project_id):
-    success = global_queue_manager.queue_project(project_id, [], is_resume=True)
+def resume_processing_pipeline(project_id, steps):
+    success = global_queue_manager.queue_project(project_id, steps, is_resume=True)
     return {"success": success}
 
 @eel.expose

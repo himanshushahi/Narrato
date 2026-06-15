@@ -157,7 +157,7 @@ export function useScriptEditing(
           if (matchIdx !== -1) {
             matchedIndices.add(matchIdx);
             const match = origSubVisuals[matchIdx];
-            return { ...lsv, visual_path: match.visual_path, visual_url: match.visual_url, duration: match.duration };
+            return { ...lsv, visual_path: match.visual_path, visual_url: match.visual_url };
           }
           return lsv; // New or changed sub-visual — no existing asset to carry over
         });

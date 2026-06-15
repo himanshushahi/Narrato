@@ -519,7 +519,7 @@ interface SceneCardProps {
 }
 
 const SceneCard: React.FC<SceneCardProps> = ({
-  label, isActive, isEditing, editingMode, children, savingKey,
+  label, isActive, isEditing, children, savingKey,
   onCardClick, onEditScript, onEditVisuals, onSave, onCancel, onDelete, disabled
 }) => (
   <motion.div

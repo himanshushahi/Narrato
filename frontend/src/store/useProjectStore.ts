@@ -57,7 +57,7 @@ interface ProjectStore {
   deleteProject: (projectId: string) => Promise<void>;
   updateProject: (projectId: string, updates: Partial<Project>) => Promise<boolean>;
   startPipeline: (projectId: string, steps: string[]) => Promise<{ success: boolean; error?: string }>;
-  resumePipeline: (projectId: string) => Promise<{ success: boolean; error?: string }>;
+  resumePipeline: (projectId: string, steps: string[]) => Promise<{ success: boolean; error?: string }>;
   cancelPipeline: (projectId: string) => Promise<void>;
   downloadFont: (fontFamily: string) => Promise<{ success: boolean; css_path?: string }>;
 }
@@ -148,8 +148,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     return { success: false, error: "Failed to start pipeline: Backend not responding" };
   },
 
-  resumePipeline: async (projectId) => {
-    const res = await safeEelCall<{ success: boolean; error?: string }>('resume_processing_pipeline', projectId);
+  resumePipeline: async (projectId, steps) => {
+    const res = await safeEelCall<{ success: boolean; error?: string }>('resume_processing_pipeline', projectId, steps);
     if (res) {
       get().fetchProjectDetail(projectId);
       return res;

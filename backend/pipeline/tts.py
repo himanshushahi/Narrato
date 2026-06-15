@@ -182,11 +182,86 @@ def get_audio_duration(audio_path):
         logger.warning(f"Failed to probe duration for {audio_path}: {e}")
     return 0.0
 
+def _resolve_tts_settings(project_dict):
+    """Resolve TTS settings from project overrides or global settings."""
+    project_settings_raw = project_dict.get("project_settings")
+    project_settings = {}
+    if project_settings_raw:
+        try:
+            if isinstance(project_settings_raw, str):
+                project_settings = json.loads(project_settings_raw)
+            else:
+                project_settings = project_settings_raw
+        except Exception:
+            pass
+
+    from backend.database.db import get_setting
+    engine = project_settings.get("tts_engine") or project_dict.get("tts_engine") or get_setting("tts_engine") or "edge"
+    speed = float(project_settings.get("tts_speed") or project_dict.get("tts_speed") or get_setting("tts_speed") or 1.0)
+    pitch = project_settings.get("tts_pitch") or get_setting("tts_pitch") or "0"
+    language = project_dict.get("language", "hi")
+
+    if engine == "edge":
+        voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
+        if not voice:
+            voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
+    else:
+        voice = project_settings.get("kokoro_voice") or project_dict.get("tts_voice") or get_setting("kokoro_voice") or "af_bella"
+
+    return engine, speed, pitch, voice
+
+def is_voiceover_stale(project_dict, project_dir):
+    """Check if script hash or TTS settings changed, or voiceover.wav is missing."""
+    voiceover_path = project_dir / "voiceover.wav"
+    if not voiceover_path.exists():
+        return True
+        
+    manifest_path = project_dir / "voiceover" / "manifest.json"
+    if not manifest_path.exists():
+        return True
+    
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        if not manifest:
+            return True
+        
+        first_entry = manifest[0]
+        stored_hash = first_entry.get("_content_hash")
+        
+        script_path = project_dir / "script.json"
+        if not script_path.exists():
+            return True
+            
+        with open(script_path, "r", encoding="utf-8") as f:
+            script_data = json.load(f)
+            
+        from backend.pipeline.assets import compute_script_content_hash
+        current_hash = compute_script_content_hash(script_data)
+        
+        if stored_hash != current_hash:
+            return True
+            
+        engine, speed, pitch, voice = _resolve_tts_settings(project_dict)
+        
+        if (first_entry.get("_voiceover_engine") != engine or
+            first_entry.get("_voiceover_voice") != voice or
+            str(first_entry.get("_voiceover_speed", "1.0")) != str(speed) or
+            str(first_entry.get("_voiceover_pitch", "0")) != str(pitch)):
+            return True
+            
+    except Exception as e:
+        logger.warning(f"Failed to verify voiceover staleness: {e}")
+        return True
+        
+    return False
+
 def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_event):
-    """Voiceover generation step in background worker queue."""
-    script_path = Path(project_dict['script_path'])
+    """Generates voiceover audio for each section (intro, scenes, conclusion)."""
+    script_path = project_dir / "script.json"
+    
     if not script_path.exists():
-        raise FileNotFoundError(f"Script file not found: {script_path}")
+        raise FileNotFoundError("script.json not found. Run script generation first.")
         
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
@@ -223,27 +298,8 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     voice_dir = project_dir / "voiceover"
     voice_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read project settings for voice override (project-specific overrides global)
-    project_settings_raw = project_dict.get("project_settings")
-    project_settings = {}
-    if project_settings_raw:
-        try:
-            project_settings = json.loads(project_settings_raw)
-        except Exception:
-            pass
-
-    engine = project_settings.get("tts_engine") or project_dict.get("tts_engine") or get_setting("tts_engine") or "edge"
-    speed = float(project_settings.get("tts_speed") or project_dict.get("tts_speed") or get_setting("tts_speed") or 1.0)
-    pitch = project_settings.get("tts_pitch") or get_setting("tts_pitch") or "0"
+    engine, speed, pitch, voice = _resolve_tts_settings(project_dict)
     language = project_dict.get("language", "hi")
-
-    if engine == "edge":
-        voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
-        if not voice:
-            voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
-    else:
-        voice = project_settings.get("kokoro_voice") or project_dict.get("tts_voice") or get_setting("kokoro_voice") or "af_bella"
-
     kokoro_lang = "hi" if language == "hi" else "en-us"
 
     temp_files = []

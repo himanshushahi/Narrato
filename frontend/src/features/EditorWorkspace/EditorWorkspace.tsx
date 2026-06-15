@@ -74,7 +74,7 @@ export const EditorWorkspace: React.FC = () => {
     tasks, queue, isRunning, targetStage, activeTaskStep, scriptChangedAlert,
     setTargetStage, setScriptChangedAlert, triggerFullPipeline,
     handleResumePipeline, handleResumeFromStage, cancelPipeline
-  } = usePipeline(id, scriptData, manifestData, loadFiles);
+  } = usePipeline(id, loadFiles);
 
   const {
     editingCard, setEditingCard, rewritePrompt, setRewritePrompt,
@@ -144,10 +144,10 @@ export const EditorWorkspace: React.FC = () => {
 
   const handleSave = useCallback(() => {
     if (editingCard) {
-      const idx = editingCard.startsWith('scene_')
-        ? parseInt(editingCard.replace('scene_', ''))
+      const idx = editingCard.key.startsWith('scene_')
+        ? parseInt(editingCard.key.replace('scene_', ''))
         : undefined;
-      handleSaveCard(editingCard === 'intro' ? 'introduction' : editingCard, idx);
+      handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx);
     } else {
       if (id && scriptData && selectedProject?.script_path) {
         handleSaveCard();

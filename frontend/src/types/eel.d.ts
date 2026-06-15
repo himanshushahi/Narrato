@@ -12,7 +12,7 @@ interface Eel {
   db_update_settings: EelCall<[any], boolean>;
   create_new_project: EelCall<[string, string, string, string, string], any>;
   start_processing_pipeline: EelCall<[string, string[]], any>;
-  resume_processing_pipeline: EelCall<[string], any>;
+  resume_processing_pipeline: EelCall<[string, string[]], any>;
   cancel_processing_pipeline: EelCall<[string], boolean>;
   read_json_file: EelCall<[string], any>;
   save_json_file: EelCall<[string, any], boolean>;

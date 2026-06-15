@@ -300,16 +300,21 @@ def _write_transcribe_hash(project_dir, hash_value):
     hash_file.parent.mkdir(parents=True, exist_ok=True)
     hash_file.write_text(hash_value)
 
-
 def is_transcribe_stale(project_dict, project_dir):
-    """Check if whisper settings have changed since the last transcription.
-
-    Returns True if transcription should be re-run.
-    """
+    """Check if the transcribe step needs to run."""
+    subtitles_path = Path(project_dir) / "subtitles" / "transcription.json"
+    if not subtitles_path.exists():
+        return True
+        
     model_size, device, language = _resolve_whisper_settings(project_dict)
     current_hash = _compute_transcribe_hash(model_size, device, language)
     stored_hash = _read_stored_transcribe_hash(project_dir)
-    return stored_hash != current_hash
+    
+    if stored_hash != current_hash:
+        return True
+        
+    return False
+
 
 
 def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):

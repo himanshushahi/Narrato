@@ -52,37 +52,50 @@ class QueueManager:
         
         # Determine steps to execute
         if is_resume:
-            # Look at completed tasks and run the remaining ones
             tasks = get_project_tasks(project_id)
             completed_steps = {t['step'] for t in tasks if t['status'] == 'completed'}
-            all_steps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']
-            remaining_steps = [s for s in all_steps if s not in completed_steps]
-
-            # Check if whisper settings changed — if so, re-run transcribe even if it was completed
-            if 'transcribe' not in remaining_steps:
-                proj = get_project(project_id)
-                if proj:
-                    from backend.core.config import get_storage_dir
-                    proj_dir = get_storage_dir() / project_id
-                    from backend.pipeline.transcribe import is_transcribe_stale
-                    if is_transcribe_stale(proj, proj_dir):
-                        logger.info("Whisper settings changed — marking transcribe for re-run.")
-                        # Insert transcribe before the first remaining step that comes
-                        # after it in pipeline order (e.g. fetch_assets, render)
-                        transcribe_idx = all_steps.index('transcribe')
-                        insert_at = next(
-                            (i for i, rs in enumerate(remaining_steps)
-                             if all_steps.index(rs) > transcribe_idx),
-                            len(remaining_steps)
-                        )
-                        remaining_steps.insert(insert_at, 'transcribe')
-
-                        # Reset the transcribe task so it runs fresh
-                        create_task(project_id, 'transcribe')
-
-            # Ensure we have at least render
-            if not remaining_steps:
+            
+            pipeline_steps = steps if steps else ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']
+            
+            proj = get_project(project_id)
+            from backend.core.config import get_storage_dir
+            proj_dir = get_storage_dir() / project_id
+            
+            is_downstream_stale = False
+            remaining_steps = []
+            
+            for step in pipeline_steps:
+                is_stale = False
+                
+                if step not in completed_steps:
+                    is_stale = True
+                elif not is_downstream_stale:
+                    try:
+                        if step == 'generate_voiceover':
+                            from backend.pipeline.tts import is_voiceover_stale
+                            is_stale = is_voiceover_stale(proj, proj_dir)
+                        elif step == 'transcribe':
+                            from backend.pipeline.transcribe import is_transcribe_stale
+                            is_stale = is_transcribe_stale(proj, proj_dir)
+                        elif step == 'generate_visuals':
+                            from backend.pipeline.assets import is_visuals_stale
+                            is_stale = is_visuals_stale(proj, proj_dir)
+                        elif step == 'fetch_assets':
+                            from backend.pipeline.assets import is_assets_stale
+                            is_stale = is_assets_stale(proj, proj_dir)
+                        elif step == 'render':
+                            is_stale = True
+                    except Exception as e:
+                        logger.error(f"Error checking staleness for {step}: {e}")
+                        is_stale = True
+                
+                if is_stale or is_downstream_stale:
+                    is_downstream_stale = True
+                    remaining_steps.append(step)
+                    
+            if not remaining_steps and 'render' in pipeline_steps:
                 remaining_steps = ['render']
+                
             steps_to_queue = remaining_steps
         else:
             steps_to_queue = steps
