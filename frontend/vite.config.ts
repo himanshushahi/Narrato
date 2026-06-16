@@ -13,13 +13,17 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('react-icons')) {
+            // Extract the package name after node_modules/ to avoid
+            // false matches on the project folder name (remotion_canvas)
+            const parts = id.split('node_modules/');
+            const pkg = parts[parts.length - 1];
+            if (pkg.startsWith('react-icons')) {
               return 'vendor-icons';
             }
-            if (id.includes('framer-motion')) {
+            if (pkg.startsWith('framer-motion')) {
               return 'vendor-framer';
             }
-            if (id.includes('remotion') || id.includes('@remotion')) {
+            if (pkg.startsWith('remotion') || pkg.startsWith('@remotion')) {
               return 'vendor-remotion';
             }
             return 'vendor';
