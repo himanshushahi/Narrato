@@ -163,7 +163,7 @@ export const EditorWorkspace: React.FC = () => {
   }, [isPlaying, setIsPlaying]);
 
   const handleAddScene = useCallback(() => {
-    const lastIdx = (scriptData?.scenes?.length || 1) - 1;
+    const lastIdx = (scriptData?.scenes?.length ?? 0) - 1;
     const blankScene = {
       scene_number: lastIdx + 2,
       title: "New Scene",
@@ -346,9 +346,8 @@ export const EditorWorkspace: React.FC = () => {
           onSeek={handleSeek}
           onAddScene={handleAddScene}
           onDeleteScene={(idx) => {
-            const globalIdx = (scriptData?.introduction ? 1 : 0) + idx;
-            setSelectedSceneIndex(globalIdx);
-            setSceneToDelete(idx);
+            const sceneIdx = idx - (scriptData?.introduction ? 1 : 0);
+            setSceneToDelete(sceneIdx);
           }}
           onResizeScene={handleResizeScene}
           onReorderScene={handleReorderScene}

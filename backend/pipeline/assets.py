@@ -739,7 +739,11 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
 
     assets_dir = get_storage_dir() / project_id / "assets"
 
-    # Build set of (scene_idx, sub_idx) from new manifest
+    import re
+    import uuid
+
+    # Build set of (scene_idx, sub_idx) from new manifest — these are the positions
+    # that should have asset files after the rename pass completes.
     kept_positions = set()
     for scene_idx, segment in enumerate(new_manifest_data):
         sub_visuals = segment.get("sub_visuals", [])
@@ -749,40 +753,17 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
             if visual_type in ("scene", "image", "portrait", "parallax", "youtube"):
                 kept_positions.add((scene_idx, sub_idx))
 
-    # Find and delete orphaned files
     deleted_files = []
     preserved_files = []
-    extensions = [".mp4", ".jpg", ".png", ".jpeg"]
 
-    for scene_idx, segment in enumerate(old_manifest):
-        sub_visuals = segment.get("sub_visuals", [])
-        for sub_idx, sv in enumerate(sub_visuals):
-            if (scene_idx, sub_idx) not in kept_positions:
-                # This sub_visual was removed or changed to non-media type - delete its files
-                for ext in extensions:
-                    file_path = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}{ext}"
-                    if file_path.exists():
-                        try:
-                            file_path.unlink()
-                            deleted_files.append(str(file_path))
-                            logger.info(f"Deleted orphaned asset: {file_path}")
-                        except Exception as e:
-                            logger.warning(f"Could not delete {file_path}: {e}")
-            else:
-                # Preserve: check if file exists for kept positions
-                for ext in extensions:
-                    file_path = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}{ext}"
-                    if file_path.exists():
-                        preserved_files.append(str(file_path))
-                        break  # Only count once per position
-
-    # Rename remaining asset files so their filenames match the new manifest indices.
-    # We do this in two passes with temporary names to avoid overwriting files 
-    # when scenes are INSERTED (which shifts indices up and causes collisions).
-    import uuid
+    # ── Phase 1: Rename surviving files to match new manifest indices ──
+    # This must run BEFORE deletion so that survivors are at their correct
+    # positions before we determine which files are truly orphaned.
+    # We do this in two passes with temporary names to avoid overwriting
+    # files when scenes are INSERTED (which shifts indices and causes collisions).
     rename_operations = []
-    
-    # Pass 1: Move mismatched files to safe temporary names
+
+    # Pass 1a: Move mismatched files to safe temporary names
     for scene_idx, segment in enumerate(new_manifest_data):
         sub_visuals = segment.get("sub_visuals", [])
         for sub_idx, sv in enumerate(sub_visuals):
@@ -791,13 +772,12 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
                 continue
             old_path = Path(old_path_str)
             if not old_path.exists():
-                # File doesn't exist — clear the stale path reference
                 sv["visual_path"] = ""
                 continue
-            
+
             expected_stem = f"asset_{scene_idx:03d}_{sub_idx:02d}"
             actual_stem = old_path.stem
-            
+
             if actual_stem != expected_stem:
                 tmp_path = old_path.parent / f"tmp_{uuid.uuid4().hex[:8]}_{old_path.name}"
                 try:
@@ -807,7 +787,7 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
                 except Exception as e:
                     logger.warning(f"Could not rename {old_path} to temp: {e}")
 
-    # Pass 2: Move temporary files to their final expected names
+    # Pass 1b: Move temporary files to their final expected names
     rename_count = 0
     for tmp_path, final_path, sv in rename_operations:
         try:
@@ -822,6 +802,31 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
 
     if rename_count > 0:
         logger.info(f"Renamed {rename_count} asset files to match new manifest indices")
+
+    # ── Phase 2: Delete orphaned files by scanning the assets directory ──
+    # Any asset_* file whose (scene_idx, sub_idx) position is NOT in
+    # kept_positions (from the new manifest) is orphaned and can be removed.
+    # This replaces the old approach of iterating old-manifest positions,
+    # which broke when scene insert/deletion shifted indices.
+    if assets_dir.exists():
+        for file_path in assets_dir.iterdir():
+            if not file_path.is_file():
+                continue
+            match = re.match(r"asset_(\d+)_(\d+)", file_path.stem)
+            if not match:
+                continue
+            scene_idx, sub_idx = int(match.group(1)), int(match.group(2))
+            if (scene_idx, sub_idx) in kept_positions:
+                preserved_files.append(str(file_path))
+            else:
+                # Check it's one of the known extensions
+                if file_path.suffix.lower() in [".mp4", ".jpg", ".png", ".jpeg"]:
+                    try:
+                        file_path.unlink()
+                        deleted_files.append(str(file_path))
+                        logger.info(f"Deleted orphaned asset: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete {file_path}: {e}")
 
     # Embed content hash into each manifest entry for change detection on pipeline resume
     if content_hash:

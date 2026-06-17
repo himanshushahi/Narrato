@@ -302,8 +302,9 @@ export function useScriptEditing(
         'regenerate_sub_visual', sceneIdx, sectionType, subIdx, scriptData, prompt, selectedProject.language
       );
       if (res?.success && res.data) {
-        const updated = { ...scriptData };
-        
+        // Deep clone to avoid mutating React state via shared nested references
+        const updated = JSON.parse(JSON.stringify(scriptData));
+
         let targetSection;
         if (sectionType === 'introduction') targetSection = updated.introduction;
         else if (sectionType === 'conclusion') targetSection = updated.conclusion;
@@ -362,6 +363,11 @@ export function useScriptEditing(
       if (manifestInsertIdx === manifestData.length) {
         for (let i = manifestData.length - 1; i >= 0; i--) {
           if (manifestData[i].section_type === 'scene') { manifestInsertIdx = i + 1; break; }
+        }
+        // Fallback: if no scene entries exist yet (e.g. fresh project with intro+conclusion),
+        // insert before the last entry (conclusion) rather than appending after it
+        if (manifestInsertIdx === manifestData.length) {
+          manifestInsertIdx = Math.max(1, manifestData.length - 1);
         }
       }
     }

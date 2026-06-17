@@ -402,7 +402,7 @@ export const Timeline: React.FC<TimelineProps> = ({
               const isTrimming = dragState && (dragState.type === 'trim_left' || dragState.type === 'trim_right') && dragState.sceneIdx === idx;
               const colorIdx = idx % SCENE_COLORS.length;
               const subVisuals = scene?.sub_visuals || [];
-              const isIntroOrConclusion = idx === 0 || idx === localTimings.length - 1;
+              const isIntroOrConclusion = scene?.section_type === 'introduction' || scene?.section_type === 'conclusion';
 
               // Compute sub-visual positions within this scene
               const subBlocks = timing.subs.map((sub, subIdx) => {
