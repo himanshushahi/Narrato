@@ -149,6 +149,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   resumePipeline: async (projectId, steps) => {
+    const connected = await waitForEelConnection(10000);
+    if (!connected) {
+      return { success: false, error: "Backend not connected. Please wait a moment and try again." };
+    }
     const res = await safeEelCall<{ success: boolean; error?: string }>('resume_processing_pipeline', projectId, steps);
     if (res) {
       get().fetchProjectDetail(projectId);

@@ -84,7 +84,9 @@ class QueueManager:
                             from backend.pipeline.assets import is_assets_stale
                             is_stale = is_assets_stale(proj, proj_dir)
                         elif step == 'render':
-                            is_stale = True
+                            # Nothing upstream changed — only stale if output video is missing
+                            video_path = proj.get('video_path')
+                            is_stale = not (video_path and os.path.exists(video_path))
                     except Exception as e:
                         logger.error(f"Error checking staleness for {step}: {e}")
                         is_stale = True
@@ -94,7 +96,10 @@ class QueueManager:
                     remaining_steps.append(step)
                     
             if not remaining_steps and 'render' in pipeline_steps:
-                remaining_steps = ['render']
+                # Only force render if output video is missing (upstream is unchanged)
+                video_path = proj.get('video_path')
+                if not (video_path and os.path.exists(video_path)):
+                    remaining_steps = ['render']
                 
             steps_to_queue = remaining_steps
         else:

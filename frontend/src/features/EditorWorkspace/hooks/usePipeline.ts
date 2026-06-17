@@ -164,10 +164,10 @@ export function usePipeline(
     const res = await startPipeline(projectId, stepsToRun);
     if (res?.success) {
       addToast(`Resumed pipeline from: ${PIPELINE_STAGES[startIdx].title}`, 'success');
+      loadFiles(projectId);
     } else {
       addToast(res?.error || "Failed to start pipeline", 'error');
     }
-    loadFiles(projectId);
   }, [projectId, targetStage, startPipeline, addToast, loadFiles, isRunning, canResumeFrom]);
 
   const handleResumePipeline = useCallback(async () => {
@@ -186,10 +186,10 @@ export function usePipeline(
       setScriptChangedAlert(false);
       if (res?.success) {
         addToast("Pipeline started successfully", 'success');
+        loadFiles(projectId);
       } else {
         addToast(res?.error || "Failed to start pipeline", 'error');
       }
-      loadFiles(projectId);
     } catch (err) {
       console.error(err);
       addToast("Failed to start pipeline", 'error');
