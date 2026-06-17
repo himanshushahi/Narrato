@@ -420,17 +420,21 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
             min_scenes, max_scenes = 6, 8
             target_duration = 90
     else:
-        if duration_mode == "extra_long":
-            min_scenes, max_scenes = 55, 65
+        if duration_mode == "extra_long": # ~15 min
+            min_scenes, max_scenes = 60, 75
+            target_duration = 900
+        elif duration_mode == "long": # ~10 min
+            min_scenes, max_scenes = 40, 55
             target_duration = 600
-        elif duration_mode == "long":
-            min_scenes, max_scenes = 35, 45
+        else: # medium (~5 min)
+            min_scenes, max_scenes = 20, 30
             target_duration = 300
-        else: # medium
-            min_scenes, max_scenes = 18, 24
-            target_duration = 180
 
-    sentence_rule = f"LENGTH GUIDELINE: The target video duration is about {target_duration} seconds. Let the content dictate the length naturally without strictly counting words. Do not artificially limit the word count."
+    # Calculate per-scene duration budget: reserve ~15s for intro + conclusion
+    per_scene_duration = max(5, (target_duration - 15) // max_scenes)
+    per_scene_word_target = max(10, int(per_scene_duration * 2.5))  # ~2.5 words/sec speaking rate
+
+    sentence_rule = f"LENGTH CONSTRAINT: The total target video duration is {target_duration} seconds. Every second of narration directly adds to video length. Write concisely — prefer shorter sentences, tighter prose, and only essential details."
         
     lang_instruction = f"""LANGUAGE RULES:
 - The spoken text (hook, narration, summary, cta) MUST be written in the native script of the requested language (code: '{language}'). 
@@ -471,7 +475,9 @@ Write the introduction (hook) and the conclusion (summary and call to action) fo
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 CRITICAL LANGUAGE REQUIREMENT: The Introduction (hook) and Conclusion (summary, cta) MUST be entirely in the requested language (code: '{language}'). Do NOT write them in English if '{language}' is not English.
 {lang_instruction}
-{narration_emphasis}"""
+{narration_emphasis}
+
+LENGTH CONSTRAINT: The hook should be about 5-8 seconds of spoken audio. The summary and cta should each be about 5-8 seconds. Keep them tight and engaging."""
 
     outline_json_str = json.dumps(outline_data, ensure_ascii=False)
     base_user_prompt = f"""Topic: "{topic}"
@@ -502,7 +508,9 @@ Write the introduction and conclusion."""
 You are writing ONE specific scene (Scene {scene_num}: {chapter_title}) for a documentary.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 {lang_instruction}
-{narration_emphasis}"""
+{narration_emphasis}
+
+SCENE LENGTH CONSTRAINT: This scene's narration must be approximately {per_scene_duration} seconds of spoken audio (roughly {per_scene_word_target} words). Be concise and cover only what's essential for this segment."""
 
         scene_user_prompt = f"""Topic: "{topic}"
 This Scene: Scene {scene_num}: {chapter_title}
