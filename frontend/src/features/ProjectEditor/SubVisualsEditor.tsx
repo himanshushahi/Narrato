@@ -12,10 +12,10 @@ import { TransformEditor } from './TransformEditor';
 import { LowerThirdEditor } from './LowerThirdEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
 import { BiTrashAlt } from 'react-icons/bi';
-import { BsPlus, BsStars, BsSendFill } from 'react-icons/bs';
+import { BsPlus, BsStars, BsSendFill, BsEye } from 'react-icons/bs';
 import { useState, Fragment } from 'react';
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0 }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, previewingSubVisual, onPreviewSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, previewingSubVisual?: string | null, onPreviewSubVisual?: (idx: number) => void }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
@@ -109,6 +109,11 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
               className={`p-4 rounded-xl border space-y-4 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}>
               <div className="absolute top-2 right-2 flex gap-1">
+                {onPreviewSubVisual && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(getValidVisualType(sv.visual_type)) && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); onPreviewSubVisual(idx); }} disabled={previewingSubVisual !== null} className="text-blue-500/80 hover:text-blue-400 text-xs px-2 py-1 bg-blue-500/10 rounded-md cursor-pointer transition-colors disabled:opacity-50" title="Download & Preview">
+                    {previewingSubVisual !== null ? <div className="w-3 h-3 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" /> : <BsEye size={14} />}
+                  </button>
+                )}
                 {onRewriteSubVisual && (
                   <button type="button" onClick={(e) => { e.stopPropagation(); if (aiPromptIdx === idx) { setAiPromptIdx(null); setAiPromptText(''); } else { setAiPromptIdx(idx); setAiPromptText(''); } }} className="text-amber-500/80 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded-md cursor-pointer transition-colors" title="AI Magic Rewrite"><BsStars size={14} /></button>
                 )}

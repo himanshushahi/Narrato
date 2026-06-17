@@ -399,7 +399,7 @@ def download_asset(url, dest_path, cancel_event=None):
         logger.error(f"Failed to download stock asset from {url}: {e}")
     return False
 
-def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, cancel_event, force_download=False):
+def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, cancel_event, force_download=False, dest_path=None):
     """Downloads a single sub-visual asset. Returns updated sub_visual dict.
 
     When force_download is True, the existing-file skip check is bypassed,
@@ -423,7 +423,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
     sub_visual["visual_path"] = ""  # default
 
     if visual_type == "youtube":
-        dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.mp4"
+        dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.mp4"
         logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] YouTube: '{visual_cue}'")
 
         start_offset = int(visual_meta.get("start_offset", 15))
@@ -446,7 +446,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
                     fallback_type = "image"
 
             if asset_url:
-                dest_file_fb = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
+                dest_file_fb = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
                 if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
                     sub_visual["visual_path"] = str(dest_file_fb)
                     sub_visual["visual_type"] = fallback_type
@@ -476,7 +476,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
             ext = ".jpg"
 
         if asset_url:
-            dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
+            dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
             if download_asset(asset_url, dest_file, cancel_event=cancel_event):
                 sub_visual["visual_path"] = str(dest_file)
                 logger.info(f"Saved asset_{seg_idx:03d}_{sub_idx:02d}{ext}")
@@ -644,37 +644,54 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
     assets_dir = project_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
+    # Save the old visual_path BEFORE downloading so we can fall back if the
+    # re-download fails.  This prevents the "self-extinguishing" bug where a
+    # transient download failure erases the old asset permanently.
+    old_visual_path = sub_visual.get("visual_path", "")
+
     # 1. Fetch the asset using the shared helper
     # force_download=True: the caller already determined the sub-visual changed,
     # so bypass the "already exists" skip check in _fetch_single_sub_visual.
     api_key = get_setting("pexels_api_key")
     _fetch_single_sub_visual(sub_visual, assets_dir, manifest_scene_index, sub_visual_index, api_key, cancel_event=None, force_download=True)
 
-    # 2. Clean up old asset files with extensions that differ from the new download.
-    #    This prevents orphaned files when visual_type changes (e.g., .mp4 -> .jpg).
-    #    We do this AFTER the download so the old file remains as fallback if
-    #    the download fails.
     downloaded_path = sub_visual.get("visual_path", "")
-    downloaded_ext = Path(downloaded_path).suffix.lower() if downloaded_path else None
-    for existing_ext in (".mp4", ".jpg", ".png", ".jpeg"):
-        if downloaded_ext and existing_ext == downloaded_ext:
-            continue  # Same extension -- _fetch_single_sub_visual already overwrote it
-        old_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{existing_ext}"
-        if old_file.exists():
-            try:
-                old_file.unlink()
-                logger.info(f"Cleaned up stale asset with different extension: {old_file}")
-            except Exception as e:
-                logger.warning(f"Could not delete stale asset file {old_file}: {e}")
 
-    # 3. Write back the updated manifest
+    # 2. If the download gave us nothing useful, restore the old path so the
+    #    sub-visual still has a fallback asset rather than becoming empty.
+    if not downloaded_path:
+        if old_visual_path and Path(old_visual_path).exists():
+            sub_visual["visual_path"] = old_visual_path
+            logger.info(f"Re-download failed for [{manifest_scene_index}:{sub_visual_index}], "
+                        f"restored old visual_path: {old_visual_path}")
+        else:
+            logger.warning(f"Re-download failed for [{manifest_scene_index}:{sub_visual_index}], "
+                           f"and no viable old file exists either.")
+
+    # 3. Clean up old asset files with extensions that differ from the new download.
+    #    This prevents orphaned files when visual_type changes (e.g., .mp4 -> .jpg).
+    #    Only run this when the download (or fallback) actually produced a valid file.
+    else:
+        downloaded_ext = Path(downloaded_path).suffix.lower()
+        for existing_ext in (".mp4", ".jpg", ".png", ".jpeg"):
+            if existing_ext == downloaded_ext:
+                continue  # Same extension -- _fetch_single_sub_visual already overwrote it
+            old_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{existing_ext}"
+            if old_file.exists():
+                try:
+                    old_file.unlink()
+                    logger.info(f"Cleaned up stale asset with different extension: {old_file}")
+                except Exception as e:
+                    logger.warning(f"Could not delete stale asset file {old_file}: {e}")
+
+    # 4. Write back the updated manifest
     sub_visuals[sub_visual_index] = sub_visual
     segment["sub_visuals"] = sub_visuals
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
-    # 4. Save visual_path back to script.json for persistence
+    # 5. Save visual_path back to script.json for persistence
     script_path = project_dir / "script.json"
     if script_path.exists():
         try:
@@ -705,6 +722,96 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
             logger.error(f"Failed to persist single visual_path to script.json: {e}")
 
     return {"success": True, "segment": segment, "sub_visual": sub_visual}
+
+
+def preview_asset_download(project_id, visual_type, visual_cue):
+    """
+    Downloads a single asset for preview without modifying manifest or script.
+    Saves to assets/previews/ directory with a unique temp name.
+    Called from the frontend visual editor so users can preview a keyword/type
+    before committing (Save) or discarding (Cancel).
+
+    Returns:
+        {"success": True, "visual_path": "..."} or {"success": False, "error": "..."}
+    """
+    project = get_project(project_id)
+    if not project:
+        return {"success": False, "error": "Project not found"}
+
+    # Programmatic types don't need downloading
+    if visual_type in ("chart", "map", "document", "network", "list", "custom_html"):
+        return {"success": False, "error": "No asset to download for this visual type"}
+
+    api_key = get_setting("pexels_api_key")
+    if not api_key and visual_type != "youtube":
+        return {"success": False, "error": "Pexels API key not configured"}
+
+    from backend.core.config import get_storage_dir
+    import uuid
+    project_dir = get_storage_dir() / project_id
+    assets_dir = project_dir / "assets"
+    preview_dir = assets_dir / "previews"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine extension based on visual_type
+    if visual_type == "youtube" or visual_type == "scene":
+        ext = ".mp4"
+    else:
+        ext = ".jpg"
+
+    preview_id = uuid.uuid4().hex[:8]
+    dest_path = preview_dir / f"preview_{preview_id}{ext}"
+
+    sub_visual = {"visual_type": visual_type, "visual_cue": visual_cue, "visual_meta": {}}
+
+    _fetch_single_sub_visual(
+        sub_visual, assets_dir, 0, 0, api_key,
+        cancel_event=None, force_download=True, dest_path=str(dest_path)
+    )
+
+    if sub_visual.get("visual_path"):
+        logger.info(f"Preview asset downloaded to {sub_visual['visual_path']}")
+        return {"success": True, "visual_path": sub_visual["visual_path"]}
+    else:
+        return {"success": False, "error": "Failed to download asset"}
+
+
+def cleanup_preview_assets(project_id, preview_paths):
+    """
+    Deletes preview asset files that are no longer needed.
+    Called from the frontend on Cancel (and optionally after Save).
+
+    Args:
+        project_id: Project identifier (for optional empty-directory cleanup)
+        preview_paths: List of absolute file paths to delete
+
+    Returns:
+        {"success": True, "deleted": [...]}
+    """
+    deleted = []
+    for path_str in preview_paths:
+        try:
+            path = Path(path_str)
+            if path.exists():
+                path.unlink()
+                deleted.append(path_str)
+                logger.info(f"Deleted preview asset: {path_str}")
+        except Exception as e:
+            logger.warning(f"Failed to delete preview asset {path_str}: {e}")
+
+    # Remove previews directory if now empty
+    try:
+        from backend.core.config import get_storage_dir
+        preview_dir = get_storage_dir() / project_id / "assets" / "previews"
+        if preview_dir.exists():
+            remaining = list(preview_dir.iterdir())
+            if not remaining:
+                preview_dir.rmdir()
+                logger.info(f"Removed empty previews directory: {preview_dir}")
+    except Exception:
+        pass
+
+    return {"success": True, "deleted": deleted}
 
 
 def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):

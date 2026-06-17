@@ -1018,6 +1018,28 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
         return {"success": False, "error": str(e)}
 
 @eel.expose
+def preview_asset_download(project_id, visual_type, visual_cue):
+    """Downloads a preview asset for the visual editor (no manifest/script writes)."""
+    logger.info(f"Bridge API: preview_asset_download for project {project_id} (type: {visual_type}, cue: {visual_cue})")
+    from backend.pipeline.assets import preview_asset_download as preview_fn
+    try:
+        return preview_fn(project_id, visual_type, visual_cue)
+    except Exception as e:
+        logger.error(f"Failed to preview asset: {e}")
+        return {"success": False, "error": str(e)}
+
+@eel.expose
+def cleanup_preview_assets(project_id, preview_paths):
+    """Deletes preview asset temp files."""
+    logger.info(f"Bridge API: cleanup_preview_assets for project {project_id} ({len(preview_paths)} files)")
+    from backend.pipeline.assets import cleanup_preview_assets as cleanup_fn
+    try:
+        return cleanup_fn(project_id, preview_paths)
+    except Exception as e:
+        logger.error(f"Failed to cleanup preview assets: {e}")
+        return {"success": False, "error": str(e)}
+
+@eel.expose
 def generate_chart_data_api(prompt):
     """Exposes the AI data generator to the frontend."""
     from backend.pipeline.ai import generate_chart_data

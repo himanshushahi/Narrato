@@ -33,13 +33,16 @@ interface ScriptTabProps {
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
+  previewingSubVisual?: string | null;
 }
 
 export const ScriptTab: React.FC<ScriptTabProps> = ({
   scriptData, sceneTimings, activeSceneIdx, activeSubIdx,
   editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection,
   onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
-  onSetSceneToDelete, onSetScriptData
+  onSetSceneToDelete, onSetScriptData,
+  onPreviewSubVisual, previewingSubVisual
 }) => {
   if (!scriptData) {
     return (
@@ -141,6 +144,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             activeIdx={introActiveSubIdx}
                             onSeek={onSeek}
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
+                            onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(-1, 'introduction', subIdx) : undefined}
+                            previewingSubVisual={previewingSubVisual}
                           />
                         </div>
                       </EditSection>
@@ -257,6 +262,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                                   activeIdx={activeSubIdxForScene}
                                   onSeek={onSeek}
                                   onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
+                                  onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(idx, 'scenes', subIdx) : undefined}
+                                  previewingSubVisual={previewingSubVisual}
                                 />
                               </div>
                             </EditSection>
@@ -419,6 +426,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             activeIdx={concActiveSubIdx}
                             onSeek={onSeek}
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}
+                            onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(-1, 'conclusion', subIdx) : undefined}
+                            previewingSubVisual={previewingSubVisual}
                           />
                         </div>
                       </EditSection>

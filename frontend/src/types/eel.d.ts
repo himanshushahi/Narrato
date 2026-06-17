@@ -26,6 +26,8 @@ interface Eel {
   add_scene_with_ai: EelCall<[any, string, string], any>;
   generate_voice_preview: EelCall<[string, string, string, string, string, string], any>;
   fetch_single_scene_asset: EelCall<[string, number, number, string, string], any>;
+  preview_asset_download: EelCall<[string, string, string], { success: boolean; visual_path?: string; error?: string }>;
+  cleanup_preview_assets: EelCall<[string, string[]], { success: boolean; deleted?: string[] }>;
   get_ytdlp_version: EelCall<[], { installed: boolean; version: string | null; path: string | null }>;
   update_ytdlp: EelCall<[], { status: string }>;
   save_project_with_cleanup: EelCall<[string, any, any], any>;

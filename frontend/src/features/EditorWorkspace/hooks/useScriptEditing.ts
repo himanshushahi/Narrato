@@ -17,6 +17,9 @@ export interface UseScriptEditingReturn {
   isSavingSubtitles: boolean;
   scriptChangedAlert: boolean;
   setScriptChangedAlert: (alert: boolean) => void;
+  previewAssets: Record<string, { visual_path: string; visual_url: string }>;
+  previewingSubVisual: string | null;
+  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number) => Promise<void>;
   handleStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   handleCancelEdit: () => void;
   handleSaveCard: (cardKey?: string, index?: number) => Promise<void>;
@@ -52,6 +55,8 @@ export function useScriptEditing(
   const [isSavingSubtitles, setIsSavingSubtitles] = useState(false);
   const [rewritingSection, setRewritingSection] = useState<string | null>(null);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
+  const [previewAssets, setPreviewAssets] = useState<Record<string, { visual_path: string; visual_url: string }>>({});
+  const [previewingSubVisual, setPreviewingSubVisual] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync localProjectSettings from selectedProject.project_settings
@@ -92,13 +97,24 @@ export function useScriptEditing(
     setRewritePrompt('');
   }, [scriptData, manifestData]);
 
-  const handleCancelEdit = useCallback(() => {
+  const handleCancelEdit = useCallback(async () => {
     if (originalScriptData) setScriptData(originalScriptData);
     setEditingCard(null);
     setOriginalScriptData(null);
     setOriginalManifestData([]);
     setRewritePrompt('');
-  }, [originalScriptData, setScriptData]);
+
+    // Cleanup preview assets on cancel — best-effort
+    const previewPaths = Object.values(previewAssets)
+      .filter((a): a is { visual_path: string; visual_url: string } => !!a.visual_path)
+      .map(a => a.visual_path);
+    if (previewPaths.length > 0 && projectId) {
+      try {
+        await callEel('cleanup_preview_assets', projectId, previewPaths);
+      } catch (e) { /* best-effort */ }
+    }
+    setPreviewAssets({});
+  }, [originalScriptData, setScriptData, previewAssets, projectId]);
 
   const handleSettingsUpdate = useCallback((newSettings: any) => {
     setLocalProjectSettings(newSettings);
@@ -159,7 +175,10 @@ export function useScriptEditing(
             const match = origSubVisuals[matchIdx];
             return { ...lsv, visual_path: match.visual_path, visual_url: match.visual_url };
           }
-          return lsv; // New or changed sub-visual — no existing asset to carry over
+          // New or changed sub-visual — strip any stale visual_path/visual_url
+          // that scriptData may have carried over from a previous pipeline run,
+          // so the manifest is clean and fetch_single_scene_asset is always triggered.
+          return { ...lsv, visual_path: undefined, visual_url: undefined };
         });
 
         const sceneText = type === 'introduction' ? scriptData?.introduction?.hook
@@ -174,6 +193,7 @@ export function useScriptEditing(
 
       // Fetch assets only for genuinely new/changed sub-visuals
       const origManifest = originalManifestData && originalManifestData.length > 0 ? originalManifestData : manifestData;
+      let assetDownloadFailures = 0;
       for (let mIdx = 0; mIdx < liveManifest.length; mIdx++) {
         const liveSubs = liveManifest[mIdx].sub_visuals || [];
         const origSubs = origManifest[mIdx]?.sub_visuals || [];
@@ -188,8 +208,15 @@ export function useScriptEditing(
           );
           if (origMatch === -1 && lsv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(lsv.visual_type)) {
             try {
-              await callEel('fetch_single_scene_asset', projectId, mIdx, sIdx, lsv.visual_type, lsv.visual_cue || '');
-            } catch (e) { console.error("Failed to fetch asset", sIdx, e); }
+              const result = await callEel<any>('fetch_single_scene_asset', projectId, mIdx, sIdx, lsv.visual_type, lsv.visual_cue || '');
+              if (!result?.success) {
+                assetDownloadFailures++;
+                console.warn(`Asset download failed for [${mIdx}:${sIdx}]: ${result?.error || 'Unknown error'}`);
+              }
+            } catch (e) {
+              assetDownloadFailures++;
+              console.error("Failed to fetch asset", sIdx, e);
+            }
           } else if (origMatch !== -1) {
             matchedOrigIndices.add(origMatch);
           }
@@ -201,6 +228,15 @@ export function useScriptEditing(
       setSavingCardKey(null);
       setRewritePrompt('');
 
+      // Cleanup preview assets after save — best-effort
+      const savedPreviewPaths = Object.values(previewAssets)
+        .filter((a): a is { visual_path: string; visual_url: string } => !!a.visual_path)
+        .map(a => a.visual_path);
+      if (savedPreviewPaths.length > 0 && projectId) {
+        callEel('cleanup_preview_assets', projectId, savedPreviewPaths).catch(() => {});
+      }
+      setPreviewAssets({});
+
       const isNewSceneSave = index !== undefined && !originalScriptData;
       const contentChanged = narrationChanged || isNewSceneSave;
       if (contentChanged) {
@@ -209,11 +245,15 @@ export function useScriptEditing(
       } else {
         addToast("Project saved successfully!", 'success');
       }
+
+      if (assetDownloadFailures > 0) {
+        addToast(`${assetDownloadFailures} sub-visual(s) failed to download. Old visuals preserved as fallback.`, 'warning', 6000);
+      }
     } else {
       setSavingCardKey(null);
       addToast("Failed to save script changes", 'error');
     }
-  }, [projectId, scriptData, selectedProject, originalScriptData, originalManifestData, manifestData, loadFiles, addToast]);
+  }, [projectId, scriptData, selectedProject, originalScriptData, originalManifestData, manifestData, loadFiles, addToast, previewAssets]);
 
   const handleRewriteSection = useCallback(async (type: string, index: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
@@ -325,6 +365,60 @@ export function useScriptEditing(
     }
   }, [projectId, scriptData, selectedProject, setScriptData, addToast]);
 
+  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
+    if (!projectId || !scriptData) return;
+
+    // Read current type+cue from scriptData
+    let visual_type: string, visual_cue: string;
+    if (sectionType === 'introduction') {
+      const sv = scriptData.introduction?.sub_visuals?.[subIdx] || {};
+      visual_type = sv.visual_type || 'scene';
+      visual_cue = sv.visual_cue || '';
+    } else if (sectionType === 'conclusion') {
+      const sv = scriptData.conclusion?.sub_visuals?.[subIdx] || {};
+      visual_type = sv.visual_type || 'scene';
+      visual_cue = sv.visual_cue || '';
+    } else {
+      const sv = scriptData.scenes?.[sceneIdx]?.sub_visuals?.[subIdx] || {};
+      visual_type = sv.visual_type || 'scene';
+      visual_cue = sv.visual_cue || '';
+    }
+
+    if (!visual_cue.trim()) {
+      addToast("Enter a visual cue before previewing", 'warning');
+      return;
+    }
+
+    // Build key: "intro_0", "scene_2_1", "conclusion_0"
+    const sectionKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const assetKey = `${sectionKey}_${subIdx}`;
+
+    setPreviewingSubVisual(assetKey);
+    try {
+      const result = await callEel<{ success: boolean; visual_path?: string; error?: string }>(
+        'preview_asset_download', projectId, visual_type, visual_cue
+      );
+      if (result?.success && result.visual_path) {
+        const vPath: string = result.visual_path;
+        const visualUrl = `/api/media?path=${encodeURIComponent(vPath)}`;
+        setPreviewAssets(prev => ({
+          ...prev,
+          [assetKey]: { visual_path: vPath, visual_url: visualUrl }
+        }));
+        addToast("Preview downloaded!", 'success');
+      } else {
+        addToast("Preview failed: " + (result?.error || "Unknown error"), 'error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast("Preview failed: " + (err?.message || String(err)), 'error');
+    } finally {
+      setPreviewingSubVisual(null);
+    }
+  }, [projectId, scriptData, addToast]);
+
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
 
@@ -426,6 +520,7 @@ export function useScriptEditing(
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
     scriptChangedAlert, setScriptChangedAlert,
+    previewAssets, previewingSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '../../store/useProjectStore';
@@ -56,7 +56,6 @@ export const EditorWorkspace: React.FC = () => {
   const leftPanelWidth = useEditorStore((s) => s.leftPanelWidth);
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
   const timelineHeight = useEditorStore((s) => s.timelineHeight);
-  const setSelectedSceneIndex = useEditorStore((s) => s.setSelectedSceneIndex);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const setCommandPaletteOpen = useEditorStore((s) => s.setCommandPaletteOpen);
@@ -82,6 +81,7 @@ export const EditorWorkspace: React.FC = () => {
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
     scriptChangedAlert: scriptEditingAlert,
     setScriptChangedAlert: setScriptEditingAlert,
+    previewAssets, previewingSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription
@@ -134,6 +134,30 @@ export const EditorWorkspace: React.FC = () => {
     : -1;
   const hasScriptData = !!scriptData;
   const isLoading = !selectedProject || !projectReady;
+
+  // Merge preview asset overrides into liveScenes so the player shows
+  // in-progress visuals before they are saved.
+  const effectiveLiveScenes = useMemo(() => {
+    if (!liveScenes || Object.keys(previewAssets).length === 0) return liveScenes;
+    let sceneCounter = 0;
+    return liveScenes.map((scene: any) => {
+      const type = scene.section_type;
+      const sub_visuals = (scene.sub_visuals || []).map((sv: any, sIdx: number) => {
+        let key: string;
+        if (type === 'introduction') {
+          key = `intro_${sIdx}`;
+        } else if (type === 'conclusion') {
+          key = `conclusion_${sIdx}`;
+        } else {
+          key = `scene_${sceneCounter}_${sIdx}`;
+        }
+        const preview = previewAssets[key];
+        return preview ? { ...sv, visual_url: preview.visual_url } : sv;
+      });
+      if (type === 'scene') sceneCounter++;
+      return { ...scene, sub_visuals };
+    });
+  }, [liveScenes, previewAssets]);
 
   // === Handlers ===
   const handleSeek = useCallback((frame: number) => {
@@ -268,7 +292,7 @@ export const EditorWorkspace: React.FC = () => {
       <div style={{ gridArea: 'main' }} className="relative">
         <VideoPreview
           playerRef={playerRef}
-          liveScenes={liveScenes || []}
+          liveScenes={effectiveLiveScenes || liveScenes || []}
           transcriptionData={transcriptionData}
           currentFrame={currentFrame}
           audioUrl={audioUrl}
@@ -313,6 +337,8 @@ export const EditorWorkspace: React.FC = () => {
           onInsertScene={insertAndSaveNewScene}
           onSetSceneToDelete={setSceneToDelete}
           onSetScriptData={setScriptData}
+          onPreviewSubVisual={handlePreviewSubVisual}
+          previewingSubVisual={previewingSubVisual}
 
           tasks={tasks}
           queue={queue}
