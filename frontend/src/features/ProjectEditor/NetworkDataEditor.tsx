@@ -45,7 +45,7 @@ export const NetworkDataEditor = ({ visualMeta, onChange }: { visualMeta: any, o
     onChange({ ...visualMeta, edges: newEdges });
   };
 
-  const nodeOptions = nodes.map((n: any) => ({ value: n.id, label: `${n.id} - ${n.label}` }));
+  const nodeOptions = nodes.map((n: any) => ({ value: n.id, label: n.label || n.id }));
 
   return (
     <div className="col-span-2 space-y-5 mt-3 pt-3 border-t border-white/5">
@@ -103,23 +103,23 @@ export const NetworkDataEditor = ({ visualMeta, onChange }: { visualMeta: any, o
         </div>
         <div className="space-y-2 pr-2">
           {edges.map((edge: any, idx: number) => (
-            <div key={idx} className="flex items-center gap-3 bg-black/10 p-2.5 rounded-lg border border-white/5 relative group items-center">
-            <div className="flex-1">
+            <div key={idx} className="flex items-center gap-2 bg-black/10 p-2 rounded-lg border border-white/5 relative group">
+            <div className="flex-1 min-w-0">
               <CustomSelect 
                 options={nodeOptions} 
                 value={edge.source} 
                 onChange={(val) => handleUpdateEdge(idx, 'source', val)} 
               />
             </div>
-            <div className="text-stone-500 text-sm font-bold">→</div>
-            <div className="flex-1">
+            <div className="text-stone-500 text-sm font-bold shrink-0">→</div>
+            <div className="flex-1 min-w-0">
               <CustomSelect 
                 options={nodeOptions} 
                 value={edge.target} 
                 onChange={(val) => handleUpdateEdge(idx, 'target', val)} 
               />
             </div>
-            <button type="button" onClick={() => handleRemoveEdge(idx)} className="text-red-400/50 hover:text-red-400 cursor-pointer p-1.5 transition-colors rounded hover:bg-red-500/10 mb-0.5"><BiTrashAlt size={16} /></button>
+            <button type="button" onClick={() => handleRemoveEdge(idx)} className="text-red-400/50 hover:text-red-400 cursor-pointer p-1.5 transition-colors rounded hover:bg-red-500/10 shrink-0"><BiTrashAlt size={16} /></button>
           </div>
         ))}
         </div>
