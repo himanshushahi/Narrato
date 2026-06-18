@@ -177,7 +177,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                 <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={getValidVisualType(sv.visual_type)} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
               </div>
               <div className="col-span-1">
-                <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />
+                <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || sv.transition || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />
               </div>
 
               {/* Always-visible Camera Transform controls */}

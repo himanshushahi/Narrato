@@ -151,7 +151,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             ...osv,
             visual_type: lsv.visual_type,
             visual_cue: lsv.visual_cue,
-            transition_type: lsv.transition_type,
+            transition_type: lsv.transition_type || lsv.transition,
             visual_meta: lsv.visual_meta,
             transform: lsv.transform,
             duration_ratio: lsv.duration_ratio,
