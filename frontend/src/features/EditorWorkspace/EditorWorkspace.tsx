@@ -285,7 +285,7 @@ export const EditorWorkspace: React.FC = () => {
           activeTaskStep={activeTaskStep}
           reloadTrigger={reloadKey}
         />
-        <ResizeHandle direction="vertical" target="leftPanel" side="right" />
+        <ResizeHandle direction="vertical" target="leftPanel" side="right" min={300} />
       </div>
 
       {/* Center: Video Preview */}
@@ -310,7 +310,7 @@ export const EditorWorkspace: React.FC = () => {
 
       {/* Inspector Panel */}
       <div style={{ gridArea: 'inspector' }} className="relative overflow-y-auto bg-zinc-950/80">
-        <ResizeHandle direction="vertical" target="rightPanel" side="left" />
+        <ResizeHandle direction="vertical" target="rightPanel" side="left" min={350} />
         <InspectorPanel
           scriptData={scriptData}
           manifestData={manifestData}
