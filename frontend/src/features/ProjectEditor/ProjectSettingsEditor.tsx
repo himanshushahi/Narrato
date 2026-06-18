@@ -9,7 +9,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 
-const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor'];
+const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor'];
 const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'chart_primary_color', 'chart_text_color'];
 
 const extractKeys = (obj: any, keys: string[]) => {
@@ -297,6 +297,14 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
           value={settings.fontSize !== undefined ? settings.fontSize : 54}
           valueDisplay={`${settings.fontSize !== undefined ? settings.fontSize : 54}px`}
           onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, fontSize: parseInt(e.target.value) || 54 }) }}
+        />
+        <CustomRange
+          label="Word Spacing"
+          min="0"
+          max="50"
+          value={settings.wordSpacing !== undefined ? settings.wordSpacing : 18}
+          valueDisplay={`${settings.wordSpacing !== undefined ? settings.wordSpacing : 18}px`}
+          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, wordSpacing: parseInt(e.target.value) }) }}
         />
         <CustomColorInput
           label="Active Highlight Color"

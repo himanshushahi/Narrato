@@ -229,6 +229,7 @@ export const KineticSubtitles: React.FC<Props> = ({
           textShadow: '0px 4px 10px rgba(0,0,0,0.9), 0px 0px 4px rgba(0,0,0,1)',
           lineHeight: 1.3,
           maxWidth: 1200,
+          wordSpacing: subtitleSettings.wordSpacing !== undefined ? subtitleSettings.wordSpacing : 0,
           textTransform: subtitleSettings.textTransform || 'none'
         }}>
           {activeSentence.text}
@@ -255,7 +256,7 @@ export const KineticSubtitles: React.FC<Props> = ({
         flexWrap: 'wrap',
         justifyContent: 'center',
         alignItems: 'center',
-        gap: '12px 18px',
+        gap: `12px ${subtitleSettings.wordSpacing !== undefined ? subtitleSettings.wordSpacing : 18}px`,
         maxWidth: 1200
       }}>
         {words.map((wordObj, i) => {
