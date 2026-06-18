@@ -132,6 +132,9 @@ def init_db():
             "use_pexels": True,
             "use_youtube": True, # Enabled by default, user can toggle
             "youtube_download_duration": "15",
+            "web_search_enabled": False,     # Master toggle for web search
+            "web_search_provider": "langsearch",  # Search provider
+            "web_search_api_key": "",        # LangSearch API key
             "render_resolution": "1080p",
             "render_concurrency": "logical",
             "render_fps": "30",

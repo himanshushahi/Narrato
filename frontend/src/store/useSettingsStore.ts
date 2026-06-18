@@ -47,6 +47,9 @@ export interface Settings {
   default_subtitle_preset_id?: string;
   branding_presets?: SubtitlePreset[];
   default_branding_preset_id?: string;
+  web_search_enabled: boolean;
+  web_search_provider: string;
+  web_search_api_key: string;
 }
 
 interface KokoroDownload {
@@ -130,6 +133,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     use_youtube: true,
     youtube_download_duration: "15",
     sfx_volume: "0.20",
+    web_search_enabled: false,
+    web_search_provider: "langsearch",
+    web_search_api_key: "",
     render_resolution: "1080p",
     render_concurrency: "logical",
     render_fps: "30",

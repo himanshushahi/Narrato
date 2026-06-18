@@ -42,15 +42,21 @@ export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
             width: 100vw; 
             height: 100vh; 
             overflow: hidden; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
+          }
+          #custom-html-wrapper {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
           }
           ${css}
         </style>
       </head>
       <body>
-        <div class="w-full h-full flex flex-col items-center justify-center">
+        <div id="custom-html-wrapper">
           ${html}
         </div>
       </body>

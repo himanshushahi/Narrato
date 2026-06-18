@@ -16,8 +16,8 @@ from backend.pipeline.tts import (
     KOKORO_VOICES_URL, KOKORO_VOICES_PATH
 )
 from backend.pipeline.ai import (
-    SCRIPT_INTRO_JSON_SCHEMA, SCRIPT_CONCLUSION_JSON_SCHEMA, SCRIPT_SCENE_JSON_SCHEMA, 
-    SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, clean_json_response
+    SCRIPT_INTRO_JSON_SCHEMA, SCRIPT_CONCLUSION_JSON_SCHEMA, SCRIPT_SCENE_JSON_SCHEMA,
+    SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, clean_json_response, _get_web_context, _generate_search_query
 )
 
 _kokoro_download_active = False
@@ -538,19 +538,28 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         "You are an expert AI scriptwriter. You will receive a script segment, "
         "and a prompt request explaining how to modify or rewrite this segment. "
         "Your task is to rewrite ONLY the narration text (hook/narration/summary) and title. "
-        "Format your output strictly as a JSON object containing the modified segment.\n\n"
+        "Return ONLY valid JSON matching the provided structure. No markdown backticks.\n\n"
+        "CRITICAL — NARRATION RULES:\n"
+        "- The `narration`/`hook`/`summary`/`cta` field is the spoken voiceover. It MUST be a non-empty string.\n"
+        "- Do NOT skip narration. Do NOT leave it blank or null.\n"
+        "- Never repeat the documentary title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
+        "- Keep the rewrite concise and match the original segment's length.\n\n"
         "HERE IS THE FULL SCRIPT CONTEXT (For maintaining narrative flow and consistency):\n"
         f"Documentary Title: \"{full_script.get('title', 'Untitled')}\"\n"
         f"Introduction Hook: \"{intro_hook}\"\n"
         f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
         f"Conclusion: \"{conclusion_summary}\"\n\n"
     )
-    
+
     if language != "en":
-        system_prompt += f"The rewritten narration text MUST be written in the requested language (code: '{language}').\n\n"
+        system_prompt += (
+            f"LANGUAGE: The rewritten narration MUST be written in language code '{language}'.\n"
+            f"For example, if the language is Hindi ('hi'), you MUST use the Devanagari script (हिंदी). "
+            f"Do NOT use English alphabet transliterations.\n\n"
+        )
     else:
-        system_prompt += "The rewritten narration text MUST be written in English.\n\n"
-        
+        system_prompt += "LANGUAGE: The rewritten narration MUST be written in English.\n\n"
+
     if section_type == "introduction":
         target_content = full_script.get("introduction", {})
         prompt_struct = "Expected: { \"hook\": \"text\" }"
@@ -564,6 +573,12 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
         target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
         prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }"
         schema = SCRIPT_SCENE_JSON_SCHEMA
+
+    # Add duration guidance for scene rewrites
+    if section_type not in ("introduction", "conclusion"):
+        lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
+        avg_len = max(20, sum(lengths) // len(lengths)) if lengths else 80
+        system_prompt += f"LENGTH: Aim for approximately {avg_len} words in the rewritten narration — match the pacing of surrounding scenes.\n\n"
 
     # Detect if content is empty — treat as "create new" instead of "rewrite existing"
     content_is_empty = False
@@ -588,7 +603,14 @@ def regenerate_script_section(scene_idx, section_type, full_script, rewrite_prom
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Generate the rewritten JSON segment now. Structure matches: {prompt_struct}."
         )
-    
+
+    # Optionally augment with web search context
+    doc_title = full_script.get("title", "Untitled")
+    _search_q = _generate_search_query(f"{doc_title} - {rewrite_prompt[:100]}", "script rewrite")
+    _web_ctx = _get_web_context(_search_q)
+    if _web_ctx:
+        user_prompt += f"\n\n---\nIncorporate relevant facts from this web search into your rewrite:\n{_web_ctx}"
+
     return _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_key, base_url, model)
 
 @eel.expose
@@ -608,22 +630,33 @@ def regenerate_visuals_section(scene_idx, section_type, full_script, rewrite_pro
         "You are an expert AI Visual Director. You will receive a script segment (narration) "
         "and a prompt explaining how to modify or rewrite its visuals. "
         "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
-        "Format your output strictly as a JSON object containing the 'sub_visuals' array.\n\n"
+        "Return ONLY valid JSON matching the provided schema. No markdown backticks.\n\n"
         "IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n"
-        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
+        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n\n"
+        "QUANTITY: Let the narration length and pacing dictate how many sub-visuals to generate. Break the narration into logical visual beats — one sub-visual per beat. Each sub-visual should have a meaningful duration (2-15 seconds). The sum of all durations MUST equal the provided Total Duration. For 'list' type: create 1 sub-visual PER LIST ITEM.\n\n"
         "TYPE SELECTION GUIDE — match the visual to the narration content:\n"
-        "- list: USE THIS when the narration enumerates ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings. Each item = its own sub-visual.\n"
-        "- chart: USE THIS for statistics, percentages, comparisons, or data trends.\n"
-        "- map: USE THIS for geography, routes, locations, or movement between places.\n"
-        "- document: USE THIS for historical claims, news events, or archival evidence.\n"
-        "- network: USE THIS for connections between people, organizations, or relationships.\n"
-        "- portrait: If the script wants the real things for person and places, use the portrait visual type.\n"
-        "- parallax: USE THIS for dramatic layered depth reveals.\n"
-        "- custom_html: USE THIS for highly customized typography layouts, raw HTML/CSS art, unique dynamic flexboxes, or custom animations.\n"
+        "- list: For ranked items, countdowns, top-N lists, or step-by-step rankings.\n"
+        "- chart: For statistics, percentages, comparisons, or data trends.\n"
+        "- map: For geography, routes, locations, or movement between places.\n"
+        "- document: For historical claims, news events, or archival evidence.\n"
+        "- network: For connections between people, organizations, or relationships.\n"
+        "- portrait: For introducing real specific people or places.\n"
+        "- parallax: For dramatic layered depth reveals.\n"
+        "- custom_html: For highly customized typography layouts, raw HTML/CSS art, or custom animations.\n"
         "- scene/image: Default visual support for general narration.\n"
-        "- youtube: If the script wants real things other than person and places, use youtube video. We have only these two options (portrait and youtube) to get real visuals.\n"
+        "- youtube: For real-world footage other than portraits.\n\n"
+        "VISUAL META SCHEMAS — fill these creatively to match the narration:\n"
+        "- scene/image/parallax: visual_meta {} (portrait may add {\"person_name\": str})\n"
+        "- PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name (e.g. \"Harshad Mehta\"). Used as a Wikipedia search query.\n"
+        "- youtube: visual_meta {\"start_offset\": 15, \"duration\": 15, \"skip_intro\": true}\n"
+        "- chart: visual_meta {\"chart_type\": \"bar\"|\"line\"|\"pie\", \"title\": str, \"data\": [{\"label\": str, \"value\": number}]}\n"
+        "- map: visual_meta {\"map_style\": \"vintage\", \"locations\": [{\"name\": str, \"coord\": [lat, lon]}]} (2 locations)\n"
+        "- document: visual_meta {\"title\": str, \"headline\": str, \"subtitle\": str, \"doc_text\": str, \"highlight_text\": str, \"source\": str, \"date\": str, \"section\": str, \"pull_quote\": str, \"show_image\": bool, \"image_url\": str, \"image_caption\": str}\n"
+        "- network: visual_meta {\"theme\": \"conspiracy_board\"|\"cyberpunk\"|\"corporate\", \"nodes\": [{\"id\": str, \"label\": str, \"type\": \"person\"|\"entity\"}], \"edges\": [{\"source\": str, \"target\": str}]}\n"
+        "- list: visual_meta {\"number\": int, \"title\": str, \"description\": str}\n"
+        "- custom_html: visual_meta {\"html\": str, \"css\": str} (Note: HTML is injected into a 100% width/height relative wrapper. Write raw CSS.)\n"
+        "- CRITICAL ON LOWER THIRDS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', or 'youtube'. NEVER use lower_third for data types like 'custom_html', 'chart', 'list', 'map', 'document', or 'network'. For those, bake any titles directly into their specific visual_meta fields (e.g., HTML/CSS).\n\n"
         "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.\n"
-        "- PORTRAIT CRITICAL: For 'portrait' type, set visual_cue to ONLY the entity's exact name. This exact string is used as a Wikipedia search query to fetch the real image.\n"
     )
     
     if section_type == "introduction":
@@ -671,23 +704,25 @@ def regenerate_sub_visual(scene_idx, section_type, sub_idx, full_script, rewrite
     system_prompt = (
         "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
         "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
-        "Your task is to rewrite the visual details (like chart data, document text, network nodes, map locations, or custom HTML/CSS) "
-        "based strictly on the user's request. Do NOT change the narration.\n"
-        "Format your output strictly as a SINGLE JSON object containing the modified sub_visual.\n\n"
-        "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": float }\n"
-        "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html'.\n"
-        "TYPE SELECTION GUIDE:\n"
-        "- list: USE THIS when enumerating ranked items, countdowns, top-N lists. visual_meta: { \"number\": int, \"title\": str, \"description\": str }\n"
-        "- chart: USE THIS for statistics. visual_meta: { \"chart_type\": \"bar\"|\"line\"|\"pie\", \"title\": str, \"data\": [{ \"label\": \"X\", \"value\": Y }] }\n"
-        "- map: USE THIS for geography. visual_meta: { \"map_style\": \"vintage\", \"locations\": [{ \"name\": \"City\", \"coord\": [lat, lon] }] }\n"
-        "- document: USE THIS for historical claims. visual_meta: { \"headline\": \"Exact news headline\", \"doc_text\": \"Detailed newspaper excerpt matching the narration\", \"source\": \"Name of Publisher\", \"date\": \"Month DD, YYYY\" }\n"
-        "- network: USE THIS for connections between people. visual_meta: { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
-        "- portrait: If the script wants the real things for person and places, use the portrait visual type.\n"
-        "- youtube: If the script wants real things other than person and places, use youtube video. We have only these two options (portrait and youtube) to get real visuals.\n"
-        "- custom_html: USE THIS for custom layouts. visual_meta: { \"html\": \"raw html string\", \"css\": \"raw css string\" }\n"
-        "- Any type: add {\"lower_third\": {\"title\": str, \"subtitle\": str}} for overlay text.\n"
-        "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.\n"
-        "- PORTRAIT CRITICAL: For 'portrait' type, visual_cue must be ONLY the person's full name (e.g. \"Harshad Mehta\", not \"Harshad Mehta speaking in public\"). This is used as a Wikipedia search query.\n"
+        "Your task is to rewrite this single sub-visual based strictly on the user's request. "
+        "You may change any field including 'visual_type' if the user's request warrants it. "
+        "Do NOT change the narration.\n"
+        "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
+        "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": float }\n\n"
+        "TYPE-SPECIFIC META SCHEMAS (fill creatively based on the visual_type):\n"
+        "- list: visual_meta { \"number\": int, \"title\": str, \"description\": str }\n"
+        "- chart: visual_meta { \"chart_type\": \"bar\"|\"line\"|\"pie\", \"title\": str, \"data\": [{ \"label\": str, \"value\": number }] }\n"
+        "- map: visual_meta { \"map_style\": \"vintage\", \"locations\": [{ \"name\": str, \"coord\": [lat, lon] }] }\n"
+        "- document: visual_meta { \"headline\": str, \"doc_text\": str, \"source\": str, \"date\": str }\n"
+        "- network: visual_meta { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
+        "- custom_html: visual_meta { \"html\": str, \"css\": str }\n"
+        "- portrait: visual_cue must be ONLY the person's full name (used as Wikipedia search query).\n"
+        "- scene/image/parallax/youtube: visual_meta {} unless adding lower_third.\n"
+        "- CRITICAL ON LOWER THIRDS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', or 'youtube'. NEVER use lower_third for data types like 'custom_html', 'chart', 'list', 'map', 'document', or 'network'. For those, bake any titles directly into their specific visual_meta fields (e.g., HTML/CSS).\n\n"
+        "Transitions: choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. "
+        "Do NOT use the same transition as before — vary it.\n"
+        f"LANGUAGE: The 'visual_cue' field MUST be in English. All 'visual_meta' text content MUST be in English. "
+        f"Lower third titles/subtitles should be in language code '{language}'.\n"
     )
     
     if section_type == "introduction":
@@ -743,6 +778,10 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
     intro_hook = full_script.get("introduction", {}).get("hook", "")[:200]
     conclusion_summary = full_script.get("conclusion", {}).get("summary", "")[:200]
 
+    # Estimate a reasonable narration length from existing scenes
+    scene_lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
+    avg_scene_words = max(20, sum(scene_lengths) // len(scene_lengths)) if scene_lengths else 80
+
     system_prompt = (
         "You are an expert documentary scriptwriter. Your task is to create a BRAND NEW scene "
         "to insert into an existing documentary script. The new scene must fit naturally into the "
@@ -754,14 +793,23 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         f"Conclusion: \"{conclusion_summary}\"\n\n"
         "IMPORTANT: You are generating ONLY the script/narration for this scene. "
         "Do NOT generate visual cues or a sub_visuals array. The visual team will add visuals later based on your narration.\n\n"
+        "CRITICAL — NARRATION RULES:\n"
+        "- The `narration` field is the spoken voiceover. It MUST be a non-empty string.\n"
+        "- Do NOT skip narration. Do NOT leave it blank or null.\n"
+        "- Never repeat the documentary title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
+        f"- LENGTH: Aim for approximately {avg_scene_words} words — match the pacing of the surrounding scenes.\n\n"
         "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
         "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }\n"
     )
 
     if language != "en":
-        system_prompt += f"The narration text MUST be written in the requested language (code: '{language}').\n\n"
+        system_prompt += (
+            f"LANGUAGE: The narration MUST be written in language code '{language}'.\n"
+            f"For example, if the language is Hindi ('hi'), you MUST use the Devanagari script (हिंदी). "
+            f"Do NOT use English alphabet transliterations.\n\n"
+        )
     else:
-        system_prompt += "The narration text MUST be written in English.\n\n"
+        system_prompt += "LANGUAGE: The narration text MUST be written in English.\n\n"
 
     user_prompt = (
         f"Generate a new scene for this documentary based on the following description:\n\n"
@@ -769,6 +817,13 @@ def add_scene_with_ai(full_script, user_prompt, language="hi"):
         f"Make the scene fit naturally with the existing narrative. "
         f"The scene_number will be assigned by the system, so just put 1 as a placeholder."
     )
+
+    # Optionally augment with web search context
+    doc_title = full_script.get("title", "Untitled")
+    _scene_q = _generate_search_query(f"{doc_title} - add scene: {user_prompt[:100]}", "add new scene")
+    _web_ctx = _get_web_context(_scene_q)
+    if _web_ctx:
+        user_prompt += f"\n\n---\nIncorporate relevant facts from this web search into your new scene:\n{_web_ctx}"
 
     result = _call_llm_api_direct(system_prompt, user_prompt, SCRIPT_SCENE_JSON_SCHEMA, llm_provider, api_key, base_url, model)
     if result.get("success") and "data" in result:
@@ -1184,15 +1239,16 @@ def reorder_scenes(project_id, new_scene_order):
         manifest_path = project.get("assets_manifest_path")
         if not script_path or not os.path.exists(script_path):
             return {"success": False, "error": "Script not found"}
-        if not manifest_path or not os.path.exists(manifest_path):
-            return {"success": False, "error": "Manifest not found"}
+        has_manifest = bool(manifest_path and os.path.exists(manifest_path))
 
         # 2. Load script and manifest
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
 
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
+        manifest = []
+        if has_manifest:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
 
         # 3. Validate
         script_scenes = script.get("scenes", [])
@@ -1212,41 +1268,44 @@ def reorder_scenes(project_id, new_scene_order):
 
         # 5. Reorder manifest scenes
         # Manifest structure: [intro(0), scene_1, scene_2, ..., scene_N, conclusion(last)]
-        manifest_intro = None
-        manifest_conclusion = None
-        manifest_scenes = []
+        if has_manifest:
+            manifest_intro = None
+            manifest_conclusion = None
+            manifest_scenes = []
 
-        for entry in manifest:
-            st = entry.get("section_type")
-            if st == "introduction":
-                manifest_intro = entry
-            elif st == "conclusion":
-                manifest_conclusion = entry
-            elif st == "scene":
-                manifest_scenes.append(entry)
+            for entry in manifest:
+                st = entry.get("section_type")
+                if st == "introduction":
+                    manifest_intro = entry
+                elif st == "conclusion":
+                    manifest_conclusion = entry
+                elif st == "scene":
+                    manifest_scenes.append(entry)
 
-        if len(manifest_scenes) != len(script_scenes):
-            return {"success": False, "error": f"Manifest scene count ({len(manifest_scenes)}) doesn't match script ({len(script_scenes)})"}
+            if len(manifest_scenes) != len(script_scenes):
+                logger.warning(f"Manifest scene count ({len(manifest_scenes)}) doesn't match script ({len(script_scenes)}), skipping manifest reorder.")
+                has_manifest = False
+            else:
+                reordered_manifest_scenes = [manifest_scenes[i] for i in new_scene_order]
 
-        reordered_manifest_scenes = [manifest_scenes[i] for i in new_scene_order]
-
-        # Rebuild manifest preserving intro and conclusion
-        new_manifest = []
-        if manifest_intro:
-            new_manifest.append(manifest_intro)
-        new_manifest.extend(reordered_manifest_scenes)
-        if manifest_conclusion:
-            new_manifest.append(manifest_conclusion)
+                # Rebuild manifest preserving intro and conclusion
+                new_manifest = []
+                if manifest_intro:
+                    new_manifest.append(manifest_intro)
+                new_manifest.extend(reordered_manifest_scenes)
+                if manifest_conclusion:
+                    new_manifest.append(manifest_conclusion)
 
         # 6. Save script
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(script, f, indent=2, ensure_ascii=False)
 
         # 7. Use cleanup_removed_assets to save manifest (preserves visual_path by content-match)
-        cleanup_result = cleanup_removed_assets(project_id, new_manifest)
+        if has_manifest:
+            cleanup_result = cleanup_removed_assets(project_id, new_manifest)
 
-        if not cleanup_result.get("success"):
-            return {"success": False, "error": cleanup_result.get("error", "Cleanup failed")}
+            if not cleanup_result.get("success"):
+                return {"success": False, "error": cleanup_result.get("error", "Cleanup failed")}
 
         return {"success": True}
 
@@ -1280,15 +1339,16 @@ def delete_scene(project_id, scene_index):
         manifest_path = project.get("assets_manifest_path")
         if not script_path or not os.path.exists(script_path):
             return {"success": False, "error": "Script not found"}
-        if not manifest_path or not os.path.exists(manifest_path):
-            return {"success": False, "error": "Manifest not found"}
+        has_manifest = bool(manifest_path and os.path.exists(manifest_path))
 
         # 2. Load script and manifest
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
 
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
+        manifest = []
+        if has_manifest:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
 
         # 3. Validate
         script_scenes = script.get("scenes", [])
@@ -1305,28 +1365,30 @@ def delete_scene(project_id, scene_index):
 
         # 5. Remove corresponding entry from manifest
         # Find the Nth scene entry in manifest (skip intro)
-        manifest_scene_count = 0
-        manifest_remove_idx = -1
-        for i, entry in enumerate(manifest):
-            if entry.get("section_type") == "scene":
-                if manifest_scene_count == scene_index:
-                    manifest_remove_idx = i
-                    break
-                manifest_scene_count += 1
+        if has_manifest:
+            manifest_scene_count = 0
+            manifest_remove_idx = -1
+            for i, entry in enumerate(manifest):
+                if entry.get("section_type") == "scene":
+                    if manifest_scene_count == scene_index:
+                        manifest_remove_idx = i
+                        break
+                    manifest_scene_count += 1
 
-        if manifest_remove_idx >= 0:
-            removed = manifest.pop(manifest_remove_idx)
-            logger.info(f"Removed corresponding manifest entry for scene {scene_index}")
+            if manifest_remove_idx >= 0:
+                removed = manifest.pop(manifest_remove_idx)
+                logger.info(f"Removed corresponding manifest entry for scene {scene_index}")
 
         # 6. Save script
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(script, f, indent=2, ensure_ascii=False)
 
         # 7. Save manifest via cleanup (handles orphaned asset cleanup)
-        cleanup_result = cleanup_removed_assets(project_id, manifest)
+        if has_manifest:
+            cleanup_result = cleanup_removed_assets(project_id, manifest)
 
-        if not cleanup_result.get("success"):
-            return {"success": False, "error": cleanup_result.get("error", "Cleanup failed")}
+            if not cleanup_result.get("success"):
+                return {"success": False, "error": cleanup_result.get("error", "Cleanup failed")}
 
         return {"success": True}
 

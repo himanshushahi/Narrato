@@ -787,7 +787,48 @@ export const SettingsPage: React.FC = () => {
             </GlassCard>
           </motion.div>
 
-
+          {/* Web Search Integration (LangSearch) */}
+          <motion.div variants={itemVariants}>
+            <GlassCard className="p-6 space-y-6">
+              <h2 className="flex items-center gap-3 text-sm font-bold text-stone-200 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
+                <VscGlobe className="text-base text-[var(--color-accent-primary)]" />
+                Web Search Integration (LangSearch)
+              </h2>
+              <div className="space-y-4">
+                <p className="text-xs text-stone-400">
+                  LangSearch provides real-time web context to the AI scriptwriter for current/trending topics.
+                  Enable it below and enter your API key from <strong>langsearch.com/dashboard</strong>.
+                </p>
+                <div className="flex items-center gap-3 bg-black/20 p-3 rounded-md border border-stone-800/40">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="web_search_enabled"
+                      checked={formData.web_search_enabled}
+                      onChange={(e) => setFormData(prev => ({ ...prev, web_search_enabled: e.target.checked }))}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-xs text-stone-200 font-medium">Enable Web Search for Script Generation</span>
+                  </label>
+                </div>
+                <CustomInput
+                  label="LangSearch API Key"
+                  type="password"
+                  name="web_search_api_key"
+                  value={formData.web_search_api_key || ''}
+                  onChange={handleInputChange}
+                  placeholder="lsk-..."
+                  icon={<VscKey />}
+                />
+                <div className="bg-blue-950/20 border border-blue-800/30 rounded-lg p-3">
+                  <p className="text-[10px] text-blue-300/80">
+                    Get your API key at <strong>langsearch.com/dashboard</strong>. The key is stored locally
+                    and only used to fetch search results for script generation context.
+                  </p>
+                </div>
+              </div>
+            </GlassCard>
+          </motion.div>
 
           {/* Rendering Engine Settings */}
           <motion.div variants={itemVariants}>

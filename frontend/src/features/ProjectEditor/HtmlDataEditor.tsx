@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useUIStore } from '../../store/useUIStore';
 import EditorModule from 'react-simple-code-editor';
 import hljs from 'highlight.js/lib/core';
@@ -25,6 +25,13 @@ export const HtmlDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onCh
     return raw ? beautify.css(raw, { indent_size: 2 }) : '';
   });
   const { addToast } = useUIStore();
+
+  useEffect(() => {
+    const rawHtml = visualMeta?.html || '';
+    setHtml(rawHtml ? beautify.html(rawHtml, { indent_size: 2, wrap_line_length: 80 }) : '');
+    const rawCss = visualMeta?.css || '';
+    setCss(rawCss ? beautify.css(rawCss, { indent_size: 2 }) : '');
+  }, [visualMeta?.html, visualMeta?.css]);
 
   const handleSave = () => {
     onChange({ ...visualMeta, html, css });

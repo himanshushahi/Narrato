@@ -8,6 +8,98 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 
+
+def _get_web_context(search_query: str) -> str:
+    """Search the web via LangSearch and return formatted context, if enabled.
+
+    Returns empty string when web search is disabled, API key is missing,
+    or the search fails — script generation should never block on this.
+    """
+    from backend.database.db import get_setting as _gs
+
+    enabled = _gs("web_search_enabled")
+    if not enabled or enabled in (False, "False"):
+        return ""
+
+    api_key = _gs("web_search_api_key")
+    if not api_key:
+        logger.info("Web search is enabled but no API key is configured — skipping.")
+        return ""
+
+    from backend.pipeline.web_search import search_and_format, clean_search_query
+
+    # Strip non-Latin text (Hindi/Devanagari) — web search APIs perform poorly
+    # with mixed-script queries since video titles often include language markers
+    clean_query = clean_search_query(search_query)
+
+    try:
+        logger.info(f"Fetching web context for: \"{clean_query[:80]}...\"")
+        context = search_and_format(clean_query, api_key, count=5)
+        if context:
+            logger.info(f"Web search returned results for: \"{clean_query[:60]}...\"")
+        else:
+            logger.info(f"Web search returned no results for: \"{clean_query[:60]}...\"")
+        return context
+    except Exception as e:
+        logger.warning(f"Web search failed (non-fatal): {type(e).__name__}: {e}")
+        return ""
+
+
+def _generate_search_query(context_description: str, stage: str = "general") -> str:
+    """Let the AI decide what to search for rather than using the raw topic.
+
+    The AI knows what information it's missing — this formulates a precise
+    English search query tailored to the stage (outline / intro / scene).
+
+    Falls back to the original context_description on any failure —
+    script generation should never block on this.
+    """
+    from backend.database.db import get_setting as _gs
+    from backend.pipeline.web_search import clean_search_query
+
+    llm_provider = _gs("llm_provider") or "openai"
+    api_key = _gs("nvidia_api_key") if llm_provider == "nvidia" else _gs("openai_api_key")
+    if not api_key:
+        return clean_search_query(context_description)
+
+    base_url = (_gs("nvidia_base_url") if llm_provider == "nvidia" else _gs("openai_base_url")) or \
+               ("https://integrate.api.nvidia.com/v1" if llm_provider == "nvidia" else "https://api.openai.com/v1")
+    model = _gs("nvidia_model") if llm_provider == "nvidia" else _gs("openai_model") or \
+            ("meta/llama-3.1-8b-instruct" if llm_provider == "nvidia" else "gpt-4o")
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=base_url.rstrip('/') if base_url else None)
+
+        system_prompt = (
+            "You generate precise English search queries for documentary research. "
+            "Given a video topic and section, output ONE specific search query "
+            "(max 12 words) that would find the most current, relevant information. "
+            "Output ONLY the raw query text — no explanation, no quotes, no punctuation."
+        )
+        user_prompt = f"Section: {stage}\nTopic: {context_description}\nSearch query:"
+
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=50,
+            temperature=0.3,
+            stream=False,
+        )
+
+        query = resp.choices[0].message.content.strip().strip('"').strip("'")
+        if query and len(query) > 3:
+            logger.info(f"AI generated search query: \"{query}\" for stage '{stage}'")
+            return query
+    except Exception as e:
+        logger.warning(f"Search query generation failed (non-fatal): {type(e).__name__}: {e}")
+
+    # Fallback: just clean the original context description
+    return clean_search_query(context_description)
+
 # Schema for individual sub-visual entries
 SUB_VISUAL_SCHEMA = {
     "type": "object",
@@ -430,9 +522,8 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
             min_scenes, max_scenes = 20, 30
             target_duration = 300
 
-    # Calculate per-scene duration budget: reserve ~15s for intro + conclusion
-    per_scene_duration = max(5, (target_duration - 15) // max_scenes)
-    per_scene_word_target = max(10, int(per_scene_duration * 2.5))  # ~2.5 words/sec speaking rate
+    # Per-scene duration budget will be recalculated after outline generation
+    # based on the actual number of chapters the AI produces.
 
     sentence_rule = f"LENGTH CONSTRAINT: The total target video duration is {target_duration} seconds. Every second of narration directly adds to video length. Write concisely — prefer shorter sentences, tighter prose, and only essential details."
         
@@ -449,6 +540,7 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
 CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
 - The `narration` field is the spoken voiceover. It MUST be a non-empty string.
 - Do NOT skip narration. Do NOT leave it blank or null.
+- CRITICAL: Never repeat the documentary title/topic verbatim in spoken text (hook, narration, summary, cta). The title is an internal label — write original spoken content instead.
 - {sentence_rule}
 """
     
@@ -456,14 +548,20 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     progress_cb(10.0, "Generating video outline...")
     logger.info("Stage 1: Generating Outline...")
     outline_system_prompt = f"""You are a master YouTube Documentary Director.
-Your task is to outline a documentary.
-Break the story down chronologically into exactly {min_scenes} to {max_scenes} chapters.
+Your task is to outline a documentary that runs approximately {target_duration} seconds.
+Break the story down chronologically into exactly {min_scenes} to {max_scenes} chapters, balancing them so each chapter gets roughly equal screen time.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 {lang_instruction}"""
     
     outline_user_prompt = f"""Topic: "{topic}"
 Detail: "{prompt_desc}"
 Generate a {min_scenes} to {max_scenes} chapter outline."""
+
+    # Optionally augment with web search context
+    _search_q = _generate_search_query(f"{topic} - {prompt_desc}", "outline generation")
+    _web_ctx = _get_web_context(_search_q)
+    if _web_ctx:
+        outline_user_prompt += f"\n\nRelevant web context to inform your outline:\n{_web_ctx}"
 
     outline_data = _call_llm_json(outline_system_prompt, outline_user_prompt, OUTLINE_JSON_SCHEMA, cancel_event)
     
@@ -473,19 +571,29 @@ Generate a {min_scenes} to {max_scenes} chapter outline."""
     base_system_prompt = f"""You are a master YouTube Documentary Scriptwriter.
 Write the introduction (hook) and the conclusion (summary and call to action) for this documentary based on the provided outline.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
-CRITICAL LANGUAGE REQUIREMENT: The Introduction (hook) and Conclusion (summary, cta) MUST be entirely in the requested language (code: '{language}'). Do NOT write them in English if '{language}' is not English.
 {lang_instruction}
 {narration_emphasis}
 
-LENGTH CONSTRAINT: The hook should be about 5-8 seconds of spoken audio. The summary and cta should each be about 5-8 seconds. Keep them tight and engaging."""
+LENGTH CONSTRAINT: The hook should be about 5-8 seconds of spoken audio. The summary and cta should each be about 5-8 seconds. Keep them tight and engaging.
+
+CRITICAL — LANGUAGE OUTPUT RULE:
+You MUST write ALL spoken text (hook, summary, cta) in language code '{language}'.
+If '{language}' is NOT 'en', that means do NOT write in English — write in the native script of that language instead.
+The outline below is reference-only and may be in English. Your output MUST be in '{language}'."""
 
     outline_json_str = json.dumps(outline_data, ensure_ascii=False)
     base_user_prompt = f"""Topic: "{topic}"
 Outline: {outline_json_str}
 Write the introduction and conclusion."""
 
+    # Optionally augment with web search context
+    _search_q = _generate_search_query(f"{topic} - latest developments and background", "introduction & conclusion")
+    _web_ctx = _get_web_context(_search_q)
+    if _web_ctx:
+        base_user_prompt += f"\n\nWeb search reference (translate into {language}):\n{_web_ctx}"
+
     base_data = _call_llm_json(base_system_prompt, base_user_prompt, BASE_SCRIPT_JSON_SCHEMA, cancel_event)
-    
+
     # 3. Generate Scenes in Loop
     progress_cb(30.0, "Drafting scene narratives...")
     logger.info("Stage 3: Generating Scenes...")
@@ -493,6 +601,11 @@ Write the introduction and conclusion."""
     scenes_array = []
     chapters = outline_data.get("chapters", [])
     total_chapters = len(chapters)
+
+    # Recalculate per-scene duration based on actual chapter count from outline
+    actual_count = total_chapters or max_scenes  # fallback if outline produced 0 chapters
+    per_scene_duration = max(5, (target_duration - 15) // actual_count)
+    per_scene_word_target = max(10, int(per_scene_duration * 2.5))  # ~2.5 words/sec speaking rate
     
     def generate_single_scene(idx, chapter):
         scene_num = chapter.get("scene_number", idx + 1)
@@ -517,6 +630,12 @@ This Scene: Scene {scene_num}: {chapter_title}
 Context for this scene: {context}
 {prev_context}
 Write the narration for this scene."""
+
+        # Optionally augment with scene-specific web search context
+        _scene_q = _generate_search_query(f"{topic}: {chapter_title} - {context}", "scene narration")
+        _web_ctx = _get_web_context(_scene_q)
+        if _web_ctx:
+            scene_user_prompt += f"\n\nIncorporate relevant facts from this web search into your narration:\n{_web_ctx}"
 
         import time
         
@@ -808,7 +927,7 @@ Be extremely creative! Do not just write simple text or rely solely on basic 'sc
 - scene/image: Default fallback.
 - youtube: For real-world footage other than portraits.
 
-QUANTITY: 2-4 items for MEDIA types. Exactly 1 for PROGRAMMATIC types. EXCEPTION: 'list' — 1 sub-visual PER ITEM.
+QUANTITY: Let the narration length and pacing dictate how many sub-visuals to generate. Break the narration into logical visual beats and create one sub-visual per beat. Each sub-visual should have a meaningful duration (2-15 seconds) — enough for the viewer to absorb it. The sum of all durations MUST equal the provided Total Scene Duration. For 'list' type: create 1 sub-visual PER LIST ITEM.
 
 EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "transition": str, "visual_meta": dict, "duration": float}
 CRITICAL ON TRANSITIONS: Choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.
@@ -825,7 +944,7 @@ CRITICAL ON DURATION:
 - document: visual_meta {"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}
 - network: visual_meta {"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
 - list: visual_meta {"number": int, "title": str, "description": str}
-- custom_html: visual_meta {"html": str, "css": str}
+- custom_html: visual_meta {"html": str, "css": str} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent.)
 - Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
 """
     
