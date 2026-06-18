@@ -1,9 +1,18 @@
-import React from 'react';
-import { useVideoConfig } from 'remotion';
+import React, { useRef, useEffect } from 'react';
+import { useVideoConfig, useCurrentFrame } from 'remotion';
 
 export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
-  const { width, height } = useVideoConfig();
-  
+  const { width, height, fps } = useVideoConfig();
+  const frame = useCurrentFrame();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    if (iframeRef.current && iframeRef.current.contentDocument) {
+      const timeInSeconds = frame / fps;
+      iframeRef.current.contentDocument.documentElement.style.setProperty('--remotion-time', timeInSeconds.toString());
+    }
+  }, [frame, fps]);
+
   const html = meta?.html || '<div class="custom-html-fallback"><h1>Custom HTML Visual</h1><p>Edit the HTML and CSS in the Inspector panel.</p></div>';
   const css = meta?.css || `
     .custom-html-fallback {
@@ -34,6 +43,12 @@ export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
       <head>
         <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800&display=swap" rel="stylesheet">
         <style>
+          /* Synchronize all CSS animations with the Remotion timeline */
+          *, *::before, *::after {
+            animation-play-state: paused !important;
+            animation-delay: calc(var(--remotion-time, 0) * -1s) !important;
+          }
+
           body { 
             background-color: #0c0a09; /* Default dark background matching the video */
             color: #ffffff;
@@ -66,6 +81,7 @@ export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
   return (
     <div style={{ width, height }} className="absolute inset-0 overflow-hidden bg-transparent">
       <iframe 
+        ref={iframeRef}
         title="Custom HTML Sandbox"
         srcDoc={srcDoc}
         style={{ width: '100%', height: '100%', border: 'none', background: 'transparent' }}
