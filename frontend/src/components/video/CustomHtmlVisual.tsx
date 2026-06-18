@@ -7,9 +7,10 @@ export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
-    if (iframeRef.current && iframeRef.current.contentDocument) {
+    const doc = iframeRef.current?.contentDocument;
+    if (doc?.documentElement) {
       const timeInSeconds = frame / fps;
-      iframeRef.current.contentDocument.documentElement.style.setProperty('--remotion-time', timeInSeconds.toString());
+      doc.documentElement.style.setProperty('--remotion-time', timeInSeconds.toString());
     }
   }, [frame, fps]);
 
@@ -86,7 +87,8 @@ export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
         srcDoc={srcDoc}
         style={{ width: '100%', height: '100%', border: 'none', background: 'transparent' }}
         sandbox="allow-scripts allow-same-origin"
-        allowTransparency={true}
+        // @ts-ignore - React requires lowercase for custom DOM attributes
+        allowtransparency="true"
       />
     </div>
   );

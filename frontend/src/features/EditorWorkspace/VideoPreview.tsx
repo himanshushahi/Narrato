@@ -81,7 +81,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     offset += durationFrames;
   }
 
-  const zoomScale = zoom === 'fit' ? 1 : zoom === '100' ? 0.9 : 1.35;
+  const zoomScale = zoom === 'fit' ? 0.9 : zoom === '100' ? 0.8 : 1.35;
 
   // Compute total duration in frames from live scenes (matches RemotionVideoPlayer logic)
   const totalFrames = React.useMemo(() => {
