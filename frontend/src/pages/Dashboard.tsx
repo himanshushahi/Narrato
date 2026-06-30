@@ -9,7 +9,7 @@ import { GlowButton } from '../components/ui/GlowButton';
 import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { VscPlay, VscTrash, VscAdd, VscFolderOpened, VscCircleFilled, VscLayers, VscLoading } from 'react-icons/vsc';
-import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { callApi } from '../utils/call-api';
 
 export const Dashboard: React.FC = () => {

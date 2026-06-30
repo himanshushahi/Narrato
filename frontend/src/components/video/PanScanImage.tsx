@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, interpolate, Img, OffthreadVideo } from 'remotion';
+import { useCurrentFrame, interpolate, Img } from 'remotion';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
 

@@ -2,14 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Suspense } from 'react';
 import { useProjectStore } from './store/useProjectStore';
-import { useSettingsStore } from './store/useSettingsStore';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const EditorWorkspace = React.lazy(() => import('./features/EditorWorkspace/EditorWorkspace'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
 import TerminalLogs from './components/ui/TerminalLogs';
 import { ToastContainer } from './components/ui/Toast';
 import { ConfirmModal } from './components/ui/ConfirmModal';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   VscSettings, VscLayers, VscPulse, VscLayoutSidebarLeft, VscAccount
 } from 'react-icons/vsc';

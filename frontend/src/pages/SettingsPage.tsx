@@ -9,7 +9,7 @@ import { AnimatedTabs, Tab } from '../components/ui/AnimatedTabs';
 import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
 import { CustomRange } from '../components/ui/CustomRange';
-import { motion, Variants } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS, WHISPER_MODEL_OPTIONS } from '../features/Settings/voiceConstants';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
