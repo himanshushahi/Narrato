@@ -81,27 +81,16 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const containerVariants: Variants = {
-    hidden: { opacity: 0 },
-    show: { opacity: 1, transition: { staggerChildren: 0.08 } }
-  };
 
-  const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 15 },
-    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 25 } }
-  };
 
   return (
     <div className="max-w-7xl mx-auto px-8 py-10 select-none relative z-10">
 
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="show"
+      <div
         className="space-y-8"
       >
         {/* Dashboard Header */}
-        <motion.div variants={itemVariants} className="flex justify-between items-center border-b border-stone-850 pb-6">
+        <div className="flex justify-between items-center border-b border-stone-850 pb-6">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
               <VscLayers className="text-2xl text-[var(--color-accent-primary)]" />
@@ -112,10 +101,10 @@ export const Dashboard: React.FC = () => {
           <GlowButton onClick={() => setShowModal(true)} icon={<VscAdd />}>
             New Project
           </GlowButton>
-        </motion.div>
+        </div>
 
         {/* Projects Grid */}
-        <motion.div variants={itemVariants}>
+        <div>
           {projects.length === 0 ? (
             <div className="w-full py-24 flex flex-col justify-center items-center bg-stone-900/20 border border-stone-850 rounded-xl text-center backdrop-blur-md">
               <VscFolderOpened className="text-5xl text-stone-600 mb-4 animate-bounce" />
@@ -229,8 +218,8 @@ export const Dashboard: React.FC = () => {
               ))}
             </div>
           )}
-        </motion.div>
-      </motion.div>
+        </div>
+      </div>
 
       {/* Documentary Creation Modal */}
       {createPortal(

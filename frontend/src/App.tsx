@@ -138,10 +138,6 @@ function AppContent() {
   const isEditorRoute = location.pathname.startsWith('/editor');
 
   useEffect(() => {
-    // Initialize stores
-    useProjectStore.getState().fetchProjects();
-    useSettingsStore.getState().fetchSettings();
-
     // Connection is handled by pywebview automatically
   }, []);
 
@@ -173,22 +169,20 @@ function AppContent() {
         <div className="flex-1 flex flex-col min-w-0 relative bg-zinc-950/20">
 
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative">
-            <AnimatePresence mode="wait">
-              <Suspense fallback={<div className="h-screen w-screen flex items-center justify-center bg-zinc-950 text-white font-mono">Loading Module...</div>}>
-                <Routes>
-                  <Route path="/" element={
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="min-h-full">
-                      <Dashboard />
-                    </motion.div>
-                  } />
-                  <Route path="/settings" element={
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="min-h-full">
-                      <SettingsPage />
-                    </motion.div>
-                  } />
-                </Routes>
-              </Suspense>
-            </AnimatePresence>
+            <Suspense fallback={<div className="h-screen w-screen flex items-center justify-center bg-zinc-950 text-white font-mono">Loading Module...</div>}>
+              <Routes>
+                <Route path="/" element={
+                  <div className="min-h-full">
+                    <Dashboard />
+                  </div>
+                } />
+                <Route path="/settings" element={
+                  <div className="min-h-full">
+                    <SettingsPage />
+                  </div>
+                } />
+              </Routes>
+            </Suspense>
           </div>
           <TerminalLogs />
         </div>

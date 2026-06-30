@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import {
-  VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscWarning, VscFlame
+  VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscWarning, VscFlame, VscClose
 } from 'react-icons/vsc';
 import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
-import { Task } from '../../../store/useProjectStore';
+import { Task, useProjectStore } from '../../../store/useProjectStore';
 
 interface ExportTabProps {
   tasks: Record<string, Task>;
@@ -28,6 +29,10 @@ export const ExportTab: React.FC<ExportTabProps> = ({
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline
 }) => {
   const [confirmStageId, setConfirmStageId] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const { selectedProject } = useProjectStore();
+
+  const videoUrl = selectedProject?.video_path ? `/api/media?path=${encodeURIComponent(selectedProject.video_path)}` : null;
 
   const renderStage = (stage: typeof PIPELINE_STAGES[0], idx: number) => {
     const task = tasks[stage.id];
@@ -238,6 +243,16 @@ export const ExportTab: React.FC<ExportTabProps> = ({
                     <VscPlay className="text-sm" /> Resume Pipeline
                   </button>
                 )}
+                
+                {videoUrl && !isRunning && (
+                  <button
+                    onClick={() => setShowPreview(true)}
+                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-white py-2.5 mt-2 rounded text-[10px] font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700"
+                  >
+                    <VscPlay className="text-sm" /> Preview Rendered Video
+                  </button>
+                )}
+                
                 <p className="text-[8px] text-zinc-600 text-center leading-relaxed">
                   Smart Resume skips completed steps to save time and API usage.
                 </p>
@@ -246,6 +261,32 @@ export const ExportTab: React.FC<ExportTabProps> = ({
           </div>
         </div>
       </div>
+      
+      {showPreview && videoUrl && createPortal(
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowPreview(false)}
+          />
+          <div className="relative w-full max-w-4xl bg-black border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between p-3 border-b border-zinc-800 bg-zinc-900">
+              <h3 className="text-zinc-200 font-bold text-xs uppercase tracking-wider">Video Preview</h3>
+              <button onClick={() => setShowPreview(false)} className="text-zinc-400 hover:text-white transition-colors cursor-pointer p-1">
+                <VscClose className="text-lg" />
+              </button>
+            </div>
+            <div className="aspect-video bg-black flex items-center justify-center">
+              <video 
+                src={videoUrl} 
+                controls 
+                autoPlay 
+                className="w-full h-full object-contain"
+              />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

@@ -40,7 +40,7 @@ export const SettingsPage: React.FC = () => {
   const [kokoroInstalled, setKokoroInstalled] = useState(false);
   const [piperInstalled, setPiperInstalled] = useState(false);
   const [whisperInstalled, setWhisperInstalled] = useState(false);
-  const [gpuAvailable, setGpuAvailable] = useState(false);
+  const gpuAvailable = useSettingsStore((state) => state.gpuAvailable);
 
 
   // yt-dlp version state
@@ -61,15 +61,6 @@ export const SettingsPage: React.FC = () => {
     fetchSettings();
     fetchDownloadedWhisperModels();
   }, [fetchSettings, fetchDownloadedWhisperModels]);
-
-  // Detect GPU availability on load
-  useEffect(() => {
-    const detectGPU = async () => {
-      const available = await callApi<boolean>('check_nvidia_gpu_available');
-      setGpuAvailable(!!available);
-    };
-    detectGPU();
-  }, []);
 
   // Check yt-dlp version on mount and after updates
   useEffect(() => {
@@ -319,26 +310,15 @@ export const SettingsPage: React.FC = () => {
     { value: '3600000', label: '60 min' },
   ];
 
-  const containerVariants: Variants = {
-    hidden: { opacity: 0 },
-    show: { opacity: 1, transition: { staggerChildren: 0.08 } }
-  };
 
-  const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 15 },
-    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 25 } }
-  };
 
   return (
     <div className="flex-1 overflow-y-auto p-8 relative scrollbar-thin">
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="show"
+      <div
         className="max-w-6xl mx-auto space-y-8 relative z-10"
       >
         {/* Header */}
-        <motion.div variants={itemVariants} className="flex items-center justify-between border-b border-stone-800/60 pb-6">
+        <div className="flex items-center justify-between border-b border-stone-800/60 pb-6">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
               <VscSettings className="text-2xl text-[var(--color-accent-primary)]" />
@@ -353,11 +333,11 @@ export const SettingsPage: React.FC = () => {
           >
             {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Preferences'}
           </GlowButton>
-        </motion.div>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* AI Language Model Provider Card */}
-          <motion.div variants={itemVariants}>
+          <div>
             <AIProviderCard
               title="AI Language Model Provider"
               provider={formData.llm_provider === 'nvidia' ? 'Nvidia NIM' : 'OpenAI Compatible Endpoint'}
@@ -445,10 +425,10 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
             </AIProviderCard>
-          </motion.div>
+          </div>
 
           {/* Localization & Default Language */}
-          <motion.div variants={itemVariants}>
+          <div>
             <GlassCard className="p-6 space-y-6">
               <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
                 <VscGlobe className="text-base text-[var(--color-accent-primary)]" />
@@ -469,10 +449,10 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
             </GlassCard>
-          </motion.div>
+          </div>
 
           {/* Whisper & Speech synthesis Grid */}
-          <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Speech to text */}
             <GlassCard className="p-6 space-y-6 flex flex-col justify-between">
               <div>
@@ -763,10 +743,10 @@ export const SettingsPage: React.FC = () => {
                 )}
               </div>
             </GlassCard>
-          </motion.div>
+          </div>
 
           {/* Storage and BGM Card */}
-          <motion.div variants={itemVariants}>
+          <div>
             <GlassCard className="p-6 space-y-6">
               <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
                 <VscFolderOpened className="text-base text-[var(--color-accent-primary)]" />
@@ -835,10 +815,10 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
             </GlassCard>
-          </motion.div>
+          </div>
 
           {/* Pexels API Key */}
-          <motion.div variants={itemVariants}>
+          <div>
             <GlassCard className="p-6 space-y-6">
               <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
                 <VscMusic className="text-base text-[var(--color-accent-primary)]" />
@@ -859,10 +839,10 @@ export const SettingsPage: React.FC = () => {
                 />
               </div>
             </GlassCard>
-          </motion.div>
+          </div>
 
           {/* Web Search Integration (LangSearch) */}
-          <motion.div variants={itemVariants}>
+          <div>
             <GlassCard className="p-6 space-y-6">
               <h2 className="flex items-center gap-3 text-sm font-bold text-stone-200 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
                 <VscGlobe className="text-base text-[var(--color-accent-primary)]" />
@@ -902,10 +882,10 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
             </GlassCard>
-          </motion.div>
+          </div>
 
           {/* Rendering Engine Settings */}
-          <motion.div variants={itemVariants}>
+          <div>
             <GlassCard className="p-6 space-y-6">
               <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
                 <VscPlay className="text-base text-[var(--color-accent-primary)]" />
@@ -970,11 +950,11 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
             </GlassCard>
-          </motion.div>
+          </div>
 
 
           {/* YouTube Integration (yt-dlp) Card */}
-          <motion.div variants={itemVariants}>
+          <div>
             <GlassCard className="p-6 space-y-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
@@ -1072,9 +1052,9 @@ export const SettingsPage: React.FC = () => {
                 )}
               </div>
             </GlassCard>
-          </motion.div>
+          </div>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 };

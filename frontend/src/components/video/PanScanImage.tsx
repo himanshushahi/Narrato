@@ -151,12 +151,14 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, tran
           transformOrigin: 'center center',
         }}>
           {isVideo ? (
-            <OffthreadVideo
+            <video
               src={src}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               muted={true}
-              volume={0}
-              startFrom={0}
+              autoPlay={true}
+              loop={true}
+              playsInline={true}
+              crossOrigin="anonymous"
             />
           ) : (
             <Img

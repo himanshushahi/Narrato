@@ -134,4 +134,9 @@ export const initializePywebviewListeners = () => {
   };
 
   console.log("Pywebview Zustand bridge listeners registered.");
+
+  // Initialize data now that pywebview is ready
+  useProjectStore.getState().fetchProjects();
+  useSettingsStore.getState().fetchSettings();
+  useSettingsStore.getState().checkGpuAvailability();
 };

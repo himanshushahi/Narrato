@@ -82,6 +82,7 @@ interface YtdlpUpdate {
 
 interface SettingsStore {
   settings: Settings;
+  gpuAvailable: boolean;
   kokoroDownload: KokoroDownload;
   whisperDownload: WhisperDownload;
   downloadedWhisperModels: DownloadedWhisperModel[];
@@ -90,6 +91,7 @@ interface SettingsStore {
   setSettings: (settings: Settings) => void;
   fetchSettings: () => Promise<void>;
   saveSettings: (settings: Settings) => Promise<void>;
+  checkGpuAvailability: () => Promise<void>;
   downloadKokoro: () => Promise<void>;
   downloadWhisper: (modelSize: string) => Promise<void>;
   fetchDownloadedWhisperModels: () => Promise<void>;
@@ -146,6 +148,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     render_hardware: "cpu",
     render_timeout: "600000"
   },
+  gpuAvailable: false,
   kokoroDownload: {
     active: false,
     file: "",
@@ -177,6 +180,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   saveSettings: async (newSettings) => {
     await safeApiCall<void>('db_update_settings', newSettings);
     set({ settings: newSettings });
+  },
+
+  checkGpuAvailability: async () => {
+    const available = await safeApiCall<boolean>('check_nvidia_gpu_available');
+    set({ gpuAvailable: !!available });
   },
 
   downloadKokoro: async () => {
