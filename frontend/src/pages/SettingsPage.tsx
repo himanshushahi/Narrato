@@ -15,7 +15,7 @@ import {
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
 } from 'react-icons/vsc';
 import { MdOutlineMovie } from 'react-icons/md';
-import { callEel } from '../utils/eel-bridge';
+import { callApi } from '../utils/call-api';
 
 export const SettingsPage: React.FC = () => {
   const settings = useSettingsStore((state) => state.settings);
@@ -62,7 +62,7 @@ export const SettingsPage: React.FC = () => {
   // Detect GPU availability on load
   useEffect(() => {
     const detectGPU = async () => {
-      const available = await callEel<boolean>('check_nvidia_gpu_available');
+      const available = await callApi<boolean>('check_nvidia_gpu_available');
       setGpuAvailable(!!available);
     };
     detectGPU();
@@ -72,7 +72,7 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     const checkYtdlpVersion = async () => {
       try {
-        const info = await callEel<{ installed: boolean; version?: string; path?: string }>('get_ytdlp_version');
+        const info = await callApi<{ installed: boolean; version?: string; path?: string }>('get_ytdlp_version');
         setYtdlpInstalled(info?.installed || false);
         setYtdlpVersion(info?.version || null);
         setYtdlpPath(info?.path || null);
@@ -128,7 +128,7 @@ export const SettingsPage: React.FC = () => {
   }, [kokoroDownload.status]);
 
   const checkKokoroAssets = async () => {
-    const ok = await callEel<boolean>('check_kokoro_downloaded');
+    const ok = await callApi<boolean>('check_kokoro_downloaded');
     setKokoroInstalled(!!ok);
   };
 
@@ -138,7 +138,7 @@ export const SettingsPage: React.FC = () => {
   }, [formData.whisper_model, whisperDownload.status]);
 
   const checkWhisperAssets = async () => {
-    const ok = await callEel<boolean>('check_whisper_downloaded', formData.whisper_model);
+    const ok = await callApi<boolean>('check_whisper_downloaded', formData.whisper_model);
     setWhisperInstalled(!!ok);
   };
 
@@ -169,7 +169,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleBrowseBGM = async () => {
-    const path = await callEel<string>('browse_bg_music_file');
+    const path = await callApi<string>('browse_bg_music_file');
     if (path) {
       setFormData((prev: SettingsType) => ({ ...prev, bg_music_path: path }));
       // Immediately persist so the DB matches the file in assets/ — prevents
@@ -185,7 +185,7 @@ export const SettingsPage: React.FC = () => {
     setPreviewAudioUrl('');
     try {
       const voice = formData.tts_engine === 'kokoro' ? formData.kokoro_voice : formData.tts_voice;
-      const res = await callEel<{ success: boolean; audio_path?: string; error?: string }>('generate_voice_preview',
+      const res = await callApi<{ success: boolean; audio_path?: string; error?: string }>('generate_voice_preview',
         previewText,
         formData.tts_engine,
         voice,
@@ -719,7 +719,7 @@ export const SettingsPage: React.FC = () => {
                       </GlowButton>
                       {formData.bg_music_path && (
                         <GlowButton variant="ghost" size="sm" type="button" onClick={async () => {
-                          const res = await callEel<{ success: boolean }>('clear_bg_music');
+                          const res = await callApi<{ success: boolean }>('clear_bg_music');
                           if (res?.success) {
                             const cleared = { ...formData, bg_music_path: '' };
                             setFormData(cleared);

@@ -6,7 +6,7 @@ import { useProjectStore } from '../../../store/useProjectStore';
 import { CustomSelect } from '../../../components/ui/CustomSelect';
 import { CustomRange } from '../../../components/ui/CustomRange';
 import { AnimatedTabs, Tab } from '../../../components/ui/AnimatedTabs';
-import { callEel } from '../../../utils/eel-bridge';
+import { callApi } from '../../../utils/call-api';
 
 interface VoiceTabProps {
   localProjectSettings: any;
@@ -240,7 +240,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
       const effectivePitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
       const effectiveLang = selectedProject?.language || 'hi';
 
-      const res = await callEel<{ success: boolean; audio_path?: string; error?: string }>(
+      const res = await callApi<{ success: boolean; audio_path?: string; error?: string }>(
         'generate_voice_preview',
         previewText,
         effectiveEngine,

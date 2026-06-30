@@ -1,31 +1,20 @@
 import { useProjectStore } from './useProjectStore';
 import { useSettingsStore } from './useSettingsStore';
 import { useUIStore } from './useUIStore';
-import { eelConnection } from '../utils/eel-bridge';
 
-/**
- * Initialize Eel listeners and start connection monitoring.
- *
- * This function:
- * 1. Registers JS callbacks that Python can call (on_log_stream, on_progress_update, etc.)
- * 2. Starts automatic reconnection monitoring if the WebSocket isn't ready
- *
- * The connection monitor will retry connecting to the Python backend with
- * exponential backoff if the WebSocket fails to connect on first launch.
- */
-export const initializeEelListeners = () => {
-  if (!window.eel) {
-    console.warn("Eel: window.eel is not loaded. Backend may not be running.");
+export const initializePywebviewListeners = () => {
+  if (!window.pywebview || typeof window.pywebview?.api?.db_get_projects !== 'function') {
+    window.addEventListener('pywebviewready', () => {
+      initializePywebviewListeners();
+    }, { once: true });
     return;
   }
 
-  // Register callback: on_log_stream - receives log messages from Python
-  window.eel.expose((msg: string) => {
+  window.onLogStream = (msg: string) => {
     useUIStore.getState().addLog(msg);
-  }, "on_log_stream");
+  };
 
-  // Register callback: on_progress_update - receives pipeline progress updates
-  window.eel.expose((data: any) => {
+  window.onProgressUpdate = (data: any) => {
     const projectStore = useProjectStore.getState();
 
     if (data.type === "queue_update") {
@@ -74,10 +63,9 @@ export const initializeEelListeners = () => {
         return { tasks: updatedTasks };
       });
     }
-  }, "on_progress_update");
+  };
 
-  // Register callback: on_kokoro_download_progress - TTS model download
-  window.eel.expose((data: any) => {
+  window.onKokoroDownloadProgress = (data: any) => {
     useSettingsStore.setState((state) => {
       const update = { ...state.kokoroDownload };
       if (data.status === "completed") {
@@ -95,10 +83,9 @@ export const initializeEelListeners = () => {
       }
       return { kokoroDownload: update };
     });
-  }, "on_kokoro_download_progress");
+  };
 
-  // Register callback: on_whisper_download_progress - Whisper model download
-  window.eel.expose((data: any) => {
+  window.onWhisperDownloadProgress = (data: any) => {
     useSettingsStore.setState((state) => {
       const update = { ...state.whisperDownload };
       if (data.status === "completed") {
@@ -116,10 +103,9 @@ export const initializeEelListeners = () => {
       }
       return { whisperDownload: update };
     });
-  }, "on_whisper_download_progress");
+  };
 
-  // Register callback: on_ytdlp_update_progress - yt-dlp updater
-  window.eel.expose((data: any) => {
+  window.onYtdlpUpdateProgress = (data: any) => {
     useSettingsStore.setState((state) => {
       const update = { ...state.ytdlpUpdate };
       if (data.status === "completed") {
@@ -145,18 +131,7 @@ export const initializeEelListeners = () => {
       }
       return { ytdlpUpdate: update };
     });
-  }, "on_ytdlp_update_progress");
+  };
 
-  console.log("Eel Zustand bridge listeners registered.");
-
-  // Start connection monitoring for automatic reconnection
-  // This ensures that if the WebSocket failed to connect on first launch,
-  // it will automatically retry until the Python backend is ready
-  eelConnection.subscribe((state) => {
-    if (state.isConnected) {
-      console.log("[EelListeners] Backend connection confirmed");
-    } else if (state.error) {
-      console.warn("[EelListeners] Connection issue:", state.error);
-    }
-  });
+  console.log("Pywebview Zustand bridge listeners registered.");
 };

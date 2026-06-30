@@ -10,7 +10,7 @@ import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { VscPlay, VscTrash, VscAdd, VscFolderOpened, VscCircleFilled, VscLayers, VscLoading } from 'react-icons/vsc';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { callEel } from '../utils/eel-bridge';
+import { callApi } from '../utils/call-api';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -40,7 +40,7 @@ export const Dashboard: React.FC = () => {
 
     setLoading(true);
     try {
-      const res = await callEel<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, prompt, exportFolder, language, 'nitish_rajput', durationMode, videoFormat);
+      const res = await callApi<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, prompt, exportFolder, language, 'nitish_rajput', durationMode, videoFormat);
       if (res?.success && res.project_id) {
         fetchProjects();
         setShowModal(false);
@@ -65,7 +65,7 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleBrowseFolder = async () => {
-    const dir = await callEel<string>('browse_export_directory');
+    const dir = await callApi<string>('browse_export_directory');
     if (dir) {
       setExportFolder(dir);
     }

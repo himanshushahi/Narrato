@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useUIStore } from './useUIStore';
-import { callEel } from '../utils/eel-bridge';
+import { callApi } from '../utils/call-api';
 
 interface SubtitlePreset {
   id: string;
@@ -97,11 +97,11 @@ interface SettingsStore {
 }
 
 /**
- * Safely call an eel function, waiting for connection if needed.
- * Returns null if eel is not available or connection fails.
+ * Safely call a pywebview API function.
+ * Returns null if API is not available or call fails.
  */
-async function safeEelCall<T>(fnName: string, ...args: any[]): Promise<T | null> {
-  return callEel<T>(fnName, ...args);
+async function safeApiCall<T>(fnName: string, ...args: any[]): Promise<T | null> {
+  return callApi<T>(fnName, ...args);
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -168,32 +168,32 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setSettings: (settings) => set({ settings }),
   
   fetchSettings: async () => {
-    const data = await safeEelCall<any>('db_get_settings');
+    const data = await safeApiCall<any>('db_get_settings');
     if (data) set({ settings: data });
   },
 
   saveSettings: async (newSettings) => {
-    await safeEelCall<void>('db_update_settings', newSettings);
+    await safeApiCall<void>('db_update_settings', newSettings);
     set({ settings: newSettings });
   },
 
   downloadKokoro: async () => {
     set({ kokoroDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
-    await safeEelCall<void>('start_kokoro_download');
+    await safeApiCall<void>('start_kokoro_download');
   },
 
   downloadWhisper: async (modelSize) => {
     set({ whisperDownload: { active: true, progress: 0, status: "started", error: "" } });
-    await safeEelCall<void>('start_whisper_download', modelSize);
+    await safeApiCall<void>('start_whisper_download', modelSize);
   },
 
   fetchDownloadedWhisperModels: async () => {
-    const models = await safeEelCall<any[]>('get_downloaded_whisper_models');
+    const models = await safeApiCall<any[]>('get_downloaded_whisper_models');
     set({ downloadedWhisperModels: models || [] });
   },
 
   deleteWhisperModel: async (id) => {
-    const res = await safeEelCall<{ success: boolean }>('delete_whisper_model', id);
+    const res = await safeApiCall<{ success: boolean }>('delete_whisper_model', id);
     if (res?.success) {
       useUIStore.getState().addToast(`Deleted Whisper model: ${id}`, "success");
       get().fetchDownloadedWhisperModels();
@@ -206,6 +206,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   updateYtdlp: async () => {
     set({ ytdlpUpdate: { active: true, progress: 0, status: "started", error: "" } });
-    await safeEelCall<void>('update_ytdlp');
+    await safeApiCall<void>('update_ytdlp');
   }
 }));

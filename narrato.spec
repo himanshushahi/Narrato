@@ -18,8 +18,7 @@ datas = [
     ('frontend/dist-render/node_modules', 'frontend/dist-render/node_modules'),
 ]
 
-# Collect Eel's and Kokoro's internal assets
-datas += collect_data_files('eel')
+# Collect Kokoro's and other internal assets
 datas += collect_data_files('kokoro_onnx')
 datas += collect_data_files('language_tags')
 datas += collect_data_files('phonemizer')
@@ -31,7 +30,9 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=[
-        'eel',
+        'webview.platforms.winforms',
+        'webview.platforms.win32',
+        'clr',
         'faster_whisper',
         'edge_tts',
         'kokoro_onnx',

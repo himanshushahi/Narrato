@@ -37,7 +37,7 @@ def ensure_virtual_env():
 def check_python_dependencies():
     print("=== Checking Python Dependencies ===")
     try:
-        import eel
+        import webview
         import faster_whisper
         import edge_tts
         import kokoro_onnx

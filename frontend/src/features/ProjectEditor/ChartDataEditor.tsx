@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { VscLoading, VscSparkle } from 'react-icons/vsc';
 import { CustomSelect } from '../../components/ui/CustomSelect';
-import { callEel } from '../../utils/eel-bridge';
+import { callApi } from '../../utils/call-api';
 import { useUIStore } from '../../store/useUIStore';
 
 export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
@@ -14,7 +14,7 @@ export const ChartDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onC
     if (!prompt) return;
     setLoading(true);
     try {
-      const res = await callEel<{ success: boolean; data?: any; title?: string; chart_type?: string; error?: string }>('generate_chart_data_api', prompt);
+      const res = await callApi<{ success: boolean; data?: any; title?: string; chart_type?: string; error?: string }>('generate_chart_data_api', prompt);
       if (res?.success && res.data) {
         onChange({
           ...visualMeta,

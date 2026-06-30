@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
-import { callEel } from '../../../utils/eel-bridge';
+import { callApi } from '../../../utils/call-api';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -41,14 +41,14 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const loadFiles = useCallback(async (projId: string) => {
     setLoadingScript(true);
     try {
-      const project = await callEel<any>('db_get_project', projId);
+      const project = await callApi<any>('db_get_project', projId);
       if (project) {
         if (project.script_path) {
-          const script = await callEel<any>('read_json_file', project.script_path);
+          const script = await callApi<any>('read_json_file', project.script_path);
           setScriptData(script);
         }
         if (project.assets_manifest_path) {
-          const manifest = await callEel<any>('read_json_file', project.assets_manifest_path);
+          const manifest = await callApi<any>('read_json_file', project.assets_manifest_path);
           const enrichedManifest = (manifest || []).map((scene: any) => {
             const enrichedSubVisuals = (scene.sub_visuals || []).map((sv: any) => ({
               ...sv,
@@ -67,7 +67,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
           setManifestData(enrichedManifest);
         }
         if (project.transcription_path) {
-          const transcript = await callEel<any>('read_json_file', project.transcription_path);
+          const transcript = await callApi<any>('read_json_file', project.transcription_path);
           setTranscriptionData(transcript || { segments: [] });
         }
 

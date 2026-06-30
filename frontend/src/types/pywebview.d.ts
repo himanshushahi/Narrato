@@ -1,0 +1,55 @@
+interface PywebviewApi {
+  get_file_server_port(): Promise<number>;
+  browse_export_directory(): Promise<string>;
+  browse_bg_music_file(): Promise<string>;
+  clear_bg_music(): Promise<{ success: boolean; deleted_file?: boolean }>;
+  upload_project_bg_music(project_id: string): Promise<{ success: boolean; path: string | null; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
+  db_get_projects(): Promise<any[]>;
+  db_get_project(project_id: string): Promise<any>;
+  db_update_project(project_id: string, updates_dict: any): Promise<{ success: boolean; error?: string }>;
+  db_delete_project(project_id: string): Promise<boolean>;
+  db_get_project_tasks(project_id: string): Promise<any[]>;
+  db_get_settings(): Promise<any>;
+  db_update_settings(settings_dict: any): Promise<boolean>;
+  create_new_project(name: string, prompt: string, export_folder: string, language: string, style: string, duration_mode: string, video_format: string): Promise<{ project_id?: string; success: boolean; error?: string }>;
+  start_processing_pipeline(project_id: string, steps: string[]): Promise<{ success: boolean }>;
+  resume_processing_pipeline(project_id: string, steps: string[]): Promise<{ success: boolean }>;
+  cancel_processing_pipeline(project_id: string): Promise<boolean>;
+  read_json_file(file_path: string): Promise<any>;
+  save_json_file(file_path: string, data: any): Promise<boolean>;
+  scan_assets_directory(project_id: string): Promise<{ files: any[]; total_size: number; total_files: number }>;
+  download_google_font(font_family: string): Promise<{ success: boolean; css_path?: string; error?: string }>;
+  check_kokoro_downloaded(): Promise<boolean>;
+  start_kokoro_download(): Promise<{ status: string }>;
+  check_whisper_downloaded(model_size: string): Promise<boolean>;
+  start_whisper_download(model_size: string): Promise<{ status: string }>;
+  get_downloaded_whisper_models(): Promise<any[]>;
+  delete_whisper_model(safe_dir_name: string): Promise<{ success: boolean }>;
+  check_nvidia_gpu_available(): Promise<boolean>;
+  regenerate_script_section(scene_idx: number, section_type: string, full_script: any, rewrite_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
+  regenerate_visuals_section(scene_idx: number, section_type: string, full_script: any, rewrite_prompt: string): Promise<{ success: boolean; data?: any; error?: string }>;
+  regenerate_sub_visual(scene_idx: number, section_type: string, sub_idx: number, full_script: any, rewrite_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
+  add_scene_with_ai(full_script: any, user_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
+  generate_voice_preview(text: string, engine: string, voice: string, speed: string, pitch: string, language: string): Promise<{ success: boolean; audio_path?: string; error?: string }>;
+  get_ytdlp_version(): Promise<{ installed: boolean; version: string | null; path: string | null }>;
+  update_ytdlp(): Promise<{ status: string }>;
+  fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number, visual_type: string, visual_cue: string): Promise<any>;
+  preview_asset_download(project_id: string, visual_type: string, visual_cue: string): Promise<{ success: boolean; visual_path?: string; error?: string }>;
+  cleanup_preview_assets(project_id: string, preview_paths: string[]): Promise<{ success: boolean; deleted?: string[] }>;
+  generate_chart_data_api(prompt: string): Promise<{ success: boolean; data?: any; title?: string; chart_type?: string; error?: string }>;
+  save_project_with_cleanup(project_id: string, script_data: any, manifest_data: any): Promise<any>;
+  update_scene_duration(project_id: string, scene_index: number, new_duration_seconds: number): Promise<{ success: boolean; error?: string }>;
+  reorder_scenes(project_id: string, new_scene_order: number[]): Promise<{ success: boolean; error?: string }>;
+  delete_scene(project_id: string, scene_index: number): Promise<{ success: boolean; error?: string }>;
+}
+
+interface Window {
+  pywebview?: {
+    api: PywebviewApi;
+  };
+  onLogStream?: (msg: string) => void;
+  onProgressUpdate?: (data: any) => void;
+  onKokoroDownloadProgress?: (data: any) => void;
+  onWhisperDownloadProgress?: (data: any) => void;
+  onYtdlpUpdateProgress?: (data: any) => void;
+}

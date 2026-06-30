@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { callEel } from '../../../utils/eel-bridge';
+import { callApi } from '../../../utils/call-api';
 
 export interface AssetEntry {
   /** Unique key "<sceneIndex>-<subIndex>" for React list keys */
@@ -138,7 +138,7 @@ export function useProjectAssets(
     if (!projectId) return;
     setIsScanning(true);
     try {
-      const result = await callEel<DiskScanResult>('scan_assets_directory', projectId);
+      const result = await callApi<DiskScanResult>('scan_assets_directory', projectId);
       if (result && result.files) {
         const map: Record<string, DiskFileInfo> = {};
         result.files.forEach((f) => {

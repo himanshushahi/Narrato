@@ -10,7 +10,7 @@ import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
 import { CustomAudioPlayer } from '../../components/ui/CustomAudioPlayer';
 import { useEditorStore, LeftPanelTab } from '../../store/useEditorStore';
 import { useProjectStore } from '../../store/useProjectStore';
-import { callEel } from '../../utils/eel-bridge';
+import { callApi } from '../../utils/call-api';
 import { formatTime } from '../../features/ProjectEditor/constants';
 import { useProjectAssets, AssetEntry } from './hooks/useProjectAssets';
 
@@ -197,7 +197,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
     if (!projectId) return;
     setUploading(true);
     try {
-      const result = await callEel<{ success: boolean }>('upload_project_bg_music', projectId);
+      const result = await callApi<{ success: boolean }>('upload_project_bg_music', projectId);
       if (result?.success) {
         fetchProjectDetail(projectId);
       }

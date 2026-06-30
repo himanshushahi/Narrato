@@ -60,7 +60,7 @@ def main():
     else:
         os.environ["ENVIRONMENT"] = "production"
 
-    # 3. Load and launch Eel backend server app
+    # 3. Load and launch pywebview backend app
     from backend.core.app import main as run_app
     run_app()
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
-import { callEel, callEelOrThrow } from '../../../utils/eel-bridge';
+import { callApi, callApiOrThrow } from '../../../utils/call-api';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -110,7 +110,7 @@ export function useScriptEditing(
       .map(a => a.visual_path);
     if (previewPaths.length > 0 && projectId) {
       try {
-        await callEel('cleanup_preview_assets', projectId, previewPaths);
+        await callApi('cleanup_preview_assets', projectId, previewPaths);
       } catch (e) { /* best-effort */ }
     }
     setPreviewAssets({});
@@ -143,7 +143,7 @@ export function useScriptEditing(
       }
     }
 
-    const success = await callEel<boolean>('save_json_file', selectedProject.script_path, scriptData);
+    const success = await callApi<boolean>('save_json_file', selectedProject.script_path, scriptData);
     if (success) {
       // Build live manifest
       let sceneCounter = 0;
@@ -189,7 +189,7 @@ export function useScriptEditing(
         return { ...manifestScene, duration: sceneDuration, sub_visuals: mergedSubVisuals };
       });
 
-      await callEel<any>('save_project_with_cleanup', projectId, scriptData, liveManifest);
+      await callApi<any>('save_project_with_cleanup', projectId, scriptData, liveManifest);
 
       // Fetch assets only for genuinely new/changed sub-visuals
       const origManifest = originalManifestData && originalManifestData.length > 0 ? originalManifestData : manifestData;
@@ -208,7 +208,7 @@ export function useScriptEditing(
           );
           if (origMatch === -1 && lsv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(lsv.visual_type)) {
             try {
-              const result = await callEel<any>('fetch_single_scene_asset', projectId, mIdx, sIdx, lsv.visual_type, lsv.visual_cue || '');
+              const result = await callApi<any>('fetch_single_scene_asset', projectId, mIdx, sIdx, lsv.visual_type, lsv.visual_cue || '');
               if (!result?.success) {
                 assetDownloadFailures++;
                 console.warn(`Asset download failed for [${mIdx}:${sIdx}]: ${result?.error || 'Unknown error'}`);
@@ -233,7 +233,7 @@ export function useScriptEditing(
         .filter((a): a is { visual_path: string; visual_url: string } => !!a.visual_path)
         .map(a => a.visual_path);
       if (savedPreviewPaths.length > 0 && projectId) {
-        callEel('cleanup_preview_assets', projectId, savedPreviewPaths).catch(() => {});
+        callApi('cleanup_preview_assets', projectId, savedPreviewPaths).catch(() => {});
       }
       setPreviewAssets({});
 
@@ -271,18 +271,18 @@ export function useScriptEditing(
         (!scriptData.conclusion?.summary || scriptData.conclusion?.summary.trim() === '');
 
       if (isNewScene) {
-        res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
+        res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
           'add_scene_with_ai', scriptData,
           rewritePrompt || `Create content for ${scriptData.scenes[index].title || 'this scene'}`,
           selectedProject.language
         );
       } else {
         if (editingCard?.mode === 'visuals') {
-          res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
+          res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
             'regenerate_visuals_section', index, type, scriptData, rewritePrompt
           );
         } else {
-          res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
+          res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
             'regenerate_script_section', index, type, scriptData, rewritePrompt, selectedProject.language
           );
         }
@@ -317,7 +317,7 @@ export function useScriptEditing(
           setRewritingSection(null);
           addToast("AI content generated! Review and click Save to fetch visuals.", 'success');
         } else {
-          await callEel('save_json_file', selectedProject.script_path, updated);
+          await callApi('save_json_file', selectedProject.script_path, updated);
           setEditingCard(null);
           setRewritePrompt('');
           setRewritingSection(null);
@@ -338,7 +338,7 @@ export function useScriptEditing(
   const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
     try {
-      const res = await callEelOrThrow<{ success: boolean; data?: any; error?: string }>(
+      const res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
         'regenerate_sub_visual', sceneIdx, sectionType, subIdx, scriptData, prompt, selectedProject.language
       );
       if (res?.success && res.data) {
@@ -353,7 +353,7 @@ export function useScriptEditing(
         if (targetSection && targetSection.sub_visuals) {
           targetSection.sub_visuals[subIdx] = res.data;
           setScriptData(updated);
-          await callEel('save_json_file', selectedProject.script_path, updated);
+          await callApi('save_json_file', selectedProject.script_path, updated);
           addToast("Sub-Visual updated successfully!", 'success');
         }
       } else {
@@ -397,7 +397,7 @@ export function useScriptEditing(
 
     setPreviewingSubVisual(assetKey);
     try {
-      const result = await callEel<{ success: boolean; visual_path?: string; error?: string }>(
+      const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
         'preview_asset_download', projectId, visual_type, visual_cue
       );
       if (result?.success && result.visual_path) {
@@ -470,7 +470,7 @@ export function useScriptEditing(
     newManifestData.splice(manifestInsertIdx, 0, newManifestEntry);
     setManifestData(newManifestData);
 
-    await callEel<any>('save_project_with_cleanup', projectId, newScriptData, newManifestData);
+    await callApi<any>('save_project_with_cleanup', projectId, newScriptData, newManifestData);
     setEditingCard({ key: `scene_${insertPosition}`, mode: 'script' });
     setScriptChangedAlert(true);
   }, [projectId, scriptData, selectedProject, manifestData, setScriptData, setManifestData]);
@@ -483,7 +483,7 @@ export function useScriptEditing(
     // 1. Script scene removal + re-numbering
     // 2. Manifest entry removal
     // 3. Asset file cleanup + renaming to keep indices consistent
-    const result = await callEel<any>('delete_scene', projectId, idx);
+    const result = await callApi<any>('delete_scene', projectId, idx);
     if (result?.success) {
       await loadFiles(projectId);
       addToast("Scene deleted successfully! Please resume pipeline to sync audio.", 'success');
@@ -498,7 +498,7 @@ export function useScriptEditing(
     if (!projectId || !transcriptionData || !selectedProject?.transcription_path) return;
     setIsSavingSubtitles(true);
     try {
-      const success = await callEel<boolean>('save_json_file', selectedProject.transcription_path, transcriptionData);
+      const success = await callApi<boolean>('save_json_file', selectedProject.transcription_path, transcriptionData);
       if (success) {
         addToast("Subtitles saved successfully!", 'success');
         loadFiles(projectId);

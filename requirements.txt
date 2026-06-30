@@ -1,4 +1,4 @@
-eel>=0.16.0
+pywebview>=6.0
 faster-whisper>=1.0.3
 edge-tts>=6.1.9
 kokoro-onnx>=0.3.4
@@ -9,8 +9,6 @@ torch>=2.0.0
 ctranslate2>=4.7.2
 huggingface-hub>=1.15.0
 tqdm>=4.67.3
-bottle>=0.13.4
-gevent>=26.4.0
 requests>=2.31.0
 pillow>=10.2.0
 openai>=1.14.0

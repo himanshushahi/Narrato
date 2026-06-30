@@ -14,11 +14,11 @@ LOG_FORMAT = logging.Formatter(
     "[%(asctime)s] [%(levelname)s] [%(name)s:%(filename)s:%(lineno)d]: %(message)s"
 )
 
-# Eel stream callback (will be registered by bridge.py)
+# UI stream callback (registered by bridge.py)
 _log_callback = None
 
-class EelLogHandler(logging.Handler):
-    """Custom logging handler to push logs to Eel client."""
+class UILogHandler(logging.Handler):
+    """Custom logging handler to push logs to UI via webview bridge."""
     def emit(self, record):
         try:
             msg = self.format(record)
@@ -49,11 +49,11 @@ def setup_logger():
     file_handler.setFormatter(LOG_FORMAT)
     logger.addHandler(file_handler)
 
-    # Eel custom handler for UI streaming
-    eel_handler = EelLogHandler()
-    eel_handler.setLevel(logging.DEBUG)
-    eel_handler.setFormatter(LOG_FORMAT)
-    logger.addHandler(eel_handler)
+    # UI custom handler for webview streaming
+    ui_handler = UILogHandler()
+    ui_handler.setLevel(logging.DEBUG)
+    ui_handler.setFormatter(LOG_FORMAT)
+    logger.addHandler(ui_handler)
 
     return logger
 
@@ -61,7 +61,7 @@ def setup_logger():
 logger = setup_logger()
 
 def register_log_callback(callback):
-    """Register the Eel JS callback function for streaming logs to frontend."""
+    """Register the UI callback function for streaming logs to frontend."""
     global _log_callback
     _log_callback = callback
-    logger.info("Eel real-time log streaming callback registered successfully.")
+    logger.info("UI real-time log streaming callback registered successfully.")

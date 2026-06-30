@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useUIStore } from './useUIStore';
-import { callEel, waitForEelConnection } from '../utils/eel-bridge';
+import { callApi } from '../utils/call-api';
 
 export interface Project {
   id: string;
@@ -63,11 +63,11 @@ interface ProjectStore {
 }
 
 /**
- * Safely call an eel function, waiting for connection if needed.
- * Returns null if eel is not available or connection fails.
+ * Safely call a pywebview API function.
+ * Returns null if API is not available or call fails.
  */
-async function safeEelCall<T>(fnName: string, ...args: any[]): Promise<T | null> {
-  return callEel<T>(fnName, ...args);
+async function safeApiCall<T>(fnName: string, ...args: any[]): Promise<T | null> {
+  return callApi<T>(fnName, ...args);
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
@@ -85,17 +85,17 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   setTasks: (tasks) => set({ tasks }),
 
   fetchProjects: async () => {
-    const result = await safeEelCall<any[]>('db_get_projects');
+    const result = await safeApiCall<any[]>('db_get_projects');
     if (result) {
       set({ projects: result || [] });
     }
   },
 
   fetchProjectDetail: async (projectId) => {
-    const project = await safeEelCall<any>('db_get_project', projectId);
+    const project = await safeApiCall<any>('db_get_project', projectId);
     if (!project) return;
 
-    const tasksList = await safeEelCall<any[]>('db_get_project_tasks', projectId);
+    const tasksList = await safeApiCall<any[]>('db_get_project_tasks', projectId);
 
     const tasksMap: Record<string, Task> = {};
     if (tasksList) {
@@ -108,7 +108,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   deleteProject: async (projectId) => {
-    const result = await safeEelCall<boolean>('db_delete_project', projectId);
+    const result = await safeApiCall<boolean>('db_delete_project', projectId);
     if (result !== null) {
       get().fetchProjects();
       if (get().selectedProject?.id === projectId) {
@@ -121,7 +121,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   updateProject: async (projectId, updates) => {
-    const res = await safeEelCall<{ success: boolean; error?: string }>('db_update_project', projectId, updates);
+    const res = await safeApiCall<{ success: boolean; error?: string }>('db_update_project', projectId, updates);
     if (res?.success) {
       get().fetchProjectDetail(projectId);
       return true;
@@ -134,13 +134,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   startPipeline: async (projectId, steps) => {
-    // Wait for eel connection before starting pipeline
-    const connected = await waitForEelConnection(10000);
-    if (!connected) {
-      return { success: false, error: "Backend not connected. Please wait a moment and try again." };
-    }
-
-    const res = await safeEelCall<{ success: boolean; error?: string }>('start_processing_pipeline', projectId, steps);
+    const res = await safeApiCall<{ success: boolean; error?: string }>('start_processing_pipeline', projectId, steps);
     if (res) {
       get().fetchProjectDetail(projectId);
       return res;
@@ -149,11 +143,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   resumePipeline: async (projectId, steps) => {
-    const connected = await waitForEelConnection(10000);
-    if (!connected) {
-      return { success: false, error: "Backend not connected. Please wait a moment and try again." };
-    }
-    const res = await safeEelCall<{ success: boolean; error?: string }>('resume_processing_pipeline', projectId, steps);
+    const res = await safeApiCall<{ success: boolean; error?: string }>('resume_processing_pipeline', projectId, steps);
     if (res) {
       get().fetchProjectDetail(projectId);
       return res;
@@ -162,12 +152,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   cancelPipeline: async (projectId) => {
-    await safeEelCall('cancel_processing_pipeline', projectId);
+    await safeApiCall('cancel_processing_pipeline', projectId);
     get().fetchProjectDetail(projectId);
   },
 
   downloadFont: async (fontFamily: string) => {
-    const result = await safeEelCall<{ success: boolean; css_path?: string }>('download_google_font', fontFamily);
+    const result = await safeApiCall<{ success: boolean; css_path?: string }>('download_google_font', fontFamily);
     return result || { success: false, error: "Backend not connected" };
   }
 }));

@@ -8,7 +8,7 @@ import { usePipeline } from './hooks/usePipeline';
 import { useScriptEditing } from './hooks/useScriptEditing';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { ResizeHandle } from './components/ResizeHandle';
-import { callEel } from '../../utils/eel-bridge';
+import { callApi } from '../../utils/call-api';
 
 import { TopBar } from './TopBar';
 import { MediaSidebar } from './MediaSidebar';
@@ -199,7 +199,7 @@ export const EditorWorkspace: React.FC = () => {
 
   const handleResizeScene = useCallback(async (sceneIndex: number, newDurationSeconds: number) => {
     if (!id) return;
-    const result = await callEel<any>('update_scene_duration', id, sceneIndex, newDurationSeconds);
+    const result = await callApi<any>('update_scene_duration', id, sceneIndex, newDurationSeconds);
     if (result?.success) {
       loadFiles(id);
     }
@@ -217,7 +217,7 @@ export const EditorWorkspace: React.FC = () => {
     const [moved] = newOrder.splice(sceneFromIdx, 1);
     newOrder.splice(sceneToIdx, 0, moved);
 
-    const result = await callEel<any>('reorder_scenes', id, newOrder);
+    const result = await callApi<any>('reorder_scenes', id, newOrder);
     if (result?.success) {
       loadFiles(id);
     }

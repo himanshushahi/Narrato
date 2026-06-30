@@ -3,7 +3,6 @@ import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-ro
 import { Suspense } from 'react';
 import { useProjectStore } from './store/useProjectStore';
 import { useSettingsStore } from './store/useSettingsStore';
-import { waitForEelConnection } from './utils/eel-bridge';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const EditorWorkspace = React.lazy(() => import('./features/EditorWorkspace/EditorWorkspace'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
@@ -143,12 +142,7 @@ function AppContent() {
     useProjectStore.getState().fetchProjects();
     useSettingsStore.getState().fetchSettings();
 
-    // Wait for eel connection to be established (with timeout)
-    waitForEelConnection(15000).then((connected) => {
-      if (!connected) {
-        console.warn("[App] Backend connection timeout - features may not work until restart");
-      }
-    });
+    // Connection is handled by pywebview automatically
   }, []);
 
   // Full-screen editor layout (no sidebar, no terminal)
