@@ -20,6 +20,20 @@ KOKORO_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/downlo
 def check_kokoro_assets():
     return KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists()
 
+def delete_kokoro_assets():
+    deleted = False
+    try:
+        if KOKORO_MODEL_PATH.exists():
+            KOKORO_MODEL_PATH.unlink()
+            deleted = True
+        if KOKORO_VOICES_PATH.exists():
+            KOKORO_VOICES_PATH.unlink()
+            deleted = True
+        return deleted
+    except Exception as e:
+        logger.error(f"Failed to delete Kokoro assets: {e}")
+        return False
+
 def download_file_with_progress(url, dest_path, progress_callback=None, cancel_event=None):
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Downloading {url} to {dest_path}")
@@ -205,6 +219,8 @@ def _resolve_tts_settings(project_dict):
         voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
         if not voice:
             voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
+    elif engine == "piper":
+        voice = project_settings.get("piper_voice") or project_dict.get("piper_voice") or get_setting("piper_voice") or "hi_IN-rohan"
     else:
         voice = project_settings.get("kokoro_voice") or project_dict.get("tts_voice") or get_setting("kokoro_voice") or "af_bella"
 
@@ -318,6 +334,13 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             if engine == "kokoro":
                 future = executor.submit(generate_kokoro_tts, sec['text'], str(seg_file), voice=voice, speed=speed, lang=kokoro_lang)
+            elif engine == "piper":
+                from backend.tts import generate_tts as piper_tts
+                def _run_piper():
+                    out_path = piper_tts(sec['text'], voice, speed=speed)
+                    import shutil
+                    shutil.move(out_path, str(seg_file))
+                future = executor.submit(_run_piper)
             else:
                 future = executor.submit(generate_edge_tts, sec['text'], str(seg_file), voice=voice, speed=str(speed), pitch=pitch)
                 

@@ -23,6 +23,7 @@ datas += collect_data_files('kokoro_onnx')
 datas += collect_data_files('language_tags')
 datas += collect_data_files('phonemizer')
 datas += collect_data_files('espeakng_loader')
+datas += collect_data_files('piper')
 
 a = Analysis(
     ['main.py'],
@@ -42,6 +43,7 @@ a = Analysis(
         'torch',
         'requests',
         'PIL',
+        'piper',
     ],
     hookspath=[],
     hooksconfig={},

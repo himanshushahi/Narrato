@@ -24,7 +24,7 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
   layoutId = 'active-tab-indicator'
 }) => {
   return (
-    <div className={`flex space-x-1 p-1 bg-[var(--color-brand-800)]/50 border border-slate-800/50 rounded-lg backdrop-blur-md ${className}`}>
+    <div className={`flex flex-wrap gap-1 p-1 bg-[var(--color-brand-800)]/50 border border-slate-800/50 rounded-lg backdrop-blur-md ${className}`}>
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         const isDisabled = tab.disabled;

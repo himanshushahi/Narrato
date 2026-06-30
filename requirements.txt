@@ -12,4 +12,4 @@ tqdm>=4.67.3
 requests>=2.31.0
 pillow>=10.2.0
 openai>=1.14.0
-
+piper-tts>=1.4.0

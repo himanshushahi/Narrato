@@ -378,6 +378,18 @@ class ApiBridge:
     def check_kokoro_downloaded(self) -> bool:
         return check_kokoro_assets()
 
+    def delete_kokoro_models(self) -> dict:
+        try:
+            from backend.pipeline.tts import delete_kokoro_assets
+            success = delete_kokoro_assets()
+            if success:
+                return {"success": True, "message": "Kokoro models deleted successfully."}
+            else:
+                return {"success": False, "error": "Models not found or could not be deleted."}
+        except Exception as e:
+            logger.error(f"Kokoro model delete failed: {e}")
+            return {"success": False, "error": str(e)}
+
     def start_kokoro_download(self) -> dict:
         global _kokoro_download_active
         if _kokoro_download_active:
@@ -727,7 +739,7 @@ class ApiBridge:
         return result
 
     def generate_voice_preview(self, text: str, engine: str, voice: str, speed: str, pitch: str, language: str) -> dict:
-        logger.info(f"Bridge API: generate_voice_preview voice={voice}")
+        logger.info(f"Bridge API: generate_voice_preview engine={engine} voice={voice}")
         try:
             from backend.core.config import get_temp_dir
             from backend.pipeline.tts import generate_edge_tts, generate_kokoro_tts
@@ -745,6 +757,15 @@ class ApiBridge:
                     return {"success": False, "error": "Kokoro models are not downloaded."}
                 kokoro_lang = "hi" if language == "hi" else "en-us"
                 generate_kokoro_tts(text, str(preview_file), voice=voice, speed=speed_float, lang=kokoro_lang)
+            elif engine == "piper":
+                from backend.tts import generate_tts as piper_tts
+                try:
+                    out_path = piper_tts(text, voice, speed=speed_float)
+                    import shutil
+                    shutil.move(out_path, str(preview_file))
+                except Exception as e:
+                    logger.error(f"Piper preview failed: {e}")
+                    return {"success": False, "error": str(e)}
             else:
                 generate_edge_tts(text, str(preview_file), voice=voice, speed=str(speed), pitch=str(pitch))
             if preview_file.exists():
@@ -753,6 +774,51 @@ class ApiBridge:
             logger.error(f"Preview generation failed: {e}")
             return {"success": False, "error": str(e)}
         return {"success": False, "error": "Unknown error generating audio."}
+
+    def download_piper_model(self, voice_id: str) -> dict:
+        """Trigger Piper model and config download in the background"""
+        try:
+            logger.info(f"Bridge API: download_piper_model voice={voice_id}")
+            from backend.tts import download_piper_voice
+            res = download_piper_voice(voice_id)
+            return res
+        except Exception as e:
+            logger.error(f"Piper model download failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def check_piper_model(self, voice_id: str) -> bool:
+        """Check if a Piper model is already downloaded."""
+        try:
+            from backend.tts import check_piper_voice
+            return check_piper_voice(voice_id)
+        except Exception as e:
+            logger.error(f"Piper model check failed: {e}")
+            return False
+
+    def delete_piper_model(self, voice_id: str) -> dict:
+        """Delete a downloaded Piper model."""
+        try:
+            logger.info(f"Bridge API: delete_piper_model voice={voice_id}")
+            from backend.tts import delete_piper_voice
+            success = delete_piper_voice(voice_id)
+            if success:
+                return {"success": True, "message": "Model deleted successfully."}
+            else:
+                return {"success": False, "error": "Model not found or could not be deleted."}
+        except Exception as e:
+            logger.error(f"Piper model delete failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    def generate_piper_tts(self, text: str, voice_id: str, quality: str = "medium", speed: float = 1.0) -> dict:
+        logger.info(f"Bridge API: generate_piper_tts voice={voice_id}")
+        from backend.tts import generate_tts
+        try:
+            audio_path = generate_tts(text, voice_id, speed=speed)
+            return {"success": True, "audio_path": audio_path}
+        except Exception as e:
+            logger.error(f"Piper TTS generation failed: {e}")
+            return {"success": False, "error": str(e)}
+
 
     def get_ytdlp_version(self) -> dict:
         from backend.core.config import get_ytdlp_path

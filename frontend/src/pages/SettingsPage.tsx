@@ -4,6 +4,7 @@ import { useUIStore } from '../store/useUIStore';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GlowButton } from '../components/ui/GlowButton';
 import { AIProviderCard } from '../features/Settings/components/AIProviderCard';
+import { PiperTTS } from '../features/Settings/components/PiperTTS';
 import { AnimatedTabs, Tab } from '../components/ui/AnimatedTabs';
 import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
@@ -37,8 +38,10 @@ export const SettingsPage: React.FC = () => {
   const [formData, setFormData] = useState<SettingsType>({ ...settings });
   const [saveStatus, setSaveStatus] = useState('');
   const [kokoroInstalled, setKokoroInstalled] = useState(false);
+  const [piperInstalled, setPiperInstalled] = useState(false);
   const [whisperInstalled, setWhisperInstalled] = useState(false);
   const [gpuAvailable, setGpuAvailable] = useState(false);
+
 
   // yt-dlp version state
   const [ytdlpVersion, setYtdlpVersion] = useState<string | null>(null);
@@ -132,6 +135,17 @@ export const SettingsPage: React.FC = () => {
     setKokoroInstalled(!!ok);
   };
 
+  // Check Piper model downloads
+  useEffect(() => {
+    checkPiperAssets();
+  }, [formData.piper_voice]);
+
+  const checkPiperAssets = async () => {
+    if (!formData.piper_voice) return;
+    const ok = await callApi<boolean>('check_piper_model', formData.piper_voice);
+    setPiperInstalled(!!ok);
+  };
+
   // Check Whisper model downloads
   useEffect(() => {
     checkWhisperAssets();
@@ -156,10 +170,12 @@ export const SettingsPage: React.FC = () => {
         if (lang === 'hi') {
           updated.tts_voice = 'hi-IN-SwaraNeural';
           updated.kokoro_voice = 'hf_alpha';
+          updated.piper_voice = 'hi_IN-rohan';
           updated.whisper_model = 'collabora/faster-whisper-small-hindi';
         } else {
           updated.tts_voice = 'en-US-AndrewNeural';
           updated.kokoro_voice = 'af_bella';
+          updated.piper_voice = 'en_US-lessac';
           updated.whisper_model = 'base';
         }
       }
@@ -184,7 +200,7 @@ export const SettingsPage: React.FC = () => {
     setPreviewError('');
     setPreviewAudioUrl('');
     try {
-      const voice = formData.tts_engine === 'kokoro' ? formData.kokoro_voice : formData.tts_voice;
+      const voice = formData.tts_engine === 'kokoro' ? formData.kokoro_voice : formData.tts_engine === 'piper' ? formData.piper_voice : formData.tts_voice;
       const res = await callApi<{ success: boolean; audio_path?: string; error?: string }>('generate_voice_preview',
         previewText,
         formData.tts_engine,
@@ -242,6 +258,7 @@ export const SettingsPage: React.FC = () => {
   ];
 
   const ttsEngineTabs: Tab[] = [
+    { id: 'piper', label: 'Piper (Offline Fast)' },
     { id: 'kokoro', label: 'Kokoro (Offline)' },
     { id: 'edge', label: 'Edge-TTS (Online)' }
   ];
@@ -559,16 +576,65 @@ export const SettingsPage: React.FC = () => {
                   <VscFeedback className="text-base text-[var(--color-accent-primary)]" />
                   Voice Synthesis (TTS)
                 </h2>
-                {formData.tts_engine === 'kokoro' && (
-                  <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${kokoroInstalled
-                    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
-                    : kokoroDownload.active
-                      ? 'bg-blue-950/40 text-blue-400 border-blue-800/30 animate-pulse'
+                
+                <div className="flex items-center gap-2">
+                  {((formData.tts_engine === 'kokoro' && kokoroInstalled) || 
+                    (formData.tts_engine === 'piper' && piperInstalled)) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const engine = formData.tts_engine;
+                        const title = engine === 'kokoro' ? "Delete Kokoro Models" : "Delete Piper Model";
+                        const msg = engine === 'kokoro' 
+                          ? "Are you sure you want to delete the Kokoro models (~120MB)? You will need to download them again to use offline Kokoro generation."
+                          : "Are you sure you want to delete this downloaded Piper model? You will need to download it again to use it.";
+                        
+                        showConfirm(title, msg, async () => {
+                          if (engine === 'kokoro') {
+                            const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_kokoro_models');
+                            if (res?.success) {
+                              setKokoroInstalled(false);
+                              useUIStore.getState().addToast('Kokoro models deleted successfully.', 'success');
+                            } else {
+                              useUIStore.getState().addToast(res?.error || 'Failed to delete models.', 'error');
+                            }
+                          } else {
+                            const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_piper_model', formData.piper_voice);
+                            if (res?.success) {
+                              setPiperInstalled(false);
+                              useUIStore.getState().addToast('Model deleted successfully.', 'success');
+                            } else {
+                              useUIStore.getState().addToast(res?.error || 'Failed to delete model.', 'error');
+                            }
+                          }
+                        });
+                      }}
+                      className="text-rose-500/70 hover:text-rose-400 p-1 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
+                      title={`Delete ${formData.tts_engine === 'kokoro' ? 'Kokoro' : 'Piper'} Model`}
+                    >
+                      <VscTrash className="text-lg" />
+                    </button>
+                  )}
+
+                  {formData.tts_engine === 'kokoro' && (
+                    <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${kokoroInstalled
+                      ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
+                      : kokoroDownload.active
+                        ? 'bg-blue-950/40 text-blue-400 border-blue-800/30 animate-pulse'
+                        : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
+                      }`}>
+                      {kokoroInstalled ? 'Installed' : kokoroDownload.active ? 'Downloading' : 'Missing Assets'}
+                    </span>
+                  )}
+                  {formData.tts_engine === 'piper' && (
+                    <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${piperInstalled
+                      ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
                       : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
-                    }`}>
-                    {kokoroInstalled ? 'Installed' : kokoroDownload.active ? 'Downloading' : 'Missing Assets'}
-                  </span>
-                )}
+                      }`}>
+                      {piperInstalled ? 'Installed' : 'Missing Assets'}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -605,6 +671,14 @@ export const SettingsPage: React.FC = () => {
                       />
                     </div>
                   </div>
+                ) : formData.tts_engine === 'piper' ? (
+                  <PiperTTS 
+                    appLanguage={appLanguage} 
+                    formData={formData} 
+                    handleSelectChange={handleSelectChange}
+                    piperInstalled={piperInstalled}
+                    onInstallStatusChange={setPiperInstalled}
+                  />
                 ) : (
                   <div className="space-y-4">
                     <CustomSelect

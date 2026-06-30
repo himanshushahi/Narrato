@@ -15,11 +15,12 @@ interface VoiceTabProps {
 
 // ─── Option lists ───────────────────────────────────────────
 
-import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../../Settings/voiceConstants';
+import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, PIPER_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../../Settings/voiceConstants';
 
 const ENGINE_TABS: Tab[] = [
   { id: 'edge', label: 'Edge-TTS (Online)' },
   { id: 'kokoro', label: 'Kokoro (Offline)' },
+  { id: 'piper', label: 'Piper (Offline)' },
 ];
 
 // ─── Voice Presets ───────────────────────────────────────────
@@ -31,6 +32,7 @@ interface VoicePreset {
   engine: string;
   voice: string;
   kokoroVoice?: string;
+  piperVoice?: string;
   color: string;
   lang: 'hi' | 'en';
 }
@@ -111,6 +113,28 @@ const VOICE_PRESETS: VoicePreset[] = [
     kokoroVoice: 'hm_omega',
     color: 'from-cyan-600 to-sky-700',
     lang: 'hi',
+  },
+  {
+    id: 'priyamvada_piper',
+    label: 'Priyamvada',
+    desc: 'Hindi female — Piper',
+    engine: 'piper',
+    voice: 'hi-IN-SwaraNeural',
+    kokoroVoice: '',
+    piperVoice: 'hi_IN-priyamvada',
+    color: 'from-pink-600 to-rose-700',
+    lang: 'hi',
+  },
+  {
+    id: 'lessac_piper',
+    label: 'Lessac',
+    desc: 'US female — Piper',
+    engine: 'piper',
+    voice: 'en-US-EmmaNeural',
+    kokoroVoice: '',
+    piperVoice: 'en_US-lessac',
+    color: 'from-teal-600 to-emerald-700',
+    lang: 'en',
   },
 ];
 
@@ -203,12 +227,15 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const filteredKokoroVoices = KOKORO_VOICE_OPTIONS.filter(opt =>
     isHindiLang ? opt.value.startsWith('h') : !opt.value.startsWith('h')
   );
+  const filteredPiperVoices = PIPER_VOICE_OPTIONS.filter(opt =>
+    isHindiLang ? opt.value.startsWith('hi') : !opt.value.startsWith('hi')
+  );
 
   // Clear preview when settings change
   useEffect(() => {
     setPreviewAudioUrl('');
     setPreviewError('');
-  }, [engine, projectVal('tts_voice'), projectVal('kokoro_voice'), projectVal('tts_speed'), projectVal('tts_pitch')]);
+  }, [engine, projectVal('tts_voice'), projectVal('kokoro_voice'), projectVal('piper_voice'), projectVal('tts_speed'), projectVal('tts_pitch')]);
 
   // ── Preset handler ──
   const applyPreset = (preset: VoicePreset) => {
@@ -216,7 +243,9 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     updated.tts_engine = preset.engine;
     if (preset.engine === 'kokoro' && preset.kokoroVoice) {
       updated.kokoro_voice = preset.kokoroVoice;
-      // Also set tts_voice to a corresponding default for preview
+      updated.tts_voice = preset.voice;
+    } else if (preset.engine === 'piper' && preset.piperVoice) {
+      updated.piper_voice = preset.piperVoice;
       updated.tts_voice = preset.voice;
     } else {
       updated.tts_voice = preset.voice;
@@ -235,6 +264,8 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
       const effectiveEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
       const effectiveVoice = effectiveEngine === 'kokoro'
         ? (projectVal('kokoro_voice') || globalSettings.kokoro_voice || 'af_bella')
+        : effectiveEngine === 'piper'
+        ? (projectVal('piper_voice') || globalSettings.piper_voice || 'hi_IN-rohan')
         : (projectVal('tts_voice') || globalSettings.tts_voice || 'hi-IN-SwaraNeural');
       const effectiveSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
       const effectivePitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
@@ -269,6 +300,10 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     if (preset.engine === 'kokoro') {
       const pVoice = projectVal('kokoro_voice') || globalSettings.kokoro_voice || '';
       return pVoice === preset.kokoroVoice;
+    }
+    if (preset.engine === 'piper') {
+      const pVoice = projectVal('piper_voice') || globalSettings.piper_voice || '';
+      return pVoice === preset.piperVoice;
     }
     const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || '';
     return pVoice === preset.voice;
@@ -324,7 +359,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
               onChange={(v) => updateKey('tts_voice', v)}
             />
           </OverrideRow>
-        ) : (
+        ) : engine === 'kokoro' ? (
           <OverrideRow
             label="Voice"
             globalValue={globalSettings.kokoro_voice || 'hf_alpha'}
@@ -335,6 +370,19 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
               options={filteredKokoroVoices}
               value={projectVal('kokoro_voice') || globalSettings.kokoro_voice || 'af_bella'}
               onChange={(v) => updateKey('kokoro_voice', v)}
+            />
+          </OverrideRow>
+        ) : (
+          <OverrideRow
+            label="Voice"
+            globalValue={globalSettings.piper_voice || 'hi_IN-rohan'}
+            projectValue={projectVal('piper_voice')}
+            onReset={() => resetKey('piper_voice')}
+          >
+            <CustomSelect
+              options={filteredPiperVoices}
+              value={projectVal('piper_voice') || globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac')}
+              onChange={(v) => updateKey('piper_voice', v)}
             />
           </OverrideRow>
         )}
@@ -450,7 +498,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
                 </div>
                 <p className="text-[8px] text-zinc-500">{preset.desc}</p>
                 <span className="text-[7px] uppercase tracking-wider text-zinc-600 font-bold mt-0.5">
-                  {preset.engine === 'kokoro' ? 'Kokoro' : 'Edge'}
+                  {preset.engine === 'kokoro' ? 'Kokoro' : preset.engine === 'piper' ? 'Piper' : 'Edge'}
                 </span>
               </motion.button>
             );
