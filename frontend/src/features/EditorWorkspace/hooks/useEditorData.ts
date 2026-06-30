@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { callApi } from '../../../utils/call-api';
+import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -53,13 +54,13 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             const enrichedSubVisuals = (scene.sub_visuals || []).map((sv: any) => ({
               ...sv,
               visual_url: sv.visual_path
-                ? `/api/media?path=${encodeURIComponent(sv.visual_path)}`
+                ? getMediaUrlSync(sv.visual_path)
                 : ''
             }));
             return {
               ...scene,
               visual_url: scene.visual_path
-                ? `/api/media?path=${encodeURIComponent(scene.visual_path)}`
+                ? getMediaUrlSync(scene.visual_path)
                 : '',
               sub_visuals: enrichedSubVisuals
             };
@@ -261,7 +262,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const getAudioSourceUrl = useCallback(() => {
     const project = useProjectStore.getState().selectedProject;
     if (project?.audio_path) {
-      return `/api/media?path=${encodeURIComponent(project.audio_path)}&t=${reloadKey}`;
+      return `${getMediaUrlSync(project.audio_path)}&t=${reloadKey}`;
     }
     return '';
   }, [reloadKey]);
@@ -269,7 +270,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const getBGMUrl = useCallback(() => {
     const project = useProjectStore.getState().selectedProject;
     if (project?.bg_music_path) {
-      return `/api/media?path=${encodeURIComponent(project.bg_music_path)}&t=${reloadKey}`;
+      return `${getMediaUrlSync(project.bg_music_path)}&t=${reloadKey}`;
     }
     return '';
   }, [reloadKey]);

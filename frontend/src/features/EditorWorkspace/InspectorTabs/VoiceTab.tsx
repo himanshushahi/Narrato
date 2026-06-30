@@ -7,6 +7,7 @@ import { CustomSelect } from '../../../components/ui/CustomSelect';
 import { CustomRange } from '../../../components/ui/CustomRange';
 import { AnimatedTabs, Tab } from '../../../components/ui/AnimatedTabs';
 import { callApi } from '../../../utils/call-api';
+import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 interface VoiceTabProps {
   localProjectSettings: any;
@@ -282,7 +283,8 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
       );
 
       if (res?.success && res.audio_path) {
-        setPreviewAudioUrl(`/api/media?path=${encodeURIComponent(res.audio_path)}&t=${Date.now()}`);
+        const audioUrl = getMediaUrlSync(res.audio_path);
+        setPreviewAudioUrl(`${audioUrl}&t=${Date.now()}`);
       } else {
         setPreviewError(res?.error || 'Failed to generate voice preview.');
       }

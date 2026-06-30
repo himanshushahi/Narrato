@@ -9,6 +9,7 @@ import { useScriptEditing } from './hooks/useScriptEditing';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { ResizeHandle } from './components/ResizeHandle';
 import { callApi } from '../../utils/call-api';
+import { getMediaUrlSync } from '../../utils/mediaUrl';
 
 import { TopBar } from './TopBar';
 import { MediaSidebar } from './MediaSidebar';
@@ -231,11 +232,11 @@ export const EditorWorkspace: React.FC = () => {
     onOpenCommandPalette: () => setCommandPaletteOpen(true),
   });
 
-  const audioUrl = selectedProject?.audio_path
-    ? `/api/media?path=${encodeURIComponent(selectedProject.audio_path)}&t=${reloadKey}`
+  const audioUrl = selectedProject?.audio_path 
+    ? `${getMediaUrlSync(selectedProject.audio_path)}&t=${reloadKey}`
     : '';
   const bgMusicUrl = selectedProject?.bg_music_path
-    ? `/api/media?path=${encodeURIComponent(selectedProject.bg_music_path)}&t=${reloadKey}`
+    ? `${getMediaUrlSync(selectedProject.bg_music_path)}&t=${reloadKey}`
     : '';
 
   // Safe defaults for when selectedProject is null

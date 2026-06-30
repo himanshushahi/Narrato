@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { callApi, callApiOrThrow } from '../../../utils/call-api';
+import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -82,7 +83,7 @@ export function useScriptEditing(
             const link = document.createElement('link');
             link.id = id;
             link.rel = 'stylesheet';
-            link.href = `/api/media?path=${encodeURIComponent(res.css_path)}`;
+            link.href = getMediaUrlSync(res.css_path);
             document.head.appendChild(link);
           }
         }
@@ -402,7 +403,7 @@ export function useScriptEditing(
       );
       if (result?.success && result.visual_path) {
         const vPath: string = result.visual_path;
-        const visualUrl = `/api/media?path=${encodeURIComponent(vPath)}`;
+        const visualUrl = getMediaUrlSync(vPath);
         setPreviewAssets(prev => ({
           ...prev,
           [assetKey]: { visual_path: vPath, visual_url: visualUrl }

@@ -4,6 +4,7 @@ import { CustomSelect } from '../../components/ui/CustomSelect';
 import { CustomColorInput } from '../../components/ui/CustomColorInput';
 import { CustomCheckbox } from '../../components/ui/CustomCheckbox';
 import { CustomRange } from '../../components/ui/CustomRange';
+import { getMediaUrlSync } from '../../utils/mediaUrl';
 import { VscLoading, VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -192,7 +193,7 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
         const link = document.createElement('link');
         link.id = id;
         link.rel = 'stylesheet';
-        link.href = `/api/media?path=${encodeURIComponent(res.css_path)}`;
+        link.href = getMediaUrlSync(res.css_path);
         document.head.appendChild(link);
       }
     } else {

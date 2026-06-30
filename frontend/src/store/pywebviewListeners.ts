@@ -139,4 +139,10 @@ export const initializePywebviewListeners = () => {
   useProjectStore.getState().fetchProjects();
   useSettingsStore.getState().fetchSettings();
   useSettingsStore.getState().checkGpuAvailability();
+  
+  if (typeof window.pywebview?.api?.get_file_server_port === 'function') {
+    window.pywebview.api.get_file_server_port().then((port: number) => {
+      (window as any).__file_server_port__ = port;
+    }).catch(console.error);
+  }
 };

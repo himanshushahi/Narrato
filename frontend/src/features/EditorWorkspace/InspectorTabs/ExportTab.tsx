@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
+import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import {
   VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscWarning, VscFlame, VscClose
 } from 'react-icons/vsc';
@@ -32,7 +33,7 @@ export const ExportTab: React.FC<ExportTabProps> = ({
   const [showPreview, setShowPreview] = useState(false);
   const { selectedProject } = useProjectStore();
 
-  const videoUrl = selectedProject?.video_path ? `/api/media?path=${encodeURIComponent(selectedProject.video_path)}` : null;
+  const videoUrl = selectedProject?.video_path ? getMediaUrlSync(selectedProject.video_path) : null;
 
   const renderStage = (stage: typeof PIPELINE_STAGES[0], idx: number) => {
     const task = tasks[stage.id];

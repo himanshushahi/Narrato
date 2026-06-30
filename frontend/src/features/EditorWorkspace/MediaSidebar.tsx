@@ -11,6 +11,7 @@ import { CustomAudioPlayer } from '../../components/ui/CustomAudioPlayer';
 import { useEditorStore, LeftPanelTab } from '../../store/useEditorStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { callApi } from '../../utils/call-api';
+import { getMediaUrlSync } from '../../utils/mediaUrl';
 import { formatTime } from '../../features/ProjectEditor/constants';
 import { useProjectAssets, AssetEntry } from './hooks/useProjectAssets';
 
@@ -180,8 +181,8 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
   );
 
   const bgMusicPath = selectedProject?.bg_music_path || '';
-  const bgMusicUrl = bgMusicPath
-    ? `/api/media?path=${encodeURIComponent(bgMusicPath)}&t=${reloadTrigger}`
+  const bgMusicUrl = bgMusicPath 
+    ? `${getMediaUrlSync(bgMusicPath)}&t=${reloadTrigger}` 
     : '';
   const bgMusicFilename = bgMusicPath ? bgMusicPath.split(/[/\\]/).pop() || 'Unknown' : '';
   const bgMusicExt = bgMusicPath ? (bgMusicPath.split('.').pop() || '').toLowerCase() : '';

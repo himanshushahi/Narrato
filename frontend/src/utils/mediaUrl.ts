@@ -1,26 +1,26 @@
-const _cachedPort: { port: number | null } = { port: null };
-let _fetching = false;
+declare global {
+  interface Window {
+    __file_server_port__?: number;
+  }
+}
 
-async function _resolvePort(): Promise<number | null> {
-  if (_cachedPort.port !== null) return _cachedPort.port;
-  if (_fetching) return null;
-  _fetching = true;
-  try {
-    if (window.pywebview?.api && typeof (window.pywebview.api as any).get_file_server_port === 'function') {
-      const port = await (window.pywebview.api as any).get_file_server_port();
-      _cachedPort.port = port;
-      return port;
-    }
-  } catch {}
-  _fetching = false;
-  return null;
+export function getMediaUrlSync(filePath: string | undefined | null): string {
+  if (!filePath) return '';
+  if (window.__file_server_port__) {
+    return `http://127.0.0.1:${window.__file_server_port__}/?path=${encodeURIComponent(filePath)}`;
+  }
+  return `/api/media?path=${encodeURIComponent(filePath)}`;
 }
 
 export async function getMediaUrl(filePath: string): Promise<string> {
   if (!filePath) return '';
-  const port = await _resolvePort();
-  if (port) {
-    return `http://localhost:${port}/api/media?path=${encodeURIComponent(filePath)}&t=${Date.now()}`;
+  // Ensure the port is fetched if not yet available, though typically pywebviewready handles this
+  if (!window.__file_server_port__ && window.pywebview?.api?.get_file_server_port) {
+    try {
+      window.__file_server_port__ = await window.pywebview.api.get_file_server_port();
+    } catch {}
   }
-  return `/api/media?path=${encodeURIComponent(filePath)}&t=${Date.now()}`;
+  const baseUrl = getMediaUrlSync(filePath);
+  return `${baseUrl}&t=${Date.now()}`;
 }
+

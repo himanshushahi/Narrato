@@ -17,6 +17,7 @@ import {
 } from 'react-icons/vsc';
 import { MdOutlineMovie } from 'react-icons/md';
 import { callApi } from '../utils/call-api';
+import { getMediaUrlSync } from '../utils/mediaUrl';
 
 export const SettingsPage: React.FC = () => {
   const settings = useSettingsStore((state) => state.settings);
@@ -202,8 +203,8 @@ export const SettingsPage: React.FC = () => {
       );
 
       if (res?.success && res.audio_path) {
-        // Narrato serves previews via /api/media
-        const audioUrl = `/api/media?path=${encodeURIComponent(res.audio_path)}`;
+        // Narrato serves previews via /api/media (or local file server in prod)
+        const audioUrl = getMediaUrlSync(res.audio_path);
         setPreviewAudioUrl(`${audioUrl}&t=${Date.now()}`);
       } else {
         setPreviewError(res?.error || 'Failed to generate voice preview.');
