@@ -21,6 +21,7 @@ from backend.pipeline.ai import (
     SCRIPT_INTRO_JSON_SCHEMA, SCRIPT_CONCLUSION_JSON_SCHEMA, SCRIPT_SCENE_JSON_SCHEMA,
     SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, clean_json_response, _get_web_context, _generate_search_query
 )
+from backend.core.power import power_manager, auto_instrument_bridge
 
 ui_queue = queue.Queue()
 _kokoro_download_active = False
@@ -34,6 +35,7 @@ def ui_update_loop():
             while not ui_queue.empty():
                 func_name, args = ui_queue.get_nowait()
                 try:
+                    power_manager.ping()
                     _call_js_func(func_name, *args)
                 except Exception as e:
                     print(f"UI queue dispatch error: {e}")
@@ -82,6 +84,7 @@ def _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_k
         return {"success": False, "error": str(e)}
 
 
+@auto_instrument_bridge
 class ApiBridge:
     def __init__(self, window_id: int = 0):
         self.window_id = window_id

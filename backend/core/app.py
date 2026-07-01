@@ -14,6 +14,7 @@ from backend.core.bridge import ApiBridge, setup_bridge_callbacks, ui_update_loo
 from backend.core.logger import logger
 from backend.core.file_server import start_file_server, get_file_server_port
 from backend.core.config import BASE_DIR, BUNDLE_DIR
+from backend.core.power import power_manager
 
 NUM_WINDOWS = int(os.environ.get("NARRATO_NUM_WINDOWS", "1"))
 MUTEX_NAME = "Local\\Narrato_SingleInstance"
@@ -85,6 +86,7 @@ def _create_windows(url_or_path):
 def main():
     logger.info("Starting Narrato...")
 
+    power_manager.start()
     init_db()
 
     setup_bridge_callbacks()

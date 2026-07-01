@@ -7,6 +7,7 @@ from backend.core.logger import logger
 from backend.database.db import (
     get_project, update_project, create_task, update_task, get_project_tasks, get_task
 )
+from backend.core.power import power_manager
 
 class QueueManager:
     def __init__(self):
@@ -184,54 +185,58 @@ class QueueManager:
             update_project(project_id, status='processing')
 
             success = True
-            for step in steps:
-                if cancel_event.is_set():
-                    logger.info("Cancel event detected between pipeline steps.")
-                    success = False
-                    break
+            power_manager.acquire()
+            try:
+                for step in steps:
+                    if cancel_event.is_set():
+                        logger.info("Cancel event detected between pipeline steps.")
+                        success = False
+                        break
 
-                task_id = f"{project_id}_{step}"
-                update_task(task_id, status='running', progress=0.0, message='Starting...')
-                self._broadcast_task_progress(project_id, step, 0.0, 'Starting...', 'running')
+                    task_id = f"{project_id}_{step}"
+                    update_task(task_id, status='running', progress=0.0, message='Starting...')
+                    self._broadcast_task_progress(project_id, step, 0.0, 'Starting...', 'running')
 
-                try:
-                    # Run the specific pipeline step
-                    self._execute_step(project_id, step, cancel_event)
-                    
-                    update_task(task_id, status='completed', progress=100.0, message='Step completed.')
-                    self._broadcast_task_progress(project_id, step, 100.0, 'Step completed.', 'completed')
-                except InterruptedError:
-                    logger.warning(f"Step {step} interrupted/cancelled.")
-                    update_task(task_id, status='failed', progress=0.0, error_message='Step cancelled by user.', message='Cancelled')
-                    self._broadcast_task_progress(project_id, step, 0.0, 'Cancelled', 'failed')
-                    success = False
-                    break
-                except Exception as e:
-                    logger.error(f"Error executing step {step} for project {project_id}: {e}", exc_info=True)
-                    err_msg = str(e)
-                    stack = traceback.format_exc()
-                    
-                    # Don't reset progress to 0.0 on failure
-                    update_task(task_id, status='failed', error_message=err_msg, message=f'Failed: {err_msg[:50]}...')
-                    
-                    # Broadcast the last known progress instead of 0.0
-                    task_rec = get_task(task_id)
-                    cur_prog = task_rec['progress'] if task_rec else 0.0
-                    self._broadcast_task_progress(project_id, step, cur_prog, f'Failed: {err_msg[:50]}...', 'failed')
-                    
-                    success = False
-                    break
+                    try:
+                        # Run the specific pipeline step
+                        self._execute_step(project_id, step, cancel_event)
+                        
+                        update_task(task_id, status='completed', progress=100.0, message='Step completed.')
+                        self._broadcast_task_progress(project_id, step, 100.0, 'Step completed.', 'completed')
+                    except InterruptedError:
+                        logger.warning(f"Step {step} interrupted/cancelled.")
+                        update_task(task_id, status='failed', progress=0.0, error_message='Step cancelled by user.', message='Cancelled')
+                        self._broadcast_task_progress(project_id, step, 0.0, 'Cancelled', 'failed')
+                        success = False
+                        break
+                    except Exception as e:
+                        logger.error(f"Error executing step {step} for project {project_id}: {e}", exc_info=True)
+                        err_msg = str(e)
+                        stack = traceback.format_exc()
+                        
+                        # Don't reset progress to 0.0 on failure
+                        update_task(task_id, status='failed', error_message=err_msg, message=f'Failed: {err_msg[:50]}...')
+                        
+                        # Broadcast the last known progress instead of 0.0
+                        task_rec = get_task(task_id)
+                        cur_prog = task_rec['progress'] if task_rec else 0.0
+                        self._broadcast_task_progress(project_id, step, cur_prog, f'Failed: {err_msg[:50]}...', 'failed')
+                        
+                        success = False
+                        break
 
-            # End of project processing
-            if success:
-                logger.info(f"Pipeline completed successfully for project: {project_id}")
-                update_project(project_id, status='completed')
-            else:
-                logger.warning(f"Pipeline failed or was cancelled for project: {project_id}")
-                # Don't overwrite if it was already marked cancelled
-                proj = get_project(project_id)
-                if proj and proj['status'] != 'cancelled':
-                    update_project(project_id, status='failed')
+                # End of project processing
+                if success:
+                    logger.info(f"Pipeline completed successfully for project: {project_id}")
+                    update_project(project_id, status='completed')
+                else:
+                    logger.warning(f"Pipeline failed or was cancelled for project: {project_id}")
+                    # Don't overwrite if it was already marked cancelled
+                    proj = get_project(project_id)
+                    if proj and proj['status'] != 'cancelled':
+                        update_project(project_id, status='failed')
+            finally:
+                power_manager.release()
 
             self._active_project_id = None
             self._broadcast_queue_status()
