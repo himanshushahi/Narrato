@@ -1,5 +1,6 @@
 import logging
 import sys
+import os
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from backend.core.config import BASE_DIR
@@ -7,7 +8,7 @@ from backend.core.config import BASE_DIR
 # Log directory & file path (unified under central BASE_DIR)
 LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE = LOGS_DIR / "app.log"
+LOG_FILE = LOGS_DIR / f"app_{os.getpid()}.log"
 
 # Define log format
 LOG_FORMAT = logging.Formatter(

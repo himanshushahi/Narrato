@@ -34,21 +34,13 @@ def _get_icon_path():
     return None
 
 
-def _ensure_single_instance():
-    try:
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        mutex = kernel32.CreateMutexW(None, True, MUTEX_NAME)
-        if ctypes.get_last_error() == 183:
-            kernel32.CloseHandle(mutex)
-            logger.info("Another instance is already running — focusing its window.")
-            user32 = ctypes.WinDLL("user32", use_last_error=True)
-            hwnd = user32.FindWindowW(None, "Narrato")
-            if hwnd:
-                user32.SetForegroundWindow(hwnd)
-                user32.ShowWindow(hwnd, 9)
-            sys.exit(0)
-    except Exception as e:
-        logger.warning(f"Single-instance check failed (non-critical): {e}")
+def _get_free_port():
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(('127.0.0.1', 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
 
 
 def _unstack_taskbar_windows():
@@ -110,13 +102,13 @@ def main():
 
     threading.Thread(target=_unstack_taskbar_windows, daemon=True).start()
 
-    _ensure_single_instance()
+    pywebview_port = _get_free_port()
 
     if env == "development":
         dev_url = "http://localhost:5174"
         try:
             _create_windows(dev_url)
-            webview.start(debug=True, private_mode=False, icon=icon_path, storage_path=str(BASE_DIR / "webview_data"))
+            webview.start(debug=True, private_mode=False, icon=icon_path, storage_path=str(BASE_DIR / "webview_data"), http_port=pywebview_port)
         except Exception as e:
             logger.error(f"pywebview start failed (ensure Vite is running on port 5174): {e}")
     else:
@@ -151,7 +143,7 @@ def main():
         logger.info(f"Starting pywebview with production build: {index_path}")
         try:
             _create_windows(index_path)
-            webview.start(debug=False, private_mode=False, icon=icon_path, storage_path=str(BASE_DIR / "webview_data"), http_port=42011)
+            webview.start(debug=False, private_mode=False, icon=icon_path, storage_path=str(BASE_DIR / "webview_data"), http_port=pywebview_port)
         except (SystemExit, KeyboardInterrupt):
             logger.info("Application closed by user.")
 
