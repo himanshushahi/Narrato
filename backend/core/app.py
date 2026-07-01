@@ -142,8 +142,34 @@ def main():
         index_path = os.path.join(web_dir, "index.html")
         logger.info(f"Starting pywebview with production build: {index_path}")
         try:
-            _create_windows(index_path)
+            from backend.core.prefs import load_prefs
+            import json
+            import tempfile
+            import shutil
+            
+            temp_dir = tempfile.mkdtemp(prefix="Narrato_Frontend_")
+            shutil.copytree(web_dir, temp_dir, dirs_exist_ok=True)
+            cached_index_path = os.path.join(temp_dir, "index.html")
+            
+            with open(cached_index_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+                
+            prefs_data = load_prefs()
+            injection = f"<script>window.__INITIAL_PREFS__ = {json.dumps(prefs_data)};</script>"
+            html_content = html_content.replace('</head>', f'{injection}</head>')
+            
+            with open(cached_index_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+                
+            logger.info(f"Injected preferences into cached HTML: {cached_index_path}")
+            
+            _create_windows(cached_index_path)
             webview.start(debug=False, private_mode=False, icon=icon_path, storage_path=str(BASE_DIR / "webview_data"), http_port=pywebview_port)
+            
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
         except (SystemExit, KeyboardInterrupt):
             logger.info("Application closed by user.")
 

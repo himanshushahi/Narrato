@@ -91,6 +91,15 @@ class ApiBridge:
         import webview
         return self._window or (webview.windows[0] if webview.windows else None)
 
+    def get_prefs(self):
+        from backend.core.prefs import load_prefs
+        return load_prefs()
+
+    def save_prefs(self, data):
+        from backend.core.prefs import save_prefs
+        save_prefs(data)
+        return {"success": True}
+
     def get_file_server_port(self) -> int:
         from backend.core.file_server import get_file_server_port
         return get_file_server_port() or 0

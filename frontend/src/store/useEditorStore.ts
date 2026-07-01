@@ -41,25 +41,27 @@ interface EditorStore {
 
 const STORAGE_KEY = 'narrato_editor_layout';
 
-const loadLayout = (): Partial<EditorStore> => {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch { /* ignore */ }
-  return {};
-};
+// Load synchronously is not possible with pywebview, so we will hydrate asynchronously.
+let saveTimeout: any = null;
 
-const saveLayout = (state: Partial<EditorStore>) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      leftPanelWidth: state.leftPanelWidth,
-      rightPanelWidth: state.rightPanelWidth,
-      timelineHeight: state.timelineHeight,
-      leftPanelTab: state.leftPanelTab,
-      inspectorTab: state.inspectorTab,
-      timelineZoom: state.timelineZoom,
-    }));
-  } catch { /* ignore */ }
+const saveLayout = async (state: Partial<EditorStore>) => {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    try {
+      if (window.pywebview) {
+        const prefs = await window.pywebview.api.get_prefs();
+        prefs[STORAGE_KEY] = JSON.stringify({
+          leftPanelWidth: state.leftPanelWidth,
+          rightPanelWidth: state.rightPanelWidth,
+          timelineHeight: state.timelineHeight,
+          leftPanelTab: state.leftPanelTab,
+          inspectorTab: state.inspectorTab,
+          timelineZoom: state.timelineZoom,
+        });
+        await window.pywebview.api.save_prefs(prefs);
+      }
+    } catch { /* ignore */ }
+  }, 1000); // debounce save
 };
 
 const defaults = {
@@ -71,7 +73,13 @@ const defaults = {
   timelineZoom: 60,
 };
 
-const persisted = loadLayout();
+let persisted: Partial<EditorStore> = {};
+try {
+  const prefs = (window as any).__INITIAL_PREFS__ || {};
+  if (prefs[STORAGE_KEY]) {
+    persisted = JSON.parse(prefs[STORAGE_KEY]);
+  }
+} catch { /* ignore */ }
 
 export const useEditorStore = create<EditorStore>((set) => ({
   // State

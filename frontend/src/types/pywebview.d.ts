@@ -41,6 +41,8 @@ interface PywebviewApi {
   update_scene_duration(project_id: string, scene_index: number, new_duration_seconds: number): Promise<{ success: boolean; error?: string }>;
   reorder_scenes(project_id: string, new_scene_order: number[]): Promise<{ success: boolean; error?: string }>;
   delete_scene(project_id: string, scene_index: number): Promise<{ success: boolean; error?: string }>;
+  get_prefs(): Promise<any>;
+  save_prefs(prefs: any): Promise<void>;
 }
 
 interface Window {

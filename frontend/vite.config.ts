@@ -95,9 +95,28 @@ function mediaServerPlugin() {
   };
 }
 
+function injectPrefsPlugin() {
+  return {
+    name: 'inject-prefs',
+    transformIndexHtml(html: string) {
+      try {
+        const prefsPath = path.resolve(__dirname, '../.dev_data/prefs.json');
+        let prefs = {};
+        if (fs.existsSync(prefsPath)) {
+          prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf-8'));
+        }
+        const script = `<script>window.__INITIAL_PREFS__ = ${JSON.stringify(prefs)};</script>`;
+        return html.replace('</head>', `${script}</head>`);
+      } catch (e) {
+        return html;
+      }
+    }
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss(), mediaServerPlugin()],
+  plugins: [react(), tailwindcss(), mediaServerPlugin(), injectPrefsPlugin()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,

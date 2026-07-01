@@ -17,13 +17,18 @@ function Sidebar() {
   const location = useLocation();
   const queue = useProjectStore((state) => state.queue);
   const [collapsed, setCollapsed] = useState(() => {
-    return localStorage.getItem('sidebar_collapsed') === 'true';
+    const prefs = (window as any).__INITIAL_PREFS__ || {};
+    return prefs.sidebar_collapsed === 'true' || prefs.sidebar_collapsed === true;
   });
 
-  const toggleSidebar = () => {
+  const toggleSidebar = async () => {
     const newVal = !collapsed;
     setCollapsed(newVal);
-    localStorage.setItem('sidebar_collapsed', String(newVal));
+    if (window.pywebview) {
+      const prefs = await window.pywebview.api.get_prefs();
+      prefs.sidebar_collapsed = newVal;
+      await window.pywebview.api.save_prefs(prefs);
+    }
   };
 
   const isActive = (path: string) => {
