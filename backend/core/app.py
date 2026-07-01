@@ -13,8 +13,10 @@ from backend.pipeline.queue import global_queue_manager
 from backend.core.bridge import ApiBridge, setup_bridge_callbacks, ui_update_loop, api_bridge
 from backend.core.logger import logger
 from backend.core.file_server import start_file_server, get_file_server_port
+from backend.core.config import BASE_DIR, BUNDLE_DIR
 
 NUM_WINDOWS = int(os.environ.get("NARRATO_NUM_WINDOWS", "1"))
+MUTEX_NAME = "Local\\Narrato_SingleInstance"
 
 WINDOW_PROPS = dict(
     width=1280,
@@ -30,6 +32,23 @@ def _get_icon_path():
     if os.path.exists(icon):
         return icon
     return None
+
+
+def _ensure_single_instance():
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        mutex = kernel32.CreateMutexW(None, True, MUTEX_NAME)
+        if ctypes.get_last_error() == 183:
+            kernel32.CloseHandle(mutex)
+            logger.info("Another instance is already running — focusing its window.")
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            hwnd = user32.FindWindowW(None, "Narrato")
+            if hwnd:
+                user32.SetForegroundWindow(hwnd)
+                user32.ShowWindow(hwnd, 9)
+            sys.exit(0)
+    except Exception as e:
+        logger.warning(f"Single-instance check failed (non-critical): {e}")
 
 
 def _unstack_taskbar_windows():
@@ -91,23 +110,48 @@ def main():
 
     threading.Thread(target=_unstack_taskbar_windows, daemon=True).start()
 
+    _ensure_single_instance()
+
     if env == "development":
-        dev_url = "http://localhost:5173"
+        dev_url = "http://localhost:5174"
         try:
             _create_windows(dev_url)
-            webview.start(debug=True, private_mode=False, icon=icon_path)
+            webview.start(debug=True, private_mode=False, icon=icon_path, storage_path=str(BASE_DIR / "webview_data"))
         except Exception as e:
-            logger.error(f"pywebview start failed (ensure Vite is running on port 5173): {e}")
+            logger.error(f"pywebview start failed (ensure Vite is running on port 5174): {e}")
     else:
-        from backend.core.config import BUNDLE_DIR
-        web_dir = os.path.join(BUNDLE_DIR, "frontend", "dist")
-        if not os.path.exists(web_dir):
+        candidates = []
+
+        candidates.append(os.path.join(BUNDLE_DIR, "frontend", "dist"))
+
+        if getattr(sys, 'frozen', False):
+            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+            candidates.append(os.path.join(exe_dir, "_internal", "frontend", "dist"))
+            candidates.append(os.path.join(exe_dir, "frontend", "dist"))
+
+        candidates.append(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "frontend", "dist"
+        ))
+
+        web_dir = None
+        for candidate in candidates:
+            candidate_path = os.path.normpath(candidate)
+            if os.path.exists(os.path.join(candidate_path, "index.html")):
+                web_dir = candidate_path
+                logger.info(f"Found production frontend at: {web_dir}")
+                break
+            logger.debug(f"Frontend not found at: {candidate_path}")
+
+        if web_dir is None:
+            logger.error(f"Could not locate production frontend build. Searched: {candidates}")
             web_dir = os.path.join("frontend", "dist")
+
         index_path = os.path.join(web_dir, "index.html")
         logger.info(f"Starting pywebview with production build: {index_path}")
         try:
             _create_windows(index_path)
-            webview.start(debug=False, private_mode=False, icon=icon_path)
+            webview.start(debug=False, private_mode=False, icon=icon_path, storage_path=str(BASE_DIR / "webview_data"), http_port=42011)
         except (SystemExit, KeyboardInterrupt):
             logger.info("Application closed by user.")
 

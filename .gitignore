@@ -43,3 +43,7 @@ Thumbs.db
 *.swp
 
 frontend\dist-remotion
+
+# pywebview browser cache
+webview_data/
+frontend\dist-remotion
