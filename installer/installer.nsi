@@ -19,6 +19,13 @@ RequestExecutionLevel admin
 !define MUI_ICON "..\frontend\public\logo.ico"
 !define MUI_UNICON "..\frontend\public\logo.ico"
 
+; Custom Bitmaps for Modern UI
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_RIGHT
+!define MUI_HEADERIMAGE_BITMAP "header.bmp"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "welcome.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "welcome.bmp"
+
 ; Welcome, Directory selection, Progress and Finish Pages
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
