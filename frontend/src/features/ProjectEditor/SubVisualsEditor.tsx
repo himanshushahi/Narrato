@@ -13,12 +13,20 @@ import { LowerThirdEditor } from './LowerThirdEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
 import { BiTrashAlt } from 'react-icons/bi';
 import { BsPlus, BsStars, BsSendFill, BsEye } from 'react-icons/bs';
-import { useState, Fragment } from 'react';
+import { useState, Fragment, useEffect } from 'react';
 
 export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, previewingSubVisual, onPreviewSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, previewingSubVisual?: string | null, onPreviewSubVisual?: (idx: number) => void }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
+
+  useEffect(() => {
+    if (activeIdx === undefined || activeIdx < 0) return;
+    const el = document.querySelector('[data-active-sub="true"]');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [activeIdx]);
 
   const getValidVisualType = (type: string) => {
     if (!type) return 'scene';
@@ -106,6 +114,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
             </div>
 
             <div key={idx}
+              data-active-sub={isActive ? 'true' : undefined}
               onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
               className={`p-4 rounded-xl border space-y-4 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}>
               <div className="absolute top-2 right-2 flex gap-1">

@@ -15,7 +15,8 @@ interface ShortcutHandlers {
   onGoToStart?: () => void;
   onGoToEnd?: () => void;
   onRunPipeline?: () => void;
-  onSearch?: () => void;
+  onFullscreenToggle?: () => void;
+  onEditVisuals?: () => void;
 }
 
 function isArrowKey(key: string): boolean {
@@ -57,11 +58,11 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         return;
       }
 
-      // Ctrl+F = Search
-      if (isCtrl && (e.key === 'f' || e.code === 'KeyF')) {
+      // Ctrl+E = Edit visuals of active scene
+      if (isCtrl && (e.key === 'e' || e.code === 'KeyE')) {
         e.preventDefault();
         e.stopPropagation();
-        h.onSearch?.();
+        h.onEditVisuals?.();
         return;
       }
 
@@ -73,6 +74,14 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         else if (e.key === 'ArrowRight') h.onNextSubVisual?.();
         else if (e.key === 'ArrowUp') h.onPrevScene?.();
         else if (e.key === 'ArrowDown') h.onNextScene?.();
+        return;
+      }
+
+      // F = Fullscreen toggle (only when not in input)
+      if ((e.key === 'f' || e.key === 'F') && !isInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onFullscreenToggle?.();
         return;
       }
 

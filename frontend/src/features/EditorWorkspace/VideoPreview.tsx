@@ -20,12 +20,13 @@ interface VideoPreviewProps {
   onFrameUpdate: (frame: number) => void;
   isPipelineRunning?: boolean;
   pipelineProgress?: number;
+  fullscreenToggleRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export const VideoPreview: React.FC<VideoPreviewProps> = ({
   playerRef, liveScenes, transcriptionData, currentFrame,
   audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
-  onFrameUpdate, isPipelineRunning, pipelineProgress
+  onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef
 }) => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
@@ -52,6 +53,12 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
       // fullscreen may be denied or unavailable — silently no-op
     }
   };
+
+  React.useEffect(() => {
+    if (fullscreenToggleRef) {
+      fullscreenToggleRef.current = toggleFullscreen;
+    }
+  }, [fullscreenToggleRef, toggleFullscreen]);
 
   const togglePlay = () => {
     if (playerRef.current) {

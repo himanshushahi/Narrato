@@ -127,6 +127,7 @@ export const EditorWorkspace: React.FC = () => {
   // === Local state ===
   const [currentFrame, setCurrentFrame] = useState(0);
   const playerRef = useRef<any>(null);
+  const fullscreenToggleRef = useRef<(() => void) | null>(null);
 
   // === Computed values ===
   const activeSceneIdx = sceneTimings.findIndex(t => currentFrame >= t.start && currentFrame < t.end);
@@ -330,9 +331,32 @@ export const EditorWorkspace: React.FC = () => {
     }
   }, [handleResumePipeline, isRunning]);
 
-  const handleSearch = useCallback(() => {
-    useEditorStore.getState().setInspectorTab('script');
+  const handleFullscreenToggle = useCallback(() => {
+    fullscreenToggleRef.current?.();
   }, []);
+
+  const handleEditActiveVisuals = useCallback(() => {
+    if (!scriptData || !sceneTimings?.length) return;
+    const idx = useEditorStore.getState().selectedSceneIndex;
+    const activeIdx = idx !== null ? idx : (() => {
+      const cf = currentFrameRef.current;
+      return sceneTimings.findIndex(t => cf >= t.start && cf < t.end);
+    })();
+    if (activeIdx < 0) return;
+    const hasIntro = !!scriptData.introduction;
+    const sceneCount = scriptData.scenes?.length || 0;
+    const concIdx = (hasIntro ? 1 : 0) + sceneCount;
+    let cardKey: string;
+    if (hasIntro && activeIdx === 0) {
+      cardKey = 'intro';
+    } else if (activeIdx >= concIdx) {
+      cardKey = 'conclusion';
+    } else {
+      const sceneIdx = activeIdx - (hasIntro ? 1 : 0);
+      cardKey = `scene_${sceneIdx}`;
+    }
+    handleStartEdit(cardKey, 'visuals');
+  }, [scriptData, sceneTimings, handleStartEdit]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -350,7 +374,8 @@ export const EditorWorkspace: React.FC = () => {
     onGoToStart: handleGoToStart,
     onGoToEnd: handleGoToEnd,
     onRunPipeline: handleRunPipeline,
-    onSearch: handleSearch,
+    onFullscreenToggle: handleFullscreenToggle,
+    onEditVisuals: handleEditActiveVisuals,
   });
 
   const audioUrl = selectedProject?.audio_path 
@@ -427,6 +452,7 @@ export const EditorWorkspace: React.FC = () => {
           subtitleSettings={localProjectSettings}
           onFrameUpdate={setCurrentFrame}
           isPipelineRunning={isRunning}
+          fullscreenToggleRef={fullscreenToggleRef}
         />
       </div>
 
