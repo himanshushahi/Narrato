@@ -326,12 +326,17 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     # Resolve settings — project-level overrides beat global settings
     model_size, device, language = _resolve_whisper_settings(project_dict)
 
-    # 1. Download model files if not exist
+    # 1. Check model files exist locally
     if not check_whisper_assets(model_size):
-        logger.info(f"Local Whisper model '{model_size}' missing. Fetching now...")
-        def dl_cb(pct):
-            progress_cb(pct * 0.4, f"Downloading Whisper model... {pct:.0f}%") # first 40% of step is model download
-        download_whisper_model_files(model_size, dl_cb, cancel_event)
+        downloaded = list_downloaded_whisper_models()
+        hint = ""
+        if downloaded:
+            names = ", ".join(m["id"] for m in downloaded)
+            hint = f" Available downloaded models: {names}. Select one in Settings > Whisper Model, "
+        raise FileNotFoundError(
+            f"Whisper model '{model_size}' is not downloaded.{hint}"
+            "or download it from Settings > Speech-to-Text (click the download icon next to the model)."
+        )
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")

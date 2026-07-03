@@ -245,7 +245,7 @@ export const ExportTab: React.FC<ExportTabProps> = ({
                   </button>
                 )}
                 
-                {videoUrl && !isRunning && (
+                {videoUrl && !isRunning && selectedProject?.status === 'completed' && (
                   <button
                     onClick={() => setShowPreview(true)}
                     className="w-full bg-zinc-800 hover:bg-zinc-700 text-white py-2.5 mt-2 rounded text-[10px] font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700"

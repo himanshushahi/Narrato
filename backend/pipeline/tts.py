@@ -116,7 +116,10 @@ def generate_edge_tts(text, output_path, voice="hi-IN-SwaraNeural", speed="1.0",
 
 def generate_kokoro_tts(text, output_path, voice="af_bella", speed=1.0, lang="en-us"):
     if not check_kokoro_assets():
-        raise FileNotFoundError("Kokoro model files are missing. Please download them first.")
+        raise FileNotFoundError(
+            "Kokoro model files not found. Please download them from Settings > TTS Engine (click the download icon next to Kokoro), "
+            "or switch to a different TTS engine (Edge / Piper)."
+        )
     from kokoro_onnx import Kokoro
     import soundfile as sf
     import re

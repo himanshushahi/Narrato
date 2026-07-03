@@ -130,9 +130,12 @@ class QueueManager:
         update_project(project_id, status='cancelled')
         tasks = get_project_tasks(project_id)
         for t in tasks:
-            if t['status'] in ('running', 'pending'):
-                update_task(t['id'], status='failed', message='Cancelling...')
-                self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelling...', 'failed')
+            if t['status'] == 'running':
+                update_task(t['id'], status='failed', error_message='Step cancelled by user.', message='Cancelling...')
+                self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelling...', 'failed', error_message='Step cancelled by user.')
+            elif t['status'] == 'pending':
+                update_task(t['id'], status='pending', message='Cancelled')
+                self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelled', 'pending')
 
         self._broadcast_queue_status()
         logger.info(f"Project {project_id} cancel requested.")
@@ -151,14 +154,15 @@ class QueueManager:
             except Exception as e:
                 logger.error(f"Failed to run queue update progress callback: {e}")
 
-    def _broadcast_task_progress(self, project_id, step, progress, message, status):
+    def _broadcast_task_progress(self, project_id, step, progress, message, status, error_message=None):
         data = {
             "type": "progress_update",
             "project_id": project_id,
             "step": step,
             "progress": progress,
             "message": message,
-            "status": status
+            "status": status,
+            "error_message": error_message
         }
         for cb in self._progress_callbacks:
             try:
@@ -243,6 +247,9 @@ class QueueManager:
 
     def _execute_step(self, project_id, step, cancel_event):
         """Router to execute pipeline steps."""
+        if cancel_event.is_set():
+            raise InterruptedError("Cancelled")
+
         proj = get_project(project_id)
         if not proj:
             raise ValueError(f"Project {project_id} not found in database.")

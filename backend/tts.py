@@ -146,11 +146,10 @@ def generate_tts(text: str, voice_id: str, speed: float = 1.0) -> str:
     model_path = get_piper_dir() / f"{full_voice_id}.onnx"
     
     if not model_path.exists():
-        logger.info(f"Model for {voice_id} not found, downloading...")
-        res = download_piper_voice(voice_id)
-        if res.get("status") != "success":
-            raise Exception(f"Failed to obtain model: {res.get('message')}")
-        model_path = Path(res.get("model_path"))
+        raise FileNotFoundError(
+            f"Piper voice '{voice_id}' is not downloaded. Please download it from Settings > TTS Engine (click the download icon next to Piper), "
+            "or switch to a different TTS engine (Edge / Kokoro)."
+        )
             
     # Language detection for chunking
     lang = full_voice_id.split('_')[0]

@@ -595,7 +595,10 @@ NO generic phrases, no clickbait, no assumptions or unverified claims. Be precis
         outline_user_prompt += f"\n\nRelevant web context to inform your outline:\n{_web_ctx}"
 
     outline_data = _call_llm_json(outline_system_prompt, outline_user_prompt, OUTLINE_JSON_SCHEMA, cancel_event)
-    
+
+    if cancel_event.is_set():
+        raise InterruptedError("Cancelled")
+
     # 2. Generate Base (Intro & Conclusion)
     progress_cb(20.0, "Writing introduction & conclusion...")
     logger.info("Stage 2: Generating Intro & Conclusion...")
@@ -691,6 +694,9 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
         base_user_prompt += f"\n\nWeb search reference (translate into {language}):\n{_web_ctx}"
 
     base_data = _call_llm_json(base_system_prompt, base_user_prompt, BASE_SCRIPT_JSON_SCHEMA, cancel_event)
+
+    if cancel_event.is_set():
+        raise InterruptedError("Cancelled")
 
     # 3. Generate Scenes in Loop
     progress_cb(30.0, "Drafting scene narratives...")

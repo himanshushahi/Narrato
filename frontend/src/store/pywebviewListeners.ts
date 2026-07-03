@@ -29,7 +29,7 @@ export const initializePywebviewListeners = () => {
       return;
     }
 
-    const { project_id, step, progress, message, status } = data;
+    const { project_id, step, progress, message, status, error_message } = data;
 
     if (projectStore.queue.active === project_id) {
       useProjectStore.setState({
@@ -53,7 +53,8 @@ export const initializePywebviewListeners = () => {
           step,
           progress,
           message,
-          status
+          status,
+          error_message
         } as any;
 
         if (step === "render" && status === "completed") {

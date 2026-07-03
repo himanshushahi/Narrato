@@ -27,7 +27,7 @@ export function usePipeline(
   const { tasks, queue, startPipeline, cancelPipeline, selectedProject, updateProject } = useProjectStore();
   const { addToast } = useUIStore();
 
-  const [targetStage, setTargetStageState] = useState('render');
+  const [targetStage, setTargetStageState] = useState('fetch_assets');
 
   // Initialize targetStage from project settings
   useEffect(() => {
@@ -71,8 +71,7 @@ export function usePipeline(
 
   const activeTaskStep = useMemo(() => {
     if (!isRunning) return null;
-    return Object.values(tasks).find(t => t.status === 'running') || 
-           Object.values(tasks).find(t => t.status === 'pending') || null;
+    return Object.values(tasks).find(t => t.status === 'running') || null;
   }, [isRunning, tasks]);
 
   // Monitor pipeline completion
