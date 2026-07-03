@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, interpolate, Img } from 'remotion';
+import { useCurrentFrame, interpolate, Img, Video } from 'remotion';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
 
@@ -151,19 +151,15 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, tran
           transformOrigin: 'center center',
         }}>
           {isVideo ? (
-            <video
+            <Video
               src={src}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              muted={true}
-              autoPlay={true}
-              loop={true}
-              playsInline={true}
-              crossOrigin="anonymous"
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              muted
             />
           ) : (
             <Img
               src={src}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             />
           )}
         </div>

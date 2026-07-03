@@ -202,7 +202,7 @@ export const ParallaxImage: React.FC<Props> = ({
     inset: 0,
     width: '100%',
     height: '100%',
-    objectFit: 'cover' as const,
+    objectFit: 'contain' as const,
     transform: `
       scale(${transform.scale.toFixed(3)})
       translate3d(${transform.x.toFixed(1)}px, ${transform.y.toFixed(1)}px, ${depthZ}px)

@@ -766,7 +766,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                       style={{
                         width: '100%',
                         height: '100%',
-                        objectFit: 'cover',
+                        objectFit: 'contain',
                         filter: 'grayscale(100%) contrast(1.2)',
                       }}
                     />
@@ -1127,7 +1127,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                   overflow: 'hidden'
                 }}>
                   {node.image ? (
-                    <img src={node.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={node.image} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                   ) : (
                     <span style={{ fontSize: 40, color: s.nodeText, fontWeight: 'bold' }}>{node.label.charAt(0).toUpperCase()}</span>
                   )}
