@@ -282,11 +282,14 @@ export const EditorWorkspace: React.FC = () => {
     const sceneIdx = timings.findIndex(t => cf >= t.start && cf < t.end);
     if (sceneIdx < 0) return;
     const subs = timings[sceneIdx].subs;
-    if (!subs?.length) return;
-    const subIdx = subs.findIndex(s => cf >= s.start && cf < s.end);
-    if (subIdx > 0) {
-      handleSeek(subs[subIdx - 1].start);
-    } else if (sceneIdx > 0) {
+    if (subs?.length) {
+      const subIdx = subs.findIndex(s => cf >= s.start && cf < s.end);
+      if (subIdx > 0) {
+        handleSeek(subs[subIdx - 1].start);
+        return;
+      }
+    }
+    if (sceneIdx > 0) {
       const prevSubs = timings[sceneIdx - 1].subs;
       if (prevSubs?.length) handleSeek(prevSubs[prevSubs.length - 1].start);
     }
@@ -299,11 +302,14 @@ export const EditorWorkspace: React.FC = () => {
     const sceneIdx = timings.findIndex(t => cf >= t.start && cf < t.end);
     if (sceneIdx < 0) return;
     const subs = timings[sceneIdx].subs;
-    if (!subs?.length) return;
-    const subIdx = subs.findIndex(s => cf >= s.start && cf < s.end);
-    if (subIdx >= 0 && subIdx < subs.length - 1) {
-      handleSeek(subs[subIdx + 1].start);
-    } else if (sceneIdx < timings.length - 1) {
+    if (subs?.length) {
+      const subIdx = subs.findIndex(s => cf >= s.start && cf < s.end);
+      if (subIdx >= 0 && subIdx < subs.length - 1) {
+        handleSeek(subs[subIdx + 1].start);
+        return;
+      }
+    }
+    if (sceneIdx < timings.length - 1) {
       const nextSubs = timings[sceneIdx + 1].subs;
       if (nextSubs?.length) handleSeek(nextSubs[0].start);
     }

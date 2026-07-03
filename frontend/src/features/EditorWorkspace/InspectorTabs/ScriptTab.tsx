@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLoading, VscSave, VscEdit, VscTrash, VscAdd, VscSparkle,
@@ -44,6 +44,16 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
   onSetSceneToDelete, onSetScriptData,
   onPreviewSubVisual, previewingSubVisual
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const card = containerRef.current.querySelector('[data-active-scene="true"]');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [activeSceneIdx]);
+
   if (!scriptData) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
@@ -74,7 +84,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
   const sceneCount = scriptData.scenes?.length || 0;
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-4">
+    <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-4">
 
       {/* ════════════════ Introduction ════════════════ */}
       <SectionCard
@@ -533,6 +543,7 @@ const SceneCard: React.FC<SceneCardProps> = ({
 }) => (
   <motion.div
     layout
+    data-active-scene={isActive ? 'true' : undefined}
     className={`relative rounded-xl border overflow-hidden transition-all ${
       isEditing
         ? 'bg-zinc-800/80 border-blue-600/60 shadow-lg shadow-blue-900/10'
