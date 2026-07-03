@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscArrowLeft, VscSave, VscSettings, VscPulse, VscCheck, VscError, VscLoading, VscFlame
+  VscArrowLeft, VscSave, VscSettings, VscPulse, VscCheck, VscError, VscLoading, VscFlame, VscQuestion
 } from 'react-icons/vsc';
 import { useProjectStore } from '../../store/useProjectStore';
 
@@ -37,11 +39,38 @@ interface TopBarProps {
   onTriggerFullPipeline?: () => void;
 }
 
+const SHORTCUTS: { keys: string; desc: string }[] = [
+  { keys: 'Ctrl+S', desc: 'Save' },
+  { keys: 'Ctrl+Enter', desc: 'Run pipeline' },
+  { keys: 'Ctrl+K', desc: 'Command palette' },
+  { keys: 'Ctrl+E', desc: 'Edit active scene visuals' },
+  { keys: 'Ctrl+←/→', desc: 'Prev / Next sub-visual' },
+  { keys: 'Ctrl+↑/↓', desc: 'Prev / Next scene' },
+  { keys: 'F', desc: 'Toggle fullscreen' },
+  { keys: 'Space', desc: 'Play / Pause' },
+  { keys: 'Escape', desc: 'Cancel edit / Close modal' },
+  { keys: '← / →', desc: 'Step frame backward / forward' },
+  { keys: '↑ / ↓', desc: 'Prev / Next scene' },
+  { keys: 'Delete / ⌫', desc: 'Delete scene' },
+  { keys: 'Home', desc: 'Go to timeline start' },
+  { keys: 'End', desc: 'Go to timeline end' },
+];
+
 export const TopBar: React.FC<TopBarProps> = ({
   onSave, isSaving, isPipelineRunning, pipelineStatusText,
   hasScriptData, onTriggerFullPipeline
 }) => {
   const selectedProject = useProjectStore((s) => s.selectedProject);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  React.useEffect(() => {
+    if (!showShortcuts) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowShortcuts(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [showShortcuts]);
 
   const deriveStatus = () => {
     if (isPipelineRunning) return 'generating';
@@ -123,6 +152,15 @@ export const TopBar: React.FC<TopBarProps> = ({
           Save
         </button>
 
+        {/* Keyboard shortcuts */}
+        <button
+          onClick={() => setShowShortcuts(true)}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+          title="Keyboard Shortcuts"
+        >
+          <VscQuestion className="text-lg" />
+        </button>
+
         <div className="w-px h-6 bg-zinc-800" />
 
         {/* Settings */}
@@ -135,6 +173,54 @@ export const TopBar: React.FC<TopBarProps> = ({
         </Link>
 
       </div>
+
+      {/* Shortcuts modal */}
+      {createPortal(
+        <AnimatePresence>
+          {showShortcuts && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+              onClick={() => setShowShortcuts(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                className="bg-zinc-900 border border-zinc-800 rounded shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex sticky top-0 bg-zinc-900 items-center justify-between px-5 py-4 border-b border-zinc-800">
+                  <h2 className="text-sm font-bold text-white tracking-tight">Keyboard Shortcuts</h2>
+                  <button
+                    onClick={() => setShowShortcuts(false)}
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                  >
+                    <VscError className="text-base" />
+                  </button>
+                </div>
+                <div className="p-5 space-y-1">
+                  {SHORTCUTS.map((s, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-zinc-800/50 transition-colors"
+                    >
+                      <span className="text-sm text-zinc-300">{s.desc}</span>
+                      <kbd className="px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-100 text-[11px] font-mono font-semibold border border-zinc-700/50 whitespace-nowrap">
+                        {s.keys}
+                      </kbd>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 };
