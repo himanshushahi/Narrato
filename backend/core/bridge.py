@@ -669,7 +669,14 @@ class ApiBridge:
             f"Total Duration to fill: {total_duration} seconds.\n"
             f"Generate the rewritten JSON sub_visuals array now. The sum of sub-visual durations MUST equal {total_duration}. Structure matches: {prompt_struct}."
         )
-        return _call_llm_api_direct(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, llm_provider, api_key, base_url, model)
+        result = _call_llm_api_direct(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, llm_provider, api_key, base_url, model)
+        if result.get("success") and "data" in result:
+            svs = result["data"].get("sub_visuals", [])
+            _norm = sum(v.get("duration", 0) for v in svs)
+            if _norm > 0 and abs(_norm - total_duration) > 0.1:
+                for v in svs:
+                    v["duration"] = round(v.get("duration", 1.0) / _norm * total_duration, 2)
+        return result
 
     def regenerate_sub_visual(self, scene_idx: int, section_type: str, sub_idx: int, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: regenerate_sub_visual index {scene_idx} ({section_type}) sub {sub_idx}")

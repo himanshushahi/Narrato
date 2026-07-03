@@ -396,7 +396,8 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
         
     client = OpenAI(
         api_key=api_key,
-        base_url=base_url.rstrip('/') if base_url else None
+        base_url=base_url.rstrip('/') if base_url else None,
+        timeout=60.0
     )
     
     kwargs = {
