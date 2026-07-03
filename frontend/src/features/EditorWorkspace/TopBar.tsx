@@ -42,7 +42,6 @@ interface TopBarProps {
 const SHORTCUTS: { keys: string; desc: string }[] = [
   { keys: 'Ctrl+S', desc: 'Save' },
   { keys: 'Ctrl+Enter', desc: 'Run pipeline' },
-  { keys: 'Ctrl+K', desc: 'Command palette' },
   { keys: 'Ctrl+E', desc: 'Edit active scene visuals' },
   { keys: 'Ctrl+←/→', desc: 'Prev / Next sub-visual' },
   { keys: 'Ctrl+↑/↓', desc: 'Prev / Next scene' },

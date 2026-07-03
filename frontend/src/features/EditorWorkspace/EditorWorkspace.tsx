@@ -59,8 +59,6 @@ export const EditorWorkspace: React.FC = () => {
   const timelineHeight = useEditorStore((s) => s.timelineHeight);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
-  const setCommandPaletteOpen = useEditorStore((s) => s.setCommandPaletteOpen);
-
   // === Hooks ===
   const {
     scriptData, setScriptData,
@@ -250,11 +248,18 @@ export const EditorWorkspace: React.FC = () => {
   }, [editingCard, handleCancelEdit, sceneToDelete, setSceneToDelete]);
 
   const handleDelete = useCallback(() => {
-    const selIdx = useEditorStore.getState().selectedSceneIndex;
-    if (selIdx !== null) {
-      setSceneToDelete(selIdx);
-    }
-  }, [setSceneToDelete]);
+    const timings = sceneTimingsRef.current;
+    if (!timings?.length) return;
+    const cf = currentFrameRef.current;
+    const timingIdx = timings.findIndex(t => cf >= t.start && cf < t.end);
+    if (timingIdx < 0) return;
+    const hasIntro = scriptData?.introduction ? true : false;
+    const isInt = hasIntro && timingIdx === 0;
+    const isCon = timingIdx === timings.length - 1;
+    if (isInt || isCon) return;
+    const sceneIdx = timingIdx - (hasIntro ? 1 : 0);
+    setSceneToDelete(sceneIdx);
+  }, [setSceneToDelete, scriptData]);
 
   const handleSeekRelative = useCallback((delta: number) => {
     handleSeek(Math.max(0, Math.min(totalFramesRef.current, currentFrameRef.current + delta)));
@@ -363,7 +368,6 @@ export const EditorWorkspace: React.FC = () => {
     onSave: handleSave,
     onPlayPause: handlePlayPause,
     onUndo: () => {},
-    onOpenCommandPalette: () => setCommandPaletteOpen(true),
     onEscape: handleEscape,
     onDelete: handleDelete,
     onSeekRelative: handleSeekRelative,

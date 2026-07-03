@@ -4,7 +4,6 @@ interface ShortcutHandlers {
   onSave: () => void;
   onPlayPause: () => void;
   onUndo?: () => void;
-  onOpenCommandPalette?: () => void;
   onEscape?: () => void;
   onDelete?: () => void;
   onSeekRelative?: (delta: number) => void;
@@ -47,14 +46,6 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         e.preventDefault();
         e.stopPropagation();
         h.onRunPipeline?.();
-        return;
-      }
-
-      // Ctrl+K = Command palette
-      if (isCtrl && (e.key === 'k' || e.code === 'KeyK')) {
-        e.preventDefault();
-        e.stopPropagation();
-        h.onOpenCommandPalette?.();
         return;
       }
 
@@ -131,8 +122,8 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         return;
       }
 
-      // Delete / Backspace = Delete selected item
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Delete / Backspace / Numpad Del (even with NumLock ON) = Delete selected item
+      if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Del' || e.code === 'NumpadDecimal') {
         e.preventDefault();
         h.onDelete?.();
         return;
