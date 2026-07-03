@@ -1,30 +1,32 @@
 # Narrato
 
-Narrato is a powerful, AI-driven desktop application for programmatic video generation. Built with a Python backend (powered by Eel) and a modern React/Remotion frontend, it allows users to dynamically generate complex, data-driven, and kinetic video compositions directly from their desktop.
+Narrato is a powerful, AI-driven desktop application for programmatic video generation. Built with a Python backend (powered by Pywebview) and a modern React/Remotion frontend, it allows users to dynamically generate complex, data-driven, and kinetic video compositions directly from their desktop.
 
 ## ✨ Features
 
-- **Programmatic Video Rendering:** Leverages [Remotion](https://www.remotion.dev/) to write and render videos using React components.
-- **AI-Powered Pipeline:** 
-  - **Text-to-Speech:** Integrated with Edge TTS and Kokoro ONNX for high-quality voice generation.
-  - **Transcription:** Fast and accurate speech-to-text using `faster-whisper`.
-- **Pre-built Compositions:** Includes ready-to-use video modules such as Kinetic Subtitles, Data Visualizations, Pan-Scan Images, Paper Overlays, and documentary-style compositions (e.g., Nitish Rajput style).
-- **Modern UI/UX:** Built with React 19, Tailwind CSS v4, and Framer Motion, featuring glassmorphism elements, animated tabs, and live terminal logs.
-- **Desktop Integration:** Seamlessly bridged using Eel. Can be packaged as a standalone Windows application with an NSIS installer.
+- **Programmatic Video Rendering:** Leverages [Remotion](https://www.remotion.dev/) to write and render videos using React components (`@remotion/player` and `@remotion/cli`).
+- **AI-Powered Pipeline:**
+  - **Script Generation:** Integrates with OpenAI and NVIDIA NIM to generate highly contextual, multi-scene documentary scripts with automatic web search context for factual accuracy.
+  - **Text-to-Speech:** Integrated with Edge TTS, Kokoro ONNX, and Piper TTS for high-quality, localized voice generation.
+  - **Transcription:** Fast and accurate speech-to-text using `faster-whisper` and `ctranslate2`.
+- **Pre-built Compositions:** Includes ready-to-use video modules such as Kinetic Subtitles, Data Visualizations (powered by `d3-geo` and `d3-shape`), Pan-Scan Images, Paper Overlays, and documentary-style compositions.
+- **Modern UI/UX:** Built with React 19, Tailwind CSS v4, and Framer Motion, featuring glassmorphism elements, animated tabs, code editors (`react-simple-code-editor`), and live terminal logs.
+- **Desktop Integration:** Seamlessly bridged using `pywebview`. Can be packaged as a standalone Windows application with an NSIS installer.
 
 ---
 
 ## 🛠️ Tech Stack
 
 ### Backend (Python)
-- **Core:** Python, [Eel](https://github.com/python-eel/Eel)
-- **AI & Audio Processing:** `faster-whisper`, `edge-tts`, `kokoro-onnx`, `torch`, `onnxruntime`
-- **Media & Assets:** FFmpeg, Pillow, SoundFile, Requests
+- **Core:** Python, `pywebview` (for UI bridge and window management)
+- **AI, LLM & Audio Processing:** `faster-whisper`, `edge-tts`, `kokoro-onnx`, `piper-tts`, `openai`, `torch`, `onnxruntime`, `ctranslate2`
+- **Media & Assets:** FFmpeg, yt-dlp, Pillow, SoundFile, Requests
 
 ### Frontend (Web)
 - **Framework:** React 19, TypeScript, Vite
 - **Video Engine:** Remotion (`@remotion/player`, `@remotion/cli`)
 - **Styling & Animation:** Tailwind CSS v4, Framer Motion
+- **Data & Maps:** `d3-geo`, `d3-shape`, `topojson-client`
 - **State Management & Routing:** Zustand, React Router DOM
 
 ---
@@ -34,17 +36,17 @@ Narrato is a powerful, AI-driven desktop application for programmatic video gene
 ### Prerequisites
 - **Python 3.10+**
 - **Node.js 18+** (required for frontend dependencies and the Remotion rendering CLI)
-- **FFmpeg:** Must be installed in your system PATH or placed in the `./bin/` directory.
+- **FFmpeg & yt-dlp:** Must be installed in your system PATH or placed in the `./bin/` directory.
 
 ### 1. Installation & Setup
 
-To initialize the project and install all dependencies (it will automatically set up a Python virtual environment and install Node modules), simply run:
+To initialize the project, clone the repo and run the automated setup script. It will automatically create a Python virtual environment (`.venv`), install all pip packages, and install Node modules in the `frontend` folder:
 
 ```bash
 python setup.py
 ```
 
-To download necessary FFmpeg binaries locally (if you don't have them installed globally), you can run:
+To download necessary FFmpeg and yt-dlp binaries locally (if you don't have them installed globally), run:
 
 ```bash
 python download_binaries.py
@@ -63,6 +65,7 @@ npm run dev
 
 **Terminal 2 (Backend):**
 ```bash
+# This will automatically use the local .venv
 python main.py dev
 ```
 
@@ -137,18 +140,18 @@ powershell -ExecutionPolicy Bypass -File ./build.ps1
 
 ```text
 remotion_canvas/
-├── backend/                  # Python Eel backend
-│   ├── core/                 # App initialization, config, and bridge
+├── backend/                  # Python pywebview backend
+│   ├── core/                 # App initialization, config, logger, file server, and bridge
 │   ├── database/             # Local database integrations
-│   └── pipeline/             # AI components (TTS, Transcribe, Render queue)
+│   └── pipeline/             # AI components (LLM Script Gen, TTS, Transcribe, Render queue)
 ├── frontend/                 # React frontend
 │   ├── src/
-│   │   ├── components/       # UI Components (GlassCard, TerminalLogs, etc.)
-│   │   ├── components/video/ # Remotion Video Compositions
+│   │   ├── components/       # UI Components (GlassCard, TerminalLogs, Code Editor, etc.)
+│   │   ├── components/video/ # Remotion Video Compositions & Modules
 │   │   ├── pages/            # App routing pages
-│   │   └── store/            # Zustand state
+│   │   └── store/            # Zustand state management
 ├── installer/                # NSIS script and asset downloaders for Windows installer
-├── bin/                      # (Optional) Local FFmpeg binaries
+├── bin/                      # (Optional) Local FFmpeg & yt-dlp binaries
 ├── main.py                   # Entry point for the application
 ├── setup.py                  # Environment initialization script
 ├── build.ps1                 # Build script for PyInstaller & NSIS
