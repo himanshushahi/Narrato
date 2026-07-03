@@ -34,6 +34,9 @@ interface VoicePreset {
   voice: string;
   kokoroVoice?: string;
   piperVoice?: string;
+  speed?: string;
+  pitch?: string;
+  volume?: string;
   color: string;
   lang: 'hi' | 'en';
 }
@@ -45,6 +48,9 @@ const VOICE_PRESETS: VoicePreset[] = [
     desc: 'US male — authoritative',
     engine: 'edge',
     voice: 'en-US-AndrewNeural',
+    speed: '0.8',
+    pitch: '-5Hz',
+    volume: '1.0',
     color: 'from-blue-600 to-indigo-700',
     lang: 'en',
   },
@@ -54,6 +60,9 @@ const VOICE_PRESETS: VoicePreset[] = [
     desc: 'US female — engaging',
     engine: 'edge',
     voice: 'en-US-EmmaNeural',
+    speed: '1.0',
+    pitch: '0Hz',
+    volume: '1.0',
     color: 'from-rose-600 to-pink-700',
     lang: 'en',
   },
@@ -64,6 +73,8 @@ const VOICE_PRESETS: VoicePreset[] = [
     engine: 'kokoro',
     voice: 'en-US-AndrewNeural',
     kokoroVoice: 'af_bella',
+    speed: '0.9',
+    volume: '0.85',
     color: 'from-violet-600 to-purple-700',
     lang: 'en',
   },
@@ -74,6 +85,8 @@ const VOICE_PRESETS: VoicePreset[] = [
     engine: 'kokoro',
     voice: 'en-US-EmmaNeural',
     kokoroVoice: 'af_sarah',
+    speed: '1.0',
+    volume: '1.0',
     color: 'from-fuchsia-600 to-pink-700',
     lang: 'en',
   },
@@ -83,6 +96,9 @@ const VOICE_PRESETS: VoicePreset[] = [
     desc: 'Hindi male — Edge',
     engine: 'edge',
     voice: 'hi-IN-MadhurNeural',
+    speed: '0.8',
+    pitch: '-5Hz',
+    volume: '1.0',
     color: 'from-emerald-600 to-teal-700',
     lang: 'hi',
   },
@@ -92,6 +108,9 @@ const VOICE_PRESETS: VoicePreset[] = [
     desc: 'Hindi female — Edge',
     engine: 'edge',
     voice: 'hi-IN-SwaraNeural',
+    speed: '1.0',
+    pitch: '0Hz',
+    volume: '1.0',
     color: 'from-rose-600 to-pink-700',
     lang: 'hi',
   },
@@ -102,6 +121,8 @@ const VOICE_PRESETS: VoicePreset[] = [
     engine: 'kokoro',
     voice: 'hi-IN-SwaraNeural',
     kokoroVoice: 'hf_alpha',
+    speed: '1.0',
+    volume: '1.0',
     color: 'from-amber-600 to-orange-700',
     lang: 'hi',
   },
@@ -112,6 +133,8 @@ const VOICE_PRESETS: VoicePreset[] = [
     engine: 'kokoro',
     voice: 'hi-IN-MadhurNeural',
     kokoroVoice: 'hm_omega',
+    speed: '0.8',
+    volume: '1.0',
     color: 'from-cyan-600 to-sky-700',
     lang: 'hi',
   },
@@ -123,6 +146,8 @@ const VOICE_PRESETS: VoicePreset[] = [
     voice: 'hi-IN-SwaraNeural',
     kokoroVoice: '',
     piperVoice: 'hi_IN-priyamvada',
+    speed: '1.0',
+    volume: '1.0',
     color: 'from-pink-600 to-rose-700',
     lang: 'hi',
   },
@@ -134,6 +159,8 @@ const VOICE_PRESETS: VoicePreset[] = [
     voice: 'en-US-EmmaNeural',
     kokoroVoice: '',
     piperVoice: 'en_US-lessac',
+    speed: '1.0',
+    volume: '1.0',
     color: 'from-teal-600 to-emerald-700',
     lang: 'en',
   },
@@ -199,10 +226,14 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const selectedProject = useProjectStore((s) => s.selectedProject);
   const projectLanguage = selectedProject?.language || 'hi';
 
-  const [previewText, setPreviewText] = useState('');
+  const [previewText, setPreviewText] = useState(
+    projectLanguage === 'hi' ? 'यह एक परीक्षण आवाज है। नमस्ते, आप कैसे हैं?' : 'This is a test voice. Hello, how are you?'
+  );
   const [previewAudioUrl, setPreviewAudioUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const [piperModelReady, setPiperModelReady] = useState(true);
+  const [piperDownloading, setPiperDownloading] = useState(false);
 
   // ── Merge helpers ──
   const updateKey = (key: string, value: string) => {
@@ -238,6 +269,34 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     setPreviewError('');
   }, [engine, projectVal('tts_voice'), projectVal('kokoro_voice'), projectVal('piper_voice'), projectVal('tts_speed'), projectVal('tts_pitch')]);
 
+  // ── Piper model check ──
+  useEffect(() => {
+    const checkPiper = async () => {
+      const piperVoice = projectVal('piper_voice') || globalSettings.piper_voice || '';
+      if (engine === 'piper' && piperVoice) {
+        const ok = await callApi<boolean>('check_piper_model', piperVoice);
+        setPiperModelReady(!!ok);
+      } else {
+        setPiperModelReady(true);
+      }
+    };
+    checkPiper();
+  }, [engine, projectVal('piper_voice'), globalSettings.piper_voice]);
+
+  const handleDownloadPiperModel = async () => {
+    const piperVoice = projectVal('piper_voice') || globalSettings.piper_voice || '';
+    if (!piperVoice) return;
+    setPiperDownloading(true);
+    try {
+      const res = await callApi<{ status: string; message?: string }>('download_piper_model', piperVoice);
+      if (res?.status === 'success') {
+        setPiperModelReady(true);
+      }
+    } finally {
+      setPiperDownloading(false);
+    }
+  };
+
   // ── Preset handler ──
   const applyPreset = (preset: VoicePreset) => {
     const updated = { ...localProjectSettings };
@@ -251,6 +310,9 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     } else {
       updated.tts_voice = preset.voice;
     }
+    if (preset.speed) updated.tts_speed = preset.speed;
+    if (preset.pitch) updated.tts_pitch = preset.pitch;
+    if (preset.volume) updated.voiceover_volume = preset.volume;
     onSettingsUpdate(updated);
   };
 
@@ -264,7 +326,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     try {
       const effectiveEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
       const effectiveVoice = effectiveEngine === 'kokoro'
-        ? (projectVal('kokoro_voice') || globalSettings.kokoro_voice || 'af_bella')
+        ? (projectVal('kokoro_voice') || globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella'))
         : effectiveEngine === 'piper'
         ? (projectVal('piper_voice') || globalSettings.piper_voice || 'hi_IN-rohan')
         : (projectVal('tts_voice') || globalSettings.tts_voice || 'hi-IN-SwaraNeural');
@@ -333,7 +395,17 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
             <AnimatedTabs
               tabs={ENGINE_TABS}
               activeTab={engine}
-              onChange={(v) => updateKey('tts_engine', v)}
+              onChange={(v) => {
+                const updated = { ...localProjectSettings, tts_engine: v };
+                if (v === 'kokoro' && !getProjectVal(updated, 'kokoro_voice')) {
+                  updated.kokoro_voice = globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella');
+                } else if (v === 'piper' && !getProjectVal(updated, 'piper_voice')) {
+                  updated.piper_voice = globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac');
+                } else if (v === 'edge' && !getProjectVal(updated, 'tts_voice')) {
+                  updated.tts_voice = globalSettings.tts_voice || (isHindiLang ? 'hi-IN-SwaraNeural' : 'en-US-AndrewNeural');
+                }
+                onSettingsUpdate(updated);
+              }}
               layoutId="voice-engine-tab"
             />
             <div className="flex items-center gap-2">
@@ -370,23 +442,43 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
           >
             <CustomSelect
               options={filteredKokoroVoices}
-              value={projectVal('kokoro_voice') || globalSettings.kokoro_voice || 'af_bella'}
+              value={projectVal('kokoro_voice') || globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella')}
               onChange={(v) => updateKey('kokoro_voice', v)}
             />
           </OverrideRow>
         ) : (
-          <OverrideRow
-            label="Voice"
-            globalValue={globalSettings.piper_voice || 'hi_IN-rohan'}
-            projectValue={projectVal('piper_voice')}
-            onReset={() => resetKey('piper_voice')}
-          >
-            <CustomSelect
-              options={filteredPiperVoices}
-              value={projectVal('piper_voice') || globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac')}
-              onChange={(v) => updateKey('piper_voice', v)}
-            />
-          </OverrideRow>
+          <>
+            <OverrideRow
+              label="Voice"
+              globalValue={globalSettings.piper_voice || 'hi_IN-rohan'}
+              projectValue={projectVal('piper_voice')}
+              onReset={() => resetKey('piper_voice')}
+            >
+              <CustomSelect
+                options={filteredPiperVoices}
+                value={projectVal('piper_voice') || globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac')}
+                onChange={(v) => updateKey('piper_voice', v)}
+              />
+            </OverrideRow>
+            {!piperModelReady && (
+              <div className="flex items-center gap-2 p-2 bg-amber-950/20 border border-amber-800/30 rounded-lg">
+                <span className="text-[9px] text-amber-400 flex-1">
+                  Model not downloaded. Download it now or select a different voice.
+                </span>
+                <button
+                  onClick={handleDownloadPiperModel}
+                  disabled={piperDownloading}
+                  className="flex items-center gap-1 px-2 py-1 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-600/30 rounded text-[9px] font-bold transition-all disabled:opacity-50 cursor-pointer shrink-0"
+                >
+                  {piperDownloading ? (
+                    <><VscLoading className="animate-spin text-[10px]" /> Downloading</>
+                  ) : (
+                    'Download'
+                  )}
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {/* Speed */}
