@@ -84,6 +84,20 @@ const NUMBERING_FONT_OPTIONS = [
   { value: 'Bebas Neue, sans-serif', label: 'Bebas Neue (Latin)' },
 ];
 
+const NumberColorInput: React.FC<{ label: string; value: string; onChange: (val: string) => void }> = ({ label, value, onChange }) => (
+  <div className="flex items-center gap-2.5 bg-zinc-950/50 border border-zinc-800 rounded-md px-3 py-2 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/30 transition-all">
+    <div className="relative w-4 h-4 rounded overflow-hidden shrink-0 border border-zinc-700">
+      <input
+        type="color"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute -top-2 -left-2 w-8 h-8 cursor-pointer border-none p-0 bg-transparent"
+      />
+    </div>
+    <span className="text-xs text-zinc-400 truncate">{label}</span>
+  </div>
+);
+
 const OverrideRow: React.FC<{
   label: string;
   globalValue: string;
@@ -94,7 +108,7 @@ const OverrideRow: React.FC<{
   const isOverridden = projectValue && projectValue !== globalValue;
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5 bg-zinc-950/30 rounded-lg p-3 border border-zinc-800/40">
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
           {label}
@@ -111,7 +125,7 @@ const OverrideRow: React.FC<{
         )}
       </div>
       {children}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 pt-0.5">
         <span className="text-[9px] text-zinc-600">
           Global: <span className="font-mono">{globalValue}</span>
         </span>
@@ -124,18 +138,6 @@ const OverrideRow: React.FC<{
     </div>
   );
 };
-
-const ColorInput: React.FC<{ label: string; value: string; onChange: (val: string) => void }> = ({ label, value, onChange }) => (
-  <div className="flex items-center gap-2">
-    <input
-      type="color"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-7 h-7 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0"
-    />
-    <span className="text-[10px] text-stone-500 truncate">{label}</span>
-  </div>
-);
 
 const getProjectVal = (settings: any, key: string): string | undefined => {
   return settings[key];
@@ -274,16 +276,16 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-2.5">
       {/* Search bar */}
       <div className="relative">
-        <VscSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-xs pointer-events-none" />
+        <VscSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm pointer-events-none" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search settings..."
-          className="w-full h-8 pl-7 pr-3 rounded-lg bg-zinc-900/80 border border-zinc-800/60 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-600/50 focus:bg-zinc-900 transition-colors"
+          className="w-full h-9 pl-9 pr-3 rounded-xl bg-zinc-900/80 border border-zinc-800/50 text-[11px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all"
         />
       </div>
 
@@ -292,7 +294,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <CollapsibleSection
           id="whisper"
           title="Speech-to-Text (Whisper)"
-          icon={<VscServer className="text-xs text-zinc-500" />}
+          icon={<VscServer className="text-sm text-zinc-500" />}
           collapsed={collapsedSections.has('whisper')}
           onToggle={toggleSection}
         >
@@ -329,7 +331,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <CollapsibleSection
           id="rendering"
           title="Rendering Engine"
-          icon={<VscSettingsGear className="text-xs text-zinc-500" />}
+          icon={<VscSettingsGear className="text-sm text-zinc-500" />}
           collapsed={collapsedSections.has('rendering')}
           onToggle={toggleSection}
         >
@@ -431,11 +433,11 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <CollapsibleSection
           id="numbering"
           title="Numbering Style"
-          icon={<span className="text-xs text-zinc-500 font-bold">#</span>}
+          icon={<span className="text-sm text-zinc-500 font-semibold">#</span>}
           collapsed={collapsedSections.has('numbering')}
           onToggle={toggleSection}
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <CustomSelect
               label="Number Badge Style"
               options={NUMBER_STYLE_OPTIONS}
@@ -451,34 +453,34 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </div>
 
           <div className="pt-1">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block mb-2">Colours</label>
-            <div className="grid grid-cols-3 gap-3">
-              <ColorInput
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-2.5">Colours</span>
+            <div className="grid grid-cols-3 gap-2">
+              <NumberColorInput
                 label="Title"
                 value={localProjectSettings.numbering_title_color || '#fef3c7'}
                 onChange={(v) => updateKey('numbering_title_color', v)}
               />
-              <ColorInput
+              <NumberColorInput
                 label="Description"
                 value={localProjectSettings.numbering_description_color || '#d6d3d1'}
                 onChange={(v) => updateKey('numbering_description_color', v)}
               />
-              <ColorInput
+              <NumberColorInput
                 label="Number"
                 value={localProjectSettings.numbering_number_color || '#fbbf24'}
                 onChange={(v) => updateKey('numbering_number_color', v)}
               />
-              <ColorInput
+              <NumberColorInput
                 label="Num Background"
                 value={localProjectSettings.numbering_number_bg_color || 'rgba(251,191,36,0.15)'}
                 onChange={(v) => updateKey('numbering_number_bg_color', v)}
               />
-              <ColorInput
+              <NumberColorInput
                 label="Num Border"
                 value={localProjectSettings.numbering_number_border_color || '#b45309'}
                 onChange={(v) => updateKey('numbering_number_border_color', v)}
               />
-              <ColorInput
+              <NumberColorInput
                 label="Accent / Glow"
                 value={localProjectSettings.numbering_accent_color || '#f59e0b'}
                 onChange={(v) => updateKey('numbering_accent_color', v)}
@@ -493,7 +495,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <CollapsibleSection
           id="subtitles"
           title="Subtitle Styling"
-          icon={<span className="text-xs text-zinc-500 font-bold">CC</span>}
+          icon={<span className="text-sm text-zinc-500 font-semibold">CC</span>}
           collapsed={collapsedSections.has('subtitles')}
           onToggle={toggleSection}
         >
@@ -509,7 +511,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <CollapsibleSection
           id="branding"
           title="Global Branding"
-          icon={<span className="text-xs text-zinc-500 font-bold">B</span>}
+          icon={<span className="text-sm text-zinc-500 font-semibold">B</span>}
           collapsed={collapsedSections.has('branding')}
           onToggle={toggleSection}
         >
@@ -524,7 +526,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       {visibleSections.length === 0 && searchQuery.trim() && (
         <div className="flex flex-col items-center justify-center py-16 text-zinc-600">
           <VscSearch className="text-2xl mb-3 opacity-40" />
-          <p className="text-xs font-medium">No settings found</p>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">No settings found</p>
           <p className="text-[10px] text-zinc-700 mt-1">Try a different search term</p>
         </div>
       )}
@@ -548,13 +550,15 @@ function CollapsibleSection({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-zinc-900/60 rounded-xl border border-zinc-800/60 overflow-hidden">
+    <div className="bg-zinc-900/50 rounded-xl border border-zinc-800/50 overflow-hidden">
       <button
         onClick={() => onToggle(id)}
-        className="w-full flex items-center gap-2 px-4 py-3 hover:bg-zinc-800/30 transition-colors cursor-pointer group"
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800/20 transition-colors cursor-pointer group"
       >
-        {icon}
-        <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300 flex-1 text-left">
+        <div className="w-6 h-6 rounded-md bg-zinc-800/80 flex items-center justify-center group-hover:bg-zinc-700/80 transition-colors">
+          {icon}
+        </div>
+        <h3 className="text-xs font-semibold text-zinc-200 flex-1 text-left">
           {title}
         </h3>
         <motion.span
@@ -562,7 +566,7 @@ function CollapsibleSection({
           transition={{ duration: 0.2 }}
           className="text-zinc-600 group-hover:text-zinc-400 transition-colors"
         >
-          <VscChevronRight className="text-xs" />
+          <VscChevronRight className="text-sm" />
         </motion.span>
       </button>
       <AnimatePresence initial={false}>
