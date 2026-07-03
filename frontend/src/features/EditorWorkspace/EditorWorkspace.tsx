@@ -174,11 +174,14 @@ export const EditorWorkspace: React.FC = () => {
         : undefined;
       handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx);
     } else {
-      if (id && scriptData && selectedProject?.script_path) {
+      const tab = useEditorStore.getState().inspectorTab;
+      if (tab === 'subtitle') {
+        handleSaveTranscription();
+      } else if (id && scriptData && selectedProject?.script_path) {
         handleSaveCard();
       }
     }
-  }, [editingCard, handleSaveCard, id, scriptData, selectedProject]);
+  }, [editingCard, handleSaveCard, id, scriptData, selectedProject, handleSaveTranscription]);
 
   const handlePlayPause = useCallback(() => {
     if (playerRef.current) {
@@ -224,12 +227,124 @@ export const EditorWorkspace: React.FC = () => {
     }
   }, [id, sceneTimings, loadFiles]);
 
+  // ── Refs for shortcut handlers that need latest state ──
+  const currentFrameRef = useRef(currentFrame);
+  currentFrameRef.current = currentFrame;
+  const sceneTimingsRef = useRef(sceneTimings);
+  sceneTimingsRef.current = sceneTimings;
+  const totalFrames = useMemo(
+    () => sceneTimings?.[sceneTimings.length - 1]?.end ?? 0,
+    [sceneTimings]
+  );
+  const totalFramesRef = useRef(totalFrames);
+  totalFramesRef.current = totalFrames;
+
+  // ── Shortcut handlers ──
+  const handleEscape = useCallback(() => {
+    if (editingCard) {
+      handleCancelEdit();
+    } else if (sceneToDelete !== null) {
+      setSceneToDelete(null);
+    }
+  }, [editingCard, handleCancelEdit, sceneToDelete, setSceneToDelete]);
+
+  const handleDelete = useCallback(() => {
+    const selIdx = useEditorStore.getState().selectedSceneIndex;
+    if (selIdx !== null) {
+      setSceneToDelete(selIdx);
+    }
+  }, [setSceneToDelete]);
+
+  const handleSeekRelative = useCallback((delta: number) => {
+    handleSeek(Math.max(0, Math.min(totalFramesRef.current, currentFrameRef.current + delta)));
+  }, [handleSeek]);
+
+  const handlePrevScene = useCallback(() => {
+    const timings = sceneTimingsRef.current;
+    if (!timings?.length) return;
+    const cf = currentFrameRef.current;
+    let idx = timings.findIndex(t => cf >= t.start && cf < t.end);
+    if (idx > 0) handleSeek(timings[idx - 1].start);
+  }, [handleSeek]);
+
+  const handleNextScene = useCallback(() => {
+    const timings = sceneTimingsRef.current;
+    if (!timings?.length) return;
+    const cf = currentFrameRef.current;
+    let idx = timings.findIndex(t => cf >= t.start && cf < t.end);
+    if (idx >= 0 && idx < timings.length - 1) handleSeek(timings[idx + 1].start);
+  }, [handleSeek]);
+
+  const handlePrevSubVisual = useCallback(() => {
+    const timings = sceneTimingsRef.current;
+    if (!timings?.length) return;
+    const cf = currentFrameRef.current;
+    const sceneIdx = timings.findIndex(t => cf >= t.start && cf < t.end);
+    if (sceneIdx < 0) return;
+    const subs = timings[sceneIdx].subs;
+    if (!subs?.length) return;
+    const subIdx = subs.findIndex(s => cf >= s.start && cf < s.end);
+    if (subIdx > 0) {
+      handleSeek(subs[subIdx - 1].start);
+    } else if (sceneIdx > 0) {
+      const prevSubs = timings[sceneIdx - 1].subs;
+      if (prevSubs?.length) handleSeek(prevSubs[prevSubs.length - 1].start);
+    }
+  }, [handleSeek]);
+
+  const handleNextSubVisual = useCallback(() => {
+    const timings = sceneTimingsRef.current;
+    if (!timings?.length) return;
+    const cf = currentFrameRef.current;
+    const sceneIdx = timings.findIndex(t => cf >= t.start && cf < t.end);
+    if (sceneIdx < 0) return;
+    const subs = timings[sceneIdx].subs;
+    if (!subs?.length) return;
+    const subIdx = subs.findIndex(s => cf >= s.start && cf < s.end);
+    if (subIdx >= 0 && subIdx < subs.length - 1) {
+      handleSeek(subs[subIdx + 1].start);
+    } else if (sceneIdx < timings.length - 1) {
+      const nextSubs = timings[sceneIdx + 1].subs;
+      if (nextSubs?.length) handleSeek(nextSubs[0].start);
+    }
+  }, [handleSeek]);
+
+  const handleGoToStart = useCallback(() => {
+    handleSeek(0);
+  }, [handleSeek]);
+
+  const handleGoToEnd = useCallback(() => {
+    handleSeek(totalFramesRef.current);
+  }, [handleSeek]);
+
+  const handleRunPipeline = useCallback(() => {
+    useEditorStore.getState().setInspectorTab('export');
+    if (!isRunning) {
+      handleResumePipeline();
+    }
+  }, [handleResumePipeline, isRunning]);
+
+  const handleSearch = useCallback(() => {
+    useEditorStore.getState().setInspectorTab('script');
+  }, []);
+
   // Keyboard shortcuts
   useKeyboardShortcuts({
     onSave: handleSave,
     onPlayPause: handlePlayPause,
     onUndo: () => {},
     onOpenCommandPalette: () => setCommandPaletteOpen(true),
+    onEscape: handleEscape,
+    onDelete: handleDelete,
+    onSeekRelative: handleSeekRelative,
+    onPrevScene: handlePrevScene,
+    onNextScene: handleNextScene,
+    onPrevSubVisual: handlePrevSubVisual,
+    onNextSubVisual: handleNextSubVisual,
+    onGoToStart: handleGoToStart,
+    onGoToEnd: handleGoToEnd,
+    onRunPipeline: handleRunPipeline,
+    onSearch: handleSearch,
   });
 
   const audioUrl = selectedProject?.audio_path 

@@ -17,6 +17,7 @@ build/
 *.dll
 *.dylib
 models/
+.dev_data/
 
 # Frontend builds
 frontend/dist-remotion/

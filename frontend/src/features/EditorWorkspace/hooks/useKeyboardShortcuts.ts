@@ -1,49 +1,152 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface ShortcutHandlers {
   onSave: () => void;
   onPlayPause: () => void;
   onUndo?: () => void;
   onOpenCommandPalette?: () => void;
+  onEscape?: () => void;
+  onDelete?: () => void;
+  onSeekRelative?: (delta: number) => void;
+  onPrevScene?: () => void;
+  onNextScene?: () => void;
+  onPrevSubVisual?: () => void;
+  onNextSubVisual?: () => void;
+  onGoToStart?: () => void;
+  onGoToEnd?: () => void;
+  onRunPipeline?: () => void;
+  onSearch?: () => void;
+}
+
+function isArrowKey(key: string): boolean {
+  return key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
 }
 
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
+  const ref = useRef(handlers);
+  ref.current = handlers;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isCtrl = e.ctrlKey || e.metaKey;
       const tag = (e.target as HTMLElement)?.tagName;
       const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
+      const h = ref.current;
 
-      // Ctrl+S = Save (always, even in inputs)
-      if (isCtrl && e.key === 's') {
+      // Ctrl+S = Save (always)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.code === 'KeyS')) {
         e.preventDefault();
-        handlers.onSave();
+        e.stopPropagation();
+        h.onSave();
+        return;
+      }
+
+      // Ctrl+Enter = Run pipeline
+      if (isCtrl && (e.key === 'Enter' || e.code === 'Enter')) {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onRunPipeline?.();
+        return;
+      }
+
+      // Ctrl+K = Command palette
+      if (isCtrl && (e.key === 'k' || e.code === 'KeyK')) {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onOpenCommandPalette?.();
+        return;
+      }
+
+      // Ctrl+F = Search
+      if (isCtrl && (e.key === 'f' || e.code === 'KeyF')) {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onSearch?.();
+        return;
+      }
+
+      // Ctrl+Arrow = Sub-visual navigation (even in inputs)
+      if (isCtrl && isArrowKey(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === 'ArrowLeft') h.onPrevSubVisual?.();
+        else if (e.key === 'ArrowRight') h.onNextSubVisual?.();
+        else if (e.key === 'ArrowUp') h.onPrevScene?.();
+        else if (e.key === 'ArrowDown') h.onNextScene?.();
         return;
       }
 
       // Space = Play/Pause (only when not in input)
       if (e.key === ' ' && !isInput) {
         e.preventDefault();
-        handlers.onPlayPause();
+        e.stopPropagation();
+        h.onPlayPause();
         return;
       }
 
-      // Ctrl+Z = Undo
-      if (isCtrl && e.key === 'z' && handlers.onUndo) {
+      // Escape = Cancel edit / close modal (always)
+      if (e.key === 'Escape') {
         e.preventDefault();
-        handlers.onUndo();
+        h.onEscape?.();
         return;
       }
 
-      // Ctrl+K = Command palette
-      if (isCtrl && e.key === 'k' && handlers.onOpenCommandPalette) {
+      // Skip input-only shortcuts when focus is in a text field
+      if (isInput) return;
+
+      // ArrowLeft / ArrowRight = Step frames
+      if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        handlers.onOpenCommandPalette();
+        e.stopPropagation();
+        h.onSeekRelative?.(-1);
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onSeekRelative?.(1);
+        return;
+      }
+
+      // ArrowUp / ArrowDown = Previous / Next scene
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onPrevScene?.();
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onNextScene?.();
+        return;
+      }
+
+      // Delete / Backspace = Delete selected item
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        h.onDelete?.();
+        return;
+      }
+
+      // Home = Go to start
+      if (e.key === 'Home') {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onGoToStart?.();
+        return;
+      }
+
+      // End = Go to end
+      if (e.key === 'End') {
+        e.preventDefault();
+        e.stopPropagation();
+        h.onGoToEnd?.();
         return;
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handlers]);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
+  }, []);
 }
