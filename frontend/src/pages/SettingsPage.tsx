@@ -972,7 +972,7 @@ export const SettingsPage: React.FC = () => {
 
               <div className="space-y-4">
                 <p className="text-xs text-stone-400">
-                  yt-dlp is used to fetch YouTube visuals for your documentary scenes. If YouTube downloads are failing after a YouTube update, updating yt-dlp to the latest version usually fixes it.
+                  yt-dlp is used to fetch YouTube visuals for your video scenes. If YouTube downloads are failing after a YouTube update, updating yt-dlp to the latest version usually fixes it.
                 </p>
 
                 {ytdlpInstalled && ytdlpPath && (

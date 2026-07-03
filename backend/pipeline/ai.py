@@ -72,7 +72,7 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
         client = OpenAI(api_key=api_key, base_url=base_url.rstrip('/') if base_url else None)
 
         system_prompt = (
-            "You generate precise English search queries for documentary research. "
+            "You generate precise English search queries for video research. "
             "Given a video topic and section, output ONE specific search query "
             "(max 12 words) that would find the most current, relevant information. "
             "Output ONLY the raw query text — no explanation, no quotes, no punctuation."
@@ -540,15 +540,15 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
 CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
 - The `narration` field is the spoken voiceover. It MUST be a non-empty string.
 - Do NOT skip narration. Do NOT leave it blank or null.
-- CRITICAL: Never repeat the documentary title/topic verbatim in spoken text (hook, narration, summary, cta). The title is an internal label — write original spoken content instead.
+- CRITICAL: Never repeat the video title/topic verbatim in spoken text (hook, narration, summary, cta). The title is an internal label — write original spoken content instead.
 - {sentence_rule}
 """
     
     # 1. Generate Outline
     progress_cb(10.0, "Generating video outline...")
     logger.info("Stage 1: Generating Outline...")
-    outline_system_prompt = f"""You are a master YouTube Documentary Director.
-Your task is to outline a documentary that runs approximately {target_duration} seconds.
+    outline_system_prompt = f"""You are a master YouTube Video Director.
+Your task is to outline a video that runs approximately {target_duration} seconds.
 Break the story down chronologically into exactly {min_scenes} to {max_scenes} chapters, balancing them so each chapter gets roughly equal screen time.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 {lang_instruction}"""
@@ -568,8 +568,8 @@ Generate a {min_scenes} to {max_scenes} chapter outline."""
     # 2. Generate Base (Intro & Conclusion)
     progress_cb(20.0, "Writing introduction & conclusion...")
     logger.info("Stage 2: Generating Intro & Conclusion...")
-    base_system_prompt = f"""You are a master YouTube Documentary Scriptwriter.
-Write the introduction (hook) and the conclusion (summary and call to action) for this documentary based on the provided outline.
+    base_system_prompt = f"""You are a master YouTube Video Scriptwriter.
+Write the introduction (hook) and the conclusion (summary and call to action) for this video based on the provided outline.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 {lang_instruction}
 {narration_emphasis}
@@ -617,8 +617,8 @@ Write the introduction and conclusion."""
             prev_chap = chapters[idx - 1]
             prev_context = f"Previous Scene ({prev_chap.get('scene_number')}): {prev_chap.get('chapter_title')} - {prev_chap.get('historical_context')}"
         
-        scene_system_prompt = f"""You are a master YouTube Documentary Scriptwriter.
-You are writing ONE specific scene (Scene {scene_num}: {chapter_title}) for a documentary.
+        scene_system_prompt = f"""You are a master YouTube Video Scriptwriter.
+You are writing ONE specific scene (Scene {scene_num}: {chapter_title}) for a video.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.
 {lang_instruction}
 {narration_emphasis}
@@ -909,7 +909,7 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
 SUB-VISUALS: You must generate a `sub_visuals` array containing visual cues to match the spoken narration.
 
 === MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
-Be extremely creative! Do not just write simple text or rely solely on basic 'scene' types. Build a visually engaging documentary:
+Be extremely creative! Do not just write simple text or rely solely on basic 'scene' types. Build a visually engaging video:
 - If explaining a concept, build a 'custom_html' animation or a 'network' diagram.
 - If making a claim, use a 'document' to flash dramatic evidence on screen.
 - If showing data, use a dynamic 'chart'.
@@ -919,7 +919,7 @@ Be extremely creative! Do not just write simple text or rely solely on basic 'sc
 - list: For ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings.
 - chart: For statistics, percentages, comparisons, or data trends.
 - map: For geography, routes, locations, territories, borders.
-- document: For historical claims, news events, classified archives, documentary evidence.
+- document: For historical claims, news events, classified archives, factual evidence.
 - network: For connections between people, organizations, relationships.
 - portrait: For introducing real specific people or places.
 - parallax: For dramatic visual reveals with layered depth.
@@ -948,7 +948,7 @@ CRITICAL ON DURATION:
 - Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
 """
     
-    visuals_system_prompt = f"""You are an expert Visual Director for a YouTube Documentary.
+    visuals_system_prompt = f"""You are an expert Visual Director for a YouTube Video.
 You are given a transcribed narration and its exact duration.
 Generate visual cues with precise 'duration' values matching the spoken words.
 Return ONLY valid JSON matching the provided schema. No markdown backticks.

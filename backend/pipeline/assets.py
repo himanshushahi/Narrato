@@ -363,7 +363,7 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15, cance
         logger.error(f"Exception while executing yt-dlp: {e}")
         return False
 
-WIKIMEDIA_USER_AGENT = "RemotionCanvas/1.0 (documentary video generator; mailto:dev@remotioncanvas.local)"
+WIKIMEDIA_USER_AGENT = "RemotionCanvas/1.0 (video generator; mailto:dev@remotioncanvas.local)"
 
 
 def download_asset(url, dest_path, cancel_event=None):

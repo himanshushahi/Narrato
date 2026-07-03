@@ -94,7 +94,7 @@ export const Dashboard: React.FC = () => {
           <div className="space-y-1">
             <div className="flex items-center gap-3">
               <VscLayers className="text-2xl text-[var(--color-accent-primary)]" />
-              <h1 className="text-2xl font-black text-white tracking-tight">Documentary <span className="text-gradient-accent">Library</span></h1>
+              <h1 className="text-2xl font-black text-white tracking-tight">Project <span className="text-gradient-accent">Library</span></h1>
             </div>
             <p className="text-xs text-stone-400 font-medium">Manage and generate automated cinematic narratives.</p>
           </div>
@@ -221,7 +221,7 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Documentary Creation Modal */}
+      {/* Project Creation Modal */}
       {createPortal(
         <AnimatePresence>
           {showModal && (

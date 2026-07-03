@@ -43,7 +43,7 @@ export const EditorWorkspace: React.FC = () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         language: 'en',
-        style: 'documentary',
+        style: 'standard',
         duration_mode: 'auto',
         video_format: 'landscape',
         export_folder: '',
@@ -242,7 +242,7 @@ export const EditorWorkspace: React.FC = () => {
   // Safe defaults for when selectedProject is null
   const safeProject = selectedProject || {
     name: '',
-    style: 'documentary' as const,
+    style: 'standard' as const,
     language: 'en' as const,
     video_format: 'landscape' as const,
     bg_music_volume: 0.15,

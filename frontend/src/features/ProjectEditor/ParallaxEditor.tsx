@@ -229,7 +229,7 @@ export const ParallaxEditor = ({
         <ul className="mt-2 space-y-1.5 pl-4 list-disc marker:text-stone-700">
           <li><strong>Orbit</strong> works best when you have a foreground cutout — it circles around the subject</li>
           <li><strong>Float</strong> is great for subtle, dreamy movement on single images</li>
-          <li><strong>Ken Burns</strong> is the classic documentary slow pan-and-zoom</li>
+          <li><strong>Ken Burns</strong> is the classic slow pan-and-zoom</li>
           <li><strong>Dolly</strong> pushes into the scene — pairs well with a vignette</li>
           <li>Higher <strong>Strength</strong> amplifies all motion parameters proportionally</li>
           <li>Add a <strong>Foreground Cutout</strong> (transparent PNG) for true 2.5D depth</li>

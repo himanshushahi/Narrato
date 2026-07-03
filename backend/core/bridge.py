@@ -510,10 +510,10 @@ class ApiBridge:
             "CRITICAL — NARRATION RULES:\n"
             "- The `narration`/`hook`/`summary`/`cta` field is the spoken voiceover. It MUST be a non-empty string.\n"
             "- Do NOT skip narration. Do NOT leave it blank or null.\n"
-            "- Never repeat the documentary title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
+            "- Never repeat the video title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
             "- Keep the rewrite concise and match the original segment's length.\n\n"
             "HERE IS THE FULL SCRIPT CONTEXT (For maintaining narrative flow and consistency):\n"
-            f"Documentary Title: \"{full_script.get('title', 'Untitled')}\"\n"
+            f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
             f"Introduction Hook: \"{intro_hook}\"\n"
             f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
             f"Conclusion: \"{conclusion_summary}\"\n\n"
@@ -553,7 +553,7 @@ class ApiBridge:
         if content_is_empty:
             section_label = section_type.replace("_", " ").title()
             user_prompt = (
-                f"Create a brand new {section_label} section for this documentary based on the user's request below.\n"
+                f"Create a brand new {section_label} section for this video based on the user's request below.\n"
                 f"Use the full script context above to ensure narrative consistency.\n\n"
                 f"User Request: {rewrite_prompt}\n\n"
                 f"Generate the JSON segment now. Structure matches: {prompt_struct}."
@@ -624,7 +624,7 @@ class ApiBridge:
             total_duration = 15.0
         prompt_struct = "Expected: { \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 15.0 }] }"
         user_prompt = (
-            f"Documentary Title: \"{full_script.get('title', 'Untitled')}\"\n"
+            f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
             f"Narration for this segment:\n\"{target_content.get('narration', target_content.get('hook', target_content.get('summary', '')))}\"\n\n"
             f"Current Sub-Visuals:\n{json.dumps(current_visuals, indent=2)}\n\n"
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
@@ -681,7 +681,7 @@ class ApiBridge:
         scene_title = section.get('title', 'Introduction/Conclusion')
         doc_title = full_script.get('title', 'Untitled')
         user_prompt = (
-            f"Documentary Title: \"{doc_title}\"\n"
+            f"Video Title: \"{doc_title}\"\n"
             f"Scene Title: \"{scene_title}\"\n"
             f"Context (Narration of this scene):\n\"{section.get('narration', section.get('hook', section.get('summary', '')))}\"\n\n"
             f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
@@ -708,11 +708,11 @@ class ApiBridge:
         scene_lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
         avg_scene_words = max(20, sum(scene_lengths) // len(scene_lengths)) if scene_lengths else 80
         system_prompt = (
-            "You are an expert documentary scriptwriter. Your task is to create a BRAND NEW scene "
-            "to insert into an existing documentary script. The new scene must fit naturally into the "
+            "You are an expert video scriptwriter. Your task is to create a BRAND NEW scene "
+            "to insert into an existing video script. The new scene must fit naturally into the "
             "narrative flow, maintaining consistent tone, style, and pacing with the surrounding content.\n\n"
             "HERE IS THE FULL SCRIPT CONTEXT:\n"
-            f"Documentary Title: \"{full_script.get('title', 'Untitled')}\"\n"
+            f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
             f"Introduction Hook: \"{intro_hook}\"\n"
             f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
             f"Conclusion: \"{conclusion_summary}\"\n\n"
@@ -721,7 +721,7 @@ class ApiBridge:
             "CRITICAL — NARRATION RULES:\n"
             "- The `narration` field is the spoken voiceover. It MUST be a non-empty string.\n"
             "- Do NOT skip narration. Do NOT leave it blank or null.\n"
-            "- Never repeat the documentary title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
+            "- Never repeat the video title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
             f"- LENGTH: Aim for approximately {avg_scene_words} words — match the pacing of the surrounding scenes.\n\n"
             "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
             "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }\n"
@@ -735,7 +735,7 @@ class ApiBridge:
         else:
             system_prompt += "LANGUAGE: The narration text MUST be written in English.\n\n"
         user_content = (
-            f"Generate a new scene for this documentary based on the following description:\n\n"
+            f"Generate a new scene for this video based on the following description:\n\n"
             f"{user_prompt}\n\n"
             f"Make the scene fit naturally with the existing narrative. "
             f"The scene_number will be assigned by the system, so just put 1 as a placeholder."

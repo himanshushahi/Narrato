@@ -6,10 +6,10 @@ Narrato is a powerful, AI-driven desktop application for programmatic video gene
 
 - **Programmatic Video Rendering:** Leverages [Remotion](https://www.remotion.dev/) to write and render videos using React components (`@remotion/player` and `@remotion/cli`).
 - **AI-Powered Pipeline:**
-  - **Script Generation:** Integrates with OpenAI and NVIDIA NIM to generate highly contextual, multi-scene documentary scripts with automatic web search context for factual accuracy.
+  - **Script Generation:** Integrates with OpenAI and NVIDIA NIM to generate highly contextual, multi-scene video scripts with automatic web search context for factual accuracy.
   - **Text-to-Speech:** Integrated with Edge TTS, Kokoro ONNX, and Piper TTS for high-quality, localized voice generation.
   - **Transcription:** Fast and accurate speech-to-text using `faster-whisper` and `ctranslate2`.
-- **Pre-built Compositions:** Includes ready-to-use video modules such as Kinetic Subtitles, Data Visualizations (powered by `d3-geo` and `d3-shape`), Pan-Scan Images, Paper Overlays, and documentary-style compositions.
+- **Pre-built Compositions:** Includes ready-to-use video modules such as Kinetic Subtitles, Data Visualizations (powered by `d3-geo` and `d3-shape`), Pan-Scan Images, Paper Overlays, and narrative-style compositions.
 - **Modern UI/UX:** Built with React 19, Tailwind CSS v4, and Framer Motion, featuring glassmorphism elements, animated tabs, code editors (`react-simple-code-editor`), and live terminal logs.
 - **Desktop Integration:** Seamlessly bridged using `pywebview`. Can be packaged as a standalone Windows application with an NSIS installer.
 
