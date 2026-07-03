@@ -590,7 +590,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
   };
 
   return (
-    <div className="h-full bg-zinc-950/80 border-r border-zinc-800/60 flex flex-col overflow-x-hidden" style={{ width: leftPanelWidth }}>
+    <div className="h-full bg-zinc-900 border-r border-zinc-800/60 flex flex-col overflow-x-hidden" style={{ width: leftPanelWidth }}>
       {/* Tab bar — scrollable with hover-reveal buttons */}
       <ScrollableTabBar
         tabs={tabConfig.map(t => ({ id: t.id, label: t.label, icon: t.icon }))}
