@@ -20,7 +20,9 @@ export interface UseScriptEditingReturn {
   setScriptChangedAlert: (alert: boolean) => void;
   previewAssets: Record<string, { visual_path: string; visual_url: string }>;
   previewingSubVisual: string | null;
+  uploadingSubVisual: string | null;
   handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number) => Promise<void>;
+  handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number) => Promise<void>;
   handleStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   handleCancelEdit: () => void;
   handleSaveCard: (cardKey?: string, index?: number) => Promise<void>;
@@ -58,6 +60,7 @@ export function useScriptEditing(
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const [previewAssets, setPreviewAssets] = useState<Record<string, { visual_path: string; visual_url: string }>>({});
   const [previewingSubVisual, setPreviewingSubVisual] = useState<string | null>(null);
+  const [uploadingSubVisual, setUploadingSubVisual] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync localProjectSettings from selectedProject.project_settings
@@ -148,24 +151,30 @@ export function useScriptEditing(
     if (success) {
       // Build live manifest
       let sceneCounter = 0;
-      const liveManifest = manifestData.map((manifestScene: any) => {
+      const liveManifest = await Promise.all(manifestData.map(async (manifestScene: any, mIdx: number) => {
         const type = manifestScene.section_type;
         let liveSubVisuals: any[] = [];
+        let assetKeyPrefix: string;
         if (type === 'introduction' && scriptData?.introduction) {
           liveSubVisuals = scriptData.introduction?.sub_visuals || [];
+          assetKeyPrefix = 'intro';
         } else if (type === 'conclusion' && scriptData?.conclusion) {
           liveSubVisuals = scriptData.conclusion?.sub_visuals || [];
+          assetKeyPrefix = 'conclusion';
         } else if (type === 'scene' && Array.isArray(scriptData?.scenes)) {
           const currentIdx = sceneCounter++;
           const scriptScene = scriptData.scenes[currentIdx];
           if (scriptScene) liveSubVisuals = scriptScene?.sub_visuals || [];
+          assetKeyPrefix = `scene_${currentIdx}`;
+        } else {
+          assetKeyPrefix = '';
         }
 
         const origSubVisuals = manifestScene.sub_visuals || [];
         // Match by content (type+cue) rather than by index,
         // so inserted/deleted sub-visuals don't shift existing assets
         const matchedIndices = new Set<number>();
-        const mergedSubVisuals = liveSubVisuals.map((lsv: any) => {
+        const mergedSubVisuals = await Promise.all(liveSubVisuals.map(async (lsv: any, sIdx: number) => {
           const matchIdx = origSubVisuals.findIndex((osv: any, i: number) =>
             !matchedIndices.has(i) &&
             osv.visual_type === lsv.visual_type &&
@@ -176,11 +185,27 @@ export function useScriptEditing(
             const match = origSubVisuals[matchIdx];
             return { ...lsv, visual_path: match.visual_path, visual_url: match.visual_url };
           }
+          // Check if a preview/upload asset exists for this position
+          if (assetKeyPrefix) {
+            const assetKey = `${assetKeyPrefix}_${sIdx}`;
+            const preview = previewAssets[assetKey];
+            if (preview?.visual_path) {
+              let finalPath = preview.visual_path;
+              // Finalize uploads: copy from previews/ to final asset path
+              if (preview.visual_path.includes('previews')) {
+                const result = await callApi<any>('finalize_upload_asset', projectId, preview.visual_path, mIdx, sIdx);
+                if (result?.success) {
+                  finalPath = result.visual_path;
+                }
+              }
+              return { ...lsv, visual_path: finalPath, visual_url: preview.visual_url };
+            }
+          }
           // New or changed sub-visual — strip any stale visual_path/visual_url
           // that scriptData may have carried over from a previous pipeline run,
           // so the manifest is clean and fetch_single_scene_asset is always triggered.
           return { ...lsv, visual_path: undefined, visual_url: undefined };
-        });
+        }));
 
         const sceneText = type === 'introduction' ? scriptData?.introduction?.hook
           : type === 'conclusion' ? scriptData?.conclusion?.summary
@@ -188,19 +213,34 @@ export function useScriptEditing(
         const sceneDuration = manifestScene.duration > 0 ? manifestScene.duration : estimateTextDuration(sceneText);
 
         return { ...manifestScene, duration: sceneDuration, sub_visuals: mergedSubVisuals };
-      });
+      }));
 
       await callApi<any>('save_project_with_cleanup', projectId, scriptData, liveManifest);
 
       // Fetch assets only for genuinely new/changed sub-visuals
       const origManifest = originalManifestData && originalManifestData.length > 0 ? originalManifestData : manifestData;
       let assetDownloadFailures = 0;
+      // Build set of (manifestIdx, subIdx) that already have a file from upload/preview
+      const handledFromPreview = new Set<string>();
+      for (const [key, value] of Object.entries(previewAssets)) {
+        if (value?.visual_path) {
+          handledFromPreview.add(key);
+        }
+      }
       for (let mIdx = 0; mIdx < liveManifest.length; mIdx++) {
         const liveSubs = liveManifest[mIdx].sub_visuals || [];
         const origSubs = origManifest[mIdx]?.sub_visuals || [];
         const matchedOrigIndices = new Set<number>();
         for (let sIdx = 0; sIdx < liveSubs.length; sIdx++) {
           const lsv = liveSubs[sIdx];
+          // Skip download if this sub-visual was handled via upload/preview
+          const sectionKey = liveManifest[mIdx].section_type === 'introduction' ? 'intro'
+            : liveManifest[mIdx].section_type === 'conclusion' ? 'conclusion'
+            : `scene_${mIdx - (liveManifest[0]?.section_type === 'introduction' ? 1 : 0)}`;
+          const assetKey = `${sectionKey}_${sIdx}`;
+          if (handledFromPreview.has(assetKey)) {
+            continue;
+          }
           const origMatch = origSubs.findIndex((osv: any, i: number) =>
             !matchedOrigIndices.has(i) &&
             osv.visual_type === lsv.visual_type &&
@@ -420,6 +460,49 @@ export function useScriptEditing(
     }
   }, [projectId, scriptData, addToast]);
 
+  const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
+    if (!projectId || !scriptData) return;
+
+    const sectionKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const assetKey = `${sectionKey}_${subIdx}`;
+
+    // Calculate the correct manifest index (intro is 0, scenes follow, conclusion is last)
+    let manifestIdx = sceneIdx;
+    if (sectionType === 'introduction') {
+      manifestIdx = 0;
+    } else if (sectionType === 'conclusion') {
+      manifestIdx = (manifestData?.length || 1) - 1;
+    } else if (sectionType === 'scenes') {
+      const hasIntro = manifestData?.[0]?.section_type === 'introduction';
+      manifestIdx = sceneIdx + (hasIntro ? 1 : 0);
+    }
+
+    setUploadingSubVisual(assetKey);
+    try {
+      const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
+        'upload_sub_visual_image', projectId, manifestIdx, subIdx
+      );
+      if (result?.success && result.visual_path) {
+        const vPath: string = result.visual_path;
+        const visualUrl = `${getMediaUrlSync(vPath)}&t=${Date.now()}`;
+        setPreviewAssets(prev => ({
+          ...prev,
+          [assetKey]: { visual_path: vPath, visual_url: visualUrl }
+        }));
+        addToast("Image uploaded successfully!", 'success');
+      } else {
+        addToast("Upload failed: " + (result?.error || "Unknown error"), 'error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast("Upload failed: " + (err?.message || String(err)), 'error');
+    } finally {
+      setUploadingSubVisual(null);
+    }
+  }, [projectId, scriptData, manifestData, addToast]);
+
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
 
@@ -521,7 +604,7 @@ export function useScriptEditing(
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
     scriptChangedAlert, setScriptChangedAlert,
-    previewAssets, previewingSubVisual, handlePreviewSubVisual,
+    previewAssets, previewingSubVisual, uploadingSubVisual, handlePreviewSubVisual, handleUploadSubVisual,
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,

@@ -1050,6 +1050,101 @@ class ApiBridge:
             logger.error(f"Failed to cleanup preview assets: {e}")
             return {"success": False, "error": str(e)}
 
+    def upload_sub_visual_image(self, project_id: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
+        logger.info(f"Bridge API: upload_sub_visual_image for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
+        import webview
+        window = self._get_window()
+        if not window:
+            return {"success": False, "error": "No window available for file dialog"}
+
+        try:
+            result = window.create_file_dialog(
+                dialog_type=webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)', 'All Files (*.*)')
+            )
+            if not result:
+                return {"success": False, "error": "No file selected"}
+            src_path = Path(result[0])
+        except Exception as e:
+            logger.error(f"upload_sub_visual_image file dialog error: {e}")
+            return {"success": False, "error": str(e)}
+
+        ext = src_path.suffix.lower()
+        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+            return {"success": False, "error": f"Unsupported file extension '{ext}'. Use .jpg, .jpeg, .png, .webp, or .gif"}
+
+        from backend.core.config import get_storage_dir
+        import uuid
+        import shutil
+        assets_dir = get_storage_dir() / project_id / "assets"
+        preview_dir = assets_dir / "previews"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+
+        preview_id = uuid.uuid4().hex[:8]
+        dest_file = preview_dir / f"upload_{preview_id}{ext}"
+
+        try:
+            shutil.copy2(str(src_path), str(dest_file))
+            logger.info(f"Uploaded image preview to {dest_file}")
+        except Exception as e:
+            logger.error(f"Failed to copy uploaded file: {e}")
+            return {"success": False, "error": f"Failed to copy file: {e}"}
+
+        stat = dest_file.stat()
+        return {
+            "success": True,
+            "visual_path": str(dest_file),
+            "filename": dest_file.name,
+            "size_bytes": stat.st_size,
+            "extension": ext,
+        }
+
+    def finalize_upload_asset(self, project_id: str, preview_path: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
+        logger.info(f"Bridge API: finalize_upload_asset for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
+        src = Path(preview_path)
+        if not src.exists():
+            return {"success": False, "error": "Preview file not found"}
+
+        ext = src.suffix.lower()
+        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+            return {"success": False, "error": f"Unsupported extension: {ext}"}
+
+        from backend.core.config import get_storage_dir
+        import shutil
+        assets_dir = get_storage_dir() / project_id / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        dest_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{ext}"
+
+        # Clean up old asset with different extension at this position
+        for old_ext in (".mp4", ".jpg", ".jpeg", ".png", ".webp", ".gif"):
+            if old_ext == ext:
+                continue
+            old_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{old_ext}"
+            if old_file.exists():
+                try:
+                    old_file.unlink()
+                    logger.info(f"Removed old asset: {old_file}")
+                except Exception as e:
+                    logger.warning(f"Could not delete old asset {old_file}: {e}")
+
+        try:
+            shutil.copy2(str(src), str(dest_file))
+            logger.info(f"Finalized upload asset to {dest_file}")
+        except Exception as e:
+            logger.error(f"Failed to finalize upload asset: {e}")
+            return {"success": False, "error": str(e)}
+
+        stat = dest_file.stat()
+        return {
+            "success": True,
+            "visual_path": str(dest_file),
+            "filename": dest_file.name,
+            "size_bytes": stat.st_size,
+            "extension": ext,
+        }
+
     def generate_chart_data_api(self, prompt: str) -> dict:
         from backend.pipeline.ai import generate_chart_data
         return generate_chart_data(prompt)

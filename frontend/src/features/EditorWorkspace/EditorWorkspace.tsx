@@ -80,7 +80,7 @@ export const EditorWorkspace: React.FC = () => {
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
     scriptChangedAlert: scriptEditingAlert,
     setScriptChangedAlert: setScriptEditingAlert,
-    previewAssets, previewingSubVisual, handlePreviewSubVisual,
+    previewAssets, previewingSubVisual, uploadingSubVisual, handlePreviewSubVisual, handleUploadSubVisual,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription
@@ -491,6 +491,8 @@ export const EditorWorkspace: React.FC = () => {
           onSetScriptData={setScriptData}
           onPreviewSubVisual={handlePreviewSubVisual}
           previewingSubVisual={previewingSubVisual}
+          onUploadSubVisual={handleUploadSubVisual}
+          uploadingSubVisual={uploadingSubVisual}
 
           tasks={tasks}
           queue={queue}

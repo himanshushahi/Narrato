@@ -42,6 +42,8 @@ interface InspectorPanelProps {
   onSetScriptData: (data: any) => void;
   onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
   previewingSubVisual?: string | null;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
+  uploadingSubVisual?: string | null;
 
   // Pipeline props
   tasks: Record<string, Task>;
@@ -82,6 +84,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
   onPreviewSubVisual, previewingSubVisual,
+  onUploadSubVisual, uploadingSubVisual,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription,
@@ -120,6 +123,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             onSetScriptData={onSetScriptData}
             onPreviewSubVisual={onPreviewSubVisual}
             previewingSubVisual={previewingSubVisual}
+            onUploadSubVisual={onUploadSubVisual}
+            uploadingSubVisual={uploadingSubVisual}
           />
         );
       case 'subtitle':

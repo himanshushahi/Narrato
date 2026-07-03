@@ -35,6 +35,8 @@ interface ScriptTabProps {
   onSetScriptData: (data: any) => void;
   onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
   previewingSubVisual?: string | null;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
+  uploadingSubVisual?: string | null;
 }
 
 export const ScriptTab: React.FC<ScriptTabProps> = ({
@@ -42,7 +44,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
   editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection,
   onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
-  onPreviewSubVisual, previewingSubVisual
+  onPreviewSubVisual, previewingSubVisual,
+  onUploadSubVisual, uploadingSubVisual
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -156,6 +159,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
                             onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(-1, 'introduction', subIdx) : undefined}
                             previewingSubVisual={previewingSubVisual}
+                            onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(-1, 'introduction', subIdx) : undefined}
+                            uploadingSubVisual={uploadingSubVisual}
                           />
                         </div>
                       </EditSection>
@@ -274,6 +279,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                                   onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
                                   onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(idx, 'scenes', subIdx) : undefined}
                                   previewingSubVisual={previewingSubVisual}
+                                  onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(idx, 'scenes', subIdx) : undefined}
+                                  uploadingSubVisual={uploadingSubVisual}
                                 />
                               </div>
                             </EditSection>
@@ -438,6 +445,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}
                             onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(-1, 'conclusion', subIdx) : undefined}
                             previewingSubVisual={previewingSubVisual}
+                            onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(-1, 'conclusion', subIdx) : undefined}
+                            uploadingSubVisual={uploadingSubVisual}
                           />
                         </div>
                       </EditSection>
