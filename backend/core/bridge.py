@@ -503,29 +503,40 @@ class ApiBridge:
         intro_hook = full_script.get("introduction", {}).get("hook", "")[:200]
         conclusion_summary = full_script.get("conclusion", {}).get("summary", "")[:200]
         system_prompt = (
-            "You are an expert AI scriptwriter. You will receive a script segment, "
-            "and a prompt request explaining how to modify or rewrite this segment. "
-            "Your task is to rewrite ONLY the narration text (hook/narration/summary) and title. "
-            "Return ONLY valid JSON matching the provided structure. No markdown backticks.\n\n"
-            "CRITICAL — NARRATION RULES:\n"
-            "- The `narration`/`hook`/`summary`/`cta` field is the spoken voiceover. It MUST be a non-empty string.\n"
-            "- Do NOT skip narration. Do NOT leave it blank or null.\n"
-            "- Never repeat the video title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
-            "- Keep the rewrite concise and match the original segment's length.\n\n"
-            "HERE IS THE FULL SCRIPT CONTEXT (For maintaining narrative flow and consistency):\n"
-            f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
-            f"Introduction Hook: \"{intro_hook}\"\n"
+            "You are an expert AI scriptwriter with deep knowledge of video production and narrative structure. You will receive a script segment and a rewrite prompt explaining exactly how to modify it.\n\n"
+            "CRITICAL CORE REQUIREMENTS:\n"
+            "1. MAINTAIN NARRATIVE CONSISTENCY: You MUST preserve the video's core message and tone while making specific changes requested.\n"
+            "2. LANGUAGE PRECISION: NEVER use English transliterations. Write in the target language ({language}) - for Hindi use Devanagari script (हिंदी), for English use English. NO English words in Hindi sections.\n"
+            "3. STRUCTURE CONSISTENCY: Return ONLY valid JSON matching the provided schema exactly.\n"
+            "4. ANTI-HALLUCINATION: Do NOT invent facts, dates, names, or data you don't have evidence for. Only use verifiable information.\n"
+            "5. LENGTH AWARENESS: Match the speaking duration (roughly 180-220 words per minute).\n\n"
+            "HERE IS THE COMPLETE SCRIPT CONTEXT:\n"
+            f"Video Title: {full_script.get('title', 'Untitled')}\n"
+            f"Introduction Hook: {intro_hook}\n"
             f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
-            f"Conclusion: \"{conclusion_summary}\"\n\n"
+            f"Conclusion: {conclusion_summary}\n\n"
+            "CONTEXTUAL CONSTRAINTS:\n"
+            "- This is part of a multi-scene YouTube video with specific duration targets.\n"
+            "- Narration should sound natural when spoken aloud, with proper rhythm and pacing.\n"
+            "- Every sentence must be factual, specific, and verifiable.\n"
+            "- Avoid generic phrases, clichés, and vague statements.\n"
+            "- Each scene should have a unique, memorable angle on the topic.\n\n"
         )
         if language != "en":
             system_prompt += (
-                f"LANGUAGE: The rewritten narration MUST be written in language code '{language}'.\n"
-                f"For example, if the language is Hindi ('hi'), you MUST use the Devanagari script (हिंदी). "
-                f"Do NOT use English alphabet transliterations.\n\n"
+                f"LANGUAGE SPELLING RULE:\n"
+                f"- The rewritten narration MUST be written in language code '{language}'.\n"
+                f"- This means for '{language}', you MUST use the {('Devanagari script' if language == 'hi' else 'standard')} script.\n"
+                f"- NEVER use English alphabet transliterations (for example, DO NOT write 'namaste' for 'नमस्ते').\n"
+                f"- This rule applies to ALL text in your output: hook, narration, summary, cta, and title.\n\n"
+                "SPELLING AND VOCABULARY:\n"
+                "- Use only standard spelling and established terminology\n"
+                "- Include proper diacritics for non-English languages\n"
+                "- Match the linguistic style and complexity expected by native speakers\n\n"
             )
         else:
-            system_prompt += "LANGUAGE: The rewritten narration MUST be written in English.\n\n"
+            system_prompt += "LANGUAGE RULE:\n- The rewritten narration MUST be written in English.\n\n"
+        
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
             prompt_struct = "Expected: { \"hook\": \"text\" }"
@@ -539,10 +550,16 @@ class ApiBridge:
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
             prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }"
             schema = SCRIPT_SCENE_JSON_SCHEMA
+            
+        # Calculate appropriate length based on existing content
         if section_type not in ("introduction", "conclusion"):
             lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
             avg_len = max(20, sum(lengths) // len(lengths)) if lengths else 80
-            system_prompt += f"LENGTH: Aim for approximately {avg_len} words in the rewritten narration — match the pacing of surrounding scenes.\n\n"
+            system_prompt += f"LENGTH CONSTRAINT:\n"
+            system_prompt += f"- Aim for approximately {avg_len} words in the rewritten narration.\n"
+            system_prompt += f"- This equals {avg_len / 180:.1f} to {avg_len / 120:.1f} seconds of spoken audio.\n"
+            system_prompt += f"- Match the pacing and content density of surrounding scenes.\n\n"
+            
         content_is_empty = False
         if section_type == "introduction":
             content_is_empty = not target_content.get("hook", "").strip()
@@ -550,25 +567,46 @@ class ApiBridge:
             content_is_empty = not target_content.get("summary", "").strip()
         else:
             content_is_empty = not target_content.get("narration", "").strip()
+            
         if content_is_empty:
             section_label = section_type.replace("_", " ").title()
             user_prompt = (
-                f"Create a brand new {section_label} section for this video based on the user's request below.\n"
-                f"Use the full script context above to ensure narrative consistency.\n\n"
-                f"User Request: {rewrite_prompt}\n\n"
-                f"Generate the JSON segment now. Structure matches: {prompt_struct}."
+                f"CREATE NEW SECTION: Generate a brand new {section_label} section for this video.\n"
+                f"Use the full script context above to ensure narrative consistency and coherence.\n\n"
+                f"USER REQUEST: {rewrite_prompt}\n\n"
+                f"CRITICAL CREATION REQUIREMENTS:\n"
+                f"- The section must fit seamlessly into the existing narrative flow.\n"
+                f"- Include specific, factual information that supports the video's core message.\n"
+                f"- Match the speaking style and complexity appropriate for the target audience.\n"
+                f"- Ensure proper {('Devanagari script' if language == 'hi' else 'English')} spelling and grammar.\n"
+                f"- Generate the JSON segment now. Structure matches: {prompt_struct}.\n"
             )
         else:
             user_prompt = (
-                f"Original Segment:\n{json.dumps(target_content, indent=2)}\n\n"
-                f"Rewrite Instruction: {rewrite_prompt}\n\n"
-                f"Generate the rewritten JSON segment now. Structure matches: {prompt_struct}."
+                f"ORIGINAL SEGMENT:\n{json.dumps(target_content, indent=2)}\n\n"
+                f"REWRITE INSTRUCTION: {rewrite_prompt}\n\n"
+                f"CRITICAL REWRITE REQUIREMENTS:\n"
+                f"- MODIFY SPECIFICALLY: Make only the changes explicitly requested by the user.\n"
+                f"- preserve ALL other content exactly as is.\n"
+                f"- MAINTAIN NARRATIVE FLOW: Ensure the rewrite connects smoothly with surrounding content.\n"
+                f"- LANGUAGE CONSISTENCY: Use {('Devanagari script' if language == 'hi' else 'English')} script consistently.\n"
+                f"- SPEAKING CLARITY: Make sure it sounds natural when spoken aloud.\n"
+                f"- ACCURACY: Include only verifiable, factual information.\n"
+                f"- Generate the rewritten JSON segment now. Structure matches: {prompt_struct}.\n"
             )
+            
         doc_title = full_script.get("title", "Untitled")
-        _search_q = _generate_search_query(f"{doc_title} - {rewrite_prompt[:100]}", "script rewrite")
+        
+        # Try to get relevant web search context
+        _search_q = _generate_search_query(f"{doc_title} - script rewrite: {rewrite_prompt[:100]}", "script rewrite")
         _web_ctx = _get_web_context(_search_q)
         if _web_ctx:
-            user_prompt += f"\n\n---\nIncorporate relevant facts from this web search into your rewrite:\n{_web_ctx}"
+            user_prompt += f"\n\nRELEVANT WEB SEARCH CONTEXT:\n"
+            user_prompt += f"The AI has found relevant web search results that may help with this rewrite. Incorporate specific facts and details from these sources to enhance the rewritten section.\n"
+            user_prompt += f"Original search query was: {_search_q[:100]}\n\n"
+            user_prompt += f"Web Search Results:\n{_web_ctx}\n\n"
+            user_prompt += f"Use ONLY verified information from these sources. DO NOT use information from general knowledge or invented facts.\n"
+            
         return _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_key, base_url, model)
 
     def regenerate_visuals_section(self, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str) -> dict:
@@ -591,7 +629,7 @@ class ApiBridge:
             "- list: For ranked items, countdowns, top-N lists, or step-by-step rankings.\n"
             "- chart: For statistics, percentages, comparisons, or data trends.\n"
             "- map: For geography, routes, locations, or movement between places.\n"
-            "- document: For historical claims, news events, or archival evidence.\n"
+            "- document: For factual claims, news events, or archival evidence.\n"
             "- network: For connections between people, organizations, or relationships.\n"
             "- portrait: For introducing real specific people or places.\n"
             "- parallax: For dramatic layered depth reveals.\n"

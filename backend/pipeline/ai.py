@@ -172,9 +172,9 @@ OUTLINE_JSON_SCHEMA = {
                 "properties": {
                     "scene_number": {"type": "integer"},
                     "chapter_title": {"type": "string"},
-                    "historical_context": {"type": "string"}
+                    "scene_context": {"type": "string"}
                 },
-                "required": ["scene_number", "chapter_title", "historical_context"]
+                "required": ["scene_number", "chapter_title", "scene_context"]
             }
         }
     },
@@ -547,15 +547,45 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     # 1. Generate Outline
     progress_cb(10.0, "Generating video outline...")
     logger.info("Stage 1: Generating Outline...")
-    outline_system_prompt = f"""You are a master YouTube Video Director.
-Your task is to outline a video that runs approximately {target_duration} seconds.
-Break the story down chronologically into exactly {min_scenes} to {max_scenes} chapters, balancing them so each chapter gets roughly equal screen time.
-Return ONLY valid JSON matching the provided schema. No markdown backticks.
-{lang_instruction}"""
+    outline_system_prompt = f"""You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
+
+CRITICAL RULES:
+- Return ONLY valid JSON matching the provided schema
+- NO markdown backticks or explanatory text
+- Content must be original and specific to the topic - no generic or copied material
+- Every claim must be factual and verifiable
+- Avoid speculation unless clearly marked as opinion or analysis
+- Exclude clickbait, overly sensational language, or misleading statements
+
+BREAKDOWN REQUIREMENTS:
+- Generate exactly {min_scenes} to {max_scenes} chapters
+- Balance story pacing so each gets roughly equal screen time
+- Each chapter duration: approximately {target_duration // max_scenes:.1f} seconds (roughly {max(10, (target_duration // max_scenes) * 3)} words)
+- Ensure chapters flow chronologically with clear transitions
+- Each chapter must have: scene_number, chapter_title, scene_context
+
+{lang_instruction}
+"""
     
     outline_user_prompt = f"""Topic: "{topic}"
 Detail: "{prompt_desc}"
-Generate a {min_scenes} to {max_scenes} chapter outline."""
+
+VIDEO SPECIFICATIONS:
+- Target Duration: {target_duration} seconds
+- Target Frame Count: {target_duration * 30} frames
+- Language: {language} ({'Hindi' if language == 'hi' else 'English'})
+
+REQUIREMENTS:
+- Create exactly {min_scenes} to {max_scenes} chapters for a {target_duration}-second video
+- Each chapter: approximately {target_duration // max_scenes:.1f} seconds of spoken content
+- Focus on essential information only - cut unnecessary details
+- Ensure each chapter has a clear, unique focus area
+- Provide accurate, engaging information with relevant scene context
+
+CHAPTER FORMAT NEEDED:
+{{ "scene_number": number, "chapter_title": "Short descriptive title", "scene_context": "Detailed factual context for this chapter" }}
+
+NO generic phrases, no clickbait, no assumptions or unverified claims. Be precise and factual."""
 
     # Optionally augment with web search context
     _search_q = _generate_search_query(f"{topic} - {prompt_desc}", "outline generation")
@@ -568,23 +598,90 @@ Generate a {min_scenes} to {max_scenes} chapter outline."""
     # 2. Generate Base (Intro & Conclusion)
     progress_cb(20.0, "Writing introduction & conclusion...")
     logger.info("Stage 2: Generating Intro & Conclusion...")
-    base_system_prompt = f"""You are a master YouTube Video Scriptwriter.
-Write the introduction (hook) and the conclusion (summary and call to action) for this video based on the provided outline.
-Return ONLY valid JSON matching the provided schema. No markdown backticks.
+    base_system_prompt = f"""You are a master YouTube Video Scriptwriter specializing in crafting compelling video intros and conclusions.
+
+CRITICAL INTRO REQUIREMENTS:
+- Hook MUST grab immediate attention within 5-8 seconds
+- Must be original and specific to the content
+- Should hint at the value/depth of information to come
+- Should avoid vague statements and generalities
+
+CRITICAL CONCLUSION REQUIREMENTS:
+- Summary MUST condense key insights in 5-8 seconds
+- CTA MUST drive specific action or reflection
+- Must reinforce video value proposition
+- Should not repeat information already covered
+
+LENGTH CONSTRAINTS:
+- Hook: 5-8 seconds (36-48 words at 7.2 wpm)
+- Summary + CTA: Together 10-16 seconds (72-112 words)
+- Total: 15-24 seconds of unique content
+
+LANGUAGE RULES:
 {lang_instruction}
 {narration_emphasis}
 
-LENGTH CONSTRAINT: The hook should be about 5-8 seconds of spoken audio. The summary and cta should each be about 5-8 seconds. Keep them tight and engaging.
-
-CRITICAL — LANGUAGE OUTPUT RULE:
+LANGUAGE OUTPUT RULE:
 You MUST write ALL spoken text (hook, summary, cta) in language code '{language}'.
 If '{language}' is NOT 'en', that means do NOT write in English — write in the native script of that language instead.
-The outline below is reference-only and may be in English. Your output MUST be in '{language}'."""
+The outline below is reference-only and may be in English. Your output MUST be in '{language}'.
+
+LANGUAGE SPELLING/VOCABULARY RULES:
+- Use only standard spelling and established terminology
+- Avoid invented words or abbreviations without clear definitions
+- Use context-appropriate vocabulary for the target language
+- Ensure proper diacritics and character variations for non-English languages
+
+CONTENT RULES:
+- Content must be original, accurate, and specific to the topic
+- Avoid generic filler phrases or unnecessary exposition
+- Focus on high-value information that serves the video's purpose
+- Ensure every word contributes to the video's core message
+
+Return ONLY valid JSON matching the provided schema. No markdown backticks or explanations."""
 
     outline_json_str = json.dumps(outline_data, ensure_ascii=False)
-    base_user_prompt = f"""Topic: "{topic}"
-Outline: {outline_json_str}
-Write the introduction and conclusion."""
+    base_user_prompt = f"""TOPIC: {topic}
+VIDEO STYLE GUIDE:
+- Duration Target: {target_duration} seconds total
+- Format: {video_format} orientation
+- Language: {language} ({'Hindi' if language == 'hi' else 'English'})
+- Voiceover Speed: {duration_mode} speed
+
+OUTLINE (Pre-generated content): {outline_json_str}
+
+REQUIRED OUTPUT:
+Write TWO complete sections for this video:
+1. INTRODUCTION (Hook): A compelling opening that matches the video style and format. Should grab attention in the first 2 seconds.
+2. CONCLUSION (Summary + CTA): A meaningful ending that provides closure and drives action.
+
+SPEAKING VOICE VISUALIZATION:
+Think about how this would sound when spoken - say the words aloud to yourself. Consider:
+- Rhythm and flow
+- Natural pausing and emphasis
+- Emotional tone and delivery
+- Clarity and pronunciation
+
+LANGUAGE SPECIFIC RULES:
+- If language is '{language}', write in {('Devanagari script (Hindi)' if language == 'hi' else 'standard English')}
+- DO NOT use English alphabet transliterations for {('Hindi' if language == 'hi' else 'English')}
+- This applies to ALL spoken text (hook, summary, cta) - NEVER use English spellings
+
+SCRIPT LENGTH:
+- Hook: 5-8 seconds (36-48 words at 7.2 wpm speaking rate)
+- Summary: 5-8 seconds (36-48 words)
+- CTA: 5-8 seconds (36-48 words)
+- Total conclusion: 15-24 seconds (108-144 words)
+
+CONTENT QUALITY:
+- Original and specific: No generic phrases or over-used expressions
+- Accurate and factual: Verify information before writing
+- Audience-focused: Address viewer needs and interests
+- Clear and concise: Every word serves a purpose
+
+Generate ONLY valid JSON matching the schema. No markdown backticks. Make sure both sections contain spoken content in the correct language.
+
+Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "summary": "text", "cta": "text" }} }}"""
 
     # Optionally augment with web search context
     _search_q = _generate_search_query(f"{topic} - latest developments and background", "introduction & conclusion")
@@ -610,26 +707,121 @@ Write the introduction and conclusion."""
     def generate_single_scene(idx, chapter):
         scene_num = chapter.get("scene_number", idx + 1)
         chapter_title = chapter.get("chapter_title", f"Scene {scene_num}")
-        context = chapter.get("historical_context", "")
+        context = chapter.get("scene_context", "")
         
         prev_context = ""
         if idx > 0:
             prev_chap = chapters[idx - 1]
-            prev_context = f"Previous Scene ({prev_chap.get('scene_number')}): {prev_chap.get('chapter_title')} - {prev_chap.get('historical_context')}"
+            prev_context = f"Previous Scene ({prev_chap.get('scene_number')}): {prev_chap.get('chapter_title')} - {prev_chap.get('scene_context')}"
         
-        scene_system_prompt = f"""You are a master YouTube Video Scriptwriter.
-You are writing ONE specific scene (Scene {scene_num}: {chapter_title}) for a video.
-Return ONLY valid JSON matching the provided schema. No markdown backticks.
+        scene_system_prompt = f"""You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
+
+SCENE-SPECIFIC RULES:
+- This is Scene {scene_num}: {chapter_title}
+- Must match the exact duration constraint: {per_scene_duration} seconds of spoken audio (roughly {per_scene_word_target} words)
+- Return ONLY valid JSON matching the provided schema
+- NO markdown backticks or explanatory text
+
+SPEAKING VISUALIZATION:
+Think about how this narration will sound when spoken:
+- Rhythm and natural flow
+- Emphasis on key terms
+- Pacing and sentence structure
+- Clarity for voiceover delivery
+
+CONTEXT REQUIREMENTS:
+- Use the topic as the main thread throughout this scene
+- Previous scene context: {prev_context}
+- This scene must transition smoothly from the previous content
+- Connect directly to the overall video narrative arc
+
+LANGUAGE RULES:
 {lang_instruction}
+
+CONTENT SPECIFICITY:
+- Focus ONLY on what's essential for this scene segment
+- Include concrete details, specific examples, and tangible information
+- Cite sources or verifiability when possible
+- Avoid repetition or information already covered in other scenes
+
 {narration_emphasis}
 
-SCENE LENGTH CONSTRAINT: This scene's narration must be approximately {per_scene_duration} seconds of spoken audio (roughly {per_scene_word_target} words). Be concise and cover only what's essential for this segment."""
+DURATION CONSTRAINT:
+- Target: {per_scene_duration} seconds of narration
+- Word count: approximately {per_scene_word_target} words
+- Fill precisely without filler or unnecessary exposition
+- Every word must contribute to explaining or revealing something important
 
-        scene_user_prompt = f"""Topic: "{topic}"
-This Scene: Scene {scene_num}: {chapter_title}
-Context for this scene: {context}
-{prev_context}
-Write the narration for this scene."""
+Return ONLY the JSON scene object with scene_number, title, and narration fields.
+- Narr (type: string, required): The main spoken content for this scene. 
+  * Must be non-empty and specific
+  * Must follow the language rules (Devanagari for Hindi, English otherwise)
+  * Precise timing is critical for video production
+  * Should build on previous scene while maintaining forward momentum
+  * Must be comprehensive yet concise within the strict time allocation
+- Format: {{ "scene_number": number, "title": "text", "narration": "text" }}
+"""
+
+        scene_user_prompt = f"""TOPIC: {topic}
+SCENE IDENTITY:
+- Scene Number: {scene_num}
+- Chapter Title: {chapter_title}
+- Context: {context}
+- Previous Context: {prev_context}
+
+AUDIENCE SCENARIO:
+- This video is being watched by people interested in: {topic}
+- The video length target is: {duration_mode} speed, {target_duration} seconds total
+- The aspect ratio is: {video_format}
+
+SPEAKING NARRATION:
+For this specific scene (Scene {scene_num}: {chapter_title}), write the narration that will be spoken as voiceover:
+
+THINK OUT LOUD:
+Imagine speaking this aloud. What would it sound like?
+- How does the rhythm flow?
+- What words need emphasis?
+- Where would you naturally pause?
+- What tone fits this particular segment?
+
+CONCISE DELIVERY:
+- Target time: {per_scene_duration} seconds (roughly {per_scene_word_target} words)
+- Speak at natural conversational pace (about 180-200 words per minute)
+- Build rhythm and flow
+- Make it sound natural when spoken aloud
+
+CONTENT RULES:
+- Focus only on what's essential for this specific segment
+- Avoid generalities and vague statements
+- Include specific, concrete details and examples
+- Every sentence must add value
+- Do not repeat information from previous scenes
+
+SPEAKING STYLE:
+- Write as if you're the narrator, explaining this topic clearly
+- Use active voice, not passive
+- Make it engaging and easy to follow
+- Consider pronunciation for the target language ({language})
+
+FORMAT REQUIREMENT:
+Return ONLY valid JSON with scene_number, title, and narration fields.
+- scene_number: {scene_num}
+- title: {chapter_title} (brief summary of this specific scene)
+- narration: The spoken content (non-empty, specific, accurate)
+
+LANGUAGE SPECIFICATION:
+- If language is '{language}', write entirely in {('Devanagari script (Hindi)' if language == 'hi' else 'standard English')}
+- NEVER use English spellings or transliterations
+- This applies to ALL text in the output (title and narration)
+
+VIDEO PRODUCTION CONSIDERATIONS:
+- This narration will be synchronized with visual elements
+- Keep it tight and purposeful
+- Think about the visual elements that will accompany this narration
+- Make it memorable and impactful
+
+Write the narration content now. Be specific, focused, and engaging. Make it sound natural when spoken.
+"""
 
         # Optionally augment with scene-specific web search context
         _scene_q = _generate_search_query(f"{topic}: {chapter_title} - {context}", "scene narration")
@@ -731,7 +923,7 @@ Write the narration for this scene."""
     for i, scene in enumerate(final_script.get("scenes", [])):
         if not scene.get("narration", "").strip():
             if i < len(chapters):
-                fallback = f"{chapters[i].get('chapter_title', '')}: {chapters[i].get('historical_context', '')}"
+                fallback = f"{chapters[i].get('chapter_title', '')}: {chapters[i].get('scene_context', '')}"
                 scene["narration"] = fallback.strip()
                 logger.warning(f"Scene {i+1} had empty narration; filled from chapter context.")
     if not intro.get("hook", "").strip():
@@ -919,7 +1111,7 @@ Be extremely creative! Do not just write simple text or rely solely on basic 'sc
 - list: For ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings.
 - chart: For statistics, percentages, comparisons, or data trends.
 - map: For geography, routes, locations, territories, borders.
-- document: For historical claims, news events, classified archives, factual evidence.
+- document: For factual claims, news events, classified archives, factual evidence.
 - network: For connections between people, organizations, relationships.
 - portrait: For introducing real specific people or places.
 - parallax: For dramatic visual reveals with layered depth.
@@ -948,10 +1140,135 @@ CRITICAL ON DURATION:
 - Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
 """
     
-    visuals_system_prompt = f"""You are an expert Visual Director for a YouTube Video.
-You are given a transcribed narration and its exact duration.
-Generate visual cues with precise 'duration' values matching the spoken words.
-Return ONLY valid JSON matching the provided schema. No markdown backticks.
+    visuals_system_prompt = f"""You are an expert AI Visual Director specializing in creating engaging visual experiences for YouTube videos.
+
+CORE MISSION:
+Transform narration into compelling visual sequences that enhance the message and captivate viewers.
+
+CRITICAL SKILLS:
+- Match visual complexity with narration sophistication
+- Maintain visual rhythm synchronized with speech pace
+- Create logical visual flow that supports narrative progression
+- Balance creativity with factual accuracy
+
+VISUAL CREATION RULES:
+- COUNT: Create one sub-visual per visual beat (not too many, not too few)
+- DURATION: Each sub-visual must have exact 'duration' in seconds (2-15 seconds only)
+- SUM: Total duration must equal exactly the provided scene duration
+- TRANSITION: Vary transitions to create visual interest
+
+TYPE SELECTION GUIDE:
+Choose the MOST VISUAL type for each narration segment:
+
+LIST TYPE: For numbered/ranked items or step-by-step presentations
+- Ideal for: "Top 5", "Step by Step", "How to", "Sequence", "Ranking"
+- Each item as separate sub-visual (duration: 3-8 seconds each)
+
+CHART TYPE: For statistics, comparisons, trends, or numerical data
+- Ideal for: "X% increase", "Y comparison", "Statistics", "Data analysis"
+- Transform numbers into visual impact (bar charts, line graphs, pie charts)
+
+MAP TYPE: For locations, routes, geography, or movement
+- Ideal for: "Where", "Route", "Location", "Direction", "Geographic"
+- Show movement or spatial relationships
+
+DOCUMENT TYPE: For archival materials, factual evidence, or factual archives
+- Ideal for: "Proof", "Evidence", "Archive", "Document", "Source"
+- Create vintage newspaper or archival document aesthetics
+
+NETWORK TYPE: For connections, relationships, or investigation boards
+- Ideal for: "Connections", "Relationships", "Investigation", "Who knows who"
+- Show relationships between entities or concepts
+
+PORTRAIT TYPE: For specific people or entities
+- Ideal for: "Meet", "Who is", "Person", "Interview", "Profile"
+- Use exact visual cues with person's name (Wikipedia search ready)
+
+PARALLAX TYPE: For dramatic reveals or layered depth effects
+- Ideal for: "Revelation", "Hidden", "Secret", "Deep", "Layers"
+- Create 3D depth with fore/mid/background movement
+
+CUSTOM_HTML TYPE: For creative typography or custom animations
+- Ideal for: "Typography", "Animation", "Special effects", "Creative layout"
+- Use raw CSS/HTML skills for unique presentations
+
+SCENE/IMAGE/YOUTUBE TYPES: For standard footage or real-world shots
+- Use when narration doesn't clearly match specialized types
+- Standard fallback for general content
+
+VISUAL META SPECIFICATIONS:
+
+LIST TYPE: visual_meta = {{"number": int, "title": "Short title", "description": "Brief description"}}
+- Show one numbered item per sub-visual
+
+CHART TYPE: visual_meta = {{"chart_type": "bar"|"line"|"pie", "title": "Chart title", "data": [{{"label": "Label", "value": number}}]}}
+- Include realistic data points (4-15 items)
+
+MAP TYPE: visual_meta = {{"map_style": "vintage"|"modern"|"minimal"|"nautical", "locations": [{{"name": "Location Name", "coord": [lat, lon]}}]}}
+- Include 2 specific locations with real coordinates
+
+DOCUMENT TYPE: visual_meta = {{
+  "title": "Document headline",
+  "headline": "Main story headline",
+  "subtitle": "Subheading",
+  "doc_text": "Article body text",
+  "highlight_text": "Important term to emphasize",
+  "source": "Source name",
+  "date": "Publication date",
+  "section": "Section/topic",
+  "pull_quote": "Direct quote from document",
+  "show_image": boolean,
+  "image_url": "URL to relevant image",
+  "image_caption": "Image description"
+}}
+
+NETWORK TYPE: visual_meta = {{
+  "theme": "conspiracy_board"|"cyberpunk"|"corporate",
+  "nodes": [{{"id": "node_id", "label": "Entity name", "type": "person"|"entity"}}],
+  "edges": [{{"source": "from_node_id", "target": "to_node_id"}}]
+}}
+
+CRITICAL OUTPUT REQUIREMENTS:
+
+1. END-TO-END TIMING:
+   Sum all sub-visual durations must equal EXACTLY the provided Total Duration.
+   The Total Duration will be specified in the user prompt.
+
+2. TRANSITION VARIETY:
+   Available transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none
+   DO NOT repeat transitions — vary them for visual interest
+
+3. VISUAL_CUE SPECIFICATION:
+   - MUST be in ENGLISH
+   - Should be specific and descriptive
+   - Used for media search (Pexels, YouTube, Wikipedia)
+   - Example: "Ancient Greek marketplace"
+
+4. LANGUAGE RULE:
+   - visual_cue: ALWAYS English
+   - visual_meta: English (except lower third titles)
+   - lower_third: Match the target language specified in the user prompt
+
+5. STRUCTURE:
+   Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA
+   Schema: {{"sub_visuals": [{{"visual_type": "...", "visual_cue": "...", "transition": "...", "visual_meta": {{...}}, "duration": 3.5}}]}}
+
+ERROR PREVENTION:
+- Return total duration matching the provided scene duration (precision to 2 decimal places)
+- Use only valid visual types: list, chart, map, document, network, portrait, parallax, custom_html, scene, image, youtube
+- Format all JSON numbers as numbers, not strings
+- Ensure all required fields are present for each visual type
+
+FINAL CHECK:
+Before submitting, verify:
+1. Duration sum equals the provided scene duration
+2. All visual_cue are in English
+3. visual_meta contains correct fields for the visual_type
+4. Transitions are all different
+5. JSON is valid and no markdown
+
+Generate visuals now - focus on quality and accuracy over quantity!
+
 CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH.
 {visual_rules}"""
 

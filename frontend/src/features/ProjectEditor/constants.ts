@@ -1,15 +1,15 @@
 export const VISUAL_TYPE_OPTIONS = [
-  { value: 'scene', label: 'B-Roll Scene' },
-  { value: 'image', label: 'Stock Image' },
+  { value: 'scene', label: 'B-Roll Video Clip' },
+  { value: 'image', label: 'Stock Photograph' },
   { value: 'parallax', label: '2.5D Parallax Photo' },
-  { value: 'portrait', label: 'Portrait' },
+  { value: 'portrait', label: 'Portrait Photo' },
   { value: 'chart', label: 'Animated Chart' },
   { value: 'map', label: 'Vintage Map' },
-  { value: 'network', label: 'Network Diagram (String Board)' },
+  { value: 'network', label: 'Network Diagram' },
   { value: 'document', label: 'Archival Document' },
   { value: 'youtube', label: 'YouTube Video' },
   { value: 'list', label: 'Numbered List' },
-  { value: 'custom_html', label: 'Html' },
+  { value: 'custom_html', label: 'Custom HTML' },
 ];
 
 export const TRANSITION_TYPE_OPTIONS = [
