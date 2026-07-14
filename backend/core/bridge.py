@@ -832,6 +832,11 @@ class ApiBridge:
             return {"success": False, "error": str(e)}
         return {"success": False, "error": "Unknown error generating audio."}
 
+    def list_piper_voices(self) -> list:
+        """List available Piper voices from HuggingFace (en + hi only, medium quality)."""
+        from backend.tts import list_available_piper_voices
+        return list_available_piper_voices()
+
     def download_piper_model(self, voice_id: str) -> dict:
         """Trigger Piper model and config download in the background"""
         try:

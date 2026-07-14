@@ -10,6 +10,7 @@ interface Props {
   primaryColor?: string;
   titleColor?: string;
   subtitleColor?: string;
+  titleFontSize?: number;
 }
 
 export const LowerThird: React.FC<Props> = ({ 
@@ -20,8 +21,10 @@ export const LowerThird: React.FC<Props> = ({
   positionY = 15, 
   primaryColor = '#fbbf24',
   titleColor = '#fef3c7',
-  subtitleColor = '#d6d3d1'
+  subtitleColor = '#d6d3d1',
+  titleFontSize = 42
 }) => {
+  const subtitleFontSize = Math.max(12, Math.round(titleFontSize * 24 / 42));
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -79,7 +82,7 @@ export const LowerThird: React.FC<Props> = ({
         <h2 style={{
           fontFamily: 'Montserrat, sans-serif',
           fontWeight: 900,
-          fontSize: 42,
+          fontSize: titleFontSize,
           color: titleColor,
           margin: 0,
           textTransform: 'uppercase',
@@ -93,7 +96,7 @@ export const LowerThird: React.FC<Props> = ({
           <p style={{
             fontFamily: 'Merriweather, serif',
             fontWeight: 400,
-            fontSize: 24,
+            fontSize: subtitleFontSize,
             color: subtitleColor,
             margin: '8px 0 0 0',
             letterSpacing: 1

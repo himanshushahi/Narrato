@@ -42,10 +42,11 @@ interface VoicePreset {
 }
 
 const VOICE_PRESETS: VoicePreset[] = [
+  // ═══ Edge-TTS (Online) — English ═══
   {
     id: 'deep_narration',
     label: 'Deep Narration',
-    desc: 'US male — authoritative',
+    desc: 'Andrew — deep authoritative male',
     engine: 'edge',
     voice: 'en-US-AndrewNeural',
     speed: '0.8',
@@ -57,7 +58,7 @@ const VOICE_PRESETS: VoicePreset[] = [
   {
     id: 'warm_narration',
     label: 'Warm Narration',
-    desc: 'US female — engaging',
+    desc: 'Emma — warm engaging female',
     engine: 'edge',
     voice: 'en-US-EmmaNeural',
     speed: '1.0',
@@ -67,9 +68,95 @@ const VOICE_PRESETS: VoicePreset[] = [
     lang: 'en',
   },
   {
+    id: 'documentary',
+    label: 'Documentary',
+    desc: 'Andrew — calm authoritative',
+    engine: 'edge',
+    voice: 'en-US-AndrewNeural',
+    speed: '0.9',
+    pitch: '-5Hz',
+    volume: '1.0',
+    color: 'from-stone-600 to-zinc-700',
+    lang: 'en',
+  },
+  {
+    id: 'storyteller',
+    label: 'Storyteller',
+    desc: 'Emma — gentle expressive',
+    engine: 'edge',
+    voice: 'en-US-EmmaNeural',
+    speed: '0.85',
+    pitch: '0Hz',
+    volume: '0.95',
+    color: 'from-amber-600 to-yellow-700',
+    lang: 'en',
+  },
+  {
+    id: 'energetic',
+    label: 'Energetic',
+    desc: 'Emma — fast upbeat',
+    engine: 'edge',
+    voice: 'en-US-EmmaNeural',
+    speed: '1.2',
+    pitch: '+5Hz',
+    volume: '1.0',
+    color: 'from-orange-600 to-red-700',
+    lang: 'en',
+  },
+  {
+    id: 'whisper',
+    label: 'Whisper (Soft)',
+    desc: 'Emma — quiet intimate',
+    engine: 'edge',
+    voice: 'en-US-EmmaNeural',
+    speed: '0.7',
+    pitch: '-5Hz',
+    volume: '0.6',
+    color: 'from-slate-600 to-gray-700',
+    lang: 'en',
+  },
+  {
+    id: 'authoritative',
+    label: 'Authoritative',
+    desc: 'Andrew — firm commanding',
+    engine: 'edge',
+    voice: 'en-US-AndrewNeural',
+    speed: '0.9',
+    pitch: '0Hz',
+    volume: '1.1',
+    color: 'from-red-800 to-red-900',
+    lang: 'en',
+  },
+
+  // ═══ Kokoro (Offline) — English ═══
+  {
+    id: 'adam_deep',
+    label: 'Adam (Deep)',
+    desc: 'Adam — deep resonant male',
+    engine: 'kokoro',
+    voice: 'en-US-AndrewNeural',
+    kokoroVoice: 'am_adam',
+    speed: '0.8',
+    volume: '1.0',
+    color: 'from-indigo-600 to-violet-700',
+    lang: 'en',
+  },
+  {
+    id: 'michael_cinematic',
+    label: 'Michael (Cinematic)',
+    desc: 'Michael — rich cinematic male',
+    engine: 'kokoro',
+    voice: 'en-US-AndrewNeural',
+    kokoroVoice: 'am_michael',
+    speed: '0.85',
+    volume: '1.05',
+    color: 'from-purple-600 to-fuchsia-700',
+    lang: 'en',
+  },
+  {
     id: 'bella_soft',
     label: 'Bella (Soft)',
-    desc: 'US female — Kokoro',
+    desc: 'Bella — gentle soft female',
     engine: 'kokoro',
     voice: 'en-US-AndrewNeural',
     kokoroVoice: 'af_bella',
@@ -80,8 +167,8 @@ const VOICE_PRESETS: VoicePreset[] = [
   },
   {
     id: 'sarah_engaging',
-    label: 'Sarah',
-    desc: 'US female — Kokoro',
+    label: 'Sarah (Engaging)',
+    desc: 'Sarah — bright engaging female',
     engine: 'kokoro',
     voice: 'en-US-EmmaNeural',
     kokoroVoice: 'af_sarah',
@@ -90,10 +177,74 @@ const VOICE_PRESETS: VoicePreset[] = [
     color: 'from-fuchsia-600 to-pink-700',
     lang: 'en',
   },
+
+  // ═══ Piper (Offline) — English ═══
+  {
+    id: 'lessac_warm',
+    label: 'Lessac (Warm)',
+    desc: 'US female — warm clear',
+    engine: 'piper',
+    voice: 'en-US-EmmaNeural',
+    piperVoice: 'en_US-lessac',
+    speed: '1.0',
+    volume: '1.0',
+    color: 'from-teal-600 to-emerald-700',
+    lang: 'en',
+  },
+  {
+    id: 'amy_soft',
+    label: 'Amy (Soft)',
+    desc: 'US female — soft gentle',
+    engine: 'piper',
+    voice: 'en-US-EmmaNeural',
+    piperVoice: 'en_US-amy',
+    speed: '0.9',
+    volume: '0.9',
+    color: 'from-pink-600 to-rose-700',
+    lang: 'en',
+  },
+  {
+    id: 'kathleen_warm',
+    label: 'Kathleen (Warm)',
+    desc: 'US female — warm NPR-style',
+    engine: 'piper',
+    voice: 'en-US-EmmaNeural',
+    piperVoice: 'en_US-kathleen',
+    speed: '0.95',
+    volume: '0.95',
+    color: 'from-rose-600 to-pink-700',
+    lang: 'en',
+  },
+  {
+    id: 'ryan_deep',
+    label: 'Ryan (Deep)',
+    desc: 'US male — deep smooth',
+    engine: 'piper',
+    voice: 'en-US-AndrewNeural',
+    piperVoice: 'en_US-ryan',
+    speed: '0.8',
+    volume: '1.0',
+    color: 'from-sky-600 to-blue-700',
+    lang: 'en',
+  },
+  {
+    id: 'joe_authoritative',
+    label: 'Joe (Authoritative)',
+    desc: 'US male — strong commanding',
+    engine: 'piper',
+    voice: 'en-US-AndrewNeural',
+    piperVoice: 'en_US-joe',
+    speed: '0.85',
+    volume: '1.1',
+    color: 'from-red-700 to-red-900',
+    lang: 'en',
+  },
+
+  // ═══ Edge-TTS (Online) — Hindi ═══
   {
     id: 'hindi_professional',
     label: 'Hindi Pro',
-    desc: 'Hindi male — Edge',
+    desc: 'Madhur — professional male',
     engine: 'edge',
     voice: 'hi-IN-MadhurNeural',
     speed: '0.8',
@@ -105,7 +256,7 @@ const VOICE_PRESETS: VoicePreset[] = [
   {
     id: 'swara_warm',
     label: 'Swara (Warm)',
-    desc: 'Hindi female — Edge',
+    desc: 'Swara — warm female',
     engine: 'edge',
     voice: 'hi-IN-SwaraNeural',
     speed: '1.0',
@@ -115,9 +266,35 @@ const VOICE_PRESETS: VoicePreset[] = [
     lang: 'hi',
   },
   {
+    id: 'madhur_authoritative',
+    label: 'Madhur (Deep)',
+    desc: 'Madhur — deep authoritative',
+    engine: 'edge',
+    voice: 'hi-IN-MadhurNeural',
+    speed: '0.9',
+    pitch: '-5Hz',
+    volume: '1.0',
+    color: 'from-stone-600 to-zinc-700',
+    lang: 'hi',
+  },
+  {
+    id: 'swara_fast',
+    label: 'Swara (Fast)',
+    desc: 'Swara — upbeat energetic',
+    engine: 'edge',
+    voice: 'hi-IN-SwaraNeural',
+    speed: '1.2',
+    pitch: '+5Hz',
+    volume: '1.0',
+    color: 'from-orange-600 to-red-700',
+    lang: 'hi',
+  },
+
+  // ═══ Kokoro (Offline) — Hindi ═══
+  {
     id: 'alpha_hindi',
     label: 'Alpha (Hindi)',
-    desc: 'Hindi female — Kokoro',
+    desc: 'Alpha — clear female',
     engine: 'kokoro',
     voice: 'hi-IN-SwaraNeural',
     kokoroVoice: 'hf_alpha',
@@ -127,9 +304,21 @@ const VOICE_PRESETS: VoicePreset[] = [
     lang: 'hi',
   },
   {
+    id: 'beta_hindi',
+    label: 'Beta (Hindi)',
+    desc: 'Beta — soft female',
+    engine: 'kokoro',
+    voice: 'hi-IN-SwaraNeural',
+    kokoroVoice: 'hf_beta',
+    speed: '0.9',
+    volume: '0.9',
+    color: 'from-pink-600 to-rose-700',
+    lang: 'hi',
+  },
+  {
     id: 'omega_hindi',
     label: 'Omega (Hindi)',
-    desc: 'Hindi male — Kokoro',
+    desc: 'Omega — deep male',
     engine: 'kokoro',
     voice: 'hi-IN-MadhurNeural',
     kokoroVoice: 'hm_omega',
@@ -139,12 +328,25 @@ const VOICE_PRESETS: VoicePreset[] = [
     lang: 'hi',
   },
   {
+    id: 'psi_hindi',
+    label: 'Psi (Hindi)',
+    desc: 'Psi — resonant male',
+    engine: 'kokoro',
+    voice: 'hi-IN-MadhurNeural',
+    kokoroVoice: 'hm_psi',
+    speed: '0.9',
+    volume: '1.0',
+    color: 'from-indigo-600 to-violet-700',
+    lang: 'hi',
+  },
+
+  // ═══ Piper (Offline) — Hindi ═══
+  {
     id: 'priyamvada_piper',
     label: 'Priyamvada',
-    desc: 'Hindi female — Piper',
+    desc: 'Hindi female — warm natural',
     engine: 'piper',
     voice: 'hi-IN-SwaraNeural',
-    kokoroVoice: '',
     piperVoice: 'hi_IN-priyamvada',
     speed: '1.0',
     volume: '1.0',
@@ -152,17 +354,28 @@ const VOICE_PRESETS: VoicePreset[] = [
     lang: 'hi',
   },
   {
-    id: 'lessac_piper',
-    label: 'Lessac',
-    desc: 'US female — Piper',
+    id: 'rohan_piper',
+    label: 'Rohan',
+    desc: 'Hindi male — deep calm',
     engine: 'piper',
-    voice: 'en-US-EmmaNeural',
-    kokoroVoice: '',
-    piperVoice: 'en_US-lessac',
-    speed: '1.0',
+    voice: 'hi-IN-MadhurNeural',
+    piperVoice: 'hi_IN-rohan',
+    speed: '0.8',
     volume: '1.0',
-    color: 'from-teal-600 to-emerald-700',
-    lang: 'en',
+    color: 'from-blue-600 to-indigo-700',
+    lang: 'hi',
+  },
+  {
+    id: 'pratham_piper',
+    label: 'Pratham',
+    desc: 'Hindi male — authoritative',
+    engine: 'piper',
+    voice: 'hi-IN-MadhurNeural',
+    piperVoice: 'hi_IN-pratham',
+    speed: '0.85',
+    volume: '1.05',
+    color: 'from-slate-600 to-gray-700',
+    lang: 'hi',
   },
 ];
 
@@ -234,6 +447,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const [previewError, setPreviewError] = useState('');
   const [piperModelReady, setPiperModelReady] = useState(true);
   const [piperDownloading, setPiperDownloading] = useState(false);
+  const [availablePiperVoices, setAvailablePiperVoices] = useState<string[] | null>(null);
 
   // ── Merge helpers ──
   const updateKey = (key: string, value: string) => {
@@ -259,9 +473,11 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const filteredKokoroVoices = KOKORO_VOICE_OPTIONS.filter(opt =>
     isHindiLang ? opt.value.startsWith('h') : !opt.value.startsWith('h')
   );
-  const filteredPiperVoices = PIPER_VOICE_OPTIONS.filter(opt =>
-    isHindiLang ? opt.value.startsWith('hi') : !opt.value.startsWith('hi')
-  );
+  const filteredPiperVoices = PIPER_VOICE_OPTIONS.filter(opt => {
+    if (isHindiLang ? !opt.value.startsWith('hi') : !opt.value.startsWith('en')) return false;
+    if (availablePiperVoices && !availablePiperVoices.includes(opt.value)) return false;
+    return true;
+  });
 
   // Clear preview when settings change
   useEffect(() => {
@@ -269,7 +485,14 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     setPreviewError('');
   }, [engine, projectVal('tts_voice'), projectVal('kokoro_voice'), projectVal('piper_voice'), projectVal('tts_speed'), projectVal('tts_pitch')]);
 
-  // ── Piper model check ──
+  // ── Fetch available Piper voices from HuggingFace ──
+  useEffect(() => {
+    callApi<string[]>('list_piper_voices').then(list => {
+      if (list && list.length > 0) setAvailablePiperVoices(list);
+    }).catch(() => {});
+  }, []);
+
+  // ── Piper model check for the currently selected voice ──
   useEffect(() => {
     const checkPiper = async () => {
       const piperVoice = projectVal('piper_voice') || globalSettings.piper_voice || '';
@@ -357,20 +580,28 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     }
   };
 
-  // Preset active detection
+  // Preset active detection — match ALL preset fields so multiple presets
+  // sharing the same voice don't all highlight at once
   const isPresetActive = (preset: VoicePreset): boolean => {
     const pEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
     if (pEngine !== preset.engine) return false;
     if (preset.engine === 'kokoro') {
       const pVoice = projectVal('kokoro_voice') || globalSettings.kokoro_voice || '';
-      return pVoice === preset.kokoroVoice;
-    }
-    if (preset.engine === 'piper') {
+      if (pVoice !== preset.kokoroVoice) return false;
+    } else if (preset.engine === 'piper') {
       const pVoice = projectVal('piper_voice') || globalSettings.piper_voice || '';
-      return pVoice === preset.piperVoice;
+      if (pVoice !== preset.piperVoice) return false;
+    } else {
+      const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || '';
+      if (pVoice !== preset.voice) return false;
     }
-    const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || '';
-    return pVoice === preset.voice;
+    const pSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
+    if (preset.speed && pSpeed !== preset.speed) return false;
+    const pPitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
+    if (preset.pitch && pPitch !== preset.pitch) return false;
+    const pVolume = projectVal('voiceover_volume') || '1.0';
+    if (preset.volume && pVolume !== preset.volume) return false;
+    return true;
   };
 
   return (
@@ -517,7 +748,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
             <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
               Voiceover Volume
             </span>
-            {projectVal('voiceover_volume') && projectVal('voiceover_volume') !== '1.0' && (
+            {projectVal('voiceover_volume') && projectVal('voiceover_volume') !== (globalSettings.voiceover_volume || '1.0') && (
               <button
                 onClick={() => resetKey('voiceover_volume')}
                 className="flex items-center gap-1 text-[9px] text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
@@ -531,7 +762,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
           <CustomRange
             label=""
             min={0}
-            max={1}
+            max={1.5}
             step={0.01}
             name="voiceover_volume"
             value={projectVal('voiceover_volume') || '1.0'}
@@ -545,9 +776,9 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
           />
           <div className="flex items-center gap-2">
             <span className="text-[9px] text-zinc-600">
-              Global: <span className="font-mono">1.0</span>
+              Global: <span className="font-mono">{globalSettings.voiceover_volume || '1.0'}</span>
             </span>
-            {projectVal('voiceover_volume') && projectVal('voiceover_volume') !== '1.0' && (
+            {projectVal('voiceover_volume') && projectVal('voiceover_volume') !== (globalSettings.voiceover_volume || '1.0') && (
               <span className="text-[9px] text-blue-500 font-bold uppercase tracking-wider">Override</span>
             )}
           </div>

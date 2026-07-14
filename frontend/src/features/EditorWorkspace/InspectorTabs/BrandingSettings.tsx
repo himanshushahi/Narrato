@@ -7,7 +7,7 @@ import { VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
 
-const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'chart_primary_color', 'chart_text_color'];
+const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'lower_third_title_font_size', 'chart_primary_color', 'chart_text_color'];
 
 const extractKeys = (obj: any, keys: string[]) => {
   return keys.reduce((acc: any, key) => {
@@ -167,6 +167,18 @@ export const BrandingSettings = ({ settings, onUpdate }: { settings: any; onUpda
               valueDisplay={`${settings.lower_third_y !== undefined ? settings.lower_third_y : 15}%`}
               onChange={(e) => updateKey('lower_third_y', parseInt(e.target.value))}
             />
+          </div>
+          <div className="col-span-2 grid grid-cols-2 gap-4">
+            <CustomRange
+              label="Title Font Size"
+              min="16" max="80"
+              value={settings.lower_third_title_font_size !== undefined ? settings.lower_third_title_font_size : 42}
+              valueDisplay={`${settings.lower_third_title_font_size !== undefined ? settings.lower_third_title_font_size : 42}px`}
+              onChange={(e) => updateKey('lower_third_title_font_size', parseInt(e.target.value))}
+            />
+            <div className="flex items-end pb-2">
+              <p className="text-[10px] text-zinc-500">Description scales proportionally</p>
+            </div>
           </div>
         </div>
       </div>

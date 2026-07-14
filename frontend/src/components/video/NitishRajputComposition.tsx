@@ -270,6 +270,7 @@ export const NitishRajputComposition = ({
                           primaryColor={subtitleSettings?.lower_third_primary_color || '#fbbf24'}
                           titleColor={subtitleSettings?.lower_third_title_color || '#fef3c7'}
                           subtitleColor={subtitleSettings?.lower_third_subtitle_color || '#d6d3d1'}
+                          titleFontSize={subtitleSettings?.lower_third_title_font_size !== undefined ? subtitleSettings.lower_third_title_font_size : 42}
                         />
                       </div>
                     )}

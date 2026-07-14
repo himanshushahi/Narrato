@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { CustomSelect } from '../../../components/ui/CustomSelect';
 import { GlowButton } from '../../../components/ui/GlowButton';
@@ -15,10 +15,19 @@ export const PiperTTS: React.FC<{
 }> = ({ appLanguage, formData, handleSelectChange, piperInstalled, onInstallStatusChange }) => {
   const [downloading, setDownloading] = useState(false);
   const [downloadMsg, setDownloadMsg] = useState('');
+  const [availablePiperVoices, setAvailablePiperVoices] = useState<string[] | null>(null);
 
-  const filteredVoices = PIPER_VOICE_OPTIONS.filter((opt) =>
-    appLanguage === 'hi' ? opt.value.startsWith('hi_') : opt.value.startsWith('en_')
-  );
+  useEffect(() => {
+    callApi<string[]>('list_piper_voices').then(list => {
+      if (list && list.length > 0) setAvailablePiperVoices(list);
+    }).catch(() => {});
+  }, []);
+
+  const filteredVoices = PIPER_VOICE_OPTIONS.filter((opt) => {
+    if (appLanguage === 'hi' ? !opt.value.startsWith('hi_') : !opt.value.startsWith('en_')) return false;
+    if (availablePiperVoices && !availablePiperVoices.includes(opt.value)) return false;
+    return true;
+  });
 
   const handleVoiceChange = (val: string) => {
     handleSelectChange('piper_voice', val);

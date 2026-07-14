@@ -1,10 +1,12 @@
 import os
 import re
+import time
 import wave
 import uuid
 from pathlib import Path
 import shutil
 
+import requests
 from huggingface_hub import hf_hub_download
 from piper import PiperVoice
 from piper.config import SynthesisConfig
@@ -16,6 +18,42 @@ def get_piper_dir() -> Path:
     piper_dir = get_models_dir() / "piper"
     piper_dir.mkdir(parents=True, exist_ok=True)
     return piper_dir
+
+_PIPER_VOICES_CACHE: list[str] = []
+_PIPER_VOICES_CACHE_TIME: float = 0
+
+def list_available_piper_voices() -> list[str]:
+    global _PIPER_VOICES_CACHE, _PIPER_VOICES_CACHE_TIME
+    now = time.time()
+    if _PIPER_VOICES_CACHE and (now - _PIPER_VOICES_CACHE_TIME) < 300:
+        return _PIPER_VOICES_CACHE
+
+    try:
+        url = "https://huggingface.co/api/models/rhasspy/piper-voices"
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        voices = set()
+        siblings = data.get("siblings", [])
+        for sib in siblings:
+            path = sib.get("rfilename", "")
+            if path.endswith(".onnx") and "/medium/" in path:
+                parts = path.split("/")
+                if len(parts) >= 5:
+                    lang_region = parts[1]
+                    speaker = parts[2]
+                    if "_" in lang_region:
+                        voice_id = f"{lang_region}-{speaker}"
+                        if lang_region.startswith("en_") or lang_region.startswith("hi_"):
+                            voices.add(voice_id)
+        result = sorted(voices)
+        _PIPER_VOICES_CACHE = result
+        _PIPER_VOICES_CACHE_TIME = now
+        logger.info(f"Found {len(result)} available Piper voices from HuggingFace")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to list available Piper voices: {e}")
+        return _PIPER_VOICES_CACHE
 
 def download_piper_voice(voice_id: str) -> dict:
     """
@@ -50,7 +88,6 @@ def download_piper_voice(voice_id: str) -> dict:
     logger.info(f"Downloading Piper voice: {fid} from {sfold}...")
     try:
         hf_model = hf_hub_download(repo_id="rhasspy/piper-voices", filename=f"{sfold}/{fid}.onnx")
-        import shutil
         shutil.copy(hf_model, m_path)
         
         hf_config = hf_hub_download(repo_id="rhasspy/piper-voices", filename=f"{sfold}/{fid}.onnx.json")
