@@ -255,8 +255,7 @@ export function useScriptEditing(
           const origMatch = origSubs.findIndex((osv: any, i: number) =>
             !matchedOrigIndices.has(i) &&
             osv.visual_type === lsv.visual_type &&
-            osv.visual_cue === lsv.visual_cue &&
-            osv.visual_path
+            osv.visual_cue === lsv.visual_cue
           );
           if (origMatch === -1 && lsv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(lsv.visual_type)) {
             try {
