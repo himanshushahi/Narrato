@@ -51,6 +51,7 @@ export interface Settings {
   web_search_enabled: boolean;
   web_search_provider: string;
   web_search_api_key: string;
+  voiceover_volume: string;
 }
 
 interface KokoroDownload {
@@ -146,7 +147,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     render_crf: "23",
     render_codec: "h264",
     render_hardware: "cpu",
-    render_timeout: "600000"
+    render_timeout: "600000",
+    voiceover_volume: "1.0"
   },
   gpuAvailable: false,
   kokoroDownload: {
