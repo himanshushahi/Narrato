@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
@@ -31,7 +31,13 @@ export const ExportTab: React.FC<ExportTabProps> = ({
 }) => {
   const [confirmStageId, setConfirmStageId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
   const { selectedProject } = useProjectStore();
+
+  const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    setVideoDimensions({ width: video.videoWidth, height: video.videoHeight });
+  }, []);
 
   const videoUrl = selectedProject?.video_path ? getMediaUrlSync(selectedProject.video_path) : null;
 
@@ -267,20 +273,24 @@ export const ExportTab: React.FC<ExportTabProps> = ({
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setShowPreview(false)}
+                onClick={() => { setShowPreview(false); setVideoDimensions(null); }}
           />
-          <div className="relative w-full max-w-4xl bg-black border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col">
+          <div className="relative w-full max-w-4xl max-h-[90vh] bg-black border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col">
             <div className="flex items-center justify-between p-3 border-b border-zinc-800 bg-zinc-900">
               <h3 className="text-zinc-200 font-bold text-xs uppercase tracking-wider">Video Preview</h3>
-              <button onClick={() => setShowPreview(false)} className="text-zinc-400 hover:text-white transition-colors cursor-pointer p-1">
+              <button onClick={() => { setShowPreview(false); setVideoDimensions(null); }} className="text-zinc-400 hover:text-white transition-colors cursor-pointer p-1">
                 <VscClose className="text-lg" />
               </button>
             </div>
-            <div className="aspect-video bg-black flex items-center justify-center">
+            <div 
+              className="bg-black flex items-center justify-center overflow-hidden"
+              style={videoDimensions ? { aspectRatio: `${videoDimensions.width} / ${videoDimensions.height}`, maxHeight: 'calc(90vh - 44px)' } : { aspectRatio: '16 / 9' }}
+            >
               <video 
                 src={videoUrl} 
                 controls 
                 autoPlay 
+                onLoadedMetadata={handleVideoMetadata}
                 className="w-full h-full object-contain"
               />
             </div>

@@ -175,6 +175,24 @@ export function useScriptEditing(
         // so inserted/deleted sub-visuals don't shift existing assets
         const matchedIndices = new Set<number>();
         const mergedSubVisuals = await Promise.all(liveSubVisuals.map(async (lsv: any, sIdx: number) => {
+          // Check if a preview/upload asset exists for this position FIRST
+          // so manual uploads take priority over original manifest assets
+          if (assetKeyPrefix) {
+            const assetKey = `${assetKeyPrefix}_${sIdx}`;
+            const preview = previewAssets[assetKey];
+            if (preview?.visual_path) {
+              let finalPath = preview.visual_path;
+              if (preview.visual_path.includes('previews')) {
+                const result = await callApi<any>('finalize_upload_asset', projectId, preview.visual_path, mIdx, sIdx);
+                if (result?.success) {
+                  finalPath = result.visual_path;
+                }
+              }
+              return { ...lsv, visual_path: finalPath, visual_url: preview.visual_url };
+            }
+          }
+          // Fall back to matching by content (type+cue) with original manifest
+          // so re-runs don't re-download unchanged assets
           const matchIdx = origSubVisuals.findIndex((osv: any, i: number) =>
             !matchedIndices.has(i) &&
             osv.visual_type === lsv.visual_type &&
@@ -184,22 +202,6 @@ export function useScriptEditing(
             matchedIndices.add(matchIdx);
             const match = origSubVisuals[matchIdx];
             return { ...lsv, visual_path: match.visual_path, visual_url: match.visual_url };
-          }
-          // Check if a preview/upload asset exists for this position
-          if (assetKeyPrefix) {
-            const assetKey = `${assetKeyPrefix}_${sIdx}`;
-            const preview = previewAssets[assetKey];
-            if (preview?.visual_path) {
-              let finalPath = preview.visual_path;
-              // Finalize uploads: copy from previews/ to final asset path
-              if (preview.visual_path.includes('previews')) {
-                const result = await callApi<any>('finalize_upload_asset', projectId, preview.visual_path, mIdx, sIdx);
-                if (result?.success) {
-                  finalPath = result.visual_path;
-                }
-              }
-              return { ...lsv, visual_path: finalPath, visual_url: preview.visual_url };
-            }
           }
           // New or changed sub-visual — strip any stale visual_path/visual_url
           // that scriptData may have carried over from a previous pipeline run,
