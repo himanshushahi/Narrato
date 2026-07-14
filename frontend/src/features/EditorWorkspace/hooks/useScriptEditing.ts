@@ -181,6 +181,15 @@ export function useScriptEditing(
             const assetKey = `${assetKeyPrefix}_${sIdx}`;
             const preview = previewAssets[assetKey];
             if (preview?.visual_path) {
+              // Mark the matching original manifest entry as consumed so
+              // subsequent sub-visuals with the same type+cue don't match it.
+              const origIdx = origSubVisuals.findIndex((osv: any, i: number) =>
+                !matchedIndices.has(i) &&
+                osv.visual_type === lsv.visual_type &&
+                osv.visual_cue === lsv.visual_cue
+              );
+              if (origIdx !== -1) matchedIndices.add(origIdx);
+
               let finalPath = preview.visual_path;
               if (preview.visual_path.includes('previews')) {
                 const result = await callApi<any>('finalize_upload_asset', projectId, preview.visual_path, mIdx, sIdx);

@@ -10,7 +10,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 
-const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor'];
+const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor', 'wordsPerScreen'];
 const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'chart_primary_color', 'chart_text_color'];
 
 const extractKeys = (obj: any, keys: string[]) => {

@@ -24,7 +24,7 @@ interface SentenceGroup {
   text: string;
 }
 
-function splitWordsIntoSentences(words: TranscriptionWord[]): SentenceGroup[] {
+function splitWordsIntoSentences(words: TranscriptionWord[], maxWordsPerScreen: number): SentenceGroup[] {
   if (words.length === 0) return [];
 
   const sentences: SentenceGroup[] = [];
@@ -55,8 +55,8 @@ function splitWordsIntoSentences(words: TranscriptionWord[]): SentenceGroup[] {
     }
 
     const isLastWord = i === words.length - 1;
-    const isTooLong = currentGroup.length >= 10; // Hard limit to prevent massive blocks
-    const isNaturalBreak = currentGroup.length >= 5 && hasSmallGap; // Soft limit on pauses
+    const isTooLong = currentGroup.length >= maxWordsPerScreen;
+    const isNaturalBreak = currentGroup.length >= Math.min(5, maxWordsPerScreen - 2) && hasSmallGap;
 
     if (endsWithPunctuation || endsWithComma || isLastWord || hasLargeSilenceGap || isTooLong || isNaturalBreak) {
       // Flush current group as a sentence
@@ -99,17 +99,17 @@ function splitWordsIntoSentences(words: TranscriptionWord[]): SentenceGroup[] {
  * Splits raw text (no word timestamps) into sentence chunks for display.
  * Distributes time evenly across sentences within the given time range.
  */
-function splitTextIntoTimedSentences(text: string, start: number, end: number): SentenceGroup[] {
+function splitTextIntoTimedSentences(text: string, start: number, end: number, wordsPerScreen: number): SentenceGroup[] {
   // Split on sentence-ending punctuation, keeping the delimiter
   let rawParts = text.split(/(?<=[।\.\|\?\!\,])\s*/);
   let parts = rawParts.filter(p => p.trim().length > 0);
 
-  // If there's no punctuation and the text is very long, artificially split it into chunks of ~6-8 words
-  if (parts.length === 1 && parts[0].split(' ').length > 10) {
+  // If there's no punctuation and the text is very long, artificially split it into chunks
+  if (parts.length === 1 && parts[0].split(' ').length > wordsPerScreen) {
     const words = parts[0].split(' ');
     const chunkedParts = [];
-    for (let i = 0; i < words.length; i += 8) {
-      chunkedParts.push(words.slice(i, i + 8).join(' '));
+    for (let i = 0; i < words.length; i += wordsPerScreen) {
+      chunkedParts.push(words.slice(i, i + wordsPerScreen).join(' '));
     }
     parts = chunkedParts;
   }
@@ -147,16 +147,18 @@ export const KineticSubtitles: React.FC<Props> = ({
   const { fps } = useVideoConfig();
   const currentTime = frame / fps;
 
+  const wordsPerScreen = subtitleSettings.wordsPerScreen ?? 10;
+
   // Pre-compute all sentence groups from transcription segments
   const allSentences = useMemo(() => {
     const sentences: SentenceGroup[] = [];
     for (const seg of transcription.segments) {
       if (seg.words && seg.words.length > 0) {
-        const groups = splitWordsIntoSentences(seg.words);
+        const groups = splitWordsIntoSentences(seg.words, wordsPerScreen);
         sentences.push(...groups);
       } else {
         // Segment with no word timestamps: split text into timed sentences
-        const groups = splitTextIntoTimedSentences(seg.text, seg.start, seg.end);
+        const groups = splitTextIntoTimedSentences(seg.text, seg.start, seg.end, wordsPerScreen);
         sentences.push(...groups);
       }
     }
@@ -168,19 +170,19 @@ export const KineticSubtitles: React.FC<Props> = ({
     }
 
     return sentences;
-  }, [transcription]);
+  }, [transcription, wordsPerScreen]);
 
   // Pre-compute fallback sentences from scene timings (for transcription gaps)
   const fallbackSentences = useMemo(() => {
     const sentences: SentenceGroup[] = [];
     for (const scene of sceneTimings) {
       if (scene.text) {
-        const groups = splitTextIntoTimedSentences(scene.text, scene.start, scene.end);
+        const groups = splitTextIntoTimedSentences(scene.text, scene.start, scene.end, wordsPerScreen);
         sentences.push(...groups);
       }
     }
     return sentences;
-  }, [sceneTimings]);
+  }, [sceneTimings, wordsPerScreen]);
 
   // 1. Find active sentence from transcription (primary source)
   let activeSentence = allSentences.find(

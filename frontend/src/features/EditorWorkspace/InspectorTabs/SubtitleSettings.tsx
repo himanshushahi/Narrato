@@ -1,15 +1,125 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 import { CustomSelect } from '../../../components/ui/CustomSelect';
 import { CustomColorInput } from '../../../components/ui/CustomColorInput';
 import { CustomCheckbox } from '../../../components/ui/CustomCheckbox';
 import { CustomRange } from '../../../components/ui/CustomRange';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
-import { VscLoading, VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
+import { VscLoading, VscTrash, VscStarFull, VscSave, VscCheck } from 'react-icons/vsc';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
 
-const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor'];
+interface SubtitlePreset {
+  id: string;
+  label: string;
+  desc: string;
+  fontFamily: string;
+  fontSize: number;
+  wordSpacing: number;
+  activeColor: string;
+  pastColor: string;
+  textTransform: string;
+  bottomOffset: number;
+  showBackgroundHighlight: boolean;
+  highlightBgColor: string;
+  wordsPerScreen: number;
+}
+
+const SUBTITLE_PRESETS: SubtitlePreset[] = [
+  {
+    id: 'classic_amber',
+    label: 'Classic Amber',
+    desc: 'Warm amber highlight on dark text',
+    fontFamily: 'Montserrat',
+    fontSize: 54,
+    wordSpacing: 18,
+    activeColor: '#fbbf24',
+    pastColor: '#d6d3d1',
+    textTransform: 'uppercase',
+    bottomOffset: 120,
+    showBackgroundHighlight: true,
+    highlightBgColor: '#fbbf24',
+    wordsPerScreen: 10,
+  },
+  {
+    id: 'modern_cyan',
+    label: 'Modern Cyan',
+    desc: 'Clean cyan highlight, lowercase',
+    fontFamily: 'Inter',
+    fontSize: 48,
+    wordSpacing: 12,
+    activeColor: '#22d3ee',
+    pastColor: '#a1a1aa',
+    textTransform: 'none',
+    bottomOffset: 100,
+    showBackgroundHighlight: true,
+    highlightBgColor: '#22d3ee',
+    wordsPerScreen: 8,
+  },
+  {
+    id: 'minimal_white',
+    label: 'Minimal White',
+    desc: 'White text, no background bar',
+    fontFamily: 'Roboto',
+    fontSize: 60,
+    wordSpacing: 10,
+    activeColor: '#ffffff',
+    pastColor: '#71717a',
+    textTransform: 'uppercase',
+    bottomOffset: 150,
+    showBackgroundHighlight: false,
+    highlightBgColor: '#ffffff',
+    wordsPerScreen: 6,
+  },
+  {
+    id: 'elegant_gold',
+    label: 'Elegant Gold',
+    desc: 'Gold highlight, serif-like sans',
+    fontFamily: 'Lato',
+    fontSize: 52,
+    wordSpacing: 22,
+    activeColor: '#f5b041',
+    pastColor: '#a8a8a8',
+    textTransform: 'capitalize',
+    bottomOffset: 130,
+    showBackgroundHighlight: true,
+    highlightBgColor: '#f5b041',
+    wordsPerScreen: 10,
+  },
+  {
+    id: 'hindi_reader',
+    label: 'Hindi Reader',
+    desc: 'Large text optimized for Devanagari',
+    fontFamily: 'Hind',
+    fontSize: 64,
+    wordSpacing: 16,
+    activeColor: '#facc15',
+    pastColor: '#d4d4d8',
+    textTransform: 'none',
+    bottomOffset: 80,
+    showBackgroundHighlight: true,
+    highlightBgColor: '#facc15',
+    wordsPerScreen: 7,
+  },
+  {
+    id: 'bold_dark',
+    label: 'Bold Dark',
+    desc: 'Large bold, dramatic uppercase',
+    fontFamily: 'Anton',
+    fontSize: 72,
+    wordSpacing: 30,
+    activeColor: '#a78bfa',
+    pastColor: '#52525b',
+    textTransform: 'uppercase',
+    bottomOffset: 140,
+    showBackgroundHighlight: false,
+    highlightBgColor: '#a78bfa',
+    wordsPerScreen: 5,
+  },
+];
+
+const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor', 'wordsPerScreen'];
 
 const extractKeys = (obj: any, keys: string[]) => {
   return keys.reduce((acc: any, key) => {
@@ -90,11 +200,91 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
     }
   };
 
+  const isSubtitlePresetActive = (preset: SubtitlePreset): boolean => {
+    if ((settings.fontFamily || 'Montserrat') !== preset.fontFamily) return false;
+    if ((settings.fontSize !== undefined ? settings.fontSize : 54) !== preset.fontSize) return false;
+    if ((settings.wordSpacing !== undefined ? settings.wordSpacing : 18) !== preset.wordSpacing) return false;
+    if ((settings.activeColor || '#fbbf24') !== preset.activeColor) return false;
+    if ((settings.pastColor || '#d6d3d1') !== preset.pastColor) return false;
+    if ((settings.textTransform || 'uppercase') !== preset.textTransform) return false;
+    if ((settings.bottomOffset !== undefined ? settings.bottomOffset : 120) !== preset.bottomOffset) return false;
+    if ((settings.showBackgroundHighlight !== false) !== preset.showBackgroundHighlight) return false;
+    if (preset.showBackgroundHighlight && (settings.highlightBgColor || settings.activeColor || '#fbbf24') !== preset.highlightBgColor) return false;
+    if ((settings.wordsPerScreen !== undefined ? settings.wordsPerScreen : 10) !== preset.wordsPerScreen) return false;
+    return true;
+  };
+
+  const applySubtitlePreset = (preset: SubtitlePreset) => {
+    setSelectedPresetId('');
+    onUpdate({
+      ...settings,
+      fontFamily: preset.fontFamily,
+      fontSize: preset.fontSize,
+      wordSpacing: preset.wordSpacing,
+      activeColor: preset.activeColor,
+      pastColor: preset.pastColor,
+      textTransform: preset.textTransform,
+      bottomOffset: preset.bottomOffset,
+      showBackgroundHighlight: preset.showBackgroundHighlight,
+      highlightBgColor: preset.highlightBgColor,
+      wordsPerScreen: preset.wordsPerScreen,
+    });
+  };
+
   return (
     <div className="space-y-3">
-      {/* Presets */}
+      {/* Hardcoded presets */}
+      <div>
+        <div className="flex items-center gap-2 pb-1 border-b border-zinc-800/40 mb-3">
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
+            Quick Presets
+          </h3>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {SUBTITLE_PRESETS.map((preset) => {
+            const active = isSubtitlePresetActive(preset);
+            return (
+              <motion.button
+                key={preset.id}
+                onClick={() => applySubtitlePreset(preset)}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className={`relative flex flex-col items-start gap-0.5 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  active
+                    ? 'bg-blue-600/10 border-blue-500/50'
+                    : 'bg-zinc-800/40 border-zinc-700/50 hover:border-zinc-600'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 w-full">
+                  <span className={`text-[10px] font-bold ${active ? 'text-blue-300' : 'text-zinc-200'}`}>
+                    {preset.label}
+                  </span>
+                  {active && (
+                    <div className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center shrink-0 ml-auto">
+                      <VscCheck className="text-[7px] text-white" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span
+                    className="w-3 h-3 rounded-full border border-zinc-600/50"
+                    style={{ backgroundColor: preset.activeColor }}
+                  />
+                  <span
+                    className="w-3 h-3 rounded text-[6px] font-bold flex items-center justify-center border border-zinc-600/50"
+                    style={{ backgroundColor: preset.pastColor, color: '#0c0a09' }}
+                  >T</span>
+                </div>
+                <p className="text-[8px] text-zinc-500">{preset.desc}</p>
+              </motion.button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Saved Presets */}
       <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-800 space-y-3">
-        <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Presets</label>
+        <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Saved Presets</label>
         <div className="flex items-center gap-2">
           <div className="flex-1">
             <CustomSelect
@@ -191,6 +381,13 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
           value={settings.bottomOffset !== undefined ? settings.bottomOffset : 120}
           valueDisplay={`${settings.bottomOffset !== undefined ? settings.bottomOffset : 120}px`}
           onChange={(e) => { setSelectedPresetId(''); onUpdate({ ...settings, bottomOffset: parseInt(e.target.value) || 0 }); }}
+        />
+        <CustomRange
+          label="Words Per Screen"
+          min="3" max="20"
+          value={settings.wordsPerScreen !== undefined ? settings.wordsPerScreen : 10}
+          valueDisplay={`${settings.wordsPerScreen !== undefined ? settings.wordsPerScreen : 10} words`}
+          onChange={(e) => { setSelectedPresetId(''); onUpdate({ ...settings, wordsPerScreen: parseInt(e.target.value) || 10 }); }}
         />
         <div className="flex flex-col gap-1.5 justify-center mt-2 col-span-2">
           <CustomCheckbox

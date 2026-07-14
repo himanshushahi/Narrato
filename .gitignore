@@ -18,6 +18,7 @@ build/
 *.dylib
 models/
 .dev_data/
+assets/
 
 # Frontend builds
 frontend/dist-remotion/

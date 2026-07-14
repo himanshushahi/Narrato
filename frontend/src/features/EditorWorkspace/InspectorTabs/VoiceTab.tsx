@@ -599,7 +599,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     if (preset.speed && pSpeed !== preset.speed) return false;
     const pPitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
     if (preset.pitch && pPitch !== preset.pitch) return false;
-    const pVolume = projectVal('voiceover_volume') || '1.0';
+    const pVolume = projectVal('voiceover_volume') || globalSettings.voiceover_volume || '1.0';
     if (preset.volume && pVolume !== preset.volume) return false;
     return true;
   };
