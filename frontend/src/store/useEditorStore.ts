@@ -78,7 +78,7 @@ const defaults = {
   timelineHeight: 200,
   leftPanelTab: 'scenes' as LeftPanelTab,
   inspectorTab: 'script' as InspectorTab,
-  timelineZoom: 60,
+  timelineZoom: 15,
   trackMuted: {} as Record<string, boolean>,
   trackHidden: {} as Record<string, boolean>,
 };

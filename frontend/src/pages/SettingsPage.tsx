@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSettingsStore, Settings as SettingsType } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { GlassCard } from '../components/ui/GlassCard';
@@ -51,6 +51,9 @@ export const SettingsPage: React.FC = () => {
 
   // App language state (computed locally based on voice settings)
   const [appLanguage, setAppLanguage] = useState<'hi' | 'en'>('hi');
+
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearSaveStatusTimer = () => { if (saveStatusTimerRef.current) { clearTimeout(saveStatusTimerRef.current); saveStatusTimerRef.current = null; } };
 
   const [previewText, setPreviewText] = useState('नमस्ते! यह चुनी हुई आवाज का पूर्वावलोकन है।');
   const [previewAudioUrl, setPreviewAudioUrl] = useState('');
@@ -223,10 +226,12 @@ export const SettingsPage: React.FC = () => {
     try {
       await saveSettings(formData);
       setSaveStatus('success');
-      setTimeout(() => setSaveStatus(''), 2000);
+      clearSaveStatusTimer();
+      saveStatusTimerRef.current = setTimeout(() => setSaveStatus(''), 2000);
     } catch (err) {
       setSaveStatus('failed');
-      setTimeout(() => setSaveStatus(''), 2000);
+      clearSaveStatusTimer();
+      saveStatusTimerRef.current = setTimeout(() => setSaveStatus(''), 2000);
     }
   };
 

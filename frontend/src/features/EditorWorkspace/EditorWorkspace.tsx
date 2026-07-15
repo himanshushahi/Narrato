@@ -189,25 +189,6 @@ export const EditorWorkspace: React.FC = () => {
     setIsPlaying(!isPlaying);
   }, [isPlaying, setIsPlaying]);
 
-  const handleAddScene = useCallback(() => {
-    const lastIdx = (scriptData?.scenes?.length ?? 0) - 1;
-    const blankScene = {
-      scene_number: lastIdx + 2,
-      title: "New Scene",
-      narration: "",
-      sub_visuals: [{ visual_type: "scene", visual_cue: "", transition: "fade", visual_meta: {} }]
-    };
-    insertAndSaveNewScene(blankScene, lastIdx);
-  }, [scriptData, insertAndSaveNewScene]);
-
-  const handleResizeScene = useCallback(async (sceneIndex: number, newDurationSeconds: number) => {
-    if (!id) return;
-    const result = await callApi<any>('update_scene_duration', id, sceneIndex, newDurationSeconds);
-    if (result?.success) {
-      loadFiles(id);
-    }
-  }, [id, loadFiles]);
-
   const handleResizeSubVisual = useCallback(async (sceneIndex: number, newRatios: number[]) => {
     if (!id || !scriptData || !manifestData) return;
 
@@ -252,24 +233,6 @@ export const EditorWorkspace: React.FC = () => {
       loadFiles(id);
     }
   }, [id, scriptData, manifestData, setScriptData, setManifestData, loadFiles]);
-
-  const handleReorderScene = useCallback(async (fromIndex: number, toIndex: number) => {
-    if (!id) return;
-    // Convert timeline-relative indices to scene-relative (exclude intro at 0, conclusion at last)
-    const sceneFromIdx = fromIndex - 1;
-    const sceneToIdx = toIndex - 1;
-    if (sceneFromIdx < 0 || sceneToIdx < 0) return;
-
-    const sceneCount = sceneTimings.length - 2; // exclude intro and conclusion
-    const newOrder = Array.from({ length: sceneCount }, (_, i) => i);
-    const [moved] = newOrder.splice(sceneFromIdx, 1);
-    newOrder.splice(sceneToIdx, 0, moved);
-
-    const result = await callApi<any>('reorder_scenes', id, newOrder);
-    if (result?.success) {
-      loadFiles(id);
-    }
-  }, [id, sceneTimings, loadFiles]);
 
   // ── Refs for shortcut handlers that need latest state ──
   const currentFrameRef = useRef(currentFrame);
@@ -570,14 +533,11 @@ export const EditorWorkspace: React.FC = () => {
           transcriptionData={transcriptionData}
           currentFrame={currentFrame}
           onSeek={handleSeek}
-          onAddScene={handleAddScene}
-          onDeleteScene={(idx) => {
+          onDeleteScene={useCallback((idx: number) => {
             const sceneIdx = idx - (scriptData?.introduction ? 1 : 0);
             setSceneToDelete(sceneIdx);
-          }}
-          onResizeScene={handleResizeScene}
+          }, [scriptData?.introduction, setSceneToDelete])}
           onResizeSubVisual={handleResizeSubVisual}
-          onReorderScene={handleReorderScene}
         />
       </div>
 

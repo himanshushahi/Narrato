@@ -62,7 +62,7 @@ const fileTypeBadge = (ext: string): { icon: React.ReactNode; label: string; col
   return { icon: <VscPackage />, label: (ext || 'FILE').replace('.', '').toUpperCase(), color: 'text-zinc-400 bg-zinc-500/10' };
 };
 
-export const MediaSidebar: React.FC<MediaSidebarProps> = ({
+export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   scriptData, manifestData, sceneTimings, onSeek,
   projectId, activeTaskStep, reloadTrigger = 0,
 }) => {
@@ -615,7 +615,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = ({
       </div>
     </div>
   );
-};
+});
 
 /* ============================================================
    Assets Sub-components
@@ -628,7 +628,7 @@ const DownloadProgressBanner: React.FC<{
   message?: string;
   downloadedCount: number;
   pendingCount: number;
-}> = ({ isFetching, progress, message }) => {
+}> = React.memo(({ isFetching, progress, message }) => {
   if (!isFetching) return null;
 
   const pct = Math.round(progress ?? 0);
@@ -654,7 +654,7 @@ const DownloadProgressBanner: React.FC<{
       </div>
     </div>
   );
-};
+});
 
 /** Empty state for assets tab */
 const AssetsEmptyState: React.FC<{
@@ -792,7 +792,7 @@ const AssetListItem: React.FC<{
   asset: AssetEntry;
   isFetching: boolean;
   onClick: () => void;
-}> = ({ asset, isFetching, onClick }) => {
+}> = React.memo(({ asset, isFetching, onClick }) => {
   const hasFile = asset.fileExists && !asset.isProgrammatic;
 
   return (
@@ -861,14 +861,14 @@ const AssetListItem: React.FC<{
       </div>
     </div>
   );
-};
+});
 
 /** Single asset item in grid view */
 const AssetGridItem: React.FC<{
   asset: AssetEntry;
   isFetching: boolean;
   onClick: () => void;
-}> = ({ asset, isFetching, onClick }) => {
+}> = React.memo(({ asset, isFetching, onClick }) => {
   const hasFile = asset.fileExists && !asset.isProgrammatic;
 
   return (
@@ -899,7 +899,7 @@ const AssetGridItem: React.FC<{
       </div>
     </div>
   );
-};
+});
 
 /* ============================================================
    Scene List Item (unchanged from original)
@@ -913,7 +913,7 @@ interface SceneListItemProps {
   onClick: () => void;
 }
 
-const SceneListItem: React.FC<SceneListItemProps> = ({ number, title, subtitle, timing, onClick }) => (
+const SceneListItem: React.FC<SceneListItemProps> = React.memo(({ number, title, subtitle, timing, onClick }) => (
   <div
     onClick={onClick}
     className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-zinc-800/40 border border-transparent hover:border-zinc-700/50 cursor-pointer transition-all group"
@@ -931,4 +931,4 @@ const SceneListItem: React.FC<SceneListItemProps> = ({ number, title, subtitle, 
       <p className="text-[9px] text-zinc-500 truncate mt-0.5">{subtitle}</p>
     </div>
   </div>
-);
+));

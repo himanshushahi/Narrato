@@ -23,7 +23,7 @@ interface VideoPreviewProps {
   fullscreenToggleRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-export const VideoPreview: React.FC<VideoPreviewProps> = ({
+export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   playerRef, liveScenes, transcriptionData, currentFrame,
   audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
   onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef
@@ -175,7 +175,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                   bgMusicUrl={bgMusicUrl}
                   bgMusicVolume={trackMuted['music'] || trackHidden['music'] ? 0 : bgMusicVolume}
                   voiceoverVolume={trackMuted['voice'] || trackHidden['voice'] ? 0 : voiceoverVolume}
-                  scenes={trackHidden['video'] ? [] : liveScenes}
+                  scenes={liveScenes}
                   transcription={trackHidden['subs'] ? { segments: [] } : transcriptionData}
                   styleType={styleType}
                   language={language}
@@ -298,4 +298,4 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
       </motion.div>
     </div>
   );
-};
+});

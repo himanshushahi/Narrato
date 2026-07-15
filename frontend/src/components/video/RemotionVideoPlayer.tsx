@@ -66,6 +66,14 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
 
   const hasScenes = scenes && scenes.length > 0;
 
+  // Use refs to avoid effect re-runs when callbacks change
+  const onFrameUpdateRef = useRef(onFrameUpdate);
+  const onPlayStateChangeRef = useRef(onPlayStateChange);
+  useEffect(() => {
+    onFrameUpdateRef.current = onFrameUpdate;
+    onPlayStateChangeRef.current = onPlayStateChange;
+  });
+
   useEffect(() => {
     if (!hasScenes) return;
 
@@ -76,27 +84,25 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         const frame = playerRef.current.getCurrentFrame();
         if (frame !== lastFrame) {
           lastFrame = frame;
-          onFrameUpdate?.(frame);
+          onFrameUpdateRef.current?.(frame);
         }
-        // Sync playing state from player to store
         const playing = playerRef.current.isPlaying();
         if (playing !== lastPlaying) {
           lastPlaying = playing;
-          onPlayStateChange?.(playing);
+          onPlayStateChangeRef.current?.(playing);
         }
       }
-    }, 200); // poll at ~5fps to prevent React render lag
+    }, 200);
 
     return () => clearInterval(interval);
-  }, [onFrameUpdate, onPlayStateChange, hasScenes]);
+  }, [hasScenes]);
 
-  // Dynamically compute the total duration of the video based on segment synthesis times
   const durationInFrames = useMemo(() => {
     if (!scenes || scenes.length === 0) {
-      return 150; // default 5 seconds fallback
+      return 150;
     }
     const totalDuration = scenes.reduce((acc, scene) => acc + (scene.duration || 0), 0);
-    return Math.max(150, Math.ceil(totalDuration * 30)); // 30fps
+    return Math.max(150, Math.ceil(totalDuration * 30));
   }, [scenes]);
 
   const inputProps = useMemo(() => {
@@ -110,7 +116,7 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       style: styleType,
       language,
       videoFormat,
-      subtitleSettings
+      subtitleSettings,
     };
   }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, scenes, transcription, styleType, language, videoFormat, subtitleSettings]);
 
@@ -143,10 +149,9 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         controls={false}
         loop
         spaceKeyToPlayOrPause={false}
-        pauseWhenBuffering
+        concurrency={4}
       />
 
-      {/* Dynamic duration indicator badge */}
       <div className="absolute top-4 right-4 bg-zinc-950/80 backdrop-blur-md px-3 py-1 rounded text-xs font-mono text-zinc-300 z-20 border border-zinc-800 pointer-events-none">
         {(durationInFrames / 30).toFixed(1)}s / {((durationInFrames / 30) / 60).toFixed(2)}m
       </div>

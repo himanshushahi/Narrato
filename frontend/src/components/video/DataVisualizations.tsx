@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, spring, interpolate, useVideoConfig } from 'remotion';
+import { useCurrentFrame, spring, interpolate, useVideoConfig, Img } from 'remotion';
 import * as d3Geo from 'd3-geo';
 import * as d3Shape from 'd3-shape';
 import * as topojson from 'topojson-client';
@@ -760,9 +760,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                   position: 'relative',
                 }}>
                   {imageUrl ? (
-                    <img
+                    <Img
                       src={imageUrl}
-                      alt=""
                       style={{
                         width: '100%',
                         height: '100%',
@@ -1127,7 +1126,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                   overflow: 'hidden'
                 }}>
                   {node.image ? (
-                    <img src={node.image} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    <Img src={node.image} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                   ) : (
                     <span style={{ fontSize: 40, color: s.nodeText, fontWeight: 'bold' }}>{node.label.charAt(0).toUpperCase()}</span>
                   )}
