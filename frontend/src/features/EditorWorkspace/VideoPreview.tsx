@@ -34,6 +34,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
   const [showOverlay, setShowOverlay] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const trackMuted = useEditorStore((s) => s.trackMuted);
+  const trackHidden = useEditorStore((s) => s.trackHidden);
 
   React.useEffect(() => {
     const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -171,14 +173,14 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                   ref={playerRef}
                   audioUrl={audioUrl}
                   bgMusicUrl={bgMusicUrl}
-                  bgMusicVolume={bgMusicVolume}
-                  voiceoverVolume={voiceoverVolume}
-                  scenes={liveScenes}
-                  transcription={transcriptionData}
+                  bgMusicVolume={trackMuted['music'] || trackHidden['music'] ? 0 : bgMusicVolume}
+                  voiceoverVolume={trackMuted['voice'] || trackHidden['voice'] ? 0 : voiceoverVolume}
+                  scenes={trackHidden['video'] ? [] : liveScenes}
+                  transcription={trackHidden['subs'] ? { segments: [] } : transcriptionData}
                   styleType={styleType}
                   language={language}
                   videoFormat={videoFormat}
-                  subtitleSettings={subtitleSettings}
+                  subtitleSettings={{ ...subtitleSettings, hide_subtitles: trackHidden['subs'] }}
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}
                 />

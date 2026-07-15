@@ -307,7 +307,7 @@ export const NitishRajputComposition = ({
       })}
 
       {/* 4. Active Typographic Subtitle Overlay */}
-      {transcription && transcription.segments && (
+      {!subtitleSettings?.hide_subtitles && transcription && transcription.segments && (
         <KineticSubtitles 
           transcription={transcription} 
           sceneTimings={sceneTimings}

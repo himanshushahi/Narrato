@@ -26,6 +26,10 @@ interface EditorStore {
   // Timeline zoom (pixels per second)
   timelineZoom: number;
 
+  // Track visibility and mute states
+  trackMuted: Record<string, boolean>;
+  trackHidden: Record<string, boolean>;
+
   // Actions
   setLeftPanelWidth: (w: number) => void;
   setRightPanelWidth: (w: number) => void;
@@ -37,6 +41,8 @@ interface EditorStore {
   setCommandPaletteOpen: (open: boolean) => void;
   setIsPlaying: (playing: boolean) => void;
   setTimelineZoom: (zoom: number) => void;
+  toggleTrackMute: (trackId: string) => void;
+  toggleTrackHide: (trackId: string) => void;
 }
 
 const STORAGE_KEY = 'narrato_editor_layout';
@@ -57,6 +63,8 @@ const saveLayout = async (state: Partial<EditorStore>) => {
           leftPanelTab: state.leftPanelTab,
           inspectorTab: state.inspectorTab,
           timelineZoom: state.timelineZoom,
+          trackMuted: state.trackMuted,
+          trackHidden: state.trackHidden,
         });
         await window.pywebview.api.save_prefs(prefs);
       }
@@ -71,6 +79,8 @@ const defaults = {
   leftPanelTab: 'scenes' as LeftPanelTab,
   inspectorTab: 'script' as InspectorTab,
   timelineZoom: 60,
+  trackMuted: {} as Record<string, boolean>,
+  trackHidden: {} as Record<string, boolean>,
 };
 
 let persisted: Partial<EditorStore> = {};
@@ -93,6 +103,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
   commandPaletteOpen: false,
   isPlaying: false,
   timelineZoom: persisted.timelineZoom ?? defaults.timelineZoom,
+  trackMuted: persisted.trackMuted ?? defaults.trackMuted,
+  trackHidden: persisted.trackHidden ?? defaults.trackHidden,
 
   // Actions
   setLeftPanelWidth: (w) => set((s) => { const next = { ...s, leftPanelWidth: w }; saveLayout(next); return next; }),
@@ -105,4 +117,14 @@ export const useEditorStore = create<EditorStore>((set) => ({
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setTimelineZoom: (zoom) => set((s) => { const next = { ...s, timelineZoom: zoom }; saveLayout(next); return next; }),
+  toggleTrackMute: (trackId) => set((s) => {
+    const next = { ...s, trackMuted: { ...s.trackMuted, [trackId]: !s.trackMuted[trackId] } };
+    saveLayout(next);
+    return next;
+  }),
+  toggleTrackHide: (trackId) => set((s) => {
+    const next = { ...s, trackHidden: { ...s.trackHidden, [trackId]: !s.trackHidden[trackId] } };
+    saveLayout(next);
+    return next;
+  }),
 }));

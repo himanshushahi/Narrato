@@ -1,17 +1,20 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { VscAdd, VscTrash, VscZoomIn, VscZoomOut } from 'react-icons/vsc';
+import { VscAdd, VscTrash, VscZoomIn, VscZoomOut, VscMute, VscUnmute, VscEye, VscEyeClosed } from 'react-icons/vsc';
+import { Clapperboard, Image as ImageIcon, User, BarChart2, Map as MapIcon, Layers, MonitorPlay, Link as LinkIcon, FileText } from 'lucide-react';
 import { formatTime } from '../../features/ProjectEditor/constants';
 import { useEditorStore } from '../../store/useEditorStore';
 
 interface TimelineProps {
   liveScenes: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
+  transcriptionData?: any;
   currentFrame: number;
   onSeek: (frame: number) => void;
   onAddScene?: () => void;
   onDeleteScene?: (index: number) => void;
   onResizeScene?: (index: number, newDurationSeconds: number) => void;
+  onResizeSubVisual?: (sceneIndex: number, newRatios: number[]) => void;
   onReorderScene?: (fromIndex: number, toIndex: number) => void;
   readOnly?: boolean;
 }
@@ -45,27 +48,27 @@ const SUBVISUAL_COLORS: Record<string, string> = {
   document: 'from-stone-500/40 to-zinc-500/30 border-stone-500/50',
 };
 
-const SUBVISUAL_LABELS: Record<string, string> = {
-  scene: '🎬',
-  image: '🖼',
-  portrait: '👤',
-  chart: '📊',
-  map: '🗺',
-  parallax: '🎨',
-  youtube: '▶️',
-  network: '🔗',
-  document: '📄',
+const SUBVISUAL_ICONS: Record<string, React.ElementType> = {
+  scene: Clapperboard,
+  image: ImageIcon,
+  portrait: User,
+  chart: BarChart2,
+  map: MapIcon,
+  parallax: Layers,
+  youtube: MonitorPlay,
+  network: LinkIcon,
+  document: FileText,
 };
 
-const HEADER_WIDTH = 60;
+const HEADER_WIDTH = 110;
 const FPS = 30;
 const ZOOM_MIN = 15;
 const ZOOM_MAX = 240;
 const HANDLE_WIDTH = 5;
 
 export const Timeline: React.FC<TimelineProps> = ({
-  liveScenes, sceneTimings, currentFrame, onSeek,
-  onAddScene, onDeleteScene, onResizeScene, onReorderScene,
+  liveScenes, sceneTimings, transcriptionData, currentFrame, onSeek,
+  onAddScene, onDeleteScene, onResizeScene, onResizeSubVisual, onReorderScene,
   readOnly = false
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -75,6 +78,10 @@ export const Timeline: React.FC<TimelineProps> = ({
   // Zoom state (persisted to store)
   const timelineZoom = useEditorStore((s) => s.timelineZoom);
   const setTimelineZoom = useEditorStore((s) => s.setTimelineZoom);
+  const trackMuted = useEditorStore((s) => s.trackMuted);
+  const trackHidden = useEditorStore((s) => s.trackHidden);
+  const toggleTrackMute = useEditorStore((s) => s.toggleTrackMute);
+  const toggleTrackHide = useEditorStore((s) => s.toggleTrackHide);
 
   // Local timings for optimistic drag updates
   const [localTimings, setLocalTimings] = useState<LocalTiming[]>(sceneTimings);
@@ -82,18 +89,22 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   // Reorder drag state
   const [dragState, setDragState] = useState<{
-    type: 'trim_left' | 'trim_right' | 'reorder';
+    type: 'trim_left' | 'trim_right' | 'reorder' | 'resize_sub_visual';
     sceneIdx: number;
     initialMouseX: number;
     initialStart: number;
     initialEnd: number;
+    subIdx?: number;
+    initialRatios?: number[];
   } | null>(null);
   const dragRef = useRef<{
-    type: 'trim_left' | 'trim_right' | 'reorder';
+    type: 'trim_left' | 'trim_right' | 'reorder' | 'resize_sub_visual';
     sceneIdx: number;
     initialMouseX: number;
     initialStart: number;
     initialEnd: number;
+    subIdx?: number;
+    initialRatios?: number[];
     mouseX: number;
     committed: boolean;
   } | null>(null);
@@ -119,13 +130,44 @@ export const Timeline: React.FC<TimelineProps> = ({
     }
   }, [currentFrame, timelineZoom]);
 
+  const startSubVisualResize = useCallback((e: React.MouseEvent, sceneIdx: number, subIdx: number) => {
+    e.stopPropagation();
+    if (!scrollRef.current) return;
+    
+    const scene = liveScenes?.[sceneIdx];
+    if (!scene) return;
+    
+    // Compute current ratios based on durations
+    const timing = localTimings[sceneIdx];
+    const sceneDuration = timing.end - timing.start;
+    if (sceneDuration <= 0) return;
+    
+    const initialRatios = timing.subs.map(sub => (sub.end - sub.start) / sceneDuration);
+
+    dragRef.current = {
+      type: 'resize_sub_visual',
+      sceneIdx,
+      subIdx,
+      initialMouseX: e.clientX,
+      initialStart: 0,
+      initialEnd: 0,
+      initialRatios,
+      mouseX: e.clientX,
+      committed: false
+    };
+    setDragState(dragRef.current);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [localTimings, liveScenes]);
+
   // Global mouseup/mousemove for drag operations
   useEffect(() => {
     const handleMouseUp = () => {
       const d = dragRef.current;
       if (!d) return;
-      // Bail out if this isn't a trim/reorder mouseup
-      if (!d.type.startsWith('trim') && d.type !== 'reorder') return;
+
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
       dragRef.current = null;
       setDragState(null);
       setReorderTargetIdx(null);
@@ -134,16 +176,21 @@ export const Timeline: React.FC<TimelineProps> = ({
       d.committed = true;
 
       if (d.type === 'trim_left' || d.type === 'trim_right') {
-        const newTiming = localTimings[d.sceneIdx];
-        if (newTiming && onResizeScene) {
-          const newDurationSec = (newTiming.end - newTiming.start) / FPS;
-          // Find the actual scene index within the manifest (skip intro)
-          // The sceneTimings array includes intro/scenes/conclusion, we need the scene-relative index
-          const manifestSceneIndex = d.sceneIdx;
-          onResizeScene(manifestSceneIndex, Math.max(1, newDurationSec));
+        const t = localTimings[d.sceneIdx];
+        if (onResizeScene) {
+          const newDur = (t.end - t.start) / FPS;
+          onResizeScene(d.sceneIdx, newDur);
         }
       } else if (d.type === 'reorder' && reorderTargetIdx !== null && reorderTargetIdx !== d.sceneIdx && onReorderScene) {
         onReorderScene(d.sceneIdx, reorderTargetIdx);
+      } else if (d.type === 'resize_sub_visual' && onResizeSubVisual) {
+        // Compute new ratios directly from localTimings
+        const timing = localTimings[d.sceneIdx];
+        const sceneDuration = timing.end - timing.start;
+        if (sceneDuration > 0) {
+          const newRatios = timing.subs.map(sub => (sub.end - sub.start) / sceneDuration);
+          onResizeSubVisual(d.sceneIdx, newRatios);
+        }
       }
     };
 
@@ -207,6 +254,54 @@ export const Timeline: React.FC<TimelineProps> = ({
         }
 
         setReorderTargetIdx(targetIdx);
+      } else if (d.type === 'resize_sub_visual' && d.subIdx !== undefined && d.initialRatios) {
+        const timing = localTimings[d.sceneIdx];
+        const sceneDurationFrames = timing.end - timing.start;
+        if (sceneDurationFrames <= 0) return;
+        
+        // Calculate the ratio change based on pixel movement
+        // total width of scene = (sceneDurationFrames / FPS) * timelineZoom
+        const scenePixelWidth = (sceneDurationFrames / FPS) * timelineZoom;
+        const deltaRatio = dx / scenePixelWidth;
+        
+        setLocalTimings((prev) => {
+          const next = [...prev];
+          const t = { ...next[d.sceneIdx] };
+          const subs = [...t.subs];
+          
+          const ratios = [...d.initialRatios!];
+          const MIN_RATIO = 0.5 / (sceneDurationFrames / FPS); // Minimum 0.5 seconds
+          
+          let sumBefore = 0;
+          for (let i = 0; i < d.subIdx!; i++) sumBefore += ratios[i];
+          
+          let newSplitRatio = sumBefore + ratios[d.subIdx!] + deltaRatio;
+          
+          const leftBound = sumBefore + MIN_RATIO;
+          const rightBound = sumBefore + ratios[d.subIdx!] + ratios[d.subIdx! + 1] - MIN_RATIO;
+          
+          newSplitRatio = Math.max(leftBound, Math.min(newSplitRatio, rightBound));
+          
+          const newLeftRatio = newSplitRatio - sumBefore;
+          const newRightRatio = (ratios[d.subIdx!] + ratios[d.subIdx! + 1]) - newLeftRatio;
+          
+          ratios[d.subIdx!] = newLeftRatio;
+          ratios[d.subIdx! + 1] = newRightRatio;
+          
+          // Recompute sub frames
+          let currentStart = t.start;
+          for (let i = 0; i < subs.length; i++) {
+            const subDurFrames = Math.max(1, Math.round(ratios[i] * sceneDurationFrames));
+            subs[i] = { start: currentStart, end: currentStart + subDurFrames };
+            currentStart += subDurFrames;
+          }
+          // Ensure the last sub ends exactly at the scene's end
+          subs[subs.length - 1].end = t.end;
+          
+          t.subs = subs;
+          next[d.sceneIdx] = t;
+          return next;
+        });
       }
     };
 
@@ -216,7 +311,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [localTimings, timelineZoom, reorderTargetIdx, onResizeScene, onReorderScene]);
+  }, [localTimings, timelineZoom, reorderTargetIdx, onResizeScene, onReorderScene, onResizeSubVisual]);
 
   const handleTimelineClick = useCallback((e: React.MouseEvent) => {
     if (dragRef.current || isDraggingPlayheadRef.current) return;
@@ -312,7 +407,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     setTimelineZoom(Math.max(ZOOM_MIN, Math.round(timelineZoom / 1.4)));
   };
 
-  const isDraggingScene = dragState?.type === 'reorder' || dragState?.type === 'trim_left' || dragState?.type === 'trim_right';
+  const isDraggingScene = dragState?.type === 'reorder' || dragState?.type === 'trim_left' || dragState?.type === 'trim_right' || dragState?.type === 'resize_sub_visual';
 
   const renderRuler = () => {
     const marks: React.ReactNode[] = [];
@@ -383,16 +478,24 @@ export const Timeline: React.FC<TimelineProps> = ({
       >
         <div style={{ width: totalWidth, height: '100%', position: 'relative' }}>
           {/* Ruler */}
-          <div className="h-6 relative border-b border-zinc-800/40 bg-zinc-950/50">
+          <div className="h-6 relative border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-sm sticky top-0 z-50">
             {renderRuler()}
           </div>
 
           {/* Video Track with sub-visuals */}
-          <div className="relative h-12 border-b border-zinc-800/30">
-            <div className="absolute left-0 top-0 w-[HEADER_WIDTH] h-full bg-zinc-900/80 border-r border-zinc-800/40 flex items-center px-2 z-10">
-              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Video</span>
+          <div className="relative h-14 border-b border-zinc-800/40 bg-zinc-900/10 hover:bg-zinc-900/30 transition-colors">
+            <div className="sticky left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/60 flex items-center justify-between px-3 z-40 backdrop-blur-md shadow-[4px_0_15px_rgba(0,0,0,0.5)]" style={{ width: HEADER_WIDTH }}>
+              <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.6)]" />
+                Video
+              </span>
+              <div className="flex items-center gap-1">
+                <button onClick={(e) => { e.stopPropagation(); toggleTrackHide('video'); }} className="text-zinc-500 hover:text-cyan-400 transition-colors cursor-pointer p-1 rounded hover:bg-zinc-800/50" title={trackHidden['video'] ? "Show track" : "Hide track"}>
+                  {trackHidden['video'] ? <VscEyeClosed className="text-[14px]" /> : <VscEye className="text-[14px]" />}
+                </button>
+              </div>
             </div>
-            {localTimings.map((timing, idx) => {
+            {!trackHidden['video'] && localTimings.map((timing, idx) => {
               const scene = liveScenes?.[idx];
               const x = (timing.start / FPS) * timelineZoom;
               const w = Math.max(8, ((timing.end - timing.start) / FPS) * timelineZoom);
@@ -410,21 +513,21 @@ export const Timeline: React.FC<TimelineProps> = ({
                 const subW = Math.max(4, ((sub.end - sub.start) / FPS) * timelineZoom);
                 const svType = subVisuals[subIdx]?.visual_type || 'scene';
                 const svColor = SUBVISUAL_COLORS[svType] || SUBVISUAL_COLORS.scene;
-                const svLabel = SUBVISUAL_LABELS[svType] || '';
                 const isSubActive = currentFrame >= sub.start && currentFrame < sub.end;
                 const isSubHovered = hoveredSubVisual?.scene === idx && hoveredSubVisual?.sub === subIdx;
-                return { subX, subW, svType, svColor, svLabel, isSubActive, isSubHovered, subIdx, subStart: sub.start };
+                const IconComponent = SUBVISUAL_ICONS[svType] || Clapperboard;
+                return { subX, subW, svType, svColor, isSubActive, isSubHovered, subIdx, subStart: sub.start, IconComponent };
               });
 
               return (
                 <motion.div
                   key={idx}
-                  className={`absolute top-1 rounded-md border bg-gradient-to-r ${SCENE_COLORS[colorIdx]}
-                    ${isActive && !isTrimming ? 'ring-2 ring-blue-400/50 z-20' : 'z-10'}
-                    ${isHovered && !isReordering && !isTrimming ? 'ring-1 ring-white/30' : ''}
-                    ${isReordering ? 'ring-2 ring-blue-400/60 shadow-2xl opacity-90 scale-105 z-30' : ''}
-                    ${isTrimming ? 'ring-2 ring-amber-400/60 z-20' : ''}
-                    cursor-pointer overflow-hidden`}
+                  className={`absolute top-2 rounded-md border bg-gradient-to-r ${SCENE_COLORS[colorIdx]}
+                    ${isActive && !isTrimming ? 'ring-2 ring-cyan-400/60 z-20 shadow-[0_0_15px_rgba(6,182,212,0.3)]' : 'z-10 shadow-md'}
+                    ${isHovered && !isReordering && !isTrimming ? 'ring-1 ring-white/40 brightness-110' : ''}
+                    ${isReordering ? 'ring-2 ring-blue-400/80 shadow-2xl opacity-90 scale-[1.02] z-30' : ''}
+                    ${isTrimming ? 'ring-2 ring-amber-400/80 z-20 bg-amber-900/20' : ''}
+                    cursor-pointer overflow-hidden transition-all duration-200 ease-out`}
                   style={{ left: x + HEADER_WIDTH, width: w, height: 40 }}
                   onClick={(e) => { if (!isDraggingScene) { e.stopPropagation(); onSeek(timing.start); } }}
                   onMouseEnter={() => setHoveredSceneIdx(idx)}
@@ -437,19 +540,30 @@ export const Timeline: React.FC<TimelineProps> = ({
                       {subBlocks.map((sb) => (
                         <div
                           key={sb.subIdx}
-                          className={`relative h-full border-r last:border-r-0 bg-gradient-to-r ${sb.svColor}
+                          className={`relative h-full border-r border-zinc-950/30 last:border-r-0 bg-gradient-to-r ${sb.svColor}
                             ${sb.isSubActive ? 'ring-1 ring-inset ring-white/40 z-10' : ''}
                             ${sb.isSubHovered ? 'brightness-125' : ''}
-                            transition-all cursor-pointer`}
+                            transition-all cursor-pointer group/sub`}
                           style={{ width: sb.subW, minWidth: 4 }}
                           onClick={(e) => { if (!isDraggingScene) { e.stopPropagation(); onSeek(sb.subStart); } }}
                           onMouseEnter={() => setHoveredSubVisual({ scene: idx, sub: sb.subIdx })}
                           onMouseLeave={() => setHoveredSubVisual(null)}
                         >
                           {sb.subW > 16 && (
-                            <span className="text-[7px] leading-[40px] px-1 block truncate opacity-70">
-                              {sb.svLabel}
-                            </span>
+                            <div className="absolute inset-0 flex items-center gap-1.5 px-2 overflow-hidden opacity-70">
+                              <sb.IconComponent className="w-[10px] h-[10px] shrink-0" />
+                              {sb.subW > 40 && <span className="text-[8px] font-medium tracking-wide capitalize truncate">{sb.svType}</span>}
+                            </div>
+                          )}
+                          
+                          {/* Sub-visual resize handle (except for the last one) */}
+                          {!readOnly && !isDraggingScene && sb.subIdx < subBlocks.length - 1 && (
+                            <div 
+                              className="absolute right-0 top-0 bottom-0 w-2 translate-x-1/2 z-20 cursor-col-resize flex justify-center opacity-0 group-hover/sub:opacity-100 transition-opacity"
+                              onMouseDown={(e) => startSubVisualResize(e, idx, sb.subIdx)}
+                            >
+                              <div className="w-[2px] h-full bg-cyan-400" />
+                            </div>
                           )}
                         </div>
                       ))}
@@ -518,74 +632,103 @@ export const Timeline: React.FC<TimelineProps> = ({
             })}
           </div>
 
-          {/* Audio Track (single block per scene) */}
-          <div className="relative h-9 border-b border-zinc-800/30">
-            <div className="absolute left-0 top-0 w-[HEADER_WIDTH] h-full bg-zinc-900/80 border-r border-zinc-800/40 flex items-center px-2 z-10">
-              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Audio</span>
-            </div>
-            {localTimings.map((timing, idx) => {
-              const x = (timing.start / FPS) * timelineZoom;
-              const w = Math.max(8, ((timing.end - timing.start) / FPS) * timelineZoom);
-              return (
-                <div
-                  key={idx}
-                  className="absolute top-2 h-5 rounded-sm bg-emerald-600/20 border border-emerald-600/20 cursor-pointer"
-                  style={{ left: x + HEADER_WIDTH, width: w }}
-                  onClick={(e) => { if (!isDraggingScene) { e.stopPropagation(); onSeek(timing.start); } }}
-                />
-              );
-            })}
-          </div>
-
-          {/* Subtitle Track (sub-visual blocks) */}
-          <div className="relative h-9">
-            <div className="absolute left-0 top-0 w-[HEADER_WIDTH] h-full bg-zinc-900/80 border-r border-zinc-800/40 flex items-center px-2 z-10">
-              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">Subs</span>
+          {/* Voiceover Track */}
+          <div className="relative h-11 border-b border-zinc-800/40 bg-zinc-900/5 hover:bg-zinc-900/20 transition-colors">
+            <div className="sticky left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/60 flex items-center justify-between px-3 z-40 backdrop-blur-md shadow-[4px_0_15px_rgba(0,0,0,0.5)]" style={{ width: HEADER_WIDTH }}>
+              <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+                Voice
+              </span>
+              <div className="flex items-center gap-0.5">
+                <button onClick={(e) => { e.stopPropagation(); toggleTrackMute('voice'); }} className="text-zinc-500 hover:text-emerald-400 transition-colors cursor-pointer p-1 rounded hover:bg-zinc-800/50" title={trackMuted['voice'] ? "Unmute track" : "Mute track"}>
+                  {trackMuted['voice'] ? <VscMute className="text-[14px] text-red-400" /> : <VscUnmute className="text-[14px]" />}
+                </button>
+              </div>
             </div>
             {localTimings.map((timing, idx) => {
               const x = (timing.start / FPS) * timelineZoom;
               const w = Math.max(8, ((timing.end - timing.start) / FPS) * timelineZoom);
               const scene = liveScenes?.[idx];
-              const subVisuals = scene?.sub_visuals || [];
-              const subs = timing.subs || [];
-
-              if (subs.length > 1 || (subs.length === 1 && subVisuals.length > 0)) {
-                // Render individual sub-visual blocks
-                return (
-                  <div
-                    key={idx}
-                    className="absolute top-2.5 h-[15px] cursor-pointer flex"
-                    style={{ left: x + HEADER_WIDTH, width: w }}
-                  >
-                    {subs.map((sub, subIdx) => {
-                      const subW = Math.max(5, ((sub.end - sub.start) / (timing.end - timing.start)) * 100);
-                      const svType = subVisuals[subIdx]?.visual_type || 'scene';
-                      const svColor = SUBVISUAL_COLORS[svType] || SUBVISUAL_COLORS.scene;
-                      return (
-                        <div
-                          key={subIdx}
-                          className={`h-full bg-gradient-to-r ${svColor} border-r last:border-r-0 rounded-sm opacity-60`}
-                          style={{ width: `${subW}%` }}
-                          onClick={(e) => { e.stopPropagation(); onSeek(sub.start); }}
-                        />
-                      );
-                    })}
-                  </div>
-                );
-              }
-
-              // Fallback: single block
+              // Don't render voice block if scene has no narration text
+              const hasNarration = scene?.text && scene.text.trim().length > 0;
+              if (!hasNarration) return null;
               return (
                 <div
                   key={idx}
-                  className="absolute top-2.5 h-[15px] rounded-sm bg-purple-600/20 border border-purple-600/20 cursor-pointer"
+                  className={`absolute top-2.5 h-6 rounded-md border cursor-pointer transition-all shadow-sm ${trackMuted['voice'] ? 'bg-zinc-800/30 border-zinc-700/30 opacity-50' : 'bg-gradient-to-b from-emerald-600/30 to-emerald-700/20 border-emerald-500/40 hover:from-emerald-500/40 hover:to-emerald-600/30 hover:border-emerald-400/60 shadow-[0_0_10px_rgba(16,185,129,0.1)]'}`}
                   style={{ left: x + HEADER_WIDTH, width: w }}
                   onClick={(e) => { if (!isDraggingScene) { e.stopPropagation(); onSeek(timing.start); } }}
-                >
-                  <span className="text-[6px] text-purple-400/60 px-1 leading-[15px] truncate block">Captions</span>
-                </div>
+                  title={`Voiceover - Scene ${idx}`}
+                />
               );
             })}
+          </div>
+
+          {/* Music Track */}
+          <div className="relative h-11 border-b border-zinc-800/40 bg-zinc-900/5 hover:bg-zinc-900/20 transition-colors">
+            <div className="sticky left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/60 flex items-center justify-between px-3 z-40 backdrop-blur-md shadow-[4px_0_15px_rgba(0,0,0,0.5)]" style={{ width: HEADER_WIDTH }}>
+              <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
+                Music
+              </span>
+              <div className="flex items-center gap-0.5">
+                <button onClick={(e) => { e.stopPropagation(); toggleTrackMute('music'); }} className="text-zinc-500 hover:text-blue-400 transition-colors cursor-pointer p-1 rounded hover:bg-zinc-800/50" title={trackMuted['music'] ? "Unmute track" : "Mute track"}>
+                  {trackMuted['music'] ? <VscMute className="text-[14px] text-red-400" /> : <VscUnmute className="text-[14px]" />}
+                </button>
+              </div>
+            </div>
+            <div
+              className={`absolute top-2.5 h-6 rounded-md border cursor-pointer transition-all shadow-sm ${trackMuted['music'] ? 'bg-zinc-800/30 border-zinc-700/30 opacity-50' : 'bg-gradient-to-b from-blue-600/30 to-blue-700/20 border-blue-500/40 hover:from-blue-500/40 hover:to-blue-600/30 hover:border-blue-400/60 shadow-[0_0_10px_rgba(59,130,246,0.1)]'}`}
+              style={{ left: HEADER_WIDTH, width: Math.max(10, (totalDuration / FPS) * timelineZoom) }}
+              onClick={(e) => { if (!isDraggingScene) { e.stopPropagation(); onSeek(0); } }}
+              title="Background Music Track"
+            >
+              <span className={`text-[8px] font-medium px-2 leading-[22px] tracking-wide truncate block ${trackMuted['music'] ? 'text-zinc-500' : 'text-blue-300/80'}`}>Background Music</span>
+            </div>
+          </div>
+
+          {/* Subtitle Track */}
+          <div className="relative h-11 bg-zinc-900/5 hover:bg-zinc-900/20 transition-colors">
+            <div className="sticky left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/60 flex items-center justify-between px-3 z-40 backdrop-blur-md shadow-[4px_0_15px_rgba(0,0,0,0.5)]" style={{ width: HEADER_WIDTH }}>
+              <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)]" />
+                Subs
+              </span>
+              <div className="flex items-center gap-0.5">
+                <button onClick={(e) => { e.stopPropagation(); toggleTrackHide('subs'); }} className="text-zinc-500 hover:text-purple-400 transition-colors cursor-pointer p-1 rounded hover:bg-zinc-800/50" title={trackHidden['subs'] ? "Show track" : "Hide track"}>
+                  {trackHidden['subs'] ? <VscEyeClosed className="text-[14px]" /> : <VscEye className="text-[14px]" />}
+                </button>
+              </div>
+            </div>
+            {!trackHidden['subs'] && (
+              transcriptionData?.segments?.length > 0 ? (
+                transcriptionData.segments.map((segment: any, idx: number) => {
+                  const startSec = segment.start;
+                  const endSec = segment.end;
+                  const x = startSec * timelineZoom;
+                  const w = Math.max(4, (endSec - startSec) * timelineZoom);
+                  return (
+                    <div
+                      key={`sub-${idx}`}
+                      className="absolute top-3 h-[18px] rounded-md bg-gradient-to-b from-purple-500/30 to-purple-600/20 border border-purple-500/40 hover:from-purple-400/40 hover:to-purple-500/30 hover:border-purple-400/60 cursor-pointer overflow-hidden transition-all shadow-[0_0_10px_rgba(168,85,247,0.1)]"
+                      style={{ left: x + HEADER_WIDTH, width: w }}
+                      onClick={(e) => { e.stopPropagation(); onSeek(Math.floor(startSec * FPS)); }}
+                      title={`Subtitle: "${segment.text.trim()}"\nDuration: ${(endSec - startSec).toFixed(2)}s`}
+                    >
+                      {w > 20 && (
+                        <span className="text-[9px] font-medium text-purple-100/90 px-1.5 leading-[16px] truncate block font-sans">
+                          {segment.text.trim()}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="absolute inset-y-0 right-0 flex items-center pointer-events-none" style={{ left: HEADER_WIDTH }}>
+                   <span className="text-[8px] text-zinc-600 px-2 italic">No subtitles generated yet</span>
+                </div>
+              )
+            )}
           </div>
 
           {/* Reorder insertion indicator */}
@@ -612,17 +755,17 @@ export const Timeline: React.FC<TimelineProps> = ({
 
           {/* Playhead — draggable */}
           <div
-            className="absolute top-0 bottom-0 z-30"
+            className="absolute top-0 bottom-0 z-50 pointer-events-none"
             style={{ left: playheadX }}
           >
             {/* Invisible click strip across full height for easy grabbing */}
             <div
-              className="absolute inset-y-0 -translate-x-1/2 w-4 cursor-grab active:cursor-grabbing z-40"
+              className="absolute inset-y-0 -translate-x-1/2 w-4 cursor-grab active:cursor-grabbing pointer-events-auto"
               onMouseDown={startPlayheadDrag}
             />
-            <div className="w-0.5 h-full bg-gradient-to-b from-blue-400 via-blue-500 to-blue-600 shadow-lg shadow-blue-500/50 pointer-events-none" />
+            <div className="w-px h-full bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.8)] opacity-90" />
             <div
-              className="absolute -top-0.5 -translate-x-1/2 w-3 h-3 bg-blue-500 rounded-sm rotate-45 shadow-md shadow-blue-500/50 cursor-grab active:cursor-grabbing z-40 hover:bg-blue-400 hover:shadow-blue-400/70 transition-all"
+              className="absolute -top-1 -translate-x-1/2 w-[11px] h-[11px] bg-cyan-400 rounded-sm rotate-45 shadow-[0_0_10px_rgba(6,182,212,0.8)] cursor-grab active:cursor-grabbing pointer-events-auto hover:scale-110 transition-transform"
               onMouseDown={startPlayheadDrag}
             />
           </div>

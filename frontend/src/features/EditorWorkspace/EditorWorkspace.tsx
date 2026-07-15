@@ -208,6 +208,51 @@ export const EditorWorkspace: React.FC = () => {
     }
   }, [id, loadFiles]);
 
+  const handleResizeSubVisual = useCallback(async (sceneIndex: number, newRatios: number[]) => {
+    if (!id || !scriptData || !manifestData) return;
+
+    const sceneDuration = manifestData[sceneIndex]?.duration || 1;
+
+    // 1. Update scriptData locally
+    const scriptCopy = { ...scriptData };
+    const hasIntro = scriptData.introduction ? 1 : 0;
+    
+    const updateSv = (sv: any, i: number) => ({
+      ...sv, 
+      duration_ratio: newRatios[i],
+      duration: newRatios[i] * sceneDuration
+    });
+
+    if (sceneIndex === 0 && hasIntro) {
+      scriptCopy.introduction = { ...scriptCopy.introduction };
+      scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map(updateSv);
+    } else if (sceneIndex === (scriptData.scenes?.length || 0) + hasIntro && scriptData.conclusion) {
+      scriptCopy.conclusion = { ...scriptCopy.conclusion };
+      scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map(updateSv);
+    } else {
+      const idx = sceneIndex - hasIntro;
+      if (scriptCopy.scenes && scriptCopy.scenes[idx]) {
+        scriptCopy.scenes[idx] = { ...scriptCopy.scenes[idx] };
+        scriptCopy.scenes[idx].sub_visuals = (scriptCopy.scenes[idx].sub_visuals || []).map(updateSv);
+      }
+    }
+
+    // 2. Update manifestData locally
+    const manifestCopy = [...manifestData];
+    if (manifestCopy[sceneIndex] && manifestCopy[sceneIndex].sub_visuals) {
+      manifestCopy[sceneIndex].sub_visuals = manifestCopy[sceneIndex].sub_visuals.map(updateSv);
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    // 3. Persist to backend
+    const result = await callApi<any>('save_project_with_cleanup', id, scriptCopy, manifestCopy);
+    if (result?.success) {
+      loadFiles(id);
+    }
+  }, [id, scriptData, manifestData, setScriptData, setManifestData, loadFiles]);
+
   const handleReorderScene = useCallback(async (fromIndex: number, toIndex: number) => {
     if (!id) return;
     // Convert timeline-relative indices to scene-relative (exclude intro at 0, conclusion at last)
@@ -522,6 +567,7 @@ export const EditorWorkspace: React.FC = () => {
         <Timeline
           liveScenes={liveScenes || []}
           sceneTimings={sceneTimings}
+          transcriptionData={transcriptionData}
           currentFrame={currentFrame}
           onSeek={handleSeek}
           onAddScene={handleAddScene}
@@ -530,8 +576,8 @@ export const EditorWorkspace: React.FC = () => {
             setSceneToDelete(sceneIdx);
           }}
           onResizeScene={handleResizeScene}
+          onResizeSubVisual={handleResizeSubVisual}
           onReorderScene={handleReorderScene}
-          readOnly
         />
       </div>
 
