@@ -149,7 +149,6 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         controls={false}
         loop
         spaceKeyToPlayOrPause={false}
-        concurrency={4}
       />
 
       <div className="absolute top-4 right-4 bg-zinc-950/80 backdrop-blur-md px-3 py-1 rounded text-xs font-mono text-zinc-300 z-20 border border-zinc-800 pointer-events-none">
