@@ -263,6 +263,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       >
         <div style={{ width: totalW, height: '100%', position: 'relative' }}>
           <div className="h-6 relative border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-sm sticky top-0 z-50">
+            <div className="sticky left-0 top-0 bottom-0 w-[110px] bg-zinc-950/90 border-r border-zinc-800/60 z-[60] backdrop-blur-md float-left h-full" />
             <TimelineRuler totalDuration={totalDuration} timelineZoom={timelineZoom} />
           </div>
 

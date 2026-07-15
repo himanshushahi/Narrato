@@ -14,21 +14,27 @@ export const SubVisualsDurationBar: React.FC<SubVisualsDurationBarProps> = ({ su
   const numSubs = subVisuals.length;
 
   useEffect(() => {
-    const totalDurationSeconds = totalDurationFrames / 30;
     let currentRatios = subVisuals.map(sv => {
       if (typeof sv.duration_ratio === 'number' && !isNaN(sv.duration_ratio)) {
         return sv.duration_ratio;
-      } else if (typeof sv.duration === 'number' && totalDurationSeconds > 0) {
-        return sv.duration / totalDurationSeconds;
       }
       return undefined;
     });
 
     const hasValidRatios = currentRatios.every(r => typeof r === 'number' && !isNaN(r as number)) && 
                            Math.abs(currentRatios.reduce((a, b) => (a as number) + (b as number), 0) - 1.0) < 0.01;
+    
     if (!hasValidRatios && numSubs > 0) {
-      // If we don't have valid ratios (e.g. sum doesn't equal 1), fall back to equal division
-      currentRatios = Array(numSubs).fill(1.0 / numSubs);
+      const totalSubDur = subVisuals.reduce((sum, sv) => sum + (typeof sv.duration === 'number' && !isNaN(sv.duration) ? sv.duration : 0), 0);
+      if (totalSubDur > 0) {
+        currentRatios = subVisuals.map(sv => {
+          const dur = typeof sv.duration === 'number' && !isNaN(sv.duration) ? sv.duration : 0;
+          return dur / totalSubDur;
+        });
+      } else {
+        // If we don't have valid ratios or durations, fall back to equal division
+        currentRatios = Array(numSubs).fill(1.0 / numSubs);
+      }
     }
     setRatios(currentRatios as number[]);
   }, [subVisuals, numSubs, totalDurationFrames]);

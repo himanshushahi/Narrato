@@ -237,7 +237,15 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
                                Math.abs(ratios.reduce((a: number, b: number) => a + b, 0) - 1.0) < 0.01;
         
         if (!hasValidRatios) {
-          ratios = Array(numSubs).fill(1.0 / numSubs);
+          const totalSubDur = subVisuals.reduce((sum: number, sv: any) => sum + (typeof sv.duration === 'number' && !isNaN(sv.duration) ? sv.duration : 0), 0);
+          if (totalSubDur > 0) {
+            ratios = subVisuals.map((sv: any) => {
+              const dur = typeof sv.duration === 'number' && !isNaN(sv.duration) ? sv.duration : 0;
+              return dur / totalSubDur;
+            });
+          } else {
+            ratios = Array(numSubs).fill(1.0 / numSubs);
+          }
         }
 
         let currentOffset = start;

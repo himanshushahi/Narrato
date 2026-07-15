@@ -18,7 +18,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = React.memo(({
   return (
     <div className="relative h-11 bg-zinc-900/5 hover:bg-zinc-900/20 transition-colors">
       <div
-        className="sticky left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/60 flex items-center justify-between px-3 z-40 backdrop-blur-md"
+        className="sticky left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/60 flex items-center justify-between px-3 z-[60] backdrop-blur-md"
         style={{ width: HEADER_WIDTH, boxShadow: '4px 0 15px rgba(0,0,0,0.5)' }}
       >
         <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
