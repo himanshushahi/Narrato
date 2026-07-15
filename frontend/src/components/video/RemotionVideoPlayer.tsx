@@ -143,6 +143,7 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         controls={false}
         loop
         spaceKeyToPlayOrPause={false}
+        pauseWhenBuffering
       />
 
       {/* Dynamic duration indicator badge */}

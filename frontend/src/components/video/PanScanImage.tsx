@@ -155,6 +155,7 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, tran
               src={src}
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               muted
+              pauseWhenBuffering
             />
           ) : (
             <Img
