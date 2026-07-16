@@ -179,7 +179,8 @@ export const ParallaxImage: React.FC<Props> = ({
   const mg = foregroundUrl ? calcTransform('mg') : null;
 
   // ── fallback ──────────────────────────────────────────────
-  if (!backgroundUrl) {
+  const isInvalidBg = !backgroundUrl || typeof backgroundUrl !== 'string' || /^(null|undefined|none|false|nan)$/i.test(backgroundUrl.trim());
+  if (isInvalidBg) {
     return (
       <div style={{
         width: '100%', height: '100%',

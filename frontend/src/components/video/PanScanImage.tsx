@@ -63,7 +63,8 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, tran
   });
 
   // If no stock asset is downloaded, render a gorgeous vintage polaroid card with the text cue
-  if (!src) {
+  const isInvalid = !src || typeof src !== 'string' || /^(null|undefined|none|false|nan)$/i.test(src.trim());
+  if (isInvalid) {
     return (
       <div style={{
         width: '100%',

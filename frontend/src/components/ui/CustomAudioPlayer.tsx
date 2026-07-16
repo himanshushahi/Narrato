@@ -38,7 +38,7 @@ export const CustomAudioPlayer: React.FC<CustomAudioPlayerProps> = ({ src, volum
   useEffect(() => {
     const audio = new Audio(src);
     audio.preload = 'metadata';
-    audio.volume = volume;
+    audio.volume = Math.max(0, Math.min(1, volume));
 
     const onLoad = () => {
       setDuration(audio.duration);
@@ -75,7 +75,7 @@ export const CustomAudioPlayer: React.FC<CustomAudioPlayerProps> = ({ src, volum
   // Sync volume from parent in real time
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.volume = volume;
+      audioRef.current.volume = Math.max(0, Math.min(1, volume));
     }
   }, [volume]);
 

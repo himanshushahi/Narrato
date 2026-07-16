@@ -189,13 +189,13 @@ export const NitishRajputComposition = ({
   return (
     <div style={{ flex: 1, backgroundColor: '#0c0a09', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
       {/* 1. Spoken Narration Track */}
-      {audioUrl && <Audio src={audioUrl} volume={voiceoverVolume} pauseWhenBuffering />}
+      {audioUrl && <Audio src={audioUrl} volume={Math.max(0, Math.min(1, voiceoverVolume))} pauseWhenBuffering />}
 
       {/* 2. Ambient Soundtrack */}
       {bgMusicUrl && (
         <Audio 
           src={bgMusicUrl} 
-          volume={bgMusicVolume} 
+          volume={Math.max(0, Math.min(1, bgMusicVolume))} 
           loop 
           pauseWhenBuffering
         />
