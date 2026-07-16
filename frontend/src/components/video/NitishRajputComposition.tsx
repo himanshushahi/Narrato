@@ -11,6 +11,7 @@ import { TransitionWrapper } from './TransitionWrapper';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
 import { CustomHtmlVisual } from './CustomHtmlVisual';
+import { calculateSubVisualTimings } from '../../utils/duration';
 
 export interface SubVisual {
   visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html';
@@ -217,38 +218,14 @@ export const NitishRajputComposition = ({
             durationInFrames={durationFrames}
           >
             {/* Sub-visual sequences: each gets duration based on duration_ratio */}
-            {numSubs > 0 ? (
-              subVisuals.map((subVis, subIdx) => {
-                // Distribute frames using explicit duration if available, otherwise duration_ratio, otherwise equally
-                const svDurations = subVisuals.map(sv => sv.duration);
-                const allDurationsValid = svDurations.every(d => typeof d === 'number' && !isNaN(d) && d > 0);
+            {numSubs > 0 ? (() => {
+              const timings = calculateSubVisualTimings(subVisuals, durationFrames, 0);
+
+              return subVisuals.map((subVis, subIdx) => {
+                const timing = timings[subIdx];
+                const subFrom = timing.start;
+                const subDuration = timing.end - timing.start;
                 
-                let subFrom = 0;
-                let subDuration = 1;
-
-                if (allDurationsValid) {
-                  for (let i = 0; i < subIdx; i++) {
-                    subFrom += Math.max(1, Math.round((svDurations[i] as number) * 30));
-                  }
-                  subDuration = Math.max(1, Math.round((svDurations[subIdx] as number) * 30));
-                  
-                  // Ensure the last item fills the remaining duration perfectly
-                  if (subIdx === numSubs - 1) {
-                    subDuration = Math.max(1, durationFrames - subFrom);
-                  }
-                } else {
-                  const svRatios = subVisuals.map(sv => sv.duration_ratio);
-                  const allValid = svRatios.every(r => typeof r === 'number' && !isNaN(r));
-                  const hasValidRatios = allValid && svRatios.length > 0 &&
-                                         Math.abs((svRatios as number[]).reduce((a, b) => a + b, 0) - 1.0) < 0.01;
-                  for (let i = 0; i < subIdx; i++) {
-                    subFrom += Math.max(1, Math.floor(durationFrames * (hasValidRatios ? ((svRatios[i] as number) || 1.0 / numSubs) : (1.0 / numSubs))));
-                  }
-                  subDuration = subIdx === numSubs - 1
-                    ? Math.max(1, durationFrames - subFrom)
-                    : Math.max(1, Math.floor(durationFrames * (hasValidRatios ? ((svRatios[subIdx] as number) || 1.0 / numSubs) : (1.0 / numSubs))));
-                }
-
                 const ltMeta = subVis.visual_meta?.lower_third;
 
                 return (
@@ -277,8 +254,8 @@ export const NitishRajputComposition = ({
                     )}
                   </Sequence>
                 );
-              })
-            ) : (
+              });
+            })() : (
               // Fallback: no sub_visuals — show dark placeholder
               <div style={{ width: '100%', height: '100%', backgroundColor: '#0c0a09' }} />
             )}

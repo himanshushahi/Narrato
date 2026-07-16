@@ -941,6 +941,30 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
             if isinstance(entry, dict):
                 entry["_content_hash"] = content_hash
 
+    # Backport _voiceover_* and related metadata from old manifest entries that may not
+    # be present in the frontend-provided manifestData (e.g. manifests generated before
+    # these fields were introduced). Without this, pipeline resume would detect stale
+    # voiceover on every re-run because _voiceover_engine would be None.
+    voiceover_keys = ["_voiceover_engine", "_voiceover_voice", "_voiceover_speed", "_voiceover_pitch"]
+    old_by_key = {}
+    for idx, old_entry in enumerate(old_manifest):
+        if isinstance(old_entry, dict):
+            key = (old_entry.get("section_type"), old_entry.get("title", ""), old_entry.get("text", ""))
+            old_by_key[key] = old_entry
+            old_by_key[idx] = old_entry  # fallback by position
+    for new_idx, new_entry in enumerate(new_manifest_data):
+        if not isinstance(new_entry, dict):
+            continue
+        has_any = any(k in new_entry for k in voiceover_keys)
+        if has_any:
+            continue
+        key = (new_entry.get("section_type"), new_entry.get("title", ""), new_entry.get("text", ""))
+        match = old_by_key.get(key) or old_by_key.get(new_idx)
+        if match and isinstance(match, dict):
+            for k in voiceover_keys:
+                if k in match:
+                    new_entry[k] = match[k]
+
     # Write new manifest to disk
     try:
         with open(manifest_path, "w", encoding="utf-8") as f:

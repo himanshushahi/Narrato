@@ -145,7 +145,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           <VoiceTab
             localProjectSettings={localProjectSettings}
             onSettingsUpdate={onSettingsUpdate}
-            manifestData={manifestData}
           />
         );
       case 'export':

@@ -12,7 +12,6 @@ import { getMediaUrlSync } from '../../../utils/mediaUrl';
 interface VoiceTabProps {
   localProjectSettings: any;
   onSettingsUpdate: (settings: any) => void;
-  manifestData?: any[];
 }
 
 // ─── Option lists ───────────────────────────────────────────
@@ -434,7 +433,7 @@ const getProjectVal = (settings: any, key: string): string => settings?.[key] ||
 // ─── Component ──────────────────────────────────────────────
 
 export const VoiceTab: React.FC<VoiceTabProps> = ({
-  localProjectSettings, onSettingsUpdate, manifestData
+  localProjectSettings, onSettingsUpdate
 }) => {
   const globalSettings = useSettingsStore((s) => s.settings);
   const selectedProject = useProjectStore((s) => s.selectedProject);
@@ -471,40 +470,6 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
 
   // Current effective engine
   const engine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
-
-  const manifestEntry = manifestData && manifestData.length > 0 ? manifestData[0] : {};
-  const generatedEngine = manifestEntry._voiceover_engine;
-  const generatedVoice = manifestEntry._voiceover_voice;
-  const generatedSpeed = manifestEntry._voiceover_speed;
-  const generatedPitch = manifestEntry._voiceover_pitch;
-
-  const hasGeneratedSettings = !!generatedEngine;
-
-  let currentEffectiveVoice = '';
-  if (engine === 'edge') currentEffectiveVoice = projectVal('tts_voice') || globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-SwaraNeural' : 'en-US-AndrewNeural');
-  if (engine === 'kokoro') currentEffectiveVoice = projectVal('kokoro_voice') || globalSettings.kokoro_voice || (projectLanguage === 'hi' ? 'hf_alpha' : 'af_bella');
-  if (engine === 'piper') currentEffectiveVoice = projectVal('piper_voice') || globalSettings.piper_voice || (projectLanguage === 'hi' ? 'hi_IN-rohan' : 'en_US-lessac');
-
-  const currentSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
-  const currentPitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
-
-  const isDifferentFromGenerated = hasGeneratedSettings && (
-    engine !== generatedEngine ||
-    currentEffectiveVoice !== generatedVoice ||
-    String(currentSpeed) !== String(generatedSpeed) ||
-    String(currentPitch) !== String(generatedPitch)
-  );
-
-  const handleResetToGenerated = () => {
-    const updated = { ...localProjectSettings };
-    updated.tts_engine = generatedEngine;
-    if (generatedEngine === 'edge') updated.tts_voice = generatedVoice;
-    if (generatedEngine === 'kokoro') updated.kokoro_voice = generatedVoice;
-    if (generatedEngine === 'piper') updated.piper_voice = generatedVoice;
-    updated.tts_speed = generatedSpeed;
-    updated.tts_pitch = generatedPitch;
-    onSettingsUpdate(updated);
-  };
 
   // Filter voice options by project language
   const isHindiLang = projectLanguage === 'hi';
@@ -655,18 +620,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
           <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
             Voice Synthesis
           </h3>
-          <div className="ml-auto flex items-center gap-2">
-            {isDifferentFromGenerated && (
-              <button 
-                onClick={handleResetToGenerated}
-                title="Reset to generated pipeline settings"
-                className="flex items-center gap-1 text-[9px] font-medium bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/20 transition-colors cursor-pointer"
-              >
-                <VscRefresh className="text-[10px]" /> Reset
-              </button>
-            )}
-            <span className="text-[8px] text-zinc-600">Overrides global</span>
-          </div>
+          <span className="text-[8px] text-zinc-600 ml-auto">Overrides global</span>
         </div>
 
         {/* Engine Tabs */}
