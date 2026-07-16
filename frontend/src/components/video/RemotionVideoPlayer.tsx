@@ -149,6 +149,11 @@ export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         controls={false}
         loop
         spaceKeyToPlayOrPause={false}
+        renderLoading={() => (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
+          </div>
+        )}
       />
 
       <div className="absolute top-4 right-4 bg-zinc-950/80 backdrop-blur-md px-3 py-1 rounded text-xs font-mono text-zinc-300 z-20 border border-zinc-800 pointer-events-none">

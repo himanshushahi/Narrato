@@ -112,7 +112,7 @@ def start_file_server():
     _file_server_port = sock.getsockname()[1]
     sock.close()
 
-    _file_server = socketserver.TCPServer(('127.0.0.1', _file_server_port), MediaHandler)
+    _file_server = socketserver.ThreadingTCPServer(('127.0.0.1', _file_server_port), MediaHandler)
     _thread = threading.Thread(target=_file_server.serve_forever, daemon=True)
     _thread.start()
     return _file_server_port
