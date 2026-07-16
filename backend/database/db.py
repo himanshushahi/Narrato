@@ -171,25 +171,11 @@ def create_project(name, prompt, export_folder, language="hi", style="nitish_raj
     now = datetime.utcnow().isoformat()
     
     tts_engine = get_setting("tts_engine") or "edge"
-    
-    if tts_engine == "edge":
-        tts_voice = get_setting("tts_voice")
-        if language == "hi" and tts_voice and not tts_voice.startswith("hi-"):
-            tts_voice = "hi-IN-SwaraNeural"
-        elif language == "en" and tts_voice and not tts_voice.startswith("en-"):
-            tts_voice = "en-US-AndrewNeural"
-            
-        if not tts_voice:
-            tts_voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
+    global_voice = get_setting("tts_voice")
+    if global_voice and ((language == "hi" and global_voice.startswith("hi-")) or (language != "hi" and global_voice.startswith("en-"))):
+        tts_voice = global_voice
     else:
-        tts_voice = get_setting("kokoro_voice")
-        if language == "hi" and tts_voice and not tts_voice.startswith("h"):
-            tts_voice = "hf_alpha"
-        elif language == "en" and tts_voice and tts_voice.startswith("h"):
-            tts_voice = "af_bella"
-            
-        if not tts_voice:
-            tts_voice = "hf_alpha" if language == "hi" else "af_bella"
+        tts_voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
             
     tts_speed = float(get_setting("tts_speed") or 1.0)
     bg_music_path = get_setting("bg_music_path") or ""

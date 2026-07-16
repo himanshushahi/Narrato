@@ -36,7 +36,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
 
     const chartWidth = width * 0.85;
     const chartHeight = height * 0.65;
-    const padding = { top: chartHeight * 0.2, right: chartWidth * 0.05, bottom: chartHeight * 0.15, left: chartWidth * 0.1 };
+    const padding = { top: chartHeight * 0.28, right: chartWidth * 0.05, bottom: chartHeight * 0.15, left: chartWidth * 0.1 };
     const innerWidth = chartWidth - padding.left - padding.right;
     const innerHeight = chartHeight - padding.top - padding.bottom;
 
@@ -89,7 +89,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
               textShadow: '0 4px 20px rgba(217, 119, 6, 0.5)',
               margin: 0,
               position: 'absolute',
-              top: 20,
+              top: -20,
               width: '100%',
               WebkitFontSmoothing: 'antialiased',
               MozOsxFontSmoothing: 'grayscale',

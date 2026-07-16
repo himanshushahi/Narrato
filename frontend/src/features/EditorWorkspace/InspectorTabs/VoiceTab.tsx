@@ -442,6 +442,12 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const [previewText, setPreviewText] = useState(
     projectLanguage === 'hi' ? 'यह एक परीक्षण आवाज है। नमस्ते, आप कैसे हैं?' : 'This is a test voice. Hello, how are you?'
   );
+
+  useEffect(() => {
+    setPreviewText(
+      projectLanguage === 'hi' ? 'यह एक परीक्षण आवाज है। नमस्ते, आप कैसे हैं?' : 'This is a test voice. Hello, how are you?'
+    );
+  }, [projectLanguage]);
   const [previewAudioUrl, setPreviewAudioUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
