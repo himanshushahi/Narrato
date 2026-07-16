@@ -58,10 +58,20 @@ export const HtmlDataEditor = ({ visualMeta, onChange }: { visualMeta: any, onCh
   };
 
   return (
-    <div className="col-span-2 space-y-4 mt-3 pt-3 border-t border-white/5">
+    <div 
+      className="col-span-2 space-y-4 mt-3 pt-3 border-t border-white/5"
+      onKeyDown={(e) => {
+        // Use Ctrl+P or Ctrl+Enter for previewing/applying to avoid conflict with global Ctrl+S save
+        if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'p' || e.key === 'Enter')) {
+          e.preventDefault();
+          handleSave();
+        }
+      }}
+    >
       <div className="flex justify-between items-center text-xs mb-1.5">
         <label className="text-stone-400/80 font-medium tracking-wide">Raw HTML</label>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 items-center">
+          <span className="text-[10px] text-stone-500 mr-1 hidden sm:inline-block">Ctrl+P to apply</span>
           <button
             type="button"
             onClick={handleFormatHtml}
