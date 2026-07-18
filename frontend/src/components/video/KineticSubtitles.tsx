@@ -199,6 +199,8 @@ export const KineticSubtitles: React.FC<Props> = ({
   if (!activeSentence) return null;
 
   const words = activeSentence.words;
+  const effectiveBackgroundStyle = subtitleSettings.backgroundStyle || (subtitleSettings.showBackgroundHighlight !== false ? 'highlight' : 'none');
+  const fullBgColor = subtitleSettings.fullBgColor || 'rgba(0,0,0,0.6)';
 
   // === TEXT-ONLY FALLBACK (no word-level timestamps) ===
   if (words.length === 0) {
@@ -232,7 +234,10 @@ export const KineticSubtitles: React.FC<Props> = ({
           lineHeight: 1.3,
           maxWidth: 1200,
           wordSpacing: subtitleSettings.wordSpacing !== undefined ? subtitleSettings.wordSpacing : 0,
-          textTransform: subtitleSettings.textTransform || 'none'
+          textTransform: subtitleSettings.textTransform || 'none',
+          backgroundColor: effectiveBackgroundStyle === 'full_block' ? fullBgColor : 'transparent',
+          padding: effectiveBackgroundStyle === 'full_block' ? '20px 40px' : '0',
+          borderRadius: effectiveBackgroundStyle === 'full_block' ? '12px' : '0'
         }}>
           {activeSentence.text}
         </div>
@@ -259,7 +264,10 @@ export const KineticSubtitles: React.FC<Props> = ({
         justifyContent: 'center',
         alignItems: 'center',
         gap: `12px ${subtitleSettings.wordSpacing !== undefined ? subtitleSettings.wordSpacing : 18}px`,
-        maxWidth: 1200
+        maxWidth: 1200,
+        backgroundColor: effectiveBackgroundStyle === 'full_block' ? fullBgColor : 'transparent',
+        padding: effectiveBackgroundStyle === 'full_block' ? '20px 40px' : '0',
+        borderRadius: effectiveBackgroundStyle === 'full_block' ? '12px' : '0'
       }}>
         {words.map((wordObj, i) => {
           const nextWord = words[i + 1];
@@ -316,7 +324,7 @@ export const KineticSubtitles: React.FC<Props> = ({
               }}
             >
               {/* Highlighter Background */}
-              {(isPast || isActive) && subtitleSettings.showBackgroundHighlight !== false ? (
+              {(isPast || isActive) && effectiveBackgroundStyle === 'highlight' ? (
                 <span style={{
                   position: 'absolute',
                   left: -2,

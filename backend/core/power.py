@@ -14,6 +14,13 @@ class PowerManager:
         self._running = False
         self._thread = None
         self._lock = threading.Lock()
+        
+        if os.name == 'nt':
+            try:
+                ctypes.windll.kernel32.SetThreadExecutionState.argtypes = [ctypes.c_uint]
+                ctypes.windll.kernel32.SetThreadExecutionState.restype = ctypes.c_uint
+            except Exception as e:
+                logger.warning(f"Could not configure SetThreadExecutionState: {e}")
 
     def ping(self):
         """Called by background tasks reporting progress to keep system awake."""
@@ -44,14 +51,25 @@ class PowerManager:
                 
             should_be_awake = (active > 0) or ((now - self.last_activity) < self.timeout_seconds)
             
-            if should_be_awake and not self.is_awake:
+            if should_be_awake:
+                if not self.is_awake or os.name == 'nt':
+                    if os.name == 'nt':
+                        try:
+                            # 0x80000003 = ES_CONTINUOUS (0x80000000) | ES_DISPLAY_REQUIRED (0x00000002) | ES_SYSTEM_REQUIRED (0x00000001)
+                            # ES_DISPLAY_REQUIRED is crucial for Modern Standby systems to prevent sleep
+                            ctypes.windll.kernel32.SetThreadExecutionState(0x80000003)
+                        except Exception as e:
+                            logger.error(f"SetThreadExecutionState(enable) failed: {e}")
+                    if not self.is_awake:
+                        self.is_awake = True
+                        logger.debug(f"Sleep prevention ENABLED (Tasks: {active}).")
+            elif self.is_awake:
                 if os.name == 'nt':
-                    ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
-                self.is_awake = True
-                logger.debug(f"Sleep prevention ENABLED (Tasks: {active}).")
-            elif not should_be_awake and self.is_awake:
-                if os.name == 'nt':
-                    ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+                    try:
+                        # 0x80000000 = ES_CONTINUOUS
+                        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+                    except Exception as e:
+                        logger.error(f"SetThreadExecutionState(disable) failed: {e}")
                 self.is_awake = False
                 logger.debug("Sleep prevention DISABLED (Idle).")
             

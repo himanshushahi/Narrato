@@ -57,6 +57,12 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
     
     const primaryColor = subtitleSettings?.chart_primary_color || '#fbbf24';
     const textColor = subtitleSettings?.chart_text_color || '#fef3c7';
+    const isMulticolor = subtitleSettings?.chart_multicolor === true;
+    const titleFontSize = subtitleSettings?.chart_title_font_size !== undefined ? subtitleSettings.chart_title_font_size : 56;
+    const labelFontSize = subtitleSettings?.chart_label_font_size !== undefined ? subtitleSettings.chart_label_font_size : 28;
+    const axisFontSize = Math.max(12, Math.round(labelFontSize * 22 / 28));
+    const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#14b8a6'];
+    const getColor = (i: number) => isMulticolor ? colors[i % colors.length] : primaryColor;
 
     return (
       <div style={{
@@ -66,7 +72,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        backgroundColor: '#1c1917',
+        backgroundColor: subtitleSettings?.chart_bg_color || '#1c1917',
         position: 'relative',
         overflow: 'hidden'
       }}>
@@ -81,7 +87,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
             <h2 style={{
               fontFamily: 'Montserrat, sans-serif',
               fontWeight: 900,
-              fontSize: Math.min(width * 0.035, 56),
+              fontSize: titleFontSize,
               color: textColor,
               textAlign: 'center',
               textTransform: 'uppercase',
@@ -111,6 +117,22 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                         <stop offset="0%" stopColor={primaryColor} stopOpacity={0.9} />
                         <stop offset="100%" stopColor={primaryColor} stopOpacity={0.5} />
                     </linearGradient>
+                    {isMulticolor && colors.map((c, i) => (
+                        <React.Fragment key={`grad-${i}`}>
+                            <linearGradient id={`barGradientFront-${i}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={c} />
+                                <stop offset="100%" stopColor={c} stopOpacity={0.6} />
+                            </linearGradient>
+                            <linearGradient id={`barGradientSide-${i}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={c} stopOpacity={0.8} />
+                                <stop offset="100%" stopColor={c} stopOpacity={0.3} />
+                            </linearGradient>
+                            <linearGradient id={`barGradientTop-${i}`} x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0%" stopColor={c} stopOpacity={0.9} />
+                                <stop offset="100%" stopColor={c} stopOpacity={0.5} />
+                            </linearGradient>
+                        </React.Fragment>
+                    ))}
                     <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
                         <feGaussianBlur stdDeviation="12" result="blur" />
                         <feComposite in="SourceGraphic" in2="blur" operator="over" />
@@ -124,7 +146,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                           const pieData = pieGenerator(rawData);
                           const radius = Math.min(innerWidth, innerHeight) / 2;
                           const arcGenerator = d3Shape.arc<any>().innerRadius(0).outerRadius(radius);
-                          const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#14b8a6'];
                           
                           return pieData.map((d, i) => {
                               const sliceAnim = interpolate(animProgress, [0, 1], [0, d.endAngle - d.startAngle]);
@@ -140,7 +161,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                   <g key={`pie-${i}`}>
                                       <path 
                                           d={currentArc(d as any) || ""} 
-                                          fill={colors[i % colors.length]} 
+                                          fill={getColor(i)} 
                                           stroke="#1c1917" 
                                           strokeWidth="6" 
                                           filter="url(#glow)"
@@ -149,7 +170,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                         <>
                                           <text
                                               transform={`translate(${centroid[0] * 1.35}, ${centroid[1] * 1.35})`}
-                                              fill={textColor} fontFamily="Montserrat, sans-serif" fontSize="36" fontWeight="900" textAnchor="middle"
+                                              fill={textColor} fontFamily="Montserrat, sans-serif" fontSize={labelFontSize} fontWeight="900" textAnchor="middle"
                                               opacity={(animProgress - 0.5) * 2}
                                               style={{ textShadow: '0px 4px 12px rgba(0,0,0,0.9)', WebkitFontSmoothing: 'antialiased' }}
                                           >
@@ -157,7 +178,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                           </text>
                                           <text
                                               transform={`translate(${centroid[0] * 1.35}, ${centroid[1] * 1.35 + 40})`}
-                                              fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize="24" fontWeight="700" textAnchor="middle"
+                                              fill="#f5f5f4" fontFamily="Montserrat, sans-serif" fontSize={axisFontSize} fontWeight="700" textAnchor="middle"
                                               opacity={(animProgress - 0.5) * 2}
                                               style={{ textShadow: '0px 4px 12px rgba(0,0,0,0.9)', WebkitFontSmoothing: 'antialiased' }}
                                           >
@@ -186,7 +207,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                 />
                                 <text
                                     x={-25} y={y + 8}
-                                    fill="#a8a29e" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="end"
+                                    fill="#a8a29e" fontFamily="Montserrat, sans-serif" fontSize={axisFontSize} fontWeight="700" textAnchor="end"
                                     opacity={animProgress}
                                     style={{
                                         WebkitFontSmoothing: 'antialiased',
@@ -210,7 +231,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                     return `${x},${y}`;
                                 }).join(' L ')}`}
                                 fill="none"
-                                stroke={primaryColor}
+                                stroke={isMulticolor ? colors[0] : primaryColor}
                                 strokeWidth="8"
                                 filter="url(#glow)"
                             />
@@ -224,8 +245,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                 return (
                                     <g key={`node-${i}`} transform={`translate(${x}, ${y})`} opacity={nodeAnim}>
                                         <circle r={10} fill="#fffbeb" />
-                                        <circle r={20} fill="none" stroke={primaryColor} strokeWidth="4" opacity="0.8" filter="url(#glow)" />
-                                        <text y={-30} fill={textColor} fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="800" textAnchor="middle"
+                                        <circle r={20} fill="none" stroke={getColor(i)} strokeWidth="4" opacity="0.8" filter="url(#glow)" />
+                                        <text y={-30} fill={textColor} fontFamily="Montserrat, sans-serif" fontSize={labelFontSize} fontWeight="800" textAnchor="middle"
                                             style={{
                                                 WebkitFontSmoothing: 'antialiased',
                                                 MozOsxFontSmoothing: 'grayscale',
@@ -233,7 +254,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                         >
                                             {formatValue(d.value * animProgress)}
                                         </text>
-                                        <text y={targetY - y + 50} fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="middle"
+                                        <text y={targetY - y + 50} fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize={axisFontSize} fontWeight="700" textAnchor="middle"
                                             style={{
                                                 WebkitFontSmoothing: 'antialiased',
                                                 MozOsxFontSmoothing: 'grayscale',
@@ -260,24 +281,24 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                         {/* Side polygon for 3D effect */}
                                         <polygon 
                                             points={`${x+barWidth},${y} ${x+barWidth+depth},${y-depth} ${x+barWidth+depth},${innerHeight-depth} ${x+barWidth},${innerHeight}`}
-                                            fill="url(#barGradientSide)"
+                                            fill={isMulticolor ? `url(#barGradientSide-${i % colors.length})` : "url(#barGradientSide)"}
                                         />
                                         {/* Top polygon */}
                                         <polygon 
                                             points={`${x},${y} ${x+depth},${y-depth} ${x+barWidth+depth},${y-depth} ${x+barWidth},${y}`}
-                                            fill="url(#barGradientTop)"
+                                            fill={isMulticolor ? `url(#barGradientTop-${i % colors.length})` : "url(#barGradientTop)"}
                                         />
                                         {/* Front Face */}
                                         <rect 
                                             x={x} y={y} width={barWidth} height={h} 
-                                            fill="url(#barGradientFront)"
+                                            fill={isMulticolor ? `url(#barGradientFront-${i % colors.length})` : "url(#barGradientFront)"}
                                             filter="url(#glow)"
                                         />
                                         
                                         {/* Value Label */}
                                         <text
                                             x={x + barWidth / 2} y={y - depth - 20}
-                                            fill={textColor} fontFamily="Montserrat, sans-serif" fontSize="28" fontWeight="900" textAnchor="middle"
+                                            fill={textColor} fontFamily="Montserrat, sans-serif" fontSize={labelFontSize} fontWeight="900" textAnchor="middle"
                                             opacity={animProgress}
                                             style={{
                                                 WebkitFontSmoothing: 'antialiased',
@@ -289,7 +310,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
                                         {/* X-Axis Label */}
                                         <text
                                             x={x + barWidth / 2} y={innerHeight + 40}
-                                            fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize="22" fontWeight="700" textAnchor="middle"
+                                            fill="#d6d3d1" fontFamily="Montserrat, sans-serif" fontSize={axisFontSize} fontWeight="700" textAnchor="middle"
                                             style={{
                                                 WebkitFontSmoothing: 'antialiased',
                                                 MozOsxFontSmoothing: 'grayscale',

@@ -7,7 +7,7 @@ import { VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
 
-const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'lower_third_title_font_size', 'chart_primary_color', 'chart_text_color'];
+const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'lower_third_title_font_size', 'chart_primary_color', 'chart_text_color', 'chart_multicolor', 'chart_title_font_size', 'chart_label_font_size', 'chart_bg_color'];
 
 const extractKeys = (obj: any, keys: string[]) => {
   return keys.reduce((acc: any, key) => {
@@ -197,6 +197,34 @@ export const BrandingSettings = ({ settings, onUpdate }: { settings: any; onUpda
             value={settings.chart_text_color || '#fef3c7'}
             onChange={(e) => updateKey('chart_text_color', e.target.value)}
           />
+          <div className="col-span-2">
+            <CustomCheckbox
+              label="Multicolor Chart Bars/Lines"
+              checked={settings.chart_multicolor === true}
+              onChange={(e) => updateKey('chart_multicolor', e.target.checked)}
+            />
+          </div>
+          <CustomColorInput
+            label="Chart Background Color"
+            value={settings.chart_bg_color || '#1c1917'}
+            onChange={(e) => updateKey('chart_bg_color', e.target.value)}
+          />
+          <div className="col-span-2 grid grid-cols-2 gap-4">
+            <CustomRange
+              label="Chart Title Font Size"
+              min="20" max="100"
+              value={settings.chart_title_font_size !== undefined ? settings.chart_title_font_size : 56}
+              valueDisplay={`${settings.chart_title_font_size !== undefined ? settings.chart_title_font_size : 56}px`}
+              onChange={(e) => updateKey('chart_title_font_size', parseInt(e.target.value))}
+            />
+            <CustomRange
+              label="Chart Label Font Size"
+              min="14" max="60"
+              value={settings.chart_label_font_size !== undefined ? settings.chart_label_font_size : 28}
+              valueDisplay={`${settings.chart_label_font_size !== undefined ? settings.chart_label_font_size : 28}px`}
+              onChange={(e) => updateKey('chart_label_font_size', parseInt(e.target.value))}
+            />
+          </div>
         </div>
       </div>
     </div>

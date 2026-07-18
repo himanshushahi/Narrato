@@ -24,6 +24,8 @@ interface SubtitlePreset {
   showBackgroundHighlight: boolean;
   highlightBgColor: string;
   wordsPerScreen: number;
+  backgroundStyle: string;
+  fullBgColor: string;
 }
 
 const SUBTITLE_PRESETS: SubtitlePreset[] = [
@@ -41,6 +43,8 @@ const SUBTITLE_PRESETS: SubtitlePreset[] = [
     showBackgroundHighlight: true,
     highlightBgColor: '#fbbf24',
     wordsPerScreen: 10,
+    backgroundStyle: 'highlight',
+    fullBgColor: 'rgba(0,0,0,0.6)',
   },
   {
     id: 'modern_cyan',
@@ -56,6 +60,8 @@ const SUBTITLE_PRESETS: SubtitlePreset[] = [
     showBackgroundHighlight: true,
     highlightBgColor: '#22d3ee',
     wordsPerScreen: 8,
+    backgroundStyle: 'highlight',
+    fullBgColor: 'rgba(0,0,0,0.6)',
   },
   {
     id: 'minimal_white',
@@ -71,6 +77,8 @@ const SUBTITLE_PRESETS: SubtitlePreset[] = [
     showBackgroundHighlight: false,
     highlightBgColor: '#ffffff',
     wordsPerScreen: 6,
+    backgroundStyle: 'none',
+    fullBgColor: 'rgba(0,0,0,0.6)',
   },
   {
     id: 'elegant_gold',
@@ -86,6 +94,8 @@ const SUBTITLE_PRESETS: SubtitlePreset[] = [
     showBackgroundHighlight: true,
     highlightBgColor: '#f5b041',
     wordsPerScreen: 10,
+    backgroundStyle: 'highlight',
+    fullBgColor: 'rgba(0,0,0,0.6)',
   },
   {
     id: 'hindi_reader',
@@ -101,6 +111,8 @@ const SUBTITLE_PRESETS: SubtitlePreset[] = [
     showBackgroundHighlight: true,
     highlightBgColor: '#facc15',
     wordsPerScreen: 7,
+    backgroundStyle: 'highlight',
+    fullBgColor: 'rgba(0,0,0,0.6)',
   },
   {
     id: 'bold_dark',
@@ -116,10 +128,12 @@ const SUBTITLE_PRESETS: SubtitlePreset[] = [
     showBackgroundHighlight: false,
     highlightBgColor: '#a78bfa',
     wordsPerScreen: 5,
+    backgroundStyle: 'none',
+    fullBgColor: 'rgba(0,0,0,0.6)',
   },
 ];
 
-const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor', 'wordsPerScreen'];
+const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor', 'wordsPerScreen', 'backgroundStyle', 'fullBgColor'];
 
 const extractKeys = (obj: any, keys: string[]) => {
   return keys.reduce((acc: any, key) => {
@@ -211,6 +225,8 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
     if ((settings.showBackgroundHighlight !== false) !== preset.showBackgroundHighlight) return false;
     if (preset.showBackgroundHighlight && (settings.highlightBgColor || settings.activeColor || '#fbbf24') !== preset.highlightBgColor) return false;
     if ((settings.wordsPerScreen !== undefined ? settings.wordsPerScreen : 10) !== preset.wordsPerScreen) return false;
+    if ((settings.backgroundStyle || 'highlight') !== (preset.backgroundStyle || (preset.showBackgroundHighlight !== false ? 'highlight' : 'none'))) return false;
+    if ((settings.fullBgColor || 'rgba(0,0,0,0.6)') !== (preset.fullBgColor || 'rgba(0,0,0,0.6)')) return false;
     return true;
   };
 
@@ -228,6 +244,8 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
       showBackgroundHighlight: preset.showBackgroundHighlight,
       highlightBgColor: preset.highlightBgColor,
       wordsPerScreen: preset.wordsPerScreen,
+      backgroundStyle: preset.backgroundStyle || (preset.showBackgroundHighlight !== false ? 'highlight' : 'none'),
+      fullBgColor: preset.fullBgColor || 'rgba(0,0,0,0.6)',
     });
   };
 
@@ -390,19 +408,35 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
           onChange={(e) => { setSelectedPresetId(''); onUpdate({ ...settings, wordsPerScreen: parseInt(e.target.value) || 10 }); }}
         />
         <div className="flex flex-col gap-1.5 justify-center mt-2 col-span-2">
-          <CustomCheckbox
-            label="Show Read Text Background Highlight"
-            checked={settings.showBackgroundHighlight !== false}
-            onChange={(e) => { setSelectedPresetId(''); onUpdate({ ...settings, showBackgroundHighlight: e.target.checked }); }}
+          <CustomSelect
+            label="Background Style"
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'highlight', label: 'Highlight Read Text' },
+              { value: 'full_block', label: 'Entire Subtitle Block' }
+            ]}
+            value={settings.backgroundStyle || (settings.showBackgroundHighlight !== false ? 'highlight' : 'none')}
+            onChange={(val) => { setSelectedPresetId(''); onUpdate({ ...settings, backgroundStyle: val, showBackgroundHighlight: val === 'highlight' }); }}
           />
         </div>
-        {settings.showBackgroundHighlight !== false && (
+        {(settings.backgroundStyle === 'highlight' || (settings.backgroundStyle === undefined && settings.showBackgroundHighlight !== false)) && (
           <div className="flex flex-col gap-1.5 col-span-2">
             <div className="max-w-[50%]">
               <CustomColorInput
-                label="Background Highlight Color"
+                label="Highlight Color"
                 value={settings.highlightBgColor || settings.activeColor || '#fbbf24'}
                 onChange={(e) => { setSelectedPresetId(''); onUpdate({ ...settings, highlightBgColor: e.target.value }); }}
+              />
+            </div>
+          </div>
+        )}
+        {settings.backgroundStyle === 'full_block' && (
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <div className="max-w-[50%]">
+              <CustomColorInput
+                label="Full Background Color"
+                value={settings.fullBgColor || 'rgba(0,0,0,0.6)'}
+                onChange={(e) => { setSelectedPresetId(''); onUpdate({ ...settings, fullBgColor: e.target.value }); }}
               />
             </div>
           </div>
