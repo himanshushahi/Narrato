@@ -63,18 +63,25 @@ export function useScriptEditing(
   const [uploadingSubVisual, setUploadingSubVisual] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync localProjectSettings from selectedProject.project_settings
+  // Sync localProjectSettings from selectedProject.project_settings,
+  // falling back to project column values as base defaults.
   useEffect(() => {
+    let base: any = {};
+    if (selectedProject) {
+      if (selectedProject.tts_engine) base.tts_engine = selectedProject.tts_engine;
+      if (selectedProject.tts_voice) base.tts_voice = selectedProject.tts_voice;
+      if (selectedProject.language) base.language = selectedProject.language;
+    }
     if (selectedProject?.project_settings) {
       try {
-        setLocalProjectSettings(JSON.parse(selectedProject.project_settings));
+        const parsed = JSON.parse(selectedProject.project_settings);
+        base = { ...base, ...parsed };
       } catch {
-        setLocalProjectSettings({});
+        /* keep base only */
       }
-    } else {
-      setLocalProjectSettings({});
     }
-  }, [selectedProject?.project_settings]);
+    setLocalProjectSettings(base);
+  }, [selectedProject?.project_settings, selectedProject?.id]);
 
   // Font loading effect
   useEffect(() => {

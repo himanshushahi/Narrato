@@ -163,7 +163,7 @@ export const SettingsPage: React.FC = () => {
         const lang = value as 'hi' | 'en';
         setAppLanguage(lang);
         if (lang === 'hi') {
-          updated.tts_voice = 'hi-IN-SwaraNeural';
+          updated.tts_voice = 'hi-IN-MadhurNeural';
           updated.kokoro_voice = 'hf_alpha';
           updated.piper_voice = 'hi_IN-rohan';
           updated.whisper_model = 'collabora/faster-whisper-small-hindi';

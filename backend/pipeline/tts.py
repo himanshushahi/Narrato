@@ -233,16 +233,19 @@ def is_voiceover_stale(project_dict, project_dir):
     """Check if script hash or TTS settings changed, or voiceover.wav is missing."""
     voiceover_path = project_dir / "voiceover.wav"
     if not voiceover_path.exists():
+        logger.info(f"voiceover stale: voiceover.wav missing at {voiceover_path}")
         return True
         
     manifest_path = project_dir / "voiceover" / "manifest.json"
     if not manifest_path.exists():
+        logger.info(f"voiceover stale: manifest.json missing at {manifest_path}")
         return True
     
     try:
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
         if not manifest:
+            logger.info(f"voiceover stale: manifest is empty")
             return True
         
         first_entry = manifest[0]
@@ -250,6 +253,7 @@ def is_voiceover_stale(project_dict, project_dir):
         
         script_path = project_dir / "script.json"
         if not script_path.exists():
+            logger.info(f"voiceover stale: script.json missing at {script_path}")
             return True
             
         with open(script_path, "r", encoding="utf-8") as f:
@@ -259,18 +263,50 @@ def is_voiceover_stale(project_dict, project_dir):
         current_hash = compute_script_content_hash(script_data)
         
         if stored_hash != current_hash:
+            logger.info(f"voiceover stale: content hash mismatch stored={stored_hash} current={current_hash}")
             return True
             
         engine, speed, pitch, voice = _resolve_tts_settings(project_dict)
         
-        if (first_entry.get("_voiceover_engine") != engine or
-            first_entry.get("_voiceover_voice") != voice or
-            str(first_entry.get("_voiceover_speed", "1.0")) != str(speed) or
-            str(first_entry.get("_voiceover_pitch", "0")) != str(pitch)):
+        stored_engine = first_entry.get("_voiceover_engine")
+        stored_voice = first_entry.get("_voiceover_voice")
+        
+        if stored_engine != engine:
+            logger.info(f"voiceover stale: engine mismatch stored={stored_engine} current={engine}")
+            return True
+        if stored_voice != voice:
+            logger.info(f"voiceover stale: voice mismatch stored={stored_voice} current={voice}")
             return True
             
+        try:
+            stored_speed_val = float(first_entry.get("_voiceover_speed", 1.0))
+            current_speed_val = float(speed)
+            if stored_speed_val != current_speed_val:
+                logger.info(f"voiceover stale: speed mismatch stored={stored_speed_val} current={current_speed_val}")
+                return True
+        except (ValueError, TypeError):
+            if str(first_entry.get("_voiceover_speed", "1.0")) != str(speed):
+                logger.info(f"voiceover stale: speed mismatch (str) stored={first_entry.get('_voiceover_speed')} current={speed}")
+                return True
+
+        try:
+            stored_pitch_raw = str(first_entry.get("_voiceover_pitch", "0"))
+            current_pitch_raw = str(pitch)
+            # Normalize pitch values that may have "Hz" suffix (e.g. "0Hz", "-5Hz", "+5Hz")
+            # or be plain numeric strings (e.g. "0", "-5")
+            def _normalize_pitch(val: str) -> int:
+                v = val.replace("Hz", "").replace("+", "").strip()
+                return int(float(v))
+            if _normalize_pitch(stored_pitch_raw) != _normalize_pitch(current_pitch_raw):
+                logger.info(f"voiceover stale: pitch mismatch stored={stored_pitch_raw} current={current_pitch_raw}")
+                return True
+        except (ValueError, TypeError):
+            if stored_pitch_raw != current_pitch_raw:
+                logger.info(f"voiceover stale: pitch mismatch (str) stored={stored_pitch_raw} current={current_pitch_raw}")
+                return True
+            
     except Exception as e:
-        logger.warning(f"Failed to verify voiceover staleness: {e}")
+        logger.warning(f"Failed to verify voiceover staleness: {e}", exc_info=True)
         return True
         
     return False

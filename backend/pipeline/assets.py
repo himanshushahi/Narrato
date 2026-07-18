@@ -26,16 +26,18 @@ def compute_script_content_hash(script_data):
 
     # Introduction
     intro = script_data.get("introduction") or {}
-    parts.append(f"intro:{intro.get('hook', '')}")
+    parts.append(f"intro:{intro.get('hook') or ''}")
 
     # Each scene
     scenes = script_data.get("scenes") or []
     for i, scene in enumerate(scenes):
-        parts.append(f"scene_{i}:{scene.get('narration', '')}")
+        parts.append(f"scene_{i}:{scene.get('narration') or ''}")
 
     # Conclusion
     conclusion = script_data.get("conclusion") or {}
-    parts.append(f"conclusion:{(conclusion.get('summary', '') or '') + (conclusion.get('cta', '') or '')}")
+    summary = conclusion.get('summary') or ''
+    cta = conclusion.get('cta') or ''
+    parts.append(f"conclusion:{summary}{cta}")
 
     content_str = "\n".join(parts)
     return hashlib.sha256(content_str.encode("utf-8")).hexdigest()
@@ -814,7 +816,7 @@ def cleanup_preview_assets(project_id, preview_paths):
     return {"success": True, "deleted": deleted}
 
 
-def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
+def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", output_manifest_path=None, old_manifest_path=None):
     """
     Compares new manifest with existing assets on disk, deletes removed sub_visual files.
     Also stores a content hash in each manifest entry for change detection on resume.
@@ -823,6 +825,9 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
         project_id: Project identifier
         new_manifest_data: Updated manifest structure from frontend
         content_hash: SHA-256 hash of script narration content (from save_project_with_cleanup)
+        output_manifest_path: Optional path to write the updated manifest.
+        old_manifest_path: Optional path to read the old manifest from. If not provided,
+                             reads from the project's assets_manifest_path.
 
     Returns:
         dict: {deleted_files: [...], preserved_files: [...], new_manifest: {...}}
@@ -835,13 +840,23 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
         logger.error(f"Project not found: {project_id}")
         return {"success": False, "error": "Project not found", "deleted_files": [], "preserved_files": []}
 
-    manifest_path = Path(project['assets_manifest_path'])
-    if not manifest_path.exists():
-        logger.warning(f"Manifest not found: {manifest_path}, skipping cleanup")
+    # Resolve old and output manifest paths
+    if old_manifest_path:
+        old_manifest_file = Path(old_manifest_path)
+    else:
+        old_manifest_file = Path(project['assets_manifest_path'])
+
+    if output_manifest_path:
+        output_path = Path(output_manifest_path)
+    else:
+        output_path = old_manifest_file
+
+    if not old_manifest_file.exists():
+        logger.warning(f"Old manifest not found: {old_manifest_file}, skipping cleanup")
         return {"success": True, "deleted_files": [], "preserved_files": [], "new_manifest": new_manifest_data}
 
     # Load old manifest
-    with open(manifest_path, "r", encoding="utf-8") as f:
+    with open(old_manifest_file, "r", encoding="utf-8") as f:
         old_manifest = json.load(f)
 
     assets_dir = get_storage_dir() / project_id / "assets"
@@ -967,9 +982,10 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash=""):
 
     # Write new manifest to disk
     try:
-        with open(manifest_path, "w", encoding="utf-8") as f:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(new_manifest_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"Updated manifest file: {manifest_path}")
+        logger.info(f"Updated manifest file: {output_path}")
     except Exception as e:
         logger.error(f"Failed to write new manifest: {e}")
         return {"success": False, "error": str(e), "deleted_files": deleted_files, "preserved_files": preserved_files}

@@ -1158,8 +1158,9 @@ class ApiBridge:
         return generate_chart_data(prompt)
 
     def save_project_with_cleanup(self, project_id: str, script_data: dict, manifest_data: dict) -> dict:
-        from backend.database.db import get_project
+        from backend.database.db import get_project, update_project
         from backend.pipeline.assets import cleanup_removed_assets, compute_script_content_hash
+        from backend.core.config import get_storage_dir
 
         result = {"success": True, "script_saved": False, "cleanup_result": None}
         try:
@@ -1171,9 +1172,60 @@ class ApiBridge:
                 result["script_saved"] = script_success
                 if not script_success:
                     logger.warning("Script file save failed, but continuing with cleanup")
+
             content_hash = compute_script_content_hash(script_data)
-            cleanup_result = cleanup_removed_assets(project_id, manifest_data, content_hash=content_hash)
+
+            # Write visual manifest to separate file (assets/assets_manifest.json) to avoid
+            # corrupting the voiceover manifest (voiceover/manifest.json) which stores
+            # _voiceover_engine, _voiceover_voice, _voiceover_speed, _voiceover_pitch
+            # needed for is_voiceover_stale checks.
+            project_dir = get_storage_dir() / project_id
+            assets_dir = project_dir / "assets"
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            visual_manifest_path = assets_dir / "assets_manifest.json"
+
+            # Run cleanup with the visual manifest path
+            cleanup_result = cleanup_removed_assets(project_id, manifest_data, content_hash=content_hash, output_manifest_path=str(visual_manifest_path))
             result["cleanup_result"] = cleanup_result
+
+            # Also update the voiceover manifest's sub_visuals to match the new visual structure.
+            # This ensures is_visuals_stale (which compares script.json with voiceover manifest)
+            # correctly detects only narration changes, not manual visual edits.
+            voiceover_manifest_path = project_dir / "voiceover" / "manifest.json"
+            if voiceover_manifest_path.exists():
+                try:
+                    with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
+                        voiceover_manifest = json.load(f)
+                    # Update sub_visuals in voiceover manifest to match new visual structure
+                    # while preserving _voiceover_* fields
+                    scene_counter = 0
+                    for v_entry in voiceover_manifest:
+                        v_type = v_entry.get("section_type")
+                        new_sub_visuals = []
+                        if v_type == "introduction" and script_data.get("introduction"):
+                            new_sub_visuals = script_data["introduction"].get("sub_visuals", [])
+                        elif v_type == "conclusion" and script_data.get("conclusion"):
+                            new_sub_visuals = script_data["conclusion"].get("sub_visuals", [])
+                        elif v_type == "scene" and script_data.get("scenes"):
+                            if scene_counter < len(script_data["scenes"]):
+                                new_sub_visuals = script_data["scenes"][scene_counter].get("sub_visuals", [])
+                            scene_counter += 1
+                        if new_sub_visuals:
+                            # Preserve _voiceover_* fields, update sub_visuals
+                            v_entry["sub_visuals"] = new_sub_visuals
+                    with open(voiceover_manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(voiceover_manifest, f, indent=2, ensure_ascii=False)
+                    logger.info(f"Updated voiceover manifest sub_visuals: {voiceover_manifest_path}")
+                except Exception as e:
+                    logger.error(f"Failed to update voiceover manifest sub_visuals: {e}", exc_info=True)
+                    result["success"] = False
+                    result["error"] = f"Failed to update voiceover manifest sub_visuals: {e}"
+                    # Continue so update_project is still called below
+
+            # Update project to point to the visual manifest for future operations
+            if cleanup_result.get("success"):
+                update_project(project_id, assets_manifest_path=str(visual_manifest_path))
+
             if not cleanup_result.get("success"):
                 logger.warning("Asset cleanup failed, but script was saved")
                 result["success"] = False
@@ -1183,6 +1235,208 @@ class ApiBridge:
             result["success"] = False
             result["error"] = str(e)
         return result
+
+    def _reorder_manifest_list(self, manifest: list, new_scene_order: list, script_scenes: list) -> list:
+        manifest_intro = None
+        manifest_conclusion = None
+        manifest_scenes = []
+        for entry in manifest:
+            st = entry.get("section_type")
+            if st == "introduction":
+                manifest_intro = entry
+            elif st == "conclusion":
+                manifest_conclusion = entry
+            elif st == "scene":
+                manifest_scenes.append(entry)
+        
+        if len(manifest_scenes) != len(script_scenes):
+            logger.warning(f"Manifest scene count ({len(manifest_scenes)}) doesn't match script ({len(script_scenes)}), skipping manifest list reorder.")
+            return None
+            
+        reordered_manifest_scenes = [manifest_scenes[i] for i in new_scene_order]
+        new_manifest = []
+        if manifest_intro:
+            new_manifest.append(manifest_intro)
+        new_manifest.extend(reordered_manifest_scenes)
+        if manifest_conclusion:
+            new_manifest.append(manifest_conclusion)
+        return new_manifest
+
+    def _delete_scene_from_manifest_list(self, manifest: list, scene_index: int) -> list:
+        manifest_scene_count = 0
+        manifest_remove_idx = -1
+        for i, entry in enumerate(manifest):
+            if entry.get("section_type") == "scene":
+                if manifest_scene_count == scene_index:
+                    manifest_remove_idx = i
+                    break
+                manifest_scene_count += 1
+        if manifest_remove_idx >= 0:
+            manifest.pop(manifest_remove_idx)
+        return manifest
+
+    def reorder_scenes(self, project_id: str, new_scene_order: list) -> dict:
+        from backend.database.db import get_project
+        from backend.pipeline.assets import cleanup_removed_assets
+        from backend.core.config import get_storage_dir
+        try:
+            project = get_project(project_id)
+            if not project:
+                return {"success": False, "error": "Project not found"}
+            script_path = project.get("script_path")
+            if not script_path or not os.path.exists(script_path):
+                return {"success": False, "error": "Script not found"}
+            with open(script_path, "r", encoding="utf-8") as f:
+                script = json.load(f)
+            script_scenes = script.get("scenes", [])
+            if len(new_scene_order) != len(script_scenes):
+                return {"success": False, "error": f"Scene count mismatch: {len(new_scene_order)} vs {len(script_scenes)}"}
+            expected_set = set(range(len(script_scenes)))
+            if set(new_scene_order) != expected_set:
+                return {"success": False, "error": "Invalid scene order indices"}
+            reordered_script_scenes = [script_scenes[i] for i in new_scene_order]
+            for idx, scene in enumerate(reordered_script_scenes):
+                scene["scene_number"] = idx + 1
+            script["scenes"] = reordered_script_scenes
+            with open(script_path, "w", encoding="utf-8") as f:
+                json.dump(script, f, indent=2, ensure_ascii=False)
+
+            project_dir = get_storage_dir() / project_id
+            
+            # 1. Update Voiceover Manifest if it exists
+            voiceover_manifest_path = project_dir / "voiceover" / "manifest.json"
+            if voiceover_manifest_path.exists():
+                try:
+                    with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
+                        voiceover_manifest = json.load(f)
+                    new_vo_manifest = self._reorder_manifest_list(voiceover_manifest, new_scene_order, script_scenes)
+                    if new_vo_manifest:
+                        with open(voiceover_manifest_path, "w", encoding="utf-8") as f:
+                            json.dump(new_vo_manifest, f, indent=2, ensure_ascii=False)
+                        logger.info(f"Reordered voiceover manifest: {voiceover_manifest_path}")
+                except Exception as e:
+                    logger.error(f"Failed to reorder voiceover manifest: {e}", exc_info=True)
+
+            # 2. Update Visual Manifest if it exists
+            visual_manifest_path = project_dir / "assets" / "assets_manifest.json"
+            current_manifest_path = Path(project.get("assets_manifest_path") or visual_manifest_path)
+            
+            if current_manifest_path.exists() and current_manifest_path != voiceover_manifest_path:
+                try:
+                    with open(current_manifest_path, "r", encoding="utf-8") as f:
+                        visual_manifest = json.load(f)
+                    new_vis_manifest = self._reorder_manifest_list(visual_manifest, new_scene_order, script_scenes)
+                    if new_vis_manifest:
+                        cleanup_result = cleanup_removed_assets(
+                            project_id, 
+                            new_vis_manifest, 
+                            output_manifest_path=str(current_manifest_path),
+                            old_manifest_path=str(current_manifest_path)
+                        )
+                        if not cleanup_result.get("success"):
+                            return {"success": False, "error": cleanup_result.get("error", "Visual manifest cleanup failed")}
+                        logger.info(f"Reordered and cleaned visual manifest: {current_manifest_path}")
+                except Exception as e:
+                    logger.error(f"Failed to reorder visual manifest: {e}", exc_info=True)
+                    return {"success": False, "error": f"Visual manifest reorder failed: {e}"}
+            elif current_manifest_path == voiceover_manifest_path and voiceover_manifest_path.exists():
+                try:
+                    with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
+                        vo_manifest = json.load(f)
+                    cleanup_result = cleanup_removed_assets(
+                        project_id, 
+                        vo_manifest, 
+                        output_manifest_path=str(voiceover_manifest_path),
+                        old_manifest_path=str(voiceover_manifest_path)
+                    )
+                    if not cleanup_result.get("success"):
+                        return {"success": False, "error": cleanup_result.get("error", "Manifest cleanup failed")}
+                except Exception as e:
+                    logger.error(f"Failed to cleanup voiceover manifest: {e}", exc_info=True)
+
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"reorder_scenes failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def delete_scene(self, project_id: str, scene_index: int) -> dict:
+        from backend.database.db import get_project
+        from backend.pipeline.assets import cleanup_removed_assets
+        from backend.core.config import get_storage_dir
+        try:
+            project = get_project(project_id)
+            if not project:
+                return {"success": False, "error": "Project not found"}
+            script_path = project.get("script_path")
+            if not script_path or not os.path.exists(script_path):
+                return {"success": False, "error": "Script not found"}
+            with open(script_path, "r", encoding="utf-8") as f:
+                script = json.load(f)
+            script_scenes = script.get("scenes", [])
+            if scene_index < 0 or scene_index >= len(script_scenes):
+                return {"success": False, "error": f"Scene index {scene_index} out of range (0-{len(script_scenes)-1})"}
+            removed_scene = script_scenes.pop(scene_index)
+            logger.info(f"Deleted scene {scene_index}: '{removed_scene.get('title', '')}'")
+            for idx, scene in enumerate(script_scenes):
+                scene["scene_number"] = idx + 1
+            with open(script_path, "w", encoding="utf-8") as f:
+                json.dump(script, f, indent=2, ensure_ascii=False)
+
+            project_dir = get_storage_dir() / project_id
+            
+            # 1. Update Voiceover Manifest if it exists
+            voiceover_manifest_path = project_dir / "voiceover" / "manifest.json"
+            if voiceover_manifest_path.exists():
+                try:
+                    with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
+                        voiceover_manifest = json.load(f)
+                    new_vo_manifest = self._delete_scene_from_manifest_list(voiceover_manifest, scene_index)
+                    with open(voiceover_manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(new_vo_manifest, f, indent=2, ensure_ascii=False)
+                    logger.info(f"Deleted scene {scene_index} from voiceover manifest: {voiceover_manifest_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete scene from voiceover manifest: {e}", exc_info=True)
+
+            # 2. Update Visual Manifest if it exists
+            visual_manifest_path = project_dir / "assets" / "assets_manifest.json"
+            current_manifest_path = Path(project.get("assets_manifest_path") or visual_manifest_path)
+            
+            if current_manifest_path.exists() and current_manifest_path != voiceover_manifest_path:
+                try:
+                    with open(current_manifest_path, "r", encoding="utf-8") as f:
+                        visual_manifest = json.load(f)
+                    new_vis_manifest = self._delete_scene_from_manifest_list(visual_manifest, scene_index)
+                    cleanup_result = cleanup_removed_assets(
+                        project_id, 
+                        new_vis_manifest, 
+                        output_manifest_path=str(current_manifest_path),
+                        old_manifest_path=str(current_manifest_path)
+                    )
+                    if not cleanup_result.get("success"):
+                        return {"success": False, "error": cleanup_result.get("error", "Visual manifest cleanup failed")}
+                    logger.info(f"Deleted scene {scene_index} and cleaned visual manifest: {current_manifest_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete scene from visual manifest: {e}", exc_info=True)
+                    return {"success": False, "error": f"Visual manifest delete failed: {e}"}
+            elif current_manifest_path == voiceover_manifest_path and voiceover_manifest_path.exists():
+                try:
+                    with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
+                        vo_manifest = json.load(f)
+                    cleanup_result = cleanup_removed_assets(
+                        project_id, 
+                        vo_manifest, 
+                        output_manifest_path=str(voiceover_manifest_path),
+                        old_manifest_path=str(voiceover_manifest_path)
+                    )
+                    if not cleanup_result.get("success"):
+                        return {"success": False, "error": cleanup_result.get("error", "Manifest cleanup failed")}
+                except Exception as e:
+                    logger.error(f"Failed to cleanup voiceover manifest: {e}", exc_info=True)
+
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"delete_scene failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
     def update_scene_duration(self, project_id: str, scene_index: int, new_duration_seconds: float) -> dict:
         from backend.database.db import get_project
@@ -1213,116 +1467,6 @@ class ApiBridge:
         except Exception as e:
             logger.error(f"update_scene_duration failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
-
-    def reorder_scenes(self, project_id: str, new_scene_order: list) -> dict:
-        from backend.database.db import get_project
-        from backend.pipeline.assets import cleanup_removed_assets
-        try:
-            project = get_project(project_id)
-            if not project:
-                return {"success": False, "error": "Project not found"}
-            script_path = project.get("script_path")
-            manifest_path = project.get("assets_manifest_path")
-            if not script_path or not os.path.exists(script_path):
-                return {"success": False, "error": "Script not found"}
-            has_manifest = bool(manifest_path and os.path.exists(manifest_path))
-            with open(script_path, "r", encoding="utf-8") as f:
-                script = json.load(f)
-            manifest = []
-            if has_manifest:
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    manifest = json.load(f)
-            script_scenes = script.get("scenes", [])
-            if len(new_scene_order) != len(script_scenes):
-                return {"success": False, "error": f"Scene count mismatch: {len(new_scene_order)} vs {len(script_scenes)}"}
-            expected_set = set(range(len(script_scenes)))
-            if set(new_scene_order) != expected_set:
-                return {"success": False, "error": "Invalid scene order indices"}
-            reordered_script_scenes = [script_scenes[i] for i in new_scene_order]
-            for idx, scene in enumerate(reordered_script_scenes):
-                scene["scene_number"] = idx + 1
-            script["scenes"] = reordered_script_scenes
-            if has_manifest:
-                manifest_intro = None
-                manifest_conclusion = None
-                manifest_scenes = []
-                for entry in manifest:
-                    st = entry.get("section_type")
-                    if st == "introduction":
-                        manifest_intro = entry
-                    elif st == "conclusion":
-                        manifest_conclusion = entry
-                    elif st == "scene":
-                        manifest_scenes.append(entry)
-                if len(manifest_scenes) != len(script_scenes):
-                    logger.warning(f"Manifest scene count ({len(manifest_scenes)}) doesn't match script ({len(script_scenes)}), skipping manifest reorder.")
-                    has_manifest = False
-                else:
-                    reordered_manifest_scenes = [manifest_scenes[i] for i in new_scene_order]
-                    new_manifest = []
-                    if manifest_intro:
-                        new_manifest.append(manifest_intro)
-                    new_manifest.extend(reordered_manifest_scenes)
-                    if manifest_conclusion:
-                        new_manifest.append(manifest_conclusion)
-            with open(script_path, "w", encoding="utf-8") as f:
-                json.dump(script, f, indent=2, ensure_ascii=False)
-            if has_manifest:
-                cleanup_result = cleanup_removed_assets(project_id, new_manifest)
-                if not cleanup_result.get("success"):
-                    return {"success": False, "error": cleanup_result.get("error", "Cleanup failed")}
-            return {"success": True}
-        except Exception as e:
-            logger.error(f"reorder_scenes failed: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
-
-    def delete_scene(self, project_id: str, scene_index: int) -> dict:
-        from backend.database.db import get_project
-        from backend.pipeline.assets import cleanup_removed_assets
-        try:
-            project = get_project(project_id)
-            if not project:
-                return {"success": False, "error": "Project not found"}
-            script_path = project.get("script_path")
-            manifest_path = project.get("assets_manifest_path")
-            if not script_path or not os.path.exists(script_path):
-                return {"success": False, "error": "Script not found"}
-            has_manifest = bool(manifest_path and os.path.exists(manifest_path))
-            with open(script_path, "r", encoding="utf-8") as f:
-                script = json.load(f)
-            manifest = []
-            if has_manifest:
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    manifest = json.load(f)
-            script_scenes = script.get("scenes", [])
-            if scene_index < 0 or scene_index >= len(script_scenes):
-                return {"success": False, "error": f"Scene index {scene_index} out of range (0-{len(script_scenes)-1})"}
-            removed_scene = script_scenes.pop(scene_index)
-            logger.info(f"Deleted scene {scene_index}: '{removed_scene.get('title', '')}'")
-            for idx, scene in enumerate(script_scenes):
-                scene["scene_number"] = idx + 1
-            if has_manifest:
-                manifest_scene_count = 0
-                manifest_remove_idx = -1
-                for i, entry in enumerate(manifest):
-                    if entry.get("section_type") == "scene":
-                        if manifest_scene_count == scene_index:
-                            manifest_remove_idx = i
-                            break
-                        manifest_scene_count += 1
-                if manifest_remove_idx >= 0:
-                    manifest.pop(manifest_remove_idx)
-            with open(script_path, "w", encoding="utf-8") as f:
-                json.dump(script, f, indent=2, ensure_ascii=False)
-            if has_manifest:
-                cleanup_result = cleanup_removed_assets(project_id, manifest)
-                if not cleanup_result.get("success"):
-                    return {"success": False, "error": cleanup_result.get("error", "Cleanup failed")}
-            return {"success": True}
-        except Exception as e:
-            logger.error(f"delete_scene failed: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
-
 
 api_bridge = ApiBridge()
 

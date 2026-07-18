@@ -126,7 +126,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     whisper_model: "base",
     whisper_device: "cpu",
     tts_engine: "edge",
-    tts_voice: "hi-IN-SwaraNeural",
+    tts_voice: "hi-IN-MadhurNeural",
     tts_speed: "1.0",
     tts_pitch: "0",
     kokoro_voice: "hf_alpha",

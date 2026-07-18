@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { VscAccount, VscCheck, VscPlay, VscLoading, VscRefresh, VscUnmute } from 'react-icons/vsc';
 import { useSettingsStore } from '../../../store/useSettingsStore';
@@ -439,6 +439,11 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const selectedProject = useProjectStore((s) => s.selectedProject);
   const projectLanguage = selectedProject?.language || 'hi';
 
+  // Use a ref to track latest localProjectSettings without triggering re-renders
+  const localProjectSettingsRef = useRef(localProjectSettings);
+  localProjectSettingsRef.current = localProjectSettings;
+  const prevLangRef = useRef<string | undefined>(undefined);
+
   const [previewText, setPreviewText] = useState(
     projectLanguage === 'hi' ? 'यह एक परीक्षण आवाज है। नमस्ते, आप कैसे हैं?' : 'This is a test voice. Hello, how are you?'
   );
@@ -454,6 +459,77 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const [piperModelReady, setPiperModelReady] = useState(true);
   const [piperDownloading, setPiperDownloading] = useState(false);
   const [availablePiperVoices, setAvailablePiperVoices] = useState<string[] | null>(null);
+
+// ── Auto-switch voice based on project language ──
+  useEffect(() => {
+    if (!selectedProject) return;
+
+    // Run only when language explicitly changes
+    if (prevLangRef.current !== undefined && prevLangRef.current === projectLanguage) {
+      return;
+    }
+    prevLangRef.current = projectLanguage;
+
+    // Check if the user has explicitly set ANY voice setting in the project
+    let projectSettingsObj: any = {};
+    try {
+        if (selectedProject.project_settings) {
+            projectSettingsObj = typeof selectedProject.project_settings === 'string'
+                ? JSON.parse(selectedProject.project_settings)
+                : selectedProject.project_settings;
+        }
+    } catch(e) {}
+
+    const hasProjectSpecificVoice = !!selectedProject.tts_engine ||
+                                     !!selectedProject.tts_voice ||
+                                     !!projectSettingsObj.tts_engine ||
+                                     !!projectSettingsObj.tts_voice ||
+                                     !!projectSettingsObj.kokoro_voice ||
+                                     !!projectSettingsObj.piper_voice;
+
+    if (hasProjectSpecificVoice) return;
+
+    const pEngine = selectedProject.tts_engine || globalSettings.tts_engine || 'edge';
+
+    let currentVoice = '';
+    if (pEngine === 'edge') {
+      currentVoice = globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
+    } else if (pEngine === 'kokoro') {
+      currentVoice = globalSettings.kokoro_voice || (projectLanguage === 'hi' ? 'hf_alpha' : 'af_bella');
+    } else if (pEngine === 'piper') {
+      currentVoice = globalSettings.piper_voice || (projectLanguage === 'hi' ? 'hi_IN-rohan' : 'en_US-lessac');
+    }
+
+    const isMismatch = (voice: string, engineType: string) => {
+       if (!voice) return false;
+       if (projectLanguage === 'hi') {
+          if (engineType === 'edge' && !voice.startsWith('hi-')) return true;
+          if (engineType === 'kokoro' && !voice.startsWith('h')) return true;
+          if (engineType === 'piper' && !voice.startsWith('hi_')) return true;
+       } else {
+          if (engineType === 'edge' && voice.startsWith('hi-')) return true;
+          if (engineType === 'kokoro' && voice.startsWith('h')) return true;
+          if (engineType === 'piper' && voice.startsWith('hi_')) return true;
+       }
+       return false;
+    };
+
+    if (isMismatch(currentVoice, pEngine)) {
+        const updated = { ...localProjectSettingsRef.current };
+        if (projectLanguage === 'hi') {
+           updated.tts_voice = 'hi-IN-MadhurNeural';
+           updated.kokoro_voice = 'hf_alpha';
+           updated.piper_voice = 'hi_IN-rohan';
+        } else {
+           updated.tts_voice = 'en-US-AndrewNeural';
+           updated.kokoro_voice = 'af_bella';
+           updated.piper_voice = 'en_US-lessac';
+        }
+        updated.tts_engine = pEngine;
+        // Also update the global settings in local project settings so it effectively overrides
+        onSettingsUpdate(updated);
+    }
+  }, [projectLanguage, selectedProject, globalSettings, onSettingsUpdate]);
 
   // ── Merge helpers ──
   const updateKey = (key: string, value: string) => {
@@ -557,8 +633,8 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
       const effectiveVoice = effectiveEngine === 'kokoro'
         ? (projectVal('kokoro_voice') || globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella'))
         : effectiveEngine === 'piper'
-        ? (projectVal('piper_voice') || globalSettings.piper_voice || 'hi_IN-rohan')
-        : (projectVal('tts_voice') || globalSettings.tts_voice || 'hi-IN-SwaraNeural');
+        ? (projectVal('piper_voice') || globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac'))
+        : (projectVal('tts_voice') || globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural'));
       const effectiveSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
       const effectivePitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
       const effectiveLang = selectedProject?.language || 'hi';
@@ -592,13 +668,13 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     const pEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
     if (pEngine !== preset.engine) return false;
     if (preset.engine === 'kokoro') {
-      const pVoice = projectVal('kokoro_voice') || globalSettings.kokoro_voice || '';
+      const pVoice = projectVal('kokoro_voice') || globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella');
       if (pVoice !== preset.kokoroVoice) return false;
     } else if (preset.engine === 'piper') {
-      const pVoice = projectVal('piper_voice') || globalSettings.piper_voice || '';
+      const pVoice = projectVal('piper_voice') || globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac');
       if (pVoice !== preset.piperVoice) return false;
     } else {
-      const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || '';
+      const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
       if (pVoice !== preset.voice) return false;
     }
     const pSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
@@ -639,7 +715,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
                 } else if (v === 'piper' && !getProjectVal(updated, 'piper_voice')) {
                   updated.piper_voice = globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac');
                 } else if (v === 'edge' && !getProjectVal(updated, 'tts_voice')) {
-                  updated.tts_voice = globalSettings.tts_voice || (isHindiLang ? 'hi-IN-SwaraNeural' : 'en-US-AndrewNeural');
+                  updated.tts_voice = globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
                 }
                 onSettingsUpdate(updated);
               }}
@@ -660,20 +736,20 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
         {engine === 'edge' ? (
           <OverrideRow
             label="Voice"
-            globalValue={globalSettings.tts_voice || 'hi-IN-SwaraNeural'}
+            globalValue={globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural')}
             projectValue={projectVal('tts_voice')}
             onReset={() => resetKey('tts_voice')}
           >
             <CustomSelect
               options={filteredEdgeVoices}
-              value={projectVal('tts_voice') || globalSettings.tts_voice || (isHindiLang ? 'hi-IN-SwaraNeural' : 'en-US-AndrewNeural')}
+              value={projectVal('tts_voice') || globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural')}
               onChange={(v) => updateKey('tts_voice', v)}
             />
           </OverrideRow>
         ) : engine === 'kokoro' ? (
           <OverrideRow
             label="Voice"
-            globalValue={globalSettings.kokoro_voice || 'hf_alpha'}
+            globalValue={globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella')}
             projectValue={projectVal('kokoro_voice')}
             onReset={() => resetKey('kokoro_voice')}
           >
@@ -687,7 +763,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
           <>
             <OverrideRow
               label="Voice"
-              globalValue={globalSettings.piper_voice || 'hi_IN-rohan'}
+              globalValue={globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac')}
               projectValue={projectVal('piper_voice')}
               onReset={() => resetKey('piper_voice')}
             >
