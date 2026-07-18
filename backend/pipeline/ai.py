@@ -1122,7 +1122,7 @@ Be extremely creative! Do not just write simple text or rely solely on basic 'sc
 - network: For connections between people, organizations, relationships.
 - portrait: For introducing real specific people or places.
 - parallax: For dramatic visual reveals with layered depth.
-- custom_html: For highly customized, creative typography layouts or custom animations. Use your CSS/HTML skills!
+- custom_html: For highly customized, stunning modern UI layouts resembling high-end video editor templates with abundant, smooth animations. Use your CSS/HTML skills!
 - scene/image: Default fallback.
 - youtube: For real-world footage other than portraits.
 
@@ -1143,7 +1143,7 @@ CRITICAL ON DURATION:
 - document: visual_meta {"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}
 - network: visual_meta {"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
 - list: visual_meta {"number": int, "title": str, "description": str}
-- custom_html: visual_meta {"html": str, "css": str} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent.)
+- custom_html: visual_meta {"html": str, "css": str} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic.)
 - Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
 """
     
@@ -1195,8 +1195,10 @@ PARALLAX TYPE: For dramatic reveals or layered depth effects
 - Ideal for: "Revelation", "Hidden", "Secret", "Deep", "Layers"
 - Create 3D depth with fore/mid/background movement
 
-CUSTOM_HTML TYPE: For creative typography or custom animations
+CUSTOM_HTML TYPE: For highly dynamic, stunning, modern UI
 - Ideal for: "Typography", "Animation", "Special effects", "Creative layout"
+- MUST look like a modern video editor template, NOT a normal website.
+- Add abundant, smooth animations (CSS transitions/keyframes) for maximum visual impact.
 - Use raw CSS/HTML skills for unique presentations
 
 SCENE/IMAGE/YOUTUBE TYPES: For standard footage or real-world shots
