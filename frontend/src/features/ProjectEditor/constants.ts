@@ -10,6 +10,7 @@ export const VISUAL_TYPE_OPTIONS = [
   { value: 'youtube', label: 'YouTube Video' },
   { value: 'list', label: 'Numbered List' },
   { value: 'custom_html', label: 'Custom HTML' },
+  { value: 'timeline', label: 'Timeline Tracker' },
 ];
 
 export const TRANSITION_TYPE_OPTIONS = [
@@ -83,6 +84,12 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
   } else if (type === 'custom_html') {
     meta.html = '<div class="custom-box">Hello Custom HTML</div>';
     meta.css = '.custom-box { color: white; font-size: 60px; text-align: center; }';
+  } else if (type === 'timeline') {
+    meta.title = 'Timeline of Events';
+    meta.events = [
+      { date: '2023', title: 'Start', description: 'The beginning.' },
+      { date: '2024', title: 'Growth', description: 'Things get bigger.' }
+    ];
   }
 
   return meta;

@@ -107,7 +107,7 @@ SUB_VISUAL_SCHEMA = {
         "visual_cue": {"type": "string"},
         "visual_type": {
             "type": "string",
-            "enum": ["chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html"]
+            "enum": ["chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline"]
         },
         "transition": {
             "type": "string",
@@ -1119,6 +1119,7 @@ Be extremely creative! Do not just write simple text or rely solely on basic 'sc
 - chart: For statistics, percentages, comparisons, or data trends.
 - map: For geography, routes, locations, territories, borders.
 - document: For factual claims, news events, classified archives, factual evidence.
+- timeline: For tracking a sequence of events, chronological milestones, or histories.
 - network: For connections between people, organizations, relationships.
 - portrait: For introducing real specific people or places.
 - parallax: For dramatic visual reveals with layered depth.
@@ -1141,6 +1142,7 @@ CRITICAL ON DURATION:
 - chart: visual_meta {"chart_type": "bar"|"line"|"pie", "title": str, "data": [{"label": str, "value": number}]}
 - map: visual_meta {"map_style": "vintage", "locations": [{"name": str, "coord": [lat, lon]}]} (2 locations)
 - document: visual_meta {"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}
+- timeline: visual_meta {"title": str, "events": [{"date": str, "title": str, "description": str}]}
 - network: visual_meta {"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
 - list: visual_meta {"number": int, "title": str, "description": str}
 - custom_html: visual_meta {"html": str, "css": str} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic.)
@@ -1264,7 +1266,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 
 ERROR PREVENTION:
 - Return total duration matching the provided scene duration (precision to 2 decimal places)
-- Use only valid visual types: list, chart, map, document, network, portrait, parallax, custom_html, scene, image, youtube
+- Use only valid visual types: list, chart, map, document, network, portrait, parallax, custom_html, scene, image, youtube, timeline
 - Format all JSON numbers as numbers, not strings
 - Ensure all required fields are present for each visual type
 
@@ -1363,7 +1365,7 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
         try:
             visuals_data = _call_llm_json(visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, cancel_event)
             
-            valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html"}
+            valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline"}
             for sv in visuals_data.get("sub_visuals", []):
                 v_type = str(sv.get("visual_type", "")).lower()
                 if v_type not in valid_types:
@@ -1377,6 +1379,7 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
                     elif "list" in v_type: sv["visual_type"] = "list"
                     elif "html" in v_type: sv["visual_type"] = "custom_html"
                     elif "image" in v_type: sv["visual_type"] = "image"
+                    elif "timeline" in v_type: sv["visual_type"] = "timeline"
                     else: sv["visual_type"] = "scene"
 
             entry["sub_visuals"] = visuals_data.get("sub_visuals", [])

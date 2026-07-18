@@ -64,6 +64,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         window.removeEventListener('resize', updateRect);
       };
     }
+    return undefined;
   }, [isOpen]);
 
   useEffect(() => {

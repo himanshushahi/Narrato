@@ -6,15 +6,15 @@ import * as topojson from 'topojson-client';
 import worldData from './world-110m.json';
 
 interface Props {
-  type: 'chart' | 'map' | 'document' | 'network';
+  type: 'chart' | 'map' | 'document' | 'network' | 'timeline';
   meta: any;
   durationInFrames: number;
   subtitleSettings?: any;
 }
 
-export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettings }) => {
+export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFrames, subtitleSettings }) => {
   const frame = useCurrentFrame();
-  const { width, height } = useVideoConfig();
+  const { width, height, fps } = useVideoConfig();
 
   // Growth animation for charts and vectors
   const animProgress = spring({
@@ -1035,7 +1035,197 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, subtitleSettin
     );
   };
 
+  // Render Modern Animated Timeline Tracker
+  const renderTimeline = () => {
+    const events = meta.events || [
+      { date: 'JAN 1999', title: 'The Vision', description: 'Pets.com is founded to sell pet supplies online.' },
+      { date: 'FEB 2000', title: 'Super Bowl Ad', description: 'Spends millions on a famous sock puppet ad.' },
+      { date: 'NOV 2000', title: 'Liquidation', description: 'The company shuts down after burning through capital.' }
+    ];
+
+    // Hardcode animation duration to 3 seconds (90 frames at 30fps) instead of the entire clip
+    const animationDurationFrames = Math.min(90, durationInFrames);
+    const progress = Math.min(1, frame / animationDurationFrames);
+    const lineWidth = progress * 100;
+
+    const primaryColor = subtitleSettings?.timeline_primary_color || '#06b6d4';
+    const titleFontSize = subtitleSettings?.timeline_title_font_size !== undefined ? Number(subtitleSettings.timeline_title_font_size) : 48;
+    const titleX = subtitleSettings?.timeline_title_x !== undefined ? Number(subtitleSettings.timeline_title_x) : 80;
+    const titleY = subtitleSettings?.timeline_title_y !== undefined ? Number(subtitleSettings.timeline_title_y) : 120;
+
+    return (
+      <div style={{
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#09090b', // Zinc 950 - sleek dark mode
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        padding: '0 240px', // Extra padding to prevent edges from clipping
+        position: 'relative',
+        color: '#fff',
+        fontFamily: "'Inter', sans-serif",
+        overflow: 'hidden'
+      }}>
+        {/* Background Tech Grid */}
+        <div style={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+          backgroundSize: '60px 60px',
+        }} />
+
+        {/* Global Glow */}
+        <div style={{
+          position: 'absolute',
+          top: '50%', left: '50%',
+          width: '80%', height: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'radial-gradient(circle, rgba(56,189,248,0.05) 0%, rgba(0,0,0,0) 70%)',
+          pointerEvents: 'none'
+        }} />
+
+        {/* Title */}
+        <h2 style={{
+          position: 'absolute',
+          top: titleY,
+          left: titleX,
+          fontSize: titleFontSize,
+          fontWeight: 700,
+          margin: 0,
+          letterSpacing: '-1px',
+          color: '#f8fafc',
+          textTransform: 'uppercase'
+        }}>
+          {meta.title || 'Timeline of Events'}
+        </h2>
+
+        {/* The Timeline Track */}
+        <div style={{
+          position: 'relative',
+          width: '100%',
+          height: 8,
+          backgroundColor: '#27272a', // Zinc 800
+          borderRadius: 4,
+          marginTop: 80 // Push down slightly to balance top/bottom boxes
+        }}>
+          {/* Animated Glow Line */}
+          <div style={{
+            position: 'absolute',
+            top: 0, left: 0, bottom: 0,
+            width: `${lineWidth}%`,
+            backgroundColor: primaryColor, // Use settings color
+            boxShadow: `0 0 20px ${primaryColor}80`,
+            borderRadius: 4
+          }} />
+
+          {/* Nodes */}
+          {events.map((event: any, index: number) => {
+            const positionPct = events.length > 1 ? (index / (events.length - 1)) * 100 : 50; 
+            
+            // The node animation triggers slightly before the line reaches it
+            const nodeProgressThreshold = positionPct / 100;
+            const isVisible = progress >= (nodeProgressThreshold - 0.02);
+            
+            const springProgress = spring({
+              frame: Math.max(0, frame - (nodeProgressThreshold * animationDurationFrames) + 5), // Trigger a bit earlier for smooth entry
+              fps,
+              config: { damping: 14, stiffness: 100 }
+            });
+
+            // Alternate top/bottom placement to prevent overlapping
+            const isTop = index % 2 === 0;
+
+            return (
+              <div key={index} style={{
+                position: 'absolute',
+                left: `${positionPct}%`,
+                top: 4,
+                transform: `translate(-50%, -50%)`,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                zIndex: isVisible ? 10 : 1
+              }}>
+                {/* The Dot */}
+                <div style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  backgroundColor: isVisible ? primaryColor : '#3f3f46',
+                  border: '4px solid #09090b',
+                  boxShadow: isVisible ? `0 0 20px ${primaryColor}` : 'none',
+                  transform: `scale(${isVisible ? 1 + (springProgress * 0.2) : 1})`,
+                  transition: 'background-color 0.2s, box-shadow 0.2s'
+                }} />
+
+                {/* Content Box */}
+                <div style={{
+                  position: 'absolute',
+                  top: isTop ? undefined : 64,
+                  bottom: isTop ? 64 : undefined,
+                  width: 320,
+                  opacity: springProgress,
+                  transform: `translateY(${isTop ? (1 - springProgress) * 20 : (1 - springProgress) * -20}px)`,
+                  backgroundColor: 'rgba(24, 24, 27, 0.5)', // Sleeker translucent
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(255,255,255,0.05)',
+                  borderTop: isTop ? '1px solid rgba(255,255,255,0.05)' : `2px solid ${primaryColor}`,
+                  borderBottom: isTop ? `2px solid ${primaryColor}` : '1px solid rgba(255,255,255,0.05)',
+                  padding: 24,
+                  borderRadius: 16,
+                  boxShadow: '0 20px 40px rgba(0,0,0,0.3)'
+                }}>
+                  <div style={{
+                    color: primaryColor, // Use settings color
+                    fontWeight: 700,
+                    fontSize: 14,
+                    letterSpacing: '1px',
+                    marginBottom: 8,
+                    textTransform: 'uppercase'
+                  }}>
+                    {event.date}
+                  </div>
+                  <div style={{
+                    fontSize: 22,
+                    fontWeight: 700,
+                    marginBottom: 8,
+                    lineHeight: 1.2
+                  }}>
+                    {event.title}
+                  </div>
+                  <div style={{
+                    fontSize: 16,
+                    fontWeight: 400,
+                    color: '#a1a1aa', // Zinc 400
+                    lineHeight: 1.4
+                  }}>
+                    {event.description}
+                  </div>
+                </div>
+                
+                {/* Connecting Line from Dot to Box */}
+                <div style={{
+                  position: 'absolute',
+                  top: isTop ? -40 : 24,
+                  width: 2,
+                  height: 40,
+                  backgroundColor: isVisible ? primaryColor : 'transparent',
+                  opacity: springProgress,
+                  transformOrigin: isTop ? 'bottom' : 'top',
+                  transform: `scaleY(${springProgress})`,
+                  boxShadow: isVisible ? '0 0 10px rgba(6, 182, 212, 0.5)' : 'none'
+                }} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   // Router to specific visual renderer
+  if (type === 'timeline') return renderTimeline();
   if (type === 'map') return renderMap();
   if (type === 'document') return renderDocument();
   if (type === 'network') return renderNetwork();

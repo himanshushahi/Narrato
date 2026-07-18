@@ -480,7 +480,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
             if download_asset(asset_url, dest_file, cancel_event=cancel_event):
                 sub_visual["visual_path"] = str(dest_file)
                 logger.info(f"Saved asset_{seg_idx:03d}_{sub_idx:02d}{ext}")
-    # Programmatic types (chart, map, document, network) don't need downloads
+    # Programmatic types (chart, map, document, network, timeline) don't need downloads
 
     return sub_visual
 
@@ -739,7 +739,7 @@ def preview_asset_download(project_id, visual_type, visual_cue):
         return {"success": False, "error": "Project not found"}
 
     # Programmatic types don't need downloading
-    if visual_type in ("chart", "map", "document", "network", "list", "custom_html"):
+    if visual_type in ("chart", "map", "document", "network", "list", "custom_html", "timeline"):
         return {"success": False, "error": "No asset to download for this visual type"}
 
     api_key = get_setting("pexels_api_key")

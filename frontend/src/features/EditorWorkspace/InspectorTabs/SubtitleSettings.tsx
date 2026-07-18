@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { CustomSelect } from '../../../components/ui/CustomSelect';
 import { CustomColorInput } from '../../../components/ui/CustomColorInput';
-import { CustomCheckbox } from '../../../components/ui/CustomCheckbox';
 import { CustomRange } from '../../../components/ui/CustomRange';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import { VscLoading, VscTrash, VscStarFull, VscSave, VscCheck } from 'react-icons/vsc';

@@ -14,7 +14,7 @@ import { CustomHtmlVisual } from './CustomHtmlVisual';
 import { calculateSubVisualTimings } from '../../utils/duration';
 
 export interface SubVisual {
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html';
+  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'timeline';
   visual_cue: string;
   transition_type?: string;
   visual_url?: string;
@@ -104,7 +104,7 @@ export const NitishRajputComposition = ({
     const meta = subVis.visual_meta || {};
     const transform = subVis.transform;
 
-    if (type === 'chart' || type === 'map' || type === 'document' || type === 'network') {
+    if (type === 'chart' || type === 'map' || type === 'document' || type === 'network' || type === 'timeline') {
       return (
         <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
           {/* ZoomWrapper wraps both background and visualization — they scale together */}

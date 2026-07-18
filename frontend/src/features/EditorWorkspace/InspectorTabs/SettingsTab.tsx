@@ -321,6 +321,18 @@ const SECTION_DEFS: SectionDef[] = [
     ],
   },
   {
+    id: 'timeline',
+    title: 'Timeline Tracker',
+    icon: () => <span className="text-xs text-zinc-500">T</span>,
+    keywords: ['timeline', 'tracker', 'history', 'event', 'color', 'font'],
+    fields: [
+      { id: 'timeline_primary_color', label: 'Primary Colour', keywords: ['timeline', 'color', 'primary'] },
+      { id: 'timeline_title_font_size', label: 'Title Font Size', keywords: ['timeline', 'title', 'font', 'size'] },
+      { id: 'timeline_title_x', label: 'Title X Position', keywords: ['timeline', 'title', 'x', 'horizontal', 'position'] },
+      { id: 'timeline_title_y', label: 'Title Y Position', keywords: ['timeline', 'title', 'y', 'vertical', 'position'] },
+    ],
+  },
+  {
     id: 'subtitles',
     title: 'Subtitle Styling',
     icon: () => <span className="text-xs text-zinc-500">CC</span>,
@@ -686,6 +698,80 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 value={localProjectSettings.numbering_accent_color || '#f59e0b'}
                 onChange={(v) => updateKey('numbering_accent_color', v)}
               />
+            </div>
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Timeline Tracker section */}
+      {visibleSections.some(s => s.id === 'timeline') && (
+        <CollapsibleSection
+          id="timeline"
+          title="Timeline Tracker"
+          icon={<span className="text-sm text-zinc-500 font-semibold">T</span>}
+          collapsed={collapsedSections.has('timeline')}
+          onToggle={toggleSection}
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <NumberColorInput
+                label="Primary Colour"
+                value={localProjectSettings.timeline_primary_color || '#06b6d4'}
+                onChange={(v) => updateKey('timeline_primary_color', v)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-semibold text-zinc-300">Title Font Size</label>
+                <span className="text-xs text-amber-500 font-mono">
+                  {localProjectSettings.timeline_title_font_size || 48}px
+                </span>
+              </div>
+              <input
+                type="range"
+                min="24"
+                max="96"
+                step="2"
+                value={localProjectSettings.timeline_title_font_size || 48}
+                onChange={(e) => updateKey('timeline_title_font_size', e.target.value)}
+                className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-semibold text-zinc-300">Title X</label>
+                  <span className="text-xs text-amber-500 font-mono">
+                    {localProjectSettings.timeline_title_x !== undefined ? localProjectSettings.timeline_title_x : 80}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="400"
+                  step="5"
+                  value={localProjectSettings.timeline_title_x !== undefined ? localProjectSettings.timeline_title_x : 80}
+                  onChange={(e) => updateKey('timeline_title_x', e.target.value)}
+                  className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-semibold text-zinc-300">Title Y</label>
+                  <span className="text-xs text-amber-500 font-mono">
+                    {localProjectSettings.timeline_title_y !== undefined ? localProjectSettings.timeline_title_y : 120}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="400"
+                  step="5"
+                  value={localProjectSettings.timeline_title_y !== undefined ? localProjectSettings.timeline_title_y : 120}
+                  onChange={(e) => updateKey('timeline_title_y', e.target.value)}
+                  className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
             </div>
           </div>
         </CollapsibleSection>

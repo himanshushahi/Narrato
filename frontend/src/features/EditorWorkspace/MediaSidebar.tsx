@@ -45,6 +45,7 @@ const VISUAL_TYPE_LABELS: Record<string, string> = {
   chart: 'Chart Data',
   map: 'Map Data',
   document: 'Document',
+  timeline: 'Timeline',
   network: 'Network Diagram',
 };
 

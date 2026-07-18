@@ -5,6 +5,7 @@ import { MapLocationsEditor } from './MapLocationsEditor';
 import { ChartDataEditor } from './ChartDataEditor';
 import { NewspaperEditor } from './NewspaperEditor';
 import { NetworkDataEditor } from './NetworkDataEditor';
+import { TimelineEditor } from './TimelineEditor';
 import { ParallaxEditor } from './ParallaxEditor';
 import { NumberingEditor } from './NumberingEditor';
 import { HtmlDataEditor } from './HtmlDataEditor';
@@ -227,6 +228,9 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               )}
               {sv.visual_type === 'document' && (
                 <NewspaperEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              )}
+              {sv.visual_type === 'timeline' && (
+                <TimelineEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}
               {sv.visual_type === 'network' && (
                 <NetworkDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
