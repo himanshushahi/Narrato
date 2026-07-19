@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useId } from 'react';
 
 interface PaperTextureProps {
   /** Overall opacity of the texture layers (0-1). Default: 0.6 */
@@ -24,14 +24,9 @@ export const PaperTexture: React.FC<PaperTextureProps> = ({
   showGrain = true,
   showVignette = true,
 }) => {
-  const filterId = useMemo(
-    () => `paperGrain_${Math.random().toString(36).substring(2, 9)}`,
-    []
-  );
-  const noiseId = useMemo(
-    () => `fineNoise_${Math.random().toString(36).substring(2, 9)}`,
-    []
-  );
+  const idPrefix = useId().replace(/:/g, "");
+  const filterId = `paperGrain_${idPrefix}`;
+  const noiseId = `fineNoise_${idPrefix}`;
 
   return (
     <div

@@ -10,7 +10,7 @@ interface Props {
 /**
  * Snap a value to the nearest pixel boundary to eliminate sub-pixel jitter.
  */
-const snapToPixel = (v: number) => Math.round(v * devicePixelRatio) / devicePixelRatio;
+const snapToPixel = (v: number) => Math.round(v);
 
 /**
  * Round blur to 1 decimal place; below a threshold, set to 0 to skip

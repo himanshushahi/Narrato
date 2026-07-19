@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { Sequence, Audio, useVideoConfig } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
@@ -98,7 +98,7 @@ export const NitishRajputComposition = ({
   }, [scenes]);
 
   // Helper to render a single sub-visual's content
-  const renderSubVisual = (subVis: SubVisual, durationFrames: number) => {
+  const renderSubVisual = useCallback((subVis: SubVisual, durationFrames: number) => {
     const type = subVis.visual_type;
     const url = subVis.visual_url || '';
     const meta = subVis.visual_meta || {};
@@ -183,9 +183,89 @@ export const NitishRajputComposition = ({
         transform={transform}
       />
     );
-  };
+  }, [subtitleSettings]);
 
-  let frameOffset = 0;
+  // Pre-calculate and memoize the entire timeline tree.
+  // This drastically reduces React reconciliation during video playback.
+  const renderedScenes = useMemo(() => {
+    let frameOffset = 0;
+    return scenes.map((scene, idx) => {
+      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      const currentOffset = frameOffset;
+      frameOffset += durationFrames;
+
+      const subVisuals = scene.sub_visuals || [];
+      const numSubs = subVisuals.length;
+
+      return (
+        <Sequence
+          key={`scene-${idx}`}
+          from={currentOffset}
+          durationInFrames={durationFrames}
+        >
+          {numSubs > 0 ? (() => {
+            const timings = calculateSubVisualTimings(subVisuals, durationFrames, 0);
+
+            return subVisuals.map((subVis, subIdx) => {
+              const timing = timings[subIdx];
+              const subFrom = timing.start;
+              const subDuration = Math.max(1, timing.end - timing.start);
+              
+              const ltMeta = subVis.visual_meta?.lower_third;
+
+              return (
+                <Sequence
+                  key={`sub-${subIdx}`}
+                  from={subFrom}
+                  durationInFrames={subDuration}
+                >
+                  <TransitionWrapper durationInFrames={subDuration} type={subVis.transition_type}>
+                    {renderSubVisual(subVis, subDuration)}
+                  </TransitionWrapper>
+                  {ltMeta && (
+                    <div style={{ position: 'absolute', inset: 0, zIndex: 30, pointerEvents: 'none' }}>
+                      <LowerThird 
+                        title={ltMeta.title}
+                        subtitle={ltMeta.subtitle}
+                        durationInFrames={subDuration}
+                        positionX={subtitleSettings?.lower_third_x !== undefined ? subtitleSettings.lower_third_x : 5}
+                        positionY={subtitleSettings?.lower_third_y !== undefined ? subtitleSettings.lower_third_y : 15}
+                        primaryColor={subtitleSettings?.lower_third_primary_color || '#fbbf24'}
+                        titleColor={subtitleSettings?.lower_third_title_color || '#fef3c7'}
+                        subtitleColor={subtitleSettings?.lower_third_subtitle_color || '#d6d3d1'}
+                        titleFontSize={subtitleSettings?.lower_third_title_font_size !== undefined ? subtitleSettings.lower_third_title_font_size : 42}
+                      />
+                    </div>
+                  )}
+                </Sequence>
+              );
+            });
+          })() : (
+            <div style={{ width: '100%', height: '100%', backgroundColor: '#0c0a09' }} />
+          )}
+          
+          {!subtitleSettings?.hide_chapter_name && scene.title && (
+            <div style={{
+              position: 'absolute',
+              top: 50,
+              left: 60,
+              fontFamily: 'Montserrat, sans-serif',
+              fontWeight: 800,
+              fontSize: 24,
+              color: subtitleSettings?.chapter_text_color || '#d6d3d1',
+              textTransform: 'uppercase',
+              letterSpacing: 2,
+              opacity: 0.6,
+              borderLeft: `4px solid ${subtitleSettings?.chapter_border_color || '#b45309'}`,
+              paddingLeft: 12
+            }}>
+              {scene.title}
+            </div>
+          )}
+        </Sequence>
+      );
+    });
+  }, [scenes, subtitleSettings, renderSubVisual]);
 
   return (
     <div style={{ flex: 1, backgroundColor: '#0c0a09', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
@@ -203,85 +283,7 @@ export const NitishRajputComposition = ({
       )}
 
       {/* 3. Chronological Scene Sequences */}
-      {scenes.map((scene, idx) => {
-        const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
-        const currentOffset = frameOffset;
-        frameOffset += durationFrames;
-
-        const subVisuals = scene.sub_visuals || [];
-        const numSubs = subVisuals.length;
-
-        return (
-          <Sequence
-            key={idx}
-            from={currentOffset}
-            durationInFrames={durationFrames}
-          >
-            {/* Sub-visual sequences: each gets duration based on duration_ratio */}
-            {numSubs > 0 ? (() => {
-              const timings = calculateSubVisualTimings(subVisuals, durationFrames, 0);
-
-              return subVisuals.map((subVis, subIdx) => {
-                const timing = timings[subIdx];
-                const subFrom = timing.start;
-                const subDuration = timing.end - timing.start;
-                
-                const ltMeta = subVis.visual_meta?.lower_third;
-
-                return (
-                  <Sequence
-                    key={subIdx}
-                    from={subFrom}
-                    durationInFrames={Math.max(1, subDuration)}
-                  >
-                    <TransitionWrapper durationInFrames={Math.max(1, subDuration)} type={subVis.transition_type}>
-                      {renderSubVisual(subVis, Math.max(1, subDuration))}
-                    </TransitionWrapper>
-                    {ltMeta && (
-                      <div style={{ position: 'absolute', inset: 0, zIndex: 30, pointerEvents: 'none' }}>
-                        <LowerThird 
-                          title={ltMeta.title}
-                          subtitle={ltMeta.subtitle}
-                          durationInFrames={Math.max(1, subDuration)}
-                          positionX={subtitleSettings?.lower_third_x !== undefined ? subtitleSettings.lower_third_x : 5}
-                          positionY={subtitleSettings?.lower_third_y !== undefined ? subtitleSettings.lower_third_y : 15}
-                          primaryColor={subtitleSettings?.lower_third_primary_color || '#fbbf24'}
-                          titleColor={subtitleSettings?.lower_third_title_color || '#fef3c7'}
-                          subtitleColor={subtitleSettings?.lower_third_subtitle_color || '#d6d3d1'}
-                          titleFontSize={subtitleSettings?.lower_third_title_font_size !== undefined ? subtitleSettings.lower_third_title_font_size : 42}
-                        />
-                      </div>
-                    )}
-                  </Sequence>
-                );
-              });
-            })() : (
-              // Fallback: no sub_visuals — show dark placeholder
-              <div style={{ width: '100%', height: '100%', backgroundColor: '#0c0a09' }} />
-            )}
-            
-            {/* Title watermark on upper corner */}
-            {!subtitleSettings?.hide_chapter_name && scene.title && (
-              <div style={{
-                position: 'absolute',
-                top: 50,
-                left: 60,
-                fontFamily: 'Montserrat, sans-serif',
-                fontWeight: 800,
-                fontSize: 24,
-                color: subtitleSettings?.chapter_text_color || '#d6d3d1',
-                textTransform: 'uppercase',
-                letterSpacing: 2,
-                opacity: 0.6,
-                borderLeft: `4px solid ${subtitleSettings?.chapter_border_color || '#b45309'}`,
-                paddingLeft: 12
-              }}>
-                {scene.title}
-              </div>
-            )}
-          </Sequence>
-        );
-      })}
+      {renderedScenes}
 
       {/* 4. Active Typographic Subtitle Overlay */}
       {!subtitleSettings?.hide_subtitles && transcription && transcription.segments && (
