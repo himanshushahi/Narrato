@@ -1,10 +1,21 @@
-import React, { useRef, useEffect } from 'react';
-import { useVideoConfig, useCurrentFrame } from 'remotion';
+import React, { useRef, useEffect, useState } from 'react';
+import { useVideoConfig, useCurrentFrame, delayRender, continueRender } from 'remotion';
 
 export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
   const { width, height, fps } = useVideoConfig();
   const frame = useCurrentFrame();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [handle] = useState(() => delayRender("Loading Custom HTML iframe"));
+  const hasContinuedRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (!hasContinuedRef.current) {
+        continueRender(handle);
+        hasContinuedRef.current = true;
+      }
+    };
+  }, [handle]);
 
   useEffect(() => {
     const doc = iframeRef.current?.contentDocument;
@@ -13,6 +24,18 @@ export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
       doc.documentElement.style.setProperty('--remotion-time', timeInSeconds.toString());
     }
   }, [frame, fps]);
+
+  const handleIframeLoad = () => {
+    const doc = iframeRef.current?.contentDocument;
+    if (doc?.documentElement) {
+      const timeInSeconds = frame / fps;
+      doc.documentElement.style.setProperty('--remotion-time', timeInSeconds.toString());
+    }
+    if (!hasContinuedRef.current) {
+      continueRender(handle);
+      hasContinuedRef.current = true;
+    }
+  };
 
   const html = meta?.html || '<div class="custom-html-fallback"><h1>Custom HTML Visual</h1><p>Edit the HTML and CSS in the Inspector panel.</p></div>';
   const css = meta?.css || `
@@ -87,6 +110,7 @@ export const CustomHtmlVisual: React.FC<{ meta: any }> = ({ meta }) => {
         srcDoc={srcDoc}
         style={{ width: '100%', height: '100%', border: 'none', background: 'transparent' }}
         sandbox="allow-scripts allow-same-origin"
+        onLoad={handleIframeLoad}
         // @ts-ignore - React requires lowercase for custom DOM attributes
         allowtransparency="true"
       />
