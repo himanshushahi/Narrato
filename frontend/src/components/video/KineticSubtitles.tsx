@@ -282,15 +282,36 @@ export const KineticSubtitles: React.FC<Props> = ({
           const wordStartFrame = Math.floor(wordObj.start * fps);
           const activeFrames = frame - wordStartFrame;
 
-          // Spring bounce animation on word activation
+          // Animation on word activation
           let scale = 1.0;
+          let translateY = 0;
+
           if (isActive && activeFrames >= 0) {
-            const springVal = spring({
-              frame: activeFrames,
-              fps,
-              config: { damping: 9, mass: 0.25, stiffness: 120 }
-            });
-            scale = 1.0 + springVal * 0.18; // Bounce from 1.0 to 1.18
+            const animType = subtitleSettings.activeAnimation || 'bounce';
+            
+            if (animType === 'bounce') {
+              const springVal = spring({
+                frame: activeFrames,
+                fps,
+                config: { damping: 9, mass: 0.25, stiffness: 120 }
+              });
+              scale = 1.0 + springVal * 0.18; // Bounce from 1.0 to 1.18
+            } else if (animType === 'pop') {
+              const springVal = spring({
+                frame: activeFrames,
+                fps,
+                config: { damping: 12, mass: 0.4, stiffness: 180 }
+              });
+              scale = 0.5 + springVal * 0.7; // Start at 0.5, pop to 1.2
+            } else if (animType === 'jump') {
+              const springVal = spring({
+                frame: activeFrames,
+                fps,
+                config: { damping: 10, mass: 0.3, stiffness: 150 }
+              });
+              translateY = -15 * springVal * (1 - Math.min(1, activeFrames / (fps * 0.4))); // Jump up and fall back
+              scale = 1.0 + springVal * 0.1;
+            }
           }
 
           // Nitish Rajput style highlights:
@@ -346,8 +367,8 @@ export const KineticSubtitles: React.FC<Props> = ({
                   color: color,
                   textTransform: subtitleSettings.textTransform || 'uppercase',
                   textShadow: textShadow,
-                  transform: `scale(${scale})`,
-                  transition: 'color 0.08s ease-out',
+                  transform: `translateY(${translateY}px) scale(${scale})`,
+                  transition: 'color 0.08s ease-out, transform 0.1s ease-out',
                   display: 'inline-block',
                   position: 'relative',
                   zIndex: 1

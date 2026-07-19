@@ -961,6 +961,8 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
         logger.error(error_msg)
         raise ValueError(error_msg)
 
+    final_script["video_format"] = project_dict.get('video_format', 'landscape')
+    
     script_path = project_dir / "script.json"
     with open(script_path, "w", encoding="utf-8") as f:
         json.dump(final_script, f, indent=2, ensure_ascii=False)
@@ -1092,19 +1094,14 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
         
-    # Optional: Read transcription to provide word-level timings to the AI
-    transcription = {}
-    if transcription_path.exists():
-        with open(transcription_path, "r", encoding="utf-8") as f:
-            transcription = json.load(f)
-            
     topic = project_dict['name']
     language = project_dict.get('language', 'hi')
+    video_format = project_dict.get('video_format', 'landscape')
     
     progress_cb(10.0, "Preparing to generate visuals...")
     logger.info("Starting Visuals Generation Pipeline...")
     
-    visual_rules = """
+    visual_rules = f"""
 SUB-VISUALS: You must generate a `sub_visuals` array containing visual cues to match the spoken narration.
 
 === MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
@@ -1129,24 +1126,24 @@ Be extremely creative! Do not just write simple text or rely solely on basic 'sc
 
 QUANTITY: Let the narration length and pacing dictate how many sub-visuals to generate. Break the narration into logical visual beats and create one sub-visual per beat. Each sub-visual should have a meaningful duration (2-15 seconds) — enough for the viewer to absorb it. The sum of all durations MUST equal the provided Total Scene Duration. For 'list' type: create 1 sub-visual PER LIST ITEM.
 
-EACH sub_visual: {"visual_type": str, "visual_cue": str (English keyword), "transition": str, "visual_meta": dict, "duration": float}
+EACH sub_visual: {{"visual_type": str, "visual_cue": str (English keyword), "transition": str, "visual_meta": dict, "duration": float}}
 CRITICAL ON TRANSITIONS: Choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.
 CRITICAL ON DURATION: 
 - Each sub_visual MUST have a precise "duration" (in seconds).
 - The SUM of the durations of all sub_visuals MUST equal the provided Total Scene Duration.
 
 === VISUAL META SCHEMAS (FILL THESE CREATIVELY) ===
-- scene/image/parallax: visual_meta {} (portrait may add {"person_name": str})
+- scene/image/parallax: visual_meta {{}} (portrait may add {{"person_name": str}})
 - PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name.
-- youtube: visual_meta {"start_offset": 15, "duration": 15, "skip_intro": true}
-- chart: visual_meta {"chart_type": "bar"|"line"|"pie", "title": str, "data": [{"label": str, "value": number}]}
-- map: visual_meta {"map_style": "vintage", "locations": [{"name": str, "coord": [lat, lon]}]} (2 locations)
-- document: visual_meta {"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}
-- timeline: visual_meta {"title": str, "events": [{"date": str, "title": str, "description": str}]}
-- network: visual_meta {"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{"id": str, "label": str, "type": "person"|"entity"}], "edges": [{"source": str, "target": str}]}
-- list: visual_meta {"number": int, "title": str, "description": str}
-- custom_html: visual_meta {"html": str, "css": str} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic.)
-- Any type: add {"lower_third": {"title": str, "subtitle": str}} for overlay text.
+- youtube: visual_meta {{"start_offset": 15, "duration": 15, "skip_intro": true}}
+- chart: visual_meta {{"chart_type": "bar"|"line"|"pie", "title": str, "data": [{{"label": str, "value": number}}]}}
+- map: visual_meta {{"map_style": "vintage", "locations": [{{"name": str, "coord": [lat, lon]}}]}} (2 locations)
+- document: visual_meta {{"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}}
+- timeline: visual_meta {{"title": str, "events": [{{"date": str, "title": str, "description": str}}]}}
+- network: visual_meta {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
+- list: visual_meta {{"number": int, "title": str, "description": str}}
+- custom_html: visual_meta {{"html": str, "css": str}} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)
+- Any type: add {{"lower_third": {{"title": str, "subtitle": str}}}} for overlay text.
 """
     
     visuals_system_prompt = f"""You are an expert AI Visual Director specializing in creating engaging visual experiences for YouTube videos.
@@ -1315,7 +1312,6 @@ CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH.
             for seg in transcription_data["segments"]:
                 for w in seg.get("words", []):
                     w_start = w.get("start", 0)
-                    w_end = w.get("end", 0)
                     if w_start >= cumulative_time and w_start < cumulative_time + duration:
                         words_in_scene.append(f"{w.get('word', '').strip()} [{w_start - cumulative_time:.1f}s]")
             if words_in_scene:

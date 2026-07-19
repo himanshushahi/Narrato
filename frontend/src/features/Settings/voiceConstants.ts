@@ -46,9 +46,8 @@ export const PITCH_OPTIONS: SelectOption[] = [
 ];
 
 export const WHISPER_MODEL_OPTIONS: SelectOption[] = [
-  { value: 'tiny', label: 'Tiny (~75MB) - Fastest' },
-  { value: 'base', label: 'Base (~140MB) - Balanced' },
   { value: 'small', label: 'Small (~460MB) - Good Accuracy' },
   { value: 'collabora/faster-whisper-small-hindi', label: 'Small Hindi (~460MB) - Best for Hindi' },
   { value: 'medium', label: 'Medium (~1.5GB) - High Accuracy' },
+  { value: 'turbo', label: 'Turbo (~1.5GB) - Fast & Accurate' },
 ];

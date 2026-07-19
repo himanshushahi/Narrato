@@ -5,7 +5,7 @@ import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
 
 
 
-export interface UsePipelineReturn {
+interface UsePipelineReturn {
   tasks: Record<string, Task>;
   queue: { active: string | null; queued: string[] };
   isRunning: boolean;

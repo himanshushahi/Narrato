@@ -45,6 +45,18 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     );
   }
 
+  const handleWordTimingChange = (segmentId: number, wordIndex: number, field: 'start' | 'end', val: number) => {
+    const newSegments = transcription.segments.map(seg => {
+      if (seg.id === segmentId) {
+        const newWords = [...seg.words];
+        newWords[wordIndex] = { ...newWords[wordIndex], [field]: val };
+        return { ...seg, words: newWords };
+      }
+      return seg;
+    });
+    onChange({ ...transcription, segments: newSegments });
+  };
+
   const handleTextChange = (id: number, newText: string) => {
     const newSegments = transcription.segments.map(seg => {
       if (seg.id === id) {
@@ -156,18 +168,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                           type="number"
                           step="0.1"
                           value={w.start}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            const newSegments = transcription.segments.map(seg => {
-                              if (seg.id === segment.id) {
-                                const newWords = [...seg.words];
-                                newWords[wIdx] = { ...newWords[wIdx], start: val };
-                                return { ...seg, words: newWords };
-                              }
-                              return seg;
-                            });
-                            onChange({ ...transcription, segments: newSegments });
-                          }}
+                          onChange={(e) => handleWordTimingChange(segment.id, wIdx, 'start', parseFloat(e.target.value) || 0)}
                           className="w-12 bg-zinc-950 border border-zinc-800 rounded text-[9px] font-mono text-zinc-500 px-1 py-0.5 text-center focus:outline-none focus:border-blue-500"
                           title="Start"
                         />
@@ -176,18 +177,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                           type="number"
                           step="0.1"
                           value={w.end}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            const newSegments = transcription.segments.map(seg => {
-                              if (seg.id === segment.id) {
-                                const newWords = [...seg.words];
-                                newWords[wIdx] = { ...newWords[wIdx], end: val };
-                                return { ...seg, words: newWords };
-                              }
-                              return seg;
-                            });
-                            onChange({ ...transcription, segments: newSegments });
-                          }}
+                          onChange={(e) => handleWordTimingChange(segment.id, wIdx, 'end', parseFloat(e.target.value) || 0)}
                           className="w-12 bg-zinc-950 border border-zinc-800 rounded text-[9px] font-mono text-zinc-500 px-1 py-0.5 text-center focus:outline-none focus:border-blue-500"
                           title="End"
                         />

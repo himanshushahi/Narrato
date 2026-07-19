@@ -13,7 +13,7 @@ import { SubVisualTransform } from './SubVisualTransform';
 import { CustomHtmlVisual } from './CustomHtmlVisual';
 import { calculateSubVisualTimings } from '../../utils/duration';
 
-export interface SubVisual {
+interface SubVisual {
   visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'timeline';
   visual_cue: string;
   transition_type?: string;

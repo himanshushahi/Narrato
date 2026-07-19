@@ -1,7 +1,5 @@
 import React from 'react';
-
-const FPS = 30;
-const HEADER_WIDTH = 110;
+import { FPS, HEADER_WIDTH } from '../timelineConstants';
 
 interface TimelineRulerProps {
   totalDuration: number;

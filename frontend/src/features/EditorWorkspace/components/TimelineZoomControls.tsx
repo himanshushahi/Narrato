@@ -1,8 +1,6 @@
 import React from 'react';
 import { VscZoomIn, VscZoomOut } from 'react-icons/vsc';
-
-const ZOOM_MIN = 15;
-const ZOOM_MAX = 240;
+import { ZOOM_MIN, ZOOM_MAX } from '../timelineConstants';
 
 interface TimelineZoomControlsProps {
   timelineZoom: number;

@@ -4,13 +4,14 @@ import { CustomSelect } from '../../components/ui/CustomSelect';
 import { CustomColorInput } from '../../components/ui/CustomColorInput';
 import { CustomCheckbox } from '../../components/ui/CustomCheckbox';
 import { CustomRange } from '../../components/ui/CustomRange';
+import { SubtitleStyleControls } from './components/SubtitleStyleControls';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
 import { VscLoading, VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 
-const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor', 'wordsPerScreen'];
+const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor', 'wordsPerScreen', 'activeAnimation'];
 const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'chart_primary_color', 'chart_text_color'];
 
 const extractKeys = (obj: any, keys: string[]) => {
@@ -268,93 +269,12 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
           </div>
         )}
       </div>
-      <hr className="border-zinc-800" />
-
-      <div className="grid grid-cols-2 gap-4">
-        <CustomSelect
-          label="Font Family"
-          options={[
-            { value: 'Montserrat', label: 'Montserrat (Latin)' },
-            { value: 'Inter', label: 'Inter (Latin)' },
-            { value: 'Roboto', label: 'Roboto (Latin)' },
-            { value: 'Poppins', label: 'Poppins (Supports Hindi)' },
-            { value: 'Hind', label: 'Hind (Supports Hindi)' },
-            { value: 'Mukta', label: 'Mukta (Supports Hindi)' },
-            { value: 'Kalam', label: 'Kalam (Supports Hindi)' },
-            { value: 'Noto Sans Devanagari', label: 'Noto Sans Devanagari' },
-            { value: 'Lato', label: 'Lato (Latin)' },
-            { value: 'Oswald', label: 'Oswald (Latin)' },
-            { value: 'Raleway', label: 'Raleway (Latin)' },
-            { value: 'Anton', label: 'Anton (Latin)' },
-            { value: 'Bebas Neue', label: 'Bebas Neue (Latin)' }
-          ]}
-          value={settings.fontFamily || 'Montserrat'}
-          onChange={handleFontChange}
-        />
-        <CustomRange
-          label="Font Size"
-          min="20"
-          max="150"
-          value={settings.fontSize !== undefined ? settings.fontSize : 54}
-          valueDisplay={`${settings.fontSize !== undefined ? settings.fontSize : 54}px`}
-          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, fontSize: parseInt(e.target.value) || 54 }) }}
-        />
-        <CustomRange
-          label="Word Spacing"
-          min="0"
-          max="50"
-          value={settings.wordSpacing !== undefined ? settings.wordSpacing : 18}
-          valueDisplay={`${settings.wordSpacing !== undefined ? settings.wordSpacing : 18}px`}
-          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, wordSpacing: parseInt(e.target.value) }) }}
-        />
-        <CustomColorInput
-          label="Active Highlight Color"
-          value={settings.activeColor || '#fbbf24'}
-          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, activeColor: e.target.value }) }}
-        />
-        <CustomColorInput
-          label="Past/Inactive Text Color"
-          value={settings.pastColor || '#d6d3d1'}
-          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, pastColor: e.target.value }) }}
-        />
-        <CustomSelect
-          label="Text Transform"
-          options={[
-            { value: 'uppercase', label: 'UPPERCASE' },
-            { value: 'lowercase', label: 'lowercase' },
-            { value: 'capitalize', label: 'Capitalize' },
-            { value: 'none', label: 'Normal' }
-          ]}
-          value={settings.textTransform || 'uppercase'}
-          onChange={(val) => { setSelectedPresetId(""); onUpdate({ ...settings, textTransform: val }) }}
-        />
-        <CustomRange
-          label="Y Position (px from bottom)"
-          min="0"
-          max="1500"
-          value={settings.bottomOffset !== undefined ? settings.bottomOffset : 120}
-          valueDisplay={`${settings.bottomOffset !== undefined ? settings.bottomOffset : 120}px`}
-          onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, bottomOffset: parseInt(e.target.value) || 0 }) }}
-        />
-        <div className="flex flex-col gap-1.5 justify-center mt-2 col-span-2">
-          <CustomCheckbox
-            label="Show Read Text Background Highlight"
-            checked={settings.showBackgroundHighlight !== false}
-            onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, showBackgroundHighlight: e.target.checked }) }}
-          />
-        </div>
-        {settings.showBackgroundHighlight !== false && (
-          <div className="flex flex-col gap-1.5 col-span-2">
-            <div className="max-w-[50%]">
-              <CustomColorInput
-                label="Background Highlight Color"
-                value={settings.highlightBgColor || settings.activeColor || '#fbbf24'}
-                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, highlightBgColor: e.target.value }) }}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      <SubtitleStyleControls
+        settings={settings}
+        onUpdate={onUpdate}
+        setSelectedPresetId={setSelectedPresetId}
+        handleFontChange={handleFontChange}
+      />
 
       <hr className="border-zinc-800" />
 

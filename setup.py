@@ -46,7 +46,6 @@ def check_python_dependencies():
         import onnxruntime
         import torch
         import requests
-        import PIL
         print("[SUCCESS] All python packages are installed.")
         return True
     except ImportError as e:

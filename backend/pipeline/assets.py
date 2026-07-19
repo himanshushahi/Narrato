@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from backend.database.db import get_setting, get_project, update_project
 from backend.core.logger import logger
-from backend.core.config import get_ytdlp_path, get_ffmpeg_path
+from backend.core.config import get_ytdlp_path, get_ffmpeg_path, get_startupinfo
 
 
 def compute_script_content_hash(script_data):
@@ -322,10 +322,7 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15, cance
 
     try:
         logger.info(f"Executing yt-dlp command: {' '.join(cmd)}")
-        startupinfo = None
-        if os.name == 'nt':
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo = get_startupinfo()
 
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo)
 

@@ -24,7 +24,7 @@ export interface RemotionVideoPlayerRef {
   pause: () => void;
 }
 
-export const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
+const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   audioUrl,
   bgMusicUrl,
   bgMusicVolume = 0.15,

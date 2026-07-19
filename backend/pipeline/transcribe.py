@@ -28,7 +28,7 @@ def get_whisper_model_path(model_size):
         return str(nested_dir)
 
     # Fallback: recursively search for the model
-    for root, dirs, files in os.walk(str(whisper_dir)):
+    for root, _, files in os.walk(str(whisper_dir)):
         if "model.bin" in files and "config.json" in files:
             # Check if this folder matches our model
             folder_name = os.path.basename(root)
@@ -60,14 +60,14 @@ def list_downloaded_whisper_models():
                     continue
 
             has_model = False
-            for root, dirs, files in os.walk(str(item)):
+            for root, _, files in os.walk(str(item)):
                 if "model.bin" in files:
                     has_model = True
                     break
 
             if has_model:
                 total_size = 0
-                for root, dirs, files in os.walk(str(item)):
+                for root, _, files in os.walk(str(item)):
                     for f in files:
                         fp = os.path.join(root, f)
                         if not os.path.islink(fp):
@@ -131,12 +131,16 @@ def download_whisper_model_files(model_size, progress_callback=None, cancel_even
     whisper_dir = get_models_dir() / "whisper" / safe_dir_name
     whisper_dir.mkdir(parents=True, exist_ok=True)
 
-    repo_id = model_size if "/" in model_size else f"Systran/faster-whisper-{model_size}"
+    if model_size == "turbo":
+        repo_id = "deepdml/faster-whisper-large-v3-turbo-ct2"
+    elif "/" in model_size:
+        repo_id = model_size
+    else:
+        repo_id = f"Systran/faster-whisper-{model_size}"
     
     # Save original tqdm methods
     original_init = tqdm.std.tqdm.__init__
     original_update = tqdm.std.tqdm.update
-    original_close = tqdm.std.tqdm.close
     original_reset = tqdm.std.tqdm.reset
     
     progress_states = {}
@@ -144,7 +148,6 @@ def download_whisper_model_files(model_size, progress_callback=None, cancel_even
     
     def custom_init(self, *args, **kwargs):
         original_init(self, *args, **kwargs)
-        self.desc_name = kwargs.get('desc', '') or getattr(self, 'desc', '') or ''
         if self.total and self.total > 1_000_000:
             progress_states[id(self)] = {"total": self.total, "downloaded": self.n}
 
@@ -176,14 +179,10 @@ def download_whisper_model_files(model_size, progress_callback=None, cancel_even
                 
         return res
 
-    def custom_close(self):
-        return original_close(self)
-
     # Monkeypatch tqdm
     tqdm.std.tqdm.__init__ = custom_init
     tqdm.std.tqdm.reset = custom_reset
     tqdm.std.tqdm.update = custom_update
-    tqdm.std.tqdm.close = custom_close
     
     try:
         allow_patterns = [
@@ -202,7 +201,6 @@ def download_whisper_model_files(model_size, progress_callback=None, cancel_even
         tqdm.std.tqdm.__init__ = original_init
         tqdm.std.tqdm.reset = original_reset
         tqdm.std.tqdm.update = original_update
-        tqdm.std.tqdm.close = original_close
 
 def get_whisper_model(model_size, device="cpu"):
     from faster_whisper import WhisperModel

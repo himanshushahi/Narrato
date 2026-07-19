@@ -617,6 +617,7 @@ class ApiBridge:
         model = get_setting("openai_model") or "gpt-4o"
         if not api_key:
             return {"success": False, "error": "Please configure an OpenAI API Key first."}
+        video_format = full_script.get("video_format", "landscape")
         system_prompt = (
             "You are an expert AI Visual Director. You will receive a script segment (narration) "
             "and a prompt explaining how to modify or rewrite its visuals. "
@@ -634,7 +635,7 @@ class ApiBridge:
             "- network: For connections between people, organizations, or relationships.\n"
             "- portrait: For introducing real specific people or places.\n"
             "- parallax: For dramatic layered depth reveals.\n"
-            "- custom_html: For highly customized, stunning modern UI layouts resembling high-end video editor templates with abundant smooth animations.\n"
+            f"- custom_html: For highly customized, stunning modern UI layouts resembling high-end video editor templates with abundant smooth animations. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.\n"
             "- scene/image: Default visual support for general narration.\n"
             "- youtube: For real-world footage other than portraits.\n\n"
             "VISUAL META SCHEMAS — fill these creatively to match the narration:\n"
@@ -688,6 +689,7 @@ class ApiBridge:
         model = get_setting("openai_model") or "gpt-4o"
         if not api_key:
             return {"success": False, "error": "Please configure an OpenAI API Key first."}
+        video_format = full_script.get("video_format", "landscape")
         system_prompt = (
             "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
             "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
@@ -703,7 +705,7 @@ class ApiBridge:
             "- document: visual_meta { \"headline\": str, \"doc_text\": str, \"source\": str, \"date\": str }\n"
             "- timeline: visual_meta {\"title\": str, \"events\": [{\"date\": str, \"title\": str, \"description\": str}]}\n"
             "- network: visual_meta { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
-            "- custom_html: visual_meta { \"html\": str, \"css\": str } (CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template. Add abundant, smooth animations.)\n"
+            f"- custom_html: visual_meta {{ \"html\": str, \"css\": str }} (CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template. Add abundant, smooth animations. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)\n"
             "- portrait: visual_cue must be ONLY the person's full name (used as Wikipedia search query).\n"
             "- scene/image/parallax/youtube: visual_meta {} unless adding lower_third.\n"
             "- CRITICAL ON LOWER THIRDS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', or 'youtube'. NEVER use lower_third for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', or 'timeline'. For those, bake any titles directly into their specific visual_meta fields (e.g., HTML/CSS).\n\n"

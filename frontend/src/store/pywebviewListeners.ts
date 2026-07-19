@@ -66,43 +66,34 @@ export const initializePywebviewListeners = () => {
     }
   };
 
-  window.onKokoroDownloadProgress = (data: any) => {
+  const handleDownloadProgress = (data: any, stateKey: 'kokoroDownload' | 'whisperDownload', onComplete?: () => void) => {
     useSettingsStore.setState((state) => {
-      const update = { ...state.kokoroDownload };
+      const update = { ...(state as any)[stateKey] };
       if (data.status === "completed") {
         update.active = false;
         update.status = "completed";
         update.progress = 100;
+        if (onComplete) onComplete();
       } else if (data.status === "failed") {
         update.active = false;
         update.status = "failed";
         update.error = data.error || "Download failed";
       } else {
-        update.file = data.file;
+        if (data.file) update.file = data.file;
         update.progress = Math.round(data.progress || 0);
         update.status = "downloading";
       }
-      return { kokoroDownload: update };
+      return { [stateKey]: update } as any;
     });
   };
 
+  window.onKokoroDownloadProgress = (data: any) => {
+    handleDownloadProgress(data, 'kokoroDownload');
+  };
+
   window.onWhisperDownloadProgress = (data: any) => {
-    useSettingsStore.setState((state) => {
-      const update = { ...state.whisperDownload };
-      if (data.status === "completed") {
-        update.active = false;
-        update.status = "completed";
-        update.progress = 100;
-        useSettingsStore.getState().fetchDownloadedWhisperModels();
-      } else if (data.status === "failed") {
-        update.active = false;
-        update.status = "failed";
-        update.error = data.error || "Download failed";
-      } else {
-        update.progress = Math.round(data.progress || 0);
-        update.status = "downloading";
-      }
-      return { whisperDownload: update };
+    handleDownloadProgress(data, 'whisperDownload', () => {
+      useSettingsStore.getState().fetchDownloadedWhisperModels();
     });
   };
 

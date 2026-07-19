@@ -1,17 +1,13 @@
 import json
 import os
+from pathlib import Path
 
-import sys
+from backend.core.config import BASE_DIR, is_production
 
-APP_NAME = "Narrato"
-
-if getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production":
-    # Production: Store in %LOCALAPPDATA%
-    PREFS_FILE = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), APP_NAME, "prefs.json")
+if is_production():
+    PREFS_FILE = str(BASE_DIR / "prefs.json")
 else:
-    # Development: Store in project folder (.dev_data/prefs.json)
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    PREFS_FILE = os.path.join(project_root, ".dev_data", "prefs.json")
+    PREFS_FILE = str(BASE_DIR / ".dev_data" / "prefs.json")
 
 def load_prefs():
     if os.path.exists(PREFS_FILE):

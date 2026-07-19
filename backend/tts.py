@@ -74,7 +74,6 @@ def download_piper_voice(voice_id: str) -> dict:
     lang = lang_region.split('_')[0]
     speaker = parts[1]
     
-    subfolder = f"{lang}/{lang_region}/{speaker}/{quality}"
     output_dir = get_piper_dir()
     
     fid = f"{voice_id}-{quality}"

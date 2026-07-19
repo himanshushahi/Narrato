@@ -6,7 +6,7 @@ import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
-export interface UseScriptEditingReturn {
+interface UseScriptEditingReturn {
   editingCard: { key: string, mode: 'script' | 'visuals' } | null;
   setEditingCard: (card: { key: string, mode: 'script' | 'visuals' } | null) => void;
   rewritePrompt: string;

@@ -83,11 +83,6 @@ def init_db():
         except sqlite3.OperationalError:
             pass # Column already exists
 
-        try:
-            cursor.execute("ALTER TABLE projects ADD COLUMN voiceover_manifest_path TEXT")
-        except sqlite3.OperationalError:
-            pass # Column already exists
-
         # Tasks Table (Sub-tasks inside a project pipeline)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tasks (

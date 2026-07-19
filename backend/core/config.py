@@ -1,9 +1,13 @@
 import os
 import sys
+import subprocess
 from pathlib import Path
 
+def is_production():
+    return getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production"
+
 # Resolve workspace root vs frozen bundle directories
-if getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production":
+if is_production():
     # Production/Frozen mode: Writeable folders (logs, storage, exports, models) go to %LOCALAPPDATA%/Narrato
     appdata_local = os.environ.get("LOCALAPPDATA")
     if not appdata_local:
@@ -81,33 +85,31 @@ def get_assets_dir() -> Path:
     return d
 
 # FFmpeg path resolution
+def _get_binary_path(name, resolve=False):
+    ext = ".exe" if os.name == "nt" else ""
+    local_path = BIN_DIR / f"{name}{ext}"
+    if local_path.exists():
+        return str(local_path.resolve()) if resolve else str(local_path)
+    return name
+
 def get_ffmpeg_path():
-    ffmpeg_ext = ".exe" if os.name == "nt" else ""
-    local_ffmpeg = BIN_DIR / f"ffmpeg{ffmpeg_ext}"
-    if local_ffmpeg.exists():
-        return str(local_ffmpeg)
-    return "ffmpeg"
+    return _get_binary_path("ffmpeg")
 
 def get_ffprobe_path():
-    ffmpeg_ext = ".exe" if os.name == "nt" else ""
-    local_ffprobe = BIN_DIR / f"ffprobe{ffmpeg_ext}"
-    if local_ffprobe.exists():
-        return str(local_ffprobe)
-    return "ffprobe"
+    return _get_binary_path("ffprobe")
 
 def get_ytdlp_path():
-    ytdlp_ext = ".exe" if os.name == "nt" else ""
-    local_ytdlp = BIN_DIR / f"yt-dlp{ytdlp_ext}"
-    if local_ytdlp.exists():
-        return str(local_ytdlp)
-    return "yt-dlp"
+    return _get_binary_path("yt-dlp")
 
 def get_node_path():
-    node_ext = ".exe" if os.name == "nt" else ""
-    local_node = BIN_DIR / f"node{node_ext}"
-    if local_node.exists():
-        return str(local_node.resolve())
-    return "node"
+    return _get_binary_path("node", resolve=True)
+
+def get_startupinfo():
+    startupinfo = None
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    return startupinfo
 
 def get_remotion_cache_dir() -> Path:
     """Returns a writable directory for Remotion's internal cache (.remotion folder).
@@ -116,7 +118,7 @@ def get_remotion_cache_dir() -> Path:
     permission issues when installed in C:\\Program Files.
     In development, it points to frontend/node_modules/.remotion as usual.
     """
-    if getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production":
+    if is_production():
         cache_dir = BASE_DIR / "cache" / "remotion"
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir

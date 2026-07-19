@@ -123,7 +123,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     nvidia_temperature: "0.7",
     nvidia_max_tokens: "4096",
     nvidia_top_p: "1.0",
-    whisper_model: "base",
+    whisper_model: "turbo",
     whisper_device: "cpu",
     tts_engine: "edge",
     tts_voice: "hi-IN-MadhurNeural",

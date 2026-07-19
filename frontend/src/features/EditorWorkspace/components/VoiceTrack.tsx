@@ -1,8 +1,7 @@
 import React from 'react';
-import { VscMute, VscUnmute } from 'react-icons/vsc';
 
-const FPS = 30;
-const HEADER_WIDTH = 110;
+import { FPS, HEADER_WIDTH } from '../timelineConstants';
+import { TrackHeader } from './TrackHeader';
 
 interface VoiceTrackProps {
   localTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
@@ -19,20 +18,14 @@ export const VoiceTrack: React.FC<VoiceTrackProps> = React.memo(({
 }) => {
   return (
     <div className="relative h-11 border-b border-zinc-800/40 bg-zinc-900/5 hover:bg-zinc-900/20 transition-colors">
-      <div
-        className="sticky left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/60 flex items-center justify-between px-3 z-[60] backdrop-blur-md"
-        style={{ width: HEADER_WIDTH, boxShadow: '4px 0 15px rgba(0,0,0,0.5)' }}
-      >
-        <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Voice
-        </span>
-        <div className="flex items-center gap-0.5">
-          <button onClick={(e) => { e.stopPropagation(); toggleTrackMute('voice'); }} className="text-zinc-500 hover:text-emerald-400 transition-colors cursor-pointer p-1 rounded hover:bg-zinc-800/50" title={trackMuted['voice'] ? "Unmute track" : "Mute track"}>
-            {trackMuted['voice'] ? <VscMute className="text-[14px] text-red-400" /> : <VscUnmute className="text-[14px]" />}
-          </button>
-        </div>
-      </div>
+      <TrackHeader
+        title="Voice"
+        dotColorClass="bg-emerald-500"
+        trackKey="voice"
+        isMuted={!!trackMuted['voice']}
+        onToggleMute={toggleTrackMute}
+        hoverColorClass="hover:text-emerald-400"
+      />
       {localTimings.map((timing, idx) => {
         const x = (timing.start / FPS) * timelineZoom;
         const w = Math.max(8, ((timing.end - timing.start) / FPS) * timelineZoom);

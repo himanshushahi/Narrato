@@ -357,6 +357,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
 
   // ---- Assets Tab ----
 
+  const handleAssetClick = (asset: any) => {
+    if (asset.timing && onSeek && !asset.isProgrammatic) {
+      onSeek(asset.timing.start);
+    }
+  };
+
   const renderAssetsTab = () => (
     <div className="flex flex-col h-full">
       {/* Search + toolbar */}
@@ -451,11 +457,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
                 key={asset.key}
                 asset={asset}
                 isFetching={isFetchingAssets}
-                onClick={() => {
-                  if (asset.timing && onSeek && !asset.isProgrammatic) {
-                    onSeek(asset.timing.start);
-                  }
-                }}
+                onClick={() => handleAssetClick(asset)}
               />
             ))}
           </div>
@@ -466,11 +468,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
                 key={asset.key}
                 asset={asset}
                 isFetching={isFetchingAssets}
-                onClick={() => {
-                  if (asset.timing && onSeek && !asset.isProgrammatic) {
-                    onSeek(asset.timing.start);
-                  }
-                }}
+                onClick={() => handleAssetClick(asset)}
               />
             ))}
           </div>
@@ -788,6 +786,20 @@ const AssetThumbnail: React.FC<{
   );
 };
 
+const getAssetContainerClasses = (hasFile: boolean, isProgrammatic: boolean, isGrid: boolean) => {
+  const baseClasses = isGrid
+    ? 'relative rounded-lg overflow-hidden border transition-all cursor-pointer group'
+    : 'flex items-start gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer group';
+  
+  const stateClasses = hasFile
+    ? (isGrid ? 'bg-zinc-900/30 border-zinc-800/40 hover:border-blue-600/40' : 'bg-zinc-900/30 border-zinc-800/40 hover:bg-zinc-800/40 hover:border-zinc-700/50')
+    : isProgrammatic
+      ? 'bg-zinc-900/10 border-zinc-800/20 opacity-50 cursor-default'
+      : 'bg-zinc-900/10 border-zinc-800/20';
+
+  return `${baseClasses} ${stateClasses}`;
+};
+
 /** Single asset item in list view */
 const AssetListItem: React.FC<{
   asset: AssetEntry;
@@ -799,13 +811,7 @@ const AssetListItem: React.FC<{
   return (
     <div
       onClick={onClick}
-      className={`flex items-start gap-2.5 p-2.5 rounded-lg border transition-all cursor-pointer group
-        ${hasFile
-          ? 'bg-zinc-900/30 border-zinc-800/40 hover:bg-zinc-800/40 hover:border-zinc-700/50'
-          : asset.isProgrammatic
-            ? 'bg-zinc-900/10 border-zinc-800/20 opacity-50 cursor-default'
-            : 'bg-zinc-900/10 border-zinc-800/20'
-        }`}
+      className={getAssetContainerClasses(hasFile, !!asset.isProgrammatic, false)}
     >
       {/* Thumbnail — image preview for photos, video poster for videos */}
       <div className="w-9 h-9 shrink-0 rounded-md overflow-hidden bg-zinc-800/80 border border-zinc-700/40 flex items-center justify-center">
@@ -875,13 +881,7 @@ const AssetGridItem: React.FC<{
   return (
     <div
       onClick={onClick}
-      className={`relative rounded-lg overflow-hidden border transition-all cursor-pointer group
-        ${hasFile
-          ? 'bg-zinc-900/30 border-zinc-800/40 hover:border-blue-600/40'
-          : asset.isProgrammatic
-            ? 'bg-zinc-900/10 border-zinc-800/20 opacity-50 cursor-default'
-            : 'bg-zinc-900/10 border-zinc-800/20'
-        }`}
+      className={getAssetContainerClasses(hasFile, !!asset.isProgrammatic, true)}
     >
       {/* Thumbnail area — image preview for photos, video poster for videos */}
       <div className="aspect-video bg-zinc-800/60 flex items-center justify-center overflow-hidden relative">

@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 import urllib.request
 from pathlib import Path
-from backend.core.config import get_models_dir, get_temp_dir, get_ffmpeg_path
+from backend.core.config import get_models_dir, get_temp_dir, get_ffmpeg_path, get_startupinfo
 from backend.core.logger import logger
 from backend.database.db import get_setting, update_project
 
@@ -39,11 +39,6 @@ def download_file_with_progress(url, dest_path, progress_callback=None, cancel_e
     logger.info(f"Downloading {url} to {dest_path}")
     
     try:
-        import gevent
-    except ImportError:
-        gevent = None
-        
-    try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             total_size = int(response.info().get('Content-Length', 0))
@@ -60,9 +55,6 @@ def download_file_with_progress(url, dest_path, progress_callback=None, cancel_e
                     downloaded += len(buffer)
                     f.write(buffer)
                     
-                    if gevent:
-                        gevent.sleep(0.002)
-                        
                     if progress_callback and total_size > 0:
                         progress = min(100.0, (downloaded / total_size) * 100.0)
                         progress_callback(progress)
@@ -168,11 +160,7 @@ def concat_audio_files_ffmpeg(audio_files, output_path):
         "-i", str(concat_list_path), "-c", "copy", str(output_path)
     ]
     
-    startupinfo = None
-    if os.name == "nt":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        
+    startupinfo = get_startupinfo()
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
     if concat_list_path.exists():
         concat_list_path.unlink()
@@ -187,10 +175,7 @@ def get_audio_duration(audio_path):
     ffprobe_bin = get_ffprobe_path()
     cmd = [ffprobe_bin, "-v", "error", "-show_entries", "format=duration", "-of", "json", audio_path]
     try:
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo = get_startupinfo()
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo)
         if res.returncode == 0:
             data = json.loads(res.stdout)

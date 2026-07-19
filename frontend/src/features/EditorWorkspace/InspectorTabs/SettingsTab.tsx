@@ -374,11 +374,17 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   localProjectSettings, onSettingsUpdate
 }) => {
   const globalSettings = useSettingsStore((s) => s.settings);
+  const downloadedWhisperModels = useSettingsStore((s) => s.downloadedWhisperModels);
+  const fetchDownloadedWhisperModels = useSettingsStore((s) => s.fetchDownloadedWhisperModels);
   const selectedProject = useProjectStore((s) => s.selectedProject);
+
+  React.useEffect(() => {
+    fetchDownloadedWhisperModels();
+  }, [fetchDownloadedWhisperModels]);
   const projectLanguage = selectedProject?.language || 'hi';
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set(['whisper', 'rendering', 'numbering', 'subtitles', 'branding']));
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set(['whisper', 'rendering', 'numbering', 'subtitles', 'branding', 'timeline']));
 
   const effectiveGlobalWhisperModel = globalSettings.whisper_model || (projectLanguage === 'hi' ? 'collabora/faster-whisper-small-hindi' : 'base');
 
@@ -478,11 +484,18 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             projectValue={projectVal('whisper_model')}
             onReset={() => resetKey('whisper_model')}
           >
-            <CustomSelect
-              options={WHISPER_MODEL_OPTIONS}
-              value={projectVal('whisper_model') || effectiveGlobalWhisperModel}
-              onChange={(v) => updateKey('whisper_model', v)}
-            />
+            <div className="space-y-1">
+              <CustomSelect
+                options={WHISPER_MODEL_OPTIONS}
+                value={projectVal('whisper_model') || effectiveGlobalWhisperModel}
+                onChange={(v) => updateKey('whisper_model', v)}
+              />
+              {!downloadedWhisperModels.some(m => m.id === (projectVal('whisper_model') || effectiveGlobalWhisperModel)) && (
+                <div className="text-[9px] text-amber-500 font-medium px-1">
+                  This model is not downloaded. You can download it from the Global Settings page.
+                </div>
+              )}
+            </div>
           </OverrideRow>
         </CollapsibleSection>
       )}

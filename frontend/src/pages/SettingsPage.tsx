@@ -95,11 +95,11 @@ export const SettingsPage: React.FC = () => {
         updated.render_hardware = 'cpu';
       }
 
-      // Smart default: Upgrade legacy 'small' or 'base' to the Hindi model if the app is in Hindi
-      if (isHindi && (updated.whisper_model === 'small' || updated.whisper_model === 'base')) {
+      // Smart default: Upgrade legacy 'small', 'base' or 'turbo' to the Hindi model if the app is in Hindi
+      if (isHindi && (updated.whisper_model === 'small' || updated.whisper_model === 'base' || updated.whisper_model === 'turbo')) {
         updated.whisper_model = 'collabora/faster-whisper-small-hindi';
       } else if (!isHindi && updated.whisper_model === 'collabora/faster-whisper-small-hindi') {
-        updated.whisper_model = 'base';
+        updated.whisper_model = 'turbo';
       }
 
       return updated;
@@ -171,7 +171,7 @@ export const SettingsPage: React.FC = () => {
           updated.tts_voice = 'en-US-AndrewNeural';
           updated.kokoro_voice = 'af_bella';
           updated.piper_voice = 'en_US-lessac';
-          updated.whisper_model = 'base';
+          updated.whisper_model = 'turbo';
         }
       }
       // Removed legacy llm_provider overwrite logic
@@ -488,12 +488,19 @@ export const SettingsPage: React.FC = () => {
                     />
                   </div>
 
-                  <CustomSelect
-                    label="Faster-Whisper Model Size"
-                    options={WHISPER_MODEL_OPTIONS}
-                    value={formData.whisper_model}
-                    onChange={(val) => handleSelectChange('whisper_model', val)}
-                  />
+                  <div className="space-y-1">
+                    <CustomSelect
+                      label="Faster-Whisper Model Size"
+                      options={WHISPER_MODEL_OPTIONS}
+                      value={formData.whisper_model}
+                      onChange={(val) => handleSelectChange('whisper_model', val)}
+                    />
+                    {!whisperInstalled && (
+                      <div className="text-[10px] text-amber-500 font-medium px-1">
+                        This model is not downloaded. You can download it below.
+                      </div>
+                    )}
+                  </div>
 
                   {/* Downloaded Models List */}
                   {downloadedWhisperModels.length > 0 && (
@@ -533,9 +540,6 @@ export const SettingsPage: React.FC = () => {
 
               {!whisperInstalled && (
                 <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-4 mt-6 space-y-3">
-                  <p className="text-[10px] text-amber-200/70">
-                    Faster-Whisper weights are required locally on disk. Downloading models happens automatically, but you can pre-fetch them here.
-                  </p>
                   {whisperDownload.active ? (
                     <div className="space-y-2">
                       <div className="flex justify-between text-[10px] text-amber-400 font-medium">
@@ -1018,24 +1022,16 @@ export const SettingsPage: React.FC = () => {
                       </div>
                     </div>
                   )
-                ) : ytdlpUpdate.status === 'up_to_date' ? (
+                ) : (ytdlpUpdate.status === 'up_to_date' || ytdlpUpdate.status === 'completed') ? (
                   <div className="space-y-3">
                     <div className="bg-emerald-950/20 border border-emerald-800/30 rounded-lg p-4">
                       <div className="flex items-center gap-2 text-[10px] text-emerald-400 font-medium">
                         <VscCheck className="text-sm text-emerald-400" />
-                        <span>yt-dlp is already up-to-date with version {ytdlpVersion}.</span>
-                      </div>
-                    </div>
-                    <GlowButton variant="secondary" size="sm" type="button" onClick={handleUpdateYtdlp} icon={<VscCloudDownload />}>
-                      Check for Updates Again
-                    </GlowButton>
-                  </div>
-                ) : ytdlpUpdate.status === 'completed' ? (
-                  <div className="space-y-3">
-                    <div className="bg-emerald-950/20 border border-emerald-800/30 rounded-lg p-4">
-                      <div className="flex items-center gap-2 text-[10px] text-emerald-400 font-medium">
-                        <VscCheck className="text-sm" />
-                        <span>yt-dlp updated successfully! The new version ({ytdlpVersion}) will be used.</span>
+                        <span>
+                          {ytdlpUpdate.status === 'up_to_date'
+                            ? `yt-dlp is already up-to-date with version ${ytdlpVersion}.`
+                            : `yt-dlp updated successfully! The new version (${ytdlpVersion}) will be used.`}
+                        </span>
                       </div>
                     </div>
                     <GlowButton variant="secondary" size="sm" type="button" onClick={handleUpdateYtdlp} icon={<VscCloudDownload />}>

@@ -10,14 +10,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from backend.database.db import init_db
 from backend.pipeline.queue import global_queue_manager
-from backend.core.bridge import ApiBridge, setup_bridge_callbacks, ui_update_loop, api_bridge
+from backend.core.bridge import ApiBridge, setup_bridge_callbacks, ui_update_loop
 from backend.core.logger import logger
 from backend.core.file_server import start_file_server, get_file_server_port
 from backend.core.config import BASE_DIR, BUNDLE_DIR
 from backend.core.power import power_manager
 
 NUM_WINDOWS = int(os.environ.get("NARRATO_NUM_WINDOWS", "1"))
-MUTEX_NAME = "Local\\Narrato_SingleInstance"
 
 WINDOW_PROPS = dict(
     width=1280,

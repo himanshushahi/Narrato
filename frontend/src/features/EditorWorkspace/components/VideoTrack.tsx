@@ -2,9 +2,7 @@ import React, { useMemo } from 'react';
 import { VscTrash } from 'react-icons/vsc';
 import { Clapperboard, Image, User, BarChart2, Map, Layers, MonitorPlay, Link, FileText, Clock } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
-
-const FPS = 30;
-const HEADER_WIDTH = 110;
+import { FPS, HEADER_WIDTH } from '../timelineConstants';
 
 const SCENE_COLORS = [
   'from-blue-600/40 to-cyan-600/30 border-blue-500/40',

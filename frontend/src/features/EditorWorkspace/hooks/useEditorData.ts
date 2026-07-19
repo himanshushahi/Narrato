@@ -5,7 +5,7 @@ import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 import { estimateTextDuration, calculateSubVisualTimings } from '../../../utils/duration';
 
-export interface UseEditorDataReturn {
+interface UseEditorDataReturn {
   scriptData: any;
   setScriptData: (data: any) => void;
   manifestData: any[];

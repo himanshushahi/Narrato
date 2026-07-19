@@ -7,7 +7,7 @@ import shutil
 import hashlib
 from pathlib import Path
 from backend.database.db import get_setting, update_project
-from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir
+from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir, get_startupinfo, is_production
 from backend.core.logger import logger
 
 def clean_media_path(path_str):
@@ -270,12 +270,10 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Frame cache check ─────────────────────────────────────────────────
-    frame_cache_valid = False
     if frame_hash_file.exists():
         existing = frame_hash_file.read_text().strip()
         if existing == frame_hash:
             if frames_dir.exists():
-                frame_cache_valid = True
                 existing_count = len(list(frames_dir.glob("element-*.webp")))
                 logger.info(f"Frame hash matches. {existing_count} cached frames found. Will resume from missing ranges.")
             else:
@@ -365,7 +363,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         # read-only Program Files installation directory.
         # Also place an anchor package.json so Remotion's root-finding walk
         # stops here instead of traversing up to a read-only parent.
-        if getattr(sys, 'frozen', False) or os.environ.get("ENVIRONMENT") == "production":
+        if is_production():
             node_cwd = str(remotion_cache_dir)
             anchor_pkg = remotion_cache_dir / "package.json"
             if not anchor_pkg.exists():
@@ -373,10 +371,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         else:
             node_cwd = str(frontend_dir)
         
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo = get_startupinfo()
 
         process = subprocess.Popen(
             cmd,
@@ -437,10 +432,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             raise e
 
     def run_ffmpeg(cmd, base_progress, progress_weight):
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo = get_startupinfo()
             
         process = subprocess.Popen(
             cmd,
