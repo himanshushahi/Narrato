@@ -28,7 +28,7 @@ interface LocalTiming {
   subs: Array<{ start: number; end: number }>;
 }
 
-export const Timeline: React.FC<TimelineProps> = ({
+export const Timeline: React.FC<TimelineProps> = React.memo(({
   liveScenes, sceneTimings, transcriptionData, currentFrame, onSeek,
   onDeleteScene, onResizeSubVisual,
   readOnly = false
@@ -45,7 +45,15 @@ export const Timeline: React.FC<TimelineProps> = ({
   const toggleTrackHide = useEditorStore((s) => s.toggleTrackHide);
 
   const [localTimings, setLocalTimings] = useState<LocalTiming[]>(sceneTimings);
-  useEffect(() => { setLocalTimings(sceneTimings); }, [sceneTimings]);
+  const localTimingsRef = useRef(localTimings);
+  localTimingsRef.current = localTimings;
+  const currentTimingsStr = JSON.stringify(sceneTimings);
+  const [prevTimingsStr, setPrevTimingsStr] = useState(currentTimingsStr);
+
+  if (currentTimingsStr !== prevTimingsStr) {
+    setPrevTimingsStr(currentTimingsStr);
+    setLocalTimings(sceneTimings);
+  }
 
   const [dragState, setDragState] = useState<{
     type: 'resize_sub_visual';
@@ -126,7 +134,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       d.committed = true;
 
       if (d.type === 'resize_sub_visual' && onResizeSubVisual) {
-        const timing = localTimings[d.sceneIdx];
+        const timing = localTimingsRef.current[d.sceneIdx];
         const sceneDuration = timing.end - timing.start;
         if (sceneDuration > 0) {
           const newRatios = timing.subs.map(sub => (sub.end - sub.start) / sceneDuration);
@@ -194,7 +202,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [localTimings, timelineZoom, onResizeSubVisual]);
+  }, [dragState, timelineZoom, onResizeSubVisual]);
 
   const handleTimelineClick = useCallback((e: React.MouseEvent) => {
     if (dragRef.current || isDraggingPlayheadRef.current) return;
@@ -332,6 +340,8 @@ export const Timeline: React.FC<TimelineProps> = ({
       </div>
     </div>
   );
-};
+});
+
+Timeline.displayName = 'Timeline';
 
 export default Timeline;

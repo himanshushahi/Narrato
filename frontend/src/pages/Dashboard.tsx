@@ -14,7 +14,9 @@ import { callApi } from '../utils/call-api';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { projects, fetchProjects, deleteProject } = useProjectStore();
+  const projects = useProjectStore((s) => s.projects);
+  const fetchProjects = useProjectStore((s) => s.fetchProjects);
+  const deleteProject = useProjectStore((s) => s.deleteProject);
   const { addToast, showConfirm } = useUIStore();
 
   const [showModal, setShowModal] = useState(false);

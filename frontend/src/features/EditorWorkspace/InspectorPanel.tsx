@@ -77,7 +77,7 @@ const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
   { id: 'export', label: 'Export', icon: <VscExport /> },
 ];
 
-export const InspectorPanel: React.FC<InspectorPanelProps> = ({
+export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   scriptData, manifestData, transcriptionData, sceneTimings,
   currentFrame, activeSceneIdx, activeSubIdx, localProjectSettings, projectId,
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
@@ -201,4 +201,5 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
       </div>
     </div>
   );
-};
+});
+InspectorPanel.displayName = 'InspectorPanel';

@@ -16,7 +16,7 @@ interface AnimatedTabsProps {
   layoutId?: string;
 }
 
-export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
+export const AnimatedTabs: React.FC<AnimatedTabsProps> = React.memo(({
   tabs,
   activeTab,
   onChange,
@@ -64,4 +64,5 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
       })}
     </div>
   );
-};
+});
+AnimatedTabs.displayName = 'AnimatedTabs';

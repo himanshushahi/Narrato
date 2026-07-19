@@ -8,7 +8,7 @@ interface GlassCardProps extends HTMLMotionProps<"div"> {
   elevation?: 'low' | 'high';
 }
 
-export const GlassCard: React.FC<GlassCardProps> = ({ 
+export const GlassCard: React.FC<GlassCardProps> = React.memo(({ 
   children, 
   className = '', 
   hoverEffect = false,
@@ -27,4 +27,5 @@ export const GlassCard: React.FC<GlassCardProps> = ({
       {children}
     </motion.div>
   );
-};
+});
+GlassCard.displayName = 'GlassCard';

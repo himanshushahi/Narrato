@@ -17,7 +17,7 @@ interface CustomSelectProps {
   icon?: React.ReactNode;
 }
 
-export const CustomSelect: React.FC<CustomSelectProps> = ({
+export const CustomSelect: React.FC<CustomSelectProps> = React.memo(({
   label,
   options,
   value,
@@ -154,4 +154,5 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       </div>
     </div>
   );
-};
+});
+CustomSelect.displayName = 'CustomSelect';

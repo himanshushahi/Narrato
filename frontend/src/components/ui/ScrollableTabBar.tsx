@@ -10,7 +10,7 @@ interface ScrollableTabBarProps {
   className?: string;
 }
 
-export const ScrollableTabBar: React.FC<ScrollableTabBarProps> = ({
+export const ScrollableTabBar: React.FC<ScrollableTabBarProps> = React.memo(({
   tabs, activeTab, onChange, className
 }) => {
   const id = React.useId();
@@ -150,4 +150,5 @@ export const ScrollableTabBar: React.FC<ScrollableTabBarProps> = ({
       </AnimatePresence>
     </div>
   );
-};
+});
+ScrollableTabBar.displayName = 'ScrollableTabBar';

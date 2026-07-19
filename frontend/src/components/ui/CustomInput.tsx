@@ -6,7 +6,7 @@ interface CustomInputProps extends InputHTMLAttributes<HTMLInputElement> {
   icon?: React.ReactNode;
 }
 
-export const CustomInput: React.FC<CustomInputProps> = ({ label, icon, className = '', type, ...props }) => {
+export const CustomInput: React.FC<CustomInputProps> = React.memo(({ label, icon, className = '', type, ...props }) => {
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = type === 'password';
   const inputType = isPassword ? (showPassword ? 'text' : 'password') : type;
@@ -38,13 +38,14 @@ export const CustomInput: React.FC<CustomInputProps> = ({ label, icon, className
       </div>
     </div>
   );
-};
+});
+CustomInput.displayName = 'CustomInput';
 
 interface CustomTextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
 }
 
-export const CustomTextarea: React.FC<CustomTextareaProps> = ({ label, className = '', ...props }) => {
+export const CustomTextarea: React.FC<CustomTextareaProps> = React.memo(({ label, className = '', ...props }) => {
   return (
     <div className="space-y-1.5 w-full">
       {label && <label className="block text-[10px] text-stone-400/80 font-medium tracking-wide mb-1 ml-1">{label}</label>}
@@ -54,4 +55,5 @@ export const CustomTextarea: React.FC<CustomTextareaProps> = ({ label, className
       />
     </div>
   );
-};
+});
+CustomTextarea.displayName = 'CustomTextarea';

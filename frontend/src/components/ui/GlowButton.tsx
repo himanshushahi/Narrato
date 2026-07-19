@@ -9,7 +9,7 @@ interface GlowButtonProps extends HTMLMotionProps<"button"> {
   fullWidth?: boolean;
 }
 
-export const GlowButton: React.FC<GlowButtonProps> = ({ 
+export const GlowButton: React.FC<GlowButtonProps> = React.memo(({ 
   children, 
   variant = 'primary', 
   size = 'md', 
@@ -55,4 +55,5 @@ export const GlowButton: React.FC<GlowButtonProps> = ({
       <span className="relative z-10">{children}</span>
     </motion.button>
   );
-};
+});
+GlowButton.displayName = 'GlowButton';

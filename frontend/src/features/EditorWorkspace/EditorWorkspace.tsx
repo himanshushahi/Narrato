@@ -17,6 +17,8 @@ import { VideoPreview } from './VideoPreview';
 import { Timeline } from './Timeline';
 import { InspectorPanel } from './InspectorPanel';
 
+const EMPTY_ARRAY: any[] = [];
+
 export const EditorWorkspace: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const selectedProject = useProjectStore((s) => s.selectedProject);
@@ -348,6 +350,11 @@ export const EditorWorkspace: React.FC = () => {
     fullscreenToggleRef.current?.();
   }, []);
 
+  const handleDeleteSceneTimeline = useCallback((idx: number) => {
+    const sceneIdx = idx - (scriptData?.introduction ? 1 : 0);
+    setSceneToDelete(sceneIdx);
+  }, [scriptData?.introduction, setSceneToDelete]);
+
   const handleEditActiveVisuals = useCallback(() => {
     if (!scriptData || !sceneTimings?.length) return;
     const idx = useEditorStore.getState().selectedSceneIndex;
@@ -451,7 +458,7 @@ export const EditorWorkspace: React.FC = () => {
       <div style={{ gridArea: 'main' }} className="relative">
         <VideoPreview
           playerRef={playerRef}
-          liveScenes={effectiveLiveScenes || liveScenes || []}
+          liveScenes={effectiveLiveScenes || liveScenes || EMPTY_ARRAY}
           transcriptionData={transcriptionData}
           currentFrame={currentFrame}
           audioUrl={audioUrl}
@@ -528,15 +535,12 @@ export const EditorWorkspace: React.FC = () => {
       <div style={{ gridArea: 'timeline' }} className="relative">
         <ResizeHandle direction="horizontal" target="timeline" side="top" />
         <Timeline
-          liveScenes={liveScenes || []}
+          liveScenes={liveScenes || EMPTY_ARRAY}
           sceneTimings={sceneTimings}
           transcriptionData={transcriptionData}
           currentFrame={currentFrame}
           onSeek={handleSeek}
-          onDeleteScene={useCallback((idx: number) => {
-            const sceneIdx = idx - (scriptData?.introduction ? 1 : 0);
-            setSceneToDelete(sceneIdx);
-          }, [scriptData?.introduction, setSceneToDelete])}
+          onDeleteScene={handleDeleteSceneTimeline}
           onResizeSubVisual={handleResizeSubVisual}
         />
       </div>
