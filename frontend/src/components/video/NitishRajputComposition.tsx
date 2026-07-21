@@ -11,10 +11,12 @@ import { TransitionWrapper } from './TransitionWrapper';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
 import { CustomHtmlVisual } from './CustomHtmlVisual';
+import { ThreadSimulation } from './ThreadSimulation';
+import { DeviceMockup } from './DeviceMockup';
 import { calculateSubVisualTimings } from '../../utils/duration';
 
 interface SubVisual {
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'timeline';
+  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'timeline' | 'thread' | 'device_mockup';
   visual_cue: string;
   transition_type?: string;
   visual_url?: string;
@@ -172,6 +174,26 @@ export const NitishRajputComposition = ({
         </div>
       );
     }
+
+    if (type === 'thread') {
+      return (
+        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+          <ZoomWrapper transform={transform}>
+            <ThreadSimulation meta={meta} durationInFrames={durationFrames} />
+          </ZoomWrapper>
+        </div>
+      );
+    }
+    if (type === 'device_mockup') {
+      return (
+        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+          <ZoomWrapper transform={transform}>
+            <DeviceMockup meta={meta} durationInFrames={durationFrames} />
+          </ZoomWrapper>
+        </div>
+      );
+    }
+
 
     // Default: Image, portrait, or B-roll video. Display with pan-and-scan camera glide
     return (

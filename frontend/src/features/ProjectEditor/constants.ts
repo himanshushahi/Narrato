@@ -11,6 +11,8 @@ export const VISUAL_TYPE_OPTIONS = [
   { value: 'list', label: 'Numbered List' },
   { value: 'custom_html', label: 'Custom HTML' },
   { value: 'timeline', label: 'Timeline Tracker' },
+  { value: 'thread', label: 'Social Media Chat / Thread' },
+  { value: 'device_mockup', label: '3D Device Mockup' },
 ];
 
 export const TRANSITION_TYPE_OPTIONS = [
@@ -90,6 +92,15 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
       { date: '2023', title: 'Start', description: 'The beginning.' },
       { date: '2024', title: 'Growth', description: 'Things get bigger.' }
     ];
+  } else if (type === 'thread') {
+    meta.platform = 'whatsapp';
+    meta.messages = [
+      { sender: 'User', text: 'Hello!', is_self: false },
+      { text: 'Hi, how are you?', is_self: true }
+    ];
+  } else if (type === 'device_mockup') {
+    meta.device = 'iphone';
+    meta.screen_image_url = 'https://picsum.photos/400/800';
   }
 
   return meta;

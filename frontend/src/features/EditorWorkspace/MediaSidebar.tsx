@@ -47,6 +47,8 @@ const VISUAL_TYPE_LABELS: Record<string, string> = {
   document: 'Document',
   timeline: 'Timeline',
   network: 'Network Diagram',
+  thread: 'Social Chat',
+  device_mockup: 'Device Mockup',
 };
 
 /** Guess if a file is a video by its extension */

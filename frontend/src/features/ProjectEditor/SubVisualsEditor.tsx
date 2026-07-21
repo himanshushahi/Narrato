@@ -5,6 +5,7 @@ import { MapLocationsEditor } from './MapLocationsEditor';
 import { ChartDataEditor } from './ChartDataEditor';
 import { NewspaperEditor } from './NewspaperEditor';
 import { NetworkDataEditor } from './NetworkDataEditor';
+import { DeviceMockupEditor, ThreadSimulationEditor } from './NewVisualTypesEditors';
 import { TimelineEditor } from './TimelineEditor';
 import { ParallaxEditor } from './ParallaxEditor';
 import { NumberingEditor } from './NumberingEditor';
@@ -243,6 +244,12 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               )}
               {sv.visual_type === 'custom_html' && (
                 <HtmlDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              )}
+              {sv.visual_type === 'thread' && (
+                <ThreadSimulationEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              )}
+              {sv.visual_type === 'device_mockup' && (
+                <DeviceMockupEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}
               <LowerThirdEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
 

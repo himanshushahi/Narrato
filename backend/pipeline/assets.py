@@ -738,8 +738,8 @@ def preview_asset_download(project_id, visual_type, visual_cue):
         return {"success": False, "error": "Project not found"}
 
     # Programmatic types don't need downloading
-    if visual_type in ("chart", "map", "document", "network", "list", "custom_html", "timeline"):
-        return {"success": False, "error": "No asset to download for this visual type"}
+    if visual_type in ("chart", "map", "document", "network", "list", "custom_html", "timeline", "thread", "device_mockup"):
+        return {"success": True, "path": "", "message": "Non-media visual type previewed successfully."}
 
     api_key = get_setting("pexels_api_key")
     if not api_key and visual_type != "youtube":

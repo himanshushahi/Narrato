@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { VscTrash } from 'react-icons/vsc';
-import { Clapperboard, Image, User, BarChart2, Map, Layers, MonitorPlay, Link, FileText, Clock } from 'lucide-react';
+import { Clapperboard, Image, User, BarChart2, Map, Layers, MonitorPlay, Link, FileText, Clock, MessageCircle, Smartphone } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
 import { FPS, HEADER_WIDTH } from '../timelineConstants';
 
@@ -26,6 +26,8 @@ const SUBVISUAL_ICONS: Record<string, React.ElementType> = {
   network: Link,
   document: FileText,
   timeline: Clock,
+  thread: MessageCircle,
+  device_mockup: Smartphone,
 };
 
 const SUBVISUAL_COLORS: Record<string, string> = {
@@ -39,6 +41,8 @@ const SUBVISUAL_COLORS: Record<string, string> = {
   network: 'from-teal-500/40 to-cyan-500/30 border-teal-500/50',
   document: 'from-stone-500/40 to-zinc-500/30 border-stone-500/50',
   timeline: 'from-indigo-500/40 to-cyan-500/30 border-indigo-500/50',
+  thread: 'from-green-500/40 to-emerald-500/30 border-green-500/50',
+  device_mockup: 'from-violet-500/40 to-purple-500/30 border-violet-500/50',
 };
 
 interface SubVisualBlock {

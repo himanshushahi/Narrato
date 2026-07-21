@@ -107,7 +107,7 @@ SUB_VISUAL_SCHEMA = {
         "visual_cue": {"type": "string"},
         "visual_type": {
             "type": "string",
-            "enum": ["chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline"]
+            "enum": ["chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup"]
         },
         "transition": {
             "type": "string",
@@ -1121,6 +1121,8 @@ Be extremely creative! Do not just write simple text or rely solely on basic 'sc
 - portrait: For introducing real specific people or places.
 - parallax: For dramatic visual reveals with layered depth.
 - custom_html: For highly customized, stunning modern UI layouts resembling high-end video editor templates with abundant, smooth animations. Use your CSS/HTML skills!
+- thread: For simulating social media conversations, chat threads, messaging app screens, or comment discussions.
+- device_mockup: For displaying content inside a realistic device frame (phone, tablet, laptop).
 - scene/image: Default fallback.
 - youtube: For real-world footage other than portraits.
 
@@ -1142,6 +1144,8 @@ CRITICAL ON DURATION:
 - timeline: visual_meta {{"title": str, "events": [{{"date": str, "title": str, "description": str}}]}}
 - network: visual_meta {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
 - list: visual_meta {{"number": int, "title": str, "description": str}}
+- thread: visual_meta {{"messages": [{{"sender": str, "text": str, "time": str}}], "app_style": "whatsapp"|"imessage"|"twitter"|"discord", "title": str}}
+- device_mockup: visual_meta {{"device": "phone"|"tablet"|"laptop", "screen_content": {{"type": str, "content": str}}, "bg_color": str}}
 - custom_html: visual_meta {{"html": str, "css": str}} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)
 - Any type: add {{"lower_third": {{"title": str, "subtitle": str}}}} for overlay text.
 """
@@ -1263,7 +1267,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 
 ERROR PREVENTION:
 - Return total duration matching the provided scene duration (precision to 2 decimal places)
-- Use only valid visual types: list, chart, map, document, network, portrait, parallax, custom_html, scene, image, youtube, timeline
+- Use only valid visual types: list, chart, map, document, network, portrait, parallax, custom_html, scene, image, youtube, timeline, thread, device_mockup
 - Format all JSON numbers as numbers, not strings
 - Ensure all required fields are present for each visual type
 
@@ -1361,7 +1365,7 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
         try:
             visuals_data = _call_llm_json(visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, cancel_event)
             
-            valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline"}
+            valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup"}
             for sv in visuals_data.get("sub_visuals", []):
                 v_type = str(sv.get("visual_type", "")).lower()
                 if v_type not in valid_types:
@@ -1376,6 +1380,8 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
                     elif "html" in v_type: sv["visual_type"] = "custom_html"
                     elif "image" in v_type: sv["visual_type"] = "image"
                     elif "timeline" in v_type: sv["visual_type"] = "timeline"
+                    elif "thread" in v_type or "chat" in v_type: sv["visual_type"] = "thread"
+                    elif "mockup" in v_type or "device" in v_type: sv["visual_type"] = "device_mockup"
                     else: sv["visual_type"] = "scene"
 
             entry["sub_visuals"] = visuals_data.get("sub_visuals", [])
