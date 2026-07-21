@@ -333,7 +333,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
   // Render Map Outline
   const renderMap = () => {
     // TopoJSON to GeoJSON
-    // The "countries-110m.json" from world-atlas has a "countries" object in "objects"
     const countries = topojson.feature(worldData as any, worldData.objects.countries as any);
 
     const locations = meta.locations || [
@@ -389,31 +388,23 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
       };
     }
 
-    // Compute bounding box for given locations to focus map
-    let projection = d3Geo.geoMercator().scale(300).translate([width / 2, height / 1.5]);
+    // Determine Start and End coordinates (coord[0] = Lat, coord[1] = Lon)
+    const startLon = locations.length > 0 ? locations[0].coord[1] : 0;
+    const startLat = locations.length > 0 ? locations[0].coord[0] : 0;
+    const endLon = locations.length > 1 ? locations[1].coord[1] : startLon;
+    const endLat = locations.length > 1 ? locations[1].coord[0] : startLat;
 
-    if (locations.length > 0) {
-        // Create a GeoJSON FeatureCollection of our points
-        const pointsFeature = {
-            type: "FeatureCollection",
-            features: locations.map((loc: any) => ({
-                type: "Feature",
-                geometry: {
-                    type: "Point",
-                    coordinates: [loc.coord[1], loc.coord[0]] // GeoJSON uses [longitude, latitude]!
-                }
-            }))
-        };
+    // Animate rotation over the duration of the frame
+    // We negative the coordinates to center them on the screen
+    const animDuration = durationInFrames > 0 ? durationInFrames * 0.7 : 300;
+    const currentLonRot = interpolate(frame, [0, animDuration], [-startLon, -endLon], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
+    const currentLatRot = interpolate(frame, [0, animDuration], [-startLat, -endLat], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
 
-        // Use fitExtent to scale and center projection around points, with padding
-        projection = d3Geo.geoMercator().fitExtent([[300, 300], [width - 300, height - 300]], pointsFeature as any);
-        
-        // If there's only one point, the scale might be infinite, so cap it
-        if (locations.length === 1) {
-             const centerCoord = [locations[0].coord[1], locations[0].coord[0]];
-             projection = d3Geo.geoMercator().scale(1500).center(centerCoord as any).translate([width / 2, height / 2]);
-        }
-    }
+    // 3D Globe Projection
+    let projection = d3Geo.geoOrthographic()
+      .scale(height * 0.42)
+      .translate([width / 2, height / 2])
+      .rotate([currentLonRot, currentLatRot, 0]);
 
     const pathGenerator = d3Geo.geoPath().projection(projection);
 
@@ -423,8 +414,9 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
       extrapolateRight: 'clamp'
     });
     
-    // No zoom - static stable frame
     const zoomScale = 1;
+    const sphere = { type: "Sphere" };
+    const graticule = d3Geo.geoGraticule10();
 
     return (
       <div style={{
@@ -438,7 +430,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
         overflow: 'hidden',
         position: 'relative'
       }}>
-        {/* Animated Map Container */}
         <div style={{
             position: 'absolute',
             width,
@@ -446,19 +437,51 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
             transform: `scale(${zoomScale})`,
             transformOrigin: 'center center'
         }}>
-            {/* SVG Topographical Map */}
             <svg width={width} height={height} style={{ position: 'absolute', inset: 0 }}>
-                {/* Background Ocean Color */}
-                <rect width="100%" height="100%" fill={theme.bg} />
+                {/* SVG Filters for Glow */}
+                <defs>
+                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="15" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                  <filter id="atmosphere">
+                    <feGaussianBlur stdDeviation="30" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                </defs>
+
+                {/* Background Ocean/Space */}
+                <rect width="100%" height="100%" fill="#1c1917" />
                 
-                {/* Vintage Grid lines background */}
-                <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-                    <path d="M 60 0 L 0 0 0 60" fill="none" stroke={theme.grid} strokeWidth="1" />
-                </pattern>
-                <rect width="100%" height="100%" fill="url(#grid)" />
+                {/* Atmosphere Glow */}
+                <path 
+                    d={pathGenerator(sphere as any) || ""} 
+                    fill={theme.bg} 
+                    stroke={theme.route} 
+                    strokeWidth="15" 
+                    opacity="0.15"
+                    filter="url(#atmosphere)" 
+                />
+
+                {/* Ocean / Sphere Fill */}
+                <path 
+                    d={pathGenerator(sphere as any) || ""} 
+                    fill={theme.bg} 
+                    stroke={theme.landStroke}
+                    strokeWidth="2" 
+                />
+
+                {/* Graticule (Grid lines) */}
+                <path 
+                    d={pathGenerator(graticule as any) || ""} 
+                    fill="none" 
+                    stroke={theme.grid} 
+                    strokeWidth="1" 
+                    opacity="0.5" 
+                />
 
                 {/* Country Borders */}
-                <g opacity={mapStyle === 'minimal_light' ? "1" : "0.8"}>
+                <g opacity={mapStyle === 'minimal_light' ? "1" : "0.9"}>
                     {(countries as any).features.map((feature: any, i: number) => (
                         <path 
                             key={i} 
@@ -485,11 +508,15 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                     style={{
                         strokeDashoffset: lineDraw
                     }}
+                    filter="url(#glow)"
                 />
                 )}
 
                 {/* Plot glowing nodes */}
                 {locations.map((loc: any, i: number) => {
+                    // Make sure node is not behind the globe (hidden)
+                    const isVisible = d3Geo.geoDistance([currentLonRot * -1, currentLatRot * -1], [loc.coord[1], loc.coord[0]]) < Math.PI / 2 + 0.1;
+
                     const projected = projection([loc.coord[1], loc.coord[0]]);
                     if (!projected) return null;
                     const [cx, cy] = projected;
@@ -501,15 +528,14 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                     });
 
                     return (
-                        <g key={i} style={{ opacity: nodeScale }}>
-                            {/* Glowing radius */}
+                        <g key={i} style={{ opacity: isVisible ? nodeScale : 0, transition: 'opacity 0.2s' }}>
                             <circle
                                 cx={cx}
                                 cy={cy}
                                 r={25}
                                 fill={theme.nodeGlow}
+                                filter="url(#glow)"
                             />
-                            {/* Outer circle */}
                             <circle
                                 cx={cx}
                                 cy={cy}
@@ -518,7 +544,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                                 stroke={mapStyle === 'minimal_light' ? '#ffffff' : theme.bg}
                                 strokeWidth="2"
                             />
-                            {/* Text Label */}
                             <text
                                 x={cx + 15}
                                 y={cy + 6}
@@ -542,8 +567,6 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                 })}
             </svg>
         </div>
-
-
       </div>
     );
   };

@@ -202,6 +202,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
       const result = await callApi<{ success: boolean }>('upload_project_bg_music', projectId);
       if (result?.success) {
         fetchProjectDetail(projectId);
+        useEditorStore.getState().setAudioChangedAlert(true);
       }
     } catch (e) {
       console.error('Failed to upload bg music:', e);
@@ -213,11 +214,13 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   const handleRemoveMusic = useCallback(async () => {
     if (!projectId) return;
     await updateProject(projectId, { bg_music_path: '' });
+    useEditorStore.getState().setAudioChangedAlert(true);
   }, [projectId, updateProject]);
 
   const handleVolumeSave = useCallback(async () => {
     if (!projectId) return;
     await updateProject(projectId, { bg_music_volume: localVolume });
+    useEditorStore.getState().setAudioChangedAlert(true);
   }, [projectId, localVolume, updateProject]);
 
   // Filter & sort assets

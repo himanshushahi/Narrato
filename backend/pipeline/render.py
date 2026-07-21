@@ -31,6 +31,18 @@ def compute_frame_hash(props_dict, render_settings):
         "fps": props_dict.get("fps"),
         "resolution": render_settings.get("resolution"),
     }
+
+    # Hash file contents/mtime rather than just string paths to detect in-place overwrites
+    for i, sc in enumerate(frame_props["scenes"]):
+        for j, sv in enumerate(sc.get("sub_visuals", [])):
+            url = sv.get("visual_url")
+            if url and url.startswith("file:///"):
+                path_str = url[8:]
+                if os.path.exists(path_str):
+                    stat = os.stat(path_str)
+                    frame_props[f"visual_{i}_{j}_mtime"] = stat.st_mtime
+                    frame_props[f"visual_{i}_{j}_size"] = stat.st_size
+
     data_str = json.dumps(frame_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
@@ -45,6 +57,17 @@ def compute_audio_hash(props_dict, render_settings):
         "voiceoverVolume": props_dict.get("voiceoverVolume"),
         "scene_durations": scene_durations,
     }
+
+    # Hash file contents/mtime rather than just string paths to detect in-place overwrites
+    for key in ["audioUrl", "bgMusicUrl"]:
+        url = audio_props[key]
+        if url and url.startswith("file:///"):
+            path_str = url[8:]
+            if os.path.exists(path_str):
+                stat = os.stat(path_str)
+                audio_props[f"{key}_mtime"] = stat.st_mtime
+                audio_props[f"{key}_size"] = stat.st_size
+
     data_str = json.dumps(audio_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
@@ -194,6 +217,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         except Exception as e:
             logger.error(f"Failed to parse project_settings: {e}")
 
+    # ── Track visibility overrides ─────────────────────────────────────────
+    # When the user hides/mutes tracks in the timeline UI, these overrides
+    # make the final rendered video reflect those choices.
+    render_track_overrides = {
+        "muteVoice": project_settings.get("render_mute_voice", False),
+        "muteMusic": project_settings.get("render_mute_music", False),
+        "hideSubtitles": project_settings.get("render_hide_subtitles", False),
+    }
+
     # Fetch rendering settings — project_settings override global defaults
     render_resolution = project_settings.get("render_resolution") or get_setting("render_resolution") or "1080p"
     render_concurrency = project_settings.get("render_concurrency") or get_setting("render_concurrency") or "logical"
@@ -219,6 +251,21 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "fps": fps,
         "subtitleSettings": project_settings
     }
+
+    # Apply track visibility overrides to render props
+    if render_track_overrides["muteVoice"]:
+        props["voiceoverVolume"] = 0.0
+        logger.info("Smart Resume: Voiceover muted by track override.")
+    if render_track_overrides["muteMusic"]:
+        props["bgMusicVolume"] = 0.0
+        props["bgMusicUrl"] = ""
+        logger.info("Smart Resume: Background music muted by track override.")
+    if render_track_overrides["hideSubtitles"]:
+        if isinstance(props.get("subtitleSettings"), dict):
+            props["subtitleSettings"]["hide_subtitles"] = True
+        else:
+            props["subtitleSettings"] = {"hide_subtitles": True}
+        logger.info("Smart Resume: Subtitles hidden by track override.")
 
     # Write props to a JSON file
     props_path = project_dir / "render_props.json"
@@ -306,6 +353,11 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
     # ── Mux hash tracking ──────────────────────────────────────────────────
     mux_hash_file.write_text(mux_hash)
+
+    # ── Smart Resume summary ───────────────────────────────────────────────
+    overrides_active = [k for k, v in render_track_overrides.items() if v]
+    if overrides_active:
+        logger.info(f"Smart Resume: Active track overrides: {overrides_active}")
 
     total_duration = sum(float(sc.get("duration") or 0.0) for sc in scenes)
     import math
@@ -486,6 +538,20 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
     # Phase 1: Render Frames
     missing_ranges_str = get_missing_frame_ranges(frames_dir, total_frames)
+    
+    # Broadcast the exact scope to the frontend via progress_cb
+    scope_msg = "[Smart Resume] Scope: "
+    if missing_ranges_str and not audio_cache_valid:
+        scope_msg += "Full re-render"
+    elif missing_ranges_str and audio_cache_valid:
+        scope_msg += "Frames-only re-render"
+    elif not missing_ranges_str and not audio_cache_valid:
+        scope_msg += "Audio-only re-render"
+    else:
+        scope_msg += "Fast mux only"
+    
+    progress_cb(5.0, scope_msg)
+
     if missing_ranges_str:
         # Compute the overall frame progress offset so the progress display reflects all
         # frames, not just the sub-range being rendered now.
@@ -508,6 +574,21 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     else:
         logger.info("All frames already rendered. Skipping frame render phase.")
         progress_cb(80.0, "All frames already rendered.")
+
+    # ── Log Smart Resume render scope ──────────────────────────────────────
+    frames_actually_rendered = bool(missing_ranges_str)
+    summary_parts = []
+    if not frames_actually_rendered:
+        summary_parts.append("frames cached")
+    else:
+        summary_parts.append("frames re-rendered")
+    if audio_cache_valid:
+        summary_parts.append("audio cached")
+    else:
+        summary_parts.append("audio re-rendering")
+    if overrides_active:
+        summary_parts.append(f"overrides: {', '.join(overrides_active)}")
+    logger.info(f"Smart Resume render scope: {' | '.join(summary_parts)}")
 
     # Reset the frame progress offset — the Audio phase has no cached sub-range to offset.
     first_missing_frame_pct = 0.0

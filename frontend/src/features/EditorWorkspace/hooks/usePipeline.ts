@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useProjectStore, Task } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
+import { useEditorStore } from '../../../store/useEditorStore';
 import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
 
 
@@ -110,17 +111,51 @@ export function usePipeline(
     previousTasksRef.current = tasks;
   }, [tasks, projectId, loadFiles]);
 
+  // Helper: persist current track visibility overrides into project_settings
+  // before starting a pipeline run that includes the 'render' step.
+  const syncTrackOverrides = useCallback(async (steps: string[]): Promise<boolean> => {
+    if (!projectId || !steps.includes('render')) return true;
+
+    const overrides = useEditorStore.getState().getRenderTrackOverrides();
+    const warnings: string[] = [];
+    if (overrides.render_mute_voice) warnings.push('Voiceover is muted — exported video will have no narration');
+    if (overrides.render_mute_music) warnings.push('Background music is muted — exported video will have no music');
+    if (overrides.render_hide_subtitles) warnings.push('Subtitles are hidden — exported video will have no subtitles');
+
+    if (warnings.length > 0) {
+      for (const w of warnings) {
+        addToast(`⚠️ ${w}`, 'warning', 6000);
+      }
+    }
+
+    // Merge overrides into project_settings
+    let settings: any = {};
+    try {
+      const currentProj = useProjectStore.getState().selectedProject;
+      if (currentProj?.project_settings) {
+        settings = JSON.parse(currentProj.project_settings);
+      }
+    } catch (e) { /* ignore */ }
+    settings.render_mute_voice = overrides.render_mute_voice;
+    settings.render_mute_music = overrides.render_mute_music;
+    settings.render_hide_subtitles = overrides.render_hide_subtitles;
+    await updateProject(projectId, { project_settings: JSON.stringify(settings) });
+    return true;
+  }, [projectId, addToast, updateProject]);
+
   const triggerFullPipeline = useCallback(async () => {
     if (!projectId) return;
     setScriptChangedAlert(false);
     const allSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render'];
     const targetIdx = allSteps.indexOf(targetStage);
     const steps = allSteps.slice(0, targetIdx + 1);
+    await syncTrackOverrides(steps);
     const res = await startPipeline(projectId, steps);
     if (res?.success) {
+      useEditorStore.getState().setAudioChangedAlert(false);
       loadFiles(projectId);
     }
-  }, [projectId, targetStage, startPipeline, loadFiles]);
+  }, [projectId, targetStage, startPipeline, loadFiles, syncTrackOverrides]);
 
 
 
@@ -160,14 +195,16 @@ export function usePipeline(
     }
 
     setScriptChangedAlert(false);
+    await syncTrackOverrides(stepsToRun);
     const res = await startPipeline(projectId, stepsToRun);
     if (res?.success) {
+      useEditorStore.getState().setAudioChangedAlert(false);
       addToast(`Resumed pipeline from: ${PIPELINE_STAGES[startIdx].title}`, 'success');
       loadFiles(projectId);
     } else {
       addToast(res?.error || "Failed to start pipeline", 'error');
     }
-  }, [projectId, targetStage, startPipeline, addToast, loadFiles, isRunning, canResumeFrom]);
+  }, [projectId, targetStage, startPipeline, addToast, loadFiles, isRunning, canResumeFrom, syncTrackOverrides]);
 
   const handleResumePipeline = useCallback(async () => {
     if (!projectId) return;
@@ -180,10 +217,14 @@ export function usePipeline(
       const endIdx = PIPELINE_STAGES.findIndex(s => s.id === targetStage);
       const stepsToRun = endIdx === -1 ? allSteps : allSteps.slice(0, endIdx + 1);
 
+      // Smart Resume: persist track visibility overrides to project settings
+      await syncTrackOverrides(stepsToRun);
+
       // We simply pass the allowed range of steps to the backend. The backend evaluates staleness.
       const res = await useProjectStore.getState().resumePipeline(projectId, stepsToRun);
       setScriptChangedAlert(false);
       if (res?.success) {
+        useEditorStore.getState().setAudioChangedAlert(false);
         addToast("Pipeline started successfully", 'success');
         loadFiles(projectId);
       } else {
@@ -193,7 +234,7 @@ export function usePipeline(
       console.error(err);
       addToast("Failed to start pipeline", 'error');
     }
-  }, [projectId, targetStage, addToast, loadFiles, isRunning]);
+  }, [projectId, targetStage, addToast, loadFiles, isRunning, syncTrackOverrides]);
 
   const cancelPipelineAction = useCallback(() => {
     if (projectId) cancelPipeline(projectId);

@@ -289,6 +289,7 @@ class QueueManager:
             generate_visuals_pipeline(proj, proj_dir, progress_cb, cancel_event)
             
         elif step == 'render':
+            logger.info(f"Smart Resume: Starting render step — cache hashes will determine incremental scope.")
             from backend.pipeline.render import render_pipeline
             render_pipeline(proj, proj_dir, progress_cb, cancel_event)
             

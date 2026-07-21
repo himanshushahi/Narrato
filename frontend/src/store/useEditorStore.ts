@@ -30,6 +30,9 @@ interface EditorStore {
   trackMuted: Record<string, boolean>;
   trackHidden: Record<string, boolean>;
 
+  // Alerts
+  audioChangedAlert: boolean;
+
   // Actions
   setLeftPanelWidth: (w: number) => void;
   setRightPanelWidth: (w: number) => void;
@@ -43,6 +46,8 @@ interface EditorStore {
   setTimelineZoom: (zoom: number) => void;
   toggleTrackMute: (trackId: string) => void;
   toggleTrackHide: (trackId: string) => void;
+  getRenderTrackOverrides: () => { render_mute_voice: boolean; render_mute_music: boolean; render_hide_subtitles: boolean };
+  setAudioChangedAlert: (val: boolean) => void;
 }
 
 const STORAGE_KEY = 'narrato_editor_layout';
@@ -91,7 +96,7 @@ try {
   }
 } catch { /* ignore */ }
 
-export const useEditorStore = create<EditorStore>((set) => ({
+export const useEditorStore = create<EditorStore>((set, get) => ({
   // State
   leftPanelWidth: persisted.leftPanelWidth ?? defaults.leftPanelWidth,
   rightPanelWidth: persisted.rightPanelWidth ?? defaults.rightPanelWidth,
@@ -105,6 +110,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
   timelineZoom: persisted.timelineZoom ?? defaults.timelineZoom,
   trackMuted: persisted.trackMuted ?? defaults.trackMuted,
   trackHidden: persisted.trackHidden ?? defaults.trackHidden,
+  audioChangedAlert: false,
 
   // Actions
   setLeftPanelWidth: (w) => set((s) => { const next = { ...s, leftPanelWidth: w }; saveLayout(next); return next; }),
@@ -127,4 +133,13 @@ export const useEditorStore = create<EditorStore>((set) => ({
     saveLayout(next);
     return next;
   }),
+  getRenderTrackOverrides: () => {
+    const state = get();
+    return {
+      render_mute_voice: !!(state.trackMuted['voice'] || state.trackHidden['voice']),
+      render_mute_music: !!(state.trackMuted['music'] || state.trackHidden['music']),
+      render_hide_subtitles: !!state.trackHidden['subs'],
+    };
+  },
+  setAudioChangedAlert: (val) => set({ audioChangedAlert: val }),
 }));
