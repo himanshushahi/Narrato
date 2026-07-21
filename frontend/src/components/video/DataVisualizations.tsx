@@ -71,7 +71,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        backgroundColor: subtitleSettings?.chart_bg_color || '#1c1917',
+        backgroundColor: subtitleSettings?.chart_bg_color || '#0f172a',
         position: 'relative',
         overflow: 'hidden'
       }}>
@@ -222,30 +222,31 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                     {/* Chart Bars / Lines */}
                     {chartType === 'line' ? (
                         <g>
-                            {/* D3 Path String Generation Manually */}
+                            {/* Smooth Curved Line */}
                             <path 
-                                d={`M ${rawData.map((d: any, i: number) => {
-                                    const x = i * xStep;
-                                    const y = innerHeight - ((d.value / maxVal) * innerHeight * animProgress);
-                                    return `${x},${y}`;
-                                }).join(' L ')}`}
+                                d={d3Shape.line<any>()
+                                    .x((d, i) => (innerWidth / rawData.length) * i + (innerWidth / rawData.length) / 2)
+                                    .y(d => innerHeight - ((d.value / maxVal) * innerHeight * animProgress))
+                                    .curve(d3Shape.curveMonotoneX)(rawData) || ''
+                                }
                                 fill="none"
                                 stroke={isMulticolor ? colors[0] : primaryColor}
                                 strokeWidth="8"
                                 filter="url(#glow)"
+                                strokeLinecap="round"
                             />
                             {/* Nodes */}
                             {rawData.map((d: any, i: number) => {
-                                const x = i * xStep;
+                                const x = (innerWidth / rawData.length) * i + (innerWidth / rawData.length) / 2;
                                 const targetY = innerHeight - ((d.value / maxVal) * innerHeight);
                                 const y = innerHeight - ((d.value / maxVal) * innerHeight * animProgress);
                                 const nodeAnim = spring({ frame: frame - i * 4, fps: 30, config: { damping: 12 } });
                                 
                                 return (
                                     <g key={`node-${i}`} transform={`translate(${x}, ${y})`} opacity={nodeAnim}>
-                                        <circle r={10} fill="#fffbeb" />
-                                        <circle r={20} fill="none" stroke={getColor(i)} strokeWidth="4" opacity="0.8" filter="url(#glow)" />
-                                        <text y={-30} fill={textColor} fontFamily="Montserrat, sans-serif" fontSize={labelFontSize} fontWeight="800" textAnchor="middle"
+                                        <circle r={12} fill="#fff" />
+                                        <circle r={22} fill="none" stroke={getColor(i)} strokeWidth="5" opacity="0.9" filter="url(#glow)" />
+                                        <text y={-35} fill={textColor} fontFamily="Montserrat, sans-serif" fontSize={labelFontSize} fontWeight="800" textAnchor="middle"
                                             style={{
                                                 WebkitFontSmoothing: 'antialiased',
                                                 MozOsxFontSmoothing: 'grayscale',
