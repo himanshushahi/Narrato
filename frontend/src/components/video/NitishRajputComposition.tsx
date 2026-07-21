@@ -1,5 +1,5 @@
 import { useMemo, useCallback } from 'react';
-import { Sequence, Audio, useVideoConfig } from 'remotion';
+import { Sequence, Audio, useVideoConfig, getRemotionEnvironment } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
 import { PanScanImage } from './PanScanImage';
@@ -269,17 +269,20 @@ export const NitishRajputComposition = ({
 
   return (
     <div style={{ flex: 1, backgroundColor: '#0c0a09', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
-      {/* 1. Spoken Narration Track */}
-      {audioUrl && <Audio src={audioUrl} volume={Math.max(0, Math.min(1, voiceoverVolume))} pauseWhenBuffering />}
-
-      {/* 2. Ambient Soundtrack */}
-      {bgMusicUrl && (
-        <Audio 
-          src={bgMusicUrl} 
-          volume={Math.max(0, Math.min(1, bgMusicVolume))} 
-          loop 
-          pauseWhenBuffering
-        />
+      {/* 1. Spoken Narration Track & Ambient Soundtrack (Preview Only) */}
+      {/* In production render, audio is now mixed directly via FFmpeg for speed */}
+      {!getRemotionEnvironment().isRendering && (
+        <>
+          {audioUrl && <Audio src={audioUrl} volume={Math.max(0, Math.min(1, voiceoverVolume))} pauseWhenBuffering />}
+          {bgMusicUrl && (
+            <Audio 
+              src={bgMusicUrl} 
+              volume={Math.max(0, Math.min(1, bgMusicVolume))} 
+              loop 
+              pauseWhenBuffering
+            />
+          )}
+        </>
       )}
 
       {/* 3. Chronological Scene Sequences */}

@@ -595,16 +595,51 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
     # Phase 2: Render Audio (only if cache invalid)
     if not audio_cache_valid:
-        progress_cb(80.0, "Extracting audio track...")
-        cmd_audio = list(base_node_cmd)
-        cmd_audio.extend([
-            "--mode", "audio",
-            "--output", str(cached_audio_path.resolve()).replace('\\', '/')
-        ])
-        logger.info(f"Executing audio render: {' '.join(cmd_audio)}")
-        run_node_process(cmd_audio, progress_weight=10.0, base_progress=80.0, label="Audio")
-        # Write audio hash AFTER successful render (atomic — avoids accepting partial render)
-        audio_hash_file.write_text(audio_hash)
+        progress_cb(80.0, "Extracting audio track (FFmpeg fast mix)...")
+        
+        voice_path = str(audio_path.resolve())
+        bg_path_str = project_dict.get("bg_music_path")
+        bg_path = str(Path(bg_path_str).resolve()) if bg_path_str and Path(bg_path_str).exists() else None
+        
+        voice_vol = float(project_settings.get("voiceover_volume") or 1.0)
+        bg_vol = float(project_dict.get("bg_music_volume") or 0.15)
+        
+        if render_track_overrides.get("muteVoice"):
+            voice_vol = 0.0
+        if render_track_overrides.get("muteMusic"):
+            bg_vol = 0.0
+            
+        ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
+        
+        cmd_audio = [ffmpeg_bin, "-y"]
+        
+        if bg_path and bg_vol > 0:
+            cmd_audio.extend(["-i", voice_path, "-i", bg_path])
+            cmd_audio.extend([
+                "-filter_complex",
+                f"[0:a]volume={voice_vol}[voice];[1:a]volume={bg_vol}[bg];[voice][bg]amix=inputs=2:duration=first[aout]",
+                "-map", "[aout]",
+                "-ac", "2", "-ar", "44100"
+            ])
+        else:
+            cmd_audio.extend(["-i", voice_path])
+            if voice_vol != 1.0:
+                cmd_audio.extend(["-filter_complex", f"[0:a]volume={voice_vol}[aout]", "-map", "[aout]", "-ac", "2", "-ar", "44100"])
+            else:
+                cmd_audio.extend(["-c:a", "copy"]) # No re-encode if volume is 1.0
+                
+        cmd_audio.append(str(cached_audio_path.resolve()).replace('\\', '/'))
+        
+        logger.info(f"Executing audio render (Direct FFmpeg): {' '.join(cmd_audio)}")
+        try:
+            # Bypass Remotion/Node completely and execute FFmpeg directly
+            subprocess.run(cmd_audio, capture_output=True, text=True, check=True, startupinfo=get_startupinfo())
+            
+            # Write audio hash AFTER successful render
+            audio_hash_file.write_text(audio_hash)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFmpeg audio mixing failed.\nLast output:\n{e.stderr}")
+            raise RuntimeError(f"FFmpeg audio mixing failed.\nLast output:\n{e.stderr}")
     else:
         logger.info("Audio cache valid. Skipping audio render phase.")
 
