@@ -93,7 +93,7 @@ export const SubtitleStyleControls: React.FC<SubtitleStyleControlsProps> = ({
       />
       <CustomRange
         label="Words Per Screen"
-        min="3" max="20"
+        min="1" max="20"
         value={settings.wordsPerScreen !== undefined ? settings.wordsPerScreen : 10}
         valueDisplay={`${settings.wordsPerScreen !== undefined ? settings.wordsPerScreen : 10} words`}
         onChange={(e) => { setSelectedPresetId(''); onUpdate({ ...settings, wordsPerScreen: parseInt(e.target.value) || 10 }); }}
