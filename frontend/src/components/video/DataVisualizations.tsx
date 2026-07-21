@@ -49,7 +49,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
 
     // Bar Width and Spacing
     const barWidth = Math.min(100, (innerWidth / rawData.length) * 0.5);
-    const xStep = rawData.length > 1 ? innerWidth / (rawData.length - 1) : innerWidth;
+    // const xStep = rawData.length > 1 ? innerWidth / (rawData.length - 1) : innerWidth;
 
     // No zoom - static stable frame
     const zoomScale = 1;
@@ -225,7 +225,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                             {/* Smooth Curved Line */}
                             <path 
                                 d={d3Shape.line<any>()
-                                    .x((d, i) => (innerWidth / rawData.length) * i + (innerWidth / rawData.length) / 2)
+                                    .x((_, i) => (innerWidth / rawData.length) * i + (innerWidth / rawData.length) / 2)
                                     .y(d => innerHeight - ((d.value / maxVal) * innerHeight * animProgress))
                                     .curve(d3Shape.curveMonotoneX)(rawData) || ''
                                 }
