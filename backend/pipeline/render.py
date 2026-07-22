@@ -614,7 +614,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         cmd_audio = [ffmpeg_bin, "-y"]
         
         if bg_path and bg_vol > 0:
-            cmd_audio.extend(["-i", voice_path, "-i", bg_path])
+            cmd_audio.extend(["-i", voice_path, "-stream_loop", "-1", "-i", bg_path])
             cmd_audio.extend([
                 "-filter_complex",
                 f"[0:a]volume={voice_vol}[voice];[1:a]volume={bg_vol}[bg];[voice][bg]amix=inputs=2:duration=first[aout]",
