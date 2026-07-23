@@ -28,16 +28,9 @@ export const calculateSubVisualTimings = (subVisuals: any[], durationFrames: num
         subDuration = Math.max(1, startFrame + durationFrames - currentOffset);
       }
     } else {
-      const totalSubDur = subVisuals.reduce((sum, s) => sum + (typeof s.duration === 'number' && !isNaN(s.duration) ? s.duration : 0), 0);
-      let calculatedRatio = 1.0 / numSubs;
-      if (totalSubDur > 0) {
-        const dur = typeof sv.duration === 'number' && !isNaN(sv.duration) ? sv.duration : 0;
-        calculatedRatio = dur / totalSubDur;
-      }
-      
       subDuration = idx === numSubs - 1
         ? Math.max(1, startFrame + durationFrames - currentOffset)
-        : Math.max(1, Math.round(durationFrames * calculatedRatio));
+        : Math.max(1, Math.floor(durationFrames / numSubs));
     }
     
     const subFrom = currentOffset;
