@@ -15,7 +15,7 @@ export const calculateSubVisualTimings = (subVisuals: any[], durationFrames: num
                          Math.abs(ratios.reduce((a: number, b: number) => a + b, 0) - 1.0) < 0.01;
 
   let currentOffset = startFrame;
-  const subs = subVisuals.map((sv, idx) => {
+  const subs = subVisuals.map((_, idx) => {
     let subDuration = 1;
 
     if (hasValidRatios) {
