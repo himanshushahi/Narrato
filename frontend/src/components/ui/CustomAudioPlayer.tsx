@@ -112,7 +112,7 @@ export const CustomAudioPlayer: React.FC<CustomAudioPlayerProps> = ({ src, volum
       <button
         onClick={togglePlayPause}
         disabled={!isReady}
-        className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 border border-zinc-700/40 text-zinc-300 hover:text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 border border-zinc-700/40 text-zinc-300 hover:text-white transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         title={isPlaying ? 'Pause' : 'Play'}
       >
         {!isReady ? (

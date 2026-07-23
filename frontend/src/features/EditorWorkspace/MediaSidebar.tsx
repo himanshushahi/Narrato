@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLayers, VscPackage, VscMusic,
@@ -184,6 +184,25 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   );
 
   const bgMusicPath = selectedProject?.bg_music_path || '';
+
+  // Track baseline (committed) bg_music values to detect reverts
+  const baselinePathRef = useRef('');
+  const baselineVolumeRef = useRef(0.15);
+  const baselineInitRef = useRef(false);
+  const audioChangedAlert = useEditorStore((s) => s.audioChangedAlert);
+  const prevAudioAlertRef = useRef(audioChangedAlert);
+  useEffect(() => {
+    if (!baselineInitRef.current && selectedProject?.bg_music_path !== undefined) {
+      baselinePathRef.current = bgMusicPath;
+      baselineVolumeRef.current = localVolume;
+      baselineInitRef.current = true;
+    }
+    if (prevAudioAlertRef.current === true && audioChangedAlert === false) {
+      baselinePathRef.current = bgMusicPath;
+      baselineVolumeRef.current = localVolume;
+    }
+    prevAudioAlertRef.current = audioChangedAlert;
+  }, [audioChangedAlert, bgMusicPath, localVolume, selectedProject?.bg_music_path]);
   const bgMusicUrl = bgMusicPath 
     ? `${getMediaUrlSync(bgMusicPath)}&t=${reloadTrigger}` 
     : '';
@@ -203,8 +222,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
     try {
       const result = await callApi<{ success: boolean }>('upload_project_bg_music', projectId);
       if (result?.success) {
-        fetchProjectDetail(projectId);
-        useEditorStore.getState().setAudioChangedAlert(true);
+        await fetchProjectDetail(projectId);
+        const project = useProjectStore.getState().selectedProject;
+        const isReverted =
+          (project?.bg_music_path || '') === baselinePathRef.current &&
+          (project?.bg_music_volume ?? 0.15) === baselineVolumeRef.current;
+        useEditorStore.getState().setAudioChangedAlert(!isReverted);
       }
     } catch (e) {
       console.error('Failed to upload bg music:', e);
@@ -216,13 +239,17 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   const handleRemoveMusic = useCallback(async () => {
     if (!projectId) return;
     await updateProject(projectId, { bg_music_path: '' });
-    useEditorStore.getState().setAudioChangedAlert(true);
+    const isReverted = '' === baselinePathRef.current;
+    useEditorStore.getState().setAudioChangedAlert(!isReverted);
   }, [projectId, updateProject]);
 
   const handleVolumeSave = useCallback(async () => {
     if (!projectId) return;
     await updateProject(projectId, { bg_music_volume: localVolume });
-    useEditorStore.getState().setAudioChangedAlert(true);
+    const project = useProjectStore.getState().selectedProject;
+    const currentPath = project?.bg_music_path || '';
+    const isReverted = localVolume === baselineVolumeRef.current && currentPath === baselinePathRef.current;
+    useEditorStore.getState().setAudioChangedAlert(!isReverted);
   }, [projectId, localVolume, updateProject]);
 
   // Filter & sort assets
@@ -256,20 +283,24 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
 
   const renderScenesTab = () => (
     <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-zinc-800/40">
-        <div className="flex items-center gap-2  rounded-lg px-3 py-2 border border-zinc-800/40">
-          <VscSearch className="text-zinc-500 text-sm shrink-0" />
+      <div className="px-3 py-2.5 border-b border-zinc-800/40 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Scenes</h3>
+          <span className="text-[9px] font-mono text-zinc-600">{scenes.length + (hasIntro ? 1 : 0) + (hasConclusion ? 1 : 0)} items</span>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 bg-zinc-900/60 border border-zinc-800/40">
+          <VscSearch className="text-zinc-500 text-xs shrink-0" />
           <input
             type="text"
             placeholder="Search scenes..."
             value={sceneSearch}
             onChange={(e) => setSceneSearch(e.target.value)}
-            className="bg-transparent text-xs text-zinc-300 placeholder-zinc-600 outline-none w-full"
+            className="bg-transparent text-[11px] text-zinc-300 placeholder-zinc-600 outline-none w-full"
           />
           {sceneSearch && (
             <button
               onClick={() => setSceneSearch('')}
-              className="text-zinc-600 hover:text-zinc-400 text-xs shrink-0"
+              className="text-zinc-600 hover:text-zinc-400 text-xs shrink-0 cursor-pointer"
             >
               &times;
             </button>
@@ -288,7 +319,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
               <p className="text-xs text-zinc-500">No scenes match <span className="text-zinc-400 font-mono">"{sceneSearch}"</span></p>
               <button
                 onClick={() => setSceneSearch('')}
-                className="mt-3 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+                className="mt-3 text-[10px] text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
               >
                 Clear search
               </button>
@@ -371,43 +402,13 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   const renderAssetsTab = () => (
     <div className="flex flex-col h-full">
       {/* Search + toolbar */}
-      <div className="p-3 border-b border-zinc-800/40 space-y-2">
-        <div className="flex items-center gap-2  rounded-lg px-3 py-2 border border-zinc-800/40">
-          <VscSearch className="text-zinc-500 text-sm shrink-0" />
-          <input
-            type="text"
-            placeholder="Search assets..."
-            value={assetSearch}
-            onChange={(e) => setAssetSearch(e.target.value)}
-            className="bg-transparent text-xs text-zinc-300 placeholder-zinc-600 outline-none w-full"
-          />
-          {assetSearch && (
-            <button
-              onClick={() => setAssetSearch('')}
-              className="text-zinc-600 hover:text-zinc-400 text-xs"
-            >
-              &times;
-            </button>
-          )}
-        </div>
+      <div className="px-3 py-2.5 border-b border-zinc-800/40 space-y-2">
         <div className="flex items-center justify-between">
-          {/* Summary */}
-          <div className="text-[9px] text-zinc-500">
-            {totalDownloadable > 0 ? (
-              <span>
-                <span className="text-zinc-300">{totalDownloadable} Items</span>
-                <span className="text-zinc-600"> &middot; </span>
-                <span className="text-zinc-400">{formatFileSize(totalSize)}</span>
-              </span>
-            ) : (
-              <span className="text-zinc-600">No assets</span>
-            )}
-          </div>
-          {/* View toggle */}
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Assets</h3>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setViewMode('list')}
-              className={`p-1 rounded text-[10px] transition-colors ${viewMode === 'list'
+              className={`p-1 rounded text-[10px] transition-colors cursor-pointer ${viewMode === 'list'
                 ? 'text-blue-400 bg-blue-600/20'
                 : 'text-zinc-600 hover:text-zinc-400'
                 }`}
@@ -417,7 +418,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
             </button>
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-1 rounded text-[10px] transition-colors ${viewMode === 'grid'
+              className={`p-1 rounded text-[10px] transition-colors cursor-pointer ${viewMode === 'grid'
                 ? 'text-blue-400 bg-blue-600/20'
                 : 'text-zinc-600 hover:text-zinc-400'
                 }`}
@@ -428,12 +429,43 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
             <button
               onClick={refresh}
               disabled={isScanning}
-              className={`p-1 rounded text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors ${isScanning ? 'animate-spin pointer-events-none' : ''
+              className={`p-1 rounded text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors cursor-pointer ${isScanning ? 'animate-spin pointer-events-none' : ''
                 }`}
               title="Refresh assets from disk"
             >
               <VscRefresh />
             </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 bg-zinc-900/60 border border-zinc-800/40">
+          <VscSearch className="text-zinc-500 text-xs shrink-0" />
+          <input
+            type="text"
+            placeholder="Search assets..."
+            value={assetSearch}
+            onChange={(e) => setAssetSearch(e.target.value)}
+            className="bg-transparent text-[11px] text-zinc-300 placeholder-zinc-600 outline-none w-full"
+          />
+          {assetSearch && (
+            <button
+              onClick={() => setAssetSearch('')}
+              className="text-zinc-600 hover:text-zinc-400 text-xs shrink-0 cursor-pointer"
+            >
+              &times;
+            </button>
+          )}
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="text-[9px] text-zinc-500">
+            {totalDownloadable > 0 ? (
+              <span>
+                <span className="text-zinc-300">{totalDownloadable} Items</span>
+                <span className="text-zinc-600"> &middot; </span>
+                <span className="text-zinc-400">{formatFileSize(totalSize)}</span>
+              </span>
+            ) : (
+              <span className="text-zinc-600">No assets</span>
+            )}
           </div>
         </div>
       </div>
@@ -487,22 +519,22 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
       return (
         <div className="flex flex-col h-full p-4 text-center">
           <div className="flex-1 flex flex-col items-center justify-center">
-            <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-zinc-800/60 to-zinc-900/60 border border-zinc-700/50 flex items-center justify-center shadow-lg shadow-black/20">
-              <VscMusic className="text-2xl text-zinc-500" />
+            <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
+              <VscMusic className="text-xl text-zinc-500" />
             </div>
-            <p className="text-sm text-zinc-300 font-medium mb-1">No Background Music</p>
-            <p className="text-[10px] text-zinc-600 mb-5 max-w-45 leading-relaxed">
+            <p className="text-xs text-zinc-300 font-medium mb-1">No Background Music</p>
+            <p className="text-[9px] text-zinc-600 mb-4 max-w-40 leading-relaxed">
               Upload a soundtrack to enhance your video
             </p>
             <button
               onClick={handleUploadMusic}
               disabled={uploading}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600/25 to-cyan-600/15 hover:from-blue-600/35 hover:to-cyan-600/25 text-blue-300 border border-blue-500/25 rounded-xl text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/5"
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-600/25 rounded-lg text-[10px] font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {uploading ? (
-                <VscLoading className="text-sm animate-spin" />
+                <VscLoading className="text-xs animate-spin" />
               ) : (
-                <VscAdd className="text-sm" />
+                <VscAdd className="text-xs" />
               )}
               {uploading ? 'Uploading...' : 'Upload Music'}
             </button>
@@ -514,29 +546,26 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
     const fileBadge = bgMusicExt ? fileTypeBadge('.' + bgMusicExt) : null;
 
     return (
-      <div className="flex flex-col h-full p-3 space-y-3">
-        {/* File info card */}
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-3 space-y-3">
-          <div className="flex items-center gap-3">
-            <div className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center ${fileBadge?.color || 'bg-zinc-800/50'}`}>
-              {fileBadge?.icon || <VscMusic className="text-base text-zinc-500" />}
+      <div className="flex flex-col h-full p-3 space-y-2.5">
+        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-lg p-3 space-y-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 shrink-0 rounded-md flex items-center justify-center ${fileBadge?.color || 'bg-zinc-800/50'}`}>
+              {fileBadge?.icon || <VscMusic className="text-sm text-zinc-500" />}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-zinc-200 truncate">{bgMusicFilename}</p>
+              <p className="text-[11px] font-semibold text-zinc-200 truncate">{bgMusicFilename}</p>
               <p className="text-[9px] text-zinc-500 font-mono mt-0.5">
                 {fileBadge?.label || bgMusicExt.toUpperCase() || 'AUDIO'}
               </p>
             </div>
           </div>
 
-          {/* Custom audio preview */}
           <div className="border-t border-zinc-800/40 pt-2.5">
             <CustomAudioPlayer src={bgMusicUrl} volume={localVolume} />
           </div>
         </div>
 
-        {/* Volume control — in its own card */}
-        <div className="bg-zinc-900/30 border border-zinc-800/40 rounded-xl p-3 space-y-2">
+        <div className="bg-zinc-900/30 border border-zinc-800/40 rounded-lg p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-medium text-zinc-400">Volume</span>
             <span className="text-[9px] font-mono text-zinc-500">{Math.round(localVolume * 100)}%</span>
@@ -553,19 +582,18 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
               if (e.key === 'Enter' || e.key === 'Escape') handleVolumeSave();
             }}
             className="w-full h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-blue-500
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5
+              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
               [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500
               [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-zinc-900
               [&::-webkit-slider-thumb]:shadow-md"
           />
         </div>
 
-        {/* Actions — equal-width buttons */}
-        <div className="flex gap-2 pt-1">
+        <div className="flex gap-2">
           <button
             onClick={handleUploadMusic}
             disabled={uploading}
-            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2.5 bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-600/25 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {uploading ? (
               <VscLoading className="text-xs animate-spin" />
@@ -576,7 +604,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
           </button>
           <button
             onClick={handleRemoveMusic}
-            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2.5 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-600/20 rounded-lg text-[10px] font-bold transition-all"
+            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer"
           >
             <VscTrash /> Remove
           </button>
@@ -594,7 +622,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   };
 
   return (
-    <div className="h-full bg-zinc-900 border-r border-zinc-800/60 flex flex-col overflow-x-hidden" style={{ width: leftPanelWidth }}>
+    <div className="h-full bg-zinc-950/80 border-r border-zinc-800/60 flex flex-col overflow-x-hidden" style={{ width: leftPanelWidth }}>
       {/* Tab bar — scrollable with hover-reveal buttons */}
       <ScrollableTabBar
         tabs={tabConfig.map(t => ({ id: t.id, label: t.label, icon: t.icon }))}
@@ -818,13 +846,11 @@ const AssetListItem: React.FC<{
       onClick={onClick}
       className={getAssetContainerClasses(hasFile, !!asset.isProgrammatic, false)}
     >
-      {/* Thumbnail — image preview for photos, video poster for videos */}
       <div className="w-9 h-9 shrink-0 rounded-md overflow-hidden bg-zinc-800/80 border border-zinc-700/40 flex items-center justify-center">
         <AssetThumbnail asset={asset} isFetching={isFetching} size="small" />
       </div>
 
-      {/* Info */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 self-center">
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] font-semibold text-zinc-200 truncate">
             {asset.sceneTitle}
@@ -851,8 +877,7 @@ const AssetListItem: React.FC<{
         )}
       </div>
 
-      {/* Status badge */}
-      <div className="shrink-0 mt-0.5">
+      <div className="shrink-0 self-center">
         {hasFile ? (
           <span className="flex items-center gap-0.5 text-[8px] text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded-full">
             <VscCheck className="text-[7px]" /> OK
@@ -893,12 +918,11 @@ const AssetGridItem: React.FC<{
         <AssetThumbnail asset={asset} isFetching={isFetching} size="large" />
       </div>
 
-      {/* Info row */}
-      <div className="p-1.5">
-        <p className="text-[8px] font-medium text-zinc-300 truncate">
+      <div className="px-2 py-1.5 space-y-0.5">
+        <p className="text-[9px] font-medium text-zinc-200 truncate leading-snug">
           {asset.sceneTitle}
         </p>
-        <p className="text-[7px] text-zinc-500 truncate mt-0.5">
+        <p className="text-[7px] text-zinc-500 truncate">
           #{asset.sceneIndex}-{asset.subIndex}
           {hasFile && <> &middot; {formatFileSize(asset.fileSize || 0)}</>}
         </p>
@@ -922,19 +946,19 @@ interface SceneListItemProps {
 const SceneListItem: React.FC<SceneListItemProps> = React.memo(({ number, title, subtitle, timing, onClick }) => (
   <div
     onClick={onClick}
-    className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-zinc-800/40 border border-transparent hover:border-zinc-700/50 cursor-pointer transition-all group"
+    className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-800/30 border border-transparent hover:border-zinc-700/50 cursor-pointer transition-all group"
   >
-    <div className="w-6 h-6 rounded-md bg-gradient-to-br from-blue-600/30 to-cyan-600/30 border border-blue-600/30 flex items-center justify-center shrink-0 mt-0.5">
+    <div className="w-6 h-6 rounded-md bg-blue-600/20 border border-blue-600/25 flex items-center justify-center shrink-0">
       <span className="text-[9px] font-bold text-blue-400">{number}</span>
     </div>
     <div className="flex-1 min-w-0">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-zinc-200 truncate">{title}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium text-zinc-200 truncate">{title}</span>
         {timing && (
-          <span className="text-[8px] font-mono text-zinc-500 shrink-0 ml-2">{formatTime(timing.start)}</span>
+          <span className="text-[8px] font-mono text-zinc-600 shrink-0">{formatTime(timing.start)}</span>
         )}
       </div>
-      <p className="text-[9px] text-zinc-500 truncate mt-0.5">{subtitle}</p>
+      <p className="text-[9px] text-zinc-500 truncate leading-snug">{subtitle}</p>
     </div>
   </div>
 ));
