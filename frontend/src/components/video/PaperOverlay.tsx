@@ -75,14 +75,6 @@ export const PaperOverlay: React.FC = () => {
       height: '100%',
       zIndex: 10
     }}>
-      {/* 1. Heavy Vignette box shadow (dark charcoal borders) */}
-      <div style={{
-        position: 'absolute',
-        inset: 0,
-        boxShadow: 'inset 0 0 200px rgba(0, 0, 0, 0.95), inset 0 0 100px rgba(12, 10, 9, 0.8)',
-        zIndex: 2
-      }} />
-
       {/* 2. Low-opacity paper texture blending overlay */}
       {/* We use an inline SVG noise filter for GPU accelerated film grain */}
       <svg style={{ position: 'absolute', width: 0, height: 0 }}>
