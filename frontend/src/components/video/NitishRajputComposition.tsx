@@ -11,6 +11,7 @@ import { TransitionWrapper } from './TransitionWrapper';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
 import { CustomHtmlVisual } from './CustomHtmlVisual';
+import { CustomHtmlUiOverlay } from './CustomHtmlUiOverlay';
 import { ThreadSimulation } from './ThreadSimulation';
 import { DeviceMockup } from './DeviceMockup';
 import { calculateSubVisualTimings } from '../../utils/duration';
@@ -234,6 +235,7 @@ export const NitishRajputComposition = ({
               const subDuration = Math.max(1, timing.end - timing.start);
               
               const ltMeta = subVis.visual_meta?.lower_third;
+              const htmlUiMeta = subVis.visual_meta?.custom_html_ui;
 
               return (
                 <Sequence
@@ -259,6 +261,11 @@ export const NitishRajputComposition = ({
                       />
                     </div>
                   )}
+                  {htmlUiMeta && (
+                    <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
+                      <CustomHtmlUiOverlay meta={htmlUiMeta} />
+                    </div>
+                  )}
                 </Sequence>
               );
             });
@@ -279,7 +286,8 @@ export const NitishRajputComposition = ({
               letterSpacing: 2,
               opacity: 0.6,
               borderLeft: `4px solid ${subtitleSettings?.chapter_border_color || '#b45309'}`,
-              paddingLeft: 12
+              paddingLeft: 12,
+              zIndex: 50
             }}>
               {scene.title}
             </div>
@@ -312,16 +320,20 @@ export const NitishRajputComposition = ({
 
       {/* 4. Active Typographic Subtitle Overlay */}
       {!subtitleSettings?.hide_subtitles && transcription && transcription.segments && (
-        <KineticSubtitles 
-          transcription={transcription} 
-          sceneTimings={sceneTimings}
-          styleType={style} 
-          subtitleSettings={subtitleSettings}
-        />
+        <div style={{ position: 'absolute', inset: 0, zIndex: 100, pointerEvents: 'none' }}>
+          <KineticSubtitles 
+            transcription={transcription} 
+            sceneTimings={sceneTimings}
+            styleType={style} 
+            subtitleSettings={subtitleSettings}
+          />
+        </div>
       )}
 
       {/* 5. Paper Overlay Layer */}
-      <PaperOverlay />
+      <div style={{ position: 'absolute', inset: 0, zIndex: 110, pointerEvents: 'none' }}>
+        <PaperOverlay />
+      </div>
     </div>
   );
 };

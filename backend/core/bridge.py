@@ -651,7 +651,7 @@ class ApiBridge:
             "- thread: visual_meta {\"platform\": \"whatsapp\"|\"facebook\"|\"instagram\", \"messages\": [{\"sender\": str, \"text\": str, \"is_self\": bool}]}\n"
             "- device_mockup: visual_meta {\"device\": \"iphone\"|\"macbook\", \"screen_image_url\": str}\n"
             "- custom_html: visual_meta {\"html\": str, \"css\": str} (Note: HTML is injected into a 100% width/height relative wrapper. Write raw CSS. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic.)\n"
-            "- CRITICAL ON LOWER THIRDS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', or 'youtube'. NEVER use lower_third for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', 'timeline', 'thread', or 'device_mockup'. For those, bake any titles directly into their specific visual_meta fields.\n\n"
+            "- CRITICAL ON OVERLAYS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} OR {\"custom_html_ui\": {\"html\": str, \"css\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', or 'youtube'. NEVER use these overlays for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', 'timeline', 'thread', or 'device_mockup'. For those, bake any text/titles directly into their specific visual_meta fields.\n\n"
             "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.\n"
         )
         if section_type == "introduction":
@@ -711,8 +711,8 @@ class ApiBridge:
             "- device_mockup: visual_meta { \"device\": \"iphone\"|\"macbook\", \"screen_image_url\": str }\n"
             f"- custom_html: visual_meta {{ \"html\": str, \"css\": str }} (CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template. Add abundant, smooth animations. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)\n"
             "- portrait: visual_cue must be ONLY the person's full name (used as Wikipedia search query).\n"
-            "- scene/image/parallax/youtube: visual_meta {} unless adding lower_third.\n"
-            "- CRITICAL ON LOWER THIRDS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', or 'youtube'. NEVER use lower_third for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', 'timeline', 'thread', or 'device_mockup'. For those, bake any titles directly into their specific visual_meta fields.\n\n"
+            "- scene/image/parallax/youtube: visual_meta {} unless adding lower_third or custom_html_ui.\n"
+            "- CRITICAL ON OVERLAYS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} OR {\"custom_html_ui\": {\"html\": str, \"css\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', or 'youtube'. NEVER use these overlays for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', 'timeline', 'thread', or 'device_mockup'. For those, bake any text/titles directly into their specific visual_meta fields.\n\n"
             "Transitions: choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. "
             "Do NOT use the same transition as before — vary it.\n"
             f"LANGUAGE: The 'visual_cue' field MUST be in English. All 'visual_meta' text content MUST be in English. "

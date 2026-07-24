@@ -12,6 +12,7 @@ import { NumberingEditor } from './NumberingEditor';
 import { HtmlDataEditor } from './HtmlDataEditor';
 import { TransformEditor } from './TransformEditor';
 import { LowerThirdEditor } from './LowerThirdEditor';
+import { CustomHtmlUiEditor } from './CustomHtmlUiEditor';
 import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMetaForType } from './constants';
 import { BiTrashAlt } from 'react-icons/bi';
 import { BsPlus, BsStars, BsSendFill, BsEye, BsUpload } from 'react-icons/bs';
@@ -252,6 +253,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                 <DeviceMockupEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}
               <LowerThirdEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
+              <CustomHtmlUiEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
 
             </div>
           </div>

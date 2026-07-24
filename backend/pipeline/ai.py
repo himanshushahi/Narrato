@@ -1148,6 +1148,7 @@ CRITICAL ON DURATION:
 - device_mockup: visual_meta {{"device": "phone"|"tablet"|"laptop", "screen_content": {{"type": str, "content": str}}, "bg_color": str}}
 - custom_html: visual_meta {{"html": str, "css": str}} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)
 - Any type: add {{"lower_third": {{"title": str, "subtitle": str}}}} for overlay text.
+- Any type: add {{"custom_html_ui": {{"html": str, "css": str}}}} for custom HTML/CSS UI overlays (e.g. badges, custom text layouts) on top of the visual.
 """
     
     visuals_system_prompt = f"""You are an expert AI Visual Director specializing in creating engaging visual experiences for YouTube videos.
@@ -1258,8 +1259,8 @@ CRITICAL OUTPUT REQUIREMENTS:
 
 4. LANGUAGE RULE:
    - visual_cue: ALWAYS English
-   - visual_meta: English (except lower third titles)
-   - lower_third: Match the target language specified in the user prompt
+   - visual_meta: English (except lower third titles and custom_html_ui content)
+   - lower_third & custom_html_ui: Match the target language specified in the user prompt
 
 5. STRUCTURE:
    Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA
