@@ -64,6 +64,7 @@ interface InspectorPanelProps {
   onSettingsUpdate: (settings: any) => void;
   onTranscriptionChange: (data: any) => void;
   onSaveTranscription: () => void;
+  onResetTranscription: () => void;
 
   // Navigation
   onSeek: (frame: number) => void;
@@ -87,7 +88,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   onUploadSubVisual, uploadingSubVisual,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
-  isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription,
+  isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
   onSeek,
 }) => {
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
@@ -136,6 +137,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             onSettingsUpdate={onSettingsUpdate}
             onTranscriptionChange={onTranscriptionChange}
             onSaveTranscription={onSaveTranscription}
+            onResetTranscription={onResetTranscription}
             onPlaySegment={onSeek}
             onSeek={onSeek}
           />

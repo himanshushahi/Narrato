@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { VscSave, VscLoading, VscPlay } from 'react-icons/vsc';
+import React, { useState, useRef, useEffect } from 'react';
+import { VscSave, VscLoading, VscPlay, VscLink } from 'react-icons/vsc';
 import { Transcription } from '../../../components/video/NitishRajputComposition';
 import { CustomToggle } from '../../../components/ui/CustomToggle';
 
@@ -27,11 +27,77 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [internalAdvancedMode, setInternalAdvancedMode] = useState<boolean>(false);
+  const [dragState, setDragState] = useState<{ segmentId: number; wordIdx: number; startX: number; startEndVal: number } | null>(null);
+  const containerRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
   const advancedMode = externalAdvancedMode !== undefined ? externalAdvancedMode : internalAdvancedMode;
   const setAdvancedMode = (value: boolean) => {
     if (externalAdvancedMode === undefined) {
       setInternalAdvancedMode(value);
     }
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragState) return;
+      const seg = transcription.segments.find(s => s.id === dragState.segmentId);
+      if (!seg) return;
+      const container = containerRefs.current[dragState.segmentId];
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const segDuration = seg.end - seg.start;
+      if (segDuration <= 0) return;
+      const pixelsPerSecond = rect.width / segDuration;
+
+      const deltaX = e.clientX - dragState.startX;
+      const deltaSeconds = deltaX / pixelsPerSecond;
+
+      if (dragState.wordIdx >= seg.words.length - 1) return;
+
+      let newEnd = dragState.startEndVal + deltaSeconds;
+
+      const minEnd = seg.words[dragState.wordIdx].start + 0.05;
+      const maxEnd = seg.words[dragState.wordIdx + 1].end - 0.05;
+      
+      newEnd = Math.max(minEnd, Math.min(maxEnd, newEnd));
+
+      const newSegments = transcription.segments.map(s => {
+        if (s.id === dragState.segmentId) {
+          const newWords = [...s.words];
+          newWords[dragState.wordIdx] = { ...newWords[dragState.wordIdx], end: newEnd };
+          newWords[dragState.wordIdx + 1] = { ...newWords[dragState.wordIdx + 1], start: newEnd };
+          return { ...s, words: newWords };
+        }
+        return s;
+      });
+      onChange({ ...transcription, segments: newSegments });
+    };
+
+    const handleMouseUp = () => {
+      if (dragState) setDragState(null);
+    };
+
+    if (dragState) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragState, transcription, onChange]);
+
+  const handleDragStart = (e: React.MouseEvent, segmentId: number, wordIdx: number) => {
+    e.preventDefault();
+    const seg = transcription.segments.find(s => s.id === segmentId);
+    if (!seg) return;
+    setDragState({
+      segmentId,
+      wordIdx,
+      startX: e.clientX,
+      startEndVal: seg.words[wordIdx].end
+    });
   };
 
   if (!transcription || !transcription.segments || transcription.segments.length === 0) {
@@ -49,8 +115,48 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     const newSegments = transcription.segments.map(seg => {
       if (seg.id === segmentId) {
         const newWords = [...seg.words];
+        
+        // Update the current word
         newWords[wordIndex] = { ...newWords[wordIndex], [field]: val };
+        
+        // Ripple edit: adjust adjacent words to prevent overlaps
+        if (field === 'start' && wordIndex > 0) {
+          const prevWord = newWords[wordIndex - 1];
+          if (val < prevWord.end) {
+             newWords[wordIndex - 1] = { ...prevWord, end: val };
+          }
+        } else if (field === 'end' && wordIndex < newWords.length - 1) {
+          const nextWord = newWords[wordIndex + 1];
+          if (val > nextWord.start) {
+            newWords[wordIndex + 1] = { ...nextWord, start: val };
+          }
+        }
+
         return { ...seg, words: newWords };
+      }
+      return seg;
+    });
+    onChange({ ...transcription, segments: newSegments });
+  };
+
+  const handleMergeNextWord = (segmentId: number, wordIndex: number) => {
+    const newSegments = transcription.segments.map(seg => {
+      if (seg.id === segmentId) {
+        const newWords = [...seg.words];
+        if (wordIndex < newWords.length - 1) {
+          const currentWord = newWords[wordIndex];
+          const nextWord = newWords[wordIndex + 1];
+          
+          const mergedWord = {
+            ...currentWord,
+            word: `${currentWord.word.trim()} ${nextWord.word.trim()}`,
+            end: nextWord.end
+          };
+          
+          newWords.splice(wordIndex, 2, mergedWord);
+          const newText = newWords.map(w => w.word).join('');
+          return { ...seg, words: newWords, text: newText };
+        }
       }
       return seg;
     });
@@ -137,54 +243,107 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             {/* Segment content */}
             <div className="p-3">
               {advancedMode && segment.words && segment.words.length > 0 ? (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
-                  {segment.words.map((w, wIdx) => (
-                    <div
-                      key={wIdx}
-                      className="flex flex-col bg-zinc-950 border border-zinc-800/60 rounded p-1.5"
+                <>
+                  {/* Visual Timeline Bar */}
+                  <div className="w-full overflow-x-auto pb-2 mb-2 custom-scrollbar">
+                    <div 
+                      ref={(el) => { containerRefs.current[segment.id] = el; }}
+                      className="relative h-8 bg-zinc-950 rounded-lg overflow-hidden flex border border-zinc-800/60 group select-none min-w-full"
+                      style={{ minWidth: `max(100%, ${segment.words.length * 50}px)` }}
                     >
-                      <input
-                        type="text"
-                        value={w.word}
-                        onFocus={() => setEditingId(segment.id)}
-                        onBlur={() => setEditingId(null)}
-                        onChange={(e) => {
-                          const newWordText = e.target.value;
-                          const newSegments = transcription.segments.map(seg => {
-                            if (seg.id === segment.id) {
-                              const newWords = [...seg.words];
-                              newWords[wIdx] = { ...newWords[wIdx], word: newWordText };
-                              const newText = newWords.map(w => w.word).join('');
-                              return { ...seg, words: newWords, text: newText };
-                            }
-                            return seg;
-                          });
-                          onChange({ ...transcription, segments: newSegments });
-                        }}
-                        className="bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-[11px] font-medium text-blue-400 focus:outline-none focus:border-blue-500 text-center w-full"
-                      />
-                      <div className="flex items-center gap-1 mt-1.5 justify-center">
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={w.start}
-                          onChange={(e) => handleWordTimingChange(segment.id, wIdx, 'start', parseFloat(e.target.value) || 0)}
-                          className="w-12 bg-zinc-950 border border-zinc-800 rounded text-[9px] font-mono text-zinc-500 px-1 py-0.5 text-center focus:outline-none focus:border-blue-500"
-                          title="Start"
-                        />
-                        <span className="text-[9px] text-zinc-600">-</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={w.end}
-                          onChange={(e) => handleWordTimingChange(segment.id, wIdx, 'end', parseFloat(e.target.value) || 0)}
-                          className="w-12 bg-zinc-950 border border-zinc-800 rounded text-[9px] font-mono text-zinc-500 px-1 py-0.5 text-center focus:outline-none focus:border-blue-500"
-                          title="End"
-                        />
-                      </div>
+                      {segment.words.map((w, wIdx) => {
+                         const segDuration = segment.end - segment.start;
+                         const widthPct = segDuration > 0 ? ((w.end - w.start) / segDuration) * 100 : 0;
+                         return (
+                           <div 
+                             key={wIdx} 
+                             style={{ width: `${Math.max(0, widthPct)}%` }} 
+                             className={`relative h-full border-r border-zinc-900 bg-blue-600/10 hover:bg-blue-500/20 transition-colors flex items-center justify-center overflow-hidden ${dragState?.segmentId === segment.id && dragState?.wordIdx === wIdx ? 'bg-blue-500/30' : ''}`}
+                           >
+                              <span className="text-[10px] text-blue-200/70 font-medium truncate px-1 whitespace-nowrap">
+                                {w.word.trim()}
+                              </span>
+                              {wIdx < segment.words.length - 1 && (
+                                <div 
+                                  className="absolute right-0 top-0 w-3 h-full cursor-col-resize hover:bg-blue-500 z-10 translate-x-1/2 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onMouseDown={(e) => handleDragStart(e, segment.id, wIdx)}
+                                >
+                                  <div className="w-[1px] h-3 bg-blue-300 rounded-full" />
+                                </div>
+                              )}
+                           </div>
+                         )
+                      })}
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Word Grid */}
+                  <div className="flex flex-wrap gap-y-3 gap-x-4 items-center">
+                  {segment.words.map((w, wIdx) => {
+                    const isInvalid = w.start > w.end;
+                    const overlapNext = wIdx < segment.words.length - 1 && w.end > segment.words[wIdx + 1].start;
+                    
+                    return (
+                      <div
+                        key={wIdx}
+                        className={`flex flex-col bg-zinc-950 border rounded p-1.5 w-[130px] relative group transition-colors ${
+                          isInvalid || overlapNext ? 'border-red-500/80 shadow-[0_0_8px_rgba(239,68,68,0.2)]' : 'border-zinc-800/60 hover:border-zinc-600'
+                        }`}
+                      >
+                        <input
+                          type="text"
+                          value={w.word}
+                          onFocus={() => setEditingId(segment.id)}
+                          onBlur={() => setEditingId(null)}
+                          onChange={(e) => {
+                            const newWordText = e.target.value;
+                            const newSegments = transcription.segments.map(seg => {
+                              if (seg.id === segment.id) {
+                                const newWords = [...seg.words];
+                                newWords[wIdx] = { ...newWords[wIdx], word: newWordText };
+                                const newText = newWords.map(w => w.word).join('');
+                                return { ...seg, words: newWords, text: newText };
+                              }
+                              return seg;
+                            });
+                            onChange({ ...transcription, segments: newSegments });
+                          }}
+                          className={`bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-[11px] font-medium focus:outline-none focus:border-blue-500 text-center w-full ${isInvalid ? 'text-red-400' : 'text-blue-400'}`}
+                        />
+                        <div className="flex items-center gap-1 mt-1.5 justify-center">
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={w.start}
+                            onChange={(e) => handleWordTimingChange(segment.id, wIdx, 'start', parseFloat(e.target.value) || 0)}
+                            className={`w-12 bg-zinc-950 border rounded text-[9px] font-mono px-1 py-0.5 text-center focus:outline-none focus:border-blue-500 ${w.start > w.end ? 'border-red-500/80 text-red-400' : 'border-zinc-800 text-zinc-500'}`}
+                            title="Start Time"
+                          />
+                          <span className="text-[9px] text-zinc-600">-</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={w.end}
+                            onChange={(e) => handleWordTimingChange(segment.id, wIdx, 'end', parseFloat(e.target.value) || 0)}
+                            className={`w-12 bg-zinc-950 border rounded text-[9px] font-mono px-1 py-0.5 text-center focus:outline-none focus:border-blue-500 ${w.end < w.start || overlapNext ? 'border-red-500/80 text-red-400' : 'border-zinc-800 text-zinc-500'}`}
+                            title="End Time"
+                          />
+                        </div>
+                        {/* Merge button */}
+                        {wIdx < segment.words.length - 1 && (
+                          <button
+                            onClick={() => handleMergeNextWord(segment.id, wIdx)}
+                            className="absolute -right-[18px] top-1/2 -translate-y-1/2 z-10 w-5 h-5 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-blue-600 hover:border-blue-500 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                            title="Merge with next word"
+                          >
+                            <VscLink className="text-[10px]" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+                </>
               ) : (
                 <textarea
                   className={`w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs leading-relaxed focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 resize-y min-h-[60px] ${

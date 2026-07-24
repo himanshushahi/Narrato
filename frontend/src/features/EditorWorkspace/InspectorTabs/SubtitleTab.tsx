@@ -10,13 +10,14 @@ interface SubtitleTabProps {
   onSettingsUpdate: (settings: any) => void;
   onTranscriptionChange: (data: any) => void;
   onSaveTranscription: () => void;
+  onResetTranscription: () => void;
   onPlaySegment: (frame: number) => void;
   onSeek: (frame: number) => void;
 }
 
 export const SubtitleTab: React.FC<SubtitleTabProps> = ({
   transcriptionData, isSavingSubtitles,
-  onTranscriptionChange, onSaveTranscription, onPlaySegment
+  onTranscriptionChange, onSaveTranscription, onResetTranscription, onPlaySegment
 }) => {
   const [advancedMode, setAdvancedMode] = useState(false);
 
@@ -40,14 +41,23 @@ export const SubtitleTab: React.FC<SubtitleTabProps> = ({
               {transcriptionData.segments.length} seg
             </span>
           )}
-          <button
-            onClick={onSaveTranscription}
-            disabled={isSavingSubtitles}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/20 text-[10px] font-bold transition-all disabled:opacity-50 cursor-pointer shrink-0"
-          >
-            {isSavingSubtitles ? <VscLoading className="animate-spin text-[10px]" /> : <VscSave className="text-[10px]" />}
-            {isSavingSubtitles ? 'Saving...' : 'Save'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={onResetTranscription}
+              disabled={isSavingSubtitles}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-zinc-600/20 hover:bg-zinc-600/30 text-zinc-400 border border-zinc-600/20 text-[10px] font-bold transition-all disabled:opacity-50 cursor-pointer shrink-0"
+            >
+              Reset
+            </button>
+            <button
+              onClick={onSaveTranscription}
+              disabled={isSavingSubtitles}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/20 text-[10px] font-bold transition-all disabled:opacity-50 cursor-pointer shrink-0"
+            >
+              {isSavingSubtitles ? <VscLoading className="animate-spin text-[10px]" /> : <VscSave className="text-[10px]" />}
+              {isSavingSubtitles ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
 
         {/* SubtitleEditor with advanced mode state passed through */}

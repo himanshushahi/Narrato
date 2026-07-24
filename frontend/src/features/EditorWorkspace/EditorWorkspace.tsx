@@ -85,7 +85,7 @@ export const EditorWorkspace: React.FC = () => {
     previewAssets, previewingSubVisual, uploadingSubVisual, handlePreviewSubVisual, handleUploadSubVisual,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
-    handleSettingsUpdate, handleSaveTranscription
+    handleSettingsUpdate, handleSaveTranscription, handleResetTranscription
   } = useScriptEditing(
     id, scriptData, setScriptData, manifestData, setManifestData,
     transcriptionData, setTranscriptionData, loadFiles
@@ -526,6 +526,7 @@ export const EditorWorkspace: React.FC = () => {
           onSettingsUpdate={handleSettingsUpdate}
           onTranscriptionChange={setTranscriptionData}
           onSaveTranscription={handleSaveTranscription}
+          onResetTranscription={handleResetTranscription}
 
           onSeek={handleSeek}
         />

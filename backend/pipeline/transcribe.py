@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import re
 from pathlib import Path
 from backend.core.config import get_models_dir
 from backend.core.logger import logger
@@ -315,6 +316,28 @@ def is_transcribe_stale(project_dict, project_dir):
 
 
 
+def _distribute_words_fallback(segment_text, segment_start, segment_end):
+    """Fallback: distribute words evenly by character ratio when Whisper word timestamps are unreliable."""
+    segment_duration = segment_end - segment_start
+    math_words = re.findall(r'\s*\S+', segment_text)
+
+    total_chars = sum(len(w.strip()) for w in math_words)
+    current_start = segment_start
+    words = []
+
+    for w in math_words:
+        ratio = len(w.strip()) / total_chars if total_chars > 0 else 0
+        word_duration = ratio * segment_duration
+        words.append({
+            "start": current_start,
+            "end": current_start + word_duration,
+            "word": w
+        })
+        current_start += word_duration
+
+    return words
+
+
 def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Whisper alignment transcription step of pipeline."""
     audio_path = project_dict['audio_path']
@@ -365,12 +388,22 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
         words = []
         if segment.words:
-            for w in segment.words:
-                words.append({
-                    "start": w.start,
-                    "end": w.end,
-                    "word": w.word
-                })
+            whisper_words = [w for w in segment.words if w.word.strip()]
+            expected_words = segment.text.split()
+            
+            if len(whisper_words) == len(expected_words):
+                for w in segment.words:
+                    words.append({
+                        "start": w.start,
+                        "end": w.end,
+                        "word": w.word
+                    })
+            else:
+                logger.info(f"Whisper word count mismatch ({len(whisper_words)} vs {len(expected_words)}). Falling back to math distribution for segment {segment.id}")
+                words = _distribute_words_fallback(segment.text, segment.start, segment.end)
+        else:
+            logger.info(f"No whisper words found. Falling back to math distribution for segment {segment.id}")
+            words = _distribute_words_fallback(segment.text, segment.start, segment.end)
         
         segments.append({
             "id": segment.id,

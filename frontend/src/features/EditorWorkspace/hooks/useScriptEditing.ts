@@ -33,6 +33,7 @@ interface UseScriptEditingReturn {
   setSceneToDelete: (idx: number | null) => void;
   handleSettingsUpdate: (newSettings: any) => void;
   handleSaveTranscription: () => Promise<void>;
+  handleResetTranscription: () => void;
 }
 
 export function useScriptEditing(
@@ -46,7 +47,7 @@ export function useScriptEditing(
   loadFiles: (projId: string) => Promise<void>
 ): UseScriptEditingReturn {
   const { selectedProject, updateProject, downloadFont } = useProjectStore();
-  const { addToast } = useUIStore();
+  const { addToast, showConfirm } = useUIStore();
 
   const [editingCard, setEditingCard] = useState<{ key: string, mode: 'script' | 'visuals' } | null>(null);
   const [rewritePrompt, setRewritePrompt] = useState('');
@@ -614,6 +615,25 @@ export function useScriptEditing(
     }
   }, [projectId, transcriptionData, selectedProject, loadFiles, addToast]);
 
+  const handleResetTranscription = useCallback(() => {
+    if (!projectId || !selectedProject?.transcription_path) return;
+    
+    showConfirm(
+      "Reset Subtitles",
+      "Reset subtitles to last saved state? Unsaved changes will be lost.",
+      async () => {
+        try {
+          const transcript = await callApi<any>('read_json_file', selectedProject.transcription_path!);
+          _setTranscriptionData(transcript || { segments: [] });
+          addToast("Subtitles reset to last saved state", 'success');
+        } catch (e) {
+          console.error(e);
+          addToast("Failed to reset subtitles", 'error');
+        }
+      }
+    );
+  }, [projectId, selectedProject, _setTranscriptionData, addToast, showConfirm]);
+
   return {
     editingCard, setEditingCard,
     rewritePrompt, setRewritePrompt,
@@ -625,6 +645,6 @@ export function useScriptEditing(
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,
-    setSceneToDelete, handleSettingsUpdate, handleSaveTranscription,
+    setSceneToDelete, handleSettingsUpdate, handleSaveTranscription, handleResetTranscription,
   };
 }
