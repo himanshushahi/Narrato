@@ -584,6 +584,16 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
     const showImage = meta.show_image || false;
     const imageUrl = meta.image_url || '';
     const imageCaption = meta.image_caption || '';
+    const imageScale = meta.image_scale ?? 100;
+    const newspaperTheme = meta.newspaper_theme || 'modern';
+
+    const isVintage = newspaperTheme === 'vintage';
+    const outerBg = isVintage ? '#d4c5a9' : '#f3f4f6';
+    const paperBg = isVintage ? '#f2e6c9' : '#fdfbf7';
+    const paperBorder = isVintage ? '#b8a88a' : '#e5e5e5';
+    const textColor = isVintage ? '#2c1810' : '#111827';
+    const accentColor = isVintage ? '#8b6914' : '#000';
+    const dividerColor = isVintage ? '#5c3d2e' : '#000';
 
     // Fast typewriter text progress
     const charCount = text.length;
@@ -623,7 +633,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
         height: '100%',
         padding: 40,
         boxSizing: 'border-box',
-        backgroundColor: '#f3f4f6', // Clean light gray background
+        backgroundColor: outerBg,
         position: 'relative',
         overflow: 'hidden',
       }}>
@@ -633,12 +643,12 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
           minHeight: 800,
           maxHeight: '96%',
           overflow: 'hidden',
-          backgroundColor: '#fdfbf7', // Off-white clean paper color
-          border: '1px solid #e5e5e5',
+          backgroundColor: paperBg,
+          border: `1px solid ${paperBorder}`,
           boxShadow: '0 20px 40px rgba(0,0,0,0.1), 0 5px 15px rgba(0,0,0,0.05)',
           display: 'flex',
           flexDirection: 'column',
-          color: '#111827',
+          color: textColor,
           padding: '40px 48px',
           position: 'relative',
           transform: `scale(${entranceScale}) translateY(${slideUp}px)`,
@@ -659,7 +669,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
               textTransform: 'uppercase',
               letterSpacing: -1,
               margin: 0,
-              color: '#000',
+              color: accentColor,
               lineHeight: 1
             }}>
               {title}
@@ -682,8 +692,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
 
           {/* Top Divider with Sections */}
           <div style={{
-            borderTop: '4px solid #000',
-            borderBottom: '2px solid #000',
+            borderTop: `4px solid ${dividerColor}`,
+            borderBottom: `2px solid ${dividerColor}`,
             padding: '6px 0',
             marginBottom: 24,
             display: 'flex',
@@ -711,7 +721,7 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                 fontWeight: 900,
                 fontSize: 64,
                 lineHeight: 1.1,
-                color: '#000',
+                color: accentColor,
                 margin: '0 0 12px 0',
                 textAlign: 'center'
               }}>
@@ -731,19 +741,20 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
 
             {/* Image Area */}
             {showImage && (
-              <div style={{ marginBottom: 28 }}>
+              <div style={{ marginBottom: 28, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <div style={{
-                  width: '100%',
-                  maxHeight: 450,
-                  backgroundColor: '#e5e7eb',
-                  border: '1px solid #d1d5db',
+                  width: `${imageScale}%`,
+                  height: 450 * (imageScale / 100),
+                  maxHeight: 450 * (imageScale / 100),
+                  backgroundColor: isVintage ? '#d4c5a9' : '#e5e7eb',
+                  border: `1px solid ${isVintage ? '#b8a88a' : '#d1d5db'}`,
                   overflow: 'hidden',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}>
                   {imageUrl ? (
-                    <Img src={imageUrl} style={{ width: '100%', maxHeight: 450, objectFit: 'contain', filter: 'grayscale(100%) contrast(1.1)' }} />
+                    <Img src={imageUrl} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(100%) contrast(1.1)' }} />
                   ) : (
                     <div style={{ color: '#9ca3af', fontFamily: 'sans-serif', fontSize: 14 }}>[ IMAGE PLACEHOLDER ]</div>
                   )}
@@ -832,8 +843,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
               <div style={{
                 marginTop: 36,
                 padding: '24px 40px',
-                borderTop: '2px solid #000',
-                borderBottom: '1px solid #ccc',
+                borderTop: `2px solid ${dividerColor}`,
+                borderBottom: `1px solid ${paperBorder}`,
                 fontFamily: "'Playfair Display', serif",
                 fontSize: 32,
                 fontStyle: 'italic',

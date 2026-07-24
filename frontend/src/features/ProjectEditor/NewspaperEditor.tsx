@@ -157,6 +157,34 @@ export const NewspaperEditor = ({ visualMeta, onChange }: NewspaperEditorProps) 
       <div className="space-y-3">
         <div className="text-[10px] text-amber-500/80 uppercase tracking-wider font-bold border-b border-white/5 pb-1">Visual</div>
 
+        <div className="space-y-1.5">
+          <label className="text-stone-400/80 font-medium tracking-wide mb-1 ml-1 text-[10px]">Newspaper Theme</label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => update('newspaper_theme', 'modern')}
+              className={`flex-1 text-[11px] px-3 py-2 rounded-lg border transition-all cursor-pointer ${
+                (visualMeta?.newspaper_theme || 'modern') === 'modern'
+                  ? 'bg-stone-200 text-stone-900 border-stone-300 font-semibold'
+                  : 'bg-black/20 text-stone-400 border-white/10 hover:border-stone-500'
+              }`}
+            >
+              Modern
+            </button>
+            <button
+              type="button"
+              onClick={() => update('newspaper_theme', 'vintage')}
+              className={`flex-1 text-[11px] px-3 py-2 rounded-lg border transition-all cursor-pointer ${
+                visualMeta?.newspaper_theme === 'vintage'
+                  ? 'bg-amber-200 text-amber-900 border-amber-400 font-semibold'
+                  : 'bg-black/20 text-stone-400 border-white/10 hover:border-amber-500'
+              }`}
+            >
+              Vintage
+            </button>
+          </div>
+        </div>
+
         <AnimatePresence>
           {(expanded || visualMeta?.show_image) && (
             <motion.div
@@ -186,6 +214,23 @@ export const NewspaperEditor = ({ visualMeta, onChange }: NewspaperEditorProps) 
                     className="w-full bg-black/20 border border-white/5 rounded-lg px-3 py-2 text-[11px] text-white focus:outline-none focus:border-amber-500/50 focus:bg-black/40 transition-all duration-300"
                     placeholder="Caption text"
                   />
+                </div>
+              </div>
+              <div className="pb-2">
+                <div className="space-y-1.5">
+                  <label className="text-stone-400/80 font-medium tracking-wide mb-1 ml-1 text-[10px]">Image Scale</label>
+                  <div className="flex items-center gap-3 px-1">
+                    <input
+                      type="range"
+                      min={25}
+                      max={100}
+                      step={5}
+                      value={visualMeta?.image_scale ?? 100}
+                      onChange={(e) => update('image_scale', Number(e.target.value))}
+                      className="flex-1 accent-amber-500 cursor-pointer"
+                    />
+                    <span className="text-[10px] text-stone-500 w-8 text-right">{visualMeta?.image_scale ?? 100}%</span>
+                  </div>
                 </div>
               </div>
             </motion.div>
