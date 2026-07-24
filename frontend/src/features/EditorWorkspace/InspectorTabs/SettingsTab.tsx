@@ -387,6 +387,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set(['whisper', 'rendering', 'numbering', 'subtitles', 'branding', 'timeline']));
 
   const effectiveGlobalWhisperModel = globalSettings.whisper_model || (projectLanguage === 'hi' ? 'collabora/faster-whisper-small-hindi' : 'base');
+  const normalizeModelId = (id: string) => id.replace(/\//g, '_');
 
   const updateKey = (key: string, value: string) => {
     onSettingsUpdate({ ...localProjectSettings, [key]: value });
@@ -490,7 +491,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 value={projectVal('whisper_model') || effectiveGlobalWhisperModel}
                 onChange={(v) => updateKey('whisper_model', v)}
               />
-              {!downloadedWhisperModels.some(m => m.id === (projectVal('whisper_model') || effectiveGlobalWhisperModel)) && (
+              {!downloadedWhisperModels.some(m => normalizeModelId(m.id) === normalizeModelId(projectVal('whisper_model') || effectiveGlobalWhisperModel)) && (
                 <div className="text-[9px] text-amber-500 font-medium px-1">
                   This model is not downloaded. You can download it from the Global Settings page.
                 </div>
