@@ -17,7 +17,7 @@ import { DeviceMockup } from './DeviceMockup';
 import { calculateSubVisualTimings } from '../../utils/duration';
 
 interface SubVisual {
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'timeline' | 'thread' | 'device_mockup';
+  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'timeline' | 'thread' | 'device_mockup' | 'ai_image';
   visual_cue: string;
   transition_type?: string;
   visual_url?: string;

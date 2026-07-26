@@ -28,6 +28,7 @@ const SUBVISUAL_ICONS: Record<string, React.ElementType> = {
   timeline: Clock,
   thread: MessageCircle,
   device_mockup: Smartphone,
+  ai_image: Image, // Using Image icon
 };
 
 const SUBVISUAL_COLORS: Record<string, string> = {
@@ -43,6 +44,7 @@ const SUBVISUAL_COLORS: Record<string, string> = {
   timeline: 'from-indigo-500/40 to-cyan-500/30 border-indigo-500/50',
   thread: 'from-green-500/40 to-emerald-500/30 border-green-500/50',
   device_mockup: 'from-violet-500/40 to-purple-500/30 border-violet-500/50',
+  ai_image: 'from-orange-500/40 to-amber-500/30 border-orange-500/50',
 };
 
 interface SubVisualBlock {

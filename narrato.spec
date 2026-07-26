@@ -44,6 +44,7 @@ a = Analysis(
         'requests',
         'PIL',
         'piper',
+        'huggingface_hub',
     ],
     hookspath=[],
     hooksconfig={},

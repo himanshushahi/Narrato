@@ -13,6 +13,7 @@ export const VISUAL_TYPE_OPTIONS = [
   { value: 'timeline', label: 'Timeline Tracker' },
   { value: 'thread', label: 'Social Media Chat / Thread' },
   { value: 'device_mockup', label: '3D Device Mockup' },
+  { value: 'ai_image', label: 'AI Generated Image' },
 ];
 
 export const TRANSITION_TYPE_OPTIONS = [

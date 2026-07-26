@@ -16,6 +16,7 @@ import {
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
 } from 'react-icons/vsc';
 import { MdOutlineMovie } from 'react-icons/md';
+import { BsStars } from 'react-icons/bs';
 import { callApi } from '../utils/call-api';
 import { getMediaUrlSync } from '../utils/mediaUrl';
 
@@ -431,6 +432,39 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
             </AIProviderCard>
+          </div>
+
+          {/* HuggingFace Image Generation Card */}
+          <div>
+            <GlassCard className="p-6 space-y-6">
+              <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
+                <BsStars className="text-base text-[var(--color-accent-primary)]" />
+                Hugging Face Image Generation
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <CustomInput
+                  label="Hugging Face API Key"
+                  type="password"
+                  name="huggingface_api_key"
+                  value={formData.huggingface_api_key || ''}
+                  onChange={handleInputChange}
+                  placeholder="hf_..."
+                  icon={<VscKey />}
+                />
+                <CustomInput
+                  label="Default Model Name"
+                  type="text"
+                  name="huggingface_model"
+                  value={formData.huggingface_model || ''}
+                  onChange={handleInputChange}
+                  placeholder="black-forest-labs/FLUX.1-schnell"
+                  icon={<VscSymbolClass />}
+                />
+              </div>
+              <div className="text-[10px] text-stone-400">
+                This is used for generating AI Images when using the "AI Generated Image" visual type. Leave Model Name blank to use the prompt's specified model or the backend default.
+              </div>
+            </GlassCard>
           </div>
 
           {/* Localization & Default Language */}

@@ -451,6 +451,46 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
                     sub_visual["visual_type"] = fallback_type
                     logger.info(f"Saved fallback {fallback_type} for [{seg_idx}:{sub_idx}].")
 
+    elif visual_type == "ai_image":
+        hf_api_key = get_setting("huggingface_api_key")
+        hf_model = get_setting("huggingface_model") or "black-forest-labs/FLUX.1-schnell"
+        prompt = visual_cue
+
+        if not hf_api_key:
+            logger.warning(f"No HuggingFace API key for [{seg_idx}:{sub_idx}]. Falling back to stock image.")
+            fallback_type = "image"
+            asset_url = search_pexels_photo(visual_cue, api_key) if api_key else None
+            if asset_url:
+                dest_file_fb = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.jpg"
+                if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
+                    sub_visual["visual_path"] = str(dest_file_fb)
+                    sub_visual["visual_type"] = fallback_type
+                    logger.info(f"Saved fallback image for [{seg_idx}:{sub_idx}].")
+        else:
+            try:
+                from huggingface_hub import InferenceClient
+                client = InferenceClient(api_key=hf_api_key)
+                logger.info(f"Generating AI image for [{seg_idx}:{sub_idx}] with model '{hf_model}'...")
+                
+                # Check for cancellation before expensive call
+                if cancel_event and cancel_event.is_set():
+                    raise InterruptedError("Cancelled")
+                    
+                image = client.text_to_image(prompt=prompt, model=hf_model)
+                dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.png"
+                image.save(str(dest_file))
+                sub_visual["visual_path"] = str(dest_file)
+                logger.info(f"Successfully generated AI image to {dest_file}")
+            except Exception as e:
+                logger.error(f"Failed to generate AI image for [{seg_idx}:{sub_idx}]: {e}. Falling back to stock image.")
+                fallback_type = "image"
+                asset_url = search_pexels_photo(visual_cue, api_key) if api_key else None
+                if asset_url:
+                    dest_file_fb = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.jpg"
+                    if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
+                        sub_visual["visual_path"] = str(dest_file_fb)
+                        sub_visual["visual_type"] = fallback_type
+
     elif visual_type in ("scene", "portrait", "image", "parallax") and api_key:
         asset_url = None
         ext = ".jpg"
@@ -742,7 +782,7 @@ def preview_asset_download(project_id, visual_type, visual_cue):
         return {"success": True, "path": "", "message": "Non-media visual type previewed successfully."}
 
     api_key = get_setting("pexels_api_key")
-    if not api_key and visual_type != "youtube":
+    if not api_key and visual_type not in ("youtube", "ai_image"):
         return {"success": False, "error": "Pexels API key not configured"}
 
     from backend.core.config import get_storage_dir
@@ -869,7 +909,7 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
         for sub_idx, sv in enumerate(sub_visuals):
             # Only track positions that have actual media files (not programmatic types)
             visual_type = sv.get("visual_type", "")
-            if visual_type in ("scene", "image", "portrait", "parallax", "youtube"):
+            if visual_type in ("scene", "image", "portrait", "parallax", "youtube", "ai_image"):
                 kept_positions.add((scene_idx, sub_idx))
 
     deleted_files = []

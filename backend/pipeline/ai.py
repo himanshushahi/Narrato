@@ -107,7 +107,7 @@ SUB_VISUAL_SCHEMA = {
         "visual_cue": {"type": "string"},
         "visual_type": {
             "type": "string",
-            "enum": ["chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup"]
+            "enum": ["chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup", "ai_image"]
         },
         "transition": {
             "type": "string",
@@ -1123,7 +1123,7 @@ Be extremely creative! Do not just write simple text or rely solely on basic 'sc
 - custom_html: For highly customized, stunning modern UI layouts resembling high-end video editor templates with abundant, smooth animations. Use your CSS/HTML skills!
 - thread: For simulating social media conversations, chat threads, messaging app screens, or comment discussions.
 - device_mockup: For displaying content inside a realistic device frame (phone, tablet, laptop).
-- scene/image: Default fallback.
+- scene/image/ai_image: Default fallback (ai_image for AI-generated images via HuggingFace).
 - youtube: For real-world footage other than portraits.
 
 QUANTITY: Let the narration length and pacing dictate how many sub-visuals to generate. Break the narration into logical visual beats and create one sub-visual per beat. Each sub-visual should have a meaningful duration (2-15 seconds) — enough for the viewer to absorb it. The sum of all durations MUST equal the provided Total Scene Duration. For 'list' type: create 1 sub-visual PER LIST ITEM.
@@ -1135,7 +1135,7 @@ CRITICAL ON DURATION:
 - The SUM of the durations of all sub_visuals MUST equal the provided Total Scene Duration.
 
 === VISUAL META SCHEMAS (FILL THESE CREATIVELY) ===
-- scene/image/parallax: visual_meta {{}} (portrait may add {{"person_name": str}})
+- scene/image/parallax/ai_image: visual_meta {{}} (portrait may add {{"person_name": str}})
 - PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name.
 - youtube: visual_meta {{"start_offset": 15, "duration": 15, "skip_intro": true}}
 - chart: visual_meta {{"chart_type": "bar"|"line"|"pie", "title": str, "data": [{{"label": str, "value": number}}]}}
@@ -1268,7 +1268,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 
 ERROR PREVENTION:
 - Return total duration matching the provided scene duration (precision to 2 decimal places)
-- Use only valid visual types: list, chart, map, document, network, portrait, parallax, custom_html, scene, image, youtube, timeline, thread, device_mockup
+- Use only valid visual types: list, chart, map, document, network, portrait, parallax, custom_html, scene, image, youtube, timeline, thread, device_mockup, ai_image
 - Format all JSON numbers as numbers, not strings
 - Ensure all required fields are present for each visual type
 
@@ -1366,7 +1366,7 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
         try:
             visuals_data = _call_llm_json(visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, cancel_event)
             
-            valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup"}
+            valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup", "ai_image"}
             for sv in visuals_data.get("sub_visuals", []):
                 v_type = str(sv.get("visual_type", "")).lower()
                 if v_type not in valid_types:
@@ -1379,6 +1379,7 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
                     elif "youtube" in v_type or "video" in v_type: sv["visual_type"] = "youtube"
                     elif "list" in v_type: sv["visual_type"] = "list"
                     elif "html" in v_type: sv["visual_type"] = "custom_html"
+                    elif "ai_image" in v_type or "ai image" in v_type or "ai-image" in v_type: sv["visual_type"] = "ai_image"
                     elif "image" in v_type: sv["visual_type"] = "image"
                     elif "timeline" in v_type: sv["visual_type"] = "timeline"
                     elif "thread" in v_type or "chat" in v_type: sv["visual_type"] = "thread"

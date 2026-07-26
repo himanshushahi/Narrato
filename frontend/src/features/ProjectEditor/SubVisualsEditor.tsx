@@ -126,7 +126,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     {uploadingSubVisual !== null ? <div className="w-3 h-3 border-2 border-green-500/30 border-t-green-500 rounded-full animate-spin" /> : <BsUpload size={14} />}
                   </button>
                 )}
-                {onPreviewSubVisual && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(getValidVisualType(sv.visual_type)) && (
+                {onPreviewSubVisual && ['scene', 'image', 'portrait', 'parallax', 'youtube', 'ai_image'].includes(getValidVisualType(sv.visual_type)) && (
                   <button type="button" onClick={(e) => { e.stopPropagation(); onPreviewSubVisual(idx); }} disabled={previewingSubVisual !== null} className="text-blue-500/80 hover:text-blue-400 text-xs px-2 py-1 bg-blue-500/10 rounded-md cursor-pointer transition-colors disabled:opacity-50" title="Download & Preview">
                     {previewingSubVisual !== null ? <div className="w-3 h-3 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" /> : <BsEye size={14} />}
                   </button>
