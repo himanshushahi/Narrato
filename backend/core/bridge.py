@@ -1075,7 +1075,7 @@ class ApiBridge:
             result = window.create_file_dialog(
                 dialog_type=webview.OPEN_DIALOG,
                 allow_multiple=False,
-                file_types=('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)', 'All Files (*.*)')
+                file_types=('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
             )
             if not result:
                 return {"success": False, "error": "No file selected"}
@@ -1100,7 +1100,7 @@ class ApiBridge:
 
         try:
             shutil.copy2(str(src_path), str(dest_file))
-            logger.info(f"Uploaded image preview to {dest_file}")
+            logger.info(f"Uploaded media preview to {dest_file}")
         except Exception as e:
             logger.error(f"Failed to copy uploaded file: {e}")
             return {"success": False, "error": f"Failed to copy file: {e}"}

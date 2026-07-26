@@ -1,17 +1,26 @@
 import React from 'react';
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { interpolate, spring, useCurrentFrame, useVideoConfig, Img } from 'remotion';
 
 interface DeviceMockupProps {
   meta: any;
   durationInFrames: number;
+  visualUrl?: string;
 }
 
-export const DeviceMockup: React.FC<DeviceMockupProps> = ({ meta }) => {
+export const DeviceMockup: React.FC<DeviceMockupProps> = ({ meta, visualUrl }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   const device = meta?.device?.toLowerCase() || 'iphone';
   const screenImageUrl = meta?.screen_image_url;
+
+  // Screen content: uploaded file > screen_image_url meta
+  const screenSrc = visualUrl || screenImageUrl || '';
+
+  // Screen-level zoom & position from meta
+  const screenZoom = meta?.screen_zoom ?? 1;
+  const screenOffsetX = meta?.screen_offset_x ?? 0;
+  const screenOffsetY = meta?.screen_offset_y ?? 0;
 
   // Float animation
   const progress = spring({
@@ -94,16 +103,16 @@ export const DeviceMockup: React.FC<DeviceMockupProps> = ({ meta }) => {
           overflow: 'hidden',
           position: 'relative',
         }}>
-          {screenImageUrl ? (
-            <img 
-              src={screenImageUrl} 
-              alt="Screen Content" 
-              style={{ 
-                width: '100%', 
-                height: '100%', 
-                objectFit: 'cover' 
-              }} 
-            />
+          {screenSrc ? (
+              <Img
+                src={screenSrc}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transform: `scale(${screenZoom}) translate3d(${screenOffsetX}px, ${screenOffsetY}px, 0)`,
+                }}
+              />
           ) : (
             <div style={{
               width: '100%',

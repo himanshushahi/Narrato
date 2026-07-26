@@ -4,6 +4,7 @@ import hashlib
 import requests
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
 from backend.database.db import get_setting, get_project, update_project
 from backend.core.logger import logger
 from backend.core.config import get_ytdlp_path, get_ffmpeg_path, get_startupinfo
@@ -519,6 +520,19 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
             if download_asset(asset_url, dest_file, cancel_event=cancel_event):
                 sub_visual["visual_path"] = str(dest_file)
                 logger.info(f"Saved asset_{seg_idx:03d}_{sub_idx:02d}{ext}")
+
+    elif visual_type == "device_mockup":
+        screen_url = visual_meta.get("screen_image_url", "")
+        if screen_url:
+            parsed = urlparse(screen_url)
+            _, ext = os.path.splitext(parsed.path)
+            if not ext:
+                ext = ".jpg"
+            dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
+            if download_asset(screen_url, dest_file, cancel_event=cancel_event):
+                sub_visual["visual_path"] = str(dest_file)
+                logger.info(f"Downloaded device_mockup screen asset_{seg_idx:03d}_{sub_idx:02d}{ext}")
+
     # Programmatic types (chart, map, document, network, timeline) don't need downloads
 
     return sub_visual
@@ -909,7 +923,7 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
         for sub_idx, sv in enumerate(sub_visuals):
             # Only track positions that have actual media files (not programmatic types)
             visual_type = sv.get("visual_type", "")
-            if visual_type in ("scene", "image", "portrait", "parallax", "youtube", "ai_image"):
+            if visual_type in ("scene", "image", "portrait", "parallax", "youtube", "ai_image", "device_mockup"):
                 kept_positions.add((scene_idx, sub_idx))
 
     deleted_files = []

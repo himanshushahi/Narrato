@@ -53,7 +53,7 @@ interface DiskScanResult {
 /**
  * Programmatic visual types that have no downloaded asset file.
  */
-const PROGRAMMATIC_TYPES = new Set(['chart', 'map', 'document', 'network', 'timeline', 'thread', 'device_mockup']);
+const PROGRAMMATIC_TYPES = new Set(['chart', 'map', 'document', 'network', 'timeline', 'thread']);
 
 /**
  * Hook that provides a flattened, real-time view of all visual assets for a project.

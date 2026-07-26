@@ -1,10 +1,25 @@
 import { VscAdd, VscTrash } from 'react-icons/vsc';
+import { BiReset } from 'react-icons/bi';
 
 
 
 export const DeviceMockupEditor = ({ visualMeta, onChange }: { visualMeta: any, onChange: (newMeta: any) => void }) => {
+  const resetScreenTransform = () => {
+    onChange({ ...visualMeta, screen_zoom: 1, screen_offset_x: 0, screen_offset_y: 0 });
+  };
+
   return (
     <div className="col-span-2 mt-2 bg-white/5 backdrop-blur-sm p-4 rounded-xl border border-white/10 shadow-lg space-y-3">
+      <div className="flex justify-between items-center">
+        <span className="text-xs text-stone-400 font-bold uppercase tracking-wider">Device Settings</span>
+        <button
+          type="button"
+          onClick={resetScreenTransform}
+          className="flex items-center gap-1 text-[10px] text-stone-400 hover:text-amber-400 bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-1 rounded-md transition-colors cursor-pointer"
+        >
+          <BiReset size={12} /> Reset Zoom/Position
+        </button>
+      </div>
       <div>
         <label className="block text-xs text-stone-400 font-bold uppercase tracking-wider mb-1">Device Type</label>
         <select
@@ -25,6 +40,33 @@ export const DeviceMockupEditor = ({ visualMeta, onChange }: { visualMeta: any, 
           className="w-full bg-stone-900 border border-white/10 rounded px-2 py-1.5 text-sm text-stone-200 outline-none focus:border-amber-500/50"
           placeholder="https://example.com/image.png"
         />
+      </div>
+      <div>
+        <label className="block text-xs text-stone-400 font-bold uppercase tracking-wider mb-1">Screen Zoom</label>
+        <input type="range" min="0.1" max="5" step="0.1" value={visualMeta.screen_zoom ?? 1} onChange={(e) => onChange({ ...visualMeta, screen_zoom: parseFloat(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+        <div className="flex justify-between text-xs text-stone-500 mt-0.5">
+          <span>0.1x</span>
+          <span className="text-amber-500 font-mono font-bold">{(visualMeta.screen_zoom ?? 1).toFixed(1)}x</span>
+          <span>5x</span>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs text-stone-400 font-bold uppercase tracking-wider mb-1">Screen X Offset</label>
+        <input type="range" min="-500" max="500" step="1" value={visualMeta.screen_offset_x ?? 0} onChange={(e) => onChange({ ...visualMeta, screen_offset_x: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+        <div className="flex justify-between text-xs text-stone-500 mt-0.5">
+          <span>-500</span>
+          <span className="text-amber-500 font-mono font-bold">{(visualMeta.screen_offset_x ?? 0) >= 0 ? '+' : ''}{visualMeta.screen_offset_x ?? 0}px</span>
+          <span>+500</span>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs text-stone-400 font-bold uppercase tracking-wider mb-1">Screen Y Offset</label>
+        <input type="range" min="-500" max="500" step="1" value={visualMeta.screen_offset_y ?? 0} onChange={(e) => onChange({ ...visualMeta, screen_offset_y: parseInt(e.target.value) })} className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+        <div className="flex justify-between text-xs text-stone-500 mt-0.5">
+          <span>-500</span>
+          <span className="text-amber-500 font-mono font-bold">{(visualMeta.screen_offset_y ?? 0) >= 0 ? '+' : ''}{visualMeta.screen_offset_y ?? 0}px</span>
+          <span>+500</span>
+        </div>
       </div>
     </div>
   );

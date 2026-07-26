@@ -104,6 +104,9 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
   } else if (type === 'device_mockup') {
     meta.device = 'iphone';
     meta.screen_image_url = 'https://picsum.photos/400/800';
+    meta.screen_zoom = 1;
+    meta.screen_offset_x = 0;
+    meta.screen_offset_y = 0;
   }
 
   return meta;

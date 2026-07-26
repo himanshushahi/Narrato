@@ -1145,7 +1145,7 @@ CRITICAL ON DURATION:
 - network: visual_meta {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
 - list: visual_meta {{"number": int, "title": str, "description": str}}
 - thread: visual_meta {{"messages": [{{"sender": str, "text": str, "time": str}}], "app_style": "whatsapp"|"imessage"|"twitter"|"discord", "title": str}}
-- device_mockup: visual_meta {{"device": "phone"|"tablet"|"laptop", "screen_content": {{"type": str, "content": str}}, "bg_color": str}}
+- device_mockup: visual_meta {{"device": "iphone"|"macbook", "screen_image_url": str}}
 - custom_html: visual_meta {{"html": str, "css": str}} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)
 - Any type: add {{"lower_third": {{"title": str, "subtitle": str}}}} for overlay text.
 - Any type: add {{"custom_html_ui": {{"html": str, "css": str}}}} for custom HTML/CSS UI overlays (e.g. badges, custom text layouts) on top of the visual.
