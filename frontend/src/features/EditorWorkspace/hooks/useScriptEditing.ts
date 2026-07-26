@@ -428,19 +428,22 @@ export function useScriptEditing(
     if (!projectId || !scriptData) return;
 
     // Read current type+cue from scriptData
-    let visual_type: string, visual_cue: string;
+    let visual_type: string, visual_cue: string, visual_meta: any = {};
     if (sectionType === 'introduction') {
       const sv = scriptData.introduction?.sub_visuals?.[subIdx] || {};
       visual_type = sv.visual_type || 'scene';
       visual_cue = sv.visual_cue || '';
+      visual_meta = sv.visual_meta || {};
     } else if (sectionType === 'conclusion') {
       const sv = scriptData.conclusion?.sub_visuals?.[subIdx] || {};
       visual_type = sv.visual_type || 'scene';
       visual_cue = sv.visual_cue || '';
+      visual_meta = sv.visual_meta || {};
     } else {
       const sv = scriptData.scenes?.[sceneIdx]?.sub_visuals?.[subIdx] || {};
       visual_type = sv.visual_type || 'scene';
       visual_cue = sv.visual_cue || '';
+      visual_meta = sv.visual_meta || {};
     }
 
     if (!visual_cue.trim()) {
@@ -457,16 +460,20 @@ export function useScriptEditing(
     setPreviewingSubVisual(assetKey);
     try {
       const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
-        'preview_asset_download', projectId, visual_type, visual_cue
+        'preview_asset_download', projectId, visual_type, visual_cue, visual_meta
       );
-      if (result?.success && result.visual_path) {
-        const vPath: string = result.visual_path;
-        const visualUrl = getMediaUrlSync(vPath);
-        setPreviewAssets(prev => ({
-          ...prev,
-          [assetKey]: { visual_path: vPath, visual_url: visualUrl }
-        }));
-        addToast("Preview downloaded!", 'success');
+      if (result?.success) {
+        if (result.visual_path) {
+          const vPath: string = result.visual_path;
+          const visualUrl = getMediaUrlSync(vPath);
+          setPreviewAssets(prev => ({
+            ...prev,
+            [assetKey]: { visual_path: vPath, visual_url: visualUrl }
+          }));
+          addToast("Preview downloaded!", 'success');
+        } else {
+          addToast((result as any).message || "Non-media visual - rendered natively", 'success');
+        }
       } else {
         addToast("Preview failed: " + (result?.error || "Unknown error"), 'error');
       }

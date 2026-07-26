@@ -532,6 +532,18 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
             if download_asset(screen_url, dest_file, cancel_event=cancel_event):
                 sub_visual["visual_path"] = str(dest_file)
                 logger.info(f"Downloaded device_mockup screen asset_{seg_idx:03d}_{sub_idx:02d}{ext}")
+        
+        # Fallback to searching Pexels using visual_cue if no URL provided or download failed
+        if not sub_visual.get("visual_path") and visual_cue and api_key:
+            logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Pexels fallback for device_mockup: '{visual_cue}'")
+            asset_url = search_pexels_photo(visual_cue, api_key)
+            if asset_url:
+                ext = ".jpg"
+                dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
+                if download_asset(asset_url, dest_file, cancel_event=cancel_event):
+                    sub_visual["visual_path"] = str(dest_file)
+                    sub_visual.setdefault("visual_meta", {})["screen_image_url"] = asset_url
+                    logger.info(f"Saved fallback Pexels image for device_mockup {seg_idx:03d}_{sub_idx:02d}{ext}")
 
     # Programmatic types (chart, map, document, network, timeline) don't need downloads
 
@@ -777,7 +789,7 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
     return {"success": True, "segment": segment, "sub_visual": sub_visual}
 
 
-def preview_asset_download(project_id, visual_type, visual_cue):
+def preview_asset_download(project_id, visual_type, visual_cue, visual_meta=None):
     """
     Downloads a single asset for preview without modifying manifest or script.
     Saves to assets/previews/ directory with a unique temp name.
@@ -792,7 +804,7 @@ def preview_asset_download(project_id, visual_type, visual_cue):
         return {"success": False, "error": "Project not found"}
 
     # Programmatic types don't need downloading
-    if visual_type in ("chart", "map", "document", "network", "list", "custom_html", "timeline", "thread", "device_mockup"):
+    if visual_type in ("chart", "map", "document", "network", "list", "custom_html", "timeline", "thread"):
         return {"success": True, "path": "", "message": "Non-media visual type previewed successfully."}
 
     api_key = get_setting("pexels_api_key")
@@ -809,13 +821,17 @@ def preview_asset_download(project_id, visual_type, visual_cue):
     # Determine extension based on visual_type
     if visual_type == "youtube" or visual_type == "scene":
         ext = ".mp4"
+    elif visual_type == "ai_image":
+        ext = ".png"
     else:
         ext = ".jpg"
 
     preview_id = uuid.uuid4().hex[:8]
     dest_path = preview_dir / f"preview_{preview_id}{ext}"
 
-    sub_visual = {"visual_type": visual_type, "visual_cue": visual_cue, "visual_meta": {}}
+    if visual_meta is None:
+        visual_meta = {}
+    sub_visual = {"visual_type": visual_type, "visual_cue": visual_cue, "visual_meta": visual_meta}
 
     _fetch_single_sub_visual(
         sub_visual, assets_dir, 0, 0, api_key,

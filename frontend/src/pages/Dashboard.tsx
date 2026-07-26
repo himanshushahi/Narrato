@@ -261,7 +261,7 @@ export const Dashboard: React.FC = () => {
                       label="Narrative Topic / Name"
                       required
                       type="text"
-                      placeholder="e.g. The Scam of 1992, Rise of the East India Company"
+                      placeholder="e.g. The Rise and Fall of Rome, How Bitcoin Works, Mars Exploration Explained"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       className="bg-stone-950"
@@ -271,7 +271,7 @@ export const Dashboard: React.FC = () => {
                       label="Script & Art Direction Prompt"
                       required
                       rows={3}
-                      placeholder="Tell the AI what to cover in the script. e.g. Detail how the scam was plotted, who leaked the stock reports, and what systemic changes resulted."
+                      placeholder="Describe what the video should cover — key events, important figures, causes and effects, interesting facts, or any specific angle you want the script to focus on. The AI will use this to generate a structured outline and narration."
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       className="bg-stone-950"

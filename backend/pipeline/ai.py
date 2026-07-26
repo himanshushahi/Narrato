@@ -548,6 +548,10 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     # 1. Generate Outline
     progress_cb(10.0, "Generating video outline...")
     logger.info("Stage 1: Generating Outline...")
+    # Allocate scene time: ~15s reserved for intro + conclusion
+    per_scene_time = max(5, (target_duration - 15) // max_scenes)
+    per_scene_words = max(10, int(per_scene_time * 3.0))
+
     outline_system_prompt = f"""You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
 
 CRITICAL RULES:
@@ -561,7 +565,7 @@ CRITICAL RULES:
 BREAKDOWN REQUIREMENTS:
 - Generate exactly {min_scenes} to {max_scenes} chapters
 - Balance story pacing so each gets roughly equal screen time
-- Each chapter duration: approximately {target_duration // max_scenes:.1f} seconds (roughly {max(10, (target_duration // max_scenes) * 3)} words)
+- Each chapter: ~{per_scene_time} seconds (~{per_scene_words} words of spoken narration)
 - Ensure chapters flow chronologically with clear transitions
 - Each chapter must have: scene_number, chapter_title, scene_context
 
@@ -578,7 +582,7 @@ VIDEO SPECIFICATIONS:
 
 REQUIREMENTS:
 - Create exactly {min_scenes} to {max_scenes} chapters for a {target_duration}-second video
-- Each chapter: approximately {target_duration // max_scenes:.1f} seconds of spoken content
+- Each chapter: ~{per_scene_time} seconds of spoken content (~{per_scene_words} words)
 - Focus on essential information only - cut unnecessary details
 - Ensure each chapter has a clear, unique focus area
 - Provide accurate, engaging information with relevant scene context
@@ -617,9 +621,19 @@ CRITICAL CONCLUSION REQUIREMENTS:
 - Should not repeat information already covered
 
 LENGTH CONSTRAINTS:
-- Hook: 5-8 seconds (36-48 words at 7.2 wpm)
-- Summary + CTA: Together 10-16 seconds (72-112 words)
+- Hook: 5-8 seconds (15-24 words at ~3 words/sec)
+- Summary + CTA: Together 10-16 seconds (30-48 words)
 - Total: 15-24 seconds of unique content
+
+TTS-FRIENDLY WRITING (CRITICAL for voiceover synthesis):
+- Write numbers as words: "forty-two" NOT "42", "million" NOT "1,000,000"
+- Avoid abbreviations: "for example" NOT "e.g.", "that is" NOT "i.e."
+- Use short, clear sentences — easy for TTS to pronounce naturally
+- Avoid special characters (& @ © →) — TTS will misread them
+- Write dates in full: "January first twenty twenty-four" NOT "Jan 1, 2024"
+- Use commas and periods for natural pauses; avoid semicolons and long dashes
+- Spell out initials with periods: "U.S.A." NOT "USA"
+- Avoid parentheses — restructure instead
 
 LANGUAGE RULES:
 {lang_instruction}
@@ -672,10 +686,10 @@ LANGUAGE SPECIFIC RULES:
 - This applies to ALL spoken text (hook, summary, cta) - NEVER use English spellings
 
 SCRIPT LENGTH:
-- Hook: 5-8 seconds (36-48 words at 7.2 wpm speaking rate)
-- Summary: 5-8 seconds (36-48 words)
-- CTA: 5-8 seconds (36-48 words)
-- Total conclusion: 15-24 seconds (108-144 words)
+- Hook: 5-8 seconds (15-24 words at ~3 words/sec speaking rate)
+- Summary: 5-8 seconds (15-24 words)
+- CTA: 5-8 seconds (15-24 words)
+- Total conclusion: 15-24 seconds (45-72 words)
 
 CONTENT QUALITY:
 - Original and specific: No generic phrases or over-used expressions
@@ -709,7 +723,7 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
     # Recalculate per-scene duration based on actual chapter count from outline
     actual_count = total_chapters or max_scenes  # fallback if outline produced 0 chapters
     per_scene_duration = max(5, (target_duration - 15) // actual_count)
-    per_scene_word_target = max(10, int(per_scene_duration * 2.5))  # ~2.5 words/sec speaking rate
+    per_scene_word_target = max(10, int(per_scene_duration * 3.0))  # ~3 words/sec (180 WPM) speaking rate
     
     def generate_single_scene(idx, chapter):
         scene_num = chapter.get("scene_number", idx + 1)
@@ -752,6 +766,16 @@ CONTENT SPECIFICITY:
 - Avoid repetition or information already covered in other scenes
 
 {narration_emphasis}
+
+TTS-FRIENDLY WRITING (CRITICAL for voiceover synthesis):
+- Write numbers as words: "forty-two" NOT "42", "million" NOT "1,000,000"
+- Avoid abbreviations: "for example" NOT "e.g.", "that is" NOT "i.e."
+- Use short, clear sentences — easy for TTS to pronounce naturally
+- Avoid special characters (& @ © →) — TTS will misread them
+- Write dates in full: "January first twenty twenty-four" NOT "Jan 1, 2024"
+- Use commas and periods for natural pauses; avoid semicolons and long dashes
+- Spell out initials with periods: "U.S.A." NOT "USA"
+- Avoid parentheses — restructure instead
 
 DURATION CONSTRAINT:
 - Target: {per_scene_duration} seconds of narration
@@ -1102,187 +1126,81 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
     logger.info("Starting Visuals Generation Pipeline...")
     
     visual_rules = f"""
-SUB-VISUALS: You must generate a `sub_visuals` array containing visual cues to match the spoken narration.
-
 === MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
-Be extremely creative! Do not just write simple text or rely solely on basic 'scene' types. Build a visually engaging video:
+Be extremely creative! Build a visually engaging video:
 - If explaining a concept, build a 'custom_html' animation or a 'network' diagram.
 - If making a claim, use a 'document' to flash dramatic evidence on screen.
 - If showing data, use a dynamic 'chart'.
-- Use the 'visual_meta' field to write evocative copy, inject dramatic headlines, and compose visually stunning overlays that directly complement the emotional and informational beat of the script. Feel free to hallucinate highly specific and thematic meta content.
+- Use 'visual_meta' to write evocative copy, inject dramatic headlines, and compose visually stunning overlays.
 
-=== TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL FOR THE CONTENT ===
-- list: For ranked items, countdowns, top-N lists, factual lists, or step-by-step rankings.
-- chart: For statistics, percentages, comparisons, or data trends.
-- map: For geography, routes, locations, territories, borders.
-- document: For factual claims, news events, classified archives, factual evidence.
-- timeline: For tracking a sequence of events, chronological milestones, or histories.
-- network: For connections between people, organizations, relationships.
-- portrait: For introducing real specific people or places.
-- parallax: For dramatic visual reveals with layered depth.
-- custom_html: For highly customized, stunning modern UI layouts resembling high-end video editor templates with abundant, smooth animations. Use your CSS/HTML skills!
-- thread: For simulating social media conversations, chat threads, messaging app screens, or comment discussions.
-- device_mockup: For displaying content inside a realistic device frame (phone, tablet, laptop).
-- scene/image/ai_image: Default fallback (ai_image for AI-generated images via HuggingFace).
-- youtube: For real-world footage other than portraits.
+=== QUANTITY & TIMING ===
+- Break narration into logical visual beats — one sub-visual per beat.
+- Each sub-visual: 2-15 seconds. The sum MUST equal the Total Scene Duration.
+- For 'list' type: create 1 sub-visual PER LIST ITEM.
+- Vary transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
 
-QUANTITY: Let the narration length and pacing dictate how many sub-visuals to generate. Break the narration into logical visual beats and create one sub-visual per beat. Each sub-visual should have a meaningful duration (2-15 seconds) — enough for the viewer to absorb it. The sum of all durations MUST equal the provided Total Scene Duration. For 'list' type: create 1 sub-visual PER LIST ITEM.
+=== TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL ===
+- list: Ranked items, countdowns, top-N lists, step-by-step. E.g. "Top 5", "How to".
+- chart: Statistics, percentages, comparisons, data trends. E.g. "X% increase".
+- map: Geography, routes, locations, territories, borders.
+- document: Factual claims, news events, classified archives, evidence.
+- timeline: Sequence of events, chronological milestones, histories.
+- network: Connections between people, organizations, relationships.
+- portrait: Specific people or entities. visual_cue = person's exact name (Wikipedia search).
+- parallax: Dramatic visual reveals with layered 3D depth.
+- custom_html: Highly customized, stunning UI with abundant smooth CSS animations. MUST look like a modern video editor template, NOT a normal website.
+- thread: Simulated social media / chat conversations.
+- device_mockup: Content inside a realistic device frame (iphone/macbook).
+- scene/image/ai_image: Default fallback (ai_image = AI-generated via HuggingFace).
+- youtube: Real-world footage.
 
-EACH sub_visual: {{"visual_type": str, "visual_cue": str (English keyword), "transition": str, "visual_meta": dict, "duration": float}}
-CRITICAL ON TRANSITIONS: Choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.
-CRITICAL ON DURATION: 
-- Each sub_visual MUST have a precise "duration" (in seconds).
-- The SUM of the durations of all sub_visuals MUST equal the provided Total Scene Duration.
-
-=== VISUAL META SCHEMAS (FILL THESE CREATIVELY) ===
-- scene/image/parallax/ai_image: visual_meta {{}} (portrait may add {{"person_name": str}})
-- PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name.
-- youtube: visual_meta {{"start_offset": 15, "duration": 15, "skip_intro": true}}
-- chart: visual_meta {{"chart_type": "bar"|"line"|"pie", "title": str, "data": [{{"label": str, "value": number}}]}}
-- map: visual_meta {{"map_style": "vintage", "locations": [{{"name": str, "coord": [lat, lon]}}]}} (2 locations)
-- document: visual_meta {{"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}}
-- timeline: visual_meta {{"title": str, "events": [{{"date": str, "title": str, "description": str}}]}}
-- network: visual_meta {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
-- list: visual_meta {{"number": int, "title": str, "description": str}}
-- thread: visual_meta {{"messages": [{{"sender": str, "text": str, "time": str}}], "app_style": "whatsapp"|"imessage"|"twitter"|"discord", "title": str}}
-- device_mockup: visual_meta {{"device": "iphone"|"macbook", "screen_image_url": str}}
-- custom_html: visual_meta {{"html": str, "css": str}} (Note: your HTML is injected into a 100% width/height relative wrapper div. Avoid using Tailwind classes as they are not loaded. Write raw CSS. Do not assume the body is the parent. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)
+=== VISUAL META SCHEMAS (FILL CREATIVELY) ===
+- scene/image/parallax/ai_image: {{}} (portrait may add {{"person_name": str}})
+- youtube: {{"start_offset": 15, "duration": 15, "skip_intro": true}}
+- chart: {{"chart_type": "bar"|"line"|"pie", "title": str, "data": [{{"label": str, "value": number}}]}}
+- map: {{"map_style": "vintage", "locations": [{{"name": str, "coord": [lat, lon]}}]}} (2 locations)
+- document: {{"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}}
+- timeline: {{"title": str, "events": [{{"date": str, "title": str, "description": str}}]}}
+- network: {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
+- list: {{"number": int, "title": str, "description": str}}
+- thread: {{"platform": "whatsapp"|"imessage"|"twitter"|"discord", "messages": [{{"sender": str, "text": str, "is_self": bool}}], "title": str}}
+- device_mockup: {{"device": "iphone"|"macbook"}} (optional: "screen_image_url": str)
+- custom_html: {{"html": str, "css": str}} (CRITICAL: Design for {video_format} orientation. Use raw CSS — no Tailwind. NOT a normal web page.)
 - Any type: add {{"lower_third": {{"title": str, "subtitle": str}}}} for overlay text.
-- Any type: add {{"custom_html_ui": {{"html": str, "css": str}}}} for custom HTML/CSS UI overlays (e.g. badges, custom text layouts) on top of the visual.
+- Any type: add {{"custom_html_ui": {{"html": str, "css": str}}}} for custom overlays.
+- CRITICAL ON OVERLAYS: lower_third and custom_html_ui ONLY for scene/image/parallax/portrait/youtube/ai_image types. For data types (chart, map, etc.), bake text into visual_meta.
 """
     
-    visuals_system_prompt = f"""You are an expert AI Visual Director specializing in creating engaging visual experiences for YouTube videos.
+    visuals_system_prompt = f"""You are an expert AI Visual Director for YouTube videos.
 
 CORE MISSION:
-Transform narration into compelling visual sequences that enhance the message and captivate viewers.
+Transform narration into compelling visual sequences that enhance the message.
 
-CRITICAL SKILLS:
-- Match visual complexity with narration sophistication
-- Maintain visual rhythm synchronized with speech pace
-- Create logical visual flow that supports narrative progression
-- Balance creativity with factual accuracy
+CRITICAL RULES:
+- COUNT: One sub-visual per visual beat
+- DURATION: Each 2-15 seconds, sum MUST equal scene duration
+- TRANSITION: Vary transitions — never repeat the same one
+- visual_cue: ALWAYS in English (used for media search)
+- visual_meta text: ALWAYS in English
+- lower_third & custom_html_ui content: Match the target language from the user prompt
 
-VISUAL CREATION RULES:
-- COUNT: Create one sub-visual per visual beat (not too many, not too few)
-- DURATION: Each sub-visual must have exact 'duration' in seconds (2-15 seconds only)
-- SUM: Total duration must equal exactly the provided scene duration
-- TRANSITION: Vary transitions to create visual interest
-
-TYPE SELECTION GUIDE:
-Choose the MOST VISUAL type for each narration segment:
-
-LIST TYPE: For numbered/ranked items or step-by-step presentations
-- Ideal for: "Top 5", "Step by Step", "How to", "Sequence", "Ranking"
-- Each item as separate sub-visual (duration: 3-8 seconds each)
-
-CHART TYPE: For statistics, comparisons, trends, or numerical data
-- Ideal for: "X% increase", "Y comparison", "Statistics", "Data analysis"
-- Transform numbers into visual impact (bar charts, line graphs, pie charts)
-
-MAP TYPE: For locations, routes, geography, or movement
-- Ideal for: "Where", "Route", "Location", "Direction", "Geographic"
-- Show movement or spatial relationships
-
-DOCUMENT TYPE: For archival materials, factual evidence, or factual archives
-- Ideal for: "Proof", "Evidence", "Archive", "Document", "Source"
-- Create vintage newspaper or archival document aesthetics
-
-NETWORK TYPE: For connections, relationships, or investigation boards
-- Ideal for: "Connections", "Relationships", "Investigation", "Who knows who"
-- Show relationships between entities or concepts
-
-PORTRAIT TYPE: For specific people or entities
-- Ideal for: "Meet", "Who is", "Person", "Interview", "Profile"
-- Use exact visual cues with person's name (Wikipedia search ready)
-
-PARALLAX TYPE: For dramatic reveals or layered depth effects
-- Ideal for: "Revelation", "Hidden", "Secret", "Deep", "Layers"
-- Create 3D depth with fore/mid/background movement
-
-CUSTOM_HTML TYPE: For highly dynamic, stunning, modern UI
-- Ideal for: "Typography", "Animation", "Special effects", "Creative layout"
-- MUST look like a modern video editor template, NOT a normal website.
-- Add abundant, smooth animations (CSS transitions/keyframes) for maximum visual impact.
-- Use raw CSS/HTML skills for unique presentations
-
-SCENE/IMAGE/YOUTUBE TYPES: For standard footage or real-world shots
-- Use when narration doesn't clearly match specialized types
-- Standard fallback for general content
-
-VISUAL META SPECIFICATIONS:
-
-LIST TYPE: visual_meta = {{"number": int, "title": "Short title", "description": "Brief description"}}
-- Show one numbered item per sub-visual
-
-CHART TYPE: visual_meta = {{"chart_type": "bar"|"line"|"pie", "title": "Chart title", "data": [{{"label": "Label", "value": number}}]}}
-- Include realistic data points (4-15 items)
-
-MAP TYPE: visual_meta = {{"map_style": "vintage"|"modern"|"minimal"|"nautical", "locations": [{{"name": "Location Name", "coord": [lat, lon]}}]}}
-- Include 2 specific locations with real coordinates
-
-DOCUMENT TYPE: visual_meta = {{
-  "title": "Document headline",
-  "headline": "Main story headline",
-  "subtitle": "Subheading",
-  "doc_text": "Article body text",
-  "highlight_text": "Important term to emphasize",
-  "source": "Source name",
-  "date": "Publication date",
-  "section": "Section/topic",
-  "pull_quote": "Direct quote from document",
-  "show_image": boolean,
-  "image_url": "URL to relevant image",
-  "image_caption": "Image description"
-}}
-
-NETWORK TYPE: visual_meta = {{
-  "theme": "conspiracy_board"|"cyberpunk"|"corporate",
-  "nodes": [{{"id": "node_id", "label": "Entity name", "type": "person"|"entity"}}],
-  "edges": [{{"source": "from_node_id", "target": "to_node_id"}}]
-}}
-
-CRITICAL OUTPUT REQUIREMENTS:
-
-1. END-TO-END TIMING:
-   Sum all sub-visual durations must equal EXACTLY the provided Total Duration.
-   The Total Duration will be specified in the user prompt.
-
-2. TRANSITION VARIETY:
-   Available transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none
-   DO NOT repeat transitions — vary them for visual interest
-
-3. VISUAL_CUE SPECIFICATION:
-   - MUST be in ENGLISH
-   - Should be specific and descriptive
-   - Used for media search (Pexels, YouTube, Wikipedia)
-   - Example: "Ancient Greek marketplace"
-
-4. LANGUAGE RULE:
-   - visual_cue: ALWAYS English
-   - visual_meta: English (except lower third titles and custom_html_ui content)
-   - lower_third & custom_html_ui: Match the target language specified in the user prompt
-
-5. STRUCTURE:
-   Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA
-   Schema: {{"sub_visuals": [{{"visual_type": "...", "visual_cue": "...", "transition": "...", "visual_meta": {{...}}, "duration": 3.5}}]}}
+OUTPUT STRUCTURE:
+Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
+{{"sub_visuals": [{{"visual_type": "...", "visual_cue": "...", "transition": "...", "visual_meta": {{...}}, "duration": 3.5}}]}}
 
 ERROR PREVENTION:
-- Return total duration matching the provided scene duration (precision to 2 decimal places)
-- Use only valid visual types: list, chart, map, document, network, portrait, parallax, custom_html, scene, image, youtube, timeline, thread, device_mockup, ai_image
-- Format all JSON numbers as numbers, not strings
-- Ensure all required fields are present for each visual type
+- Duration sum must equal exactly the provided scene duration (2 decimal places)
+- Use only valid visual types
+- All JSON numbers as numbers, not strings
+- All required fields present for each visual type
 
-FINAL CHECK:
-Before submitting, verify:
-1. Duration sum equals the provided scene duration
-2. All visual_cue are in English
-3. visual_meta contains correct fields for the visual_type
+FINAL CHECK before submitting:
+1. Duration sum equals scene duration
+2. All visual_cue are English
+3. visual_meta fields match the type's schema
 4. Transitions are all different
-5. JSON is valid and no markdown
+5. No markdown — raw JSON only
 
-Generate visuals now - focus on quality and accuracy over quantity!
-
-CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH.
 {visual_rules}"""
 
     total_scenes = len(manifest)

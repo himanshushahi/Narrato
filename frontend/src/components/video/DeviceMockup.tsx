@@ -109,7 +109,7 @@ export const DeviceMockup: React.FC<DeviceMockupProps> = ({ meta, visualUrl }) =
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'cover',
+                  objectFit: 'contain',
                   transform: `scale(${screenZoom}) translate3d(${screenOffsetX}px, ${screenOffsetY}px, 0)`,
                 }}
               />

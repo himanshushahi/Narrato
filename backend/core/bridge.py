@@ -509,7 +509,8 @@ class ApiBridge:
             "2. LANGUAGE PRECISION: NEVER use English transliterations. Write in the target language ({language}) - for Hindi use Devanagari script (हिंदी), for English use English. NO English words in Hindi sections.\n"
             "3. STRUCTURE CONSISTENCY: Return ONLY valid JSON matching the provided schema exactly.\n"
             "4. ANTI-HALLUCINATION: Do NOT invent facts, dates, names, or data you don't have evidence for. Only use verifiable information.\n"
-            "5. LENGTH AWARENESS: Match the speaking duration (roughly 180-220 words per minute).\n\n"
+            "5. LENGTH AWARENESS: Match the speaking duration (roughly 180-220 words per minute).\n"
+            "6. TTS-FRIENDLY WRITING: Write numbers as words (\"forty-two\" NOT \"42\"), avoid abbreviations (\"for example\" NOT \"e.g.\"), use short clear sentences, avoid special characters (& @ ©), write dates in full, use commas/periods for pauses.\n\n"
             "HERE IS THE COMPLETE SCRIPT CONTEXT:\n"
             f"Video Title: {full_script.get('title', 'Untitled')}\n"
             f"Introduction Hook: {intro_hook}\n"
@@ -557,7 +558,7 @@ class ApiBridge:
             avg_len = max(20, sum(lengths) // len(lengths)) if lengths else 80
             system_prompt += f"LENGTH CONSTRAINT:\n"
             system_prompt += f"- Aim for approximately {avg_len} words in the rewritten narration.\n"
-            system_prompt += f"- This equals {avg_len / 180:.1f} to {avg_len / 120:.1f} seconds of spoken audio.\n"
+            system_prompt += f"- This equals {avg_len * 60 / 180:.1f} to {avg_len * 60 / 150:.1f} seconds of spoken audio (150-180 WPM).\n"
             system_prompt += f"- Match the pacing and content density of surrounding scenes.\n\n"
             
         content_is_empty = False
@@ -640,16 +641,16 @@ class ApiBridge:
             "- youtube: For real-world footage other than portraits.\n\n"
             "VISUAL META SCHEMAS — fill these creatively to match the narration:\n"
              "- scene/image/parallax/ai_image: visual_meta {} (portrait may add {\"person_name\": str})\n"
-            "- PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name (e.g. \"Harshad Mehta\"). Used as a Wikipedia search query.\n"
-            "- youtube: visual_meta {\"start_offset\": 15, \"duration\": 15, \"skip_intro\": true}\n"
+             "- PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name (e.g. \"Harshad Mehta\"). Used as a Wikipedia search query.\n"
+             "- youtube: visual_meta {\"start_offset\": 15, \"duration\": 15, \"skip_intro\": true}\n"
             "- chart: visual_meta {\"chart_type\": \"bar\"|\"line\"|\"pie\", \"title\": str, \"data\": [{\"label\": str, \"value\": number}]}\n"
             "- map: visual_meta {\"map_style\": \"vintage\", \"locations\": [{\"name\": str, \"coord\": [lat, lon]}]} (2 locations)\n"
             "- document: visual_meta {\"title\": str, \"headline\": str, \"subtitle\": str, \"doc_text\": str, \"highlight_text\": str, \"source\": str, \"date\": str, \"section\": str, \"pull_quote\": str, \"show_image\": bool, \"image_url\": str, \"image_caption\": str}\n"
             "- timeline: visual_meta {\"title\": str, \"events\": [{\"date\": str, \"title\": str, \"description\": str}]}\n"
             "- network: visual_meta {\"theme\": \"conspiracy_board\"|\"cyberpunk\"|\"corporate\", \"nodes\": [{\"id\": str, \"label\": str, \"type\": \"person\"|\"entity\"}], \"edges\": [{\"source\": str, \"target\": str}]}\n"
             "- list: visual_meta {\"number\": int, \"title\": str, \"description\": str}\n"
-            "- thread: visual_meta {\"platform\": \"whatsapp\"|\"facebook\"|\"instagram\", \"messages\": [{\"sender\": str, \"text\": str, \"is_self\": bool}]}\n"
-            "- device_mockup: visual_meta {\"device\": \"iphone\"|\"macbook\", \"screen_image_url\": str}\n"
+             "- thread: visual_meta {\"platform\": \"whatsapp\"|\"imessage\"|\"twitter\"|\"discord\", \"messages\": [{\"sender\": str, \"text\": str, \"is_self\": bool}], \"title\": str}\n"
+            "- device_mockup: visual_meta {\"device\": \"iphone\"|\"macbook\"} (optional: \"screen_image_url\": str)\n"
             "- custom_html: visual_meta {\"html\": str, \"css\": str} (Note: HTML is injected into a 100% width/height relative wrapper. Write raw CSS. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic.)\n"
             "- CRITICAL ON OVERLAYS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} OR {\"custom_html_ui\": {\"html\": str, \"css\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', 'youtube', or 'ai_image'. NEVER use these overlays for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', 'timeline', 'thread', or 'device_mockup'. For those, bake any text/titles directly into their specific visual_meta fields.\n\n"
             "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.\n"
@@ -704,17 +705,17 @@ class ApiBridge:
             "- list: visual_meta { \"number\": int, \"title\": str, \"description\": str }\n"
             "- chart: visual_meta { \"chart_type\": \"bar\"|\"line\"|\"pie\", \"title\": str, \"data\": [{ \"label\": str, \"value\": number }] }\n"
             "- map: visual_meta { \"map_style\": \"vintage\", \"locations\": [{ \"name\": str, \"coord\": [lat, lon] }] }\n"
-            "- document: visual_meta { \"headline\": str, \"doc_text\": str, \"source\": str, \"date\": str }\n"
+             "- document: visual_meta {\"title\": str, \"headline\": str, \"subtitle\": str, \"doc_text\": str, \"highlight_text\": str, \"source\": str, \"date\": str, \"section\": str, \"pull_quote\": str, \"show_image\": bool, \"image_url\": str, \"image_caption\": str}\n"
             "- timeline: visual_meta {\"title\": str, \"events\": [{\"date\": str, \"title\": str, \"description\": str}]}\n"
             "- network: visual_meta { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
-            "- thread: visual_meta { \"platform\": \"whatsapp\"|\"facebook\"|\"instagram\", \"messages\": [{\"sender\": str, \"text\": str, \"is_self\": bool}] }\n"
-            "- device_mockup: visual_meta { \"device\": \"iphone\"|\"macbook\", \"screen_image_url\": str }\n"
+             "- thread: visual_meta { \"platform\": \"whatsapp\"|\"imessage\"|\"twitter\"|\"discord\", \"messages\": [{\"sender\": str, \"text\": str, \"is_self\": bool}], \"title\": str }\n"
+            "- device_mockup: visual_meta { \"device\": \"iphone\"|\"macbook\" } (optional: \"screen_image_url\": str)\n"
             f"- custom_html: visual_meta {{ \"html\": str, \"css\": str }} (CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template. Add abundant, smooth animations. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)\n"
              "- portrait: visual_cue must be ONLY the person's full name (used as Wikipedia search query).\n"
              "- scene/image/parallax/youtube/ai_image: visual_meta {} unless adding lower_third or custom_html_ui.\n"
              "- CRITICAL ON OVERLAYS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} OR {\"custom_html_ui\": {\"html\": str, \"css\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', 'youtube', or 'ai_image'. NEVER use these overlays for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', 'timeline', 'thread', or 'device_mockup'. For those, bake any text/titles directly into their specific visual_meta fields.\n\n"
-            "Transitions: choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. "
-            "Do NOT use the same transition as before — vary it.\n"
+             "Transitions: choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. "
+             "Do NOT use the same transition as before — vary it.\n"
             f"LANGUAGE: The 'visual_cue' field MUST be in English. All 'visual_meta' text content MUST be in English. "
             f"Lower third titles/subtitles should be in language code '{language}'.\n"
         )
@@ -1046,11 +1047,11 @@ class ApiBridge:
             logger.error(f"Failed to fetch single scene asset: {e}")
             return {"success": False, "error": str(e)}
 
-    def preview_asset_download(self, project_id: str, visual_type: str, visual_cue: str) -> dict:
+    def preview_asset_download(self, project_id: str, visual_type: str, visual_cue: str, visual_meta: dict = None) -> dict:
         logger.info(f"Bridge API: preview_asset_download for project {project_id} (type: {visual_type}, cue: {visual_cue})")
         from backend.pipeline.assets import preview_asset_download as preview_fn
         try:
-            return preview_fn(project_id, visual_type, visual_cue)
+            return preview_fn(project_id, visual_type, visual_cue, visual_meta)
         except Exception as e:
             logger.error(f"Failed to preview asset: {e}")
             return {"success": False, "error": str(e)}

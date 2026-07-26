@@ -34,7 +34,7 @@ interface PywebviewApi {
   get_ytdlp_version(): Promise<{ installed: boolean; version: string | null; path: string | null }>;
   update_ytdlp(): Promise<{ status: string }>;
   fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number, visual_type: string, visual_cue: string): Promise<any>;
-  preview_asset_download(project_id: string, visual_type: string, visual_cue: string): Promise<{ success: boolean; visual_path?: string; error?: string }>;
+  preview_asset_download(project_id: string, visual_type: string, visual_cue: string, visual_meta?: any): Promise<{ success: boolean; visual_path?: string; error?: string }>;
   cleanup_preview_assets(project_id: string, preview_paths: string[]): Promise<{ success: boolean; deleted?: string[] }>;
   generate_chart_data_api(prompt: string): Promise<{ success: boolean; data?: any; title?: string; chart_type?: string; error?: string }>;
   save_project_with_cleanup(project_id: string, script_data: any, manifest_data: any): Promise<any>;
