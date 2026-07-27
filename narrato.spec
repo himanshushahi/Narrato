@@ -6,7 +6,7 @@ import sys
 os.makedirs("build/narrato", exist_ok=True)
 os.makedirs("build/main", exist_ok=True)
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 block_cipher = None
 
@@ -24,6 +24,8 @@ datas += collect_data_files('language_tags')
 datas += collect_data_files('phonemizer')
 datas += collect_data_files('espeakng_loader')
 datas += collect_data_files('piper')
+datas += copy_metadata('pillow')
+datas += copy_metadata('huggingface_hub')
 
 a = Analysis(
     ['main.py'],
