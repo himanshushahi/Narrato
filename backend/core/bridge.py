@@ -1475,6 +1475,37 @@ class ApiBridge:
             logger.error(f"update_scene_duration failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
+    def test_huggingface_model(self, api_key: str, model: str, provider: str, prompt: str, aspect_ratio: str) -> dict:
+        try:
+            import base64
+            from io import BytesIO
+            from huggingface_hub import InferenceClient
+            
+            if not api_key or not model:
+                return {"success": False, "error": "API Key and Model are required"}
+                
+            model = model.strip()
+            # Pass provider only if it's not "auto"
+            client_provider = None if provider == "auto" else provider
+            client = InferenceClient(api_key=api_key, provider=client_provider)
+            
+            is_portrait = aspect_ratio == "portrait"
+            img_width = 576 if is_portrait else 1024
+            img_height = 1024 if is_portrait else 576
+            
+            image = client.text_to_image(prompt=prompt, model=model, width=img_width, height=img_height)
+            
+            buffered = BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            
+            return {"success": True, "image": f"data:image/png;base64,{img_str}"}
+        except Exception as e:
+            from backend.core.logger import logger
+            logger.error(f"test_huggingface_model failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+
 api_bridge = ApiBridge()
 
 

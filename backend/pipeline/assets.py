@@ -433,7 +433,7 @@ def download_asset(url, dest_path, cancel_event=None):
         logger.error(f"Failed to download stock asset from {url}: {e}")
     return False
 
-def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, cancel_event, force_download=False, dest_path=None):
+def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, cancel_event, force_download=False, dest_path=None, video_format="landscape"):
     """Downloads a single sub-visual asset. Returns updated sub_visual dict.
 
     When force_download is True, the existing-file skip check is bypassed,
@@ -488,7 +488,8 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
 
     elif visual_type == "ai_image":
         hf_api_key = get_setting("huggingface_api_key")
-        hf_model = get_setting("huggingface_model") or "black-forest-labs/FLUX.1-schnell"
+        hf_model = (get_setting("huggingface_model") or "black-forest-labs/FLUX.1-schnell").strip()
+        hf_provider = get_setting("huggingface_provider") or "auto"
         prompt = visual_cue
 
         if not hf_api_key:
@@ -504,16 +505,17 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
         else:
             try:
                 from huggingface_hub import InferenceClient
-                client = InferenceClient(api_key=hf_api_key)
-                logger.info(f"Generating AI image for [{seg_idx}:{sub_idx}] with model '{hf_model}'...")
+                client_provider = None if hf_provider == "auto" else hf_provider
+                client = InferenceClient(api_key=hf_api_key, provider=client_provider)
+                logger.info(f"Generating AI image for [{seg_idx}:{sub_idx}] with model '{hf_model}' and provider '{hf_provider}'...")
                 
                 # Check for cancellation before expensive call
                 if cancel_event and cancel_event.is_set():
                     raise InterruptedError("Cancelled")
                     
-                video_format = get_setting("video_format") or "Shorts/Reels (9:16)"
-                img_width = 576 if "9:16" in video_format else 1024
-                img_height = 1024 if "9:16" in video_format else 576
+                is_portrait = (video_format == "portrait") or ("9:16" in video_format)
+                img_width = 576 if is_portrait else 1024
+                img_height = 1024 if is_portrait else 576
                 
                 image = client.text_to_image(prompt=prompt, model=hf_model, width=img_width, height=img_height)
                 dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.png"
@@ -522,6 +524,13 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
                 logger.info(f"Successfully generated AI image to {dest_file}")
             except Exception as e:
                 logger.error(f"Failed to generate AI image for [{seg_idx}:{sub_idx}]: {e}. Falling back to stock image.")
+                
+                try:
+                    from backend.core.bridge import ui_queue
+                    ui_queue.put(("onShowToast", (f"AI Image Generation failed. Falling back to stock image. ({e})", "warning")))
+                except Exception as ui_e:
+                    logger.error(f"Failed to send warning toast: {ui_e}")
+
                 fallback_type = "image"
                 asset_url = search_pexels_photo(visual_cue, api_key) if api_key else None
                 if asset_url:
@@ -626,7 +635,7 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
 
-            _fetch_single_sub_visual(sub_visual, assets_dir, idx, sub_idx, api_key, cancel_event)
+            _fetch_single_sub_visual(sub_visual, assets_dir, idx, sub_idx, api_key, cancel_event, video_format=project_dict.get("video_format", "landscape"))
 
             completed_sub_visuals += 1
             progress_cb(
@@ -756,7 +765,7 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
     # force_download=True: the caller already determined the sub-visual changed,
     # so bypass the "already exists" skip check in _fetch_single_sub_visual.
     api_key = get_setting("pexels_api_key")
-    _fetch_single_sub_visual(sub_visual, assets_dir, manifest_scene_index, sub_visual_index, api_key, cancel_event=None, force_download=True)
+    _fetch_single_sub_visual(sub_visual, assets_dir, manifest_scene_index, sub_visual_index, api_key, cancel_event=None, force_download=True, video_format=project.get("video_format", "landscape"))
 
     downloaded_path = sub_visual.get("visual_path", "")
 
@@ -873,7 +882,8 @@ def preview_asset_download(project_id, visual_type, visual_cue, visual_meta=None
 
     _fetch_single_sub_visual(
         sub_visual, assets_dir, 0, 0, api_key,
-        cancel_event=None, force_download=True, dest_path=str(dest_path)
+        cancel_event=None, force_download=True, dest_path=str(dest_path),
+        video_format=project.get("video_format", "landscape")
     )
 
     if sub_visual.get("visual_path"):

@@ -54,6 +54,7 @@ export interface Settings {
   voiceover_volume: string;
   huggingface_api_key: string;
   huggingface_model: string;
+  huggingface_provider: string;
 }
 
 interface KokoroDownload {
@@ -152,7 +153,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     render_timeout: "600000",
     voiceover_volume: "1.0",
     huggingface_api_key: "",
-    huggingface_model: ""
+    huggingface_model: "",
+    huggingface_provider: "auto"
   },
   gpuAvailable: false,
   kokoroDownload: {

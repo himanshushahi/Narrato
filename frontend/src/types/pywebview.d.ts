@@ -43,6 +43,7 @@ interface PywebviewApi {
   delete_scene(project_id: string, scene_index: number): Promise<{ success: boolean; error?: string }>;
   get_prefs(): Promise<any>;
   save_prefs(prefs: any): Promise<void>;
+  test_huggingface_model(api_key: string, model: string, provider: string, prompt: string, aspect_ratio: string): Promise<{ success: boolean; image?: string; error?: string }>;
 }
 
 interface Window {
@@ -50,6 +51,7 @@ interface Window {
     api: PywebviewApi;
   };
   onLogStream?: (msg: string) => void;
+  onShowToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
   onProgressUpdate?: (data: any) => void;
   onKokoroDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;

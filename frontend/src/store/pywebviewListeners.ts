@@ -14,6 +14,10 @@ export const initializePywebviewListeners = () => {
     useUIStore.getState().addLog(msg);
   };
 
+  window.onShowToast = (message: string, type: string) => {
+    useUIStore.getState().addToast(message, type as any);
+  };
+
   window.onProgressUpdate = (data: any) => {
     const projectStore = useProjectStore.getState();
 
