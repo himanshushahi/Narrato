@@ -223,7 +223,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     if (!liveScenes) return [];
     let offset = 0;
     return liveScenes.map((scene: any) => {
-      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      const durationFrames = Math.max(30, Math.round((scene.duration || 0) * 30));
       const start = offset;
       const end = offset + durationFrames;
 

@@ -113,44 +113,78 @@ def search_pexels_photo(query, api_key):
     """Searches Pexels for a photo matching the query. Returns url to download."""
     if not api_key:
         return None
-    url = f"https://api.pexels.com/v1/search?query={requests.utils.quote(query)}&per_page=1"
-    headers = {"Authorization": api_key}
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        res.raise_for_status()
-        data = res.json()
-        photos = data.get("photos", [])
-        if photos:
-            # Return high res or medium res
-            return photos[0].get("src", {}).get("large2x") or photos[0].get("src", {}).get("original")
-    except Exception as e:
-        logger.warning(f"Pexels photo search failed for '{query}': {e}")
-    return None
+        
+    from backend.database.db import get_setting
+    import random
+    
+    video_format = get_setting("video_format") or "Shorts/Reels (9:16)"
+    preferred_orientation = "portrait" if "9:16" in video_format else "landscape"
+    fallback_orientation = "landscape" if preferred_orientation == "portrait" else "portrait"
+    
+    def _do_search(orientation):
+        url = f"https://api.pexels.com/v1/search?query={requests.utils.quote(query)}&per_page=5&orientation={orientation}"
+        headers = {"Authorization": api_key}
+        try:
+            res = requests.get(url, headers=headers, timeout=15)
+            res.raise_for_status()
+            data = res.json()
+            photos = data.get("photos", [])
+            if photos:
+                # Pick a random photo from the top results (up to 3) to add variety
+                photo = random.choice(photos[:3])
+                return photo.get("src", {}).get("large2x") or photo.get("src", {}).get("original")
+        except Exception as e:
+            logger.warning(f"Pexels photo search failed for '{query}' with orientation '{orientation}': {e}")
+        return None
+
+    result = _do_search(preferred_orientation)
+    if result:
+        return result
+        
+    logger.info(f"Pexels photo search returned 0 results for '{query}' ({preferred_orientation}). Retrying with {fallback_orientation}.")
+    return _do_search(fallback_orientation)
 
 def search_pexels_video(query, api_key):
     """Searches Pexels for a video matching the query. Returns download url."""
     if not api_key:
         return None
-    url = f"https://api.pexels.com/videos/search?query={requests.utils.quote(query)}&per_page=1"
-    headers = {"Authorization": api_key}
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        res.raise_for_status()
-        data = res.json()
-        videos = data.get("videos", [])
-        if videos:
-            video_files = videos[0].get("video_files", [])
-            # Filter for mp4 and hd or sd
-            mp4_files = [vf for vf in video_files if vf.get("file_type") == "video/mp4"]
-            if mp4_files:
-                # Try to get hd resolution if possible
-                hd_files = [vf for vf in mp4_files if vf.get("quality") == "hd"]
-                if hd_files:
-                    return hd_files[0].get("link")
-                return mp4_files[0].get("link")
-    except Exception as e:
-        logger.warning(f"Pexels video search failed for '{query}': {e}")
-    return None
+        
+    from backend.database.db import get_setting
+    import random
+    
+    video_format = get_setting("video_format") or "Shorts/Reels (9:16)"
+    preferred_orientation = "portrait" if "9:16" in video_format else "landscape"
+    fallback_orientation = "landscape" if preferred_orientation == "portrait" else "portrait"
+    
+    def _do_search(orientation):
+        url = f"https://api.pexels.com/videos/search?query={requests.utils.quote(query)}&per_page=5&orientation={orientation}"
+        headers = {"Authorization": api_key}
+        try:
+            res = requests.get(url, headers=headers, timeout=15)
+            res.raise_for_status()
+            data = res.json()
+            videos = data.get("videos", [])
+            if videos:
+                video = random.choice(videos[:3])
+                video_files = video.get("video_files", [])
+                # Filter for mp4 and hd or sd
+                mp4_files = [vf for vf in video_files if vf.get("file_type") == "video/mp4"]
+                if mp4_files:
+                    # Try to get hd resolution if possible
+                    hd_files = [vf for vf in mp4_files if vf.get("quality") == "hd"]
+                    if hd_files:
+                        return hd_files[0].get("link")
+                    return mp4_files[0].get("link")
+        except Exception as e:
+            logger.warning(f"Pexels video search failed for '{query}' with orientation '{orientation}': {e}")
+        return None
+
+    result = _do_search(preferred_orientation)
+    if result:
+        return result
+        
+    logger.info(f"Pexels video search returned 0 results for '{query}' ({preferred_orientation}). Retrying with {fallback_orientation}.")
+    return _do_search(fallback_orientation)
 
 def _get_original_wikimedia_url(image_filename, headers):
     """Resolve a Wikimedia image filename to its original (full-resolution) URL.
@@ -477,7 +511,11 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
                 if cancel_event and cancel_event.is_set():
                     raise InterruptedError("Cancelled")
                     
-                image = client.text_to_image(prompt=prompt, model=hf_model)
+                video_format = get_setting("video_format") or "Shorts/Reels (9:16)"
+                img_width = 576 if "9:16" in video_format else 1024
+                img_height = 1024 if "9:16" in video_format else 576
+                
+                image = client.text_to_image(prompt=prompt, model=hf_model, width=img_width, height=img_height)
                 dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.png"
                 image.save(str(dest_file))
                 sub_visual["visual_path"] = str(dest_file)

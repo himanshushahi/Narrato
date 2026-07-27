@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 import { useEditorStore } from '../../store/useEditorStore';
-import { FPS, HEADER_WIDTH } from './timelineConstants';
+import { FPS, HEADER_WIDTH, MIN_SCENE_DURATION_SECONDS } from './timelineConstants';
 
 import { TimelineRuler } from './components/TimelineRuler';
 import { TimelinePlayhead } from './components/TimelinePlayhead';
@@ -19,6 +19,8 @@ interface TimelineProps {
   onSeek: (frame: number) => void;
   onDeleteScene?: (index: number) => void;
   onResizeSubVisual?: (sceneIndex: number, newRatios: number[]) => void;
+  onResizeScene?: (sceneIndex: number, newDurationSeconds: number, nextDurationSeconds: number | null, mode: 'boundary' | 'absolute') => void;
+  onTimingsDragUpdate?: (timings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>) => void;
   readOnly?: boolean;
 }
 
@@ -29,9 +31,16 @@ interface LocalTiming {
 }
 
 export const Timeline: React.FC<TimelineProps> = React.memo(({
-  liveScenes, sceneTimings, transcriptionData, currentFrame, onSeek,
-  onDeleteScene, onResizeSubVisual,
-  readOnly = false
+  liveScenes,
+  sceneTimings,
+  transcriptionData,
+  currentFrame,
+  onSeek,
+  onDeleteScene,
+  onResizeSubVisual,
+  onResizeScene,
+  onTimingsDragUpdate,
+  readOnly = false,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hoveredSceneIdx, setHoveredSceneIdx] = useState<number | null>(null);
@@ -47,34 +56,38 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   const [localTimings, setLocalTimings] = useState<LocalTiming[]>(sceneTimings);
   const localTimingsRef = useRef(localTimings);
   localTimingsRef.current = localTimings;
-  const currentTimingsStr = JSON.stringify(sceneTimings);
-  const [prevTimingsStr, setPrevTimingsStr] = useState(currentTimingsStr);
 
-  if (currentTimingsStr !== prevTimingsStr) {
-    setPrevTimingsStr(currentTimingsStr);
+  const [, setTimingsVersion] = useState(0);
+  useEffect(() => {
+    setTimingsVersion(v => v + 1);
     setLocalTimings(sceneTimings);
-  }
+  }, [sceneTimings]);
 
-  const [dragState, setDragState] = useState<{
-    type: 'resize_sub_visual';
+  useEffect(() => {
+    if (onTimingsDragUpdate) {
+      onTimingsDragUpdate(localTimings);
+    }
+  }, [localTimings, onTimingsDragUpdate]);
+
+  type DragState = {
+    type: 'resize_sub_visual' | 'resize_scene_boundary' | 'resize_scene_absolute';
     sceneIdx: number;
     initialMouseX: number;
     initialStart: number;
     initialEnd: number;
     subIdx?: number;
     initialRatios?: number[];
-  } | null>(null);
-  const dragRef = useRef<{
-    type: 'resize_sub_visual';
-    sceneIdx: number;
-    initialMouseX: number;
-    initialStart: number;
-    initialEnd: number;
-    subIdx?: number;
-    initialRatios?: number[];
+    /** For scene boundary: initial duration of left scene in frames */
+    initialLeftFrames?: number;
+    /** For scene boundary: initial duration of right scene in frames */
+    initialRightFrames?: number;
+    /** For scene absolute: initial total duration in frames */
+    initialTotalFrames?: number;
     mouseX: number;
     committed: boolean;
-  } | null>(null);
+  };
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
 
   const isDraggingPlayheadRef = useRef(false);
 
@@ -121,6 +134,49 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     document.body.style.userSelect = 'none';
   }, [localTimings, liveScenes]);
 
+  const startSceneBoundaryResize = useCallback((e: React.MouseEvent, sceneIdx: number) => {
+    e.stopPropagation();
+    if (sceneIdx >= localTimings.length - 1) return;
+
+    const leftFrames = localTimings[sceneIdx].end - localTimings[sceneIdx].start;
+    const rightFrames = localTimings[sceneIdx + 1].end - localTimings[sceneIdx + 1].start;
+
+    dragRef.current = {
+      type: 'resize_scene_boundary',
+      sceneIdx,
+      initialMouseX: e.clientX,
+      initialStart: localTimings[sceneIdx].start,
+      initialEnd: localTimings[sceneIdx].end,
+      initialLeftFrames: leftFrames,
+      initialRightFrames: rightFrames,
+      mouseX: e.clientX,
+      committed: false,
+    };
+    setDragState(dragRef.current);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [localTimings]);
+
+  const startSceneAbsoluteResize = useCallback((e: React.MouseEvent, sceneIdx: number) => {
+    e.stopPropagation();
+
+    const totalFrames = localTimings[sceneIdx].end - localTimings[sceneIdx].start;
+
+    dragRef.current = {
+      type: 'resize_scene_absolute',
+      sceneIdx,
+      initialMouseX: e.clientX,
+      initialStart: localTimings[sceneIdx].start,
+      initialEnd: localTimings[sceneIdx].end,
+      initialTotalFrames: totalFrames,
+      mouseX: e.clientX,
+      committed: false,
+    };
+    setDragState(dragRef.current);
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+  }, [localTimings]);
+
   useEffect(() => {
     const handleMouseUp = () => {
       const d = dragRef.current;
@@ -139,6 +195,22 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
         if (sceneDuration > 0) {
           const newRatios = timing.subs.map(sub => (sub.end - sub.start) / sceneDuration);
           onResizeSubVisual(d.sceneIdx, newRatios);
+        }
+      } else if (d.type === 'resize_scene_boundary' && onResizeScene) {
+        const timings = localTimingsRef.current;
+        const leftTiming = timings[d.sceneIdx];
+        const rightTiming = timings[d.sceneIdx + 1];
+        if (leftTiming && rightTiming) {
+          const newLeftDur = (leftTiming.end - leftTiming.start) / FPS;
+          const newRightDur = (rightTiming.end - rightTiming.start) / FPS;
+          onResizeScene(d.sceneIdx, newLeftDur, newRightDur, 'boundary');
+        }
+      } else if (d.type === 'resize_scene_absolute' && onResizeScene) {
+        const timings = localTimingsRef.current;
+        const timing = timings[d.sceneIdx];
+        if (timing) {
+          const newDur = (timing.end - timing.start) / FPS;
+          onResizeScene(d.sceneIdx, newDur, null, 'absolute');
         }
       }
     };
@@ -193,6 +265,107 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
           next[d.sceneIdx] = t;
           return next;
         });
+      } else if (d.type === 'resize_scene_boundary') {
+        const leftIdx = d.sceneIdx;
+        const rightIdx = leftIdx + 1;
+        const initialLeftFrames = d.initialLeftFrames!;
+        const initialRightFrames = d.initialRightFrames!;
+        const pairTotalFrames = initialLeftFrames + initialRightFrames;
+
+        setLocalTimings((prev) => {
+          const next = [...prev];
+          const leftTiming = next[leftIdx];
+          const rightTiming = next[rightIdx];
+          if (!leftTiming || !rightTiming) return prev;
+
+          const minFrames = Math.max(1, MIN_SCENE_DURATION_SECONDS * FPS);
+          // Compute delta relative to the initial left scene pixel width
+          const initialLeftPixelWidth = (initialLeftFrames / FPS) * timelineZoom;
+          const deltaFrames = initialLeftPixelWidth > 0 ? Math.round((dx / initialLeftPixelWidth) * initialLeftFrames) : 0;
+
+          let newLeftFrames = Math.max(minFrames, Math.min(initialLeftFrames + deltaFrames, pairTotalFrames - minFrames));
+          let newRightFrames = pairTotalFrames - newLeftFrames;
+
+          // Recompute sub-visual timings within each scene
+          const buildSubs = (timing: LocalTiming, initDurFrames: number, newDurFrames: number) => {
+            const ratios = timing.subs.map(s => (s.end - s.start) / Math.max(1, initDurFrames));
+            const subs = [...timing.subs];
+            let currentStart = timing.start;
+            for (let i = 0; i < subs.length; i++) {
+              const subDurFrames = Math.max(1, Math.round(ratios[i] * newDurFrames));
+              subs[i] = { start: currentStart, end: currentStart + subDurFrames };
+              currentStart += subDurFrames;
+            }
+            if (subs.length > 0) subs[subs.length - 1].end = timing.start + newDurFrames;
+            return subs;
+          };
+
+          next[leftIdx] = {
+            ...leftTiming,
+            end: leftTiming.start + newLeftFrames,
+            subs: buildSubs(leftTiming, initialLeftFrames, newLeftFrames),
+          };
+          next[rightIdx] = {
+            ...rightTiming,
+            start: next[leftIdx].end,
+            end: next[leftIdx].end + newRightFrames,
+            subs: buildSubs(rightTiming, initialRightFrames, newRightFrames),
+          };
+
+          // Shift all subsequent scenes
+          const shift = next[rightIdx].end - rightTiming.end;
+          for (let i = rightIdx + 1; i < next.length; i++) {
+            next[i] = {
+              ...next[i],
+              start: next[i].start + shift,
+              end: next[i].end + shift,
+            };
+          }
+
+          return next;
+        });
+      } else if (d.type === 'resize_scene_absolute') {
+        const minFrames = Math.max(1, MIN_SCENE_DURATION_SECONDS * FPS);
+        const sceneIdx = d.sceneIdx;
+        const initialTotalFrames = d.initialTotalFrames!;
+
+        setLocalTimings((prev) => {
+          const next = [...prev];
+          const timing = next[sceneIdx];
+          if (!timing) return prev;
+
+          const initialPixelWidth = (initialTotalFrames / FPS) * timelineZoom;
+          const deltaFrames = initialPixelWidth > 0 ? Math.round((dx / initialPixelWidth) * initialTotalFrames) : 0;
+
+          const ratios = timing.subs.map(s => (s.end - s.start) / Math.max(1, timing.end - timing.start));
+          const newDurFrames = Math.max(minFrames, initialTotalFrames + deltaFrames);
+
+          // Rebuild sub-visuals with new duration
+          let currentStart = timing.start;
+          const subs = timing.subs.map((_, i) => {
+            const subDurFrames = Math.max(1, Math.round(ratios[i] * newDurFrames));
+            const sub = { start: currentStart, end: currentStart + subDurFrames };
+            currentStart += subDurFrames;
+            return sub;
+          });
+          if (subs.length > 0) subs[subs.length - 1].end = timing.start + newDurFrames;
+
+          const newEnd = timing.start + newDurFrames;
+          const shift = newEnd - timing.end;
+
+          next[sceneIdx] = { ...timing, end: newEnd, subs };
+
+          // Shift all subsequent scenes
+          for (let i = sceneIdx + 1; i < next.length; i++) {
+            next[i] = {
+              ...next[i],
+              start: next[i].start + shift,
+              end: next[i].end + shift,
+            };
+          }
+
+          return next;
+        });
       }
     };
 
@@ -202,7 +375,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [dragState, timelineZoom, onResizeSubVisual]);
+  }, [dragState, timelineZoom, onResizeSubVisual, onResizeScene]);
 
   const handleTimelineClick = useCallback((e: React.MouseEvent) => {
     if (dragRef.current || isDraggingPlayheadRef.current) return;
@@ -246,7 +419,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     document.body.style.userSelect = 'none';
   }, [currentFrame, onSeek, timelineZoom]);
 
-  const isDraggingScene = dragState?.type === 'resize_sub_visual';
+  const isDraggingScene = dragState?.type === 'resize_sub_visual' || dragState?.type === 'resize_scene_boundary' || dragState?.type === 'resize_scene_absolute';
 
   const handleDeleteScene = useCallback((index: number) => {
     onDeleteScene?.(index);
@@ -290,6 +463,8 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
             onSubHoverEnter={handleSubHoverEnter}
             onSubHoverLeave={handleSubHoverLeave}
             onSubVisualResizeStart={startSubVisualResize}
+            onSceneBoundaryResizeStart={startSceneBoundaryResize}
+            onSceneAbsoluteResizeStart={startSceneAbsoluteResize}
             onDeleteScene={onDeleteScene ? handleDeleteScene : undefined}
           />
 

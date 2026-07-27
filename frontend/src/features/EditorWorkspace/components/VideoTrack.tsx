@@ -70,20 +70,23 @@ interface SceneBlockProps {
   isDraggingScene: boolean;
   readOnly: boolean;
   hoveredSubVisual: { scene: number; sub: number } | null;
+  isLast: boolean;
   onSeek: (frame: number) => void;
   onHoverEnter: (idx: number) => void;
   onHoverLeave: () => void;
   onSubHoverEnter: (scene: number, sub: number) => void;
   onSubHoverLeave: () => void;
   onSubVisualResizeStart: (e: React.MouseEvent, idx: number, subIdx: number) => void;
+  onSceneBoundaryResizeStart: (e: React.MouseEvent, idx: number) => void;
+  onSceneAbsoluteResizeStart: (e: React.MouseEvent, idx: number) => void;
   onDeleteScene: ((index: number) => void) | undefined;
 }
 
 const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
   idx, timing, scene, timelineZoom, currentFrame, isHovered, isDraggingScene,
-  readOnly, hoveredSubVisual, onSeek, onHoverEnter,
+  readOnly, hoveredSubVisual, isLast, onSeek, onHoverEnter,
   onHoverLeave, onSubHoverEnter, onSubHoverLeave,
-  onSubVisualResizeStart, onDeleteScene
+  onSubVisualResizeStart, onSceneBoundaryResizeStart, onSceneAbsoluteResizeStart, onDeleteScene
 }) => {
   const x = (timing.start / FPS) * timelineZoom;
   const w = Math.max(8, ((timing.end - timing.start) / FPS) * timelineZoom);
@@ -154,6 +157,24 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
           >
             <VscTrash className="text-[8px]" />
           </button>
+        </div>
+      )}
+
+      {!readOnly && !isDraggingScene && (
+        <div
+          className="absolute right-0 top-0 bottom-0 w-3 translate-x-1/2 z-20 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ cursor: isLast ? 'ew-resize' : 'col-resize' }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            if (isLast || e.altKey) {
+              onSceneAbsoluteResizeStart(e, idx);
+            } else {
+              onSceneBoundaryResizeStart(e, idx);
+            }
+          }}
+          title={isLast ? "Drag to resize scene duration" : "Drag to adjust scene split. Hold Alt for absolute resize."}
+        >
+          <div className="w-[3px] h-3/4 self-center rounded-full bg-emerald-400/80 hover:bg-emerald-300 transition-colors shadow-lg shadow-emerald-500/30" />
         </div>
       )}
     </div>
@@ -230,6 +251,8 @@ interface VideoTrackProps {
   onSubHoverEnter: (scene: number, sub: number) => void;
   onSubHoverLeave: () => void;
   onSubVisualResizeStart: (e: React.MouseEvent, idx: number, subIdx: number) => void;
+  onSceneBoundaryResizeStart: (e: React.MouseEvent, idx: number) => void;
+  onSceneAbsoluteResizeStart: (e: React.MouseEvent, idx: number) => void;
   onDeleteScene: ((index: number) => void) | undefined;
 }
 
@@ -238,7 +261,7 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
   hoveredSceneIdx, hoveredSubVisual, isDraggingScene, readOnly,
   onSeek, onSceneHoverEnter, onSceneHoverLeave,
   onSubHoverEnter, onSubHoverLeave,
-  onSubVisualResizeStart, onDeleteScene
+  onSubVisualResizeStart, onSceneBoundaryResizeStart, onSceneAbsoluteResizeStart, onDeleteScene
 }) => {
   return (
     <div className="relative h-14 border-b border-zinc-800/40 bg-zinc-900/10 hover:bg-zinc-900/30 transition-colors">
@@ -265,12 +288,15 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
             readOnly={readOnly}
             isDraggingScene={isDraggingScene}
             hoveredSubVisual={hoveredSubVisual}
+            isLast={idx === localTimings.length - 1}
             onSeek={onSeek}
             onHoverEnter={onSceneHoverEnter}
             onHoverLeave={onSceneHoverLeave}
             onSubHoverEnter={onSubHoverEnter}
             onSubHoverLeave={onSubHoverLeave}
             onSubVisualResizeStart={onSubVisualResizeStart}
+            onSceneBoundaryResizeStart={onSceneBoundaryResizeStart}
+            onSceneAbsoluteResizeStart={onSceneAbsoluteResizeStart}
             onDeleteScene={onDeleteScene}
           />
         );

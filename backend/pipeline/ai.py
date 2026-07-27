@@ -1180,7 +1180,7 @@ CRITICAL RULES:
 - COUNT: One sub-visual per visual beat
 - DURATION: Each 2-15 seconds, sum MUST equal scene duration
 - TRANSITION: Vary transitions — never repeat the same one
-- visual_cue: ALWAYS in English (used for media search)
+- visual_cue: ALWAYS in English. MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon' instead of 'a sprawling city with neon lights'). Do not use complex sentences.
 - visual_meta text: ALWAYS in English
 - lower_third & custom_html_ui content: Match the target language from the user prompt
 

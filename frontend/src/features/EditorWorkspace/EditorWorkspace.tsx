@@ -70,6 +70,11 @@ export const EditorWorkspace: React.FC = () => {
     loadFiles
   } = useEditorData(id);
 
+  const [activeTimings, setActiveTimings] = useState(sceneTimings);
+  useEffect(() => {
+    setActiveTimings(sceneTimings);
+  }, [sceneTimings]);
+
   const {
     tasks, queue, isRunning, targetStage, activeTaskStep, scriptChangedAlert,
     setTargetStage, setScriptChangedAlert, triggerFullPipeline,
@@ -130,9 +135,10 @@ export const EditorWorkspace: React.FC = () => {
   const fullscreenToggleRef = useRef<(() => void) | null>(null);
 
   // === Computed values ===
-  const activeSceneIdx = sceneTimings.findIndex(t => currentFrame >= t.start && currentFrame < t.end);
-  const activeSubIdx = activeSceneIdx >= 0 && sceneTimings[activeSceneIdx].subs.length > 0
-    ? sceneTimings[activeSceneIdx].subs.findIndex(t => currentFrame >= t.start && currentFrame < t.end)
+  const activeTimingsToUse = activeTimings.length > 0 ? activeTimings : sceneTimings;
+  const activeSceneIdx = activeTimingsToUse.findIndex(t => currentFrame >= t.start && currentFrame < t.end);
+  const activeSubIdx = activeSceneIdx >= 0 && activeTimingsToUse[activeSceneIdx].subs.length > 0
+    ? activeTimingsToUse[activeSceneIdx].subs.findIndex(t => currentFrame >= t.start && currentFrame < t.end)
     : -1;
   const hasScriptData = !!scriptData;
   const isLoading = !selectedProject || !projectReady;
@@ -230,6 +236,87 @@ export const EditorWorkspace: React.FC = () => {
     setManifestData(manifestCopy);
 
     // 3. Persist to backend
+    const result = await callApi<any>('save_project_with_cleanup', id, scriptCopy, manifestCopy);
+    if (result?.success) {
+      loadFiles(id);
+    }
+  }, [id, scriptData, manifestData, setScriptData, setManifestData, loadFiles]);
+
+  const handleResizeScene = useCallback(async (
+    sceneIndex: number, newDurationSeconds: number, nextDurationSeconds: number | null, mode: 'boundary' | 'absolute'
+  ) => {
+    if (!id || !scriptData || !manifestData) return;
+
+    const manifestCopy = [...manifestData];
+
+    const scaleSubVisuals = (scene: any, durSec: number) => {
+      if (!scene.sub_visuals) return scene;
+      const totalExistingDur = scene.sub_visuals.reduce((sum: number, sv: any) => sum + (typeof sv.duration === 'number' ? sv.duration : 0), 0);
+      const subs = scene.sub_visuals.map((sv: any) => {
+        const ratio = typeof sv.duration_ratio === 'number' && !isNaN(sv.duration_ratio)
+          ? sv.duration_ratio
+          : totalExistingDur > 0
+            ? (typeof sv.duration === 'number' ? sv.duration : 0) / totalExistingDur
+            : 1 / (scene.sub_visuals.length || 1);
+        return { ...sv, duration: ratio * durSec, duration_ratio: ratio };
+      });
+      return { ...scene, sub_visuals: subs };
+    };
+
+    // Update scene at sceneIndex
+    manifestCopy[sceneIndex] = scaleSubVisuals(
+      { ...manifestCopy[sceneIndex], duration: Math.max(2, newDurationSeconds) },
+      Math.max(2, newDurationSeconds)
+    );
+
+    // Update next scene for boundary mode
+    if (mode === 'boundary' && nextDurationSeconds !== null && sceneIndex + 1 < manifestCopy.length) {
+      manifestCopy[sceneIndex + 1] = scaleSubVisuals(
+        { ...manifestCopy[sceneIndex + 1], duration: Math.max(2, nextDurationSeconds) },
+        Math.max(2, nextDurationSeconds)
+      );
+    }
+
+    // Mirror into scriptData
+    const scriptCopy = { ...scriptData };
+    const hasIntro = scriptData.introduction ? 1 : 0;
+
+    const updateSv = (sv: any, durSec: number, totalExistingDur: number, subCount: number) => {
+      const ratio = typeof sv.duration_ratio === 'number' && !isNaN(sv.duration_ratio)
+        ? sv.duration_ratio
+        : totalExistingDur > 0
+          ? (typeof sv.duration === 'number' ? sv.duration : 0) / totalExistingDur
+          : 1 / (subCount || 1);
+      return { ...sv, duration: ratio * durSec, duration_ratio: ratio };
+    };
+
+    const updateSceneInScript = (idx: number, durSec: number) => {
+      const subs = manifestCopy[idx]?.sub_visuals || [];
+      const subCount = subs.length || 1;
+      const totalExistingDur = subs.reduce((sum: number, sv: any) => sum + (typeof sv.duration === 'number' ? sv.duration : 0), 0);
+      if (idx === 0 && hasIntro) {
+        scriptCopy.introduction = { ...scriptCopy.introduction };
+        scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
+      } else if (idx === (scriptData.scenes?.length || 0) + hasIntro && scriptData.conclusion) {
+        scriptCopy.conclusion = { ...scriptCopy.conclusion };
+        scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
+      } else {
+        const sIdx = idx - hasIntro;
+        if (scriptCopy.scenes && scriptCopy.scenes[sIdx]) {
+          scriptCopy.scenes[sIdx] = { ...scriptCopy.scenes[sIdx] };
+          scriptCopy.scenes[sIdx].sub_visuals = (scriptCopy.scenes[sIdx].sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
+        }
+      }
+    };
+
+    updateSceneInScript(sceneIndex, newDurationSeconds);
+    if (mode === 'boundary' && nextDurationSeconds !== null) {
+      updateSceneInScript(sceneIndex + 1, nextDurationSeconds);
+    }
+
+    setManifestData(manifestCopy);
+    setScriptData(scriptCopy);
+
     const result = await callApi<any>('save_project_with_cleanup', id, scriptCopy, manifestCopy);
     if (result?.success) {
       loadFiles(id);
@@ -482,7 +569,7 @@ export const EditorWorkspace: React.FC = () => {
           scriptData={scriptData}
           manifestData={manifestData}
           transcriptionData={transcriptionData}
-          sceneTimings={sceneTimings}
+          sceneTimings={activeTimings}
           currentFrame={currentFrame}
           activeSceneIdx={activeSceneIdx}
           activeSubIdx={activeSubIdx}
@@ -543,6 +630,8 @@ export const EditorWorkspace: React.FC = () => {
           onSeek={handleSeek}
           onDeleteScene={handleDeleteSceneTimeline}
           onResizeSubVisual={handleResizeSubVisual}
+          onResizeScene={handleResizeScene}
+          onTimingsDragUpdate={setActiveTimings}
         />
       </div>
 

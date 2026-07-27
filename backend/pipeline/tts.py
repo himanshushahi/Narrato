@@ -69,8 +69,15 @@ def generate_edge_tts(text, output_path, voice="hi-IN-SwaraNeural", speed="1.0",
     import edge_tts
     import time
     
-    # Clean text of special punctuation that crashes edge-tts
+    # Clean text of special punctuation that crashes edge-tts or causes pacing issues
     cleaned_text = text
+    
+    # Strip markdown symbols
+    cleaned_text = re.sub(r'[*#_`~>]', '', cleaned_text)
+    
+    # Normalize ellipses to commas for better pacing
+    cleaned_text = re.sub(r'\.{2,}', ',', cleaned_text)
+    
     replacements = {
         "\u202f": " ", "\u00a0": " ", "\u2011": "-", "\u2013": "-",
         "\u2014": " - ", "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'
@@ -119,6 +126,12 @@ def generate_kokoro_tts(text, output_path, voice="af_bella", speed=1.0, lang="en
     
     logger.info(f"Generating Kokoro-TTS. Voice: {voice}, Speed: {speed}")
     kokoro = Kokoro(str(KOKORO_MODEL_PATH), str(KOKORO_VOICES_PATH))
+    
+    # Strip markdown symbols
+    text = re.sub(r'[*#_`~>]', '', text)
+    
+    # Normalize ellipses to commas for better pacing
+    text = re.sub(r'\.{2,}', ',', text)
     
     # The kokoro-onnx model crashes if phonemes exceed 510 (approx 3-5 sentences)
     # Split text by sentence-ending punctuation (English and Hindi)
