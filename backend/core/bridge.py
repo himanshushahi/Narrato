@@ -19,7 +19,7 @@ from backend.pipeline.tts import (
 )
 from backend.pipeline.ai import (
     SCRIPT_INTRO_JSON_SCHEMA, SCRIPT_CONCLUSION_JSON_SCHEMA, SCRIPT_SCENE_JSON_SCHEMA,
-    SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, clean_json_response, _get_web_context, _generate_search_query,
+    SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, _call_llm_json, _get_web_context_for_topic,
     get_shared_visual_rules
 )
 from backend.core.power import power_manager, auto_instrument_bridge
@@ -56,32 +56,29 @@ def _call_js_func(func_name: str, *args):
             pass
 
 
-def _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_key, base_url, model):
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    data = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": 0.7
-    }
-    if llm_provider == "nvidia":
-        data["guided_json"] = schema
-    else:
-        data["response_format"] = {"type": "json_object"}
+def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None):
+    """Wrapper around ai._call_llm_json that catches exceptions and returns dict.
+
+    Provides retry, streaming, and automatic provider resolution via the
+    pipeline's _call_llm_json. Bridge endpoints should use this instead of
+    making raw HTTP calls.
+
+    Args:
+        cancel_event: Optional threading.Event for cancellation. Bridge
+            endpoints currently don't expose a cancel mechanism, so this
+            defaults to a never-set event (no-op). Pipeline callers pass
+            a real event wired to the QueueManager's cancel machinery.
+    """
+    import threading
+    if cancel_event is None:
+        cancel_event = threading.Event()  # never set for bridge calls
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=60)
-        response.raise_for_status()
-        res = response.json()["choices"][0]["message"]["content"]
-        rewritten_data = clean_json_response(res)
-        return {"success": True, "data": rewritten_data}
+        data = _call_llm_json(system_prompt, user_prompt, schema, cancel_event)
+        return {"success": True, "data": data}
+    except InterruptedError:
+        return {"success": False, "error": "Operation cancelled."}
     except Exception as e:
-        logger.error(f"Failed direct LLM call: {e}")
+        logger.error(f"LLM call failed: {type(e).__name__}: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -490,12 +487,6 @@ class ApiBridge:
 
     def regenerate_script_section(self, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: regenerate_script_section index {scene_idx} ({section_type})")
-        llm_provider = get_setting("llm_provider") or "openai"
-        api_key = get_setting("openai_api_key")
-        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-        model = get_setting("openai_model") or "gpt-4o"
-        if not api_key:
-            return {"success": False, "error": "Please configure an OpenAI API Key first."}
         existing_scenes = full_script.get("scenes", [])
         scenes_summary = "\n".join(
             f"  Scene {s.get('scene_number', i + 1)}: \"{s.get('title', 'Untitled')}\" — {s.get('narration', '')[:120]}..."
@@ -507,7 +498,7 @@ class ApiBridge:
             "You are an expert AI scriptwriter with deep knowledge of video production and narrative structure. You will receive a script segment and a rewrite prompt explaining exactly how to modify it.\n\n"
             "CRITICAL CORE REQUIREMENTS:\n"
             "1. MAINTAIN NARRATIVE CONSISTENCY: You MUST preserve the video's core message and tone while making specific changes requested.\n"
-            "2. LANGUAGE PRECISION: NEVER use English transliterations. Write in the target language ({language}) - for Hindi use Devanagari script (हिंदी), for English use English. NO English words in Hindi sections.\n"
+            f"2. LANGUAGE PRECISION: NEVER use English transliterations. Write in the target language ({language}) - for Hindi use Devanagari script (हिंदी), for English use English. NO English words in Hindi sections.\n"
             "3. STRUCTURE CONSISTENCY: Return ONLY valid JSON matching the provided schema exactly.\n"
             "4. ANTI-HALLUCINATION: Do NOT invent facts, dates, names, or data you don't have evidence for. Only use verifiable information.\n"
             "5. LENGTH AWARENESS: Match the speaking duration (roughly 180-220 words per minute).\n"
@@ -528,7 +519,7 @@ class ApiBridge:
             system_prompt += (
                 f"LANGUAGE SPELLING RULE:\n"
                 f"- The rewritten narration MUST be written in language code '{language}'.\n"
-                f"- This means for '{language}', you MUST use the {('Devanagari script' if language == 'hi' else 'standard')} script.\n"
+                f"- This means for '{language}', you MUST use the {'Devanagari script' if language == 'hi' else 'standard'} script.\n"
                 f"- NEVER use English alphabet transliterations (for example, DO NOT write 'namaste' for 'नमस्ते').\n"
                 f"- This rule applies to ALL text in your output: hook, narration, summary, cta, and title.\n\n"
                 "SPELLING AND VOCABULARY:\n"
@@ -600,25 +591,17 @@ class ApiBridge:
         doc_title = full_script.get("title", "Untitled")
         
         # Try to get relevant web search context
-        _search_q = _generate_search_query(f"{doc_title} - script rewrite: {rewrite_prompt[:100]}", "script rewrite")
-        _web_ctx = _get_web_context(_search_q)
+        _web_ctx = _get_web_context_for_topic(f"{doc_title} - script rewrite: {rewrite_prompt[:100]}", "script rewrite")
         if _web_ctx:
             user_prompt += f"\n\nRELEVANT WEB SEARCH CONTEXT:\n"
-            user_prompt += f"The AI has found relevant web search results that may help with this rewrite. Incorporate specific facts and details from these sources to enhance the rewritten section.\n"
-            user_prompt += f"Original search query was: {_search_q[:100]}\n\n"
+            user_prompt += f"The AI has found relevant web search results that may help with this rewrite. Incorporate specific facts and details from these sources to enhance the rewritten section.\n\n"
             user_prompt += f"Web Search Results:\n{_web_ctx}\n\n"
             user_prompt += f"Use ONLY verified information from these sources. DO NOT use information from general knowledge or invented facts.\n"
-            
-        return _call_llm_api_direct(system_prompt, user_prompt, schema, llm_provider, api_key, base_url, model)
+
+        return _call_llm_safe(system_prompt, user_prompt, schema)
 
     def regenerate_visuals_section(self, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str) -> dict:
         logger.info(f"Bridge API: regenerate_visuals_section index {scene_idx} ({section_type})")
-        llm_provider = get_setting("llm_provider") or "openai"
-        api_key = get_setting("openai_api_key")
-        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-        model = get_setting("openai_model") or "gpt-4o"
-        if not api_key:
-            return {"success": False, "error": "Please configure an OpenAI API Key first."}
         video_format = full_script.get("video_format", "landscape")
         language = full_script.get("language", "hi")
         visual_rules = get_shared_visual_rules(video_format, language)
@@ -650,7 +633,7 @@ class ApiBridge:
             f"Total Duration to fill: {total_duration} seconds.\n"
             f"Generate the rewritten JSON sub_visuals array now. The sum of sub-visual durations MUST equal {total_duration}. Structure matches: {prompt_struct}."
         )
-        result = _call_llm_api_direct(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, llm_provider, api_key, base_url, model)
+        result = _call_llm_safe(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA)
         if result.get("success") and "data" in result:
             svs = result["data"].get("sub_visuals", [])
             _norm = sum(v.get("duration", 0) for v in svs)
@@ -661,12 +644,6 @@ class ApiBridge:
 
     def regenerate_sub_visual(self, scene_idx: int, section_type: str, sub_idx: int, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: regenerate_sub_visual index {scene_idx} ({section_type}) sub {sub_idx}")
-        llm_provider = get_setting("llm_provider") or "openai"
-        api_key = get_setting("openai_api_key")
-        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-        model = get_setting("openai_model") or "gpt-4o"
-        if not api_key:
-            return {"success": False, "error": "Please configure an OpenAI API Key first."}
         video_format = full_script.get("video_format", "landscape")
         visual_rules = get_shared_visual_rules(video_format, language)
         system_prompt = (
@@ -703,16 +680,10 @@ class ApiBridge:
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
-        return _call_llm_api_direct(system_prompt, user_prompt, SUB_VISUAL_SCHEMA, llm_provider, api_key, base_url, model)
+        return _call_llm_safe(system_prompt, user_prompt, SUB_VISUAL_SCHEMA)
 
     def add_scene_with_ai(self, full_script: dict, user_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: add_scene_with_ai — user_prompt: '{user_prompt[:80]}...'")
-        llm_provider = get_setting("llm_provider") or "openai"
-        api_key = get_setting("openai_api_key")
-        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-        model = get_setting("openai_model") or "gpt-4o"
-        if not api_key:
-            return {"success": False, "error": "Please configure an OpenAI API Key first."}
         existing_scenes = full_script.get("scenes", [])
         scenes_summary = "\n".join(
             f"  Scene {s.get('scene_number', i + 1)}: \"{s.get('title', 'Untitled')}\" — {s.get('narration', '')[:120]}..."
@@ -756,11 +727,10 @@ class ApiBridge:
             f"The scene_number will be assigned by the system, so just put 1 as a placeholder."
         )
         doc_title = full_script.get("title", "Untitled")
-        _scene_q = _generate_search_query(f"{doc_title} - add scene: {user_prompt[:100]}", "add new scene")
-        _web_ctx = _get_web_context(_scene_q)
+        _web_ctx = _get_web_context_for_topic(f"{doc_title} - add scene: {user_prompt[:100]}", "add new scene")
         if _web_ctx:
             user_content += f"\n\n---\nIncorporate relevant facts from this web search into your new scene:\n{_web_ctx}"
-        result = _call_llm_api_direct(system_prompt, user_content, SCRIPT_SCENE_JSON_SCHEMA, llm_provider, api_key, base_url, model)
+        result = _call_llm_safe(system_prompt, user_content, SCRIPT_SCENE_JSON_SCHEMA)
         if result.get("success") and "data" in result:
             result["data"]["sub_visuals"] = []
         return result

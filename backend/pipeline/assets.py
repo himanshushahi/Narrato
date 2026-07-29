@@ -46,7 +46,10 @@ def compute_script_content_hash(script_data):
 def is_visuals_stale(project_dict, project_dir):
     """Check if the sub-visual structure in script.json differs from manifest.json."""
     script_path = project_dir / "script.json"
-    manifest_path = project_dir / "voiceover" / "manifest.json"
+    raw = project_dict.get('assets_manifest_path')
+    if not raw:
+        return True
+    manifest_path = Path(raw)
     if not script_path.exists() or not manifest_path.exists():
         return True
         

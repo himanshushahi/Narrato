@@ -2,6 +2,11 @@ import concurrent.futures
 import json
 import re
 import requests
+import time
+import random
+import ast
+import hashlib
+import threading
 from backend.database.db import get_setting, update_project
 from backend.core.logger import logger
 import urllib.request
@@ -43,6 +48,32 @@ def _get_web_context(search_query: str) -> str:
     except Exception as e:
         logger.warning(f"Web search failed (non-fatal): {type(e).__name__}: {e}")
         return ""
+
+
+def _get_web_context_for_topic(topic_context: str, stage: str = "general") -> str:
+    """Combined search-query-generation + web search, only calling LLM when needed.
+
+    Checks if web search is enabled first, then generates a precise search query
+    via LLM (if configured), performs the search, and returns formatted context.
+    Returns empty string if web search is disabled or any step fails.
+    """
+    from backend.database.db import get_setting as _gs
+
+    enabled = _gs("web_search_enabled")
+    if not enabled or enabled in (False, "False"):
+        return ""
+
+    api_key = _gs("web_search_api_key")
+    if not api_key:
+        logger.info("Web search is enabled but no API key is configured — skipping.")
+        return ""
+
+    # Generate an optimized search query using the LLM (non-blocking on failure)
+    search_query = _generate_search_query(topic_context, stage)
+    if not search_query:
+        return ""
+
+    return _get_web_context(search_query)
 
 
 def _generate_search_query(context_description: str, stage: str = "general") -> str:
@@ -193,63 +224,71 @@ BASE_SCRIPT_JSON_SCHEMA = {
 SINGLE_SCENE_JSON_SCHEMA = SCRIPT_SCENE_JSON_SCHEMA
 
 def fix_unescaped_quotes(s):
-    """Escapes raw double quotes inside string fields in JSON string."""
-    keys_pattern = r'("(?:title|hook|visual_cue|visual_type|transition|visual_meta|scene_number|narration|summary|cta|introduction|scenes|conclusion)")\s*:\s*'
-    matches = list(re.finditer(keys_pattern, s))
-    if not matches:
-        return s
-        
-    segments = []
-    prev_end = 0
-    
-    for i, match in enumerate(matches):
-        segments.append(s[prev_end:match.start()])
-        key_colon = match.group(0)
-        segments.append(key_colon)
-        
-        value_start = match.end()
-        if i + 1 < len(matches):
-            value_end = matches[i+1].start()
-        else:
-            value_end = len(s)
-            
-        value_segment = s[value_start:value_end]
-        
-        val_stripped = value_segment.strip()
-        if val_stripped.startswith('"'):
-            first_quote_idx = value_segment.find('"')
-            last_quote_idx = value_segment.rfind('"')
-            
-            if first_quote_idx != -1 and last_quote_idx != -1 and first_quote_idx < last_quote_idx:
-                content = value_segment[first_quote_idx + 1 : last_quote_idx]
-                
-                escaped_content = []
-                j = 0
-                n_c = len(content)
-                while j < n_c:
-                    if content[j] == '"':
-                        if j > 0 and content[j-1] == '\\':
-                            escaped_content.append(content[j])
-                        else:
-                            escaped_content.append('\\"')
-                    else:
-                        escaped_content.append(content[j])
+    """Escapes raw double quotes inside string values to avoid JSON parse errors.
+
+    Uses a character-by-character state machine with look-ahead: when a quote
+    is encountered inside a string, we peek at the next non-whitespace character.
+    If it's a JSON structural delimiter ( , : } ] ), the quote is a legitimate
+    string closer. Otherwise it's an unescaped quote that needs to be escaped.
+    This avoids both the regex-boundary bug (key names truncating values) and
+    the over-escaping bug (converting every inner quote to \\\").
+    """
+    in_string = False
+    escape = False
+    result = []
+    n = len(s)
+    i = 0
+
+    while i < n:
+        char = s[i]
+
+        if in_string:
+            if escape:
+                result.append(char)
+                escape = False
+                i += 1
+                continue
+            elif char == '\\':
+                escape = True
+                result.append(char)
+                i += 1
+                continue
+            elif char == '"':
+                # Peek ahead: if next non-whitespace is a JSON delimiter,
+                # this is a legitimate string closer, not an embedded quote.
+                j = i + 1
+                while j < n and s[j].isspace():
                     j += 1
-                    
-                cleaned_val = (
-                    value_segment[:first_quote_idx] +
-                    '"' + "".join(escaped_content) + '"' +
-                    value_segment[last_quote_idx + 1:]
-                )
-                segments.append(cleaned_val)
+                if j >= n or s[j] in ',:;{}[]':
+                    # Legitimate end-of-string
+                    in_string = False
+                    result.append(char)
+                else:
+                    # Unescaped quote inside a string value
+                    result.append('\\"')
+                i += 1
+                continue
+            elif char == '\n':
+                result.append('\\n')
+            elif char == '\t':
+                result.append('\\t')
             else:
-                segments.append(value_segment)
+                result.append(char)
         else:
-            segments.append(value_segment)
-            
-        prev_end = value_end
-        
-    return "".join(segments)
+            if char == '"':
+                in_string = True
+                result.append(char)
+            elif char == '\n':
+                result.append(' ')
+            else:
+                result.append(char)
+        i += 1
+
+    if in_string:
+        result.append('"')
+
+    return "".join(result)
+
 
 def repair_json_string(s):
     """Repairs truncated JSON, trailing commas, and unescaped control chars."""
@@ -357,7 +396,6 @@ def clean_json_response(raw_response):
         
     try:
         repaired_val = repair_json_string(clean_text)
-        import ast
         return ast.literal_eval(repaired_val)
     except Exception:
         pass
@@ -367,10 +405,26 @@ def clean_json_response(raw_response):
 
 
 
-def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
+# Simple FIFO cache for deterministic LLM responses (128 entries).
+# Key: (provider, model, temp, max_tokens, top_p, sys_hash, user_hash)
+_llm_cache = {}
+_llm_cache_lock = threading.Lock()
+_LLM_CACHE_MAX = 128
+
+def _cache_key(system_prompt, user_prompt, cfg):
+    """Build a deterministic cache key from prompt + full config."""
+    sys_h = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16]
+    user_h = hashlib.sha256(user_prompt.encode("utf-8")).hexdigest()[:16]
+    return (cfg["provider"], cfg["model"], cfg["temperature"], cfg["max_tokens"], cfg["top_p"], sys_h, user_h)
+
+
+def _resolve_llm_config():
+    """Resolve LLM provider config from DB settings.
+    
+    Returns a dict with: provider, api_key, base_url, model, temperature, max_tokens, top_p
+    Raises ValueError if no API key is configured.
+    """
     from backend.database.db import get_setting
-    from openai import OpenAI
-    import openai
     
     llm_provider = get_setting("llm_provider") or "openai"
     
@@ -389,11 +443,49 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
         max_tokens = int(get_setting("openai_max_tokens") or 4096)
         top_p = float(get_setting("openai_top_p") or 1.0)
     
-    logger.info(f"LLM Call: Provider={llm_provider}, Model={model}, BaseURL={base_url}")
-    
     if not api_key:
         raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
-        
+    
+    return {
+        "provider": llm_provider,
+        "api_key": api_key,
+        "base_url": base_url,
+        "model": model,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "top_p": top_p,
+    }
+
+
+def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
+    from backend.database.db import get_setting
+    from openai import OpenAI
+    import openai
+    
+    global _llm_cache
+    
+    cfg = _resolve_llm_config()
+    llm_provider = cfg["provider"]
+    api_key = cfg["api_key"]
+    base_url = cfg["base_url"]
+    model = cfg["model"]
+    temperature = cfg["temperature"]
+    max_tokens = cfg["max_tokens"]
+    top_p = cfg["top_p"]
+    
+    logger.info(f"LLM Call: Provider={llm_provider}, Model={model}, BaseURL={base_url}")
+
+    # Check response cache for deterministic prompts (same params + same prompt)
+    ck = _cache_key(system_prompt, user_prompt, cfg)
+    with _llm_cache_lock:
+        if ck in _llm_cache:
+            # Cancel check must happen before cache return — if the pipeline
+            # was cancelled while the previous scene was processing, honour it.
+            if cancel_event.is_set():
+                raise InterruptedError("Cancelled")
+            logger.info(f"LLM cache HIT for {llm_provider}/{model}")
+            return _llm_cache[ck]
+
     client = OpenAI(
         api_key=api_key,
         base_url=base_url.rstrip('/') if base_url else None,
@@ -447,12 +539,17 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
                 
+            # Cache the response (FIFO eviction when full)
+            with _llm_cache_lock:
+                if len(_llm_cache) >= _LLM_CACHE_MAX:
+                    # Remove oldest inserted entry
+                    _llm_cache.pop(next(iter(_llm_cache)))
+                _llm_cache[ck] = parsed_json
+            
             return parsed_json
             
         except openai.RateLimitError as e:
             if attempt < max_retries - 1:
-                import time
-                import random
                 sleep_time = (2 ** attempt) + random.uniform(0, 1)
                 logger.warning(f"Rate limited (429). Retrying in {sleep_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(sleep_time)
@@ -462,7 +559,6 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
             if attempt < max_retries - 1 and "response_format" in kwargs:
                 logger.warning(f"Provider rejected request (HTTP 400). It might not support response_format. Stripping it and retrying... (Attempt {attempt+1}/{max_retries})")
                 del kwargs["response_format"]
-                import time
                 time.sleep(1.0)
             else:
                 try:
@@ -471,12 +567,12 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                     pass
                 if attempt >= max_retries - 1:
                     raise e
-                import time
                 time.sleep(2.0)
+        except InterruptedError:
+            raise
         except Exception as e:
             if attempt < max_retries - 1:
                 logger.warning(f"LLM request or parsing failed ({type(e).__name__}: {e}). Retrying... (Attempt {attempt+1}/{max_retries})")
-                import time
                 time.sleep(2.0)
             else:
                 logger.error(f"Max retries exceeded. Last error: {type(e).__name__}: {e}")
@@ -548,9 +644,14 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     # 1. Generate Outline
     progress_cb(10.0, "Generating video outline...")
     logger.info("Stage 1: Generating Outline...")
+    # Language-aware speaking rate: words per second for narration
+    # English ~180 WPM (3 wps), Hindi ~270 syllables/min (~4.5 sps)
+    LANGUAGE_WORD_RATE = {"hi": 4.5, "en": 3.0, "mr": 4.0, "bn": 4.0, "ta": 3.5, "te": 3.5}
+    speaking_rate = LANGUAGE_WORD_RATE.get(language, 3.0)
+    
     # Allocate scene time: ~15s reserved for intro + conclusion
     per_scene_time = max(5, (target_duration - 15) // max_scenes)
-    per_scene_words = max(10, int(per_scene_time * 3.0))
+    per_scene_words = max(10, int(per_scene_time * speaking_rate))
 
     outline_system_prompt = f"""You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
 
@@ -593,8 +694,7 @@ CHAPTER FORMAT NEEDED:
 NO generic phrases, no clickbait, no assumptions or unverified claims. Be precise and factual."""
 
     # Optionally augment with web search context
-    _search_q = _generate_search_query(f"{topic} - {prompt_desc}", "outline generation")
-    _web_ctx = _get_web_context(_search_q)
+    _web_ctx = _get_web_context_for_topic(f"{topic} - {prompt_desc}", "outline generation")
     if _web_ctx:
         outline_user_prompt += f"\n\nRelevant web context to inform your outline:\n{_web_ctx}"
 
@@ -702,8 +802,7 @@ Generate ONLY valid JSON matching the schema. No markdown backticks. Make sure b
 Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "summary": "text", "cta": "text" }} }}"""
 
     # Optionally augment with web search context
-    _search_q = _generate_search_query(f"{topic} - latest developments and background", "introduction & conclusion")
-    _web_ctx = _get_web_context(_search_q)
+    _web_ctx = _get_web_context_for_topic(f"{topic} - latest developments and background", "introduction & conclusion")
     if _web_ctx:
         base_user_prompt += f"\n\nWeb search reference (translate into {language}):\n{_web_ctx}"
 
@@ -723,7 +822,7 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
     # Recalculate per-scene duration based on actual chapter count from outline
     actual_count = total_chapters or max_scenes  # fallback if outline produced 0 chapters
     per_scene_duration = max(5, (target_duration - 15) // actual_count)
-    per_scene_word_target = max(10, int(per_scene_duration * 3.0))  # ~3 words/sec (180 WPM) speaking rate
+    per_scene_word_target = max(10, int(per_scene_duration * speaking_rate))  # language-aware speaking rate
     
     def generate_single_scene(idx, chapter):
         scene_num = chapter.get("scene_number", idx + 1)
@@ -855,15 +954,9 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
 """
 
         # Optionally augment with scene-specific web search context
-        _scene_q = _generate_search_query(f"{topic}: {chapter_title} - {context}", "scene narration")
-        _web_ctx = _get_web_context(_scene_q)
+        _web_ctx = _get_web_context_for_topic(f"{topic}: {chapter_title} - {context}", "scene narration")
         if _web_ctx:
             scene_user_prompt += f"\n\nIncorporate relevant facts from this web search into your narration:\n{_web_ctx}"
-
-        import time
-        
-        # Staggered delay to prevent rate limit spikes for all providers
-        time.sleep(idx * 2.0)
 
         return _call_llm_json(scene_system_prompt, scene_user_prompt, SINGLE_SCENE_JSON_SCHEMA, cancel_event)
 
@@ -1000,19 +1093,14 @@ def generate_chart_data(prompt):
     """Generates JSON chart data using the configured LLM based on user prompt."""
     logger.info(f"Generating chart data for prompt: '{prompt}'")
     
-    llm_provider = get_setting("llm_provider") or "openai"
-    
-    if llm_provider == "nvidia":
-        api_key = get_setting("nvidia_api_key")
-        base_url = get_setting("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
-        model = get_setting("nvidia_model") or "meta/llama-3.1-8b-instruct"
-    else:
-        api_key = get_setting("openai_api_key")
-        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-        model = get_setting("openai_model") or "gpt-4o"
-
-    if not api_key:
-        return {"success": False, "error": f"{llm_provider.title()} API key is missing. Please configure it in settings."}
+    try:
+        cfg = _resolve_llm_config()
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+    llm_provider = cfg["provider"]
+    api_key = cfg["api_key"]
+    base_url = cfg["base_url"]
+    model = cfg["model"]
 
     system_prompt = """You are an expert data analyst and researcher.
 Your task is to generate realistic, accurate, or highly plausible chart data based on the user's prompt.
@@ -1257,9 +1345,9 @@ FINAL CHECK before submitting:
 
     total_scenes = len(manifest)
     completed = 0
+    _last_progress_ts = 0.0
     
     # Load transcription for precise word-level timings
-    transcription_path = Path(project_dir) / "transcription.json"
     transcription_data = None
     if transcription_path.exists():
         try:
@@ -1270,7 +1358,15 @@ FINAL CHECK before submitting:
 
     cumulative_time = 0.0
     
-    # Process each scene sequentially
+    def _throttled_progress(pct, msg):
+        """Throttle progress updates to max every 500ms to avoid UI flooding."""
+        nonlocal _last_progress_ts
+        now = time.time()
+        if now - _last_progress_ts >= 0.5 or pct >= 99.9:
+            _last_progress_ts = now
+            progress_cb(pct, msg)
+    
+    # Process each scene sequentially (cumulative_time dependency)
     for i, entry in enumerate(manifest):
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
@@ -1297,6 +1393,11 @@ FINAL CHECK before submitting:
         # --- Smart Preservation Logic ---
         existing_sub_visuals = entry.get("sub_visuals", [])
         
+        # Compute narration hash for change-detection: when narration changes,
+        # we must regenerate even if sub-visuals exist from a previous run.
+        narration_hash = hashlib.md5(narration.encode("utf-8")).hexdigest()[:12]
+        stored_hash = entry.get("_narr_hash", "")
+        
         # Check if existing sub-visuals are valid (not just a single blank default generated by tts.py)
         is_default = False
         if len(existing_sub_visuals) == 1:
@@ -1304,7 +1405,9 @@ FINAL CHECK before submitting:
             if v.get("visual_type") == "scene" and v.get("visual_cue") == scene_title and not v.get("visual_meta"):
                 is_default = True
                 
-        if existing_sub_visuals and not is_default:
+        narration_changed = (stored_hash and stored_hash != narration_hash)
+                
+        if existing_sub_visuals and not is_default and not narration_changed:
             logger.info(f"Preserving existing sub-visuals for scene '{scene_title}'. Scaling durations to new total {duration}s.")
             old_total = sum([float(v.get("duration", 0)) for v in existing_sub_visuals])
             if old_total > 0:
@@ -1316,8 +1419,9 @@ FINAL CHECK before submitting:
                     v["duration"] = round(duration / len(existing_sub_visuals), 2)
             
             entry["sub_visuals"] = existing_sub_visuals
+            entry["_narr_hash"] = narration_hash
             completed += 1
-            progress_cb(10.0 + (completed / total_scenes) * 80.0, f"Preserved visual cues... {completed}/{total_scenes}")
+            _throttled_progress(10.0 + (completed / total_scenes) * 80.0, f"Preserved visual cues... {completed}/{total_scenes}")
             continue
         # --- End Smart Preservation Logic ---
         
@@ -1330,9 +1434,6 @@ Narration:
 {word_timings}
 Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST exactly equal {duration} seconds."""
 
-        import time
-        time.sleep(1.0)
-        
         try:
             visuals_data = _call_llm_json(visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, cancel_event)
             
@@ -1357,12 +1458,14 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
                     else: sv["visual_type"] = "scene"
 
             entry["sub_visuals"] = visuals_data.get("sub_visuals", [])
+            entry["_narr_hash"] = narration_hash
         except Exception as e:
             logger.error(f"Failed to generate visuals for scene {i}: {e}")
             entry["sub_visuals"] = [{"visual_type": "scene", "visual_cue": scene_title, "transition": "fade", "visual_meta": {}, "duration": duration}]
+            entry["_narr_hash"] = narration_hash
             
         completed += 1
-        progress_cb(10.0 + (completed / total_scenes) * 80.0, f"Generating visual cues... {completed}/{total_scenes}")
+        _throttled_progress(10.0 + (completed / total_scenes) * 80.0, f"Generating visual cues... {completed}/{total_scenes}")
 
     # Write back to manifest
     with open(manifest_path, "w", encoding="utf-8") as f:
