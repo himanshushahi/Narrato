@@ -1100,6 +1100,102 @@ RULES:
         return {"success": False, "error": str(e)}
 
 
+def get_shared_visual_rules(video_format: str, language: str = "hi") -> str:
+    """Centralized visual generation rules shared by ai.py and bridge.py.
+
+    This is the SINGLE SOURCE OF TRUTH for all visual type definitions,
+    meta schemas, overlay rules, and creative guidelines. Both the initial
+    pipeline generation (ai.py) and the interactive rewrite/regenerate
+    endpoints (bridge.py) import this function.
+    """
+    return f"""
+=== MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
+Be extremely creative! Build a visually engaging video:
+- If explaining a concept, build a 'custom_html' animation or a 'network' diagram.
+- If making a claim, use a 'document' to flash dramatic evidence on screen.
+- If showing data, use a dynamic 'chart'.
+- Use 'visual_meta' to write evocative copy, inject dramatic headlines, and compose visually stunning overlays.
+
+=== QUANTITY & TIMING ===
+- Break narration into logical visual beats — one sub-visual per beat.
+- Each sub-visual: 2-15 seconds. The sum MUST equal the Total Scene Duration.
+- For 'list' type: create 1 sub-visual PER LIST ITEM.
+- Vary transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
+
+=== VALID VISUAL TYPES (USE ONLY THESE) ===
+chart | map | document | portrait | scene | image | youtube | parallax | network | list | custom_html | timeline | thread | device_mockup | ai_image
+
+=== TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL ===
+- list: Ranked items, countdowns, top-N lists, step-by-step. E.g. "Top 5", "How to".
+- chart: Statistics, percentages, comparisons, data trends. E.g. "X% increase".
+- map: Geography, routes, locations, territories, borders.
+- document: Factual claims, news events, classified archives, archival evidence. (See DOCUMENT RULES below.)
+- timeline: Sequence of events, chronological milestones, histories.
+- network: Connections between people, organizations, relationships.
+- portrait: Specific people or entities. visual_cue = person's EXACT FULL NAME only (used as Wikipedia search query). Do NOT add descriptive words — just the name. E.g. "Harshad Mehta", not "Harshad Mehta stockbroker".
+- parallax: Dramatic visual reveals with layered 3D depth.
+- custom_html: A FULL-SCREEN standalone visual type. See CRITICAL DISTINCTION below.
+- thread: Simulated social media / chat conversations.
+- device_mockup: Content inside a realistic device frame (iphone/macbook).
+- scene/image/ai_image: Default fallback (ai_image = AI-generated via HuggingFace). visual_cue MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon' instead of 'a sprawling city with neon lights at night').
+- youtube: Real-world footage.
+
+=== ⚠️ CRITICAL DISTINCTION: custom_html (visual type) vs custom_html_ui (overlay) ===
+These are TWO COMPLETELY DIFFERENT THINGS. DO NOT confuse them:
+
+1. "custom_html" as visual_type:
+   - This is a STANDALONE FULL-SCREEN VISUAL. It replaces the entire background.
+   - Use when the ENTIRE visual should be a coded UI/animation (no background image/video).
+   - Set visual_type = "custom_html" and visual_meta = {{"html": str, "css": str}}.
+   - The HTML is rendered at 100% width/height as the main visual content.
+   - Example use: An animated infographic, a stylized quote card, a dynamic data dashboard.
+
+2. "custom_html_ui" as an OVERLAY inside visual_meta:
+   - This is a TRANSPARENT OVERLAY that floats ON TOP of a background image/video.
+   - The background comes from scene/image/portrait/parallax/youtube/ai_image.
+   - Add it inside visual_meta: {{"custom_html_ui": {{"html": str, "css": str}}}}.
+   - Example use: An animated label over a portrait, a styled stat counter over stock footage.
+   - ONLY allowed on these types: scene, image, portrait, parallax, youtube, ai_image.
+
+NEVER set visual_type = "custom_html" when you actually want an overlay on a background.
+NEVER add custom_html_ui to data types (chart, map, document, list, network, timeline, thread, device_mockup, custom_html).
+
+=== DOCUMENT RULES (ARCHIVAL / EVIDENCE VISUALS) ===
+- ALWAYS set "show_image": false in document visual_meta.
+- DO NOT generate "image_url" or "image_caption" fields.
+- The user will manually upload archival/evidence images themselves.
+- Focus on writing compelling text content: headline, doc_text, highlight_text, pull_quote.
+
+=== VISUAL META SCHEMAS (FILL CREATIVELY) ===
+- scene/image/parallax/ai_image: {{}} (empty object). visual_cue = 1-3 stock photo keywords.
+- portrait: {{"person_name": str}}. visual_cue = person's EXACT full name only.
+- youtube: {{"start_offset": 15, "duration": 15, "skip_intro": true}}
+- chart: {{"chart_type": "bar"|"line"|"pie", "title": str, "data": [{{"label": str, "value": number}}]}}
+- map: {{"map_style": "vintage", "locations": [{{"name": str, "coord": [lat, lon]}}]}} (2 locations)
+- document: {{"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": false}} (NEVER set show_image to true — user adds images manually)
+- timeline: {{"title": str, "events": [{{"date": str, "title": str, "description": str}}]}}
+- network: {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
+- list: {{"number": int, "title": str, "description": str}}
+- thread: {{"platform": "whatsapp"|"imessage"|"twitter"|"discord", "messages": [{{"sender": str, "text": str, "is_self": bool}}], "title": str}}
+- device_mockup: {{"device": "iphone"|"macbook"}} (optional: "screen_image_url": str)
+- custom_html: {{"html": str, "css": str}} (CRITICAL: Design for {video_format} orientation. Use raw CSS — no Tailwind. NOT a normal web page. Must look like a high-end video editor template with abundant smooth CSS animations.)
+
+=== OVERLAY RULES ===
+- lower_third: Add {{"lower_third": {{"title": str, "subtitle": str}}}} inside visual_meta for overlay text.
+- custom_html_ui: Add {{"custom_html_ui": {{"html": str, "css": str}}}} inside visual_meta for custom overlays.
+- ONLY FOR: scene, image, parallax, portrait, youtube, ai_image.
+- NEVER FOR: custom_html, chart, list, map, document, network, timeline, thread, device_mockup. For these types, bake all text directly into their specific visual_meta fields.
+- lower_third and custom_html_ui content text: Match the target language ({language}).
+
+=== ANTI-HALLUCINATION ===
+- DO NOT invent visual_meta fields not listed in the schemas above.
+- DO NOT add fields like "background_color", "font_size", "animation", etc. to visual_meta unless they are part of the schema.
+- The ONLY optional additions to visual_meta are "lower_third" and "custom_html_ui" (and ONLY for allowed types).
+- visual_cue MUST ALWAYS be in English.
+- All visual_meta text content MUST be in English, EXCEPT lower_third and custom_html_ui content which should match the target language.
+"""
+
+
 def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     from backend.database.db import get_setting, update_project
     from backend.core.logger import logger
@@ -1125,51 +1221,7 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
     progress_cb(10.0, "Preparing to generate visuals...")
     logger.info("Starting Visuals Generation Pipeline...")
     
-    visual_rules = f"""
-=== MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
-Be extremely creative! Build a visually engaging video:
-- If explaining a concept, build a 'custom_html' animation or a 'network' diagram.
-- If making a claim, use a 'document' to flash dramatic evidence on screen.
-- If showing data, use a dynamic 'chart'.
-- Use 'visual_meta' to write evocative copy, inject dramatic headlines, and compose visually stunning overlays.
-
-=== QUANTITY & TIMING ===
-- Break narration into logical visual beats — one sub-visual per beat.
-- Each sub-visual: 2-15 seconds. The sum MUST equal the Total Scene Duration.
-- For 'list' type: create 1 sub-visual PER LIST ITEM.
-- Vary transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
-
-=== TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL ===
-- list: Ranked items, countdowns, top-N lists, step-by-step. E.g. "Top 5", "How to".
-- chart: Statistics, percentages, comparisons, data trends. E.g. "X% increase".
-- map: Geography, routes, locations, territories, borders.
-- document: Factual claims, news events, classified archives, evidence.
-- timeline: Sequence of events, chronological milestones, histories.
-- network: Connections between people, organizations, relationships.
-- portrait: Specific people or entities. visual_cue = person's exact name (Wikipedia search).
-- parallax: Dramatic visual reveals with layered 3D depth.
-- custom_html: Highly customized, stunning UI with abundant smooth CSS animations. MUST look like a modern video editor template, NOT a normal website.
-- thread: Simulated social media / chat conversations.
-- device_mockup: Content inside a realistic device frame (iphone/macbook).
-- scene/image/ai_image: Default fallback (ai_image = AI-generated via HuggingFace).
-- youtube: Real-world footage.
-
-=== VISUAL META SCHEMAS (FILL CREATIVELY) ===
-- scene/image/parallax/ai_image: {{}} (portrait may add {{"person_name": str}})
-- youtube: {{"start_offset": 15, "duration": 15, "skip_intro": true}}
-- chart: {{"chart_type": "bar"|"line"|"pie", "title": str, "data": [{{"label": str, "value": number}}]}}
-- map: {{"map_style": "vintage", "locations": [{{"name": str, "coord": [lat, lon]}}]}} (2 locations)
-- document: {{"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": bool, "image_url": str, "image_caption": str}}
-- timeline: {{"title": str, "events": [{{"date": str, "title": str, "description": str}}]}}
-- network: {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
-- list: {{"number": int, "title": str, "description": str}}
-- thread: {{"platform": "whatsapp"|"imessage"|"twitter"|"discord", "messages": [{{"sender": str, "text": str, "is_self": bool}}], "title": str}}
-- device_mockup: {{"device": "iphone"|"macbook"}} (optional: "screen_image_url": str)
-- custom_html: {{"html": str, "css": str}} (CRITICAL: Design for {video_format} orientation. Use raw CSS — no Tailwind. NOT a normal web page.)
-- Any type: add {{"lower_third": {{"title": str, "subtitle": str}}}} for overlay text.
-- Any type: add {{"custom_html_ui": {{"html": str, "css": str}}}} for custom overlays.
-- CRITICAL ON OVERLAYS: lower_third and custom_html_ui ONLY for scene/image/parallax/portrait/youtube/ai_image types. For data types (chart, map, etc.), bake text into visual_meta.
-"""
+    visual_rules = get_shared_visual_rules(video_format, language)
     
     visuals_system_prompt = f"""You are an expert AI Visual Director for YouTube videos.
 

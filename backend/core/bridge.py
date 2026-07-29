@@ -19,7 +19,8 @@ from backend.pipeline.tts import (
 )
 from backend.pipeline.ai import (
     SCRIPT_INTRO_JSON_SCHEMA, SCRIPT_CONCLUSION_JSON_SCHEMA, SCRIPT_SCENE_JSON_SCHEMA,
-    SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, clean_json_response, _get_web_context, _generate_search_query
+    SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, clean_json_response, _get_web_context, _generate_search_query,
+    get_shared_visual_rules
 )
 from backend.core.power import power_manager, auto_instrument_bridge
 
@@ -619,41 +620,15 @@ class ApiBridge:
         if not api_key:
             return {"success": False, "error": "Please configure an OpenAI API Key first."}
         video_format = full_script.get("video_format", "landscape")
+        language = full_script.get("language", "hi")
+        visual_rules = get_shared_visual_rules(video_format, language)
         system_prompt = (
             "You are an expert AI Visual Director. You will receive a script segment (narration) "
             "and a prompt explaining how to modify or rewrite its visuals. "
             "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
             "Return ONLY valid JSON matching the provided schema. No markdown backticks.\n\n"
-            "IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n"
-            "Choose visual_type from: 'chart', 'map', 'document', 'portrait', 'scene', 'image', 'youtube', 'parallax', 'network', 'list', 'custom_html', 'timeline', 'thread', 'device_mockup', 'ai_image'.\n\n"
-            "QUANTITY: Let the narration length and pacing dictate how many sub-visuals to generate. Break the narration into logical visual beats — one sub-visual per beat. Each sub-visual should have a meaningful duration (2-15 seconds). The sum of all durations MUST equal the provided Total Duration. For 'list' type: create 1 sub-visual PER LIST ITEM.\n\n"
-            "TYPE SELECTION GUIDE — match the visual to the narration content:\n"
-            "- list: For ranked items, countdowns, top-N lists, or step-by-step rankings.\n"
-            "- chart: For statistics, percentages, comparisons, or data trends.\n"
-            "- map: For geography, routes, locations, or movement between places.\n"
-            "- document: For factual claims, news events, or archival evidence.\n"
-            "- timeline: For tracking a sequence of events, chronological milestones, or histories.\n"
-            "- network: For connections between people, organizations, or relationships.\n"
-            "- portrait: For introducing real specific people or places.\n"
-            "- parallax: For dramatic layered depth reveals.\n"
-            f"- custom_html: For highly customized, stunning modern UI layouts resembling high-end video editor templates with abundant smooth animations. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.\n"
-             "- scene/image/ai_image: Default visual support for general narration (ai_image for AI-generated images via HuggingFace).\n"
-            "- youtube: For real-world footage other than portraits.\n\n"
-            "VISUAL META SCHEMAS — fill these creatively to match the narration:\n"
-             "- scene/image/parallax/ai_image: visual_meta {} (portrait may add {\"person_name\": str}). visual_cue MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon').\n"
-             "- PORTRAIT CRITICAL: visual_cue must be ONLY the entity's exact name (e.g. \"Harshad Mehta\"). Used as a Wikipedia search query.\n"
-             "- youtube: visual_meta {\"start_offset\": 15, \"duration\": 15, \"skip_intro\": true}\n"
-            "- chart: visual_meta {\"chart_type\": \"bar\"|\"line\"|\"pie\", \"title\": str, \"data\": [{\"label\": str, \"value\": number}]}\n"
-            "- map: visual_meta {\"map_style\": \"vintage\", \"locations\": [{\"name\": str, \"coord\": [lat, lon]}]} (2 locations)\n"
-            "- document: visual_meta {\"title\": str, \"headline\": str, \"subtitle\": str, \"doc_text\": str, \"highlight_text\": str, \"source\": str, \"date\": str, \"section\": str, \"pull_quote\": str, \"show_image\": bool, \"image_url\": str, \"image_caption\": str}\n"
-            "- timeline: visual_meta {\"title\": str, \"events\": [{\"date\": str, \"title\": str, \"description\": str}]}\n"
-            "- network: visual_meta {\"theme\": \"conspiracy_board\"|\"cyberpunk\"|\"corporate\", \"nodes\": [{\"id\": str, \"label\": str, \"type\": \"person\"|\"entity\"}], \"edges\": [{\"source\": str, \"target\": str}]}\n"
-            "- list: visual_meta {\"number\": int, \"title\": str, \"description\": str}\n"
-             "- thread: visual_meta {\"platform\": \"whatsapp\"|\"imessage\"|\"twitter\"|\"discord\", \"messages\": [{\"sender\": str, \"text\": str, \"is_self\": bool}], \"title\": str}\n"
-            "- device_mockup: visual_meta {\"device\": \"iphone\"|\"macbook\"} (optional: \"screen_image_url\": str)\n"
-            "- custom_html: visual_meta {\"html\": str, \"css\": str} (Note: HTML is injected into a 100% width/height relative wrapper. Write raw CSS. CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template, NOT a normal web page. Add abundant, smooth animations to make it highly dynamic.)\n"
-            "- CRITICAL ON OVERLAYS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} OR {\"custom_html_ui\": {\"html\": str, \"css\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', 'youtube', or 'ai_image'. NEVER use these overlays for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', 'timeline', 'thread', or 'device_mockup'. For those, bake any text/titles directly into their specific visual_meta fields.\n\n"
-            "Transitions ('transition' field): choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. Do NOT use the same transition repeatedly! Vary the transitions to make the video dynamic.\n"
+            "IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n\n"
+            f"{visual_rules}\n"
         )
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
@@ -693,6 +668,7 @@ class ApiBridge:
         if not api_key:
             return {"success": False, "error": "Please configure an OpenAI API Key first."}
         video_format = full_script.get("video_format", "landscape")
+        visual_rules = get_shared_visual_rules(video_format, language)
         system_prompt = (
             "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
             "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
@@ -701,23 +677,7 @@ class ApiBridge:
             "Do NOT change the narration.\n"
             "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
             "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": float }\n\n"
-            "TYPE-SPECIFIC META SCHEMAS (fill creatively based on the visual_type):\n"
-            "- list: visual_meta { \"number\": int, \"title\": str, \"description\": str }\n"
-            "- chart: visual_meta { \"chart_type\": \"bar\"|\"line\"|\"pie\", \"title\": str, \"data\": [{ \"label\": str, \"value\": number }] }\n"
-            "- map: visual_meta { \"map_style\": \"vintage\", \"locations\": [{ \"name\": str, \"coord\": [lat, lon] }] }\n"
-             "- document: visual_meta {\"title\": str, \"headline\": str, \"subtitle\": str, \"doc_text\": str, \"highlight_text\": str, \"source\": str, \"date\": str, \"section\": str, \"pull_quote\": str, \"show_image\": bool, \"image_url\": str, \"image_caption\": str}\n"
-            "- timeline: visual_meta {\"title\": str, \"events\": [{\"date\": str, \"title\": str, \"description\": str}]}\n"
-            "- network: visual_meta { \"theme\": \"conspiracy_board\"|\"corporate\"|\"cyberpunk\", \"nodes\": [...], \"edges\": [...] }\n"
-             "- thread: visual_meta { \"platform\": \"whatsapp\"|\"imessage\"|\"twitter\"|\"discord\", \"messages\": [{\"sender\": str, \"text\": str, \"is_self\": bool}], \"title\": str }\n"
-            "- device_mockup: visual_meta { \"device\": \"iphone\"|\"macbook\" } (optional: \"screen_image_url\": str)\n"
-            f"- custom_html: visual_meta {{ \"html\": str, \"css\": str }} (CRITICAL: Generate a stunning UI that looks modern, similar to a high-end video editor template. Add abundant, smooth animations. NOTE: This video is in {video_format} format, so design the layout appropriately for {video_format} orientation.)\n"
-             "- portrait: visual_cue must be ONLY the person's full name (used as Wikipedia search query).\n"
-             "- scene/image/parallax/youtube/ai_image: visual_meta {} unless adding lower_third or custom_html_ui. visual_cue MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon').\n"
-             "- CRITICAL ON OVERLAYS: ONLY use {\"lower_third\": {\"title\": str, \"subtitle\": str}} OR {\"custom_html_ui\": {\"html\": str, \"css\": str}} for media types like 'scene', 'image', 'portrait', 'parallax', 'youtube', or 'ai_image'. NEVER use these overlays for data types like 'custom_html', 'chart', 'list', 'map', 'document', 'network', 'timeline', 'thread', or 'device_mockup'. For those, bake any text/titles directly into their specific visual_meta fields.\n\n"
-             "Transitions: choose from 'subtle_slide', 'fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down', 'zoom_in', 'zoom_out', 'glitch', 'none'. "
-             "Do NOT use the same transition as before — vary it.\n"
-            f"LANGUAGE: The 'visual_cue' field MUST be in English. All 'visual_meta' text content MUST be in English. "
-            f"Lower third titles/subtitles should be in language code '{language}'.\n"
+            f"{visual_rules}\n"
         )
         if section_type == "introduction":
             section = full_script.get("introduction", {})
