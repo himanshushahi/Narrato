@@ -156,6 +156,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             visual_meta: lsv.visual_meta,
             transform: lsv.transform,
             duration_ratio: lsv.duration_ratio,
+            videoVolume: lsv.videoVolume,
             visual_url: visualUrl,
             duration: osv.duration
           };

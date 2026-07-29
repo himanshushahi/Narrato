@@ -9,9 +9,10 @@ interface Props {
   cue: string;
   durationInFrames: number;
   transform?: SubVisualTransform;
+  videoVolume?: number;
 }
 
-export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, transform }) => {
+export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, transform, videoVolume = 0 }) => {
   const frame = useCurrentFrame();
 
   // Create alternating pan directions based on the length of the visual cue
@@ -155,7 +156,8 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, tran
             <Video
               src={src}
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              muted
+              volume={Math.max(0, Math.min(1, videoVolume))}
+              muted={videoVolume === 0}
               pauseWhenBuffering
             />
           ) : (

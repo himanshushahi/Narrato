@@ -7,6 +7,7 @@ interface Props {
   bgMusicUrl?: string;
   bgMusicVolume?: number;
   voiceoverVolume?: number;
+  muteVideoAudio?: boolean;
   scenes: Scene[];
   transcription: Transcription;
   styleType?: string;
@@ -29,6 +30,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   bgMusicUrl,
   bgMusicVolume = 0.15,
   voiceoverVolume = 1.0,
+  muteVideoAudio = false,
   scenes = [],
   transcription = { segments: [] },
   styleType = 'nitish_rajput',
@@ -111,6 +113,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       bgMusicUrl,
       bgMusicVolume,
       voiceoverVolume,
+      muteVideoAudio,
       scenes,
       transcription,
       style: styleType,
@@ -118,7 +121,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       videoFormat,
       subtitleSettings,
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, scenes, transcription, styleType, language, videoFormat, subtitleSettings]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings]);
 
   if (!scenes || scenes.length === 0) {
     return (

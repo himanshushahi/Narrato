@@ -120,6 +120,7 @@ export function usePipeline(
     const warnings: string[] = [];
     if (overrides.render_mute_voice) warnings.push('Voiceover is muted — exported video will have no narration');
     if (overrides.render_mute_music) warnings.push('Background music is muted — exported video will have no music');
+    if (overrides.render_mute_video_audio) warnings.push('Video audio is muted — exported video will not include audio from video clips');
     if (overrides.render_hide_subtitles) warnings.push('Subtitles are hidden — exported video will have no subtitles');
 
     if (warnings.length > 0) {
@@ -138,6 +139,7 @@ export function usePipeline(
     } catch (e) { /* ignore */ }
     settings.render_mute_voice = overrides.render_mute_voice;
     settings.render_mute_music = overrides.render_mute_music;
+    settings.render_mute_video_audio = overrides.render_mute_video_audio;
     settings.render_hide_subtitles = overrides.render_hide_subtitles;
     await updateProject(projectId, { project_settings: JSON.stringify(settings) });
     return true;

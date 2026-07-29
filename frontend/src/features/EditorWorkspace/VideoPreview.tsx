@@ -175,6 +175,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   bgMusicUrl={bgMusicUrl}
                   bgMusicVolume={trackMuted['music'] || trackHidden['music'] ? 0 : bgMusicVolume}
                   voiceoverVolume={trackMuted['voice'] || trackHidden['voice'] ? 0 : voiceoverVolume}
+                  muteVideoAudio={!!(trackMuted['videoaudio'] || trackHidden['videoaudio'])}
                   scenes={liveScenes}
                   transcription={trackHidden['subs'] ? { segments: [] } : transcriptionData}
                   styleType={styleType}

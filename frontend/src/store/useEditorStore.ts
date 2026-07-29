@@ -46,7 +46,7 @@ interface EditorStore {
   setTimelineZoom: (zoom: number) => void;
   toggleTrackMute: (trackId: string) => void;
   toggleTrackHide: (trackId: string) => void;
-  getRenderTrackOverrides: () => { render_mute_voice: boolean; render_mute_music: boolean; render_hide_subtitles: boolean };
+  getRenderTrackOverrides: () => { render_mute_voice: boolean; render_mute_music: boolean; render_mute_video_audio: boolean; render_hide_subtitles: boolean };
   setAudioChangedAlert: (val: boolean) => void;
 }
 
@@ -138,6 +138,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     return {
       render_mute_voice: !!(state.trackMuted['voice'] || state.trackHidden['voice']),
       render_mute_music: !!(state.trackMuted['music'] || state.trackHidden['music']),
+      render_mute_video_audio: !!(state.trackMuted['videoaudio'] || state.trackHidden['videoaudio']),
       render_hide_subtitles: !!state.trackHidden['subs'],
     };
   },

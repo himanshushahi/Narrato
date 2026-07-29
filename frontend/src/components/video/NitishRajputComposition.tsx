@@ -27,6 +27,8 @@ interface SubVisual {
   transform?: SubVisualTransform;
   /** Proportional duration share within the scene (values sum to ~1.0). Set by Adjust Durations bar. */
   duration_ratio?: number;
+  /** Volume for video-type sub-visuals (0-1). 0 = muted (default), 1 = full volume. */
+  videoVolume?: number;
 }
 
 export interface Scene {
@@ -64,6 +66,7 @@ export interface Props {
   bgMusicUrl?: string;
   bgMusicVolume?: number;
   voiceoverVolume?: number;
+  muteVideoAudio?: boolean;
   scenes: Scene[];
   transcription: Transcription;
   style?: string;
@@ -82,6 +85,7 @@ export const NitishRajputComposition = ({
   bgMusicUrl,
   bgMusicVolume = 0.15,
   voiceoverVolume = 1.0,
+  muteVideoAudio = false,
   scenes = [],
   transcription = { language: '', segments: [] },
   style = 'nitish_rajput',
@@ -204,6 +208,7 @@ export const NitishRajputComposition = ({
         cue={subVis.visual_cue}
         durationInFrames={durationFrames}
         transform={transform}
+        videoVolume={muteVideoAudio ? 0 : (subVis.videoVolume || 0)}
       />
     );
   }, [subtitleSettings]);

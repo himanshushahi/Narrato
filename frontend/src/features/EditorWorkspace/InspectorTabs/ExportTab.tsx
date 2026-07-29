@@ -56,6 +56,9 @@ export const ExportTab: React.FC<ExportTabProps> = ({
     if (trackMuted['music'] || trackHidden['music']) {
       warnings.push({ icon: <VscMute />, text: 'Music muted — no BG music in export', cls: 'bg-amber-600/10 border-amber-600/25 text-amber-300' });
     }
+    if (trackMuted['videoaudio'] || trackHidden['videoaudio']) {
+      warnings.push({ icon: <VscMute />, text: 'Video audio muted — no audio from video clips in export', cls: 'bg-amber-600/10 border-amber-600/25 text-amber-300' });
+    }
     if (trackHidden['subs']) {
       warnings.push({ icon: <VscEyeClosed />, text: 'Subtitles hidden — no subtitles in export', cls: 'bg-amber-600/10 border-amber-600/25 text-amber-300' });
     }

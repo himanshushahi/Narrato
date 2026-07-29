@@ -46,6 +46,8 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
 
   const handleUpdate = (idx: number, field: string, val: any) => {
     const copy = [...subVisuals];
+    copy[idx] = { ...copy[idx] };
+
     if (field === 'visual_type' && copy[idx][field] === val) {
       return;
     }
@@ -64,7 +66,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
 
   const handleUpdateMeta = (idx: number, newMeta: any) => {
     const copy = [...subVisuals];
-    copy[idx].visual_meta = newMeta;
+    copy[idx] = { ...copy[idx], visual_meta: newMeta };
     onChange(copy);
   };
 
@@ -196,6 +198,29 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               <div className="col-span-1">
                 <CustomSelect label="Transition" options={TRANSITION_TYPE_OPTIONS} value={sv.transition_type || sv.transition || 'subtle_slide'} onChange={(val) => handleUpdate(idx, 'transition_type', val)} />
               </div>
+
+              {/* Video volume control — only for video-capable types */}
+              {(getValidVisualType(sv.visual_type) === 'scene' || getValidVisualType(sv.visual_type) === 'youtube') && (
+                <div className="col-span-2 space-y-1.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <label className="text-stone-400 font-bold uppercase tracking-wider">Video Audio Volume:</label>
+                    <span className="text-amber-500 font-mono font-bold">{sv.videoVolume !== undefined ? Math.round(sv.videoVolume * 100) : 0}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={sv.videoVolume !== undefined ? sv.videoVolume : 0}
+                    onChange={(e) => handleUpdate(idx, 'videoVolume', parseFloat(e.target.value))}
+                    className="w-full h-1 bg-stone-900 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                  />
+                  <div className="flex justify-between text-[9px] text-stone-600">
+                    <span>Muted</span>
+                    <span>Full</span>
+                  </div>
+                </div>
+              )}
 
               {/* Always-visible Camera Transform controls */}
               <TransformEditor

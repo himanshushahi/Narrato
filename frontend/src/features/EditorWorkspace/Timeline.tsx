@@ -10,6 +10,7 @@ import { VideoTrack } from './components/VideoTrack';
 import { VoiceTrack } from './components/VoiceTrack';
 import { MusicTrack } from './components/MusicTrack';
 import { SubtitleTrack } from './components/SubtitleTrack';
+import { VideoAudioTrack } from './components/VideoAudioTrack';
 
 interface TimelineProps {
   liveScenes: any[];
@@ -483,6 +484,15 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
             timelineZoom={timelineZoom}
             trackMuted={trackMuted}
             isDraggingScene={isDraggingScene}
+            toggleTrackMute={toggleTrackMute}
+            onSeek={onSeek}
+          />
+
+          <VideoAudioTrack
+            localTimings={localTimings}
+            liveScenes={liveScenes}
+            timelineZoom={timelineZoom}
+            trackMuted={trackMuted}
             toggleTrackMute={toggleTrackMute}
             onSeek={onSeek}
           />

@@ -148,8 +148,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             subVisuals={scriptData.introduction?.sub_visuals || []}
                             onChange={(newSubs) => {
                               const copy = { ...scriptData };
-                              copy.introduction = copy.introduction || {};
-                              copy.introduction.sub_visuals = newSubs;
+                              copy.introduction = { ...copy.introduction, sub_visuals: newSubs };
                               onSetScriptData(copy);
                             }}
                             timings={introTimings}
@@ -269,7 +268,12 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                                   subVisuals={scene?.sub_visuals || []}
                                   onChange={(newSubs) => {
                                     const copy = { ...scriptData };
-                                    if (copy.scenes?.[idx]) copy.scenes[idx].sub_visuals = newSubs;
+                                    if (copy.scenes) {
+                                      copy.scenes = [...copy.scenes];
+                                      if (copy.scenes[idx]) {
+                                        copy.scenes[idx] = { ...copy.scenes[idx], sub_visuals: newSubs };
+                                      }
+                                    }
                                     onSetScriptData(copy);
                                   }}
                                   timings={timings}
@@ -434,8 +438,7 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
                             subVisuals={scriptData.conclusion?.sub_visuals || []}
                             onChange={(newSubs) => {
                               const copy = { ...scriptData };
-                              copy.conclusion = copy.conclusion || {};
-                              copy.conclusion.sub_visuals = newSubs;
+                              copy.conclusion = { ...copy.conclusion, sub_visuals: newSubs };
                               onSetScriptData(copy);
                             }}
                             timings={concTimings}

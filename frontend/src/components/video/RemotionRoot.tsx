@@ -17,6 +17,7 @@ export const RemotionRoot: React.FC = () => {
           audioUrl: '',
           bgMusicUrl: '',
           bgMusicVolume: 0.15,
+          muteVideoAudio: false,
           scenes: [],
           transcription: { language: 'hi', segments: [] },
           style: 'nitish_rajput',

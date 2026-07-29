@@ -35,28 +35,51 @@ def compute_frame_hash(props_dict, render_settings):
     # Hash file contents/mtime rather than just string paths to detect in-place overwrites
     for i, sc in enumerate(frame_props["scenes"]):
         for j, sv in enumerate(sc.get("sub_visuals", [])):
-            url = sv.get("visual_url")
-            if url and url.startswith("file:///"):
-                path_str = url[8:]
-                if os.path.exists(path_str):
-                    stat = os.stat(path_str)
-                    frame_props[f"visual_{i}_{j}_mtime"] = stat.st_mtime
-                    frame_props[f"visual_{i}_{j}_size"] = stat.st_size
+            path_str = sv.get("visual_path")
+            if path_str and os.path.exists(path_str):
+                stat = os.stat(path_str)
+                frame_props[f"visual_{i}_{j}_mtime"] = stat.st_mtime
+                frame_props[f"visual_{i}_{j}_size"] = stat.st_size
 
     data_str = json.dumps(frame_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
 def compute_audio_hash(props_dict, render_settings):
-    """Hash of audio-relevant properties only (bg_music, volumes, narration path).
+    """Hash of audio-relevant properties only (bg_music, volumes, narration path, video audio).
     Scene visuals and encode settings don't affect the audio mix."""
     scene_durations = [sc.get("duration") for sc in props_dict.get("scenes", [])]
+    mute_video_audio = props_dict.get("muteVideoAudio", False)
     audio_props = {
         "audioUrl": props_dict.get("audioUrl"),
         "bgMusicUrl": props_dict.get("bgMusicUrl"),
         "bgMusicVolume": props_dict.get("bgMusicVolume"),
         "voiceoverVolume": props_dict.get("voiceoverVolume"),
+        "muteVideoAudio": mute_video_audio,
         "scene_durations": scene_durations,
     }
+
+    # Collect video audio sources (only when not muted)
+    video_audio_sources = []
+    cumulative_time = 0.0
+    for sc in props_dict.get("scenes", []):
+        scene_dur = float(sc.get("duration") or 0.0)
+        sub_visuals = sc.get("sub_visuals", [])
+        num_subs = len(sub_visuals) if sub_visuals else 1
+        sub_dur = scene_dur / num_subs if num_subs > 0 else scene_dur
+        sub_cumulative = cumulative_time
+        for sv in sub_visuals:
+            vol = sv.get("videoVolume") or 0
+            if not mute_video_audio and vol > 0:
+                vpath = sv.get("visual_path") or ""
+                video_audio_sources.append({
+                    "path": vpath,
+                    "volume": vol,
+                    "start_time": sub_cumulative,
+                    "duration": sub_dur,
+                })
+            sub_cumulative += sub_dur
+        cumulative_time += scene_dur
+    audio_props["videoAudioSources"] = video_audio_sources
 
     # Hash file contents/mtime rather than just string paths to detect in-place overwrites
     for key in ["audioUrl", "bgMusicUrl"]:
@@ -67,6 +90,13 @@ def compute_audio_hash(props_dict, render_settings):
                 stat = os.stat(path_str)
                 audio_props[f"{key}_mtime"] = stat.st_mtime
                 audio_props[f"{key}_size"] = stat.st_size
+
+    for vas in video_audio_sources:
+        path_str = vas["path"]
+        if path_str and os.path.exists(path_str):
+            stat = os.stat(path_str)
+            vas["mtime"] = stat.st_mtime
+            vas["size"] = stat.st_size
 
     data_str = json.dumps(audio_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
@@ -223,6 +253,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     render_track_overrides = {
         "muteVoice": project_settings.get("render_mute_voice", False),
         "muteMusic": project_settings.get("render_mute_music", False),
+        "muteVideoAudio": project_settings.get("render_mute_video_audio", False),
         "hideSubtitles": project_settings.get("render_hide_subtitles", False),
     }
 
@@ -243,6 +274,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "bgMusicUrl": bg_music_url,
         "bgMusicVolume": float(project_dict.get("bg_music_volume") or 0.15),
         "voiceoverVolume": float(project_settings.get("voiceover_volume") or 1.0),
+        "muteVideoAudio": False,
         "scenes": scenes,
         "transcription": transcript,
         "style": project_dict.get("style", "nitish_rajput"),
@@ -260,6 +292,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         props["bgMusicVolume"] = 0.0
         props["bgMusicUrl"] = ""
         logger.info("Smart Resume: Background music muted by track override.")
+    if render_track_overrides["muteVideoAudio"]:
+        props["muteVideoAudio"] = True
+        logger.info("Smart Resume: Video audio muted by track override.")
     if render_track_overrides["hideSubtitles"]:
         if isinstance(props.get("subtitleSettings"), dict):
             props["subtitleSettings"]["hide_subtitles"] = True
@@ -608,26 +643,97 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             voice_vol = 0.0
         if render_track_overrides.get("muteMusic"):
             bg_vol = 0.0
-            
+        mute_video_audio = render_track_overrides.get("muteVideoAudio", False)
+
+        # ── Collect video audio sources from sub-visuals ──────────────────
+        video_audio_tracks = []
+        cumulative_time = 0.0
+        for sc in scenes:
+            scene_dur = float(sc.get("duration") or 0.0)
+            sub_visuals = sc.get("sub_visuals", [])
+            num_subs = len(sub_visuals) if sub_visuals else 1
+            sub_dur = scene_dur / num_subs if num_subs > 0 else scene_dur
+            sub_cumulative = cumulative_time
+            for sv in sub_visuals:
+                vol = sv.get("videoVolume") or 0
+                if not mute_video_audio and vol > 0:
+                    vpath = sv.get("visual_path") or ""
+                    if vpath and Path(vpath).exists() and vpath.lower().endswith(('.mp4', '.webm')):
+                        video_audio_tracks.append({
+                            "path": vpath,
+                            "volume": float(vol),
+                            "start_time": sub_cumulative,
+                        })
+                sub_cumulative += sub_dur
+            cumulative_time += scene_dur
+
         ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
         
         cmd_audio = [ffmpeg_bin, "-y"]
         
-        if bg_path and bg_vol > 0:
-            cmd_audio.extend(["-i", voice_path, "-stream_loop", "-1", "-i", bg_path])
-            cmd_audio.extend([
-                "-filter_complex",
-                f"[0:a]volume={voice_vol}[voice];[1:a]volume={bg_vol}[bg];[voice][bg]amix=inputs=2:duration=first:normalize=0[aout]",
-                "-map", "[aout]",
-                "-ac", "2", "-ar", "44100"
-            ])
-        else:
-            cmd_audio.extend(["-i", voice_path])
-            if voice_vol != 1.0:
-                cmd_audio.extend(["-filter_complex", f"[0:a]volume={voice_vol}[aout]", "-map", "[aout]", "-ac", "2", "-ar", "44100"])
+        # ── Add inputs ────────────────────────────────────────────────────
+        # Input 0: voiceover
+        cmd_audio.extend(["-i", voice_path])
+        input_count = 1
+
+        # Input 1: bg music (if present)
+        has_bg = bg_path and bg_vol > 0
+        if has_bg:
+            cmd_audio.extend(["-stream_loop", "-1", "-i", bg_path])
+            input_count = 2
+
+        # Probe audio streams for each video track using ffprobe
+        video_audio_inputs = []
+        ffprobe_bin = str(ffprobe_exe) if ffprobe_exe.exists() else "ffprobe"
+        for vat in video_audio_tracks:
+            try:
+                probe_cmd = [ffprobe_bin, "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", vat["path"]]
+                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10, startupinfo=get_startupinfo())
+                has_audio_stream = probe_result.returncode == 0 and probe_result.stdout.strip() == "audio"
+                if has_audio_stream:
+                    cmd_audio.extend(["-i", vat["path"]])
+                    video_audio_inputs.append(vat)
+                else:
+                    logger.info(f"Skipping video audio — no audio stream in {vat['path']}")
+            except Exception as e:
+                logger.warning(f"Failed to probe audio stream for {vat['path']}: {e}")
+
+        # ── Build filter_complex ──────────────────────────────────────────
+        total_inputs = input_count + len(video_audio_inputs)
+        filter_parts = []
+        mix_inputs = []
+
+        # Voiceover
+        filter_parts.append(f"[0:a]volume={voice_vol}[voice]")
+        mix_inputs.append("[voice]")
+
+        # BG music (input index 1 if present)
+        if has_bg:
+            filter_parts.append(f"[1:a]volume={bg_vol}[bg]")
+            mix_inputs.append("[bg]")
+
+        # Video audio tracks
+        for i, vat in enumerate(video_audio_inputs):
+            vidx = input_count + i
+            delay_ms = int(vat["start_time"] * 1000)
+            vol = vat["volume"]
+            if delay_ms > 0:
+                filter_parts.append(f"[{vidx}:a]volume={vol},adelay={delay_ms}|{delay_ms}[va{i}]")
             else:
-                cmd_audio.extend(["-c:a", "copy"]) # No re-encode if volume is 1.0
-                
+                filter_parts.append(f"[{vidx}:a]volume={vol}[va{i}]")
+            mix_inputs.append(f"[va{i}]")
+
+        if total_inputs > 1:
+            amix_expr = "".join(mix_inputs) + f"amix=inputs={total_inputs}:duration=first:normalize=0[aout]"
+            filter_parts.append(amix_expr)
+            filter_str = ";".join(filter_parts)
+            cmd_audio.extend(["-filter_complex", filter_str, "-map", "[aout]", "-ac", "2", "-ar", "44100"])
+        elif voice_vol != 1.0:
+            # Single voice input with volume adjustment
+            cmd_audio.extend(["-filter_complex", f"[0:a]volume={voice_vol}[aout]", "-map", "[aout]", "-ac", "2", "-ar", "44100"])
+        else:
+            cmd_audio.extend(["-c:a", "copy"])
+
         cmd_audio.append(str(cached_audio_path.resolve()).replace('\\', '/'))
         
         logger.info(f"Executing audio render (Direct FFmpeg): {' '.join(cmd_audio)}")
