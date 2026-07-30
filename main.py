@@ -19,14 +19,16 @@ def ensure_virtual_env():
     if getattr(sys, 'frozen', False):
         return
 
-    # Detect if we are already inside the virtual environment
-    in_venv = (sys.prefix != sys.base_prefix)
-    if in_venv:
-        return
-
-    # Check if a local .venv folder exists
+    # Detect if we are already inside THIS project's virtual environment
     root_dir = os.path.dirname(os.path.abspath(__file__))
     venv_dir = os.path.join(root_dir, ".venv")
+    in_project_venv = os.path.normcase(os.path.normpath(sys.prefix)).startswith(
+        os.path.normcase(os.path.normpath(venv_dir))
+    )
+    if in_project_venv:
+        return
+
+    # Re-launch with the project's .venv Python if available
     venv_python = os.path.join(venv_dir, "Scripts", "python.exe") if os.name == "nt" else os.path.join(venv_dir, "bin", "python")
 
     if os.path.exists(venv_python):

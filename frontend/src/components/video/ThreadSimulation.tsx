@@ -14,7 +14,17 @@ interface ThreadSimulationProps {
 
 export const ThreadSimulation: React.FC<ThreadSimulationProps> = ({ meta }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
+  const isPortrait = height > width;
+
+  // Phone must always render as 9:16 aspect ratio (portrait phone mockup).
+  // - On 9:16 canvas → fill entire screen (already 9:16)
+  // - On 16:9 canvas → render at full internal resolution (1080×1920) and scale down to fit
+  const PHONE_INTERNAL_W = 1080;
+  const PHONE_INTERNAL_H = 1920;
+
+  // For landscape: scale the phone to fit within 90% of the canvas height
+  const landscapeScale = (height * 0.9) / PHONE_INTERNAL_H;
 
   const platform = meta?.platform?.toLowerCase() || 'whatsapp';
   const messages: Message[] = meta?.messages || [];
@@ -84,17 +94,20 @@ export const ThreadSimulation: React.FC<ThreadSimulationProps> = ({ meta }) => {
       backgroundColor: 'transparent'
     }}>
       <div style={{
-        width: '100%',
-        maxWidth: '750px',
-        height: '100%',
+        width: isPortrait ? '100%' : PHONE_INTERNAL_W,
+        height: isPortrait ? '100%' : PHONE_INTERNAL_H,
         backgroundColor: theme.bg,
         display: 'flex',
         flexDirection: 'column',
         fontFamily: theme.fontFamily,
         position: 'relative',
-        boxShadow: '0 0 150px rgba(0,0,0,0.4)',
+        boxShadow: isPortrait ? '0 0 150px rgba(0,0,0,0.4)' : '0 0 60px rgba(0,0,0,0.6)',
+        borderRadius: isPortrait ? 0 : '40px',
         borderLeft: '1px solid rgba(255,255,255,0.05)',
-        borderRight: '1px solid rgba(255,255,255,0.05)'
+        borderRight: '1px solid rgba(255,255,255,0.05)',
+        overflow: 'hidden',
+        transform: isPortrait ? 'none' : `scale(${landscapeScale})`,
+        transformOrigin: 'center center',
       }}>
       {/* Optional WhatsApp pattern overlay */}
       {platform === 'whatsapp' && (
