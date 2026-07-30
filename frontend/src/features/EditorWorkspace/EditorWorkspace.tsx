@@ -493,11 +493,27 @@ export const EditorWorkspace: React.FC = () => {
 
   // Safe defaults for when selectedProject is null
   const safeProject = selectedProject || {
+    id: '',
     name: '',
+    prompt: '',
+    status: 'idle',
+    created_at: '',
+    updated_at: '',
     style: 'standard' as const,
     language: 'en' as const,
+    duration_mode: 'medium' as const,
     video_format: 'landscape' as const,
     bg_music_volume: 0.15,
+    tts_engine: undefined as string | undefined,
+    tts_voice: undefined as string | undefined,
+    project_settings: undefined as string | undefined,
+    audio_path: undefined as string | undefined,
+    bg_music_path: undefined as string | undefined,
+    script_path: undefined as string | undefined,
+    transcription_path: undefined as string | undefined,
+    assets_manifest_path: undefined as string | undefined,
+    video_path: undefined as string | undefined,
+    export_folder: '',
   };
 
   return (

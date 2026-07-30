@@ -30,18 +30,21 @@ export function usePipeline(
 
   const [targetStage, setTargetStageState] = useState('fetch_assets');
 
-  // Initialize targetStage from project settings
+  // Initialize targetStage from project settings + reset on project change
   useEffect(() => {
     if (selectedProject?.project_settings) {
       try {
         const settings = JSON.parse(selectedProject.project_settings);
-        if (settings.targetStage) {
-          setTargetStageState((prev) => prev !== settings.targetStage ? settings.targetStage : prev);
+        if (settings.targetStage != null && settings.targetStage !== '') {
+          setTargetStageState(settings.targetStage);
+          return; // Don't reset — project has saved targetStage
         }
       } catch (e) {
         // ignore
       }
     }
+    // No targetStage saved for this project — reset to default
+    setTargetStageState('fetch_assets');
   }, [selectedProject?.project_settings]);
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -1,4 +1,4 @@
-import { useProjectStore } from './useProjectStore';
+import { useProjectStore, Task } from './useProjectStore';
 import { useSettingsStore } from './useSettingsStore';
 import { useUIStore } from './useUIStore';
 
@@ -15,7 +15,7 @@ export const initializePywebviewListeners = () => {
   };
 
   window.onShowToast = (message: string, type: string) => {
-    useUIStore.getState().addToast(message, type as any);
+    useUIStore.getState().addToast(message, type as 'success' | 'error' | 'info' | 'warning');
   };
 
   window.onProgressUpdate = (data: any) => {
@@ -45,7 +45,7 @@ export const initializePywebviewListeners = () => {
           message,
           status,
           updated_at: new Date().toISOString()
-        } as any
+        } as Task
       });
     }
 
@@ -59,7 +59,7 @@ export const initializePywebviewListeners = () => {
           message,
           status,
           error_message
-        } as any;
+        } as Task;
 
         if (step === "render" && status === "completed") {
           setTimeout(() => projectStore.fetchProjectDetail(project_id), 100);

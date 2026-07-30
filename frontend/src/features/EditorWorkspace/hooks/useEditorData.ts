@@ -30,14 +30,6 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const [loadingScript, setLoadingScript] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // Load project detail on mount
-  useEffect(() => {
-    if (projectId) {
-      fetchProjectDetail(projectId);
-      loadFiles(projectId);
-    }
-  }, [projectId]);
-
   // Read generated JSON assets from Python server static bridges
   const loadFiles = useCallback(async (projId: string) => {
     setLoadingScript(true);
@@ -83,6 +75,17 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
       setLoadingScript(false);
     }
   }, []);
+
+  // Load project detail on mount — sequence: fetch detail first, then files,
+  // so selectedProject + tasks are in the store before loadFiles reads paths.
+  useEffect(() => {
+    if (projectId) {
+      (async () => {
+        await fetchProjectDetail(projectId);
+        await loadFiles(projectId);
+      })().catch(console.error);
+    }
+  }, [projectId, fetchProjectDetail, loadFiles]);
 
   /** Build a scene object from script data (used when manifest is unavailable) */
   const buildSceneFromScript = useCallback((
