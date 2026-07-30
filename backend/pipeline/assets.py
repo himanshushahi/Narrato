@@ -112,18 +112,38 @@ def is_assets_stale(project_dict, project_dir):
     return False
 
 
-def search_pexels_photo(query, api_key):
-    """Searches Pexels for a photo matching the query. Returns url to download."""
+def _resolve_pexels_orientation(video_format=None):
+    """Resolve Pexels preferred and fallback orientations from a video format string.
+
+    Accepts:
+      - ``"landscape"``, ``"portrait"``  (project DB values)
+      - ``"9:16"``, ``"Shorts/Reels (9:16)"``  (global-setting variants)
+      - ``None`` → reads the global ``video_format`` setting
+
+    Returns (preferred_orientation, fallback_orientation).
+    """
+    from backend.database.db import get_setting
+
+    if video_format is None:
+        video_format = get_setting("video_format") or "Shorts/Reels (9:16)"
+    preferred = "portrait" if ("9:16" in video_format or video_format == "portrait") else "landscape"
+    fallback = "landscape" if preferred == "portrait" else "portrait"
+    return preferred, fallback
+
+
+def search_pexels_photo(query, api_key, video_format=None):
+    """Searches Pexels for a photo matching the query. Returns url to download.
+    
+    Uses the provided video_format (e.g. "landscape", "portrait", "9:16")
+    to determine orientation. Falls back to the global setting if not given.
+    """
     if not api_key:
         return None
         
-    from backend.database.db import get_setting
     import random
     
-    video_format = get_setting("video_format") or "Shorts/Reels (9:16)"
-    preferred_orientation = "portrait" if "9:16" in video_format else "landscape"
-    fallback_orientation = "landscape" if preferred_orientation == "portrait" else "portrait"
-    
+    preferred_orientation, fallback_orientation = _resolve_pexels_orientation(video_format)
+
     def _do_search(orientation):
         url = f"https://api.pexels.com/v1/search?query={requests.utils.quote(query)}&per_page=5&orientation={orientation}"
         headers = {"Authorization": api_key}
@@ -147,18 +167,19 @@ def search_pexels_photo(query, api_key):
     logger.info(f"Pexels photo search returned 0 results for '{query}' ({preferred_orientation}). Retrying with {fallback_orientation}.")
     return _do_search(fallback_orientation)
 
-def search_pexels_video(query, api_key):
-    """Searches Pexels for a video matching the query. Returns download url."""
+def search_pexels_video(query, api_key, video_format=None):
+    """Searches Pexels for a video matching the query. Returns download url.
+    
+    Uses the provided video_format (e.g. "landscape", "portrait", "9:16")
+    to determine orientation. Falls back to the global setting if not given.
+    """
     if not api_key:
         return None
         
-    from backend.database.db import get_setting
     import random
     
-    video_format = get_setting("video_format") or "Shorts/Reels (9:16)"
-    preferred_orientation = "portrait" if "9:16" in video_format else "landscape"
-    fallback_orientation = "landscape" if preferred_orientation == "portrait" else "portrait"
-    
+    preferred_orientation, fallback_orientation = _resolve_pexels_orientation(video_format)
+
     def _do_search(orientation):
         url = f"https://api.pexels.com/videos/search?query={requests.utils.quote(query)}&per_page=5&orientation={orientation}"
         headers = {"Authorization": api_key}
@@ -436,12 +457,15 @@ def download_asset(url, dest_path, cancel_event=None):
         logger.error(f"Failed to download stock asset from {url}: {e}")
     return False
 
-def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, cancel_event, force_download=False, dest_path=None, video_format="landscape"):
+def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, cancel_event, *, force_download=False, dest_path=None, video_format):
     """Downloads a single sub-visual asset. Returns updated sub_visual dict.
 
     When force_download is True, the existing-file skip check is bypassed,
     ensuring a fresh download even if the asset file already exists on disk.
     This is used by fetch_single_scene_asset which handles its own cleanup.
+
+    video_format: REQUIRED keyword arg from the project (e.g. "landscape",
+      "portrait", "9:16").  No default — callers must pass it explicitly.
     """
     visual_type = sub_visual.get("visual_type", "scene")
     visual_cue = sub_visual.get("visual_cue", "")
@@ -476,9 +500,9 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
             ext = ".mp4"
 
             if api_key:
-                asset_url = search_pexels_video(visual_cue, api_key)
+                asset_url = search_pexels_video(visual_cue, api_key, video_format)
                 if not asset_url:
-                    asset_url = search_pexels_photo(visual_cue, api_key)
+                    asset_url = search_pexels_photo(visual_cue, api_key, video_format)
                     ext = ".jpg"
                     fallback_type = "image"
 
@@ -498,7 +522,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
         if not hf_api_key:
             logger.warning(f"No HuggingFace API key for [{seg_idx}:{sub_idx}]. Falling back to stock image.")
             fallback_type = "image"
-            asset_url = search_pexels_photo(visual_cue, api_key) if api_key else None
+            asset_url = search_pexels_photo(visual_cue, api_key, video_format) if api_key else None
             if asset_url:
                 dest_file_fb = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.jpg"
                 if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
@@ -535,7 +559,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
                     logger.error(f"Failed to send warning toast: {ui_e}")
 
                 fallback_type = "image"
-                asset_url = search_pexels_photo(visual_cue, api_key) if api_key else None
+                asset_url = search_pexels_photo(visual_cue, api_key, video_format) if api_key else None
                 if asset_url:
                     dest_file_fb = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.jpg"
                     if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
@@ -548,7 +572,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
 
         # If scene or parallax, search video first (B-Roll)
         if visual_type == "scene":
-            asset_url = search_pexels_video(visual_cue, api_key)
+            asset_url = search_pexels_video(visual_cue, api_key, video_format)
             ext = ".mp4"
 
         # For portrait: try Wikipedia first for accurate images of specific people
@@ -562,7 +586,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
         # or if type is image/parallax (which don't use Wikipedia)
         if not asset_url:
             logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Pexels fallback: '{visual_cue}' (type: {visual_type})")
-            asset_url = search_pexels_photo(visual_cue, api_key)
+            asset_url = search_pexels_photo(visual_cue, api_key, video_format)
             ext = ".jpg"
 
         if asset_url:
@@ -586,7 +610,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
         # Fallback to searching Pexels using visual_cue if no URL provided or download failed
         if not sub_visual.get("visual_path") and visual_cue and api_key:
             logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Pexels fallback for device_mockup: '{visual_cue}'")
-            asset_url = search_pexels_photo(visual_cue, api_key)
+            asset_url = search_pexels_photo(visual_cue, api_key, video_format)
             if asset_url:
                 ext = ".jpg"
                 dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
