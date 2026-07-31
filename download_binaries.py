@@ -5,18 +5,25 @@ import zipfile
 import tempfile
 import shutil
 import ssl
+import hashlib
 from pathlib import Path
 
-def download_file(url, dest_path, name="file"):
+def get_file_hash(filepath):
+    hasher = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        while chunk := f.read(1024*1024):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+def download_file(url, dest_path, name="file", expected_hash=None):
     print(f"[INFO] Downloading {name} from {url}...")
-    context = ssl._create_unverified_context()
     
     req = urllib.request.Request(
         url, 
         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     )
     
-    with urllib.request.urlopen(req, context=context) as response, open(dest_path, 'wb') as out_file:
+    with urllib.request.urlopen(req) as response, open(dest_path, 'wb') as out_file:
         total_size = int(response.info().get('Content-Length', 0))
         downloaded = 0
         block_size = 1024 * 1024  # 1MB
@@ -35,6 +42,13 @@ def download_file(url, dest_path, name="file"):
                 sys.stdout.write(f"\rProgress: {downloaded // (1024*1024)}MB")
             sys.stdout.flush()
     print("\n[SUCCESS] Download completed.")
+    
+    if expected_hash:
+        actual_hash = get_file_hash(dest_path)
+        if actual_hash != expected_hash:
+            raise ValueError(f"SHA-256 hash mismatch for {name}! Expected {expected_hash}, got {actual_hash}. Possible tampering.")
+        print(f"[SUCCESS] SHA-256 hash verified for {name}.")
+
 
 def main():
     root_dir = Path(__file__).resolve().parent
@@ -50,10 +64,14 @@ def main():
         print("[INFO] ffmpeg.exe, ffprobe.exe, yt-dlp.exe, and node.exe already exist in bin/ folder.")
         return
         
-    # BtbN provides reliable and fast release builds for Windows on GitHub
+    # Pinned releases instead of 'latest' where possible
     ffmpeg_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-    ytdlp_url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+    
+    ytdlp_url = "https://github.com/yt-dlp/yt-dlp/releases/download/2024.04.09/yt-dlp.exe"
+    ytdlp_hash = "913be69456c242dd81d796eae5ad36d32564573d625fcdf91d0207b1f9cb2a6b"
+    
     node_url = "https://nodejs.org/dist/v20.13.1/node-v20.13.1-win-x64.zip"
+    node_hash = "555a55c0c7441cb90e441115c81f610fca712dd5b192034d5eaafd7c29924425"
     
     # 1. Download and extract FFmpeg/FFprobe if needed
     if not (ffmpeg_exe.exists() and ffprobe_exe.exists()):
@@ -88,7 +106,7 @@ def main():
     # 2. Download yt-dlp if needed
     if not ytdlp_exe.exists():
         try:
-            download_file(ytdlp_url, ytdlp_exe, "yt-dlp")
+            download_file(ytdlp_url, ytdlp_exe, "yt-dlp", expected_hash=ytdlp_hash)
             print(f"[SUCCESS] yt-dlp.exe successfully downloaded and placed in the bin/ folder!")
         except Exception as e:
             print(f"\n[ERROR] Failed to download yt-dlp: {e}")
@@ -101,7 +119,7 @@ def main():
         with tempfile.TemporaryDirectory() as temp_dir:
             zip_path = Path(temp_dir) / "node.zip"
             try:
-                download_file(node_url, zip_path, "Node.js Portable Bundle")
+                download_file(node_url, zip_path, "Node.js Portable Bundle", expected_hash=node_hash)
             except Exception as e:
                 print(f"\n[ERROR] Failed to download Node.js: {e}")
                 sys.exit(1)

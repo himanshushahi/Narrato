@@ -53,7 +53,7 @@ import shutil
 import threading
 from pathlib import Path
 
-from backend.core.config import get_models_dir, get_temp_dir
+from backend.core.config import get_models_dir, get_temp_dir, get_assets_dir
 from backend.core.logger import logger
 
 # Accept Coqui TOS automatically so it doesn't block in headless/automated contexts
@@ -109,6 +109,22 @@ DEFAULT_REFERENCE_TEXT = (
 )
 
 
+def _is_valid_reference_wav(path) -> bool:
+    """A usable XTTS reference clip: non-empty file with a WAV RIFF header.
+
+    Guards against 0-byte stubs (e.g. interrupted generation) and truncated
+    ffmpeg outputs (raw mp3 bytes written under a .wav name). Accepts both
+    pathlib.Path and str.
+    """
+    try:
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            return False
+        with open(path, "rb") as f:
+            return f.read(4) == b"RIFF"
+    except OSError:
+        return False
+
+
 def get_default_reference_voice() -> Path:
     """Returns path to the bundled default reference voice clip.
 
@@ -117,15 +133,27 @@ def get_default_reference_voice() -> Path:
     box without an upload. Raises FileNotFoundError if it cannot be created
     (e.g. no network) — the caller should then ask the user to upload a clip.
     """
-    project_root = Path(__file__).resolve().parent.parent
+    assets_dir = get_assets_dir()
     for candidate in (
-        project_root / "assets" / "default_reference.wav",
-        project_root / "assets" / "default_reference_voice.wav",
+        assets_dir / "default_reference.wav",
+        assets_dir / "default_reference_voice.wav",
     ):
-        if candidate.exists():
+        if _is_valid_reference_wav(candidate):
             return candidate
+        if candidate.exists():
+            # Corrupt/empty stub (0-byte file, non-WAV content): remove it so
+            # the fresh synthesis below runs instead of returning a file that
+            # torchaudio/libsndfile rejects with "Format not recognised".
+            logger.warning(
+                f"Default reference clip {candidate} is invalid (empty or not a "
+                "WAV); removing and regenerating."
+            )
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
 
-    default_path = project_root / "assets" / "default_reference.wav"
+    default_path = assets_dir / "default_reference.wav"
     try:
         _synthesize_default_reference_voice(default_path)
     except Exception as e:
@@ -212,6 +240,7 @@ def download_xtts_model(progress_callback=None) -> bool:
                 repo_id=XTTS_HF_REPO,
                 filename=filename,
                 local_dir=str(xtts_dir),
+                local_dir_use_symlinks=False,
             )
             # hf_hub_download with local_dir should put files directly in xtts_dir
             # but verify and copy if needed
@@ -233,13 +262,16 @@ def download_xtts_model(progress_callback=None) -> bool:
 
 def delete_xtts_model() -> bool:
     """Deletes all local XTTS model files."""
-    global _xtts_model
+    global _xtts_model, _unload_timer
     xtts_dir = get_xtts_dir()
     deleted = False
     try:
         # Clear cached model first
         with _xtts_model_lock:
             _xtts_model = None
+            if _unload_timer is not None:
+                _unload_timer.cancel()
+                _unload_timer = None
 
         for filename in XTTS_MODEL_FILES:
             f = xtts_dir / filename
@@ -323,6 +355,30 @@ def _ensure_torchcodec_dlls() -> None:
         pass
 
 
+def _check_transformers_compat() -> None:
+    """Fail fast with an actionable message if the installed transformers version is
+    incompatible with coqui-tts.
+
+    coqui-tts 0.27.5 declares ``transformers>=4.57`` with NO upper bound, so a fresh
+    ``pip install coqui-tts`` happily resolves transformers 5.x. XTTS then fails to load
+    with a cryptic transformers lazy-module error such as:
+        Could not import module 'GPT2PreTrainedModel'. Are this object's requirements defined correctly?
+    (or on 5.12+: ImportError: cannot import name 'isin_mps_friendly' from 'transformers.pytorch_utils')
+    """
+    try:
+        import transformers
+    except ImportError:
+        return  # let the real TTS import surface the actual problem
+    major = int(str(transformers.__version__).split(".")[0])
+    if major >= 5:
+        raise RuntimeError(
+            "XTTS is incompatible with transformers 5.x (coqui-tts 0.27.5 needs <5). "
+            f"Found transformers {transformers.__version__}. "
+            'Fix: pip install "transformers>=4.57,<5" (or reinstall from requirements.txt), '
+            "then restart Narrato."
+        )
+
+
 def _load_xtts_model():
     """Loads and caches the XTTS model. Thread-safe singleton."""
     global _xtts_model, _unload_timer
@@ -343,6 +399,7 @@ def _load_xtts_model():
 
         import torch
         _ensure_torchcodec_dlls()
+        _check_transformers_compat()
         from TTS.tts.configs.xtts_config import XttsConfig
         from TTS.tts.models.xtts import Xtts
 
@@ -471,9 +528,7 @@ def generate_xtts_tts(
             sf.write(output_path, final, sample_rate)
             logger.info(f"XTTS TTS output written to {output_path}")
         else:
-            # Write empty file so downstream doesn't crash
-            sf.write(output_path, np.array([], dtype=np.float32), sample_rate)
-            logger.warning("XTTS produced no audio samples.")
+            raise RuntimeError("XTTS generated empty audio")
             
     finally:
         with _xtts_model_lock:

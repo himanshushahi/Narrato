@@ -63,13 +63,20 @@ Write-Host "[SUCCESS] Clean completed." -ForegroundColor Green
 Write-Host "`n=== COMPILING VITE FRONTEND ===" -ForegroundColor Yellow
 Write-Host "[INFO] Installing frontend dependencies..." -ForegroundColor Cyan
 Push-Location $FrontendFolder
-npm install
+npm ci
+if ($LASTEXITCODE -ne 0) { Write-Error "[ERROR] npm ci failed."; exit 1 }
+
 Write-Host "[INFO] Building production web assets..." -ForegroundColor Cyan
 npm run build
+if ($LASTEXITCODE -ne 0) { Write-Error "[ERROR] npm run build failed."; exit 1 }
+
 Write-Host "[INFO] Pre-bundling Remotion composition..." -ForegroundColor Cyan
 npm run build:remotion
+if ($LASTEXITCODE -ne 0) { Write-Error "[ERROR] npm run build:remotion failed."; exit 1 }
+
 Write-Host "[INFO] Compiling production rendering script..." -ForegroundColor Cyan
 npm run build:render
+if ($LASTEXITCODE -ne 0) { Write-Error "[ERROR] npm run build:render failed."; exit 1 }
 
 # Generate package.json with versions from frontend/package.json and install deps
 # The render.mjs imports @remotion/renderer at runtime (externalized by esbuild).
@@ -82,9 +89,9 @@ $RenderPkgJson = Join-Path $DistRenderDir "package.json"
 
 # Read versions from frontend/package.json to avoid version drift
 $FrontendPkg = Get-Content (Join-Path $FrontendFolder "package.json") | ConvertFrom-Json
-$RendererVer = $FrontendPkg.devDependencies["@remotion/renderer"]
+$RendererVer = $FrontendPkg.devDependencies.'@remotion/renderer'
 $ReactVer    = $FrontendPkg.dependencies.react
-$ReactDomVer = $FrontendPkg.dependencies["react-dom"]
+$ReactDomVer = $FrontendPkg.dependencies.'react-dom'
 
 @"
 {

@@ -28,9 +28,15 @@ WINDOW_PROPS = dict(
 
 
 def _get_icon_path():
-    icon = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", "logo.ico")
-    if os.path.exists(icon):
-        return icon
+    # In development, use public/. In production, use dist/
+    icon_pub = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", "logo.ico")
+    icon_dist = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist", "logo.ico")
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        icon_frozen = os.path.join(exe_dir, "_internal", "frontend", "dist", "logo.ico")
+        if os.path.exists(icon_frozen): return icon_frozen
+    if os.path.exists(icon_dist): return icon_dist
+    if os.path.exists(icon_pub): return icon_pub
     return None
 
 
@@ -113,64 +119,14 @@ def main():
         except Exception as e:
             logger.error(f"pywebview start failed (ensure Vite is running on port 5174): {e}")
     else:
-        candidates = []
 
-        candidates.append(os.path.join(BUNDLE_DIR, "frontend", "dist"))
-
-        if getattr(sys, 'frozen', False):
-            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-            candidates.append(os.path.join(exe_dir, "_internal", "frontend", "dist"))
-            candidates.append(os.path.join(exe_dir, "frontend", "dist"))
-
-        candidates.append(os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "frontend", "dist"
-        ))
-
-        web_dir = None
-        for candidate in candidates:
-            candidate_path = os.path.normpath(candidate)
-            if os.path.exists(os.path.join(candidate_path, "index.html")):
-                web_dir = candidate_path
-                logger.info(f"Found production frontend at: {web_dir}")
-                break
-            logger.debug(f"Frontend not found at: {candidate_path}")
-
-        if web_dir is None:
-            logger.error(f"Could not locate production frontend build. Searched: {candidates}")
-            web_dir = os.path.join("frontend", "dist")
-
-        index_path = os.path.join(web_dir, "index.html")
-        logger.info(f"Starting pywebview with production build: {index_path}")
+        # Use file server to serve frontend dynamically without copying (Issue 4)
+        local_url = f"http://127.0.0.1:{file_server_port}/"
+        logger.info(f"Starting pywebview with production build via: {local_url}")
+        
         try:
-            from backend.core.prefs import load_prefs
-            import json
-            import tempfile
-            import shutil
-            
-            temp_dir = tempfile.mkdtemp(prefix="Narrato_Frontend_")
-            shutil.copytree(web_dir, temp_dir, dirs_exist_ok=True)
-            cached_index_path = os.path.join(temp_dir, "index.html")
-            
-            with open(cached_index_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-                
-            prefs_data = load_prefs()
-            injection = f"<script>window.__INITIAL_PREFS__ = {json.dumps(prefs_data)};</script>"
-            html_content = html_content.replace('</head>', f'{injection}</head>')
-            
-            with open(cached_index_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-                
-            logger.info(f"Injected preferences into cached HTML: {cached_index_path}")
-            
-            _create_windows(cached_index_path)
+            _create_windows(local_url)
             webview.start(debug=False, private_mode=False, icon=icon_path, storage_path=str(BASE_DIR / "webview_data"), http_port=pywebview_port)
-            
-            try:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            except Exception:
-                pass
         except (SystemExit, KeyboardInterrupt):
             logger.info("Application closed by user.")
 

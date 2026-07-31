@@ -23,24 +23,116 @@ _file_server = None
 _thread = None
 
 
+from backend.core.config import BASE_DIR
+import json
+
 class MediaHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
+        
+        # 1. Handle frontend files from URL path
+        if not parsed.query.startswith('path='):
+            path = parsed.path
+            if path == '/':
+                path = '/index.html'
+            
+            from pathlib import Path
+            project_root = Path(__file__).resolve().parent.parent.parent
+            if (project_root / "_internal").exists():
+                web_dir = project_root / "_internal" / "frontend" / "dist"
+            else:
+                web_dir = project_root / "frontend" / "dist"
+            
+            local_path = (web_dir / path.lstrip('/')).resolve()
+            if not str(local_path).startswith(str(web_dir.resolve())):
+                local_path = web_dir / "index.html"
+            elif not local_path.exists():
+                local_path = web_dir / "index.html"
+            
+            if local_path.exists():
+                if local_path.name == "index.html":
+                    with open(local_path, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    from backend.core.prefs import load_prefs
+                    prefs_data = load_prefs()
+                    injection = f"<script>window.__INITIAL_PREFS__ = {json.dumps(prefs_data)};</script>"
+                    html_content = html_content.replace('</head>', f'{injection}</head>')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/html')
+                    self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+                    self.end_headers()
+                    self.wfile.write(html_content.encode('utf-8'))
+                    return
+                else:
+                    ext = local_path.suffix.lower()
+                    if ext == '.js': ctype = 'application/javascript'
+                    elif ext == '.css': ctype = 'text/css'
+                    elif ext == '.ico': ctype = 'image/x-icon'
+                    elif ext == '.svg': ctype = 'image/svg+xml'
+                    else: ctype = CONTENT_TYPES.get(ext, 'application/octet-stream')
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', ctype)
+                    self.send_header('Content-Length', str(local_path.stat().st_size))
+                    self.send_header('Cache-Control', 'max-age=3600')
+                    self.end_headers()
+                    with open(local_path, 'rb') as f:
+                        shutil.copyfileobj(f, self.wfile)
+                    return
+            else:
+                # During development if frontend dist doesn't exist, we might hit here.
+                self.send_response(404)
+                self.end_headers()
+                return
+
+        # 2. Handle media via ?path=
         params = parse_qs(parsed.query)
         file_path = params.get('path', [None])[0]
-        if not file_path or not os.path.exists(file_path):
+        if not file_path:
             self.send_response(404)
             self.end_headers()
             return
 
-        ext = os.path.splitext(file_path)[1].lower()
+        # Security: Prevent arbitrary file read (Issue 8)
+        from pathlib import Path
+        try:
+            resolved_path = Path(file_path).resolve()
+            
+            allowed = False
+            if resolved_path.is_relative_to(BASE_DIR.resolve()):
+                allowed = True
+            else:
+                from backend.core.prefs import load_prefs
+                prefs = load_prefs()
+                export_folder = prefs.get("export_folder")
+                if export_folder:
+                    export_path = Path(export_folder).resolve()
+                    if resolved_path.is_relative_to(export_path):
+                        allowed = True
+
+            if not allowed:
+                self.send_response(403)
+                self.end_headers()
+                return
+        except Exception:
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        if not resolved_path.exists():
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        ext = resolved_path.suffix.lower()
         if ext not in VALID_MEDIA:
             self.send_response(400)
             self.end_headers()
             return
 
         content_type = CONTENT_TYPES.get(ext, 'application/octet-stream')
-        file_size = os.path.getsize(file_path)
+        file_size = resolved_path.stat().st_size
+        file_path = str(resolved_path)
         range_header = self.headers.get('Range')
 
         if range_header:

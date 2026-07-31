@@ -11,8 +11,13 @@ $nodePath = $binPath
 
 # Terminate any running instances of the app to prevent file lock errors during overwrite
 Write-Host "Checking for running instances of Narrato..."
-Stop-Process -Name "Narrato" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
+$narratoProcess = Get-Process -Name "Narrato" -ErrorAction SilentlyContinue
+if ($narratoProcess) {
+    Write-Host "`n[WARNING] Narrato is currently running." -ForegroundColor Yellow
+    $ans = Read-Host "We need to close it to continue installation. Press Enter to close it or Ctrl+C to cancel"
+    Stop-Process -Name "Narrato" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
 
 # Function to test network connectivity
 function Test-InternetConnection {
@@ -95,6 +100,20 @@ function Download-FileWithProgress {
         $responseStream.Close()
         $response.Close()
     }
+}
+
+function Verify-Hash {
+    param (
+        [string]$FilePath,
+        [string]$ExpectedHash
+    )
+    if (-not (Test-Path $FilePath)) { return $false }
+    $actualHash = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
+    if ($actualHash -ne $ExpectedHash.ToLower()) {
+        Write-Error "[ERROR] Hash mismatch for $FilePath. Expected: $ExpectedHash, Got: $actualHash"
+        return $false
+    }
+    return $true
 }
 
 # Wrapper for download with automatic retries
@@ -183,8 +202,14 @@ if (-not $ytdlpExists) {
     Write-Host "`n--- DOWNLOADING YT-DLP ---"
     $ytdlpExe = Join-Path $binPath "yt-dlp.exe"
     try {
-        Download-FileWithProgressAndRetry -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $ytdlpExe -Name "yt-dlp Binary"
-        Write-Host "[SUCCESS] yt-dlp downloaded to AppData: $binPath"
+        $ytdlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/2024.04.09/yt-dlp.exe"
+        $ytdlpHash = "913be69456c242dd81d796eae5ad36d32564573d625fcdf91d0207b1f9cb2a6b"
+        Download-FileWithProgressAndRetry -Uri $ytdlpUrl -OutFile $ytdlpExe -Name "yt-dlp Binary"
+        if (-not (Verify-Hash -FilePath $ytdlpExe -ExpectedHash $ytdlpHash)) {
+            Remove-Item -Path $ytdlpExe -Force
+            exit 1
+        }
+        Write-Host "[SUCCESS] yt-dlp downloaded and verified to AppData: $binPath"
     } catch {
         Write-Error "[ERROR] Failed to download yt-dlp: $_"
         exit 1
@@ -204,7 +229,12 @@ if (-not $nodeExists) {
     New-Item -ItemType Directory -Path $nodeExtract -Force | Out-Null
     
     try {
-        Download-FileWithProgressAndRetry -Uri "https://nodejs.org/dist/v20.13.1/node-v20.13.1-win-x64.zip" -OutFile $nodeZip -Name "Node.js Portable Package"
+        $nodeUrl = "https://nodejs.org/dist/v20.13.1/node-v20.13.1-win-x64.zip"
+        $nodeHash = "555a55c0c7441cb90e441115c81f610fca712dd5b192034d5eaafd7c29924425"
+        Download-FileWithProgressAndRetry -Uri $nodeUrl -OutFile $nodeZip -Name "Node.js Portable Package"
+        if (-not (Verify-Hash -FilePath $nodeZip -ExpectedHash $nodeHash)) {
+            exit 1
+        }
         
         Write-Host "Extracting node.exe..."
         Expand-Archive -Path $nodeZip -DestinationPath $nodeExtract -Force

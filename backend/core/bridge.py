@@ -865,7 +865,9 @@ class ApiBridge:
             if preview_file.exists():
                 return {"success": True, "audio_path": str(preview_file)}
         except Exception as e:
-            logger.error(f"Preview generation failed: {e}")
+            # Log the full traceback: the transformers lazy-module wrapper can swallow the
+            # real root cause (e.g. "Could not import module 'GPT2PreTrainedModel'...").
+            logger.error(f"Preview generation failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
         return {"success": False, "error": "Unknown error generating audio."}
 

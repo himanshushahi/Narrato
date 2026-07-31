@@ -441,8 +441,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     first_missing_frame_pct = 0.0
 
     def run_node_process(cmd, progress_weight, base_progress, label):
+        import psutil
+        total_ram_mb = psutil.virtual_memory().total / (1024 * 1024)
+        node_ram_mb = min(8192, max(2048, int(total_ram_mb * 0.75)))
+        
         env = os.environ.copy()
-        env["NODE_OPTIONS"] = "--max-old-space-size=8192"
+        env["NODE_OPTIONS"] = f"--max-old-space-size={node_ram_mb}"
         remotion_cache_dir = get_remotion_cache_dir()
 
         # In production, redirect cwd to a writable directory so Remotion's

@@ -516,7 +516,6 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             audio_path=str(merged_audio_path),
             assets_manifest_path=str(manifest_path),  # Stores the video timeline details
             tts_engine=engine,                        # Stores the resolved engine so DB column matches
-            tts_voice="hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural",
             project_settings=json.dumps(proj_settings, ensure_ascii=False),
         )
     else:

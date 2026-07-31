@@ -26,8 +26,11 @@ def save_prefs(data: dict):
         current_prefs = load_prefs()
         current_prefs.update(data)
         
-        with open(PREFS_FILE, "w", encoding="utf-8") as f:
+        tmp_file = PREFS_FILE + ".tmp"
+        with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(current_prefs, f, indent=4)
+        
+        os.replace(tmp_file, PREFS_FILE)
     except Exception as e:
         from backend.core.logger import logger
         logger.error(f"Failed to save preferences: {e}")

@@ -64,7 +64,6 @@ export const SettingsPage: React.FC = () => {
   const [previewAudioUrl, setPreviewAudioUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
-  const [previewXttsProfileId, setPreviewXttsProfileId] = useState('');
 
   const [newProfileName, setNewProfileName] = useState('');
 
@@ -187,11 +186,19 @@ export const SettingsPage: React.FC = () => {
       if (name === 'app_language') {
         const lang = value as 'hi' | 'en';
         setAppLanguage(lang);
+        if (updated.tts_engine === 'xtts') {
+          // Keep the XTTS profile only if it matches the new language,
+          // otherwise clear it so the filtered dropdown isn't stale.
+          const current = (updated.xtts_profiles || []).find((p: any) => p.id === updated.tts_voice);
+          if (!current || current.language !== lang) {
+            updated.tts_voice = '';
+          }
+        } else {
+          updated.tts_voice = lang === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural';
+        }
         if (lang === 'hi') {
-          updated.tts_voice = 'hi-IN-MadhurNeural';
           updated.whisper_model = 'collabora/faster-whisper-small-hindi';
         } else {
-          updated.tts_voice = 'en-US-AndrewNeural';
           updated.whisper_model = 'turbo';
         }
       }
@@ -218,7 +225,7 @@ export const SettingsPage: React.FC = () => {
     try {
       let voice = formData.tts_voice;
       if (formData.tts_engine === 'xtts') {
-        const profile = formData.xtts_profiles?.find((p: any) => p.id === previewXttsProfileId);
+        const profile = formData.xtts_profiles?.find((p: any) => p.id === formData.tts_voice);
         voice = profile?.reference_voice || formData.xtts_reference_voice || '';
       }
       const res = await callApi<{ success: boolean; audio_path?: string; error?: string }>('generate_voice_preview',
@@ -772,8 +779,39 @@ export const SettingsPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* XTTS Profiles */}
-                    <div className="space-y-3">
+                    {/* XTTS Voice dropdown — mirrors Edge voice selection */}
+                    <CustomSelect
+                      label="XTTS Voice (Clone Profile)"
+                      options={[
+                        { value: '', label: 'Default Reference Voice (Bundled)' },
+                        ...(formData.xtts_profiles || [])
+                          .filter((p: any) => p.language === appLanguage || p.id === formData.tts_voice)
+                          .map((p: any) => ({
+                            value: p.id,
+                            label: p.language === 'hi' ? `${p.name} (Hindi)` : p.language === 'en' ? `${p.name} (English)` : p.name
+                          }))
+                      ]}
+                      value={formData.tts_voice}
+                      onChange={(val) => handleSelectChange('tts_voice', val)}
+                    />
+                    {formData.tts_voice && (
+                      <div className="text-[10px] text-stone-400 px-1">
+                        Projects without a specific voice will use{' '}
+                        <span className="text-stone-200 font-semibold">
+                          {formData.xtts_profiles?.find((p: any) => p.id === formData.tts_voice)?.name || 'Default Reference Voice'}
+                        </span>
+                        .
+                      </div>
+                    )}
+                    <CustomSelect
+                      label="Rate/Speed"
+                      options={edgeRateOptions}
+                      value={formData.tts_speed}
+                      onChange={(val) => handleSelectChange('tts_speed', val)}
+                    />
+
+                    {/* XTTS Profile Manager */}
+                    <div className="space-y-3 pt-2 border-t border-stone-800/50">
                       <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Voice Profiles (XTTS)</label>
                       
                       {/* Profile List */}
@@ -789,7 +827,11 @@ export const SettingsPage: React.FC = () => {
                                 type="button"
                                 onClick={() => {
                                   const updated = formData.xtts_profiles!.filter(p => p.id !== profile.id);
-                                  setFormData(prev => ({ ...prev, xtts_profiles: updated }));
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    xtts_profiles: updated,
+                                    tts_voice: prev.tts_voice === profile.id ? '' : prev.tts_voice
+                                  }));
                                 }}
                                 className="text-rose-500/70 hover:text-rose-400 p-1.5 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
                               >
@@ -844,14 +886,6 @@ export const SettingsPage: React.FC = () => {
                       </div>
                       <p className="text-[9px] text-stone-500">Upload a 6–15 second clear voice clip (.wav) for voice cloning.</p>
                     </div>
-
-
-                    <CustomSelect
-                      label="Rate/Speed"
-                      options={edgeRateOptions}
-                      value={formData.tts_speed}
-                      onChange={(val) => handleSelectChange('tts_speed', val)}
-                    />
                   </div>
                 )}
 
@@ -870,16 +904,9 @@ export const SettingsPage: React.FC = () => {
                       />
                     </div>
                     {formData.tts_engine === 'xtts' && (
-                      <div className="w-48">
-                        <CustomSelect
-                          label=""
-                          options={[
-                            { value: '', label: 'Default Reference Voice' },
-                            ...(formData.xtts_profiles || []).map((p: any) => ({ value: p.id, label: p.name }))
-                          ]}
-                          value={previewXttsProfileId}
-                          onChange={(val) => setPreviewXttsProfileId(val)}
-                        />
+                      <div className="flex items-center gap-2 text-[10px] text-stone-500 px-1 pb-1">
+                        <VscFeedback className="text-xs text-[var(--color-accent-primary)]" />
+                        Preview uses the XTTS voice selected above.
                       </div>
                     )}
                     <GlowButton
