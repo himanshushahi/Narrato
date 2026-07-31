@@ -8,6 +8,13 @@ interface SubtitlePreset {
   settings: any;
 }
 
+export interface XttsProfile {
+  id: string;
+  name: string;
+  language: string;
+  reference_voice: string;
+}
+
 export interface Settings {
   llm_provider: string;
   openai_api_key: string;
@@ -29,6 +36,7 @@ export interface Settings {
   tts_speed: string;
   tts_pitch: string;
   xtts_reference_voice: string;
+  xtts_profiles?: XttsProfile[];
   bg_music_path: string;
   bg_music_volume: string;
   pexels_api_key: string;

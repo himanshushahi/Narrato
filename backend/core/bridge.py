@@ -500,9 +500,21 @@ class ApiBridge:
             else:
                 shutil.move(str(tmp_wav), str(dest))
 
+            # Gather all currently active reference voice paths from prefs
+            from backend.core.prefs import load_prefs
+            prefs = load_prefs()
+            active_paths = set()
+            global_ref = prefs.get("xtts_reference_voice")
+            if global_ref:
+                active_paths.add(Path(global_ref).resolve())
+            for p in prefs.get("xtts_profiles", []):
+                prof_ref = p.get("reference_voice")
+                if prof_ref:
+                    active_paths.add(Path(prof_ref).resolve())
+
             # Remove stale reference voice files so only the current clip remains.
             for old in assets_dir.glob("xtts_reference_voice*.wav"):
-                if old.resolve() != dest.resolve():
+                if old.resolve() != dest.resolve() and old.resolve() not in active_paths:
                     try:
                         old.unlink()
                         logger.info(f"Removed stale reference voice: {old}")

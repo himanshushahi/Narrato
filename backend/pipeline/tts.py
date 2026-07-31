@@ -157,8 +157,20 @@ def _resolve_tts_settings(project_dict):
         if not voice or not re.match(r"^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$", voice or ""):
             voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
     elif engine == "xtts":
-        # For XTTS, 'voice' holds the reference speaker_wav path
-        voice = project_settings.get("xtts_reference_voice") or get_setting("xtts_reference_voice") or ""
+        # For XTTS, check if tts_voice points to an XTTS profile ID
+        tts_voice_id = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
+        xtts_profiles = get_setting("xtts_profiles") or []
+        
+        voice = None
+        if xtts_profiles and tts_voice_id:
+            for p in xtts_profiles:
+                if p.get("id") == tts_voice_id:
+                    voice = p.get("reference_voice")
+                    break
+        
+        # Fallback to old global reference voice if profile not found or not set
+        if not voice:
+            voice = project_settings.get("xtts_reference_voice") or get_setting("xtts_reference_voice") or ""
     else:
         # Fallback to edge
         voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice") or "hi-IN-SwaraNeural"

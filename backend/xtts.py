@@ -39,7 +39,13 @@ original_num2words = num2words.num2words
 def patched_num2words(number, lang='en', **kwargs):
     try:
         return original_num2words(number, lang=lang, **kwargs)
-    except NotImplementedError:
+    except Exception:
+        if lang == 'hi':
+            try:
+                from indic_numtowords import num2words as indic_n2w
+                return indic_n2w(number, lang='hi')
+            except Exception:
+                return original_num2words(number, lang='en', **kwargs)
         return original_num2words(number, lang='en', **kwargs)
 num2words.num2words = patched_num2words
 
@@ -59,6 +65,33 @@ XTTS_MODEL_FILES = ["model.pth", "config.json", "vocab.json"]
 # Module-level model cache (singleton) to avoid reloading on every call
 _xtts_model = None
 _xtts_model_lock = threading.Lock()
+_unload_timer = None
+_active_xtts_requests = 0
+
+def _unload_xtts_model():
+    global _xtts_model, _unload_timer
+    with _xtts_model_lock:
+        if _xtts_model is not None:
+            logger.info("Unloading XTTS model due to 30s inactivity to free memory...")
+            del _xtts_model
+            _xtts_model = None
+            import gc
+            gc.collect()
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+        if _unload_timer is not None:
+            _unload_timer.cancel()
+            _unload_timer = None
+
+def _reset_unload_timer():
+    global _unload_timer
+    if _unload_timer is not None:
+        _unload_timer.cancel()
+    _unload_timer = threading.Timer(30.0, _unload_xtts_model)
+    _unload_timer.daemon = True
+    _unload_timer.start()
 
 
 def get_xtts_dir() -> Path:
@@ -292,9 +325,13 @@ def _ensure_torchcodec_dlls() -> None:
 
 def _load_xtts_model():
     """Loads and caches the XTTS model. Thread-safe singleton."""
-    global _xtts_model
+    global _xtts_model, _unload_timer
 
     with _xtts_model_lock:
+        if _unload_timer is not None:
+            _unload_timer.cancel()
+            _unload_timer = None
+
         if _xtts_model is not None:
             return _xtts_model
 
@@ -363,8 +400,7 @@ def generate_xtts_tts(
     speed: float = 1.0,
 ) -> None:
     """
-    Generates TTS audio using the XTTS v2 Hindi finetuned model with voice cloning.
-
+    Synthesizes speech using the cached XTTS model.
     Args:
         text: The text to synthesize.
         output_path: Path to write the output .wav file.
@@ -376,60 +412,71 @@ def generate_xtts_tts(
     """
     import numpy as np
     import soundfile as sf
+    global _active_xtts_requests
 
-    model = _load_xtts_model()
+    with _xtts_model_lock:
+        _active_xtts_requests += 1
 
-    # Resolve reference voice
-    if not speaker_wav or not Path(speaker_wav).exists():
-        speaker_wav = str(get_default_reference_voice())
-        if not Path(speaker_wav).exists():
-            raise FileNotFoundError(
-                "No reference voice file found. Please upload a reference voice clip "
-                "in Settings > Voice Synthesis, or ensure the default reference voice exists."
-            )
+    try:
+        model = _load_xtts_model()
 
-    logger.info(f"Generating XTTS TTS. Language: {language}, Speaker: {Path(speaker_wav).name}")
+        # Resolve reference voice
+        if not speaker_wav or not Path(speaker_wav).exists():
+            speaker_wav = str(get_default_reference_voice())
+            if not Path(speaker_wav).exists():
+                raise FileNotFoundError(
+                    "No reference voice file found. Please upload a reference voice clip "
+                    "in Settings > Voice Synthesis, or ensure the default reference voice exists."
+                )
 
-    # Clean text of markdown symbols
-    cleaned_text = re.sub(r'[*#_`~>]', '', text)
-    cleaned_text = re.sub(r'\.{2,}', ',', cleaned_text)
+        logger.info(f"Generating XTTS TTS. Language: {language}, Speaker: {Path(speaker_wav).name}")
 
-    # Chunk text to prevent memory issues
-    chunks = _chunk_text_for_xtts(cleaned_text)
-    logger.info(f"Synthesizing {len(chunks)} chunks with XTTS...")
+        # Clean text of markdown symbols
+        cleaned_text = re.sub(r'[*#_`~>]', '', text)
+        cleaned_text = re.sub(r'\.{2,}', ',', cleaned_text)
 
-    # Compute speaker latents once (reused across chunks)
-    gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
-        audio_path=[speaker_wav]
-    )
+        # Chunk text to prevent memory issues
+        chunks = _chunk_text_for_xtts(cleaned_text)
+        logger.info(f"Synthesizing {len(chunks)} chunks with XTTS...")
 
-    all_samples = []
-    sample_rate = 24000  # XTTS default
+        # Compute speaker latents once (reused across chunks)
+        gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
+            audio_path=[speaker_wav]
+        )
 
-    for i, chunk in enumerate(chunks):
-        if not chunk.strip():
-            continue
-        try:
-            out = model.inference(
-                text=chunk,
-                language=language,
-                gpt_cond_latent=gpt_cond_latent,
-                speaker_embedding=speaker_embedding,
-                speed=speed,
-            )
-            wav = out.get("wav")
-            if wav is not None:
-                if hasattr(wav, 'cpu'):
-                    wav = wav.cpu().numpy()
-                all_samples.append(wav)
-        except Exception as e:
-            logger.warning(f"XTTS failed on chunk {i+1} '{chunk[:40]}...': {e}")
+        all_samples = []
+        sample_rate = 24000  # XTTS default
 
-    if all_samples:
-        final = np.concatenate(all_samples)
-        sf.write(output_path, final, sample_rate)
-        logger.info(f"XTTS TTS output written to {output_path}")
-    else:
-        # Write empty file so downstream doesn't crash
-        sf.write(output_path, np.array([], dtype=np.float32), sample_rate)
-        logger.warning("XTTS produced no audio samples.")
+        for i, chunk in enumerate(chunks):
+            if not chunk.strip():
+                continue
+            try:
+                out = model.inference(
+                    text=chunk,
+                    language=language,
+                    gpt_cond_latent=gpt_cond_latent,
+                    speaker_embedding=speaker_embedding,
+                    speed=speed,
+                )
+                wav = out.get("wav")
+                if wav is not None:
+                    if hasattr(wav, 'cpu'):
+                        wav = wav.cpu().numpy()
+                    all_samples.append(wav)
+            except Exception as e:
+                logger.warning(f"XTTS failed on chunk {i+1} '{chunk[:40]}...': {e}")
+
+        if all_samples:
+            final = np.concatenate(all_samples)
+            sf.write(output_path, final, sample_rate)
+            logger.info(f"XTTS TTS output written to {output_path}")
+        else:
+            # Write empty file so downstream doesn't crash
+            sf.write(output_path, np.array([], dtype=np.float32), sample_rate)
+            logger.warning("XTTS produced no audio samples.")
+            
+    finally:
+        with _xtts_model_lock:
+            _active_xtts_requests -= 1
+            if _active_xtts_requests == 0:
+                _reset_unload_timer()

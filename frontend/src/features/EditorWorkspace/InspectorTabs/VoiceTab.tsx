@@ -174,55 +174,8 @@ const VOICE_PRESETS: VoicePreset[] = [
     color: 'from-orange-600 to-red-700',
     lang: 'hi',
   },
-
-  // ═══ XTTS v2 (Voice Clone) — Hindi ═══
-  {
-    id: 'xtts_hindi_normal',
-    label: 'XTTS Hindi',
-    desc: 'Voice clone — normal speed',
-    engine: 'xtts',
-    voice: '',
-    speed: '1.0',
-    volume: '1.0',
-    color: 'from-violet-600 to-purple-700',
-    lang: 'hi',
-  },
-  {
-    id: 'xtts_hindi_slow',
-    label: 'XTTS Hindi (Slow)',
-    desc: 'Voice clone — slow narration',
-    engine: 'xtts',
-    voice: '',
-    speed: '0.8',
-    volume: '1.0',
-    color: 'from-indigo-600 to-blue-700',
-    lang: 'hi',
-  },
-
-  // ═══ XTTS v2 (Voice Clone) — English ═══
-  {
-    id: 'xtts_en_normal',
-    label: 'XTTS English',
-    desc: 'Voice clone — normal speed',
-    engine: 'xtts',
-    voice: '',
-    speed: '1.0',
-    volume: '1.0',
-    color: 'from-violet-600 to-purple-700',
-    lang: 'en',
-  },
-  {
-    id: 'xtts_en_slow',
-    label: 'XTTS English (Slow)',
-    desc: 'Voice clone — slow narration',
-    engine: 'xtts',
-    voice: '',
-    speed: '0.8',
-    volume: '1.0',
-    color: 'from-indigo-600 to-blue-700',
-    lang: 'en',
-  },
 ];
+
 
 // ─── OverrideRow ────────────────────────────────────────────
 
@@ -306,6 +259,21 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const [previewAudioUrl, setPreviewAudioUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
+
+  // Generate XTTS presets dynamically
+  const xttsPresets: VoicePreset[] = (globalSettings.xtts_profiles || []).map(p => ({
+    id: p.id,
+    label: p.name,
+    desc: `Voice clone — ${p.language === 'hi' ? 'Hindi' : p.language === 'en' ? 'English' : p.language}`,
+    engine: 'xtts',
+    voice: p.id,
+    speed: '1.0',
+    volume: '1.0',
+    color: 'from-violet-600 to-purple-700',
+    lang: (p.language === 'hi' || p.language === 'en') ? p.language : 'en' as 'hi' | 'en'
+  }));
+  
+  const allPresets = [...VOICE_PRESETS, ...xttsPresets];
 
 // ── Auto-switch voice based on project language ──
   useEffect(() => {
@@ -396,10 +364,9 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const applyPreset = (preset: VoicePreset) => {
     const updated = { ...localProjectSettings };
     updated.tts_engine = preset.engine;
-    if (preset.engine === 'edge') {
+    if (preset.engine === 'edge' || preset.engine === 'xtts') {
       updated.tts_voice = preset.voice;
     }
-    // For XTTS, no voice to set — it uses the global reference voice
     if (preset.speed) updated.tts_speed = preset.speed;
     if (preset.pitch) updated.tts_pitch = preset.pitch;
     if (preset.volume) updated.voiceover_volume = preset.volume;
@@ -416,7 +383,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     try {
       const effectiveEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
       const effectiveVoice = effectiveEngine === 'xtts'
-        ? (globalSettings.xtts_reference_voice || '')
+        ? (globalSettings.xtts_profiles?.find(p => p.id === (projectVal('tts_voice') || globalSettings.tts_voice))?.reference_voice || globalSettings.xtts_reference_voice || '')
         : (projectVal('tts_voice') || globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural'));
       const effectiveSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
       const effectivePitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
@@ -450,11 +417,10 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const isPresetActive = (preset: VoicePreset): boolean => {
     const pEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
     if (pEngine !== preset.engine) return false;
-    if (preset.engine === 'edge') {
+    if (preset.engine === 'edge' || preset.engine === 'xtts') {
       const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
       if (pVoice !== preset.voice) return false;
     }
-    // For XTTS presets, just match engine + speed
     const pSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
     if (preset.speed && pSpeed !== preset.speed) return false;
     const pPitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
@@ -525,17 +491,23 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
             />
           </OverrideRow>
         ) : (
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-              Reference Voice
-            </span>
-            <p className="text-[9px] text-zinc-500">
-              Uses the global reference voice from Settings. {globalSettings.xtts_reference_voice
-                ? <span className="text-zinc-400 font-mono">{globalSettings.xtts_reference_voice.split(/[\\/]/).pop()}</span>
-                : <span className="text-amber-500">No reference voice set — will use default.</span>
-              }
-            </p>
-          </div>
+          <OverrideRow
+            label="XTTS Profile"
+            globalValue={globalSettings.tts_voice || ''}
+            projectValue={projectVal('tts_voice')}
+            onReset={() => resetKey('tts_voice')}
+          >
+            <CustomSelect
+              options={[
+                { value: '', label: 'Default Reference Voice' },
+                ...(globalSettings.xtts_profiles || [])
+                  .filter(p => p.language === projectLanguage || projectLanguage === 'all' || !projectLanguage)
+                  .map(p => ({ value: p.id, label: p.name }))
+              ]}
+              value={projectVal('tts_voice') || globalSettings.tts_voice || ''}
+              onChange={(v) => updateKey('tts_voice', v)}
+            />
+          </OverrideRow>
         )}
 
         {/* Speed */}
@@ -623,7 +595,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
           </h3>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          {VOICE_PRESETS.filter(p => p.lang === projectLanguage).map((preset) => {
+          {allPresets.filter(p => p.lang === projectLanguage).map((preset) => {
             const active = isPresetActive(preset);
             return (
               <motion.button

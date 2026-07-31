@@ -64,6 +64,9 @@ export const SettingsPage: React.FC = () => {
   const [previewAudioUrl, setPreviewAudioUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const [previewXttsProfileId, setPreviewXttsProfileId] = useState('');
+
+  const [newProfileName, setNewProfileName] = useState('');
 
   // Fetch settings on load
   useEffect(() => {
@@ -213,7 +216,11 @@ export const SettingsPage: React.FC = () => {
     setPreviewError('');
     setPreviewAudioUrl('');
     try {
-      const voice = formData.tts_engine === 'xtts' ? (formData.xtts_reference_voice || '') : formData.tts_voice;
+      let voice = formData.tts_voice;
+      if (formData.tts_engine === 'xtts') {
+        const profile = formData.xtts_profiles?.find((p: any) => p.id === previewXttsProfileId);
+        voice = profile?.reference_voice || formData.xtts_reference_voice || '';
+      }
       const res = await callApi<{ success: boolean; audio_path?: string; error?: string }>('generate_voice_preview',
         previewText,
         formData.tts_engine,
@@ -765,40 +772,79 @@ export const SettingsPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Reference Voice Upload */}
-                    <div className="space-y-2">
-                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Reference Voice (for cloning)</label>
-                      <div className="flex gap-2">
-                        <div className="flex-1">
-                          <CustomInput
-                            type="text"
-                            name="xtts_reference_voice"
-                            value={formData.xtts_reference_voice || ''}
-                            onChange={handleInputChange}
-                            placeholder="Upload a reference voice clip..."
-                          />
+                    {/* XTTS Profiles */}
+                    <div className="space-y-3">
+                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Voice Profiles (XTTS)</label>
+                      
+                      {/* Profile List */}
+                      {formData.xtts_profiles && formData.xtts_profiles.length > 0 && (
+                        <div className="space-y-2">
+                          {formData.xtts_profiles.map((profile) => (
+                            <div key={profile.id} className="flex items-center justify-between bg-black/30 rounded p-2 border border-stone-800/40">
+                              <div>
+                                <div className="text-xs font-semibold text-stone-200">{profile.name}</div>
+                                <div className="text-[10px] text-stone-500 uppercase tracking-wider">{profile.language === 'hi' ? 'Hindi' : profile.language === 'en' ? 'English' : profile.language}</div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = formData.xtts_profiles!.filter(p => p.id !== profile.id);
+                                  setFormData(prev => ({ ...prev, xtts_profiles: updated }));
+                                }}
+                                className="text-rose-500/70 hover:text-rose-400 p-1.5 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
+                              >
+                                <VscTrash />
+                              </button>
+                            </div>
+                          ))}
                         </div>
-                        <GlowButton variant="secondary" size="sm" type="button" icon={<VscFolderOpened />} onClick={async () => {
+                      )}
+
+                      {/* Add New Profile Form */}
+                      <div className="bg-black/20 p-3 rounded border border-stone-800/30 space-y-3">
+                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-2">Add New Profile</div>
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <CustomInput
+                              type="text"
+                              placeholder="Profile Name (e.g. My Voice Clone)"
+                              value={newProfileName}
+                              onChange={(e) => setNewProfileName(e.target.value)}
+                            />
+                          </div>
+                          <div className="flex items-center text-[10px] text-zinc-500 font-medium px-2 uppercase tracking-wider border border-zinc-800/60 rounded bg-black/40">
+                            Lang: {appLanguage === 'hi' ? 'Hindi' : 'English'}
+                          </div>
+                        </div>
+                        <GlowButton variant="secondary" size="sm" type="button" fullWidth icon={<VscFolderOpened />} onClick={async () => {
+                          if (!newProfileName.trim()) {
+                            useUIStore.getState().addToast('Please enter a profile name first.', 'error');
+                            return;
+                          }
                           const res = await callApi<{ success: boolean; path?: string; filename?: string; error?: string }>('upload_reference_voice');
                           if (res?.success && res.path) {
-                            setFormData(prev => ({ ...prev, xtts_reference_voice: res.path! }));
-                            useUIStore.getState().addToast(`Reference voice set: ${res.filename}`, 'success');
+                            const newProfile = {
+                              id: 'xtts_prof_' + Math.random().toString(36).substr(2, 9),
+                              name: newProfileName,
+                              language: appLanguage,
+                              reference_voice: res.path
+                            };
+                            setFormData(prev => ({
+                              ...prev,
+                              xtts_profiles: [...(prev.xtts_profiles || []), newProfile]
+                            }));
+                            setNewProfileName('');
+                            useUIStore.getState().addToast(`Profile added: ${res.filename}`, 'success');
                           } else if (res?.error && res.error !== 'No file selected.') {
                             useUIStore.getState().addToast(res.error, 'error');
                           }
                         }}>
-                          Upload
+                          Upload Audio (.wav) & Save Profile
                         </GlowButton>
-                        {formData.xtts_reference_voice && (
-                          <GlowButton variant="ghost" size="sm" type="button" onClick={() => {
-                            setFormData(prev => ({ ...prev, xtts_reference_voice: '' }));
-                          }}>
-                            Clear
-                          </GlowButton>
-                        )}
                       </div>
-                      <p className="text-[9px] text-stone-500">Upload a 6–15 second clear voice clip (.wav) for voice cloning. Leave empty to use the default voice.</p>
+                      <p className="text-[9px] text-stone-500">Upload a 6–15 second clear voice clip (.wav) for voice cloning.</p>
                     </div>
+
 
                     <CustomSelect
                       label="Rate/Speed"
@@ -823,6 +869,19 @@ export const SettingsPage: React.FC = () => {
                         className="text-xs"
                       />
                     </div>
+                    {formData.tts_engine === 'xtts' && (
+                      <div className="w-48">
+                        <CustomSelect
+                          label=""
+                          options={[
+                            { value: '', label: 'Default Reference Voice' },
+                            ...(formData.xtts_profiles || []).map((p: any) => ({ value: p.id, label: p.name }))
+                          ]}
+                          value={previewXttsProfileId}
+                          onChange={(val) => setPreviewXttsProfileId(val)}
+                        />
+                      </div>
+                    )}
                     <GlowButton
                       variant="secondary"
                       size="sm"
