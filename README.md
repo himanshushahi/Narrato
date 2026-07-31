@@ -19,7 +19,7 @@ Narrato is a powerful, AI-driven desktop application for programmatic video gene
 
 ### Backend (Python)
 - **Core:** Python, `pywebview` (for UI bridge and window management)
-- **AI, LLM & Audio Processing:** `faster-whisper`, `edge-tts`, `kokoro-onnx`, `piper-tts`, `openai`, `torch`, `onnxruntime`, `ctranslate2`
+- **AI, LLM & Audio Processing:** `faster-whisper`, `edge-tts`, `coqui-tts` (XTTS v2 voice cloning), `openai`, `torch`, `ctranslate2`
 - **Media & Assets:** FFmpeg, yt-dlp, Pillow, SoundFile, Requests
 
 ### Frontend (Web)

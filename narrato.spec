@@ -6,7 +6,7 @@ import sys
 os.makedirs("build/narrato", exist_ok=True)
 os.makedirs("build/main", exist_ok=True)
 
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, copy_metadata
 
 block_cipher = None
 
@@ -18,12 +18,13 @@ datas = [
     ('frontend/dist-render/node_modules', 'frontend/dist-render/node_modules'),
 ]
 
-# Collect Kokoro's and other internal assets
-datas += collect_data_files('kokoro_onnx')
-datas += collect_data_files('language_tags')
-datas += collect_data_files('phonemizer')
-datas += collect_data_files('espeakng_loader')
-datas += collect_data_files('piper')
+# Collect Coqui-TTS (XTTS v2) and other internal assets
+datas += collect_data_files('TTS')
+datas += copy_metadata('TTS')
+# torchcodec needs its FFmpeg shared DLLs at load time; bundle the whole package
+# (data files + .pyd/.dll binaries) so the frozen app can load them.
+datas += collect_data_files('torchcodec')
+datas += collect_dynamic_libs('torchcodec')
 datas += copy_metadata('pillow')
 datas += copy_metadata('huggingface_hub')
 
@@ -38,14 +39,12 @@ a = Analysis(
         'clr',
         'faster_whisper',
         'edge_tts',
-        'kokoro_onnx',
+        'TTS',
         'soundfile',
         'numpy',
-        'onnxruntime',
         'torch',
         'requests',
         'PIL',
-        'piper',
         'huggingface_hub',
     ],
     hookspath=[],

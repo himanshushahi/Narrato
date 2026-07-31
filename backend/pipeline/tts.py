@@ -9,30 +9,7 @@ from backend.core.config import get_models_dir, get_temp_dir, get_ffmpeg_path, g
 from backend.core.logger import logger
 from backend.database.db import get_setting, update_project
 
-# Local Kokoro settings
-KOKORO_DIR = get_models_dir() / "kokoro"
-KOKORO_MODEL_PATH = KOKORO_DIR / "kokoro-v1.0.onnx"
-KOKORO_VOICES_PATH = KOKORO_DIR / "voices-v1.0.bin"
 
-KOKORO_MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
-KOKORO_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
-
-def check_kokoro_assets():
-    return KOKORO_MODEL_PATH.exists() and KOKORO_VOICES_PATH.exists()
-
-def delete_kokoro_assets():
-    deleted = False
-    try:
-        if KOKORO_MODEL_PATH.exists():
-            KOKORO_MODEL_PATH.unlink()
-            deleted = True
-        if KOKORO_VOICES_PATH.exists():
-            KOKORO_VOICES_PATH.unlink()
-            deleted = True
-        return deleted
-    except Exception as e:
-        logger.error(f"Failed to delete Kokoro assets: {e}")
-        return False
 
 def download_file_with_progress(url, dest_path, progress_callback=None, cancel_event=None):
     dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -113,50 +90,7 @@ def generate_edge_tts(text, output_path, voice="hi-IN-SwaraNeural", speed="1.0",
                 raise e
             time.sleep(1.0 * attempt)
 
-def generate_kokoro_tts(text, output_path, voice="af_bella", speed=1.0, lang="en-us"):
-    if not check_kokoro_assets():
-        raise FileNotFoundError(
-            "Kokoro model files not found. Please download them from Settings > TTS Engine (click the download icon next to Kokoro), "
-            "or switch to a different TTS engine (Edge / Piper)."
-        )
-    from kokoro_onnx import Kokoro
-    import soundfile as sf
-    import re
-    import numpy as np
-    
-    logger.info(f"Generating Kokoro-TTS. Voice: {voice}, Speed: {speed}")
-    kokoro = Kokoro(str(KOKORO_MODEL_PATH), str(KOKORO_VOICES_PATH))
-    
-    # Strip markdown symbols
-    text = re.sub(r'[*#_`~>]', '', text)
-    
-    # Normalize ellipses to commas for better pacing
-    text = re.sub(r'\.{2,}', ',', text)
-    
-    # The kokoro-onnx model crashes if phonemes exceed 510 (approx 3-5 sentences)
-    # Split text by sentence-ending punctuation (English and Hindi)
-    chunks = re.split(r'(?<=[.!?|।\n])\s+', text.strip())
-    
-    all_samples = []
-    final_sr = 24000
-    
-    for chunk in chunks:
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-            
-        try:
-            samples, sr = kokoro.create(chunk, voice=voice, speed=speed, lang=lang)
-            all_samples.append(samples)
-            final_sr = sr
-        except Exception as e:
-            logger.warning(f"Kokoro failed on chunk '{chunk[:30]}...': {e}")
-            
-    if all_samples:
-        final_samples = np.concatenate(all_samples)
-        sf.write(output_path, final_samples, final_sr)
-    else:
-        sf.write(output_path, np.array([], dtype=np.float32), final_sr)
+
 
 def concat_audio_files_ffmpeg(audio_files, output_path):
     if not audio_files:
@@ -218,12 +152,16 @@ def _resolve_tts_settings(project_dict):
 
     if engine == "edge":
         voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
-        if not voice:
+        # Guard against a tts_voice column polluted with an XTTS reference path
+        # (older versions persisted it there); edge-tts would fail on that name.
+        if not voice or not re.match(r"^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$", voice or ""):
             voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
-    elif engine == "piper":
-        voice = project_settings.get("piper_voice") or project_dict.get("piper_voice") or get_setting("piper_voice") or "hi_IN-rohan"
+    elif engine == "xtts":
+        # For XTTS, 'voice' holds the reference speaker_wav path
+        voice = project_settings.get("xtts_reference_voice") or get_setting("xtts_reference_voice") or ""
     else:
-        voice = project_settings.get("kokoro_voice") or project_dict.get("tts_voice") or get_setting("kokoro_voice") or "af_bella"
+        # Fallback to edge
+        voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice") or "hi-IN-SwaraNeural"
 
     return engine, speed, pitch, voice
 
@@ -275,6 +213,17 @@ def is_voiceover_stale(project_dict, project_dir):
         if stored_voice != voice:
             logger.info(f"voiceover stale: voice mismatch stored={stored_voice} current={voice}")
             return True
+
+        # A reference clip replaced in place keeps the same path; compare mtime so
+        # re-recording over the same file also invalidates the voiceover.
+        if engine == "xtts" and voice and Path(voice).exists():
+            try:
+                stored_mtime = first_entry.get("_voiceover_voice_mtime")
+                if stored_mtime is not None and float(stored_mtime) != os.path.getmtime(voice):
+                    logger.info(f"voiceover stale: reference voice mtime changed stored={stored_mtime} current={os.path.getmtime(voice)}")
+                    return True
+            except (OSError, ValueError, TypeError):
+                pass
             
         try:
             stored_speed_val = float(first_entry.get("_voiceover_speed", 1.0))
@@ -353,7 +302,6 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
 
     engine, speed, pitch, voice = _resolve_tts_settings(project_dict)
     language = project_dict.get("language", "hi")
-    kokoro_lang = "hi" if language == "hi" else "en-us"
 
     temp_files = []
     manifest_entries = []
@@ -369,15 +317,12 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         # Synthesize audio segment
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            if engine == "kokoro":
-                future = executor.submit(generate_kokoro_tts, sec['text'], str(seg_file), voice=voice, speed=speed, lang=kokoro_lang)
-            elif engine == "piper":
-                from backend.tts import generate_tts as piper_tts
-                def _run_piper():
-                    out_path = piper_tts(sec['text'], voice, speed=speed)
-                    import shutil
-                    shutil.move(out_path, str(seg_file))
-                future = executor.submit(_run_piper)
+            if engine == "xtts":
+                from backend.xtts import generate_xtts_tts
+                future = executor.submit(
+                    generate_xtts_tts, sec['text'], str(seg_file),
+                    speaker_wav=voice, language=language, speed=speed
+                )
             else:
                 future = executor.submit(generate_edge_tts, sec['text'], str(seg_file), voice=voice, speed=str(speed), pitch=pitch)
                 
@@ -443,7 +388,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
 
     # Save voiceover settings so the frontend can detect TTS engine/voice changes
     # that aren't captured by the narration text hash. This ensures changing tts_engine
-    # (e.g. edge→kokoro) or tts_voice triggers voiceover re-generation.
+    # (e.g. edge→xtts) or tts_voice triggers voiceover re-generation.
     # Stored as raw resolved values (not a hash) so the frontend can compare directly.
     for entry in manifest_entries:
         if isinstance(entry, dict):
@@ -451,6 +396,11 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             entry["_voiceover_voice"] = voice
             entry["_voiceover_speed"] = speed
             entry["_voiceover_pitch"] = pitch
+            if engine == "xtts" and voice and Path(voice).exists():
+                try:
+                    entry["_voiceover_voice_mtime"] = os.path.getmtime(voice)
+                except OSError:
+                    pass
 
     # Preserve visual_path/visual_url from existing manifest for unchanged sub-visuals.
     # This prevents re-downloading all assets when only voiceover is regenerated.
@@ -533,15 +483,38 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_entries, f, indent=2, ensure_ascii=False)
 
-    # Sync resolved voice back to the project so the frontend's voiceoverSettingsChanged()
-    # comparison uses the same resolved value, not the DB-column default which may differ.
-    update_project(
-        project_dict['id'],
-        audio_path=str(merged_audio_path),
-        assets_manifest_path=str(manifest_path),  # Stores the video timeline details
-        tts_engine=engine,  # Stores the resolved engine so DB column matches
-        tts_voice=voice,    # Stores the resolved voice so DB column matches
-    )
+    # Sync resolved settings back to the project so downstream staleness checks
+    # and the UI read the same values that were actually used.
+    if engine == "xtts":
+        # Never persist the raw reference path into tts_voice: that column must
+        # only ever hold an Edge voice name, otherwise switching the project back
+        # to Edge would feed the path to edge-tts and break generation. Persist
+        # the reference path in project_settings.xtts_reference_voice instead,
+        # which is exactly where _resolve_tts_settings already looks for it.
+        proj_settings = project_dict.get("project_settings")
+        if isinstance(proj_settings, str):
+            try:
+                proj_settings = json.loads(proj_settings) or {}
+            except Exception:
+                proj_settings = {}
+        proj_settings = dict(proj_settings or {})
+        proj_settings["xtts_reference_voice"] = voice
+        update_project(
+            project_dict['id'],
+            audio_path=str(merged_audio_path),
+            assets_manifest_path=str(manifest_path),  # Stores the video timeline details
+            tts_engine=engine,                        # Stores the resolved engine so DB column matches
+            tts_voice="hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural",
+            project_settings=json.dumps(proj_settings, ensure_ascii=False),
+        )
+    else:
+        update_project(
+            project_dict['id'],
+            audio_path=str(merged_audio_path),
+            assets_manifest_path=str(manifest_path),  # Stores the video timeline details
+            tts_engine=engine,  # Stores the resolved engine so DB column matches
+            tts_voice=voice,    # Stores the resolved voice so DB column matches
+        )
     
     progress_cb(100.0, "Voiceover generation complete!")
     logger.info(f"Voiceover generation completed. Merged track: {merged_audio_path}")

@@ -123,11 +123,11 @@ def init_db():
             "nvidia_top_p": "1.0",
             "whisper_model": "base",
             "whisper_device": "cpu", # 'cpu' or 'cuda'
-            "tts_engine": "edge", # 'edge' or 'kokoro'
+            "tts_engine": "edge", # 'edge' or 'xtts'
             "tts_voice": "hi-IN-SwaraNeural", # default Edge voice (Hindi)
             "tts_speed": "1.0",
             "tts_pitch": "0",
-            "kokoro_voice": "hf_alpha", # default Kokoro voice
+            "xtts_reference_voice": "", # XTTS reference clip path for voice cloning
             "bg_music_path": "",
             "bg_music_volume": "0.15",
             "pexels_api_key": "", # User's Pexels API Key

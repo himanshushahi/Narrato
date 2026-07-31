@@ -19,8 +19,10 @@ interface PywebviewApi {
   save_json_file(file_path: string, data: any): Promise<boolean>;
   scan_assets_directory(project_id: string): Promise<{ files: any[]; total_size: number; total_files: number }>;
   download_google_font(font_family: string): Promise<{ success: boolean; css_path?: string; error?: string }>;
-  check_kokoro_downloaded(): Promise<boolean>;
-  start_kokoro_download(): Promise<{ status: string }>;
+  check_xtts_downloaded(): Promise<boolean>;
+  start_xtts_download(): Promise<{ status: string }>;
+  delete_xtts_model(): Promise<{ success: boolean; message?: string; error?: string }>;
+  upload_reference_voice(): Promise<{ success: boolean; path?: string; filename?: string; error?: string }>;
   check_whisper_downloaded(model_size: string): Promise<boolean>;
   start_whisper_download(model_size: string): Promise<{ status: string }>;
   get_downloaded_whisper_models(): Promise<any[]>;
@@ -53,7 +55,7 @@ interface Window {
   onLogStream?: (msg: string) => void;
   onShowToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
   onProgressUpdate?: (data: any) => void;
-  onKokoroDownloadProgress?: (data: any) => void;
+  onXttsDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;
   onYtdlpUpdateProgress?: (data: any) => void;
 }

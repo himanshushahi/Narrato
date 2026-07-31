@@ -16,12 +16,11 @@ interface VoiceTabProps {
 
 // ─── Option lists ───────────────────────────────────────────
 
-import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, PIPER_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../../Settings/voiceConstants';
+import { EDGE_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../../Settings/voiceConstants';
 
 const ENGINE_TABS: Tab[] = [
   { id: 'edge', label: 'Edge-TTS (Online)' },
-  { id: 'kokoro', label: 'Kokoro (Offline)' },
-  { id: 'piper', label: 'Piper (Offline)' },
+  { id: 'xtts', label: 'XTTS v2 (Voice Clone)' },
 ];
 
 // ─── Voice Presets ───────────────────────────────────────────
@@ -32,8 +31,6 @@ interface VoicePreset {
   desc: string;
   engine: string;
   voice: string;
-  kokoroVoice?: string;
-  piperVoice?: string;
   speed?: string;
   pitch?: string;
   volume?: string;
@@ -128,118 +125,6 @@ const VOICE_PRESETS: VoicePreset[] = [
     lang: 'en',
   },
 
-  // ═══ Kokoro (Offline) — English ═══
-  {
-    id: 'adam_deep',
-    label: 'Adam (Deep)',
-    desc: 'Adam — deep resonant male',
-    engine: 'kokoro',
-    voice: 'en-US-AndrewNeural',
-    kokoroVoice: 'am_adam',
-    speed: '0.8',
-    volume: '1.0',
-    color: 'from-indigo-600 to-violet-700',
-    lang: 'en',
-  },
-  {
-    id: 'michael_cinematic',
-    label: 'Michael (Cinematic)',
-    desc: 'Michael — rich cinematic male',
-    engine: 'kokoro',
-    voice: 'en-US-AndrewNeural',
-    kokoroVoice: 'am_michael',
-    speed: '0.85',
-    volume: '1.0',
-    color: 'from-purple-600 to-fuchsia-700',
-    lang: 'en',
-  },
-  {
-    id: 'bella_soft',
-    label: 'Bella (Soft)',
-    desc: 'Bella — gentle soft female',
-    engine: 'kokoro',
-    voice: 'en-US-AndrewNeural',
-    kokoroVoice: 'af_bella',
-    speed: '0.9',
-    volume: '0.85',
-    color: 'from-violet-600 to-purple-700',
-    lang: 'en',
-  },
-  {
-    id: 'sarah_engaging',
-    label: 'Sarah (Engaging)',
-    desc: 'Sarah — bright engaging female',
-    engine: 'kokoro',
-    voice: 'en-US-EmmaNeural',
-    kokoroVoice: 'af_sarah',
-    speed: '1.0',
-    volume: '1.0',
-    color: 'from-fuchsia-600 to-pink-700',
-    lang: 'en',
-  },
-
-  // ═══ Piper (Offline) — English ═══
-  {
-    id: 'lessac_warm',
-    label: 'Lessac (Warm)',
-    desc: 'US female — warm clear',
-    engine: 'piper',
-    voice: 'en-US-EmmaNeural',
-    piperVoice: 'en_US-lessac',
-    speed: '1.0',
-    volume: '1.0',
-    color: 'from-teal-600 to-emerald-700',
-    lang: 'en',
-  },
-  {
-    id: 'amy_soft',
-    label: 'Amy (Soft)',
-    desc: 'US female — soft gentle',
-    engine: 'piper',
-    voice: 'en-US-EmmaNeural',
-    piperVoice: 'en_US-amy',
-    speed: '0.9',
-    volume: '0.9',
-    color: 'from-pink-600 to-rose-700',
-    lang: 'en',
-  },
-  {
-    id: 'kathleen_warm',
-    label: 'Kathleen (Warm)',
-    desc: 'US female — warm NPR-style',
-    engine: 'piper',
-    voice: 'en-US-EmmaNeural',
-    piperVoice: 'en_US-kathleen',
-    speed: '0.95',
-    volume: '0.95',
-    color: 'from-rose-600 to-pink-700',
-    lang: 'en',
-  },
-  {
-    id: 'ryan_deep',
-    label: 'Ryan (Deep)',
-    desc: 'US male — deep smooth',
-    engine: 'piper',
-    voice: 'en-US-AndrewNeural',
-    piperVoice: 'en_US-ryan',
-    speed: '0.8',
-    volume: '1.0',
-    color: 'from-sky-600 to-blue-700',
-    lang: 'en',
-  },
-  {
-    id: 'joe_authoritative',
-    label: 'Joe (Authoritative)',
-    desc: 'US male — strong commanding',
-    engine: 'piper',
-    voice: 'en-US-AndrewNeural',
-    piperVoice: 'en_US-joe',
-    speed: '0.85',
-    volume: '1.0',
-    color: 'from-red-700 to-red-900',
-    lang: 'en',
-  },
-
   // ═══ Edge-TTS (Online) — Hindi ═══
   {
     id: 'hindi_professional',
@@ -290,92 +175,52 @@ const VOICE_PRESETS: VoicePreset[] = [
     lang: 'hi',
   },
 
-  // ═══ Kokoro (Offline) — Hindi ═══
+  // ═══ XTTS v2 (Voice Clone) — Hindi ═══
   {
-    id: 'alpha_hindi',
-    label: 'Alpha (Hindi)',
-    desc: 'Alpha — clear female',
-    engine: 'kokoro',
-    voice: 'hi-IN-SwaraNeural',
-    kokoroVoice: 'hf_alpha',
+    id: 'xtts_hindi_normal',
+    label: 'XTTS Hindi',
+    desc: 'Voice clone — normal speed',
+    engine: 'xtts',
+    voice: '',
     speed: '1.0',
     volume: '1.0',
-    color: 'from-amber-600 to-orange-700',
+    color: 'from-violet-600 to-purple-700',
     lang: 'hi',
   },
   {
-    id: 'beta_hindi',
-    label: 'Beta (Hindi)',
-    desc: 'Beta — soft female',
-    engine: 'kokoro',
-    voice: 'hi-IN-SwaraNeural',
-    kokoroVoice: 'hf_beta',
-    speed: '0.9',
-    volume: '0.9',
-    color: 'from-pink-600 to-rose-700',
-    lang: 'hi',
-  },
-  {
-    id: 'omega_hindi',
-    label: 'Omega (Hindi)',
-    desc: 'Omega — deep male',
-    engine: 'kokoro',
-    voice: 'hi-IN-MadhurNeural',
-    kokoroVoice: 'hm_omega',
+    id: 'xtts_hindi_slow',
+    label: 'XTTS Hindi (Slow)',
+    desc: 'Voice clone — slow narration',
+    engine: 'xtts',
+    voice: '',
     speed: '0.8',
     volume: '1.0',
-    color: 'from-cyan-600 to-sky-700',
-    lang: 'hi',
-  },
-  {
-    id: 'psi_hindi',
-    label: 'Psi (Hindi)',
-    desc: 'Psi — resonant male',
-    engine: 'kokoro',
-    voice: 'hi-IN-MadhurNeural',
-    kokoroVoice: 'hm_psi',
-    speed: '0.9',
-    volume: '1.0',
-    color: 'from-indigo-600 to-violet-700',
+    color: 'from-indigo-600 to-blue-700',
     lang: 'hi',
   },
 
-  // ═══ Piper (Offline) — Hindi ═══
+  // ═══ XTTS v2 (Voice Clone) — English ═══
   {
-    id: 'priyamvada_piper',
-    label: 'Priyamvada',
-    desc: 'Hindi female — warm natural',
-    engine: 'piper',
-    voice: 'hi-IN-SwaraNeural',
-    piperVoice: 'hi_IN-priyamvada',
+    id: 'xtts_en_normal',
+    label: 'XTTS English',
+    desc: 'Voice clone — normal speed',
+    engine: 'xtts',
+    voice: '',
     speed: '1.0',
     volume: '1.0',
-    color: 'from-pink-600 to-rose-700',
-    lang: 'hi',
+    color: 'from-violet-600 to-purple-700',
+    lang: 'en',
   },
   {
-    id: 'rohan_piper',
-    label: 'Rohan',
-    desc: 'Hindi male — deep calm',
-    engine: 'piper',
-    voice: 'hi-IN-MadhurNeural',
-    piperVoice: 'hi_IN-rohan',
+    id: 'xtts_en_slow',
+    label: 'XTTS English (Slow)',
+    desc: 'Voice clone — slow narration',
+    engine: 'xtts',
+    voice: '',
     speed: '0.8',
     volume: '1.0',
-    color: 'from-blue-600 to-indigo-700',
-    lang: 'hi',
-  },
-  {
-    id: 'pratham_piper',
-    label: 'Pratham',
-    desc: 'Hindi male — authoritative',
-    engine: 'piper',
-    voice: 'hi-IN-MadhurNeural',
-    piperVoice: 'hi_IN-pratham',
-    speed: '0.85',
-    volume: '1.0',
-    color: 'from-slate-600 to-gray-700',
-    lang: 'hi',
+    color: 'from-indigo-600 to-blue-700',
+    lang: 'en',
   },
 ];
 
@@ -430,6 +275,11 @@ const OverrideRow: React.FC<OverrideRowProps> = ({
 
 const getProjectVal = (settings: any, key: string): string => settings?.[key] || '';
 
+// Edge voices look like "hi-IN-SwaraNeural" / "en-US-AndrewNeural". Anything
+// else (e.g. an XTTS reference file path leaked into tts_voice by older
+// versions) is not a usable Edge voice.
+const isEdgeVoiceName = (v: string): boolean => /^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$/.test(v || '');
+
 // ─── Component ──────────────────────────────────────────────
 
 export const VoiceTab: React.FC<VoiceTabProps> = ({
@@ -456,9 +306,6 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const [previewAudioUrl, setPreviewAudioUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
-  const [piperModelReady, setPiperModelReady] = useState(true);
-  const [piperDownloading, setPiperDownloading] = useState(false);
-  const [availablePiperVoices, setAvailablePiperVoices] = useState<string[] | null>(null);
 
 // ── Auto-switch voice based on project language ──
   useEffect(() => {
@@ -480,12 +327,13 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
         }
     } catch(e) {}
 
+    // A tts_voice that isn't a valid Edge voice name (e.g. an XTTS reference
+    // path leaked into the column by older versions) doesn't count as an
+    // explicit voice choice, so the auto-fix can still correct it.
     const hasProjectSpecificVoice = !!selectedProject.tts_engine ||
-                                     !!selectedProject.tts_voice ||
+                                     (!!selectedProject.tts_voice && isEdgeVoiceName(selectedProject.tts_voice)) ||
                                      !!projectSettingsObj.tts_engine ||
-                                     !!projectSettingsObj.tts_voice ||
-                                     !!projectSettingsObj.kokoro_voice ||
-                                     !!projectSettingsObj.piper_voice;
+                                     (!!projectSettingsObj.tts_voice && isEdgeVoiceName(projectSettingsObj.tts_voice));
 
     if (hasProjectSpecificVoice) return;
 
@@ -494,39 +342,29 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     let currentVoice = '';
     if (pEngine === 'edge') {
       currentVoice = globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
-    } else if (pEngine === 'kokoro') {
-      currentVoice = globalSettings.kokoro_voice || (projectLanguage === 'hi' ? 'hf_alpha' : 'af_bella');
-    } else if (pEngine === 'piper') {
-      currentVoice = globalSettings.piper_voice || (projectLanguage === 'hi' ? 'hi_IN-rohan' : 'en_US-lessac');
+    } else if (pEngine === 'xtts') {
+      // XTTS uses reference voice, no voice mismatch check needed
+      return;
     }
 
-    const isMismatch = (voice: string, engineType: string) => {
+    const isMismatch = (voice: string) => {
        if (!voice) return false;
        if (projectLanguage === 'hi') {
-          if (engineType === 'edge' && !voice.startsWith('hi-')) return true;
-          if (engineType === 'kokoro' && !voice.startsWith('h')) return true;
-          if (engineType === 'piper' && !voice.startsWith('hi_')) return true;
+          if (!voice.startsWith('hi-')) return true;
        } else {
-          if (engineType === 'edge' && voice.startsWith('hi-')) return true;
-          if (engineType === 'kokoro' && voice.startsWith('h')) return true;
-          if (engineType === 'piper' && voice.startsWith('hi_')) return true;
+          if (voice.startsWith('hi-')) return true;
        }
        return false;
     };
 
-    if (isMismatch(currentVoice, pEngine)) {
+    if (isMismatch(currentVoice)) {
         const updated = { ...localProjectSettingsRef.current };
         if (projectLanguage === 'hi') {
            updated.tts_voice = 'hi-IN-MadhurNeural';
-           updated.kokoro_voice = 'hf_alpha';
-           updated.piper_voice = 'hi_IN-rohan';
         } else {
            updated.tts_voice = 'en-US-AndrewNeural';
-           updated.kokoro_voice = 'af_bella';
-           updated.piper_voice = 'en_US-lessac';
         }
         updated.tts_engine = pEngine;
-        // Also update the global settings in local project settings so it effectively overrides
         onSettingsUpdate(updated);
     }
   }, [projectLanguage, selectedProject, globalSettings, onSettingsUpdate]);
@@ -547,74 +385,21 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   // Current effective engine
   const engine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
 
-  // Filter voice options by project language
-  const isHindiLang = projectLanguage === 'hi';
-  const filteredEdgeVoices = EDGE_VOICE_OPTIONS.filter(opt =>
-    isHindiLang ? opt.value.startsWith('hi-') : !opt.value.startsWith('hi-')
-  );
-  const filteredKokoroVoices = KOKORO_VOICE_OPTIONS.filter(opt =>
-    isHindiLang ? opt.value.startsWith('h') : !opt.value.startsWith('h')
-  );
-  const filteredPiperVoices = PIPER_VOICE_OPTIONS.filter(opt => {
-    if (isHindiLang ? !opt.value.startsWith('hi') : !opt.value.startsWith('en')) return false;
-    if (availablePiperVoices && !availablePiperVoices.includes(opt.value)) return false;
-    return true;
-  });
-
   // Clear preview when settings change
   useEffect(() => {
     setPreviewAudioUrl('');
     setPreviewError('');
-  }, [engine, projectVal('tts_voice'), projectVal('kokoro_voice'), projectVal('piper_voice'), projectVal('tts_speed'), projectVal('tts_pitch')]);
+  }, [engine, projectVal('tts_voice'), projectVal('tts_speed'), projectVal('tts_pitch')]);
 
-  // ── Fetch available Piper voices from HuggingFace ──
-  useEffect(() => {
-    callApi<string[]>('list_piper_voices').then(list => {
-      if (list && list.length > 0) setAvailablePiperVoices(list);
-    }).catch(() => {});
-  }, []);
-
-  // ── Piper model check for the currently selected voice ──
-  useEffect(() => {
-    const checkPiper = async () => {
-      const piperVoice = projectVal('piper_voice') || globalSettings.piper_voice || '';
-      if (engine === 'piper' && piperVoice) {
-        const ok = await callApi<boolean>('check_piper_model', piperVoice);
-        setPiperModelReady(!!ok);
-      } else {
-        setPiperModelReady(true);
-      }
-    };
-    checkPiper();
-  }, [engine, projectVal('piper_voice'), globalSettings.piper_voice]);
-
-  const handleDownloadPiperModel = async () => {
-    const piperVoice = projectVal('piper_voice') || globalSettings.piper_voice || '';
-    if (!piperVoice) return;
-    setPiperDownloading(true);
-    try {
-      const res = await callApi<{ status: string; message?: string }>('download_piper_model', piperVoice);
-      if (res?.status === 'success') {
-        setPiperModelReady(true);
-      }
-    } finally {
-      setPiperDownloading(false);
-    }
-  };
 
   // ── Preset handler ──
   const applyPreset = (preset: VoicePreset) => {
     const updated = { ...localProjectSettings };
     updated.tts_engine = preset.engine;
-    if (preset.engine === 'kokoro' && preset.kokoroVoice) {
-      updated.kokoro_voice = preset.kokoroVoice;
-      updated.tts_voice = preset.voice;
-    } else if (preset.engine === 'piper' && preset.piperVoice) {
-      updated.piper_voice = preset.piperVoice;
-      updated.tts_voice = preset.voice;
-    } else {
+    if (preset.engine === 'edge') {
       updated.tts_voice = preset.voice;
     }
+    // For XTTS, no voice to set — it uses the global reference voice
     if (preset.speed) updated.tts_speed = preset.speed;
     if (preset.pitch) updated.tts_pitch = preset.pitch;
     if (preset.volume) updated.voiceover_volume = preset.volume;
@@ -630,11 +415,9 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
 
     try {
       const effectiveEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
-      const effectiveVoice = effectiveEngine === 'kokoro'
-        ? (projectVal('kokoro_voice') || globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella'))
-        : effectiveEngine === 'piper'
-        ? (projectVal('piper_voice') || globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac'))
-        : (projectVal('tts_voice') || globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural'));
+      const effectiveVoice = effectiveEngine === 'xtts'
+        ? (globalSettings.xtts_reference_voice || '')
+        : (projectVal('tts_voice') || globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural'));
       const effectiveSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
       const effectivePitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
       const effectiveLang = selectedProject?.language || 'hi';
@@ -667,16 +450,11 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const isPresetActive = (preset: VoicePreset): boolean => {
     const pEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
     if (pEngine !== preset.engine) return false;
-    if (preset.engine === 'kokoro') {
-      const pVoice = projectVal('kokoro_voice') || globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella');
-      if (pVoice !== preset.kokoroVoice) return false;
-    } else if (preset.engine === 'piper') {
-      const pVoice = projectVal('piper_voice') || globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac');
-      if (pVoice !== preset.piperVoice) return false;
-    } else {
-      const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
+    if (preset.engine === 'edge') {
+      const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
       if (pVoice !== preset.voice) return false;
     }
+    // For XTTS presets, just match engine + speed
     const pSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
     if (preset.speed && pSpeed !== preset.speed) return false;
     const pPitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
@@ -710,12 +488,10 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
               activeTab={engine}
               onChange={(v) => {
                 const updated = { ...localProjectSettings, tts_engine: v };
-                if (v === 'kokoro' && !getProjectVal(updated, 'kokoro_voice')) {
-                  updated.kokoro_voice = globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella');
-                } else if (v === 'piper' && !getProjectVal(updated, 'piper_voice')) {
-                  updated.piper_voice = globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac');
-                } else if (v === 'edge' && !getProjectVal(updated, 'tts_voice')) {
-                  updated.tts_voice = globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
+                // When switching back to Edge, always set a usable Edge voice —
+                // including when tts_voice holds a stale XTTS reference path.
+                if (v === 'edge' && !isEdgeVoiceName(getProjectVal(updated, 'tts_voice'))) {
+                  updated.tts_voice = globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
                 }
                 onSettingsUpdate(updated);
               }}
@@ -736,62 +512,30 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
         {engine === 'edge' ? (
           <OverrideRow
             label="Voice"
-            globalValue={globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural')}
+            globalValue={globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural')}
             projectValue={projectVal('tts_voice')}
             onReset={() => resetKey('tts_voice')}
           >
             <CustomSelect
-              options={filteredEdgeVoices}
-              value={projectVal('tts_voice') || globalSettings.tts_voice || (isHindiLang ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural')}
+              options={EDGE_VOICE_OPTIONS.filter(opt =>
+                projectLanguage === 'hi' ? opt.value.startsWith('hi-') : !opt.value.startsWith('hi-')
+              )}
+              value={projectVal('tts_voice') || globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural')}
               onChange={(v) => updateKey('tts_voice', v)}
             />
           </OverrideRow>
-        ) : engine === 'kokoro' ? (
-          <OverrideRow
-            label="Voice"
-            globalValue={globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella')}
-            projectValue={projectVal('kokoro_voice')}
-            onReset={() => resetKey('kokoro_voice')}
-          >
-            <CustomSelect
-              options={filteredKokoroVoices}
-              value={projectVal('kokoro_voice') || globalSettings.kokoro_voice || (isHindiLang ? 'hf_alpha' : 'af_bella')}
-              onChange={(v) => updateKey('kokoro_voice', v)}
-            />
-          </OverrideRow>
         ) : (
-          <>
-            <OverrideRow
-              label="Voice"
-              globalValue={globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac')}
-              projectValue={projectVal('piper_voice')}
-              onReset={() => resetKey('piper_voice')}
-            >
-              <CustomSelect
-                options={filteredPiperVoices}
-                value={projectVal('piper_voice') || globalSettings.piper_voice || (isHindiLang ? 'hi_IN-rohan' : 'en_US-lessac')}
-                onChange={(v) => updateKey('piper_voice', v)}
-              />
-            </OverrideRow>
-            {!piperModelReady && (
-              <div className="flex items-center gap-2 p-2 bg-amber-950/20 border border-amber-800/30 rounded-lg">
-                <span className="text-[9px] text-amber-400 flex-1">
-                  Model not downloaded. Download it now or select a different voice.
-                </span>
-                <button
-                  onClick={handleDownloadPiperModel}
-                  disabled={piperDownloading}
-                  className="flex items-center gap-1 px-2 py-1 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-600/30 rounded text-[9px] font-bold transition-all disabled:opacity-50 cursor-pointer shrink-0"
-                >
-                  {piperDownloading ? (
-                    <><VscLoading className="animate-spin text-[10px]" /> Downloading</>
-                  ) : (
-                    'Download'
-                  )}
-                </button>
-              </div>
-            )}
-          </>
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Reference Voice
+            </span>
+            <p className="text-[9px] text-zinc-500">
+              Uses the global reference voice from Settings. {globalSettings.xtts_reference_voice
+                ? <span className="text-zinc-400 font-mono">{globalSettings.xtts_reference_voice.split(/[\\/]/).pop()}</span>
+                : <span className="text-amber-500">No reference voice set — will use default.</span>
+              }
+            </p>
+          </div>
         )}
 
         {/* Speed */}
@@ -905,7 +649,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
                 </div>
                 <p className="text-[8px] text-zinc-500">{preset.desc}</p>
                 <span className="text-[7px] uppercase tracking-wider text-zinc-600 font-bold mt-0.5">
-                  {preset.engine === 'kokoro' ? 'Kokoro' : preset.engine === 'piper' ? 'Piper' : 'Edge'}
+                  {preset.engine === 'xtts' ? 'XTTS v2' : 'Edge'}
                 </span>
               </motion.button>
             );

@@ -28,8 +28,7 @@ export interface Settings {
   tts_voice: string;
   tts_speed: string;
   tts_pitch: string;
-  kokoro_voice: string;
-  piper_voice: string;
+  xtts_reference_voice: string;
   bg_music_path: string;
   bg_music_volume: string;
   pexels_api_key: string;
@@ -57,7 +56,7 @@ export interface Settings {
   huggingface_provider: string;
 }
 
-interface KokoroDownload {
+interface XttsDownload {
   active: boolean;
   file: string;
   progress: number;
@@ -87,7 +86,7 @@ interface YtdlpUpdate {
 interface SettingsStore {
   settings: Settings;
   gpuAvailable: boolean;
-  kokoroDownload: KokoroDownload;
+  xttsDownload: XttsDownload;
   whisperDownload: WhisperDownload;
   downloadedWhisperModels: DownloadedWhisperModel[];
   ytdlpUpdate: YtdlpUpdate;
@@ -96,7 +95,7 @@ interface SettingsStore {
   fetchSettings: () => Promise<void>;
   saveSettings: (settings: Settings) => Promise<void>;
   checkGpuAvailability: () => Promise<void>;
-  downloadKokoro: () => Promise<void>;
+  downloadXtts: () => Promise<void>;
   downloadWhisper: (modelSize: string) => Promise<void>;
   fetchDownloadedWhisperModels: () => Promise<void>;
   deleteWhisperModel: (id: string) => Promise<boolean>;
@@ -132,8 +131,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     tts_voice: "hi-IN-MadhurNeural",
     tts_speed: "1.0",
     tts_pitch: "0",
-    kokoro_voice: "hf_alpha",
-    piper_voice: "hi_IN-rohan",
+    xtts_reference_voice: "",
     bg_music_path: "",
     bg_music_volume: "0.15",
     pexels_api_key: "",
@@ -157,7 +155,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     huggingface_provider: "auto"
   },
   gpuAvailable: false,
-  kokoroDownload: {
+  xttsDownload: {
     active: false,
     file: "",
     progress: 0,
@@ -195,9 +193,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set({ gpuAvailable: !!available });
   },
 
-  downloadKokoro: async () => {
-    set({ kokoroDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
-    await safeApiCall<void>('start_kokoro_download');
+  downloadXtts: async () => {
+    set({ xttsDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
+    await safeApiCall<void>('start_xtts_download');
   },
 
   downloadWhisper: async (modelSize) => {

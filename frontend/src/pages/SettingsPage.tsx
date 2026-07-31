@@ -4,13 +4,12 @@ import { useUIStore } from '../store/useUIStore';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GlowButton } from '../components/ui/GlowButton';
 import { AIProviderCard } from '../features/Settings/components/AIProviderCard';
-import { PiperTTS } from '../features/Settings/components/PiperTTS';
 import { AnimatedTabs, Tab } from '../components/ui/AnimatedTabs';
 import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
 import { CustomRange } from '../components/ui/CustomRange';
 import { motion } from 'framer-motion';
-import { EDGE_VOICE_OPTIONS, KOKORO_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS, WHISPER_MODEL_OPTIONS } from '../features/Settings/voiceConstants';
+import { EDGE_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS, WHISPER_MODEL_OPTIONS } from '../features/Settings/voiceConstants';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
@@ -25,8 +24,8 @@ export const SettingsPage: React.FC = () => {
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const fetchSettings = useSettingsStore((state) => state.fetchSettings);
 
-  const kokoroDownload = useSettingsStore((state) => state.kokoroDownload);
-  const downloadKokoro = useSettingsStore((state) => state.downloadKokoro);
+  const xttsDownload = useSettingsStore((state) => state.xttsDownload);
+  const downloadXtts = useSettingsStore((state) => state.downloadXtts);
   const whisperDownload = useSettingsStore((state) => state.whisperDownload);
   const downloadWhisper = useSettingsStore((state) => state.downloadWhisper);
   const downloadedWhisperModels = useSettingsStore((state) => state.downloadedWhisperModels);
@@ -39,8 +38,7 @@ export const SettingsPage: React.FC = () => {
 
   const [formData, setFormData] = useState<SettingsType>({ ...settings });
   const [saveStatus, setSaveStatus] = useState('');
-  const [kokoroInstalled, setKokoroInstalled] = useState(false);
-  const [piperInstalled, setPiperInstalled] = useState(false);
+  const [xttsInstalled, setXttsInstalled] = useState(false);
   const [whisperInstalled, setWhisperInstalled] = useState(false);
   const gpuAvailable = useSettingsStore((state) => state.gpuAvailable);
 
@@ -92,7 +90,7 @@ export const SettingsPage: React.FC = () => {
 
   // Sync settings when loaded
   useEffect(() => {
-    const isHindi = (settings.tts_voice?.startsWith('hi-') || settings.kokoro_voice?.startsWith('h'));
+    const isHindi = (settings.tts_voice?.startsWith('hi-'));
     setAppLanguage(isHindi ? 'hi' : 'en');
 
     setFormData(() => {
@@ -125,23 +123,17 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     setPreviewAudioUrl('');
     setPreviewError('');
-  }, [formData.tts_engine, formData.tts_voice, formData.kokoro_voice, formData.tts_speed, formData.tts_pitch]);
+  }, [formData.tts_engine, formData.tts_voice, formData.tts_speed, formData.tts_pitch, formData.xtts_reference_voice]);
 
-  // Check Kokoro model downloads
+  // Check XTTS model downloads
   useEffect(() => {
-    checkKokoroAssets();
-  }, [kokoroDownload.status]);
+    checkXttsAssets();
+  }, [xttsDownload.status]);
 
-  const checkKokoroAssets = async () => {
-    const ok = await callApi<boolean>('check_kokoro_downloaded');
-    setKokoroInstalled(!!ok);
+  const checkXttsAssets = async () => {
+    const ok = await callApi<boolean>('check_xtts_downloaded');
+    setXttsInstalled(!!ok);
   };
-
-  // Check Piper model downloads
-  useEffect(() => {
-    checkPiperAssets();
-  }, [formData.piper_voice]);
-
   const handleTestHfModel = async () => {
     if (!window.pywebview) return;
     const apiKey = formData.huggingface_api_key;
@@ -169,11 +161,7 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
-  const checkPiperAssets = async () => {
-    if (!formData.piper_voice) return;
-    const ok = await callApi<boolean>('check_piper_model', formData.piper_voice);
-    setPiperInstalled(!!ok);
-  };
+
 
   // Check Whisper model downloads
   useEffect(() => {
@@ -198,13 +186,9 @@ export const SettingsPage: React.FC = () => {
         setAppLanguage(lang);
         if (lang === 'hi') {
           updated.tts_voice = 'hi-IN-MadhurNeural';
-          updated.kokoro_voice = 'hf_alpha';
-          updated.piper_voice = 'hi_IN-rohan';
           updated.whisper_model = 'collabora/faster-whisper-small-hindi';
         } else {
           updated.tts_voice = 'en-US-AndrewNeural';
-          updated.kokoro_voice = 'af_bella';
-          updated.piper_voice = 'en_US-lessac';
           updated.whisper_model = 'turbo';
         }
       }
@@ -229,7 +213,7 @@ export const SettingsPage: React.FC = () => {
     setPreviewError('');
     setPreviewAudioUrl('');
     try {
-      const voice = formData.tts_engine === 'kokoro' ? formData.kokoro_voice : formData.tts_engine === 'piper' ? formData.piper_voice : formData.tts_voice;
+      const voice = formData.tts_engine === 'xtts' ? (formData.xtts_reference_voice || '') : formData.tts_voice;
       const res = await callApi<{ success: boolean; audio_path?: string; error?: string }>('generate_voice_preview',
         previewText,
         formData.tts_engine,
@@ -289,23 +273,13 @@ export const SettingsPage: React.FC = () => {
   ];
 
   const ttsEngineTabs: Tab[] = [
-    { id: 'piper', label: 'Piper (Offline Fast)' },
-    { id: 'kokoro', label: 'Kokoro (Offline)' },
-    { id: 'edge', label: 'Edge-TTS (Online)' }
+    { id: 'edge', label: 'Edge-TTS (Online)' },
+    { id: 'xtts', label: 'XTTS v2 (Voice Clone)' }
   ];
 
   const edgeVoiceOptions = EDGE_VOICE_OPTIONS;
   const edgeRateOptions = SPEED_OPTIONS;
   const edgePitchOptions = PITCH_OPTIONS;
-  const kokoroVoiceOptions = KOKORO_VOICE_OPTIONS;
-
-  const filteredEdgeVoiceOptions = edgeVoiceOptions.filter(opt =>
-    appLanguage === 'hi' ? opt.value.startsWith('hi-') : !opt.value.startsWith('hi-')
-  );
-
-  const filteredKokoroVoiceOptions = kokoroVoiceOptions.filter(opt =>
-    appLanguage === 'hi' ? opt.value.startsWith('h') : !opt.value.startsWith('h')
-  );
 
   const renderResolutionOptions: SelectOption[] = [
     { value: '720p', label: '720p (HD - Fast Render)' },
@@ -719,60 +693,35 @@ export const SettingsPage: React.FC = () => {
                 </h2>
                 
                 <div className="flex items-center gap-2">
-                  {((formData.tts_engine === 'kokoro' && kokoroInstalled) || 
-                    (formData.tts_engine === 'piper' && piperInstalled)) && (
+                  {formData.tts_engine === 'xtts' && xttsInstalled && (
                     <button
                       type="button"
                       onClick={() => {
-                        const engine = formData.tts_engine;
-                        const title = engine === 'kokoro' ? "Delete Kokoro Models" : "Delete Piper Model";
-                        const msg = engine === 'kokoro' 
-                          ? "Are you sure you want to delete the Kokoro models (~120MB)? You will need to download them again to use offline Kokoro generation."
-                          : "Are you sure you want to delete this downloaded Piper model? You will need to download it again to use it.";
-                        
-                        showConfirm(title, msg, async () => {
-                          if (engine === 'kokoro') {
-                            const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_kokoro_models');
-                            if (res?.success) {
-                              setKokoroInstalled(false);
-                              useUIStore.getState().addToast('Kokoro models deleted successfully.', 'success');
-                            } else {
-                              useUIStore.getState().addToast(res?.error || 'Failed to delete models.', 'error');
-                            }
+                        showConfirm("Delete XTTS Model", "Are you sure you want to delete the XTTS v2 model (~1.8GB)? You will need to download it again to use offline voice cloning.", async () => {
+                          const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_xtts_model');
+                          if (res?.success) {
+                            setXttsInstalled(false);
+                            useUIStore.getState().addToast('XTTS model deleted successfully.', 'success');
                           } else {
-                            const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_piper_model', formData.piper_voice);
-                            if (res?.success) {
-                              setPiperInstalled(false);
-                              useUIStore.getState().addToast('Model deleted successfully.', 'success');
-                            } else {
-                              useUIStore.getState().addToast(res?.error || 'Failed to delete model.', 'error');
-                            }
+                            useUIStore.getState().addToast(res?.error || 'Failed to delete model.', 'error');
                           }
                         });
                       }}
                       className="text-rose-500/70 hover:text-rose-400 p-1 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
-                      title={`Delete ${formData.tts_engine === 'kokoro' ? 'Kokoro' : 'Piper'} Model`}
+                      title="Delete XTTS Model"
                     >
                       <VscTrash className="text-lg" />
                     </button>
                   )}
 
-                  {formData.tts_engine === 'kokoro' && (
-                    <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${kokoroInstalled
+                  {formData.tts_engine === 'xtts' && (
+                    <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${xttsInstalled
                       ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
-                      : kokoroDownload.active
+                      : xttsDownload.active
                         ? 'bg-blue-950/40 text-blue-400 border-blue-800/30 animate-pulse'
                         : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
                       }`}>
-                      {kokoroInstalled ? 'Installed' : kokoroDownload.active ? 'Downloading' : 'Missing Assets'}
-                    </span>
-                  )}
-                  {formData.tts_engine === 'piper' && (
-                    <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${piperInstalled
-                      ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
-                      : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
-                      }`}>
-                      {piperInstalled ? 'Installed' : 'Missing Assets'}
+                      {xttsInstalled ? 'Installed' : xttsDownload.active ? 'Downloading' : 'Missing Assets'}
                     </span>
                   )}
                 </div>
@@ -793,7 +742,9 @@ export const SettingsPage: React.FC = () => {
                   <div className="space-y-4">
                     <CustomSelect
                       label="Edge Cloud Voice"
-                      options={filteredEdgeVoiceOptions}
+                      options={edgeVoiceOptions.filter(opt =>
+                        appLanguage === 'hi' ? opt.value.startsWith('hi-') : !opt.value.startsWith('hi-')
+                      )}
                       value={formData.tts_voice}
                       onChange={(val) => handleSelectChange('tts_voice', val)}
                     />
@@ -812,22 +763,43 @@ export const SettingsPage: React.FC = () => {
                       />
                     </div>
                   </div>
-                ) : formData.tts_engine === 'piper' ? (
-                  <PiperTTS 
-                    appLanguage={appLanguage} 
-                    formData={formData} 
-                    handleSelectChange={handleSelectChange}
-                    piperInstalled={piperInstalled}
-                    onInstallStatusChange={setPiperInstalled}
-                  />
                 ) : (
                   <div className="space-y-4">
-                    <CustomSelect
-                      label="Kokoro Offline Voice"
-                      options={filteredKokoroVoiceOptions}
-                      value={formData.kokoro_voice}
-                      onChange={(val) => handleSelectChange('kokoro_voice', val)}
-                    />
+                    {/* Reference Voice Upload */}
+                    <div className="space-y-2">
+                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Reference Voice (for cloning)</label>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <CustomInput
+                            type="text"
+                            name="xtts_reference_voice"
+                            value={formData.xtts_reference_voice || ''}
+                            onChange={handleInputChange}
+                            placeholder="Upload a reference voice clip..."
+                          />
+                        </div>
+                        <GlowButton variant="secondary" size="sm" type="button" icon={<VscFolderOpened />} onClick={async () => {
+                          const res = await callApi<{ success: boolean; path?: string; filename?: string; error?: string }>('upload_reference_voice');
+                          if (res?.success && res.path) {
+                            setFormData(prev => ({ ...prev, xtts_reference_voice: res.path! }));
+                            useUIStore.getState().addToast(`Reference voice set: ${res.filename}`, 'success');
+                          } else if (res?.error && res.error !== 'No file selected.') {
+                            useUIStore.getState().addToast(res.error, 'error');
+                          }
+                        }}>
+                          Upload
+                        </GlowButton>
+                        {formData.xtts_reference_voice && (
+                          <GlowButton variant="ghost" size="sm" type="button" onClick={() => {
+                            setFormData(prev => ({ ...prev, xtts_reference_voice: '' }));
+                          }}>
+                            Clear
+                          </GlowButton>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-stone-500">Upload a 6–15 second clear voice clip (.wav) for voice cloning. Leave empty to use the default voice.</p>
+                    </div>
+
                     <CustomSelect
                       label="Rate/Speed"
                       options={edgeRateOptions}
@@ -856,7 +828,7 @@ export const SettingsPage: React.FC = () => {
                       size="sm"
                       type="button"
                       onClick={handlePlayPreview}
-                      disabled={previewLoading || !previewText.trim() || (formData.tts_engine === 'kokoro' && !kokoroInstalled)}
+                      disabled={previewLoading || !previewText.trim() || (formData.tts_engine === 'xtts' && !xttsInstalled)}
                       icon={previewLoading ? <VscLoading className="animate-spin" /> : <VscPlay />}
                     >
                       {previewLoading ? 'Testing...' : 'Preview'}
@@ -881,23 +853,23 @@ export const SettingsPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Kokoro Download UI - appears after preview tester */}
-                {formData.tts_engine === 'kokoro' && !kokoroInstalled && (
+                {/* XTTS Download UI */}
+                {formData.tts_engine === 'xtts' && !xttsInstalled && (
                   <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-4 space-y-3">
-                    <p className="text-[10px] text-amber-200/70">Kokoro models are required for offline generation. Size is ~120MB.</p>
-                    {kokoroDownload.active ? (
+                    <p className="text-[10px] text-amber-200/70">XTTS v2 model is required for offline voice cloning. Size is ~1.8GB. A CUDA GPU is recommended.</p>
+                    {xttsDownload.active ? (
                       <div className="space-y-2">
                         <div className="flex justify-between text-[10px] text-amber-400 font-medium">
-                          <span>Downloading {kokoroDownload.file === 'voices' ? 'voices' : 'model'}...</span>
-                          <span>{kokoroDownload.progress}%</span>
+                          <span>Downloading {xttsDownload.file || 'model'}...</span>
+                          <span>{xttsDownload.progress}%</span>
                         </div>
                         <div className="w-full bg-black/50 rounded-full h-1 border border-amber-800/20">
-                          <div className="h-full bg-amber-500" style={{ width: `${kokoroDownload.progress}%` }} />
+                          <div className="h-full bg-amber-500" style={{ width: `${xttsDownload.progress}%` }} />
                         </div>
                       </div>
                     ) : (
-                      <GlowButton variant="secondary" size="sm" fullWidth onClick={downloadKokoro} type="button" icon={<VscCloudDownload />}>
-                        Download Kokoro Assets
+                      <GlowButton variant="secondary" size="sm" fullWidth onClick={downloadXtts} type="button" icon={<VscCloudDownload />}>
+                        Download XTTS v2 Model
                       </GlowButton>
                     )}
                   </div>

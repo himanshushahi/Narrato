@@ -40,10 +40,10 @@ def check_python_dependencies():
         import webview
         import faster_whisper
         import edge_tts
-        import kokoro_onnx
+        import TTS  # coqui-tts (XTTS v2 voice cloning)
+        import huggingface_hub
         import soundfile
         import numpy
-        import onnxruntime
         import torch
         import requests
         print("[SUCCESS] All python packages are installed.")

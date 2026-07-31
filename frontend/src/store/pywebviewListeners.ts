@@ -70,7 +70,7 @@ export const initializePywebviewListeners = () => {
     }
   };
 
-  const handleDownloadProgress = (data: any, stateKey: 'kokoroDownload' | 'whisperDownload', onComplete?: () => void) => {
+  const handleDownloadProgress = (data: any, stateKey: 'xttsDownload' | 'whisperDownload', onComplete?: () => void) => {
     useSettingsStore.setState((state) => {
       const update = { ...(state as any)[stateKey] };
       if (data.status === "completed") {
@@ -91,8 +91,8 @@ export const initializePywebviewListeners = () => {
     });
   };
 
-  window.onKokoroDownloadProgress = (data: any) => {
-    handleDownloadProgress(data, 'kokoroDownload');
+  window.onXttsDownloadProgress = (data: any) => {
+    handleDownloadProgress(data, 'xttsDownload');
   };
 
   window.onWhisperDownloadProgress = (data: any) => {

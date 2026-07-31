@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 import queue
 import time
@@ -14,8 +15,7 @@ from backend.database.db import (
 )
 from backend.pipeline.queue import global_queue_manager
 from backend.pipeline.tts import (
-    check_kokoro_assets, download_file_with_progress, KOKORO_MODEL_URL, KOKORO_MODEL_PATH,
-    KOKORO_VOICES_URL, KOKORO_VOICES_PATH
+    download_file_with_progress
 )
 from backend.pipeline.ai import (
     SCRIPT_INTRO_JSON_SCHEMA, SCRIPT_CONCLUSION_JSON_SCHEMA, SCRIPT_SCENE_JSON_SCHEMA,
@@ -25,7 +25,7 @@ from backend.pipeline.ai import (
 from backend.core.power import power_manager, auto_instrument_bridge
 
 ui_queue = queue.Queue()
-_kokoro_download_active = False
+_xtts_download_active = False
 _whisper_download_active = False
 _ytdlp_update_active = False
 
@@ -385,51 +385,135 @@ class ApiBridge:
             logger.error(f"Failed to download font {font_family}: {e}")
             return {"success": False, "error": str(e)}
 
-    def check_kokoro_downloaded(self) -> bool:
-        return check_kokoro_assets()
+    def check_xtts_downloaded(self) -> bool:
+        from backend.xtts import check_xtts_model
+        return check_xtts_model()
 
-    def delete_kokoro_models(self) -> dict:
+    def delete_xtts_model(self) -> dict:
         try:
-            from backend.pipeline.tts import delete_kokoro_assets
-            success = delete_kokoro_assets()
+            from backend.xtts import delete_xtts_model
+            success = delete_xtts_model()
             if success:
-                return {"success": True, "message": "Kokoro models deleted successfully."}
+                return {"success": True, "message": "XTTS model deleted successfully."}
             else:
-                return {"success": False, "error": "Models not found or could not be deleted."}
+                return {"success": False, "error": "Model not found or could not be deleted."}
         except Exception as e:
-            logger.error(f"Kokoro model delete failed: {e}")
+            logger.error(f"XTTS model delete failed: {e}")
             return {"success": False, "error": str(e)}
 
-    def start_kokoro_download(self) -> dict:
-        global _kokoro_download_active
-        if _kokoro_download_active:
+    def start_xtts_download(self) -> dict:
+        global _xtts_download_active
+        if _xtts_download_active:
             return {"status": "already_running"}
-        if check_kokoro_assets():
+        from backend.xtts import check_xtts_model
+        if check_xtts_model():
             return {"status": "already_downloaded"}
-        _kokoro_download_active = True
+        _xtts_download_active = True
 
         def _download_task():
-            global _kokoro_download_active
+            global _xtts_download_active
             try:
                 def safe_progress(data):
                     try:
-                        ui_queue.put(("onKokoroDownloadProgress", (data,)))
+                        ui_queue.put(("onXttsDownloadProgress", (data,)))
                     except Exception:
                         pass
                 safe_progress({"file": "model", "progress": 0})
-                download_file_with_progress(KOKORO_MODEL_URL, KOKORO_MODEL_PATH, lambda p: safe_progress({"file": "model", "progress": p}))
-                safe_progress({"file": "voices", "progress": 0})
-                download_file_with_progress(KOKORO_VOICES_URL, KOKORO_VOICES_PATH, lambda p: safe_progress({"file": "voices", "progress": p}))
+                from backend.xtts import download_xtts_model
+                download_xtts_model(progress_callback=safe_progress)
                 safe_progress({"status": "completed"})
-                logger.info("Kokoro models downloaded successfully.")
+                logger.info("XTTS model downloaded successfully.")
             except Exception as e:
-                logger.error(f"Kokoro model download failed: {e}")
+                logger.error(f"XTTS model download failed: {e}")
                 safe_progress({"status": "failed", "error": str(e)})
             finally:
-                _kokoro_download_active = False
+                _xtts_download_active = False
 
         threading.Thread(target=_download_task, daemon=True).start()
         return {"status": "started"}
+
+    def upload_reference_voice(self) -> dict:
+        """Opens a file dialog to select a reference voice .wav file for XTTS voice cloning.
+
+        The clip is converted to a 22050 Hz mono WAV and stored under a
+        content-addressed filename (xtts_reference_voice_<hash>.wav) so that
+        re-uploading a different clip yields a different path. Downstream
+        voiceover staleness checks compare the reference path, so a new upload
+        correctly triggers voiceover regeneration.
+        """
+        try:
+            import webview
+            window = webview.windows[0] if webview.windows else None
+            if not window:
+                return {"success": False, "error": "No window available."}
+
+            result = window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=('Audio Files (*.wav;*.mp3;*.flac)', 'All Files (*.*)'),
+                allow_multiple=False
+            )
+
+            if not result or len(result) == 0:
+                return {"success": False, "error": "No file selected."}
+
+            selected_path = result[0]
+            if not Path(selected_path).exists():
+                return {"success": False, "error": "Selected file does not exist."}
+
+            # Convert to 22050 Hz mono wav if needed, staged in the temp dir so a
+            # failed conversion never leaves a half-written file in assets/.
+            import hashlib
+            import shutil
+            from backend.core.config import get_assets_dir, get_ffmpeg_path, get_startupinfo, get_temp_dir
+
+            tmp_wav = get_temp_dir() / "xtts_reference_upload_tmp.wav"
+            tmp_wav.unlink(missing_ok=True)
+
+            ext = Path(selected_path).suffix.lower()
+            if ext != '.wav':
+                import subprocess
+                cmd = [get_ffmpeg_path(), "-y", "-i", selected_path, "-ar", "22050", "-ac", "1", str(tmp_wav)]
+                result_proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=get_startupinfo())
+                if result_proc.returncode != 0:
+                    err_msg = result_proc.stderr.decode("utf-8", errors="ignore")
+                    logger.error(f"Reference voice conversion failed: {err_msg}")
+                    return {"success": False, "error": f"Audio conversion failed: {err_msg[-300:]}"}
+            else:
+                shutil.copy2(selected_path, tmp_wav)
+
+            if not tmp_wav.exists() or tmp_wav.stat().st_size == 0:
+                return {"success": False, "error": "Converted reference voice is empty."}
+
+            # Content-addressed filename: re-uploading a different clip changes the
+            # path, which is exactly what downstream staleness checks compare.
+            file_hash = hashlib.sha256()
+            with open(tmp_wav, "rb") as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                    file_hash.update(chunk)
+
+            assets_dir = get_assets_dir()
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            dest = assets_dir / f"xtts_reference_voice_{file_hash.hexdigest()[:12]}.wav"
+
+            if dest.exists():
+                tmp_wav.unlink(missing_ok=True)
+            else:
+                shutil.move(str(tmp_wav), str(dest))
+
+            # Remove stale reference voice files so only the current clip remains.
+            for old in assets_dir.glob("xtts_reference_voice*.wav"):
+                if old.resolve() != dest.resolve():
+                    try:
+                        old.unlink()
+                        logger.info(f"Removed stale reference voice: {old}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove stale reference voice {old}: {e}")
+
+            logger.info(f"Reference voice saved to {dest}")
+            return {"success": True, "path": str(dest), "filename": Path(selected_path).name}
+        except Exception as e:
+            logger.error(f"Reference voice upload failed: {e}")
+            return {"success": False, "error": str(e)}
 
     def check_whisper_downloaded(self, model_size: str) -> bool:
         from backend.pipeline.transcribe import check_whisper_assets
@@ -739,7 +823,7 @@ class ApiBridge:
         logger.info(f"Bridge API: generate_voice_preview engine={engine} voice={voice}")
         try:
             from backend.core.config import get_temp_dir
-            from backend.pipeline.tts import generate_edge_tts, generate_kokoro_tts
+            from backend.pipeline.tts import generate_edge_tts
             import uuid
             temp_dir = get_temp_dir()
             for f in temp_dir.glob("preview_*.wav"):
@@ -749,21 +833,22 @@ class ApiBridge:
                     pass
             preview_file = temp_dir / f"preview_{uuid.uuid4().hex}.wav"
             speed_float = float(speed) if speed else 1.0
-            if engine == "kokoro":
-                if not check_kokoro_assets():
-                    return {"success": False, "error": "Kokoro models are not downloaded."}
-                kokoro_lang = "hi" if language == "hi" else "en-us"
-                generate_kokoro_tts(text, str(preview_file), voice=voice, speed=speed_float, lang=kokoro_lang)
-            elif engine == "piper":
-                from backend.tts import generate_tts as piper_tts
-                try:
-                    out_path = piper_tts(text, voice, speed=speed_float)
-                    import shutil
-                    shutil.move(out_path, str(preview_file))
-                except Exception as e:
-                    logger.error(f"Piper preview failed: {e}")
-                    return {"success": False, "error": str(e)}
+            if engine == "xtts":
+                from backend.xtts import check_xtts_model, generate_xtts_tts
+                if not check_xtts_model():
+                    return {"success": False, "error": "XTTS model is not downloaded. Please download it from Settings."}
+                # 'voice' parameter here holds the reference speaker_wav path
+                speaker_wav = voice if voice and Path(voice).exists() else ""
+                generate_xtts_tts(
+                    text, str(preview_file),
+                    speaker_wav=speaker_wav, language=language, speed=speed_float
+                )
             else:
+                # Sanitize the edge voice: a project whose tts_voice column was
+                # polluted with an XTTS reference path (older versions) must not
+                # be passed to edge-tts, which would fail on the invalid name.
+                if not re.match(r"^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$", voice or ""):
+                    voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
                 generate_edge_tts(text, str(preview_file), voice=voice, speed=str(speed), pitch=str(pitch))
             if preview_file.exists():
                 return {"success": True, "audio_path": str(preview_file)}
@@ -772,54 +857,7 @@ class ApiBridge:
             return {"success": False, "error": str(e)}
         return {"success": False, "error": "Unknown error generating audio."}
 
-    def list_piper_voices(self) -> list:
-        """List available Piper voices from HuggingFace (en + hi only, medium quality)."""
-        from backend.tts import list_available_piper_voices
-        return list_available_piper_voices()
 
-    def download_piper_model(self, voice_id: str) -> dict:
-        """Trigger Piper model and config download in the background"""
-        try:
-            logger.info(f"Bridge API: download_piper_model voice={voice_id}")
-            from backend.tts import download_piper_voice
-            res = download_piper_voice(voice_id)
-            return res
-        except Exception as e:
-            logger.error(f"Piper model download failed: {e}")
-            return {"status": "error", "message": str(e)}
-
-    def check_piper_model(self, voice_id: str) -> bool:
-        """Check if a Piper model is already downloaded."""
-        try:
-            from backend.tts import check_piper_voice
-            return check_piper_voice(voice_id)
-        except Exception as e:
-            logger.error(f"Piper model check failed: {e}")
-            return False
-
-    def delete_piper_model(self, voice_id: str) -> dict:
-        """Delete a downloaded Piper model."""
-        try:
-            logger.info(f"Bridge API: delete_piper_model voice={voice_id}")
-            from backend.tts import delete_piper_voice
-            success = delete_piper_voice(voice_id)
-            if success:
-                return {"success": True, "message": "Model deleted successfully."}
-            else:
-                return {"success": False, "error": "Model not found or could not be deleted."}
-        except Exception as e:
-            logger.error(f"Piper model delete failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    def generate_piper_tts(self, text: str, voice_id: str, quality: str = "medium", speed: float = 1.0) -> dict:
-        logger.info(f"Bridge API: generate_piper_tts voice={voice_id}")
-        from backend.tts import generate_tts
-        try:
-            audio_path = generate_tts(text, voice_id, speed=speed)
-            return {"success": True, "audio_path": audio_path}
-        except Exception as e:
-            logger.error(f"Piper TTS generation failed: {e}")
-            return {"success": False, "error": str(e)}
 
 
     def get_ytdlp_version(self) -> dict:
