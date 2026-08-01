@@ -268,8 +268,10 @@ makensis installer\installer.nsi
   Install the CUDA build: `pip install torch==2.12.0+cu126 --index-url https://download.pytorch.org/whl/cu126`
   (or use the in-app GPU download on a CPU-edition build).
 - **transformers must stay < 5** — `coqui-tts 0.27.5` breaks on transformers 5.x (pin 4.57.6).
-- **torchcodec / FFmpeg DLL errors** — `backend/xtts.py::_ensure_torchcodec_dlls` auto-provisions the
-  FFmpeg 4.3 DLLs torchcodec needs; this runs automatically on first XTTS load.
+- **torchcodec / FFmpeg DLL errors** — `backend/xtts.py::_ensure_torchcodec_dlls`
+  auto-provisions the FFmpeg 4.3 DLLs torchcodec needs into the writable user-data
+  dir (`%LOCALAPPDATA%\Narrato\torchcodec\` in installed builds — the package dir
+  under Program Files is read-only) and registers it in the DLL search path.
 - **A fresh build "still fails"** — check `%LOCALAPPDATA%\Narrato\assets\` for a corrupt/0-byte
   cached file (e.g. `default_reference.wav`); the app heals it in code — rebuilding/reinstalling won't.
 - **Long XTTS texts on 4 GB GPUs** — the backend chunks text per sentence; keep clips reasonable.

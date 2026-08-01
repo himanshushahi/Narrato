@@ -354,21 +354,27 @@ def _provision_torchcodec_ffmpeg(pkg_dir: Path) -> bool:
 def _ensure_torchcodec_dlls() -> None:
     """Windows: torchcodec (pulled in by coqui-tts) links against FFmpeg 4.3
     shared DLLs (avcodec-58.dll, avutil-56.dll, ...) which its wheel does not
-    bundle. Auto-provision them next to the torchcodec package (one-time
-    download) and register that directory in the process DLL search path so
-    `import torchcodec` (via TTS) can resolve them.
+    bundle. Auto-provision them into a WRITABLE directory: the torchcodec
+    package dir itself is read-only in an installed app (Program Files), so
+    ship the DLLs under BASE_DIR/torchcodec (user data — survives reinstalls)
+    and register that directory in the process DLL search path so
+    `import torchcodec` (via TTS) can resolve them. The package dir is also
+    registered (GPU builds may bundle the DLLs next to the package).
     """
     if os.name != "nt":
         return
     try:
         import importlib.util
+        from backend.core.config import BASE_DIR
         spec = importlib.util.find_spec("torchcodec")
-        if spec is None or not spec.submodule_search_locations:
-            return
-        pkg_dir = Path(list(spec.submodule_search_locations)[0])
-        if not (pkg_dir / "avcodec-58.dll").exists():
-            _provision_torchcodec_ffmpeg(pkg_dir)
-        os.add_dll_directory(str(pkg_dir))
+        if spec is not None and spec.submodule_search_locations:
+            pkg_dir = Path(list(spec.submodule_search_locations)[0])
+            os.add_dll_directory(str(pkg_dir))
+        target = BASE_DIR / "torchcodec"
+        target.mkdir(parents=True, exist_ok=True)
+        if not (target / "avcodec-58.dll").exists():
+            _provision_torchcodec_ffmpeg(target)
+        os.add_dll_directory(str(target))
     except Exception:
         pass
 
