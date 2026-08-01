@@ -19,6 +19,15 @@ import { BsStars } from 'react-icons/bs';
 import { callApi } from '../utils/call-api';
 import { getMediaUrlSync } from '../utils/mediaUrl';
 
+const GPU_ERROR_TEXT: Record<string, string> = {
+  already_running: 'A download is already in progress.',
+  disk_space: 'Not enough free disk space (need ~7 GB).',
+  cancelled: 'Download cancelled.',
+  download_failed: 'Download failed — check your connection and retry.',
+  size_mismatch: 'Downloaded file was incomplete — retry.',
+  extract_failed: 'Extraction failed — retry.',
+};
+
 export const SettingsPage: React.FC = () => {
   const settings = useSettingsStore((state) => state.settings);
   const saveSettings = useSettingsStore((state) => state.saveSettings);
@@ -35,6 +44,13 @@ export const SettingsPage: React.FC = () => {
   const closeConfirm = useUIStore((state) => state.closeConfirm);
   const ytdlpUpdate = useSettingsStore((state) => state.ytdlpUpdate);
   const updateYtdlp = useSettingsStore((state) => state.updateYtdlp);
+  const gpuRuntime = useSettingsStore((state) => state.gpuRuntime);
+  const gpuDownload = useSettingsStore((state) => state.gpuDownload);
+  const fetchGpuStatus = useSettingsStore((state) => state.fetchGpuStatus);
+  const downloadGpuRuntime = useSettingsStore((state) => state.downloadGpuRuntime);
+  const cancelGpuDownload = useSettingsStore((state) => state.cancelGpuDownload);
+  const removeGpuRuntime = useSettingsStore((state) => state.removeGpuRuntime);
+  const setGpuEnabled = useSettingsStore((state) => state.setGpuEnabled);
 
   const [formData, setFormData] = useState<SettingsType>({ ...settings });
   const [saveStatus, setSaveStatus] = useState('');
@@ -71,7 +87,8 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     fetchSettings();
     fetchDownloadedWhisperModels();
-  }, [fetchSettings, fetchDownloadedWhisperModels]);
+    fetchGpuStatus();
+  }, [fetchSettings, fetchDownloadedWhisperModels, fetchGpuStatus]);
 
   // Check yt-dlp version on mount and after updates
   useEffect(() => {
@@ -960,6 +977,104 @@ export const SettingsPage: React.FC = () => {
                     )}
                   </div>
                 )}
+              </div>
+            </GlassCard>
+          </div>
+
+          {/* GPU Acceleration */}
+          <div>
+            <GlassCard className="p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
+                  <VscServer className="text-base text-[var(--color-accent-primary)]" />
+                  GPU Acceleration
+                </h2>
+                <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${gpuRuntime?.active_engine === 'cuda'
+                  ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
+                  : gpuRuntime?.runtime_installed
+                    ? 'bg-blue-950/40 text-blue-400 border-blue-800/30'
+                    : 'bg-stone-950/40 text-stone-400 border-stone-800/30'
+                  }`}>
+                  {gpuRuntime?.active_engine === 'cuda' ? 'GPU Active' : gpuRuntime?.runtime_installed ? 'Installed (CPU)' : 'CPU Only'}
+                </span>
+              </div>
+
+              <div className="space-y-3 text-xs text-stone-400">
+                <p className="leading-relaxed">
+                  Voice cloning (XTTS) runs on the CPU by default. If your PC has an NVIDIA GPU, you can
+                  download the CUDA runtime (~2.6 GB) once and get several times faster voice generation.
+                </p>
+
+                {gpuRuntime?.nvidia_driver ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[10px] font-medium">
+                      <span className="text-emerald-400">NVIDIA GPU detected{gpuRuntime.driver_version ? ` — driver ${gpuRuntime.driver_version}` : ''}</span>
+                      {gpuRuntime.driver_ok === false && (
+                        <span className="text-amber-400">Driver too old for CUDA 12.6</span>
+                      )}
+                    </div>
+                    {gpuRuntime.runtime_installed && (
+                      <div className="flex justify-between text-[10px] font-medium">
+                        <span className="text-blue-400">GPU runtime v{gpuRuntime.runtime_version}</span>
+                        {gpuRuntime.gpu_enabled
+                          ? <span className="text-emerald-400">Enabled — restart to activate</span>
+                          : <span className="text-stone-500">Disabled</span>}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-stone-500">No NVIDIA GPU detected on this PC.</p>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {gpuDownload.active ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[10px] text-blue-400 font-medium">
+                      <span>Downloading GPU runtime...</span>
+                      <span>{gpuDownload.progress}%</span>
+                    </div>
+                    <div className="w-full bg-black/50 rounded-full h-1 border border-blue-800/20">
+                      <div className="h-full bg-blue-500" style={{ width: `${gpuDownload.progress}%` }} />
+                    </div>
+                    <GlowButton variant="secondary" size="sm" fullWidth type="button" onClick={cancelGpuDownload} icon={<VscTrash />}>
+                      Cancel
+                    </GlowButton>
+                  </div>
+                ) : gpuDownload.status === 'failed' ? (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-rose-400">{GPU_ERROR_TEXT[gpuDownload.error] || gpuDownload.error || 'Download failed.'}</p>
+                    <div className="flex gap-2">
+                      <GlowButton variant="secondary" size="sm" fullWidth type="button" onClick={downloadGpuRuntime} icon={<VscCloudDownload />}>
+                        Retry Download
+                      </GlowButton>
+                      {gpuRuntime?.has_runtime_files && (
+                        <GlowButton variant="secondary" size="sm" type="button"
+                          onClick={() => showConfirm('Remove GPU Support', 'Remove the downloaded files (~2.6 GB)? You can download them again anytime.', async () => { await removeGpuRuntime(); closeConfirm(); })}
+                          icon={<VscTrash />}>
+                          Remove
+                        </GlowButton>
+                      )}
+                    </div>
+                  </div>
+                ) : gpuRuntime?.nvidia_driver && !gpuRuntime.runtime_installed ? (
+                  <GlowButton variant="secondary" size="sm" fullWidth type="button" onClick={downloadGpuRuntime} icon={<VscCloudDownload />}>
+                    Download GPU Support (2.6 GB)
+                  </GlowButton>
+                ) : gpuRuntime?.runtime_installed ? (
+                  <div className="flex gap-2">
+                    <GlowButton variant="secondary" size="sm" fullWidth type="button"
+                      onClick={() => setGpuEnabled(!gpuRuntime.gpu_enabled)}
+                      icon={gpuRuntime.gpu_enabled ? <VscCheck /> : <VscPlay />}>
+                      {gpuRuntime.gpu_enabled ? 'Disable GPU' : 'Enable GPU (restart required)'}
+                    </GlowButton>
+                    <GlowButton variant="secondary" size="sm" type="button"
+                      onClick={() => showConfirm('Remove GPU Support', 'Remove the downloaded GPU runtime (~2.6 GB)? You can download it again anytime.', async () => { await removeGpuRuntime(); closeConfirm(); })}
+                      icon={<VscTrash />}>
+                      Remove
+                    </GlowButton>
+                  </div>
+                ) : null}
               </div>
             </GlassCard>
           </div>

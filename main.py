@@ -62,7 +62,11 @@ def main():
     else:
         os.environ["ENVIRONMENT"] = "production"
 
-    # 3. Load and launch pywebview backend app
+    # 3. Activate downloaded GPU runtime (sys.path redirect) BEFORE any backend/torch import
+    from backend.core.gpu_runtime import apply_runtime
+    apply_runtime()
+
+    # 4. Load and launch pywebview backend app
     from backend.core.app import main as run_app
     run_app()
 

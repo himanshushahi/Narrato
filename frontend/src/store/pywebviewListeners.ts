@@ -70,7 +70,7 @@ export const initializePywebviewListeners = () => {
     }
   };
 
-  const handleDownloadProgress = (data: any, stateKey: 'xttsDownload' | 'whisperDownload', onComplete?: () => void) => {
+  const handleDownloadProgress = (data: any, stateKey: 'xttsDownload' | 'whisperDownload' | 'gpuDownload', onComplete?: () => void) => {
     useSettingsStore.setState((state) => {
       const update = { ...(state as any)[stateKey] };
       if (data.status === "completed") {
@@ -99,6 +99,19 @@ export const initializePywebviewListeners = () => {
     handleDownloadProgress(data, 'whisperDownload', () => {
       useSettingsStore.getState().fetchDownloadedWhisperModels();
     });
+  };
+
+  window.onGpuDownloadProgress = (data: any) => {
+    handleDownloadProgress(data, 'gpuDownload', () => {
+      useSettingsStore.getState().fetchGpuStatus();
+    });
+    if (data.status === 'failed') {
+      useSettingsStore.getState().fetchGpuStatus();
+    }
+  };
+
+  window.gpu_disabled = (message: string) => {
+    useUIStore.getState().addToast(message, 'warning');
   };
 
   window.onYtdlpUpdateProgress = (data: any) => {

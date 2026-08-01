@@ -1,9 +1,25 @@
+param([switch]$Gpu)
+
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "      NARRATO BUILD PIPELINE    " -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $RootFolder = $PSScriptRoot
-$VenvPath = Join-Path $RootFolder ".venv"
+# Never depend on the caller's current directory — all paths below resolve
+# from the script's own location.
+Set-Location $RootFolder
+
+# Build variant: default = slim CPU edition (GPU runtime downloadable in-app);
+# -Gpu = fat build with CUDA torch baked in (uses the dev .venv as before).
+if ($Gpu) {
+    $VenvPath = Join-Path $RootFolder ".venv"
+    $ReqFile = Join-Path $RootFolder "requirements.txt"
+    Write-Host "[INFO] GPU build variant (torch==2.12.0+cu126)" -ForegroundColor Cyan
+} else {
+    $VenvPath = Join-Path $RootFolder ".venv-build-cpu"
+    $ReqFile = Join-Path $RootFolder "requirements-cpu.txt"
+    Write-Host "[INFO] CPU build variant (slim; GPU support downloadable in-app)" -ForegroundColor Cyan
+}
 $VenvActivate = Join-Path $VenvPath "Scripts\Activate.ps1"
 $VenvPython = Join-Path $VenvPath "Scripts\python.exe"
 
@@ -11,7 +27,15 @@ $VenvPython = Join-Path $VenvPath "Scripts\python.exe"
 Write-Host "`n=== SETTING UP ENVIRONMENT ===" -ForegroundColor Yellow
 if (!(Test-Path $VenvPath)) {
     Write-Host "[INFO] Local virtual environment not found. Creating..." -ForegroundColor Cyan
-    python -m venv .venv
+    # Must be Python 3.14: the in-app GPU runtime wheel is pinned to cp314
+    # (backend/core/gpu_runtime.py), so a 3.11 build could never load it.
+    # Create from the dev .venv's 3.14 interpreter when available, else via uv.
+    $DevVenvPython = Join-Path $RootFolder ".venv\Scripts\python.exe"
+    if (Test-Path $DevVenvPython) {
+        & $DevVenvPython -m venv $VenvPath
+    } else {
+        uv venv --python 3.14 $VenvPath
+    }
     if (!(Test-Path $VenvActivate)) {
         Write-Error "[ERROR] Failed to create virtual environment. Ensure Python is in your PATH."
         exit 1
@@ -22,7 +46,7 @@ Write-Host "[INFO] Activating Python Virtual Environment..." -ForegroundColor Gr
 . $VenvActivate
 
 Write-Host "[INFO] Installing/Updating Python dependencies..." -ForegroundColor Cyan
-& $VenvPython -m pip install -r requirements.txt
+& $VenvPython -m pip install -r $ReqFile
 
 # Ensure pyinstaller is installed
 Write-Host "[INFO] Ensuring PyInstaller is installed..." -ForegroundColor Cyan
@@ -41,7 +65,7 @@ if (!(Test-Path $BinFolder)) {
 }
 
 Write-Host "[INFO] Running download_binaries.py..." -ForegroundColor Cyan
-& $VenvPython "download_binaries.py"
+& $VenvPython (Join-Path $RootFolder "download_binaries.py")
 if ($LASTEXITCODE -ne 0) {
     Write-Error "[ERROR] Failed to download required binaries."
     exit 1

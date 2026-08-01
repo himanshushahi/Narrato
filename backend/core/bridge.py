@@ -28,6 +28,8 @@ ui_queue = queue.Queue()
 _xtts_download_active = False
 _whisper_download_active = False
 _ytdlp_update_active = False
+_gpu_download_active = False
+_gpu_download_cancel = None
 
 
 def ui_update_loop():
@@ -570,16 +572,75 @@ class ApiBridge:
         return {"success": _delete_model(safe_dir_name)}
 
     def check_nvidia_gpu_available(self) -> bool:
-        import shutil
-        if shutil.which("nvidia-smi") is not None:
+        from backend.core.gpu_runtime import gpu_status
+        if gpu_status()["nvidia_driver"]:
             return True
         try:
             import torch
-            if torch.cuda.is_available():
-                return True
+            return torch.cuda.is_available()
         except Exception:
-            pass
-        return False
+            return False
+
+    def gpu_status(self) -> dict:
+        from backend.core.gpu_runtime import gpu_status as _runtime_status
+        return _runtime_status()
+
+    def gpu_download_start(self) -> dict:
+        global _gpu_download_active, _gpu_download_cancel
+        if _gpu_download_active:
+            return {"status": "already_running"}
+        from backend.core.gpu_runtime import gpu_status as _status, download_runtime
+        st = _status()
+        if st.get("runtime_installed") and st.get("manifest_valid"):
+            return {"status": "already_downloaded"}
+        _gpu_download_active = True
+        _gpu_download_cancel = threading.Event()
+
+        def _task():
+            global _gpu_download_active, _gpu_download_cancel
+            try:
+                def safe_progress(data):
+                    try:
+                        ui_queue.put(("onGpuDownloadProgress", (data,)))
+                    except Exception:
+                        pass
+                result = download_runtime(
+                    progress_cb=lambda p: safe_progress({"status": "downloading", "progress": p}),
+                    cancel_event=_gpu_download_cancel,
+                )
+                if result["success"]:
+                    safe_progress({"status": "completed"})
+                    logger.info("GPU runtime downloaded. Restart the app to activate it.")
+                else:
+                    safe_progress({"status": "failed", "error": result["error"]})
+            except Exception as e:
+                logger.error(f"GPU runtime download failed: {e}")
+                safe_progress({"status": "failed", "error": str(e)})
+            finally:
+                _gpu_download_active = False
+                _gpu_download_cancel = None
+
+        threading.Thread(target=_task, daemon=True).start()
+        return {"status": "started"}
+
+    def gpu_download_cancel(self) -> dict:
+        global _gpu_download_cancel
+        if _gpu_download_cancel is not None:
+            _gpu_download_cancel.set()
+            return {"status": "cancelling"}
+        return {"status": "not_running"}
+
+    def gpu_set_enabled(self, enabled: bool) -> dict:
+        from backend.core.prefs import save_prefs
+        save_prefs({"gpu_enabled": bool(enabled)})
+        return {"restart_required": True, "gpu_enabled": bool(enabled)}
+
+    def gpu_remove_runtime(self) -> dict:
+        from backend.core.gpu_runtime import remove_runtime
+        from backend.core.prefs import save_prefs
+        ok = remove_runtime()
+        save_prefs({"gpu_enabled": False})
+        return {"success": ok}
 
     def regenerate_script_section(self, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: regenerate_script_section index {scene_idx} ({section_type})")
@@ -904,7 +965,6 @@ class ApiBridge:
             global _ytdlp_update_active
             try:
                 import urllib.request
-                import ssl
                 import subprocess
                 from backend.core.config import BIN_DIR, get_ytdlp_path
 
@@ -934,12 +994,11 @@ class ApiBridge:
 
                 latest_version = None
                 try:
-                    context = ssl._create_unverified_context()
                     req = urllib.request.Request(
                         "https://github.com/yt-dlp/yt-dlp/releases/latest",
                         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
                     )
-                    with urllib.request.urlopen(req, context=context, timeout=10) as resp:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
                         latest_url = resp.geturl()
                         latest_version = latest_url.split("/")[-1]
                 except Exception as e:
@@ -958,12 +1017,11 @@ class ApiBridge:
                 temp_path = BIN_DIR / f"yt-dlp_new{ytdlp_ext}"
                 backup_path = BIN_DIR / f"yt-dlp_old{ytdlp_ext}"
                 url = f"https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp{ytdlp_ext}"
-                context = ssl._create_unverified_context()
                 req = urllib.request.Request(
                     url,
                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
                 )
-                with urllib.request.urlopen(req, context=context) as response, open(temp_path, "wb") as out_file:
+                with urllib.request.urlopen(req) as response, open(temp_path, "wb") as out_file:
                     total_size = int(response.info().get("Content-Length", 0))
                     downloaded = 0
                     block_size = 1024 * 256
@@ -976,6 +1034,43 @@ class ApiBridge:
                         if total_size > 0:
                             percent = int(downloaded * 100 / total_size)
                             safe_progress({"status": "downloading", "progress": percent})
+
+                # Verify the downloaded binary against the SHA-256 published in
+                # the SAME release before swapping it in — download_binaries.py
+                # and the installer do this for the pinned path; the updater
+                # must not be the weaker link.
+                import hashlib
+                expected_hash = None
+                try:
+                    sums_url = (
+                        "https://github.com/yt-dlp/yt-dlp/releases/download/"
+                        f"{latest_version}/SHA2-256SUMS"
+                    )
+                    with urllib.request.urlopen(sums_url, timeout=15) as sums_resp:
+                        for line in sums_resp:
+                            parts = line.decode("utf-8", errors="ignore").split()
+                            if len(parts) == 2 and parts[1] == f"yt-dlp{ytdlp_ext}":
+                                expected_hash = parts[0].lower()
+                                break
+                except Exception as e:
+                    logger.warning(f"Could not fetch yt-dlp checksum for verification: {e}")
+
+                if expected_hash:
+                    sha = hashlib.sha256()
+                    with open(temp_path, "rb") as f:
+                        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                            sha.update(chunk)
+                    actual_hash = sha.hexdigest()
+                    if actual_hash != expected_hash:
+                        temp_path.unlink(missing_ok=True)
+                        raise RuntimeError(
+                            f"yt-dlp download hash mismatch: expected {expected_hash}, "
+                            f"got {actual_hash}. Update aborted."
+                        )
+                    logger.info("yt-dlp download verified (SHA-256 match).")
+                else:
+                    logger.warning("yt-dlp downloaded without checksum verification (SUMS unreachable).")
+
                 if target_path.exists():
                     if backup_path.exists():
                         backup_path.unlink()

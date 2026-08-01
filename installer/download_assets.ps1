@@ -202,8 +202,8 @@ if (-not $ytdlpExists) {
     Write-Host "`n--- DOWNLOADING YT-DLP ---"
     $ytdlpExe = Join-Path $binPath "yt-dlp.exe"
     try {
-        $ytdlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/2024.04.09/yt-dlp.exe"
-        $ytdlpHash = "913be69456c242dd81d796eae5ad36d32564573d625fcdf91d0207b1f9cb2a6b"
+        $ytdlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.exe"
+        $ytdlpHash = "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
         Download-FileWithProgressAndRetry -Uri $ytdlpUrl -OutFile $ytdlpExe -Name "yt-dlp Binary"
         if (-not (Verify-Hash -FilePath $ytdlpExe -ExpectedHash $ytdlpHash)) {
             Remove-Item -Path $ytdlpExe -Force

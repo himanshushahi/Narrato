@@ -84,6 +84,16 @@ def get_assets_dir() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
+def get_gpu_runtime_dir() -> Path:
+    """Stable directory for the downloaded GPU torch runtime.
+
+    Dev: {project_root}/gpu_runtime/
+    Prod: %LOCALAPPDATA%/Narrato/gpu_runtime/  (survives reinstalls, like assets/)
+    """
+    d = BASE_DIR / "gpu_runtime"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 # FFmpeg path resolution
 def _get_binary_path(name, resolve=False):
     ext = ".exe" if os.name == "nt" else ""

@@ -24,6 +24,13 @@ assets/
 frontend/dist-remotion/
 frontend/dist-render/
 
+# Build variants, agent workspace & throwaway prototypes
+.venv*/
+.pytest_cache/
+gpu_runtime/
+.hermes/
+spike_gpu/
+
 # Project Specific (Temporary/Generated data)
 temp/
 storage/

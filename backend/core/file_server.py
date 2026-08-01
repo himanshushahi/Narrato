@@ -18,20 +18,44 @@ CONTENT_TYPES = {
 
 CHUNK_SIZE = 64 * 1024
 
+
+def _is_loopback_origin(origin: str) -> bool:
+    """True for the dev frontend (vite on localhost:5174) and the app itself.
+
+    Media responses historically sent Access-Control-Allow-Origin: * so the dev
+    frontend could read them cross-origin. A wildcard also lets ANY website open
+    in the user's browser read files served on 127.0.0.1 — restrict the header
+    to loopback origins only (production is same-origin and needs no CORS).
+    """
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(origin).hostname or ""
+        return host in ("127.0.0.1", "localhost", "::1")
+    except Exception:
+        return False
+
 _file_server_port = None
 _file_server = None
 _thread = None
 
 
 from backend.core.config import BASE_DIR
+from backend.core.logger import logger
 import json
 
 class MediaHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         
-        # 1. Handle frontend files from URL path
-        if not parsed.query.startswith('path='):
+        # keep_blank_values: a bare `?path=` must still take the media branch
+        # (it 404s there), exactly like the old startswith('path=') check.
+        params = parse_qs(parsed.query, keep_blank_values=True)
+
+        # 1. Handle frontend files from URL path. A request is media ONLY when
+        # it carries a `path` query parameter — checking membership (not a
+        # startswith prefix) so future extra query params can't misroute a
+        # media URL into the frontend branch (which would serve index.html).
+        if 'path' not in params:
             path = parsed.path
             if path == '/':
                 path = '/index.html'
@@ -44,7 +68,15 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
                 web_dir = project_root / "frontend" / "dist"
             
             local_path = (web_dir / path.lstrip('/')).resolve()
-            if not str(local_path).startswith(str(web_dir.resolve())):
+            # Windows paths are case-insensitive: compare with normcase so a
+            # differently-cased URL can neither escape the web root nor get
+            # spuriously misrouted to index.html.
+            if os.name == 'nt':
+                within_root = os.path.normcase(str(local_path)).startswith(
+                    os.path.normcase(str(web_dir.resolve())))
+            else:
+                within_root = str(local_path).startswith(str(web_dir.resolve()))
+            if not within_root:
                 local_path = web_dir / "index.html"
             elif not local_path.exists():
                 local_path = web_dir / "index.html"
@@ -55,7 +87,17 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
                         html_content = f.read()
                     from backend.core.prefs import load_prefs
                     prefs_data = load_prefs()
-                    injection = f"<script>window.__INITIAL_PREFS__ = {json.dumps(prefs_data)};</script>"
+                    # json.dumps does not escape < > & — a pref value containing
+                    # "</script>" would break out of this inline <script> and
+                    # inject markup into the app window (self-XSS). Emit them as
+                    # \uXXXX escapes: still valid JSON, decoded back by JS.
+                    prefs_json = (
+                        json.dumps(prefs_data)
+                        .replace('<', '\\u003c')
+                        .replace('>', '\\u003e')
+                        .replace('&', '\\u0026')
+                    )
+                    injection = f"<script>window.__INITIAL_PREFS__ = {prefs_json};</script>"
                     html_content = html_content.replace('</head>', f'{injection}</head>')
                     self.send_response(200)
                     self.send_header('Content-Type', 'text/html')
@@ -86,7 +128,6 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
                 return
 
         # 2. Handle media via ?path=
-        params = parse_qs(parsed.query)
         file_path = params.get('path', [None])[0]
         if not file_path:
             self.send_response(404)
@@ -156,7 +197,9 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Range', f'bytes {start}-{end}/{file_size}')
             self.send_header('Content-Length', str(chunk_size))
             self.send_header('Content-Type', content_type)
-            self.send_header('Access-Control-Allow-Origin', '*')
+            origin = self.headers.get('Origin', '')
+            if _is_loopback_origin(origin):
+                self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Accept-Ranges', 'bytes')
             self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
             self.end_headers()
@@ -177,7 +220,9 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(file_size))
-            self.send_header('Access-Control-Allow-Origin', '*')
+            origin = self.headers.get('Origin', '')
+            if _is_loopback_origin(origin):
+                self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Accept-Ranges', 'bytes')
             self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
             self.end_headers()
@@ -189,7 +234,7 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
                 pass
 
     def log_message(self, format, *args):
-        pass
+        logger.debug("FileServer: " + (format % args))
 
 
 def start_file_server():

@@ -91,6 +91,25 @@ interface YtdlpUpdate {
   error: string;
 }
 
+interface GpuRuntimeStatus {
+  nvidia_driver: boolean;
+  driver_version: string | null;
+  driver_ok: boolean | null;
+  runtime_installed: boolean;
+  runtime_version: string | null;
+  manifest_valid: boolean;
+  has_runtime_files: boolean;
+  gpu_enabled: boolean;
+  active_engine: string;
+}
+
+interface GpuDownload {
+  active: boolean;
+  progress: number;
+  status: string; // '', 'downloading', 'completed', 'failed'
+  error: string;
+}
+
 interface SettingsStore {
   settings: Settings;
   gpuAvailable: boolean;
@@ -108,6 +127,13 @@ interface SettingsStore {
   fetchDownloadedWhisperModels: () => Promise<void>;
   deleteWhisperModel: (id: string) => Promise<boolean>;
   updateYtdlp: () => Promise<void>;
+  gpuRuntime: GpuRuntimeStatus | null;
+  gpuDownload: GpuDownload;
+  fetchGpuStatus: () => Promise<void>;
+  downloadGpuRuntime: () => Promise<void>;
+  cancelGpuDownload: () => Promise<void>;
+  removeGpuRuntime: () => Promise<void>;
+  setGpuEnabled: (enabled: boolean) => Promise<void>;
 }
 
 /**
@@ -183,6 +209,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     status: "",
     error: ""
   },
+  gpuRuntime: null,
+  gpuDownload: {
+    active: false,
+    progress: 0,
+    status: "",
+    error: ""
+  },
 
   setSettings: (settings) => set({ settings }),
   
@@ -209,6 +242,30 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   downloadWhisper: async (modelSize) => {
     set({ whisperDownload: { active: true, progress: 0, status: "started", error: "" } });
     await safeApiCall<void>('start_whisper_download', modelSize);
+  },
+
+  fetchGpuStatus: async () => {
+    const data = await safeApiCall<GpuRuntimeStatus>('gpu_status');
+    if (data) set({ gpuRuntime: data });
+  },
+
+  downloadGpuRuntime: async () => {
+    set({ gpuDownload: { active: true, progress: 0, status: "started", error: "" } });
+    await safeApiCall<void>('gpu_download_start');
+  },
+
+  cancelGpuDownload: async () => {
+    await safeApiCall<void>('gpu_download_cancel');
+  },
+
+  removeGpuRuntime: async () => {
+    await safeApiCall<void>('gpu_remove_runtime');
+    await get().fetchGpuStatus();
+  },
+
+  setGpuEnabled: async (enabled: boolean) => {
+    await safeApiCall<void>('gpu_set_enabled', enabled);
+    await get().fetchGpuStatus();
   },
 
   fetchDownloadedWhisperModels: async () => {

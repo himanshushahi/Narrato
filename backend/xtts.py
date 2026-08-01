@@ -94,6 +94,24 @@ def _reset_unload_timer():
     _unload_timer.start()
 
 
+def _maybe_auto_disable_gpu():
+    """GPU runtime was enabled but CUDA can't start here: flip the pref off so
+    the next launch doesn't try again, and tell the UI."""
+    from backend.core.prefs import load_prefs, save_prefs
+    if not load_prefs().get("gpu_enabled"):
+        return
+    logger.warning("GPU runtime enabled but CUDA unavailable — falling back to CPU and disabling GPU pref")
+    try:
+        save_prefs({"gpu_enabled": False})
+    except Exception:
+        pass
+    try:
+        from backend.core.bridge import ui_queue
+        ui_queue.put(("gpu_disabled", ("CUDA could not start; switched back to CPU",)))
+    except Exception:
+        pass
+
+
 def get_xtts_dir() -> Path:
     """Returns the local directory for XTTS model files."""
     xtts_dir = get_models_dir() / "xtts"
@@ -369,7 +387,10 @@ def _check_transformers_compat() -> None:
         import transformers
     except ImportError:
         return  # let the real TTS import surface the actual problem
-    major = int(str(transformers.__version__).split(".")[0])
+    major = 0
+    m = re.match(r"(\d+)", str(getattr(transformers, "__version__", "")))
+    if m:
+        major = int(m.group(1))
     if major >= 5:
         raise RuntimeError(
             "XTTS is incompatible with transformers 5.x (coqui-tts 0.27.5 needs <5). "
@@ -414,6 +435,8 @@ def _load_xtts_model():
         model = Xtts.init_from_config(config)
         model.load_checkpoint(config, checkpoint_dir=str(xtts_dir), eval=True)
 
+        if not torch.cuda.is_available():
+            _maybe_auto_disable_gpu()
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = model.to(device)
 
@@ -469,10 +492,15 @@ def generate_xtts_tts(
     """
     import numpy as np
     import soundfile as sf
-    global _active_xtts_requests
+    global _active_xtts_requests, _unload_timer
 
     with _xtts_model_lock:
         _active_xtts_requests += 1
+        # Cancel any pending 30s unload timer so the cache stays warm through a
+        # burst — a mid-generation unload would force a full reload next request.
+        if _unload_timer is not None:
+            _unload_timer.cancel()
+            _unload_timer = None
 
     try:
         model = _load_xtts_model()

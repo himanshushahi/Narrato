@@ -46,6 +46,7 @@ def check_python_dependencies():
         import numpy
         import torch
         import requests
+        import psutil
         print("[SUCCESS] All python packages are installed.")
         return True
     except ImportError as e:

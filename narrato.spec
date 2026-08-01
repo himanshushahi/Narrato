@@ -55,6 +55,11 @@ datas += copy_metadata('pillow')
 datas += copy_metadata('huggingface_hub')
 datas += copy_metadata('transformers')
 datas += collect_data_files('transformers', include_py_files=True)
+# torch: shipped as REAL FILES and excluded from the PYZ below so an external
+# GPU runtime on sys.path[0] (downloaded in-app, backend/core/gpu_runtime.py)
+# can shadow the bundled CPU torch. With torch in the PYZ, the frozen importer
+# wins over sys.path and the external runtime could never take effect.
+datas += collect_data_files('torch', include_py_files=True)
 
 a = Analysis(
     ['main.py'],
@@ -99,10 +104,14 @@ a = Analysis(
 #    at decoration time, which fails for PYZ bytecode with
 #    "OSError: could not get source code".
 # On-disk modules import exactly like dev, fixing both.
+# torch is excluded from the PYZ for SHADOWING: the downloaded GPU runtime is
+# inserted at sys.path[0] at startup (main.py -> gpu_runtime.apply_runtime);
+# with torch importable from real files it wins over the bundled CPU torch.
 a.pure = [
     x for x in a.pure
     if x[0] != 'TTS' and not x[0].startswith('TTS.')
     and x[0] != 'inflect' and not x[0].startswith('inflect.')
+    and x[0] != 'torch' and not x[0].startswith('torch.')
 ]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)

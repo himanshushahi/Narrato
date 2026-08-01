@@ -28,6 +28,11 @@ interface PywebviewApi {
   get_downloaded_whisper_models(): Promise<any[]>;
   delete_whisper_model(safe_dir_name: string): Promise<{ success: boolean }>;
   check_nvidia_gpu_available(): Promise<boolean>;
+  gpu_status(): Promise<any>;
+  gpu_download_start(): Promise<{ status: string }>;
+  gpu_download_cancel(): Promise<{ status: string }>;
+  gpu_set_enabled(enabled: boolean): Promise<{ restart_required: boolean; gpu_enabled: boolean }>;
+  gpu_remove_runtime(): Promise<{ success: boolean }>;
   regenerate_script_section(scene_idx: number, section_type: string, full_script: any, rewrite_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
   regenerate_visuals_section(scene_idx: number, section_type: string, full_script: any, rewrite_prompt: string): Promise<{ success: boolean; data?: any; error?: string }>;
   regenerate_sub_visual(scene_idx: number, section_type: string, sub_idx: number, full_script: any, rewrite_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
@@ -58,4 +63,6 @@ interface Window {
   onXttsDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;
   onYtdlpUpdateProgress?: (data: any) => void;
+  onGpuDownloadProgress?: (data: any) => void;
+  gpu_disabled?: (message: string) => void;
 }

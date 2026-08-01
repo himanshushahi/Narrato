@@ -67,8 +67,8 @@ def main():
     # Pinned releases instead of 'latest' where possible
     ffmpeg_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
     
-    ytdlp_url = "https://github.com/yt-dlp/yt-dlp/releases/download/2024.04.09/yt-dlp.exe"
-    ytdlp_hash = "913be69456c242dd81d796eae5ad36d32564573d625fcdf91d0207b1f9cb2a6b"
+    ytdlp_url = "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.exe"
+    ytdlp_hash = "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8"
     
     node_url = "https://nodejs.org/dist/v20.13.1/node-v20.13.1-win-x64.zip"
     node_hash = "555a55c0c7441cb90e441115c81f610fca712dd5b192034d5eaafd7c29924425"
