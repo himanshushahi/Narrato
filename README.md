@@ -17,7 +17,7 @@ standalone installer built with PyInstaller + NSIS.
   strict JSON schema validation and anti-hallucination prompting. Hindi & English.
 - **AI voiceover** — two engines:
   - **Edge TTS** (default, fast, online) — Hindi/English neural voices.
-  - **XTTS v2 voice cloning** (offline, `Abhinay45/XTTS-Hindi-finetuned`) — clone a voice from a
+  - **XTTS v2 voice cloning** (offline, `coqui/XTTS-v2`) — clone a voice from a
     reference clip; per-language voice profiles. The model is loaded lazily and **auto-unloaded after
     30s of inactivity** (with VRAM/RAM release) to avoid memory leaks.
 - **Transcription** — faster-whisper (incl. a Hindi fine-tune), SRT/VTT export, word-level timings for

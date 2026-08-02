@@ -1,7 +1,7 @@
 """
-XTTS v2 Hindi Finetuned — Voice Cloning TTS Module
+XTTS v2 — Voice Cloning TTS Module
 
-Uses the Abhinay45/XTTS-Hindi-finetuned model from HuggingFace for
+Uses the coqui/XTTS-v2 model from HuggingFace for
 high-quality Hindi/English TTS with voice cloning from a reference audio clip.
 """
 
@@ -59,8 +59,8 @@ from backend.core.logger import logger
 # Accept Coqui TOS automatically so it doesn't block in headless/automated contexts
 os.environ["COQUI_TOS_AGREED"] = "1"
 
-XTTS_HF_REPO = "Abhinay45/XTTS-Hindi-finetuned"
-XTTS_MODEL_FILES = ["model.pth", "config.json", "vocab.json"]
+XTTS_HF_REPO = "coqui/XTTS-v2"
+XTTS_MODEL_FILES = ["model.pth", "config.json", "vocab.json", "speakers_xtts.pth", "hash.md5", "dvae.pth", "mel_stats.pth"]
 
 # Module-level model cache (singleton) to avoid reloading on every call
 _xtts_model = None
@@ -114,7 +114,7 @@ def _maybe_auto_disable_gpu():
 
 def get_xtts_dir() -> Path:
     """Returns the local directory for XTTS model files."""
-    xtts_dir = get_models_dir() / "xtts"
+    xtts_dir = get_models_dir() / "xtts-v2"
     xtts_dir.mkdir(parents=True, exist_ok=True)
     return xtts_dir
 
@@ -236,8 +236,8 @@ def check_xtts_model() -> bool:
 
 def download_xtts_model(progress_callback=None) -> bool:
     """
-    Downloads the XTTS Hindi finetuned model from HuggingFace Hub.
-    Returns True on success, raises on failure.
+    Downloads the XTTS-v2 model from HuggingFace Hub.
+    Returns True if fully downloaded and valid, False otherwise.
     """
     from huggingface_hub import hf_hub_download
 
