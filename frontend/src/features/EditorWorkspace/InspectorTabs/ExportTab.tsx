@@ -33,6 +33,7 @@ export const ExportTab: React.FC<ExportTabProps> = ({
 }) => {
   const [confirmStageId, setConfirmStageId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewKey, setPreviewKey] = useState<number>(0);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
   const { selectedProject } = useProjectStore();
 
@@ -328,7 +329,10 @@ export const ExportTab: React.FC<ExportTabProps> = ({
                 
                 {videoUrl && !isRunning && selectedProject?.status === 'completed' && (
                   <button
-                    onClick={() => setShowPreview(true)}
+                    onClick={() => {
+                      setPreviewKey(Date.now());
+                      setShowPreview(true);
+                    }}
                     className="w-full bg-zinc-800 hover:bg-zinc-700 text-white py-2.5 mt-2 rounded text-[10px] font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700"
                   >
                     <VscPlay className="text-sm" /> Preview Rendered Video
@@ -362,7 +366,7 @@ export const ExportTab: React.FC<ExportTabProps> = ({
               style={videoDimensions ? { aspectRatio: `${videoDimensions.width} / ${videoDimensions.height}`, maxHeight: 'calc(90vh - 44px)' } : { aspectRatio: '16 / 9' }}
             >
               <video 
-                src={videoUrl} 
+                src={videoUrl ? `${videoUrl}&t=${previewKey}` : undefined} 
                 controls 
                 autoPlay 
                 onLoadedMetadata={handleVideoMetadata}
