@@ -1275,6 +1275,15 @@ NEVER add custom_html_ui to data types (chart, map, document, list, network, tim
 - NEVER FOR: custom_html, chart, list, map, document, network, timeline, thread, device_mockup. For these types, bake all text directly into their specific visual_meta fields.
 - lower_third and custom_html_ui content text: Match the target language ({language}).
 
+=== ANIMATION TIMING WITH WORD TIMESTAMPS ===
+When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
+- CSS animation-delay values in custom_html and custom_html_ui visuals
+- Text reveal animations timed to when specific words are spoken
+- Data visualization build-up animations synced to narration beats
+- Element entry/exit timings matching spoken content transitions
+Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP chart element.
+When sub-visual duration breakdowns are provided, use the start offset and duration of each sub-visual to ensure animations fit within the allocated time window.
+
 === ANTI-HALLUCINATION ===
 - DO NOT invent visual_meta fields not listed in the schemas above.
 - DO NOT add fields like "background_color", "font_size", "animation", etc. to visual_meta unless they are part of the schema.

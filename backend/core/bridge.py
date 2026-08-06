@@ -58,6 +58,177 @@ def _call_js_func(func_name: str, *args):
             pass
 
 
+def _safe_float(val, default: float = 0.0) -> float:
+    """Safely convert a value to float, returning default on failure."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, full_script: dict) -> str:
+    """Load word-level Whisper transcription and extract timestamps for a specific scene.
+
+    Computes the cumulative audio offset by summing manifest durations for all
+    preceding scenes, then filters transcription words falling within this scene's
+    time window.  Returns a formatted string suitable for injection into an LLM
+    prompt, or an empty string when transcription data is unavailable.
+
+    It also compares the current script hash against the manifest's stored hash
+    to detect if the user has edited the script or reordered scenes since the
+    last voiceover generation. If so, timestamps are labelled as approximate.
+    """
+    try:
+        from backend.core.config import get_storage_dir
+        from backend.pipeline.assets import compute_script_content_hash
+        project = get_project(project_id)
+        if not project:
+            return ""
+
+        # Load transcription data
+        transcription_path = project.get("transcription_path", "")
+        if not transcription_path or not os.path.exists(transcription_path):
+            return ""
+
+        with open(transcription_path, "r", encoding="utf-8") as f:
+            transcription_data = json.load(f)
+
+        if not transcription_data or "segments" not in transcription_data:
+            return ""
+
+        # Load manifest for reliable scene-level durations
+        manifest_path = project.get("assets_manifest_path", "")
+        if not manifest_path or not os.path.exists(manifest_path):
+            # Fallback to voiceover manifest
+            manifest_path = str(get_storage_dir() / project_id / "voiceover" / "manifest.json")
+        if not os.path.exists(manifest_path):
+            return ""
+
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        # Compute the manifest index for this scene
+        # Manifest order: [introduction?, scene_0, scene_1, ..., conclusion?]
+        target_manifest_idx = None
+        for m_idx, entry in enumerate(manifest):
+            m_section = entry.get("section_type", "")
+            if section_type == "introduction" and m_section == "introduction":
+                target_manifest_idx = m_idx
+                break
+            elif section_type == "conclusion" and m_section == "conclusion":
+                target_manifest_idx = m_idx
+                break
+            elif section_type == "scenes" and m_section == "scene":
+                # Count scene entries to match scene_idx
+                scene_count = sum(1 for e in manifest[:m_idx] if e.get("section_type") == "scene")
+                if scene_count == scene_idx:
+                    target_manifest_idx = m_idx
+                    break
+
+        if target_manifest_idx is None:
+            return ""
+
+        # Out-of-bounds check for scenes
+        if section_type == "scenes":
+            scenes = full_script.get("scenes", [])
+            if scene_idx >= len(scenes):
+                return ""
+
+        target_entry = manifest[target_manifest_idx]
+
+        # Detect stale timestamps via content hash comparison.
+        # This properly catches reorders, deletions, and edits.
+        is_stale = False
+        current_hash = compute_script_content_hash(full_script)
+        stored_hash = target_entry.get("_content_hash", "")
+        if stored_hash:
+            if stored_hash != current_hash:
+                is_stale = True
+        else:
+            # Fallback for legacy projects generated before _content_hash existed
+            if section_type == "introduction":
+                current_narration = full_script.get("introduction", {}).get("narration", "")
+            elif section_type == "conclusion":
+                section = full_script.get("conclusion", {})
+                current_narration = f"{section.get('summary', '')} {section.get('cta', '')}".strip()
+            elif section_type == "scenes":
+                section = full_script.get("scenes", [])
+                current_narration = section[scene_idx].get('narration', section[scene_idx].get('hook', '')) if scene_idx < len(section) else ""
+            else:
+                current_narration = ""
+                
+            manifest_narration = target_entry.get("text", "")
+            if manifest_narration and manifest_narration.strip() != current_narration.strip():
+                is_stale = True
+
+        # Compute cumulative audio offset up to target scene
+        cumulative_time = 0.0
+        for m_idx, entry in enumerate(manifest):
+            if m_idx == target_manifest_idx:
+                break
+            cumulative_time += _safe_float(entry.get("duration", 0))
+
+        scene_duration = _safe_float(target_entry.get("duration", 15.0), 15.0)
+
+        # Extract words within this scene's time window
+        words_in_scene = []
+        for seg in transcription_data["segments"]:
+            for w in seg.get("words", []):
+                w_start = w.get("start", 0)
+                if w_start >= cumulative_time and w_start < cumulative_time + scene_duration:
+                    words_in_scene.append(
+                        f"{(w.get('word') or '').strip()} [{w_start - cumulative_time:.1f}s]"
+                    )
+
+        if not words_in_scene:
+            return ""
+
+        if is_stale:
+            header = (
+                "\nAPPROXIMATE Spoken Word Timestamps (narration has been edited since last voiceover — "
+                "timestamps are from the PREVIOUS audio and may not align precisely with current text):\n"
+            )
+        else:
+            header = "\nExact Spoken Words with Timestamps (Seconds from Scene Start):\n"
+
+        return header + " ".join(words_in_scene) + "\n"
+
+    except Exception as e:
+        logger.warning(f"Failed to load word timings for scene {scene_idx} ({section_type}): {e}")
+        return ""
+
+
+def _format_sub_visual_durations(sub_visuals: list, highlight_idx: int = -1) -> str:
+    """Format a compact duration breakdown table for all sub-visuals in a scene.
+
+    When highlight_idx >= 0, marks that specific sub-visual as the one being
+    edited.  Returns a string like:
+
+        Sub-Visual Durations (this scene):
+        [0] chart "GDP growth" — 3.5s (starts at 0.0s)
+        [1] portrait "Harshad Mehta" — 4.5s (starts at 3.5s)  ← EDITING THIS
+        [2] scene "stock exchange" — 7.0s (starts at 8.0s)
+    """
+    if not sub_visuals:
+        return ""
+
+    lines = ["Sub-Visual Durations (this scene's TARGET timeline):"]
+    cumulative = 0.0
+    for i, sv in enumerate(sub_visuals):
+        if not isinstance(sv, dict):
+            continue
+        v_type = sv.get("visual_type", "unknown")
+        v_cue = sv.get("visual_cue", "")
+        dur = _safe_float(sv.get("duration", 0))
+        marker = "  ← EDITING THIS" if i == highlight_idx else ""
+        lines.append(f'  [{i}] {v_type} "{v_cue}" — {dur}s (starts at {cumulative:.1f}s){marker}')
+        cumulative += dur
+
+    return "\n".join(lines) + "\n"
+
+
 def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None):
     """Wrapper around ai._call_llm_json that catches exceptions and returns dict.
 
@@ -757,7 +928,7 @@ class ApiBridge:
 
         return _call_llm_safe(system_prompt, user_prompt, schema)
 
-    def regenerate_visuals_section(self, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str) -> dict:
+    def regenerate_visuals_section(self, project_id: str, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str) -> dict:
         logger.info(f"Bridge API: regenerate_visuals_section index {scene_idx} ({section_type})")
         video_format = full_script.get("video_format", "landscape")
         language = full_script.get("language", "hi")
@@ -778,13 +949,25 @@ class ApiBridge:
             scenes = full_script.get("scenes", [])
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
         current_visuals = target_content.get("sub_visuals", [])
-        total_duration = sum(sv.get("duration", 0) for sv in current_visuals)
+        total_duration = sum(_safe_float(sv.get("duration", 0)) for sv in current_visuals if isinstance(sv, dict))
         if total_duration <= 0:
             total_duration = 15.0
         prompt_struct = "Expected: { \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 15.0 }] }"
+
+        # Gather word-level transcript and duration breakdown for precise AI timing
+        if section_type == "conclusion":
+            narration_text = f"{target_content.get('summary', '')} {target_content.get('cta', '')}".strip()
+        else:
+            narration_text = target_content.get('narration', target_content.get('hook', ''))
+            
+        word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
+        duration_table = _format_sub_visual_durations(current_visuals)
+
         user_prompt = (
             f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
-            f"Narration for this segment:\n\"{target_content.get('narration', target_content.get('hook', target_content.get('summary', '')))}\"\n\n"
+            f"Narration for this segment:\n\"{narration_text}\"\n"
+            f"{word_timings}\n"
+            f"{duration_table}\n"
             f"Current Sub-Visuals:\n{json.dumps(current_visuals, indent=2)}\n\n"
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Total Duration to fill: {total_duration} seconds.\n"
@@ -799,7 +982,7 @@ class ApiBridge:
                     v["duration"] = round(v.get("duration", 1.0) / _norm * total_duration, 2)
         return result
 
-    def regenerate_sub_visual(self, scene_idx: int, section_type: str, sub_idx: int, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
+    def regenerate_sub_visual(self, project_id: str, scene_idx: int, section_type: str, sub_idx: int, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: regenerate_sub_visual index {scene_idx} ({section_type}) sub {sub_idx}")
         video_format = full_script.get("video_format", "landscape")
         visual_rules = get_shared_visual_rules(video_format, language)
@@ -826,13 +1009,31 @@ class ApiBridge:
         if sub_idx >= len(sub_visuals):
             return {"success": False, "error": "Invalid sub visual index"}
         target_sub_visual = sub_visuals[sub_idx]
+        if not isinstance(target_sub_visual, dict):
+            target_sub_visual = {}
         prompt_struct = "Expected: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 4.5 }"
         scene_title = section.get('title', 'Introduction/Conclusion')
         doc_title = full_script.get('title', 'Untitled')
+
+        # Gather word-level transcript and duration breakdown for precise AI timing
+        if section_type == "conclusion":
+            narration_text = f"{section.get('summary', '')} {section.get('cta', '')}".strip()
+        else:
+            narration_text = section.get('narration', section.get('hook', ''))
+            
+        word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
+        duration_table = _format_sub_visual_durations(sub_visuals, highlight_idx=sub_idx)
+
+        # Compute cumulative start offset for the target sub-visual within the scene
+        sub_start_offset = sum(_safe_float(sv.get("duration", 0)) for sv in sub_visuals[:sub_idx] if isinstance(sv, dict))
+
         user_prompt = (
             f"Video Title: \"{doc_title}\"\n"
             f"Scene Title: \"{scene_title}\"\n"
-            f"Context (Narration of this scene):\n\"{section.get('narration', section.get('hook', section.get('summary', '')))}\"\n\n"
+            f"Context (Narration of this scene):\n\"{narration_text}\"\n"
+            f"{word_timings}\n"
+            f"{duration_table}\n"
+            f"This sub-visual's target start offset is {sub_start_offset:.1f}s into the scene and lasts {_safe_float(target_sub_visual.get('duration', 0)):.1f}s.\n\n"
             f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."

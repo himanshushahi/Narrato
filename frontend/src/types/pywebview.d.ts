@@ -34,8 +34,8 @@ interface PywebviewApi {
   gpu_set_enabled(enabled: boolean): Promise<{ restart_required: boolean; gpu_enabled: boolean }>;
   gpu_remove_runtime(): Promise<{ success: boolean }>;
   regenerate_script_section(scene_idx: number, section_type: string, full_script: any, rewrite_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
-  regenerate_visuals_section(scene_idx: number, section_type: string, full_script: any, rewrite_prompt: string): Promise<{ success: boolean; data?: any; error?: string }>;
-  regenerate_sub_visual(scene_idx: number, section_type: string, sub_idx: number, full_script: any, rewrite_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
+  regenerate_visuals_section(project_id: string, scene_idx: number, section_type: string, full_script: any, rewrite_prompt: string): Promise<{ success: boolean; data?: any; error?: string }>;
+  regenerate_sub_visual(project_id: string, scene_idx: number, section_type: string, sub_idx: number, full_script: any, rewrite_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
   add_scene_with_ai(full_script: any, user_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
   generate_voice_preview(text: string, engine: string, voice: string, speed: string, pitch: string, language: string): Promise<{ success: boolean; audio_path?: string; error?: string }>;
   get_ytdlp_version(): Promise<{ installed: boolean; version: string | null; path: string | null }>;

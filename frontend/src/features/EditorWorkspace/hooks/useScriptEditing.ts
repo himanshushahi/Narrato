@@ -338,7 +338,7 @@ export function useScriptEditing(
       } else {
         if (editingCard?.mode === 'visuals') {
           res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
-            'regenerate_visuals_section', index, type, scriptData, rewritePrompt
+            'regenerate_visuals_section', projectId, index, type, scriptData, rewritePrompt
           );
         } else {
           res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
@@ -398,7 +398,7 @@ export function useScriptEditing(
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
     try {
       const res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
-        'regenerate_sub_visual', sceneIdx, sectionType, subIdx, scriptData, prompt, selectedProject.language
+        'regenerate_sub_visual', projectId, sceneIdx, sectionType, subIdx, scriptData, prompt, selectedProject.language
       );
       if (res?.success && res.data) {
         // Deep clone to avoid mutating React state via shared nested references
