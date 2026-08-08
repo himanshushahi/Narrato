@@ -68,6 +68,46 @@ def _safe_float(val, default: float = 0.0) -> float:
         return default
 
 
+def _get_design_system_prompt(project_id: str) -> str:
+    from backend.core.config import get_storage_dir
+    from backend.pipeline.ai import format_design_system_prompt
+    from backend.database.db import get_project
+    project_dir = get_storage_dir() / project_id
+    design_path = project_dir / "design.json"
+    if design_path.exists():
+        try:
+            with open(design_path, "r", encoding="utf-8") as f:
+                design_data = json.load(f)
+            # Validate design matches current project language/format
+            project = get_project(project_id)
+            if project:
+                if design_data.get('_language') != project.get('language', 'hi'):
+                    logger.warning(f"design.json language mismatch for {project_id}, ignoring stale design")
+                    return ""
+                if design_data.get('_video_format') != project.get('video_format', 'landscape'):
+                    logger.warning(f"design.json format mismatch for {project_id}, ignoring stale design")
+                    return ""
+            return format_design_system_prompt(design_data)
+        except Exception as e:
+            logger.warning(f"Failed to load design.json for project {project_id}: {e}")
+    return ""
+
+
+
+def _get_section_narration(section_type: str, section_data: dict) -> str:
+    """Extract narration text from a script section, handling field-name differences.
+
+    Introduction uses 'hook', scenes use 'narration', conclusion uses
+    'summary' + 'cta'.  Centralised here to prevent field-name divergence
+    across callers.
+    """
+    if section_type == "conclusion":
+        return f"{section_data.get('summary', '')} {section_data.get('cta', '')}".strip()
+    # Introduction stores narration in 'hook'; scenes in 'narration'.
+    # Fall back to whichever exists.
+    return section_data.get('narration', section_data.get('hook', ''))
+
+
 def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, full_script: dict) -> str:
     """Load word-level Whisper transcription and extract timestamps for a specific scene.
 
@@ -82,7 +122,6 @@ def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, 
     """
     try:
         from backend.core.config import get_storage_dir
-        from backend.pipeline.assets import compute_script_content_hash
         project = get_project(project_id)
         if not project:
             return ""
@@ -138,30 +177,25 @@ def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, 
 
         target_entry = manifest[target_manifest_idx]
 
-        # Detect stale timestamps via content hash comparison.
-        # This properly catches reorders, deletions, and edits.
+        # Detect stale timestamps by comparing THIS scene's current narration
+        # against the manifest text that was used when voiceover was generated.
+        # Using per-scene text comparison (not whole-script hash) so that editing
+        # an unrelated scene doesn't mark this scene's timestamps as approximate.
         is_stale = False
-        current_hash = compute_script_content_hash(full_script)
-        stored_hash = target_entry.get("_content_hash", "")
-        if stored_hash:
-            if stored_hash != current_hash:
-                is_stale = True
+        if section_type == "introduction":
+            current_section = full_script.get("introduction", {})
+        elif section_type == "conclusion":
+            current_section = full_script.get("conclusion", {})
+        elif section_type == "scenes":
+            scenes = full_script.get("scenes", [])
+            current_section = scenes[scene_idx] if scene_idx < len(scenes) else {}
         else:
-            # Fallback for legacy projects generated before _content_hash existed
-            if section_type == "introduction":
-                current_narration = full_script.get("introduction", {}).get("narration", "")
-            elif section_type == "conclusion":
-                section = full_script.get("conclusion", {})
-                current_narration = f"{section.get('summary', '')} {section.get('cta', '')}".strip()
-            elif section_type == "scenes":
-                section = full_script.get("scenes", [])
-                current_narration = section[scene_idx].get('narration', section[scene_idx].get('hook', '')) if scene_idx < len(section) else ""
-            else:
-                current_narration = ""
-                
-            manifest_narration = target_entry.get("text", "")
-            if manifest_narration and manifest_narration.strip() != current_narration.strip():
-                is_stale = True
+            current_section = {}
+
+        current_narration = _get_section_narration(section_type, current_section)
+        manifest_narration = target_entry.get("text", "")
+        if manifest_narration and manifest_narration.strip() != current_narration.strip():
+            is_stale = True
 
         # Compute cumulative audio offset up to target scene
         cumulative_time = 0.0
@@ -857,7 +891,7 @@ class ApiBridge:
             )
         else:
             system_prompt += "LANGUAGE RULE:\n- The rewritten narration MUST be written in English.\n\n"
-        
+
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
             prompt_struct = "Expected: { \"hook\": \"text\" }"
@@ -871,7 +905,7 @@ class ApiBridge:
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
             prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }"
             schema = SCRIPT_SCENE_JSON_SCHEMA
-            
+
         # Calculate appropriate length based on existing content
         if section_type not in ("introduction", "conclusion"):
             lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
@@ -880,7 +914,7 @@ class ApiBridge:
             system_prompt += f"- Aim for approximately {avg_len} words in the rewritten narration.\n"
             system_prompt += f"- This equals {avg_len * 60 / 180:.1f} to {avg_len * 60 / 150:.1f} seconds of spoken audio (150-180 WPM).\n"
             system_prompt += f"- Match the pacing and content density of surrounding scenes.\n\n"
-            
+
         content_is_empty = False
         if section_type == "introduction":
             content_is_empty = not target_content.get("hook", "").strip()
@@ -888,7 +922,7 @@ class ApiBridge:
             content_is_empty = not target_content.get("summary", "").strip()
         else:
             content_is_empty = not target_content.get("narration", "").strip()
-            
+
         if content_is_empty:
             section_label = section_type.replace("_", " ").title()
             user_prompt = (
@@ -915,9 +949,9 @@ class ApiBridge:
                 f"- ACCURACY: Include only verifiable, factual information.\n"
                 f"- Generate the rewritten JSON segment now. Structure matches: {prompt_struct}.\n"
             )
-            
+
         doc_title = full_script.get("title", "Untitled")
-        
+
         # Try to get relevant web search context
         _web_ctx = _get_web_context_for_topic(f"{doc_title} - script rewrite: {rewrite_prompt[:100]}", "script rewrite")
         if _web_ctx:
@@ -933,11 +967,14 @@ class ApiBridge:
         video_format = full_script.get("video_format", "landscape")
         language = full_script.get("language", "hi")
         visual_rules = get_shared_visual_rules(video_format, language)
+        design_system_text = _get_design_system_prompt(project_id)
+
         system_prompt = (
             "You are an expert AI Visual Director. You will receive a script segment (narration) "
             "and a prompt explaining how to modify or rewrite its visuals. "
             "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
             "Return ONLY valid JSON matching the provided schema. No markdown backticks.\n\n"
+            f"{design_system_text}\n"
             "IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n\n"
             f"{visual_rules}\n"
         )
@@ -955,20 +992,16 @@ class ApiBridge:
         prompt_struct = "Expected: { \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 15.0 }] }"
 
         # Gather word-level transcript and duration breakdown for precise AI timing
-        if section_type == "conclusion":
-            narration_text = f"{target_content.get('summary', '')} {target_content.get('cta', '')}".strip()
-        else:
-            narration_text = target_content.get('narration', target_content.get('hook', ''))
-            
+        narration_text = _get_section_narration(section_type, target_content)
         word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
         duration_table = _format_sub_visual_durations(current_visuals)
 
         user_prompt = (
             f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
             f"Narration for this segment:\n\"{narration_text}\"\n"
-            f"{word_timings}\n"
-            f"{duration_table}\n"
-            f"Current Sub-Visuals:\n{json.dumps(current_visuals, indent=2)}\n\n"
+            + (f"{word_timings}\n" if word_timings else "")
+            + (f"{duration_table}\n" if duration_table else "")
+            + f"Current Sub-Visuals:\n{json.dumps(current_visuals, indent=2)}\n\n"
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Total Duration to fill: {total_duration} seconds.\n"
             f"Generate the rewritten JSON sub_visuals array now. The sum of sub-visual durations MUST equal {total_duration}. Structure matches: {prompt_struct}."
@@ -976,16 +1009,18 @@ class ApiBridge:
         result = _call_llm_safe(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA)
         if result.get("success") and "data" in result:
             svs = result["data"].get("sub_visuals", [])
-            _norm = sum(v.get("duration", 0) for v in svs)
+            _norm = sum(_safe_float(v.get("duration", 0)) for v in svs if isinstance(v, dict))
             if _norm > 0 and abs(_norm - total_duration) > 0.1:
                 for v in svs:
-                    v["duration"] = round(v.get("duration", 1.0) / _norm * total_duration, 2)
+                    v["duration"] = round(_safe_float(v.get("duration", 1.0), 1.0) / _norm * total_duration, 2)
         return result
 
     def regenerate_sub_visual(self, project_id: str, scene_idx: int, section_type: str, sub_idx: int, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: regenerate_sub_visual index {scene_idx} ({section_type}) sub {sub_idx}")
         video_format = full_script.get("video_format", "landscape")
         visual_rules = get_shared_visual_rules(video_format, language)
+        design_system_text = _get_design_system_prompt(project_id)
+
         system_prompt = (
             "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
             "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
@@ -993,6 +1028,7 @@ class ApiBridge:
             "You may change any field including 'visual_type' if the user's request warrants it. "
             "Do NOT change the narration.\n"
             "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
+            f"{design_system_text}\n"
             "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": float }\n\n"
             f"{visual_rules}\n"
         )
@@ -1016,11 +1052,7 @@ class ApiBridge:
         doc_title = full_script.get('title', 'Untitled')
 
         # Gather word-level transcript and duration breakdown for precise AI timing
-        if section_type == "conclusion":
-            narration_text = f"{section.get('summary', '')} {section.get('cta', '')}".strip()
-        else:
-            narration_text = section.get('narration', section.get('hook', ''))
-            
+        narration_text = _get_section_narration(section_type, section)
         word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
         duration_table = _format_sub_visual_durations(sub_visuals, highlight_idx=sub_idx)
 
@@ -1031,9 +1063,9 @@ class ApiBridge:
             f"Video Title: \"{doc_title}\"\n"
             f"Scene Title: \"{scene_title}\"\n"
             f"Context (Narration of this scene):\n\"{narration_text}\"\n"
-            f"{word_timings}\n"
-            f"{duration_table}\n"
-            f"This sub-visual's target start offset is {sub_start_offset:.1f}s into the scene and lasts {_safe_float(target_sub_visual.get('duration', 0)):.1f}s.\n\n"
+            + (f"{word_timings}\n" if word_timings else "")
+            + (f"{duration_table}\n" if duration_table else "")
+            + f"This sub-visual's target start offset is {sub_start_offset:.1f}s into the scene and lasts {_safe_float(target_sub_visual.get('duration', 0)):.1f}s.\n\n"
             f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
@@ -1533,11 +1565,11 @@ class ApiBridge:
                 manifest_conclusion = entry
             elif st == "scene":
                 manifest_scenes.append(entry)
-        
+
         if len(manifest_scenes) != len(script_scenes):
             logger.warning(f"Manifest scene count ({len(manifest_scenes)}) doesn't match script ({len(script_scenes)}), skipping manifest list reorder.")
             return None
-            
+
         reordered_manifest_scenes = [manifest_scenes[i] for i in new_scene_order]
         new_manifest = []
         if manifest_intro:
@@ -1587,7 +1619,7 @@ class ApiBridge:
                 json.dump(script, f, indent=2, ensure_ascii=False)
 
             project_dir = get_storage_dir() / project_id
-            
+
             # 1. Update Voiceover Manifest if it exists
             voiceover_manifest_path = project_dir / "voiceover" / "manifest.json"
             if voiceover_manifest_path.exists():
@@ -1605,7 +1637,7 @@ class ApiBridge:
             # 2. Update Visual Manifest if it exists
             visual_manifest_path = project_dir / "assets" / "assets_manifest.json"
             current_manifest_path = Path(project.get("assets_manifest_path") or visual_manifest_path)
-            
+
             if current_manifest_path.exists() and current_manifest_path != voiceover_manifest_path:
                 try:
                     with open(current_manifest_path, "r", encoding="utf-8") as f:
@@ -1613,8 +1645,8 @@ class ApiBridge:
                     new_vis_manifest = self._reorder_manifest_list(visual_manifest, new_scene_order, script_scenes)
                     if new_vis_manifest:
                         cleanup_result = cleanup_removed_assets(
-                            project_id, 
-                            new_vis_manifest, 
+                            project_id,
+                            new_vis_manifest,
                             output_manifest_path=str(current_manifest_path),
                             old_manifest_path=str(current_manifest_path)
                         )
@@ -1629,8 +1661,8 @@ class ApiBridge:
                     with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
                         vo_manifest = json.load(f)
                     cleanup_result = cleanup_removed_assets(
-                        project_id, 
-                        vo_manifest, 
+                        project_id,
+                        vo_manifest,
                         output_manifest_path=str(voiceover_manifest_path),
                         old_manifest_path=str(voiceover_manifest_path)
                     )
@@ -1668,7 +1700,7 @@ class ApiBridge:
                 json.dump(script, f, indent=2, ensure_ascii=False)
 
             project_dir = get_storage_dir() / project_id
-            
+
             # 1. Update Voiceover Manifest if it exists
             voiceover_manifest_path = project_dir / "voiceover" / "manifest.json"
             if voiceover_manifest_path.exists():
@@ -1685,15 +1717,15 @@ class ApiBridge:
             # 2. Update Visual Manifest if it exists
             visual_manifest_path = project_dir / "assets" / "assets_manifest.json"
             current_manifest_path = Path(project.get("assets_manifest_path") or visual_manifest_path)
-            
+
             if current_manifest_path.exists() and current_manifest_path != voiceover_manifest_path:
                 try:
                     with open(current_manifest_path, "r", encoding="utf-8") as f:
                         visual_manifest = json.load(f)
                     new_vis_manifest = self._delete_scene_from_manifest_list(visual_manifest, scene_index)
                     cleanup_result = cleanup_removed_assets(
-                        project_id, 
-                        new_vis_manifest, 
+                        project_id,
+                        new_vis_manifest,
                         output_manifest_path=str(current_manifest_path),
                         old_manifest_path=str(current_manifest_path)
                     )
@@ -1708,8 +1740,8 @@ class ApiBridge:
                     with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
                         vo_manifest = json.load(f)
                     cleanup_result = cleanup_removed_assets(
-                        project_id, 
-                        vo_manifest, 
+                        project_id,
+                        vo_manifest,
                         output_manifest_path=str(voiceover_manifest_path),
                         old_manifest_path=str(voiceover_manifest_path)
                     )
@@ -1758,25 +1790,25 @@ class ApiBridge:
             import base64
             from io import BytesIO
             from huggingface_hub import InferenceClient
-            
+
             if not api_key or not model:
                 return {"success": False, "error": "API Key and Model are required"}
-                
+
             model = model.strip()
             # Pass provider only if it's not "auto"
             client_provider = None if provider == "auto" else provider
             client = InferenceClient(api_key=api_key, provider=client_provider)
-            
+
             is_portrait = aspect_ratio == "portrait"
             img_width = 576 if is_portrait else 1024
             img_height = 1024 if is_portrait else 576
-            
+
             image = client.text_to_image(prompt=prompt, model=model, width=img_width, height=img_height)
-            
+
             buffered = BytesIO()
             image.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            
+
             return {"success": True, "image": f"data:image/png;base64,{img_str}"}
         except Exception as e:
             from backend.core.logger import logger

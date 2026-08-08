@@ -6,7 +6,6 @@ import { PanScanImage } from './PanScanImage';
 import { ParallaxImage } from './ParallaxImage';
 import { DataVisualizations } from './DataVisualizations';
 import { NumberingList } from './NumberingList';
-import { LowerThird } from './LowerThird';
 import { TransitionWrapper } from './TransitionWrapper';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
@@ -239,7 +238,6 @@ export const NitishRajputComposition = ({
               const subFrom = timing.start;
               const subDuration = Math.max(1, timing.end - timing.start);
               
-              const ltMeta = subVis.visual_meta?.lower_third;
               const htmlUiMeta = subVis.visual_meta?.custom_html_ui;
 
               return (
@@ -251,21 +249,6 @@ export const NitishRajputComposition = ({
                   <TransitionWrapper durationInFrames={subDuration} type={subVis.transition_type}>
                     {renderSubVisual(subVis, subDuration)}
                   </TransitionWrapper>
-                  {ltMeta && (
-                    <div style={{ position: 'absolute', inset: 0, zIndex: 30, pointerEvents: 'none' }}>
-                      <LowerThird 
-                        title={ltMeta.title}
-                        subtitle={ltMeta.subtitle}
-                        durationInFrames={subDuration}
-                        positionX={subtitleSettings?.lower_third_x !== undefined ? subtitleSettings.lower_third_x : 5}
-                        positionY={subtitleSettings?.lower_third_y !== undefined ? subtitleSettings.lower_third_y : 15}
-                        primaryColor={subtitleSettings?.lower_third_primary_color || '#fbbf24'}
-                        titleColor={subtitleSettings?.lower_third_title_color || '#fef3c7'}
-                        subtitleColor={subtitleSettings?.lower_third_subtitle_color || '#d6d3d1'}
-                        titleFontSize={subtitleSettings?.lower_third_title_font_size !== undefined ? subtitleSettings.lower_third_title_font_size : 42}
-                      />
-                    </div>
-                  )}
                   {htmlUiMeta && (
                     <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
                       <CustomHtmlUiOverlay meta={htmlUiMeta} />

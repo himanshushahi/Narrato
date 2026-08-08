@@ -29,7 +29,7 @@ standalone installer built with PyInstaller + NSIS.
   separate audio pass, FFmpeg mux, optional NVENC hardware encoding, custom bundled ffmpeg/ffprobe.
 
 ### Video style system ("nitish_rajput" style)
-Rich Remotion composition with dozens of visuals: **kinetic subtitles**, lower thirds, device mockups,
+Rich Remotion composition with dozens of visuals: **kinetic subtitles**, device mockups,
 paper texture/overlays, parallax + pan-scan images, zoom/transition wrappers, data visualizations,
 numbered lists, **maps (d3-geo/topojson)**, **charts**, **code blocks** (highlight.js), **thread
 simulations**, **HTML/CSS custom visuals**, newspaper layouts — each with its own editor panel.
@@ -129,9 +129,9 @@ simulations**, **HTML/CSS custom visuals**, newspaper layouts — each with its 
 ### Frontend structure
 - `pages/` — `Dashboard.tsx` (Studio), `SettingsPage.tsx`
 - `features/EditorWorkspace/` — timeline, video preview, media sidebar, inspector tabs (Script, Settings, Subtitle, Voice, Export), hooks (`usePipeline`, `useEditorData`, `useScriptEditing`, `useProjectAssets`, `useKeyboardShortcuts`)
-- `features/ProjectEditor/` — per-visual-type editors (SubVisuals, Newspaper, CustomHtmlUi, ChartData, MapLocations, Numbering, LowerThird, Parallax, NetworkData, HtmlData, Transform, Timeline…)
+- `features/ProjectEditor/` — per-visual-type editors (SubVisuals, Newspaper, CustomHtmlUi, ChartData, MapLocations, Numbering, Parallax, NetworkData, HtmlData, Transform, Timeline…)
 - `features/Settings/` — `AIProviderCard`, `voiceConstants`
-- `components/video/` — Remotion compositions: `NitishRajputComposition`, `KineticSubtitles`, `LowerThird`, `DeviceMockup`, `PaperOverlay`, `DataVisualizations`, `ThreadSimulation`, `ParallaxImage`, `ZoomWrapper`, `TransitionWrapper`, `NumberingList`, `CustomHtmlVisual`, `RemotionVideoPlayer`…
+- `components/video/` — Remotion compositions: `NitishRajputComposition`, `KineticSubtitles`, `DeviceMockup`, `PaperOverlay`, `DataVisualizations`, `ThreadSimulation`, `ParallaxImage`, `ZoomWrapper`, `TransitionWrapper`, `NumberingList`, `CustomHtmlVisual`, `RemotionVideoPlayer`…
 - `store/` — Zustand: `useProjectStore`, `useSettingsStore`, `useEditorStore`, `useUIStore`, `pywebviewListeners` (registers `window.*` event handlers)
 - `src/render.mjs` — production Remotion renderer (chunked, resumable, NVENC-capable)
 

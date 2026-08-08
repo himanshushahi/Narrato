@@ -189,8 +189,109 @@ VISUALS_ARRAY_SCHEMA = {
     "required": ["sub_visuals"]
 }
 
+DESIGN_SYSTEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "theme_name": {"type": "string"},
+        "color_palette": {
+            "type": "object",
+            "properties": {
+                "background": {"type": "string"},
+                "primary": {"type": "string"},
+                "secondary": {"type": "string"},
+                "accent": {"type": "string"},
+                "text": {"type": "string"}
+            },
+            "required": ["background", "primary", "secondary", "accent", "text"]
+        },
+        "typography": {
+            "type": "object",
+            "properties": {
+                "heading_font": {"type": "string"},
+                "body_font": {"type": "string"}
+            },
+            "required": ["heading_font", "body_font"]
+        },
+        "css_guidelines": {"type": "string"}
+    },
+    "required": ["theme_name", "color_palette", "typography", "css_guidelines"]
+}
 
+def format_design_system_prompt(design_data: dict) -> str:
+    if not design_data:
+        return ""
+    # Strip internal metadata fields (e.g. _language, _video_format, _failed) from prompt
+    clean = {k: v for k, v in design_data.items() if not k.startswith('_')}
+    if not clean.get('theme_name'):
+        return ""
+    return (
+        f"\n=== GLOBAL DESIGN SYSTEM ===\n"
+        f"Strictly adhere to these design rules when generating custom_html or custom_html_ui. "
+        f"These colors and styles MUST ONLY be applied via CSS inside custom_html. "
+        f"Do NOT add them as new fields to the visual_meta JSON object:\n"
+        f"{json.dumps(clean, indent=2)}\n"
+    )
 
+def generate_project_design_system(project_dict, script_data, project_dir, progress_cb, cancel_event):
+    design_path = project_dir / "design.json"
+    is_new = False
+    
+    topic = project_dict.get('name', 'Unknown')
+    language = project_dict.get('language', 'hi')
+    video_format = project_dict.get('video_format', 'landscape')
+    
+    if design_path.exists():
+        try:
+            with open(design_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or not data.get('theme_name'):
+                raise ValueError("Invalid design.json shape")
+            if data.get('_failed'):
+                raise ValueError("Previous design generation failed, regenerating")
+            if data.get('_language') != language or data.get('_video_format') != video_format:
+                raise ValueError("Language or format changed, invalidating design")
+            return data, is_new
+        except Exception as e:
+            from backend.core.logger import logger
+            logger.warning(f"Invalidating existing design.json: {e}")
+            
+    is_new = True
+    system_prompt = f"""You are an expert Art Director. Create a cohesive Design System for a YouTube video.
+The format is {video_format} (e.g. landscape means 16:9, portrait means 9:16).
+Return ONLY valid JSON matching the schema. No markdown backticks.
+
+DESIGN GUIDELINES:
+- color_palette: Must use modern, vibrant, or highly readable hex codes.
+- typography: Use EXACTLY one of these modern Google Fonts: 'Inter', 'Oswald', 'Outfit', or 'Montserrat'. Do not use any others.
+- css_guidelines: Provide brief layout and style rules. These MUST ONLY be applied via CSS inside custom_html/custom_html_ui components. Do NOT add them as new fields to the visual_meta JSON object.
+"""
+    import uuid
+    user_prompt = f"Topic: {topic}\nLanguage: {language}\nVideo Title: {script_data.get('title', 'Untitled')}\nRequest ID: {uuid.uuid4().hex}\n"
+    
+    from backend.core.logger import logger
+    logger.info("Generating global Design System...")
+    progress_cb(12.0, "Generating global Design System...")
+    
+    try:
+        design_data = _call_llm_json(system_prompt, user_prompt, DESIGN_SYSTEM_SCHEMA, cancel_event)
+    except Exception as e:
+        if isinstance(e, InterruptedError):
+            raise e
+        logger.warning(f"Design generation failed, falling back to default: {e}")
+        return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+    
+    if isinstance(design_data, dict) and design_data.get('theme_name'):
+        # Validate that all required schema fields are present
+        required_keys = {'color_palette', 'typography', 'css_guidelines'}
+        if not required_keys.issubset(design_data.keys()):
+            logger.warning(f"Design system response missing required keys: {required_keys - design_data.keys()}")
+            return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+        design_data['_language'] = language
+        design_data['_video_format'] = video_format
+        return design_data, True
+    
+    logger.warning("Failed to generate design system, returning default.")
+    return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
 
 OUTLINE_JSON_SCHEMA = {
     "type": "object",
@@ -298,17 +399,17 @@ def repair_json_string(s):
         logger.warning(f"Failed to fix unescaped quotes during repair: {e}")
 
     s = s.replace('\r\n', '\n').replace('\r', '\n')
-    
+
     in_string = False
     escape = False
     result = []
     stack = []
-    
+
     i = 0
     n = len(s)
     while i < n:
         char = s[i]
-        
+
         if in_string:
             if escape:
                 result.append(char)
@@ -358,18 +459,18 @@ def repair_json_string(s):
             else:
                 result.append(char)
         i += 1
-        
+
     if in_string:
         result.append('"')
-        
+
     while stack:
         close_char = stack.pop()
         result.append(close_char)
-        
+
     repaired = "".join(result)
     repaired = re.sub(r',\s*\}', '}', repaired)
     repaired = re.sub(r',\s*\]', ']', repaired)
-    
+
     return repaired
 
 def clean_json_response(raw_response):
@@ -382,24 +483,24 @@ def clean_json_response(raw_response):
         start_idx = clean_text.find('{')
         if start_idx != -1:
             clean_text = clean_text[start_idx:]
-            
+
     try:
         return json.loads(clean_text)
     except json.JSONDecodeError:
         pass
-        
+
     try:
         repaired = repair_json_string(clean_text)
         return json.loads(repaired)
     except Exception as e:
         logger.warning(f"Standard JSON repair failed: {e}. Trying ast.literal_eval fallback...")
-        
+
     try:
         repaired_val = repair_json_string(clean_text)
         return ast.literal_eval(repaired_val)
     except Exception:
         pass
-        
+
     logger.error(f"Failed all JSON parsing attempts. Raw response length: {len(raw_response)}")
     raise ValueError("LLM response could not be parsed into valid JSON.")
 
@@ -420,14 +521,14 @@ def _cache_key(system_prompt, user_prompt, cfg):
 
 def _resolve_llm_config():
     """Resolve LLM provider config from DB settings.
-    
+
     Returns a dict with: provider, api_key, base_url, model, temperature, max_tokens, top_p
     Raises ValueError if no API key is configured.
     """
     from backend.database.db import get_setting
-    
+
     llm_provider = get_setting("llm_provider") or "openai"
-    
+
     if llm_provider == "nvidia":
         api_key = get_setting("nvidia_api_key")
         base_url = get_setting("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
@@ -442,10 +543,10 @@ def _resolve_llm_config():
         temperature = float(get_setting("openai_temperature") or 0.7)
         max_tokens = int(get_setting("openai_max_tokens") or 4096)
         top_p = float(get_setting("openai_top_p") or 1.0)
-    
+
     if not api_key:
         raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
-    
+
     return {
         "provider": llm_provider,
         "api_key": api_key,
@@ -461,9 +562,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     from backend.database.db import get_setting
     from openai import OpenAI
     import openai
-    
+
     global _llm_cache
-    
+
     cfg = _resolve_llm_config()
     llm_provider = cfg["provider"]
     api_key = cfg["api_key"]
@@ -472,8 +573,18 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     temperature = cfg["temperature"]
     max_tokens = cfg["max_tokens"]
     top_p = cfg["top_p"]
-    
+
     logger.info(f"LLM Call: Provider={llm_provider}, Model={model}, BaseURL={base_url}")
+
+    # Reasoning models (e.g. DeepSeek) consume max_tokens on internal "thinking"
+    # before producing visible content. If max_tokens is too small, ALL tokens go
+    # to reasoning and content_len=0. Boost to 16384 so there's headroom for both
+    # reasoning AND the actual JSON output.
+    model_lower = model.lower()
+    is_reasoning_model = any(tag in model_lower for tag in ("deepseek", "r1", "qwq", "reasoning", "think"))
+    if is_reasoning_model and max_tokens <= 8192:
+        logger.info(f"Reasoning model detected ('{model}'). Boosting max_tokens {max_tokens} -> 16384 to allow room for reasoning + content.")
+        max_tokens = 16384
 
     # Check response cache for deterministic prompts (same params + same prompt)
     ck = _cache_key(system_prompt, user_prompt, cfg)
@@ -489,9 +600,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     client = OpenAI(
         api_key=api_key,
         base_url=base_url.rstrip('/') if base_url else None,
-        timeout=60.0
+        timeout=300.0  # 5 min — large models (e.g. Nemotron-550B) can take minutes per call
     )
-    
+
     kwargs = {
         "model": model,
         "messages": [
@@ -503,7 +614,7 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
         "top_p": top_p,
         "stream": True
     }
-    
+
     if llm_provider == "nvidia":
         kwargs["extra_body"] = {"guided_json": schema}
     else:
@@ -512,15 +623,16 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
 
+
     max_retries = 5
     for attempt in range(max_retries):
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
         try:
             logger.info(f"Sending LLM request via OpenAI SDK (Attempt {attempt+1}/{max_retries})...")
-            
+
             response_stream = client.chat.completions.create(**kwargs)
-            
+
             raw_content = ""
             for chunk in response_stream:
                 if cancel_event.is_set():
@@ -530,24 +642,64 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                     delta_content = chunk.choices[0].delta.content
                     if delta_content:
                         raw_content += delta_content
-                        
+
+            # Fallback: if streaming yielded empty content, retry with non-streaming.
+            # Some models (e.g. DeepSeek) consume all tokens on reasoning in
+            # streaming mode but produce content in non-streaming mode.
+            if not raw_content.strip():
+                logger.warning("Streaming yielded empty content. Attempting non-streaming completion fallback...")
+                if cancel_event.is_set():
+                    raise InterruptedError("Cancelled")
+                fallback_kwargs = {k: v for k, v in kwargs.items() if k != "stream"}
+                fallback_kwargs["stream"] = False
+                fallback_response = client.chat.completions.create(**fallback_kwargs)
+                if fallback_response.choices:
+                    raw_content = fallback_response.choices[0].message.content or ""
+                    finish_reason = fallback_response.choices[0].finish_reason
+                    usage = fallback_response.usage
+                    logger.info(f"Non-streaming fallback result: finish_reason={finish_reason}, "
+                                f"content_len={len(raw_content)}, usage={usage}")
+
+                    # Detect reasoning-token exhaustion: model used all tokens
+                    # for internal thinking, leaving zero for content output.
+                    # Retry with much higher max_tokens and no response_format.
+                    if not raw_content.strip() and usage and hasattr(usage, 'completion_tokens_details'):
+                        details = usage.completion_tokens_details
+                        reasoning_used = getattr(details, 'reasoning_tokens', 0) if details else 0
+                        if reasoning_used and reasoning_used >= usage.completion_tokens:
+                            boosted = min(max_tokens * 4, 65536)
+                            logger.warning(
+                                f"Reasoning-token exhaustion detected: {reasoning_used} reasoning tokens "
+                                f"consumed entire budget ({usage.completion_tokens}). "
+                                f"Retrying with max_tokens={boosted} and no response_format..."
+                            )
+                            if cancel_event.is_set():
+                                raise InterruptedError("Cancelled")
+                            retry_kwargs = {k: v for k, v in fallback_kwargs.items() if k != "response_format"}
+                            retry_kwargs["max_tokens"] = boosted
+                            retry_response = client.chat.completions.create(**retry_kwargs)
+                            if retry_response.choices:
+                                raw_content = retry_response.choices[0].message.content or ""
+                                logger.info(f"Reasoning-boost retry result: content_len={len(raw_content)}, "
+                                            f"usage={retry_response.usage}")
+
             if not raw_content.strip():
                 raise ValueError("API returned an empty response. It may have failed internally.")
-                
+
             parsed_json = clean_json_response(raw_content)
-            
+
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
-                
+
             # Cache the response (FIFO eviction when full)
             with _llm_cache_lock:
                 if len(_llm_cache) >= _LLM_CACHE_MAX:
                     # Remove oldest inserted entry
                     _llm_cache.pop(next(iter(_llm_cache)))
                 _llm_cache[ck] = parsed_json
-            
+
             return parsed_json
-            
+
         except openai.RateLimitError as e:
             if attempt < max_retries - 1:
                 sleep_time = (2 ** attempt) + random.uniform(0, 1)
@@ -582,16 +734,16 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
 def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     from backend.database.db import get_setting, update_project
     from backend.core.logger import logger
-    
+
     topic = project_dict['name']
     prompt_desc = project_dict['prompt']
     language = project_dict.get('language', 'hi')
     duration_mode = project_dict.get('duration_mode', 'medium')
     video_format = project_dict.get('video_format', 'landscape')
-    
+
     logger.info(f"Generating script for topic: '{topic}' (Lang: {language}, Dur: {duration_mode}, Format: {video_format})")
     progress_cb(5.0, "Preparing to generate script...")
-    
+
     # Check API key before starting
     llm_provider = get_setting("llm_provider") or "openai"
     api_key = get_setting("nvidia_api_key") if llm_provider == "nvidia" else get_setting("openai_api_key")
@@ -623,9 +775,9 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     # based on the actual number of chapters the AI produces.
 
     sentence_rule = f"LENGTH CONSTRAINT: The total target video duration is {target_duration} seconds. Every second of narration directly adds to video length. Write concisely — prefer shorter sentences, tighter prose, and only essential details."
-        
+
     lang_instruction = f"""LANGUAGE RULES:
-- The spoken text (hook, narration, summary, cta) MUST be written in the native script of the requested language (code: '{language}'). 
+- The spoken text (hook, narration, summary, cta) MUST be written in the native script of the requested language (code: '{language}').
   For example, if the language is Hindi ('hi'), you MUST use the Devanagari script. Do NOT use English alphabet transliterations.
   CRITICAL: This strictly applies to the Introduction and Conclusion as well!
 - The 'title' and 'chapter_title' fields can be in the requested language.
@@ -640,7 +792,7 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
 - CRITICAL: Never repeat the video title/topic verbatim in spoken text (hook, narration, summary, cta). The title is an internal label — write original spoken content instead.
 - {sentence_rule}
 """
-    
+
     # 1. Generate Outline
     progress_cb(10.0, "Generating video outline...")
     logger.info("Stage 1: Generating Outline...")
@@ -648,7 +800,7 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     # English ~180 WPM (3 wps), Hindi ~270 syllables/min (~4.5 sps)
     LANGUAGE_WORD_RATE = {"hi": 4.5, "en": 3.0, "mr": 4.0, "bn": 4.0, "ta": 3.5, "te": 3.5}
     speaking_rate = LANGUAGE_WORD_RATE.get(language, 3.0)
-    
+
     # Allocate scene time: ~15s reserved for intro + conclusion
     per_scene_time = max(5, (target_duration - 15) // max_scenes)
     per_scene_words = max(10, int(per_scene_time * speaking_rate))
@@ -672,7 +824,7 @@ BREAKDOWN REQUIREMENTS:
 
 {lang_instruction}
 """
-    
+
     outline_user_prompt = f"""Topic: "{topic}"
 Detail: "{prompt_desc}"
 
@@ -814,7 +966,7 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
     # 3. Generate Scenes in Loop
     progress_cb(30.0, "Drafting scene narratives...")
     logger.info("Stage 3: Generating Scenes...")
-    
+
     scenes_array = []
     chapters = outline_data.get("chapters", [])
     total_chapters = len(chapters)
@@ -823,17 +975,17 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
     actual_count = total_chapters or max_scenes  # fallback if outline produced 0 chapters
     per_scene_duration = max(5, (target_duration - 15) // actual_count)
     per_scene_word_target = max(10, int(per_scene_duration * speaking_rate))  # language-aware speaking rate
-    
+
     def generate_single_scene(idx, chapter):
         scene_num = chapter.get("scene_number", idx + 1)
         chapter_title = chapter.get("chapter_title", f"Scene {scene_num}")
         context = chapter.get("scene_context", "")
-        
+
         prev_context = ""
         if idx > 0:
             prev_chap = chapters[idx - 1]
             prev_context = f"Previous Scene ({prev_chap.get('scene_number')}): {prev_chap.get('chapter_title')} - {prev_chap.get('scene_context')}"
-        
+
         scene_system_prompt = f"""You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
 
 SCENE-SPECIFIC RULES:
@@ -883,7 +1035,7 @@ DURATION CONSTRAINT:
 - Every word must contribute to explaining or revealing something important
 
 Return ONLY the JSON scene object with scene_number, title, and narration fields.
-- Narr (type: string, required): The main spoken content for this scene. 
+- Narr (type: string, required): The main spoken content for this scene.
   * Must be non-empty and specific
   * Must follow the language rules (Devanagari for Hindi, English otherwise)
   * Precise timing is critical for video production
@@ -963,17 +1115,17 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
     # Use max_workers=1 to process sequentially and avoid strict concurrent request limits
     # (NVIDIA NIM, Groq, and other APIs often limit concurrent requests to 1 on free/standard tiers)
     max_workers = 1
-    
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_idx = {executor.submit(generate_single_scene, i, chapter): i for i, chapter in enumerate(chapters)}
-        
+
         results = [None] * total_chapters
         completed = 0
-        
+
         for future in concurrent.futures.as_completed(future_to_idx):
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
-                
+
             idx = future_to_idx[future]
             try:
                 scene_data = future.result()
@@ -982,14 +1134,14 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
             except Exception as exc:
                 logger.error(f"Scene {idx+1} generated an exception: {exc}")
                 raise exc
-            
+
             completed += 1
             current_progress = 30.0 + (completed / total_chapters) * 60.0
             progress_cb(current_progress, f"Drafting scene narratives... {completed}/{total_chapters}")
-            
+
     scenes_array = [r for r in results if r is not None]
     progress_cb(90.0, "Assembling final script...")
-    
+
     # 4. Assembly
     logger.info("Stage 4: Assembling Script...")
     final_script = {
@@ -1079,10 +1231,19 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
         raise ValueError(error_msg)
 
     final_script["video_format"] = project_dict.get('video_format', 'landscape')
-    
+
     script_path = project_dir / "script.json"
     with open(script_path, "w", encoding="utf-8") as f:
         json.dump(final_script, f, indent=2, ensure_ascii=False)
+
+    # Invalidate old design.json when script is regenerated
+    design_path = project_dir / "design.json"
+    if design_path.exists():
+        try:
+            design_path.unlink()
+            logger.info("Invalidated old design.json")
+        except Exception as e:
+            logger.warning(f"Failed to delete old design.json: {e}")
 
     update_project(project_dict['id'], script_path=str(script_path))
     progress_cb(100.0, "Script generation complete!")
@@ -1092,7 +1253,7 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
 def generate_chart_data(prompt):
     """Generates JSON chart data using the configured LLM based on user prompt."""
     logger.info(f"Generating chart data for prompt: '{prompt}'")
-    
+
     try:
         cfg = _resolve_llm_config()
     except ValueError as e:
@@ -1124,10 +1285,10 @@ RULES:
 """
 
     user_prompt = f"Generate chart data for this topic: '{prompt}'"
-    
+
     from openai import OpenAI
     import openai
-    
+
     client = OpenAI(
         api_key=api_key,
         base_url=base_url.rstrip('/') if base_url else None
@@ -1170,16 +1331,16 @@ RULES:
         logger.info(f"Sending LLM chart request via OpenAI SDK with model {model}...")
         response = client.chat.completions.create(**kwargs)
         raw_content = response.choices[0].message.content
-        
+
         parsed_json = clean_json_response(raw_content)
-        
+
         # Ensure array exists
         if "data" not in parsed_json or not isinstance(parsed_json["data"], list):
             raise ValueError("LLM did not return a 'data' array.")
-            
+
         return {
-            "success": True, 
-            "data": parsed_json["data"], 
+            "success": True,
+            "data": parsed_json["data"],
             "title": parsed_json.get("title", prompt.upper()[:30]),
             "chart_type": parsed_json.get("chart_type", "bar")
         }
@@ -1269,11 +1430,10 @@ NEVER add custom_html_ui to data types (chart, map, document, list, network, tim
 - custom_html: {{"html": str, "css": str}} (CRITICAL: Design for {video_format} orientation. Use raw CSS — no Tailwind. NOT a normal web page. Must look like a high-end video editor template with abundant smooth CSS animations.)
 
 === OVERLAY RULES ===
-- lower_third: Add {{"lower_third": {{"title": str, "subtitle": str}}}} inside visual_meta for overlay text.
 - custom_html_ui: Add {{"custom_html_ui": {{"html": str, "css": str}}}} inside visual_meta for custom overlays.
 - ONLY FOR: scene, image, parallax, portrait, youtube, ai_image.
 - NEVER FOR: custom_html, chart, list, map, document, network, timeline, thread, device_mockup. For these types, bake all text directly into their specific visual_meta fields.
-- lower_third and custom_html_ui content text: Match the target language ({language}).
+- custom_html_ui content text: Match the target language ({language}).
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
 When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
@@ -1287,51 +1447,61 @@ When sub-visual duration breakdowns are provided, use the start offset and durat
 === ANTI-HALLUCINATION ===
 - DO NOT invent visual_meta fields not listed in the schemas above.
 - DO NOT add fields like "background_color", "font_size", "animation", etc. to visual_meta unless they are part of the schema.
-- The ONLY optional additions to visual_meta are "lower_third" and "custom_html_ui" (and ONLY for allowed types).
+- The ONLY optional addition to visual_meta is "custom_html_ui" (and ONLY for allowed types).
 - visual_cue MUST ALWAYS be in English.
-- All visual_meta text content MUST be in English, EXCEPT lower_third and custom_html_ui content which should match the target language.
+- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which should match the target language.
 """
 
 
 def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     from backend.database.db import get_setting, update_project
     from backend.core.logger import logger
-    
+
     script_path = project_dir / "script.json"
     manifest_path = Path(project_dict.get('assets_manifest_path', project_dir / "voiceover" / "manifest.json"))
     transcription_path = Path(project_dict.get('transcription_path', project_dir / "subtitles" / "transcription.json"))
-    
+
     if not script_path.exists():
         raise FileNotFoundError("script.json is missing.")
     if not manifest_path.exists():
         raise FileNotFoundError("manifest.json is missing.")
-        
+
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
-        
+
     topic = project_dict['name']
     language = project_dict.get('language', 'hi')
     video_format = project_dict.get('video_format', 'landscape')
-    
+
     progress_cb(10.0, "Preparing to generate visuals...")
     logger.info("Starting Visuals Generation Pipeline...")
+
+    # Generate overarching design system
+    design_system, is_new_design = generate_project_design_system(project_dict, script, project_dir, progress_cb, cancel_event)
+    if is_new_design:
+        progress_cb(15.0, "Preparing to generate visuals...")
+    design_system_text = format_design_system_prompt(design_system)
     
+    current_design_hash = ""
+    if design_system:
+        current_design_hash = hashlib.md5(json.dumps(design_system, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
     visual_rules = get_shared_visual_rules(video_format, language)
-    
+
     visuals_system_prompt = f"""You are an expert AI Visual Director for YouTube videos.
 
 CORE MISSION:
 Transform narration into compelling visual sequences that enhance the message.
-
+{design_system_text}
 CRITICAL RULES:
 - COUNT: One sub-visual per visual beat
 - DURATION: Each 2-15 seconds, sum MUST equal scene duration
 - TRANSITION: Vary transitions — never repeat the same one
 - visual_cue: ALWAYS in English. MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon' instead of 'a sprawling city with neon lights'). Do not use complex sentences.
 - visual_meta text: ALWAYS in English
-- lower_third & custom_html_ui content: Match the target language from the user prompt
+- custom_html_ui content: Match the target language from the user prompt
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
@@ -1355,7 +1525,7 @@ FINAL CHECK before submitting:
     total_scenes = len(manifest)
     completed = 0
     _last_progress_ts = 0.0
-    
+
     # Load transcription for precise word-level timings
     transcription_data = None
     if transcription_path.exists():
@@ -1366,7 +1536,7 @@ FINAL CHECK before submitting:
             logger.error(f"Failed to load transcription: {e}")
 
     cumulative_time = 0.0
-    
+
     def _throttled_progress(pct, msg):
         """Throttle progress updates to max every 500ms to avoid UI flooding."""
         nonlocal _last_progress_ts
@@ -1374,17 +1544,17 @@ FINAL CHECK before submitting:
         if now - _last_progress_ts >= 0.5 or pct >= 99.9:
             _last_progress_ts = now
             progress_cb(pct, msg)
-    
+
     # Process each scene sequentially (cumulative_time dependency)
     for i, entry in enumerate(manifest):
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
-            
+
         scene_type = entry.get("section_type")
         scene_title = entry.get("title", "")
         narration = entry.get("text", "")
         duration = entry.get("duration", 15.0)
-        
+
         # Get exact transcription words for this scene
         word_timings = ""
         if transcription_data and "segments" in transcription_data:
@@ -1398,25 +1568,28 @@ FINAL CHECK before submitting:
                 word_timings = "\nExact Spoken Words with Timestamps (Seconds from Scene Start):\n" + " ".join(words_in_scene) + "\n"
 
         cumulative_time += duration
-        
+
         # --- Smart Preservation Logic ---
         existing_sub_visuals = entry.get("sub_visuals", [])
-        
+
         # Compute narration hash for change-detection: when narration changes,
         # we must regenerate even if sub-visuals exist from a previous run.
         narration_hash = hashlib.md5(narration.encode("utf-8")).hexdigest()[:12]
         stored_hash = entry.get("_narr_hash", "")
-        
+
         # Check if existing sub-visuals are valid (not just a single blank default generated by tts.py)
         is_default = False
         if len(existing_sub_visuals) == 1:
             v = existing_sub_visuals[0]
             if v.get("visual_type") == "scene" and v.get("visual_cue") == scene_title and not v.get("visual_meta"):
                 is_default = True
-                
+
         narration_changed = (stored_hash and stored_hash != narration_hash)
-                
-        if existing_sub_visuals and not is_default and not narration_changed:
+        
+        stored_design_hash = entry.get("_design_hash", "")
+        design_changed = (stored_design_hash and stored_design_hash != current_design_hash)
+
+        if existing_sub_visuals and not is_default and not narration_changed and not design_changed and not is_new_design:
             logger.info(f"Preserving existing sub-visuals for scene '{scene_title}'. Scaling durations to new total {duration}s.")
             old_total = sum([float(v.get("duration", 0)) for v in existing_sub_visuals])
             if old_total > 0:
@@ -1426,14 +1599,16 @@ FINAL CHECK before submitting:
             else:
                 for v in existing_sub_visuals:
                     v["duration"] = round(duration / len(existing_sub_visuals), 2)
-            
+
             entry["sub_visuals"] = existing_sub_visuals
             entry["_narr_hash"] = narration_hash
+            entry["_design_hash"] = current_design_hash
             completed += 1
-            _throttled_progress(10.0 + (completed / total_scenes) * 80.0, f"Preserved visual cues... {completed}/{total_scenes}")
+            base_prog = 15.0 if is_new_design else 10.0
+            _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Preserved visual cues... {completed}/{total_scenes}")
             continue
         # --- End Smart Preservation Logic ---
-        
+
         user_prompt = f"""Topic: "{topic}"
 Scene: {scene_title} ({scene_type})
 Total Scene Duration: {duration} seconds
@@ -1445,7 +1620,7 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
 
         try:
             visuals_data = _call_llm_json(visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, cancel_event)
-            
+
             valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup", "ai_image"}
             for sv in visuals_data.get("sub_visuals", []):
                 v_type = str(sv.get("visual_type", "")).lower()
@@ -1468,40 +1643,55 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
 
             entry["sub_visuals"] = visuals_data.get("sub_visuals", [])
             entry["_narr_hash"] = narration_hash
+            entry["_design_hash"] = current_design_hash
         except Exception as e:
             logger.error(f"Failed to generate visuals for scene {i}: {e}")
             entry["sub_visuals"] = [{"visual_type": "scene", "visual_cue": scene_title, "transition": "fade", "visual_meta": {}, "duration": duration}]
             entry["_narr_hash"] = narration_hash
-            
+            entry["_design_hash"] = current_design_hash
+
         completed += 1
-        _throttled_progress(10.0 + (completed / total_scenes) * 80.0, f"Generating visual cues... {completed}/{total_scenes}")
+        base_prog = 15.0 if is_new_design else 10.0
+        _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Generating visual cues... {completed}/{total_scenes}")
 
     # Write back to manifest
+    if is_new_design and isinstance(design_system, dict) and design_system.get('theme_name'):
+        import os
+        try:
+            design_path = project_dir / "design.json"
+            temp_path = design_path.with_suffix('.tmp')
+            with open(temp_path, "w", encoding="utf-8") as f:
+                json.dump(design_system, f, indent=2)
+            os.replace(temp_path, design_path)
+            logger.info("Saved design.json successfully.")
+        except Exception as e:
+            logger.error(f"Failed to save design.json: {e}")
+
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
-        
+
     # Also update script.json so it matches the manifest
     script_scenes = script.get("scenes", [])
     manifest_scenes = [m for m in manifest if m.get("section_type") == "scene"]
-    
+
     # Intro
     manifest_intro = next((m for m in manifest if m.get("section_type") == "introduction"), None)
     if manifest_intro and "introduction" in script:
         script["introduction"]["sub_visuals"] = manifest_intro.get("sub_visuals", [])
-        
+
     # Scenes
     for i, sc in enumerate(script_scenes):
         if i < len(manifest_scenes):
             sc["sub_visuals"] = manifest_scenes[i].get("sub_visuals", [])
-            
+
     # Conclusion
     manifest_conclusion = next((m for m in manifest if m.get("section_type") == "conclusion"), None)
     if manifest_conclusion and "conclusion" in script:
         script["conclusion"]["sub_visuals"] = manifest_conclusion.get("sub_visuals", [])
-        
+
     with open(script_path, "w", encoding="utf-8") as f:
         json.dump(script, f, indent=2, ensure_ascii=False)
-        
+
     progress_cb(100.0, "Visual generation complete!")
     logger.info("Visual generation pipeline completed successfully.")
 

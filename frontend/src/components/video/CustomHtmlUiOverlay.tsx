@@ -48,7 +48,7 @@ export const CustomHtmlUiOverlay: React.FC<{ meta: any }> = ({ meta }) => {
       const shadow = containerRef.current.shadowRoot;
       if (shadow) {
         shadow.innerHTML = `
-          <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800&family=Inter:wght@400;500;700;800&family=Oswald:wght@400;500;700;800&family=Outfit:wght@400;500;700;800&display=swap" rel="stylesheet">
           <style>
             /* Synchronize all CSS animations with the Remotion timeline */
             *, *::before, *::after {

@@ -348,10 +348,9 @@ const SECTION_DEFS: SectionDef[] = [
     id: 'branding',
     title: 'Global Branding',
     icon: () => <span className="text-xs text-zinc-500">B</span>,
-    keywords: ['branding', 'chapter', 'lower third', 'chart', 'color', 'preset'],
+    keywords: ['branding', 'chapter', 'chart', 'color', 'preset'],
     fields: [
       { id: 'chapter_name', label: 'Chapter Name', keywords: ['chapter', 'hide', 'color'] },
-      { id: 'lower_third', label: 'Lower Third', keywords: ['lower', 'third', 'position', 'color'] },
       { id: 'chart', label: 'Animated Charts', keywords: ['chart', 'graph', 'color'] },
     ],
   },

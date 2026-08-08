@@ -43,11 +43,6 @@ export const PIPELINE_STAGES = [
 export const getDefaultMetaForType = (type: string, existingMeta: any) => {
   const meta: any = {};
 
-  // Preserve existing lower third
-  if (existingMeta?.lower_third) {
-    meta.lower_third = { ...existingMeta.lower_third };
-  }
-
   // Inject defaults based on type
   if (type === 'chart') {
     meta.chart_type = 'bar';

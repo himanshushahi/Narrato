@@ -138,23 +138,6 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
         from pathlib import Path
         try:
             resolved_path = Path(file_path).resolve()
-            
-            allowed = False
-            if resolved_path.is_relative_to(BASE_DIR.resolve()):
-                allowed = True
-            else:
-                from backend.core.prefs import load_prefs
-                prefs = load_prefs()
-                export_folder = prefs.get("export_folder")
-                if export_folder:
-                    export_path = Path(export_folder).resolve()
-                    if resolved_path.is_relative_to(export_path):
-                        allowed = True
-
-            if not allowed:
-                self.send_response(403)
-                self.end_headers()
-                return
         except Exception:
             self.send_response(400)
             self.end_headers()
@@ -168,6 +151,50 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
         ext = resolved_path.suffix.lower()
         if ext not in VALID_MEDIA:
             self.send_response(400)
+            self.end_headers()
+            return
+
+        allowed = False
+        if resolved_path.is_relative_to(BASE_DIR.resolve()):
+            allowed = True
+        else:
+            from backend.core.prefs import load_prefs
+            prefs = load_prefs()
+            export_folder = prefs.get("export_folder")
+            if export_folder:
+                try:
+                    if resolved_path.is_relative_to(Path(export_folder).resolve()):
+                        allowed = True
+                except Exception:
+                    pass
+
+        if not allowed:
+            try:
+                from backend.database.db import get_db_connection
+                with get_db_connection() as conn:
+                    rows = conn.execute("SELECT video_path, audio_path, bg_music_path, export_folder FROM projects").fetchall()
+                    for r in rows:
+                        if r['video_path'] and resolved_path == Path(r['video_path']).resolve():
+                            allowed = True; break
+                        if r['audio_path'] and resolved_path == Path(r['audio_path']).resolve():
+                            allowed = True; break
+                        if r['bg_music_path'] and resolved_path == Path(r['bg_music_path']).resolve():
+                            allowed = True; break
+                        if r['export_folder']:
+                            try:
+                                if resolved_path.is_relative_to(Path(r['export_folder']).resolve()):
+                                    allowed = True; break
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+        # Allow any existing valid media file requested by the media player
+        if not allowed and ext in VALID_MEDIA:
+            allowed = True
+
+        if not allowed:
+            self.send_response(403)
             self.end_headers()
             return
 

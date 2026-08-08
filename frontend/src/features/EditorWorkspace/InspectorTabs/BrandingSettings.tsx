@@ -7,7 +7,7 @@ import { VscTrash, VscStarFull, VscSave } from 'react-icons/vsc';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
 
-const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'lower_third_primary_color', 'lower_third_title_color', 'lower_third_subtitle_color', 'lower_third_x', 'lower_third_y', 'lower_third_title_font_size', 'chart_primary_color', 'chart_text_color', 'chart_multicolor', 'chart_title_font_size', 'chart_label_font_size', 'chart_bg_color'];
+const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'chart_primary_color', 'chart_text_color', 'chart_multicolor', 'chart_title_font_size', 'chart_label_font_size', 'chart_bg_color'];
 
 const extractKeys = (obj: any, keys: string[]) => {
   return keys.reduce((acc: any, key) => {
@@ -130,56 +130,6 @@ export const BrandingSettings = ({ settings, onUpdate }: { settings: any; onUpda
               />
             </>
           )}
-        </div>
-      </div>
-
-      {/* Universal Lower Third */}
-      <div>
-        <h4 className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-2">Universal Lower Third</h4>
-        <div className="grid grid-cols-2 gap-4 bg-zinc-950/50 p-3 rounded border border-zinc-800/60">
-          <CustomColorInput
-            label="Primary/Accent Color"
-            value={settings.lower_third_primary_color || '#fbbf24'}
-            onChange={(e) => updateKey('lower_third_primary_color', e.target.value)}
-          />
-          <CustomColorInput
-            label="Title Color"
-            value={settings.lower_third_title_color || '#fef3c7'}
-            onChange={(e) => updateKey('lower_third_title_color', e.target.value)}
-          />
-          <CustomColorInput
-            label="Description Color"
-            value={settings.lower_third_subtitle_color || '#d6d3d1'}
-            onChange={(e) => updateKey('lower_third_subtitle_color', e.target.value)}
-          />
-          <div className="col-span-2 grid grid-cols-2 gap-4">
-            <CustomRange
-              label="Horizontal Position (X)"
-              min="0" max="100"
-              value={settings.lower_third_x !== undefined ? settings.lower_third_x : 5}
-              valueDisplay={`${settings.lower_third_x !== undefined ? settings.lower_third_x : 5}%`}
-              onChange={(e) => updateKey('lower_third_x', parseInt(e.target.value))}
-            />
-            <CustomRange
-              label="Vertical Position (Y)"
-              min="0" max="100"
-              value={settings.lower_third_y !== undefined ? settings.lower_third_y : 15}
-              valueDisplay={`${settings.lower_third_y !== undefined ? settings.lower_third_y : 15}%`}
-              onChange={(e) => updateKey('lower_third_y', parseInt(e.target.value))}
-            />
-          </div>
-          <div className="col-span-2 grid grid-cols-2 gap-4">
-            <CustomRange
-              label="Title Font Size"
-              min="16" max="80"
-              value={settings.lower_third_title_font_size !== undefined ? settings.lower_third_title_font_size : 42}
-              valueDisplay={`${settings.lower_third_title_font_size !== undefined ? settings.lower_third_title_font_size : 42}px`}
-              onChange={(e) => updateKey('lower_third_title_font_size', parseInt(e.target.value))}
-            />
-            <div className="flex items-end pb-2">
-              <p className="text-[10px] text-zinc-500">Description scales proportionally</p>
-            </div>
-          </div>
         </div>
       </div>
 
