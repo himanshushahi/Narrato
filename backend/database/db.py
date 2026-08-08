@@ -94,9 +94,22 @@ def init_db():
                 message TEXT,
                 error_message TEXT,
                 updated_at TEXT NOT NULL,
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             )
         """)
+
+        # Add token telemetry columns to existing databases
+        try:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN prompt_tokens INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+            
+        try:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN completion_tokens INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass # Column already exists
 
         # Settings Table
         cursor.execute("""
@@ -121,6 +134,8 @@ def init_db():
             "nvidia_temperature": "0.7",
             "nvidia_max_tokens": "4096",
             "nvidia_top_p": "1.0",
+            "llm_concurrency": "1", # 1 for NVIDIA free tier, 3-5 for OpenAI
+            "llm_fallback_provider": "openai",
             "whisper_model": "base",
             "whisper_device": "cpu", # 'cpu' or 'cuda'
             "tts_engine": "edge", # 'edge' or 'xtts'

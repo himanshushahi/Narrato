@@ -31,7 +31,7 @@ standalone installer built with PyInstaller + NSIS.
 ### Video style system ("nitish_rajput" style)
 Rich Remotion composition with dozens of visuals: **kinetic subtitles**, device mockups,
 paper texture/overlays, parallax + pan-scan images, zoom/transition wrappers, data visualizations,
-numbered lists, **maps (d3-geo/topojson)**, **charts**, **code blocks** (highlight.js), **thread
+numbered lists, **maps (d3-geo/topojson)**, **code blocks** (highlight.js), **thread
 simulations**, **HTML/CSS custom visuals**, newspaper layouts — each with its own editor panel.
 
 ### Studio & editor

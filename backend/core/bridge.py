@@ -241,7 +241,7 @@ def _format_sub_visual_durations(sub_visuals: list, highlight_idx: int = -1) -> 
     edited.  Returns a string like:
 
         Sub-Visual Durations (this scene):
-        [0] chart "GDP growth" — 3.5s (starts at 0.0s)
+        [0] document "GDP growth report" — 3.5s (starts at 0.0s)
         [1] portrait "Harshad Mehta" — 4.5s (starts at 3.5s)  ← EDITING THIS
         [2] scene "stock exchange" — 7.0s (starts at 8.0s)
     """
@@ -263,7 +263,7 @@ def _format_sub_visual_durations(sub_visuals: list, highlight_idx: int = -1) -> 
     return "\n".join(lines) + "\n"
 
 
-def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None):
+def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None, use_tools=False):
     """Wrapper around ai._call_llm_json that catches exceptions and returns dict.
 
     Provides retry, streaming, and automatic provider resolution via the
@@ -275,11 +275,18 @@ def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None):
             endpoints currently don't expose a cancel mechanism, so this
             defaults to a never-set event (no-op). Pipeline callers pass
             a real event wired to the QueueManager's cancel machinery.
+        use_tools: When True, the call runs through AgentRunner.run_with_tools,
+            letting the model emit ```tool``` blocks (web search, skill lookup,
+            project file reads) before producing the final JSON.
     """
     import threading
     if cancel_event is None:
         cancel_event = threading.Event()  # never set for bridge calls
     try:
+        if use_tools:
+            from backend.agent.agent_engine import AgentRunner, INTERACTIVE_AGENT_TOOLS
+            return AgentRunner(cancel_event=cancel_event).run_with_tools_safe(
+                system_prompt, user_prompt, schema, allowed_tools=INTERACTIVE_AGENT_TOOLS)
         data = _call_llm_json(system_prompt, user_prompt, schema, cancel_event)
         return {"success": True, "data": data}
     except InterruptedError:
@@ -298,6 +305,11 @@ class ApiBridge:
     def _get_window(self):
         import webview
         return self._window or (webview.windows[0] if webview.windows else None)
+
+    def get_agent_activity(self) -> list:
+        """Return the live agent-activity feed (tool/skill/file/llm/web), newest first."""
+        from backend.agent.telemetry import get_agent_activity
+        return get_agent_activity()
 
     def get_prefs(self):
         from backend.core.prefs import load_prefs
@@ -960,7 +972,7 @@ class ApiBridge:
             user_prompt += f"Web Search Results:\n{_web_ctx}\n\n"
             user_prompt += f"Use ONLY verified information from these sources. DO NOT use information from general knowledge or invented facts.\n"
 
-        return _call_llm_safe(system_prompt, user_prompt, schema)
+        return _call_llm_safe(system_prompt, user_prompt, schema, use_tools=True)
 
     def regenerate_visuals_section(self, project_id: str, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str) -> dict:
         logger.info(f"Bridge API: regenerate_visuals_section index {scene_idx} ({section_type})")
@@ -1006,7 +1018,7 @@ class ApiBridge:
             f"Total Duration to fill: {total_duration} seconds.\n"
             f"Generate the rewritten JSON sub_visuals array now. The sum of sub-visual durations MUST equal {total_duration}. Structure matches: {prompt_struct}."
         )
-        result = _call_llm_safe(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA)
+        result = _call_llm_safe(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, use_tools=True)
         if result.get("success") and "data" in result:
             svs = result["data"].get("sub_visuals", [])
             _norm = sum(_safe_float(v.get("duration", 0)) for v in svs if isinstance(v, dict))
@@ -1070,7 +1082,7 @@ class ApiBridge:
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
-        return _call_llm_safe(system_prompt, user_prompt, SUB_VISUAL_SCHEMA)
+        return _call_llm_safe(system_prompt, user_prompt, SUB_VISUAL_SCHEMA, use_tools=True)
 
     def add_scene_with_ai(self, full_script: dict, user_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: add_scene_with_ai — user_prompt: '{user_prompt[:80]}...'")
@@ -1120,7 +1132,7 @@ class ApiBridge:
         _web_ctx = _get_web_context_for_topic(f"{doc_title} - add scene: {user_prompt[:100]}", "add new scene")
         if _web_ctx:
             user_content += f"\n\n---\nIncorporate relevant facts from this web search into your new scene:\n{_web_ctx}"
-        result = _call_llm_safe(system_prompt, user_content, SCRIPT_SCENE_JSON_SCHEMA)
+        result = _call_llm_safe(system_prompt, user_content, SCRIPT_SCENE_JSON_SCHEMA, use_tools=True)
         if result.get("success") and "data" in result:
             result["data"]["sub_visuals"] = []
         return result
@@ -1470,9 +1482,6 @@ class ApiBridge:
             "extension": ext,
         }
 
-    def generate_chart_data_api(self, prompt: str) -> dict:
-        from backend.pipeline.ai import generate_chart_data
-        return generate_chart_data(prompt)
 
     def save_project_with_cleanup(self, project_id: str, script_data: dict, manifest_data: dict) -> dict:
         from backend.database.db import get_project, update_project
@@ -1768,11 +1777,19 @@ class ApiBridge:
                 return {"success": False, "error": "Manifest not found"}
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
-            if scene_index < 0 or scene_index >= len(manifest):
-                return {"success": False, "error": f"Scene index {scene_index} out of range"}
-            manifest_entry = manifest[scene_index]
-            if not manifest_entry.get("section_type") == "scene":
-                return {"success": False, "error": f"Entry at index {scene_index} is not a scene"}
+            # Manifest layout is [introduction, scene..., conclusion]; scene
+            # indices must be resolved by counting section_type == "scene"
+            # entries rather than indexing the list directly.
+            scene_counter = 0
+            manifest_entry = None
+            for entry in manifest:
+                if entry.get("section_type") == "scene":
+                    if scene_counter == scene_index:
+                        manifest_entry = entry
+                        break
+                    scene_counter += 1
+            if manifest_entry is None:
+                return {"success": False, "error": f"Scene index {scene_index} not found"}
             manifest_entry["duration"] = new_duration_seconds
             logger.info(f"Updated scene {scene_index} duration: -> {new_duration_seconds}s")
             for entry in manifest:
@@ -1833,3 +1850,11 @@ def setup_bridge_callbacks():
         except Exception:
             pass
     global_queue_manager.register_progress_callback(safe_progress_update)
+
+    def safe_agent_activity(entry):
+        try:
+            ui_queue.put(("onAgentActivity", (entry,)))
+        except Exception:
+            pass
+    from backend.agent.telemetry import register_activity_callback
+    register_activity_callback(safe_agent_activity)

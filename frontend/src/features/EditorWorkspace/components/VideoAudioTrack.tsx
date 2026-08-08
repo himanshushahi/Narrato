@@ -17,7 +17,7 @@ export const VideoAudioTrack: React.FC<VideoAudioTrackProps> = React.memo(({
   const getValidVisualType = (type: string) => {
     if (!type) return 'scene';
     const t = String(type).toLowerCase();
-    if (['scene', 'portrait', 'image', 'chart', 'map', 'document', 'youtube', 'parallax', 'network', 'list', 'custom_html', 'timeline', 'thread', 'device_mockup', 'ai_image'].includes(t)) {
+    if (['scene', 'portrait', 'image', 'map', 'document', 'youtube', 'parallax', 'network', 'list', 'custom_html', 'thread', 'device_mockup', 'ai_image'].includes(t)) {
       if (t.includes('youtube') || t.includes('video')) return 'youtube';
       return t;
     }

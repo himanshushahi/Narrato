@@ -42,7 +42,7 @@ def download_file_with_progress(url, dest_path, progress_callback=None, cancel_e
             dest_path.unlink()
         raise e
 
-def generate_edge_tts(text, output_path, voice="hi-IN-SwaraNeural", speed="1.0", pitch="0"):
+def generate_edge_tts(text, output_path, voice="hi-IN-SwaraNeural", speed="1.0", pitch="0", cancel_event=None):
     import edge_tts
     import time
     
@@ -77,13 +77,34 @@ def generate_edge_tts(text, output_path, voice="hi-IN-SwaraNeural", speed="1.0",
 
     max_retries = 3
     for attempt in range(1, max_retries + 1):
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Cancelled")
         try:
             logger.info(f"Generating Edge-TTS (Attempt {attempt}). Voice: {voice}, Rate: {rate_str}")
             async def _async_gen():
                 communicate = edge_tts.Communicate(cleaned_text, voice, rate=rate_str, pitch=pitch_str)
-                await communicate.save(output_path)
-            asyncio.run(_async_gen())
+                if cancel_event is None:
+                    await communicate.save(output_path)
+                    return
+                # Stream manually so cancellation can stop the download mid-flight
+                # instead of waiting for the full response.
+                with open(output_path, "wb") as f:
+                    async for chunk in communicate.stream():
+                        if cancel_event.is_set():
+                            raise InterruptedError("Cancelled")
+                        if chunk["type"] == "audio":
+                            f.write(chunk["data"])
+            try:
+                asyncio.run(_async_gen())
+            except InterruptedError:
+                # Drop the partial audio so downstream duration checks don't
+                # treat a truncated clip as valid.
+                if os.path.exists(output_path):
+                    os.unlink(output_path)
+                raise
             return
+        except InterruptedError:
+            raise
         except Exception as e:
             logger.warning(f"Edge-TTS attempt {attempt} failed: {e}")
             if attempt == max_retries:
@@ -328,23 +349,37 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         
         # Synthesize audio segment
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
             if engine == "xtts":
                 from backend.xtts import generate_xtts_tts
                 future = executor.submit(
                     generate_xtts_tts, sec['text'], str(seg_file),
-                    speaker_wav=voice, language=language, speed=speed
+                    speaker_wav=voice, language=language, speed=speed,
+                    cancel_event=cancel_event,
                 )
             else:
-                future = executor.submit(generate_edge_tts, sec['text'], str(seg_file), voice=voice, speed=str(speed), pitch=pitch)
-                
+                future = executor.submit(
+                    generate_edge_tts, sec['text'], str(seg_file),
+                    voice=voice, speed=str(speed), pitch=pitch,
+                    cancel_event=cancel_event,
+                )
+
             while not future.done():
                 if cancel_event.is_set():
+                    # Do NOT call shutdown(wait=True) here — it would block
+                    # until the running synthesis finishes. Cancel the queued
+                    # future and let the worker thread abort at its next chunk
+                    # boundary (both engines check cancel_event per chunk).
                     executor.shutdown(wait=False, cancel_futures=True)
                     raise InterruptedError("Cancelled")
                 import time
                 time.sleep(0.5)
             future.result()
+        finally:
+            # Safe: after a cancel the worker has already seen the event and is
+            # exiting (chunk-granular), so this wait is short.
+            executor.shutdown(wait=True)
 
         duration = get_audio_duration(str(seg_file))
         temp_files.append(str(seg_file))

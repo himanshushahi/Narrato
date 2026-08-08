@@ -16,6 +16,10 @@ datas = [
     ('frontend/dist-remotion', 'frontend/dist-remotion'),
     ('frontend/dist-render', 'frontend/dist-render'),
     ('frontend/dist-render/node_modules', 'frontend/dist-render/node_modules'),
+    # Agent skills: SKILL.md files are read from disk by the skill loader
+    # (bundled read-only under BUNDLE_DIR in frozen builds). The agent code
+    # itself is collected as Python modules by the Analysis pass.
+    ('backend/skills', 'backend/skills'),
 ]
 
 # Collect Coqui-TTS (XTTS v2) and other internal assets, filtering out unused models to reduce bundle size

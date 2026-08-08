@@ -2,11 +2,11 @@ import { CustomInput } from '../../components/ui/CustomInput';
 import { CustomSelect } from '../../components/ui/CustomSelect';
 import { SubVisualsDurationBar } from './SubVisualsDurationBar';
 import { MapLocationsEditor } from './MapLocationsEditor';
-import { ChartDataEditor } from './ChartDataEditor';
+
 import { NewspaperEditor } from './NewspaperEditor';
 import { NetworkDataEditor } from './NetworkDataEditor';
 import { DeviceMockupEditor, ThreadSimulationEditor } from './NewVisualTypesEditors';
-import { TimelineEditor } from './TimelineEditor';
+
 import { ParallaxEditor } from './ParallaxEditor';
 import { NumberingEditor } from './NumberingEditor';
 import { HtmlDataEditor } from './HtmlDataEditor';
@@ -144,7 +144,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                   <input 
                     autoFocus
                     type="text" 
-                    placeholder={`e.g. Change this to a pie chart...`}
+                    placeholder={`e.g. Change this to a stunning network diagram...`}
                     className="flex-1 bg-black/50 border border-amber-900/50 rounded px-3 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
                     value={aiPromptText}
                     onChange={e => setAiPromptText(e.target.value)}
@@ -249,15 +249,11 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               {sv.visual_type === 'map' && (
                 <MapLocationsEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}
-              {sv.visual_type === 'chart' && (
-                <ChartDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-              )}
+
               {sv.visual_type === 'document' && (
                 <NewspaperEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}
-              {sv.visual_type === 'timeline' && (
-                <TimelineEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
-              )}
+
               {sv.visual_type === 'network' && (
                 <NetworkDataEditor visualMeta={sv.visual_meta || {}} onChange={(newMeta) => handleUpdateMeta(idx, newMeta)} />
               )}

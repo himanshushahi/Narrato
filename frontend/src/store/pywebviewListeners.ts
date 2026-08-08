@@ -10,6 +10,10 @@ export const initializePywebviewListeners = () => {
     return;
   }
 
+  window.onAgentActivity = (entry: any) => {
+    useUIStore.getState().addAgentActivity(entry);
+  };
+
   window.onLogStream = (msg: string) => {
     useUIStore.getState().addLog(msg);
   };
@@ -152,6 +156,14 @@ export const initializePywebviewListeners = () => {
   if (typeof window.pywebview?.api?.get_file_server_port === 'function') {
     window.pywebview.api.get_file_server_port().then((port: number) => {
       (window as any).__file_server_port__ = port;
+    }).catch(console.error);
+  }
+
+  if (typeof window.pywebview?.api?.get_agent_activity === 'function') {
+    window.pywebview.api.get_agent_activity().then((activity: any[]) => {
+      // History is newest-first; append oldest -> newest so the feed renders
+      // in the same order as live events (newest at the top).
+      activity.slice().reverse().forEach((entry) => useUIStore.getState().addAgentActivity(entry));
     }).catch(console.error);
   }
 };

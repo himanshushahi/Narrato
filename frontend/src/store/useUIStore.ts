@@ -15,24 +15,37 @@ interface ConfirmState {
   onCancel: () => void;
 }
 
+export interface AgentActivity {
+  id: string;
+  ts: number;
+  kind: 'tool' | 'skill' | 'file' | 'llm' | 'web';
+  name: string;
+  detail: string;
+  status: 'running' | 'ok' | 'error' | 'skipped';
+}
+
 interface UIStore {
   logs: string[];
   toasts: Toast[];
   confirmState: ConfirmState;
-  
+  agentActivity: AgentActivity[];
+
   clearLogs: () => void;
   addLog: (msg: string) => void;
   addToast: (message: string, type?: Toast['type'], duration?: number) => void;
   removeToast: (id: string) => void;
   showConfirm: (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => void;
   closeConfirm: () => void;
+  addAgentActivity: (entry: AgentActivity) => void;
+  clearAgentActivity: () => void;
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
   logs: [],
   toasts: [],
   confirmState: { isOpen: false, title: '', message: '', onConfirm: () => {}, onCancel: () => {} },
-  
+  agentActivity: [],
+
   clearLogs: () => set({ logs: [] }),
   addLog: (msg: string) => set((state) => {
     const newLogs = [...state.logs, msg];
@@ -41,23 +54,41 @@ export const useUIStore = create<UIStore>((set, get) => ({
     }
     return { logs: newLogs };
   }),
-  
+
   addToast: (message, type = 'info', duration = 3000) => {
     const id = Math.random().toString(36).substring(2, 9);
     set((state) => ({ toasts: [...state.toasts, { id, message, type, duration }] }));
-    
+
     if (duration > 0) {
       setTimeout(() => {
         get().removeToast(id);
       }, duration);
     }
   },
-  
+
   removeToast: (id) => set((state) => ({ toasts: state.toasts.filter(t => t.id !== id) })),
-  
-  showConfirm: (title, message, onConfirm, onCancel = () => {}) => 
+
+  showConfirm: (title, message, onConfirm, onCancel = () => {}) =>
     set({ confirmState: { isOpen: true, title, message, onConfirm, onCancel } }),
-    
-  closeConfirm: () => 
-    set(state => ({ confirmState: { ...state.confirmState, isOpen: false } }))
+
+  closeConfirm: () =>
+    set(state => ({ confirmState: { ...state.confirmState, isOpen: false } })),
+
+  addAgentActivity: (entry) => set((state) => {
+    // Updates for in-flight entries arrive with an existing id — replace in
+    // place instead of duplicating the row (live "running" -> "ok"/"error").
+    const existing = state.agentActivity.find(a => a.id === entry.id);
+    if (existing) {
+      return {
+        agentActivity: state.agentActivity.map(a => (a.id === entry.id ? { ...a, ...entry } : a)),
+      };
+    }
+    const activity = [entry, ...state.agentActivity];
+    if (activity.length > 200) {
+      activity.pop();
+    }
+    return { agentActivity: activity };
+  }),
+
+  clearAgentActivity: () => set({ agentActivity: [] })
 }));

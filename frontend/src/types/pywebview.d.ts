@@ -43,7 +43,6 @@ interface PywebviewApi {
   fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number, visual_type: string, visual_cue: string): Promise<any>;
   preview_asset_download(project_id: string, visual_type: string, visual_cue: string, visual_meta?: any): Promise<{ success: boolean; visual_path?: string; error?: string }>;
   cleanup_preview_assets(project_id: string, preview_paths: string[]): Promise<{ success: boolean; deleted?: string[] }>;
-  generate_chart_data_api(prompt: string): Promise<{ success: boolean; data?: any; title?: string; chart_type?: string; error?: string }>;
   save_project_with_cleanup(project_id: string, script_data: any, manifest_data: any): Promise<any>;
   update_scene_duration(project_id: string, scene_index: number, new_duration_seconds: number): Promise<{ success: boolean; error?: string }>;
   reorder_scenes(project_id: string, new_scene_order: number[]): Promise<{ success: boolean; error?: string }>;
@@ -51,6 +50,7 @@ interface PywebviewApi {
   get_prefs(): Promise<any>;
   save_prefs(prefs: any): Promise<void>;
   test_huggingface_model(api_key: string, model: string, provider: string, prompt: string, aspect_ratio: string): Promise<{ success: boolean; image?: string; error?: string }>;
+  get_agent_activity(): Promise<any[]>;
 }
 
 interface Window {
@@ -60,6 +60,7 @@ interface Window {
   onLogStream?: (msg: string) => void;
   onShowToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
   onProgressUpdate?: (data: any) => void;
+  onAgentActivity?: (entry: any) => void;
   onXttsDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;
   onYtdlpUpdateProgress?: (data: any) => void;

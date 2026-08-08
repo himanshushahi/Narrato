@@ -12,7 +12,7 @@ export interface AssetEntry {
   sectionType: string;
   /** Index within the scene's sub_visuals */
   subIndex: number;
-  /** Visual type: youtube, scene, image, portrait, parallax, chart, etc. */
+  /** Visual type: youtube, scene, image, portrait, parallax, map, etc. */
   visualType: string;
   /** Visual cue / search query text */
   visualCue: string;
@@ -32,7 +32,7 @@ export interface AssetEntry {
   extension?: string;
   /** Timing info for seeking */
   timing?: { start: number; end: number };
-  /** Whether this is a programmatic-only visual type (chart, map, document, network) */
+  /** Whether this is a programmatic-only visual type (map, document, network) */
   isProgrammatic: boolean;
 }
 
@@ -53,7 +53,7 @@ interface DiskScanResult {
 /**
  * Programmatic visual types that have no downloaded asset file.
  */
-const PROGRAMMATIC_TYPES = new Set(['chart', 'map', 'document', 'network', 'timeline', 'thread']);
+const PROGRAMMATIC_TYPES = new Set(['map', 'document', 'network', 'thread']);
 
 /**
  * Hook that provides a flattened, real-time view of all visual assets for a project.

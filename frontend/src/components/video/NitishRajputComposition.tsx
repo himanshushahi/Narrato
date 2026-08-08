@@ -16,7 +16,7 @@ import { DeviceMockup } from './DeviceMockup';
 import { calculateSubVisualTimings } from '../../utils/duration';
 
 interface SubVisual {
-  visual_type: 'scene' | 'portrait' | 'image' | 'chart' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'timeline' | 'thread' | 'device_mockup' | 'ai_image';
+  visual_type: 'scene' | 'portrait' | 'image' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'thread' | 'device_mockup' | 'ai_image';
   visual_cue: string;
   transition_type?: string;
   visual_url?: string;
@@ -110,7 +110,7 @@ export const NitishRajputComposition = ({
     const meta = subVis.visual_meta || {};
     const transform = subVis.transform;
 
-    if (type === 'chart' || type === 'map' || type === 'document' || type === 'network' || type === 'timeline') {
+    if (type === 'map' || type === 'document' || type === 'network') {
       return (
         <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
           {/* ZoomWrapper wraps both background and visualization — they scale together */}
@@ -121,7 +121,7 @@ export const NitishRajputComposition = ({
                 backgroundColor: '#1c1917',
                 backgroundImage: 'radial-gradient(circle, #292524 0%, #0c0a09 100%)'
               }} />
-              <DataVisualizations type={type} meta={meta} durationInFrames={durationFrames} subtitleSettings={subtitleSettings} />
+              <DataVisualizations type={type} meta={meta} durationInFrames={durationFrames} />
             </div>
           </ZoomWrapper>
           {/* Vignette overlay stays OUTSIDE ZoomWrapper so it never scales with camera zoom — same pattern as ParallaxImage */}

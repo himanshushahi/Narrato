@@ -619,7 +619,7 @@ def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, 
                     sub_visual.setdefault("visual_meta", {})["screen_image_url"] = asset_url
                     logger.info(f"Saved fallback Pexels image for device_mockup {seg_idx:03d}_{sub_idx:02d}{ext}")
 
-    # Programmatic types (chart, map, document, network, timeline) don't need downloads
+    # Programmatic types (map, document, network) don't need downloads
 
     return sub_visual
 
@@ -878,7 +878,7 @@ def preview_asset_download(project_id, visual_type, visual_cue, visual_meta=None
         return {"success": False, "error": "Project not found"}
 
     # Programmatic types don't need downloading
-    if visual_type in ("chart", "map", "document", "network", "list", "custom_html", "timeline", "thread"):
+    if visual_type in ("map", "document", "network", "list", "custom_html", "thread"):
         return {"success": True, "path": "", "message": "Non-media visual type previewed successfully."}
 
     api_key = get_setting("pexels_api_key")

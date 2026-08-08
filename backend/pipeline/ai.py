@@ -138,7 +138,7 @@ SUB_VISUAL_SCHEMA = {
         "visual_cue": {"type": "string"},
         "visual_type": {
             "type": "string",
-            "enum": ["chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup", "ai_image"]
+            "enum": ["map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "thread", "device_mockup", "ai_image"]
         },
         "transition": {
             "type": "string",
@@ -189,6 +189,11 @@ VISUALS_ARRAY_SCHEMA = {
     "required": ["sub_visuals"]
 }
 
+# Visual types removed from the app (renderers deleted). Legacy projects can
+# still hold sub-visuals of these types; the pipeline swaps them for neutral
+# scene entries so they render instead of a blank frame.
+REMOVED_VISUAL_TYPES = frozenset({"chart", "timeline"})
+
 DESIGN_SYSTEM_SCHEMA = {
     "type": "object",
     "properties": {
@@ -216,6 +221,49 @@ DESIGN_SYSTEM_SCHEMA = {
     },
     "required": ["theme_name", "color_palette", "typography", "css_guidelines"]
 }
+
+# Sane fallbacks used to repair partial AI design-system responses. OpenAI-
+# compatible endpoints only force "some JSON object" (unlike NVIDIA guided_json
+# which enforces the schema), so models frequently omit optional-looking keys.
+DESIGN_DEFAULTS = {
+    "theme_name": "Custom",
+    "color_palette": {
+        "background": "#0b0b1a",
+        "primary": "#facc15",
+        "secondary": "#38bdf8",
+        "accent": "#f472b6",
+        "text": "#f8fafc",
+    },
+    "typography": {"heading_font": "Oswald", "body_font": "Inter"},
+    "css_guidelines": "Use bold gradients and high contrast. Apply all rules only via CSS inside custom_html/custom_html_ui.",
+}
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _repair_design_data(design_data):
+    """Fill missing/empty/Non-hex fields of a partial design system with defaults.
+
+    Mutates and returns the dict. Values the model DID provide are kept.
+    """
+    for key, default in DESIGN_DEFAULTS.items():
+        if design_data.get(key) in (None, ""):
+            design_data[key] = default
+    palette = design_data.get("color_palette")
+    if isinstance(palette, dict):
+        for key, default in DESIGN_DEFAULTS["color_palette"].items():
+            val = palette.get(key)
+            if val in (None, "") or not _HEX_COLOR_RE.match(str(val)):
+                palette[key] = default
+    fonts = design_data.get("typography")
+    if isinstance(fonts, dict):
+        for key, default in DESIGN_DEFAULTS["typography"].items():
+            if fonts.get(key) in (None, ""):
+                fonts[key] = default
+    if not isinstance(design_data.get("css_guidelines"), str) or not design_data["css_guidelines"].strip():
+        design_data["css_guidelines"] = DESIGN_DEFAULTS["css_guidelines"]
+    return design_data
+
 
 def format_design_system_prompt(design_data: dict) -> str:
     if not design_data:
@@ -273,7 +321,7 @@ DESIGN GUIDELINES:
     progress_cb(12.0, "Generating global Design System...")
     
     try:
-        design_data = _call_llm_json(system_prompt, user_prompt, DESIGN_SYSTEM_SCHEMA, cancel_event)
+        design_data = _call_llm_json(system_prompt, user_prompt, DESIGN_SYSTEM_SCHEMA, cancel_event, activity_label="Design System")
     except Exception as e:
         if isinstance(e, InterruptedError):
             raise e
@@ -281,6 +329,7 @@ DESIGN GUIDELINES:
         return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
     
     if isinstance(design_data, dict) and design_data.get('theme_name'):
+        design_data = _repair_design_data(design_data)
         # Validate that all required schema fields are present
         required_keys = {'color_palette', 'typography', 'css_guidelines'}
         if not required_keys.issubset(design_data.keys()):
@@ -289,7 +338,18 @@ DESIGN GUIDELINES:
         design_data['_language'] = language
         design_data['_video_format'] = video_format
         return design_data, True
-    
+
+    if isinstance(design_data, dict):
+        # Model returned JSON but skipped top-level keys (common on OpenAI-
+        # compatible endpoints that don't enforce the schema). Repair it
+        # instead of discarding the AI's palette/typography work.
+        design_data = _repair_design_data(design_data)
+        if design_data.get('theme_name'):
+            logger.warning("Design system was missing top-level keys — repaired from defaults.")
+            design_data['_language'] = language
+            design_data['_video_format'] = video_format
+            return design_data, True
+
     logger.warning("Failed to generate design system, returning default.")
     return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
 
@@ -506,20 +566,29 @@ def clean_json_response(raw_response):
 
 
 
-# Simple FIFO cache for deterministic LLM responses (128 entries).
-# Key: (provider, model, temp, max_tokens, top_p, sys_hash, user_hash)
-_llm_cache = {}
-_llm_cache_lock = threading.Lock()
-_LLM_CACHE_MAX = 128
+from backend.agent.cache import build_cache_key, get_cached_response, set_cached_response
 
-def _cache_key(system_prompt, user_prompt, cfg):
-    """Build a deterministic cache key from prompt + full config."""
+def _cache_key(system_prompt, user_prompt, cfg, schema_flag="S"):
+    """Build a deterministic cache key from prompt + full config.
+
+    schema_flag keeps strict-JSON calls ("S") and loose tool-loop calls ("L")
+    in separate cache namespaces so a raw text response can never be served
+    where a parsed dict is expected (and vice versa).
+
+    The API key hash pins responses to the provider key that produced them —
+    switching keys must not serve stale responses from another account.
+    """
     sys_h = hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:16]
     user_h = hashlib.sha256(user_prompt.encode("utf-8")).hexdigest()[:16]
-    return (cfg["provider"], cfg["model"], cfg["temperature"], cfg["max_tokens"], cfg["top_p"], sys_h, user_h)
+    api_h = hashlib.sha256(str(cfg.get("api_key", "")).encode("utf-8")).hexdigest()[:8]
+    return build_cache_key(
+        cfg["provider"], cfg["model"], cfg["temperature"], 
+        cfg["max_tokens"], cfg["top_p"], sys_h, user_h,
+        schema_flag=schema_flag,
+    ) + f":k{api_h}"
 
 
-def _resolve_llm_config():
+def _resolve_llm_config(provider_override=None):
     """Resolve LLM provider config from DB settings.
 
     Returns a dict with: provider, api_key, base_url, model, temperature, max_tokens, top_p
@@ -527,7 +596,7 @@ def _resolve_llm_config():
     """
     from backend.database.db import get_setting
 
-    llm_provider = get_setting("llm_provider") or "openai"
+    llm_provider = provider_override or (get_setting("llm_provider") or "openai")
 
     if llm_provider == "nvidia":
         api_key = get_setting("nvidia_api_key")
@@ -558,14 +627,66 @@ def _resolve_llm_config():
     }
 
 
-def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
+# --- Token usage telemetry -------------------------------------------------
+# The queue manager processes one task at a time, so a single global slot is
+# safe. `_call_llm_json` may run from worker threads (parallel visuals), so all
+# access is guarded by a lock.
+_usage_lock = threading.Lock()
+_active_usage = {"task_id": None, "prompt_tokens": 0, "completion_tokens": 0}
+
+
+def _record_usage(prompt_tokens, completion_tokens):
+    """Accumulate token usage against the active pipeline task, if any."""
+    if not prompt_tokens and not completion_tokens:
+        return
+    with _usage_lock:
+        if _active_usage["task_id"]:
+            _active_usage["prompt_tokens"] += prompt_tokens or 0
+            _active_usage["completion_tokens"] += completion_tokens or 0
+
+
+def usage_tracking_context(task_id):
+    """Context manager: attribute LLM token usage during a pipeline step to a task.
+
+    The totals are flushed to the tasks table on exit (even on failure).
+    """
+    import contextlib
+
+    @contextlib.contextmanager
+    def _ctx():
+        with _usage_lock:
+            _active_usage["task_id"] = task_id
+            _active_usage["prompt_tokens"] = 0
+            _active_usage["completion_tokens"] = 0
+        try:
+            yield
+        finally:
+            with _usage_lock:
+                tid = _active_usage["task_id"]
+                p = _active_usage["prompt_tokens"]
+                c = _active_usage["completion_tokens"]
+                _active_usage["task_id"] = None
+            if tid:
+                try:
+                    from backend.database.db import update_task
+                    update_task(tid, prompt_tokens=p, completion_tokens=c)
+                except Exception as e:
+                    logger.error(f"Failed to record token usage for task {tid}: {e}")
+
+    return _ctx()
+
+
+def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_override=None, is_fallback=False, return_raw=False, activity_label=None):
     from backend.database.db import get_setting
     from openai import OpenAI
     import openai
 
-    global _llm_cache
+    if cancel_event is None:
+        # Callers that opt out of cancellation get a never-set event so the
+        # unguarded is_set() checks below never crash on None.
+        cancel_event = threading.Event()
 
-    cfg = _resolve_llm_config()
+    cfg = _resolve_llm_config(provider_override)
     llm_provider = cfg["provider"]
     api_key = cfg["api_key"]
     base_url = cfg["base_url"]
@@ -573,6 +694,13 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
     temperature = cfg["temperature"]
     max_tokens = cfg["max_tokens"]
     top_p = cfg["top_p"]
+
+    from backend.agent.telemetry import emit_activity, update_activity
+    act_label = activity_label or f"LLM ({model})"
+    llm_entry_id = emit_activity("llm", act_label, f"{llm_provider} / {model}", "running")
+
+    def _emit_llm(status, detail=""):
+        update_activity(llm_entry_id, status, detail or f"{llm_provider} / {model}")
 
     logger.info(f"LLM Call: Provider={llm_provider}, Model={model}, BaseURL={base_url}")
 
@@ -586,16 +714,21 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
         logger.info(f"Reasoning model detected ('{model}'). Boosting max_tokens {max_tokens} -> 16384 to allow room for reasoning + content.")
         max_tokens = 16384
 
-    # Check response cache for deterministic prompts (same params + same prompt)
-    ck = _cache_key(system_prompt, user_prompt, cfg)
-    with _llm_cache_lock:
-        if ck in _llm_cache:
-            # Cancel check must happen before cache return — if the pipeline
-            # was cancelled while the previous scene was processing, honour it.
-            if cancel_event.is_set():
-                raise InterruptedError("Cancelled")
-            logger.info(f"LLM cache HIT for {llm_provider}/{model}")
-            return _llm_cache[ck]
+    # Check response cache for deterministic prompts (same params + same prompt).
+    # Loose tool-loop calls are cached under schema_flag="L" so a raw text
+    # response can never be served to schema-expecting callers. Their prompts
+    # only differ across turns (tool results are appended), which changes the
+    # cache key — so caching the first-turn raw text is safe and makes
+    # re-runs of identical pipeline prompts skip the API entirely.
+    cache_k = _cache_key(system_prompt, user_prompt, cfg, schema_flag="S" if schema is not None else "L")
+    cached_val = get_cached_response(cache_k)
+    if cached_val is not None:
+        if cancel_event.is_set():
+            _emit_llm("error", "cancelled")
+            raise InterruptedError("Cancelled")
+        logger.info("LLM Cache hit (Disk cache)")
+        _emit_llm("ok", "cache hit")
+        return cached_val
 
     client = OpenAI(
         api_key=api_key,
@@ -615,12 +748,14 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
         "stream": True
     }
 
-    if llm_provider == "nvidia":
-        kwargs["extra_body"] = {"guided_json": schema}
-    else:
-        kwargs["response_format"] = {"type": "json_object"}
+    if schema is not None:
+        if llm_provider == "nvidia":
+            kwargs["extra_body"] = {"guided_json": schema}
+        else:
+            kwargs["response_format"] = {"type": "json_object"}
 
     if cancel_event.is_set():
+        _emit_llm("error", "cancelled")
         raise InterruptedError("Cancelled")
 
 
@@ -634,6 +769,7 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
             response_stream = client.chat.completions.create(**kwargs)
 
             raw_content = ""
+            usage = None
             for chunk in response_stream:
                 if cancel_event.is_set():
                     response_stream.close()
@@ -642,6 +778,8 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                     delta_content = chunk.choices[0].delta.content
                     if delta_content:
                         raw_content += delta_content
+                if getattr(chunk, "usage", None) is not None:
+                    usage = chunk.usage
 
             # Fallback: if streaming yielded empty content, retry with non-streaming.
             # Some models (e.g. DeepSeek) consume all tokens on reasoning in
@@ -680,24 +818,38 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                             retry_response = client.chat.completions.create(**retry_kwargs)
                             if retry_response.choices:
                                 raw_content = retry_response.choices[0].message.content or ""
+                                usage = retry_response.usage
                                 logger.info(f"Reasoning-boost retry result: content_len={len(raw_content)}, "
                                             f"usage={retry_response.usage}")
 
             if not raw_content.strip():
                 raise ValueError("API returned an empty response. It may have failed internally.")
 
+            # Record token usage against the active pipeline task (if any)
+            if usage is not None:
+                _record_usage(
+                    getattr(usage, "prompt_tokens", 0) or 0,
+                    getattr(usage, "completion_tokens", 0) or 0,
+                )
+
+            if return_raw:
+                # Loose mode for the agent tool loop: hand the model's raw text
+                # back so ```tool {...}``` blocks can be extracted and executed.
+                if cancel_event.is_set():
+                    raise InterruptedError("Cancelled")
+                set_cached_response(cache_k, raw_content)
+                _emit_llm("ok", "tool-loop turn")
+                return raw_content
+
             parsed_json = clean_json_response(raw_content)
 
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
 
-            # Cache the response (FIFO eviction when full)
-            with _llm_cache_lock:
-                if len(_llm_cache) >= _LLM_CACHE_MAX:
-                    # Remove oldest inserted entry
-                    _llm_cache.pop(next(iter(_llm_cache)))
-                _llm_cache[ck] = parsed_json
+            # Cache the response
+            set_cached_response(cache_k, parsed_json)
 
+            _emit_llm("ok")
             return parsed_json
 
         except openai.RateLimitError as e:
@@ -706,6 +858,7 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                 logger.warning(f"Rate limited (429). Retrying in {sleep_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(sleep_time)
             else:
+                _emit_llm("error", "rate limited (429)")
                 raise e
         except openai.BadRequestError as e:
             if attempt < max_retries - 1 and "response_format" in kwargs:
@@ -718,15 +871,41 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event):
                 except Exception:
                     pass
                 if attempt >= max_retries - 1:
+                    _emit_llm("error", f"bad request: {e}")
                     raise e
                 time.sleep(2.0)
         except InterruptedError:
+            _emit_llm("error", "cancelled")
             raise
         except Exception as e:
             if attempt < max_retries - 1:
                 logger.warning(f"LLM request or parsing failed ({type(e).__name__}: {e}). Retrying... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(2.0)
             else:
+                if not is_fallback:
+                    fallback_provider = get_setting("llm_fallback_provider")
+                    if fallback_provider and fallback_provider.lower() != llm_provider.lower():
+                        logger.error(f"Max retries exceeded on {llm_provider}. Attempting fallback to {fallback_provider}...")
+                        try:
+                            if cancel_event.is_set():
+                                raise InterruptedError("Cancelled")
+                            # Recursive call resolves the fallback provider's own
+                            # config from DB settings. is_fallback=True prevents
+                            # infinite recursion if the fallback also fails.
+                            fallback_result = _call_llm_json(
+                                system_prompt, user_prompt, schema, cancel_event,
+                                provider_override=fallback_provider, is_fallback=True,
+                                return_raw=return_raw,
+                                activity_label=activity_label,
+                            )
+                            _emit_llm("ok", f"handled by fallback ({fallback_provider})")
+                            return fallback_result
+                        except InterruptedError:
+                            raise
+                        except Exception as fallback_e:
+                            logger.error(f"Fallback to {fallback_provider} failed: {fallback_e}")
+
+                _emit_llm("error", f"{type(e).__name__}: {e}")
                 logger.error(f"Max retries exceeded. Last error: {type(e).__name__}: {e}")
                 raise e
 
@@ -805,7 +984,13 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     per_scene_time = max(5, (target_duration - 15) // max_scenes)
     per_scene_words = max(10, int(per_scene_time * speaking_rate))
 
-    outline_system_prompt = f"""You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
+    scriptwriter_rules = _skill_content("scriptwriter")
+    script_rules_block = f"""=== WRITING RULES ===
+{scriptwriter_rules}
+
+""" if scriptwriter_rules else ""
+
+    outline_system_prompt = f"""{script_rules_block}You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
 
 CRITICAL RULES:
 - Return ONLY valid JSON matching the provided schema
@@ -850,7 +1035,7 @@ NO generic phrases, no clickbait, no assumptions or unverified claims. Be precis
     if _web_ctx:
         outline_user_prompt += f"\n\nRelevant web context to inform your outline:\n{_web_ctx}"
 
-    outline_data = _call_llm_json(outline_system_prompt, outline_user_prompt, OUTLINE_JSON_SCHEMA, cancel_event)
+    outline_data = _call_llm_json(outline_system_prompt, outline_user_prompt, OUTLINE_JSON_SCHEMA, cancel_event, activity_label="Script Outline")
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
@@ -858,7 +1043,7 @@ NO generic phrases, no clickbait, no assumptions or unverified claims. Be precis
     # 2. Generate Base (Intro & Conclusion)
     progress_cb(20.0, "Writing introduction & conclusion...")
     logger.info("Stage 2: Generating Intro & Conclusion...")
-    base_system_prompt = f"""You are a master YouTube Video Scriptwriter specializing in crafting compelling video intros and conclusions.
+    base_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in crafting compelling video intros and conclusions.
 
 CRITICAL INTRO REQUIREMENTS:
 - Hook MUST grab immediate attention within 5-8 seconds
@@ -958,7 +1143,7 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
     if _web_ctx:
         base_user_prompt += f"\n\nWeb search reference (translate into {language}):\n{_web_ctx}"
 
-    base_data = _call_llm_json(base_system_prompt, base_user_prompt, BASE_SCRIPT_JSON_SCHEMA, cancel_event)
+    base_data = _call_llm_json(base_system_prompt, base_user_prompt, BASE_SCRIPT_JSON_SCHEMA, cancel_event, activity_label="Base Script")
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
@@ -986,13 +1171,19 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
             prev_chap = chapters[idx - 1]
             prev_context = f"Previous Scene ({prev_chap.get('scene_number')}): {prev_chap.get('chapter_title')} - {prev_chap.get('scene_context')}"
 
-        scene_system_prompt = f"""You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
+        scene_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
 
 SCENE-SPECIFIC RULES:
 - This is Scene {scene_num}: {chapter_title}
 - Must match the exact duration constraint: {per_scene_duration} seconds of spoken audio (roughly {per_scene_word_target} words)
 - Return ONLY valid JSON matching the provided schema
 - NO markdown backticks or explanatory text
+
+AGENT TOOL USE:
+- The tools web_search, get_skill, read_project_file, list_project_files and project_status_report are enabled for this scene.
+- Use web_search BEFORE writing if this scene needs up-to-date or specific facts (stats, dates, names) not already given in the prompt.
+- Use get_skill('scriptwriter') if you need a reminder of the writing rules.
+- To use a tool, emit EXACTLY ONE tool block, receive the result in the next message, then output ONLY the final JSON.
 
 SPEAKING VISUALIZATION:
 Think about how this narration will sound when spoken:
@@ -1110,17 +1301,31 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
         if _web_ctx:
             scene_user_prompt += f"\n\nIncorporate relevant facts from this web search into your narration:\n{_web_ctx}"
 
-        return _call_llm_json(scene_system_prompt, scene_user_prompt, SINGLE_SCENE_JSON_SCHEMA, cancel_event)
+        return runner.run_with_tools(
+            scene_system_prompt, scene_user_prompt, SINGLE_SCENE_JSON_SCHEMA,
+            base_activity_label="Scene Narration",
+            allowed_tools=SCRIPT_NARRATION_TOOLS,
+            max_turns=PIPELINE_SCRIPT_TURNS,
+        )
 
-    # Use max_workers=1 to process sequentially and avoid strict concurrent request limits
-    # (NVIDIA NIM, Groq, and other APIs often limit concurrent requests to 1 on free/standard tiers)
-    max_workers = 1
+    # Use configurable llm_concurrency from settings for parallelism
+    from backend.database.db import get_setting
+    from backend.agent.agent_engine import AgentRunner, SCRIPT_NARRATION_TOOLS, PIPELINE_SCRIPT_TURNS
+    # No progress_cb for workers: the AgentRunner default (50%) would fight the
+    # real per-scene progress bar. Cancel checks still propagate.
+    runner = AgentRunner(cancel_event=cancel_event)
+    try:
+        max_workers = int(get_setting("llm_concurrency") or 1)
+    except ValueError:
+        max_workers = 1
+    
+    logger.info(f"Generating {total_chapters} scenes with max_workers={max_workers}")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+    results = [None] * total_chapters
+    completed = 0
+    try:
         future_to_idx = {executor.submit(generate_single_scene, i, chapter): i for i, chapter in enumerate(chapters)}
-
-        results = [None] * total_chapters
-        completed = 0
 
         for future in concurrent.futures.as_completed(future_to_idx):
             if cancel_event.is_set():
@@ -1138,6 +1343,13 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
             completed += 1
             current_progress = 30.0 + (completed / total_chapters) * 60.0
             progress_cb(current_progress, f"Drafting scene narratives... {completed}/{total_chapters}")
+    except InterruptedError:
+        # Don't wait for queued-but-not-started scenes to finish their LLM
+        # calls — drop them so cancellation is fast.
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        executor.shutdown(wait=True)
 
     scenes_array = [r for r in results if r is not None]
     progress_cb(90.0, "Assembling final script...")
@@ -1250,119 +1462,24 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
     logger.info(f"Script generated successfully and saved to: {script_path}")
 
 
-def generate_chart_data(prompt):
-    """Generates JSON chart data using the configured LLM based on user prompt."""
-    logger.info(f"Generating chart data for prompt: '{prompt}'")
-
-    try:
-        cfg = _resolve_llm_config()
-    except ValueError as e:
-        return {"success": False, "error": str(e)}
-    llm_provider = cfg["provider"]
-    api_key = cfg["api_key"]
-    base_url = cfg["base_url"]
-    model = cfg["model"]
-
-    system_prompt = """You are an expert data analyst and researcher.
-Your task is to generate realistic, accurate, or highly plausible chart data based on the user's prompt.
-You must return your output strictly as a JSON object containing a "data" array. No markdown backticks, no explanations.
-
-CRITICAL JSON SCHEMA:
-{
-  "chart_type": "bar", "line", or "pie",
-  "title": "A short, punchy title for this chart (max 5 words)",
-  "data": [
-    { "label": "Short Label 1", "value": 100 },
-    { "label": "Short Label 2", "value": 250 }
-  ]
-}
-
-RULES:
-1. Provide between 4 and 15 data points.
-2. "label" must be short (e.g. Years, Names, Categories).
-3. "value" MUST be a number (integer or float). Do NOT use strings for values. Do NOT add commas or symbols like $ or %.
-4. Return ONLY valid JSON.
-"""
-
-    user_prompt = f"Generate chart data for this topic: '{prompt}'"
-
-    from openai import OpenAI
-    import openai
-
-    client = OpenAI(
-        api_key=api_key,
-        base_url=base_url.rstrip('/') if base_url else None
-    )
-
-    try:
-        kwargs = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.7
-        }
-
-        if llm_provider == "nvidia":
-            schema = {
-                "type": "object",
-                "properties": {
-                    "chart_type": {"type": "string"},
-                    "title": {"type": "string"},
-                    "data": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {"type": "string"},
-                                "value": {"type": "number"}
-                            },
-                            "required": ["label", "value"]
-                        }
-                    }
-                },
-                "required": ["chart_type", "title", "data"]
-            }
-            kwargs["extra_body"] = {"guided_json": schema}
-        else:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        logger.info(f"Sending LLM chart request via OpenAI SDK with model {model}...")
-        response = client.chat.completions.create(**kwargs)
-        raw_content = response.choices[0].message.content
-
-        parsed_json = clean_json_response(raw_content)
-
-        # Ensure array exists
-        if "data" not in parsed_json or not isinstance(parsed_json["data"], list):
-            raise ValueError("LLM did not return a 'data' array.")
-
-        return {
-            "success": True,
-            "data": parsed_json["data"],
-            "title": parsed_json.get("title", prompt.upper()[:30]),
-            "chart_type": parsed_json.get("chart_type", "bar")
-        }
-    except Exception as e:
-        logger.error(f"Failed to generate AI chart data: {e}")
-        return {"success": False, "error": str(e)}
 
 
-def get_shared_visual_rules(video_format: str, language: str = "hi") -> str:
-    """Centralized visual generation rules shared by ai.py and bridge.py.
 
-    This is the SINGLE SOURCE OF TRUTH for all visual type definitions,
-    meta schemas, overlay rules, and creative guidelines. Both the initial
-    pipeline generation (ai.py) and the interactive rewrite/regenerate
-    endpoints (bridge.py) import this function.
-    """
+def _skill_content(name: str) -> str:
+    """Loads a skill's markdown body from the skill registry, or '' if missing."""
+    from backend.agent.skill_loader import skill_loader
+    skill = skill_loader.get_skill(name)
+    return skill.content if skill else ""
+
+
+def _visual_rules_legacy_fallback(video_format: str, language: str) -> str:
+    """Hardcoded copy of the visual rules, used ONLY if the skill registry is unavailable."""
     return f"""
 === MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
 Be extremely creative! Build a visually engaging video:
 - If explaining a concept, build a 'custom_html' animation or a 'network' diagram.
 - If making a claim, use a 'document' to flash dramatic evidence on screen.
-- If showing data, use a dynamic 'chart'.
+- If showing data, use a dynamic 'list' or 'network'.
 - Use 'visual_meta' to write evocative copy, inject dramatic headlines, and compose visually stunning overlays.
 
 === QUANTITY & TIMING ===
@@ -1372,14 +1489,14 @@ Be extremely creative! Build a visually engaging video:
 - Vary transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
 
 === VALID VISUAL TYPES (USE ONLY THESE) ===
-chart | map | document | portrait | scene | image | youtube | parallax | network | list | custom_html | timeline | thread | device_mockup | ai_image
+map | document | portrait | scene | image | youtube | parallax | network | list | custom_html | thread | device_mockup | ai_image
 
 === TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL ===
 - list: Ranked items, countdowns, top-N lists, step-by-step. E.g. "Top 5", "How to".
-- chart: Statistics, percentages, comparisons, data trends. E.g. "X% increase".
+
 - map: Geography, routes, locations, territories, borders.
 - document: Factual claims, news events, classified archives, archival evidence. (See DOCUMENT RULES below.)
-- timeline: Sequence of events, chronological milestones, histories.
+
 - network: Connections between people, organizations, relationships.
 - portrait: Specific people or entities. visual_cue = person's EXACT FULL NAME only (used as Wikipedia search query). Do NOT add descriptive words — just the name. E.g. "Harshad Mehta", not "Harshad Mehta stockbroker".
 - parallax: Dramatic visual reveals with layered 3D depth.
@@ -1407,7 +1524,7 @@ These are TWO COMPLETELY DIFFERENT THINGS. DO NOT confuse them:
    - ONLY allowed on these types: scene, image, portrait, parallax, youtube, ai_image.
 
 NEVER set visual_type = "custom_html" when you actually want an overlay on a background.
-NEVER add custom_html_ui to data types (chart, map, document, list, network, timeline, thread, device_mockup, custom_html).
+NEVER add custom_html_ui to data types (map, document, list, network, thread, device_mockup, custom_html).
 
 === DOCUMENT RULES (ARCHIVAL / EVIDENCE VISUALS) ===
 - ALWAYS set "show_image": false in document visual_meta.
@@ -1419,10 +1536,8 @@ NEVER add custom_html_ui to data types (chart, map, document, list, network, tim
 - scene/image/parallax/ai_image: {{}} (empty object). visual_cue = 1-3 stock photo keywords.
 - portrait: {{"person_name": str}}. visual_cue = person's EXACT full name only.
 - youtube: {{"start_offset": 15, "duration": 15, "skip_intro": true}}
-- chart: {{"chart_type": "bar"|"line"|"pie", "title": str, "data": [{{"label": str, "value": number}}]}}
 - map: {{"map_style": "vintage", "locations": [{{"name": str, "coord": [lat, lon]}}]}} (2 locations)
 - document: {{"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": false}} (NEVER set show_image to true — user adds images manually)
-- timeline: {{"title": str, "events": [{{"date": str, "title": str, "description": str}}]}}
 - network: {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
 - list: {{"number": int, "title": str, "description": str}}
 - thread: {{"platform": "whatsapp"|"imessage"|"twitter"|"discord", "messages": [{{"sender": str, "text": str, "is_self": bool}}], "title": str}}
@@ -1432,7 +1547,7 @@ NEVER add custom_html_ui to data types (chart, map, document, list, network, tim
 === OVERLAY RULES ===
 - custom_html_ui: Add {{"custom_html_ui": {{"html": str, "css": str}}}} inside visual_meta for custom overlays.
 - ONLY FOR: scene, image, parallax, portrait, youtube, ai_image.
-- NEVER FOR: custom_html, chart, list, map, document, network, timeline, thread, device_mockup. For these types, bake all text directly into their specific visual_meta fields.
+- NEVER FOR: custom_html, list, map, document, network, thread, device_mockup. For these types, bake all text directly into their specific visual_meta fields.
 - custom_html_ui content text: Match the target language ({language}).
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
@@ -1441,7 +1556,7 @@ When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] toda
 - Text reveal animations timed to when specific words are spoken
 - Data visualization build-up animations synced to narration beats
 - Element entry/exit timings matching spoken content transitions
-Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP chart element.
+Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP text element.
 When sub-visual duration breakdowns are provided, use the start offset and duration of each sub-visual to ensure animations fit within the allocated time window.
 
 === ANTI-HALLUCINATION ===
@@ -1453,8 +1568,67 @@ When sub-visual duration breakdowns are provided, use the start offset and durat
 """
 
 
+def _visual_rules_safety_net(video_format: str, language: str) -> str:
+    """Shared rules not owned by any single visual-type skill."""
+    return f"""
+=== SHARED RULES (apply to every visual) ===
+- visual_cue MUST ALWAYS be in English. Use 1-3 broad stock keywords for media types, the EXACT full name for portrait, or a short descriptive prompt for ai_image.
+- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which must match the target language ({language}).
+- custom_html / custom_html_ui: design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths, not fixed px.
+
+=== ANIMATION TIMING WITH WORD TIMESTAMPS ===
+When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
+- CSS animation-delay values in custom_html and custom_html_ui visuals
+- Text reveal animations timed to when specific words are spoken
+- Data visualization build-up animations synced to narration beats
+- Element entry/exit timings matching spoken content transitions
+Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP text element.
+When sub-visual duration breakdowns are provided, use the start offset and duration of each sub-visual to ensure animations fit within the allocated time window.
+
+=== ANTI-HALLUCINATION ===
+- DO NOT invent visual_meta fields not listed in the schemas above.
+- DO NOT add fields like "background_color", "font_size", "animation", etc. to visual_meta unless they are part of the schema.
+- The ONLY optional addition to visual_meta is "custom_html_ui" (and ONLY for allowed types).
+- visual_cue MUST ALWAYS be in English.
+- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which should match the target language ({language}).
+"""
+
+
+def get_shared_visual_rules(video_format: str, language: str = "hi") -> str:
+    """Centralized visual generation rules shared by ai.py and bridge.py.
+
+    Built from the skill registry — visual-director-core plus every
+    visual-type-* skill — which is the SINGLE SOURCE OF TRUTH. Falls back to a
+    hardcoded copy only if the skill registry is missing or broken, so the
+    prompts never go empty.
+    """
+    from backend.agent.skill_loader import skill_loader
+
+    core = skill_loader.get_skill("visual-director-core")
+    type_skills = sorted(
+        name for name in skill_loader.get_all_skills()
+        if name.startswith("visual-type-")
+    )
+    type_parts = []
+    for name in type_skills:
+        skill = skill_loader.get_skill(name)
+        if skill:
+            type_parts.append(skill.content)
+
+    if core is not None and len(type_parts) >= 10:
+        parts = [core.content] + type_parts
+        return "\n\n".join(parts) + "\n\n" + _visual_rules_safety_net(video_format, language)
+
+    logger.warning(
+        f"Skill registry incomplete (core={core is not None}, "
+        f"type_skills={len(type_parts)}/{len(type_skills)}). "
+        "Falling back to hardcoded visual rules."
+    )
+    return _visual_rules_legacy_fallback(video_format, language)
+
+
 def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event):
-    from backend.database.db import get_setting, update_project
+    from backend.database.db import get_setting, update_project, get_project
     from backend.core.logger import logger
 
     script_path = project_dir / "script.json"
@@ -1489,8 +1663,13 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
         current_design_hash = hashlib.md5(json.dumps(design_system, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     visual_rules = get_shared_visual_rules(video_format, language)
+    editor_qa_rules = _skill_content("editor-qa")
+    editor_qa_block = f"""=== EDITOR QA GUARDRAILS ===
+{editor_qa_rules}
 
-    visuals_system_prompt = f"""You are an expert AI Visual Director for YouTube videos.
+""" if editor_qa_rules else ""
+
+    visuals_system_prompt = f"""{editor_qa_block}You are an expert AI Visual Director for YouTube videos.
 
 CORE MISSION:
 Transform narration into compelling visual sequences that enhance the message.
@@ -1525,6 +1704,7 @@ FINAL CHECK before submitting:
     total_scenes = len(manifest)
     completed = 0
     _last_progress_ts = 0.0
+    _progress_lock = threading.Lock()
 
     # Load transcription for precise word-level timings
     transcription_data = None
@@ -1541,12 +1721,33 @@ FINAL CHECK before submitting:
         """Throttle progress updates to max every 500ms to avoid UI flooding."""
         nonlocal _last_progress_ts
         now = time.time()
-        if now - _last_progress_ts >= 0.5 or pct >= 99.9:
-            _last_progress_ts = now
-            progress_cb(pct, msg)
+        with _progress_lock:
+            if now - _last_progress_ts >= 0.5 or pct >= 99.9:
+                _last_progress_ts = now
+                progress_cb(pct, msg)
 
-    # Process each scene sequentially (cumulative_time dependency)
-    for i, entry in enumerate(manifest):
+    # Pre-calculate cumulative times for parallel processing
+    scene_start_times = []
+    curr_time = 0.0
+    for entry in manifest:
+        scene_start_times.append(curr_time)
+        curr_time += entry.get("duration", 15.0)
+
+    # Use configurable llm_concurrency from settings for parallelism
+    from backend.database.db import get_setting
+    try:
+        max_workers = int(get_setting("llm_concurrency") or 1)
+    except ValueError:
+        max_workers = 1
+
+    logger.info(f"Generating visuals for {total_scenes} scenes with max_workers={max_workers}")
+    
+    def process_scene(i, entry):
+        nonlocal completed
+        if cancel_event.is_set():
+            raise InterruptedError("Cancelled")
+
+        cumulative_time = scene_start_times[i]
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
 
@@ -1567,10 +1768,21 @@ FINAL CHECK before submitting:
             if words_in_scene:
                 word_timings = "\nExact Spoken Words with Timestamps (Seconds from Scene Start):\n" + " ".join(words_in_scene) + "\n"
 
-        cumulative_time += duration
+        # We already pre-calculated cumulative_time
+        # cumulative_time += duration
 
         # --- Smart Preservation Logic ---
         existing_sub_visuals = entry.get("sub_visuals", [])
+
+        # Migrate legacy sub-visuals whose visual types were removed from the
+        # app (chart/timeline): swap them for a neutral scene entry that keeps
+        # the duration slot and renders normally.
+        existing_sub_visuals = [
+            {"visual_type": "scene", "visual_cue": v.get("visual_cue") or scene_title,
+             "transition": "fade", "visual_meta": {}, "duration": v.get("duration", 0)}
+            if v.get("visual_type") in REMOVED_VISUAL_TYPES else v
+            for v in existing_sub_visuals
+        ]
 
         # Compute narration hash for change-detection: when narration changes,
         # we must regenerate even if sub-visuals exist from a previous run.
@@ -1603,10 +1815,11 @@ FINAL CHECK before submitting:
             entry["sub_visuals"] = existing_sub_visuals
             entry["_narr_hash"] = narration_hash
             entry["_design_hash"] = current_design_hash
-            completed += 1
+            with _progress_lock:
+                completed += 1
             base_prog = 15.0 if is_new_design else 10.0
             _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Preserved visual cues... {completed}/{total_scenes}")
-            continue
+            return entry
         # --- End Smart Preservation Logic ---
 
         user_prompt = f"""Topic: "{topic}"
@@ -1619,40 +1832,69 @@ Narration:
 Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST exactly equal {duration} seconds."""
 
         try:
-            visuals_data = _call_llm_json(visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, cancel_event)
-
-            valid_types = {"chart", "map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "timeline", "thread", "device_mockup", "ai_image"}
-            for sv in visuals_data.get("sub_visuals", []):
-                v_type = str(sv.get("visual_type", "")).lower()
-                if v_type not in valid_types:
-                    if "parallax" in v_type: sv["visual_type"] = "parallax"
-                    elif "portrait" in v_type: sv["visual_type"] = "portrait"
-                    elif "chart" in v_type: sv["visual_type"] = "chart"
-                    elif "map" in v_type: sv["visual_type"] = "map"
-                    elif "network" in v_type: sv["visual_type"] = "network"
-                    elif "document" in v_type: sv["visual_type"] = "document"
-                    elif "youtube" in v_type or "video" in v_type: sv["visual_type"] = "youtube"
-                    elif "list" in v_type: sv["visual_type"] = "list"
-                    elif "html" in v_type: sv["visual_type"] = "custom_html"
-                    elif "ai_image" in v_type or "ai image" in v_type or "ai-image" in v_type: sv["visual_type"] = "ai_image"
-                    elif "image" in v_type: sv["visual_type"] = "image"
-                    elif "timeline" in v_type: sv["visual_type"] = "timeline"
-                    elif "thread" in v_type or "chat" in v_type: sv["visual_type"] = "thread"
-                    elif "mockup" in v_type or "device" in v_type: sv["visual_type"] = "device_mockup"
-                    else: sv["visual_type"] = "scene"
+            # Generation + duration-math validation + enum correction via the
+            # agent runner (replaces the old inline fuzzy-type mapping).
+            # Pipeline runs get a read-only tool allowlist (no project
+            # mutations mid-run) and a larger turn budget.
+            visuals_data = runner.validate_and_correct_visuals(
+                visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, float(duration),
+                allowed_tools=PIPELINE_VISUAL_TOOLS, max_turns=PIPELINE_VISUAL_TURNS,
+            )
+            if not isinstance(visuals_data, dict) or "sub_visuals" not in visuals_data:
+                raise ValueError(f"Unexpected visuals payload type: {type(visuals_data).__name__}")
 
             entry["sub_visuals"] = visuals_data.get("sub_visuals", [])
             entry["_narr_hash"] = narration_hash
             entry["_design_hash"] = current_design_hash
+        except InterruptedError:
+            # Cancellation must abort the worker immediately instead of burning
+            # the last LLM call and substituting a default visual.
+            raise
         except Exception as e:
             logger.error(f"Failed to generate visuals for scene {i}: {e}")
             entry["sub_visuals"] = [{"visual_type": "scene", "visual_cue": scene_title, "transition": "fade", "visual_meta": {}, "duration": duration}]
             entry["_narr_hash"] = narration_hash
             entry["_design_hash"] = current_design_hash
 
-        completed += 1
+        with _progress_lock:
+            completed += 1
         base_prog = 15.0 if is_new_design else 10.0
-        _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Generating visual cues... {completed}/{total_scenes}")
+        _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Generated visual cues... {completed}/{total_scenes}")
+        return entry
+
+    import concurrent.futures
+    from backend.agent.agent_engine import AgentRunner, PIPELINE_VISUAL_TOOLS, PIPELINE_VISUAL_TURNS
+    # No progress_cb for workers: AgentRunner defaults (50%) would fight the
+    # real per-scene progress bar. Cancel checks still propagate.
+    runner = AgentRunner(cancel_event=cancel_event)
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+    results = [None] * total_scenes
+    try:
+        future_to_idx = {executor.submit(process_scene, i, entry): i for i, entry in enumerate(manifest)}
+
+        for future in concurrent.futures.as_completed(future_to_idx):
+            if cancel_event.is_set():
+                raise InterruptedError("Cancelled")
+
+            idx = future_to_idx[future]
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                logger.error(f"Scene visuals {idx} generated an exception: {exc}")
+                raise exc
+    except InterruptedError:
+        # Don't wait for queued-but-not-started futures to finish their LLM
+        # calls — drop them immediately so cancellation is fast.
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        executor.shutdown(wait=True)
+
+    # Reassign sorted results back to manifest
+    for i, entry in enumerate(manifest):
+        if results[i]:
+            manifest[i] = results[i]
 
     # Write back to manifest
     if is_new_design and isinstance(design_system, dict) and design_system.get('theme_name'):
@@ -1664,8 +1906,48 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
                 json.dump(design_system, f, indent=2)
             os.replace(temp_path, design_path)
             logger.info("Saved design.json successfully.")
+
+            # Sync design.json to project_settings for total visual cohesion.
+            # Re-fetch the row so long-running user edits to project_settings
+            # (or the agent's update_visual_settings writes) are not clobbered
+            # by the snapshot taken when the run started.
+            proj_id = project_dict.get('id')
+            if proj_id:
+                fresh_project = get_project(proj_id)
+                current_settings = (fresh_project or project_dict).get('project_settings')
+                settings_dict = json.loads(current_settings) if isinstance(current_settings, str) and current_settings.strip() else {}
+                if isinstance(current_settings, dict):
+                    settings_dict = current_settings
+                
+                typography = design_system.get('typography', {})
+                palette = design_system.get('color_palette', {})
+
+                # Mirror the generated palette into project_settings, but only
+                # for keys the user hasn't already customized — the sync must
+                # not clobber explicit user styling choices.
+                if 'heading_font' in typography:
+                    settings_dict.setdefault('fontFamily', typography['heading_font'])
+                    settings_dict.setdefault('numbering_font_family', typography['heading_font'])
+                if 'primary' in palette:
+                    settings_dict.setdefault('activeColor', palette['primary'])
+                    settings_dict.setdefault('numbering_title_color', palette['primary'])
+                    settings_dict.setdefault('numbering_number_bg_color', palette['primary'])
+                    settings_dict.setdefault('numbering_number_border_color', palette['primary'])
+                    settings_dict.setdefault('chapter_border_color', palette['primary'])
+                if 'text' in palette:
+                    settings_dict.setdefault('pastColor', palette['text'])
+                    settings_dict.setdefault('numbering_description_color', palette['text'])
+                    settings_dict.setdefault('chapter_text_color', palette['text'])
+                if 'background' in palette:
+                    settings_dict.setdefault('numbering_number_color', palette['background'])
+                if 'accent' in palette:
+                    settings_dict.setdefault('numbering_accent_color', palette['accent'])
+
+                update_project(proj_id, project_settings=json.dumps(settings_dict))
+                logger.info("Synced design system properties to project_settings.")
+
         except Exception as e:
-            logger.error(f"Failed to save design.json: {e}")
+            logger.error(f"Failed to save design.json or sync settings: {e}")
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)

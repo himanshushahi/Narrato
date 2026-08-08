@@ -3,14 +3,12 @@ export const VISUAL_TYPE_OPTIONS = [
   { value: 'image', label: 'Stock Photograph' },
   { value: 'parallax', label: '2.5D Parallax Photo' },
   { value: 'portrait', label: 'Portrait Photo' },
-  { value: 'chart', label: 'Animated Chart' },
   { value: 'map', label: 'Vintage Map' },
   { value: 'network', label: 'Network Diagram' },
   { value: 'document', label: 'Archival Document' },
   { value: 'youtube', label: 'YouTube Video' },
   { value: 'list', label: 'Numbered List' },
   { value: 'custom_html', label: 'Custom HTML' },
-  { value: 'timeline', label: 'Timeline Tracker' },
   { value: 'thread', label: 'Social Media Chat / Thread' },
   { value: 'device_mockup', label: '3D Device Mockup' },
   { value: 'ai_image', label: 'AI Generated Image' },
@@ -44,10 +42,7 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
   const meta: any = {};
 
   // Inject defaults based on type
-  if (type === 'chart') {
-    meta.chart_type = 'bar';
-    meta.data = [{ label: 'Category 1', value: 10 }];
-  } else if (type === 'map') {
+  if (type === 'map') {
     meta.map_style = 'vintage';
     meta.locations = [{ name: 'New Location', coord: [0, 0] }];
   } else if (type === 'document') {
@@ -84,12 +79,6 @@ export const getDefaultMetaForType = (type: string, existingMeta: any) => {
   } else if (type === 'custom_html') {
     meta.html = '<div class="custom-box">Hello Custom HTML</div>';
     meta.css = '.custom-box { color: white; font-size: 60px; text-align: center; }';
-  } else if (type === 'timeline') {
-    meta.title = 'Timeline of Events';
-    meta.events = [
-      { date: '2023', title: 'Start', description: 'The beginning.' },
-      { date: '2024', title: 'Growth', description: 'Things get bigger.' }
-    ];
   } else if (type === 'thread') {
     meta.platform = 'whatsapp';
     meta.messages = [

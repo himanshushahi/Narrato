@@ -4,11 +4,35 @@ import { motion } from 'framer-motion';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import {
   VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscWarning, VscFlame, VscClose,
-  VscMute, VscEyeClosed
+  VscMute, VscEyeClosed, VscTerminal, VscBook, VscFile, VscSparkle, VscGlobe, VscTrash,
+  VscChevronDown, VscChevronRight
 } from 'react-icons/vsc';
 import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
 import { Task, useProjectStore } from '../../../store/useProjectStore';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { useUIStore, AgentActivity } from '../../../store/useUIStore';
+
+const AGENT_KIND_META: Record<AgentActivity['kind'], { label: string; icon: React.ReactNode; cls: string }> = {
+  tool: { label: 'Tool', icon: <VscTerminal />, cls: 'text-violet-400 bg-violet-500/10 border-violet-500/25' },
+  skill: { label: 'Skill', icon: <VscBook />, cls: 'text-amber-400 bg-amber-500/10 border-amber-500/25' },
+  file: { label: 'File', icon: <VscFile />, cls: 'text-sky-400 bg-sky-500/10 border-sky-500/25' },
+  llm: { label: 'LLM', icon: <VscSparkle />, cls: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/25' },
+  web: { label: 'Web', icon: <VscGlobe />, cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25' },
+};
+
+const AGENT_STATUS_CLS: Record<AgentActivity['status'], string> = {
+  running: 'bg-blue-500 animate-pulse',
+  ok: 'bg-emerald-500',
+  error: 'bg-red-500',
+  skipped: 'bg-zinc-500',
+};
+
+const fmtRelative = (ts: number): string => {
+  const diff = Math.max(0, Math.floor((Date.now() / 1000) - ts));
+  if (diff < 60) return `${diff}s ago`;
+  const mins = Math.floor(diff / 60);
+  return `${mins}m ago`;
+};
 
 interface ExportTabProps {
   tasks: Record<string, Task>;
@@ -35,7 +59,12 @@ export const ExportTab: React.FC<ExportTabProps> = ({
   const [showPreview, setShowPreview] = useState(false);
   const [previewKey, setPreviewKey] = useState<number>(0);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [activityOpen, setActivityOpen] = useState(true);
   const { selectedProject } = useProjectStore();
+  const agentActivity = useUIStore((s) => s.agentActivity);
+  const clearAgentActivity = useUIStore((s) => s.clearAgentActivity);
+  const activityCount = agentActivity.length;
+  const runningActivityCount = agentActivity.filter((a) => a.status === 'running').length;
 
   const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.currentTarget;
@@ -345,6 +374,66 @@ export const ExportTab: React.FC<ExportTabProps> = ({
               </>
             )}
           </div>
+        </div>
+
+        {/* AI Agent Activity */}
+        <div className="glass-panel rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between cursor-pointer" onClick={() => setActivityOpen(!activityOpen)}>
+            <div className="flex items-center gap-1.5">
+              {activityOpen ? <VscChevronDown className="text-zinc-500 text-[9px]" /> : <VscChevronRight className="text-zinc-500 text-[9px]" />}
+              <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">AI Agent Activity</h3>
+              {runningActivityCount > 0 && (
+                <span className="text-[8px] bg-blue-600/15 text-blue-400 px-1.5 py-0.5 rounded border border-blue-600/20 font-bold uppercase flex items-center gap-1 animate-pulse">
+                  <VscPulse className="animate-spin text-[9px]" /> {runningActivityCount} active
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] text-zinc-600 font-mono">{activityCount} events</span>
+              {activityCount > 0 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); clearAgentActivity(); }}
+                  title="Clear activity feed"
+                  className="text-zinc-600 hover:text-red-400 transition-colors cursor-pointer p-0.5"
+                >
+                  <VscTrash className="text-[10px]" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <p className="text-[8px] text-zinc-600 -mt-1">Live view of the tools, skills, files and LLM calls the AI agent uses.</p>
+
+          {activityOpen && (
+            <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+              {agentActivity.length === 0 ? (
+                <p className="text-[9px] text-zinc-600 text-center py-3">No agent activity yet — run a pipeline step to see the AI work live.</p>
+              ) : (
+                agentActivity.map((entry) => {
+                  const kindMeta = AGENT_KIND_META[entry.kind] || AGENT_KIND_META.tool;
+                  return (
+                    <div key={entry.id} className="flex items-start gap-2 bg-zinc-900/50 border border-zinc-800 rounded-lg px-2 py-1.5">
+                      <span className={`shrink-0 w-5 h-5 rounded flex items-center justify-center border text-[9px] mt-0.5 ${kindMeta.cls}`}>
+                        {kindMeta.icon}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[9px] font-bold text-zinc-300 truncate">{entry.name}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`w-1.5 h-1.5 rounded-full ${AGENT_STATUS_CLS[entry.status] || 'bg-zinc-500'}`} />
+                            <span className="text-[8px] text-zinc-600 font-mono">{fmtRelative(entry.ts)}</span>
+                          </div>
+                        </div>
+                        {entry.detail && (
+                          <p className="text-[8px] text-zinc-500 font-mono truncate mt-0.5" title={entry.detail}>{entry.detail}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
       </div>
       

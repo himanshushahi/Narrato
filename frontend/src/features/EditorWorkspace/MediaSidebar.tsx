@@ -42,10 +42,8 @@ const VISUAL_TYPE_LABELS: Record<string, string> = {
   image: 'Stock Photo',
   portrait: 'Stock Photo',
   parallax: 'Parallax Image',
-  chart: 'Chart Data',
   map: 'Map Data',
   document: 'Document',
-  timeline: 'Timeline',
   network: 'Network Diagram',
   thread: 'Social Chat',
   device_mockup: 'Device Mockup',
@@ -734,7 +732,7 @@ const AssetsEmptyState: React.FC<{
         <VscWarning className="text-xl text-zinc-600" />
       </div>
       <p className="text-xs text-zinc-500 font-medium">No downloadable assets found</p>
-      <p className="text-[9px] text-zinc-600 mt-1">All sub-visuals may be programmatic (charts, maps, etc.)</p>
+      <p className="text-[9px] text-zinc-600 mt-1">All sub-visuals may be programmatic (maps, documents, etc.)</p>
     </div>
   );
 };

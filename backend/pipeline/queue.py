@@ -203,7 +203,9 @@ class QueueManager:
 
                     try:
                         # Run the specific pipeline step
-                        self._execute_step(project_id, step, cancel_event)
+                        from backend.pipeline.ai import usage_tracking_context
+                        with usage_tracking_context(task_id):
+                            self._execute_step(project_id, step, cancel_event)
                         
                         update_task(task_id, status='completed', progress=100.0, message='Step completed.')
                         self._broadcast_task_progress(project_id, step, 100.0, 'Step completed.', 'completed')

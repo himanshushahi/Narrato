@@ -484,6 +484,7 @@ def generate_xtts_tts(
     speaker_wav: str = "",
     language: str = "hi",
     speed: float = 1.0,
+    cancel_event=None,
 ) -> None:
     """
     Synthesizes speech using the cached XTTS model.
@@ -495,10 +496,16 @@ def generate_xtts_tts(
         language: Language code ('hi' for Hindi, 'en' for English).
         speed: Speech speed multiplier (not directly supported by XTTS,
                but we can post-process or adjust generation params).
+        cancel_event: Optional threading.Event. When set, synthesis aborts at
+                      the next chunk boundary with InterruptedError.
     """
     import numpy as np
     import soundfile as sf
     global _active_xtts_requests, _unload_timer
+
+    def _check_cancel():
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Cancelled")
 
     with _xtts_model_lock:
         _active_xtts_requests += 1
@@ -509,6 +516,7 @@ def generate_xtts_tts(
             _unload_timer = None
 
     try:
+        _check_cancel()
         model = _load_xtts_model()
 
         # Resolve reference voice
@@ -539,6 +547,7 @@ def generate_xtts_tts(
         sample_rate = 24000  # XTTS default
 
         for i, chunk in enumerate(chunks):
+            _check_cancel()
             if not chunk.strip():
                 continue
             try:
@@ -557,13 +566,14 @@ def generate_xtts_tts(
             except Exception as e:
                 logger.warning(f"XTTS failed on chunk {i+1} '{chunk[:40]}...': {e}")
 
+        _check_cancel()
         if all_samples:
             final = np.concatenate(all_samples)
             sf.write(output_path, final, sample_rate)
             logger.info(f"XTTS TTS output written to {output_path}")
         else:
             raise RuntimeError("XTTS generated empty audio")
-            
+
     finally:
         with _xtts_model_lock:
             _active_xtts_requests -= 1

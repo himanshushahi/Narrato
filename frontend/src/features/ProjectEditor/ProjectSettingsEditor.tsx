@@ -11,7 +11,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 
 const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor', 'wordsPerScreen', 'activeAnimation'];
-const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color', 'chart_primary_color', 'chart_text_color'];
+const BRANDING_KEYS = ['hide_chapter_name', 'chapter_text_color', 'chapter_border_color'];
 
 const extractKeys = (obj: any, keys: string[]) => {
   return keys.reduce((acc: any, key) => {
@@ -369,21 +369,7 @@ export const ProjectSettingsEditor = ({ settings, onUpdate }: { settings: any, o
               )}
             </div>
           </div>
-          <div className="col-span-2 mt-2">
-            <h4 className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-2">Animated Charts</h4>
-            <div className="grid grid-cols-2 gap-4 bg-zinc-950/50 p-3 rounded border border-zinc-800/60">
-              <CustomColorInput
-                label="Chart Primary Color"
-                value={settings.chart_primary_color || '#fbbf24'}
-                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, chart_primary_color: e.target.value }) }}
-              />
-              <CustomColorInput
-                label="Chart Text Color"
-                value={settings.chart_text_color || '#fef3c7'}
-                onChange={(e) => { setSelectedPresetId(""); onUpdate({ ...settings, chart_text_color: e.target.value }) }}
-              />
-            </div>
-          </div>
+
         </div>
       </div>
     </div>

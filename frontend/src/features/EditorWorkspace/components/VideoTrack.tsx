@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { VscTrash } from 'react-icons/vsc';
-import { Clapperboard, Image, User, BarChart2, Map, Layers, MonitorPlay, Link, FileText, Clock, MessageCircle, Smartphone } from 'lucide-react';
+import { Clapperboard, Image, User, Map, Layers, MonitorPlay, Link, FileText, MessageCircle, Smartphone } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
 import { FPS, HEADER_WIDTH } from '../timelineConstants';
 
@@ -19,13 +19,11 @@ const SUBVISUAL_ICONS: Record<string, React.ElementType> = {
   scene: Clapperboard,
   image: Image,
   portrait: User,
-  chart: BarChart2,
   map: Map,
   parallax: Layers,
   youtube: MonitorPlay,
   network: Link,
   document: FileText,
-  timeline: Clock,
   thread: MessageCircle,
   device_mockup: Smartphone,
   ai_image: Image, // Using Image icon
@@ -35,13 +33,11 @@ const SUBVISUAL_COLORS: Record<string, string> = {
   scene: 'from-blue-500/40 to-cyan-500/30 border-blue-500/50',
   image: 'from-sky-500/40 to-indigo-500/30 border-sky-500/50',
   portrait: 'from-purple-500/40 to-fuchsia-500/30 border-purple-500/50',
-  chart: 'from-amber-500/40 to-orange-500/30 border-amber-500/50',
   map: 'from-emerald-500/40 to-green-500/30 border-emerald-500/50',
   parallax: 'from-pink-500/40 to-rose-500/30 border-pink-500/50',
   youtube: 'from-red-500/40 to-rose-500/30 border-red-500/50',
   network: 'from-teal-500/40 to-cyan-500/30 border-teal-500/50',
   document: 'from-stone-500/40 to-zinc-500/30 border-stone-500/50',
-  timeline: 'from-indigo-500/40 to-cyan-500/30 border-indigo-500/50',
   thread: 'from-green-500/40 to-emerald-500/30 border-green-500/50',
   device_mockup: 'from-violet-500/40 to-purple-500/30 border-violet-500/50',
   ai_image: 'from-orange-500/40 to-amber-500/30 border-orange-500/50',
