@@ -766,7 +766,16 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
         try:
             logger.info(f"Sending LLM request via OpenAI SDK (Attempt {attempt+1}/{max_retries})...")
 
-            response_stream = client.chat.completions.create(**kwargs)
+            def _run_completion(req_kwargs):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(client.chat.completions.create, **req_kwargs)
+                    while not future.done():
+                        if cancel_event.is_set() or cancel_event.wait(0.5):
+                            client.close()
+                            raise InterruptedError("Cancelled")
+                    return future.result()
+
+            response_stream = _run_completion(kwargs)
 
             raw_content = ""
             usage = None
@@ -790,7 +799,7 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
                     raise InterruptedError("Cancelled")
                 fallback_kwargs = {k: v for k, v in kwargs.items() if k != "stream"}
                 fallback_kwargs["stream"] = False
-                fallback_response = client.chat.completions.create(**fallback_kwargs)
+                fallback_response = _run_completion(fallback_kwargs)
                 if fallback_response.choices:
                     raw_content = fallback_response.choices[0].message.content or ""
                     finish_reason = fallback_response.choices[0].finish_reason
@@ -815,7 +824,7 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
                                 raise InterruptedError("Cancelled")
                             retry_kwargs = {k: v for k, v in fallback_kwargs.items() if k != "response_format"}
                             retry_kwargs["max_tokens"] = boosted
-                            retry_response = client.chat.completions.create(**retry_kwargs)
+                            retry_response = _run_completion(retry_kwargs)
                             if retry_response.choices:
                                 raw_content = retry_response.choices[0].message.content or ""
                                 usage = retry_response.usage
@@ -856,7 +865,8 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
             if attempt < max_retries - 1:
                 sleep_time = (2 ** attempt) + random.uniform(0, 1)
                 logger.warning(f"Rate limited (429). Retrying in {sleep_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
-                time.sleep(sleep_time)
+                if cancel_event.wait(sleep_time):
+                    raise InterruptedError("Cancelled")
             else:
                 _emit_llm("error", "rate limited (429)")
                 raise e
@@ -864,7 +874,8 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
             if attempt < max_retries - 1 and "response_format" in kwargs:
                 logger.warning(f"Provider rejected request (HTTP 400). It might not support response_format. Stripping it and retrying... (Attempt {attempt+1}/{max_retries})")
                 del kwargs["response_format"]
-                time.sleep(1.0)
+                if cancel_event.wait(1.0):
+                    raise InterruptedError("Cancelled")
             else:
                 try:
                     logger.error(f"Bad Request Error: {e.response.text if hasattr(e, 'response') else e}")
@@ -873,14 +884,16 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
                 if attempt >= max_retries - 1:
                     _emit_llm("error", f"bad request: {e}")
                     raise e
-                time.sleep(2.0)
+                if cancel_event.wait(2.0):
+                    raise InterruptedError("Cancelled")
         except InterruptedError:
             _emit_llm("error", "cancelled")
             raise
         except Exception as e:
             if attempt < max_retries - 1:
                 logger.warning(f"LLM request or parsing failed ({type(e).__name__}: {e}). Retrying... (Attempt {attempt+1}/{max_retries})")
-                time.sleep(2.0)
+                if cancel_event.wait(2.0):
+                    raise InterruptedError("Cancelled")
             else:
                 if not is_fallback:
                     fallback_provider = get_setting("llm_fallback_provider")

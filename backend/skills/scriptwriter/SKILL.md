@@ -23,3 +23,11 @@ when_to_use: "When writing or rewriting narration, hooks, summaries, CTAs, or sc
 - Match the target speaking duration: English ~180 words/min (3 words/sec), Hindi ~4.5 syllables/sec.
 - Estimate words via: seconds × speaking_rate. Keep narration tight — every spoken second adds video length.
 - Rewrites must match the pacing and content density of surrounding scenes.
+
+=== ANTI-AI-ISMS (CRITICAL) ===
+- Write like a human! Avoid predictable "AI voice" clichés and marketing buzzwords.
+- NEVER use overused AI vocabulary like: "delve", "tapestry", "fostering", "meticulous", "vibrant", "boasts", "intricate", "underscore", "pivotal".
+- NEVER use grand, exaggerated statements of legacy or importance (e.g. "stands as a testament", "plays a crucial role", "marking a pivotal moment", "a stark reminder").
+- AVOID rigid parallelisms and contrast structures like "Not just X, but also Y" or "It's not X, it's Y".
+- Use basic copulatives ("is", "are") instead of contrived synonyms ("serves as", "features").
+- Keep tone neutral and encyclopedic/documentary style. Avoid overly promotional puffery.
