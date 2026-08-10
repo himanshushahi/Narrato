@@ -221,6 +221,27 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                 </div>
               )}
 
+              {/* Audio cut toggles — available for every sub-visual type: silence
+                  the narrator voiceover / bg music for this exact interval. */}
+              <div className="col-span-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleUpdate(idx, 'mute_voiceover', !sv.mute_voiceover); }}
+                  className={`flex-1 px-2 py-1.5 rounded-md border text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${sv.mute_voiceover ? 'bg-red-500/15 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-stone-400 hover:border-emerald-500/40 hover:text-emerald-400'}`}
+                  title="Cut the narrator voiceover during this sub-visual's interval"
+                >
+                  {sv.mute_voiceover ? '✕ Cut Voiceover' : '🎙️ Voiceover On'}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleUpdate(idx, 'mute_bg_music', !sv.mute_bg_music); }}
+                  className={`flex-1 px-2 py-1.5 rounded-md border text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${sv.mute_bg_music ? 'bg-red-500/15 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-stone-400 hover:border-blue-500/40 hover:text-blue-400'}`}
+                  title="Cut the background music during this sub-visual's interval"
+                >
+                  {sv.mute_bg_music ? '✕ Cut Music' : '🎵 Music On'}
+                </button>
+              </div>
+
               {/* Always-visible Camera Transform controls */}
               <TransformEditor
                 transform={sv.transform}

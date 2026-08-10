@@ -22,6 +22,7 @@ interface TimelineProps {
   onResizeSubVisual?: (sceneIndex: number, newRatios: number[]) => void;
   onResizeScene?: (sceneIndex: number, newDurationSeconds: number, nextDurationSeconds: number | null, mode: 'boundary' | 'absolute') => void;
   onTimingsDragUpdate?: (timings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>) => void;
+  onToggleSubVisualAudioFlag?: (sceneIdx: number, subIdx: number, flag: 'mute_voiceover' | 'mute_bg_music') => void;
   readOnly?: boolean;
 }
 
@@ -40,6 +41,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   onResizeSubVisual,
   onResizeScene,
   onTimingsDragUpdate,
+  onToggleSubVisualAudioFlag,
   readOnly = false,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -482,15 +484,19 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
             isDraggingScene={isDraggingScene}
             toggleTrackMute={toggleTrackMute}
             onSeek={onSeek}
+            onToggleSubVisualAudioFlag={onToggleSubVisualAudioFlag}
           />
 
           <MusicTrack
             totalDuration={totalDuration}
+            localTimings={localTimings}
+            liveScenes={liveScenes}
             timelineZoom={timelineZoom}
             trackMuted={trackMuted}
             isDraggingScene={isDraggingScene}
             toggleTrackMute={toggleTrackMute}
             onSeek={onSeek}
+            onToggleSubVisualAudioFlag={onToggleSubVisualAudioFlag}
           />
 
           <VideoAudioTrack

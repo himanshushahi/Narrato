@@ -28,6 +28,10 @@ interface SubVisual {
   duration_ratio?: number;
   /** Volume for video-type sub-visuals (0-1). 0 = muted (default), 1 = full volume. */
   videoVolume?: number;
+  /** Cut the narrator voiceover during this sub-visual's timeline interval. */
+  mute_voiceover?: boolean;
+  /** Cut the background music during this sub-visual's timeline interval. */
+  mute_bg_music?: boolean;
 }
 
 export interface Scene {
@@ -94,6 +98,9 @@ const BLACK_PLACEHOLDER_STYLE: React.CSSProperties = {
   backgroundColor: '#0c0a09',
 };
 
+const isFrameInRanges = (frame: number, ranges: Array<{ start: number; end: number }>): boolean =>
+  ranges.some((r) => frame >= r.start && frame < r.end);
+
 const SceneGate: React.FC<{
   from: number;
   durationInFrames: number;
@@ -131,6 +138,32 @@ const SubGate: React.FC<{
   ) : null;
 };
 
+// Volume for the narration/music tracks is evaluated against GLOBAL timeline
+// frames. But `<Audio loop>` internally wraps the element in a Remotion
+// `<Loop>`, so the `frame` argument given to the `volume` callback is
+// LOOP-RELATIVE (it resets to 0 on every loop pass and never matches the
+// global timeline after the first pass). Instead of trusting that argument,
+// this component subscribes to the global frame itself: Remotion evaluates
+// the volume callback during the render of the current frame, so the captured
+// global frame is always the frame being rendered.
+const FrameVolumeAudio: React.FC<{
+  src: string;
+  loop?: boolean;
+  muteRanges: Array<{ start: number; end: number }>;
+  baseVolume: number;
+}> = ({ src, loop, muteRanges, baseVolume }) => {
+  const frame = useCurrentFrame();
+  const volume = Math.max(0, Math.min(1, baseVolume));
+  return (
+    <Audio
+      src={src}
+      loop={loop}
+      pauseWhenBuffering
+      volume={() => (isFrameInRanges(frame, muteRanges) ? 0 : volume)}
+    />
+  );
+};
+
 export const NitishRajputComposition = ({
   audioUrl,
   bgMusicUrl,
@@ -153,6 +186,27 @@ export const NitishRajputComposition = ({
       offset = end;
       return { start, end, text: scene.text };
     });
+  }, [scenes]);
+
+  // Global-frame ranges where the narrator voiceover / bg music are cut,
+  // derived from sub-visuals with mute_voiceover / mute_bg_music enabled.
+  const { voiceMuteRanges, bgMuteRanges } = useMemo(() => {
+    const voice: Array<{ start: number; end: number }> = [];
+    const bg: Array<{ start: number; end: number }> = [];
+    let offset = 0;
+    for (const scene of scenes) {
+      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      const subVisuals = scene.sub_visuals || [];
+      const timings = subVisuals.length > 0 ? calculateSubVisualTimings(subVisuals, durationFrames, 0) : [];
+      subVisuals.forEach((sv, i) => {
+        const t = timings[i];
+        if (!t) return;
+        if (sv.mute_voiceover) voice.push({ start: offset + t.start, end: offset + t.end });
+        if (sv.mute_bg_music) bg.push({ start: offset + t.start, end: offset + t.end });
+      });
+      offset += durationFrames;
+    }
+    return { voiceMuteRanges: voice, bgMuteRanges: bg };
   }, [scenes]);
 
   // Helper to render a single sub-visual's content
@@ -332,16 +386,15 @@ export const NitishRajputComposition = ({
     <div style={{ flex: 1, backgroundColor: '#0c0a09', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
       {/* 1. Spoken Narration Track & Ambient Soundtrack (Preview Only) */}
       {/* In production render, audio is now mixed directly via FFmpeg for speed */}
+      {/* Volume is a frame-based function: muted sub-visuals (mute_voiceover / */}
+      {/* mute_bg_music) silence their track for exactly their timeline interval. */}
       {!getRemotionEnvironment().isRendering && (
         <>
-          {audioUrl && <Audio src={audioUrl} volume={Math.max(0, Math.min(1, voiceoverVolume))} pauseWhenBuffering />}
+          {audioUrl && (
+            <FrameVolumeAudio src={audioUrl} muteRanges={voiceMuteRanges} baseVolume={voiceoverVolume} />
+          )}
           {bgMusicUrl && (
-            <Audio 
-              src={bgMusicUrl} 
-              volume={Math.max(0, Math.min(1, bgMusicVolume))} 
-              loop 
-              pauseWhenBuffering
-            />
+            <FrameVolumeAudio src={bgMusicUrl} muteRanges={bgMuteRanges} baseVolume={bgMusicVolume} loop />
           )}
         </>
       )}

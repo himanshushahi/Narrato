@@ -97,6 +97,82 @@ export const EditorWorkspace: React.FC = () => {
     transcriptionData, setTranscriptionData, loadFiles
   );
 
+  // Latest-state refs: handlers read these instead of render-time closures so
+  // consecutive operations (toggle → resize in quick succession) always see the
+  // most recent data, even before React re-renders.
+  const scriptDataRef = useRef(scriptData);
+  scriptDataRef.current = scriptData;
+  const manifestDataRef = useRef(manifestData);
+  manifestDataRef.current = manifestData;
+
+  // Serialized save queue: whole-document saves run one after another so a
+  // slower earlier save can't land after a newer one and overwrite it
+  // (last-write-wins data loss).
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueueSave = useCallback((saveFn: () => Promise<unknown>) => {
+    const next = saveQueueRef.current.then(saveFn, saveFn);
+    saveQueueRef.current = next.catch(() => undefined);
+    return next;
+  }, []);
+
+  // Toggle a per-sub-visual audio cut flag (mute_voiceover / mute_bg_music) from
+  // the timeline. Updates script.json (source of truth) and the assets manifest
+  // (export source) in place, preserving visual_path/visual_url on the manifest.
+  // Ref tracks the latest flag value per sub-visual so rapid consecutive clicks
+  // toggle correctly before React re-renders (double-click race).
+  const subVisualFlagValuesRef = useRef(new Map<string, boolean>());
+  useEffect(() => {
+    subVisualFlagValuesRef.current.clear();
+  }, [manifestData]);
+
+  const handleToggleSubVisualAudioFlag = useCallback(async (sceneIdx: number, subIdx: number, flag: 'mute_voiceover' | 'mute_bg_music') => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    if (!manifestScene?.sub_visuals?.[subIdx]) return;
+
+    const flagKey = `${sceneIdx}:${subIdx}:${flag}`;
+    const currentValue = subVisualFlagValuesRef.current.get(flagKey) ?? !!manifestScene.sub_visuals[subIdx][flag];
+    const newValue = !currentValue;
+    subVisualFlagValuesRef.current.set(flagKey, newValue);
+
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    // Map timeline index → script.json section (intro / scenes / conclusion).
+    const hasIntro = !!scriptDataRef.current.introduction;
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
+    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
+    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals.length > 0) {
+      const scriptSubs = scriptScene.sub_visuals;
+      // Match the manifest sub-visual by content (visual_type + visual_cue),
+      // mirroring liveScenes — index-based mapping desyncs when sub-visuals
+      // are inserted, deleted, or reordered in one file but not the other.
+      const target = manifestScene.sub_visuals[subIdx];
+      let scriptIdx = scriptSubs.findIndex((ssv: any) =>
+        ssv?.visual_type === target.visual_type && ssv?.visual_cue === target.visual_cue
+      );
+      // Fall back to same index if content match fails (same fallback as liveScenes)
+      if (scriptIdx === -1 && subIdx < scriptSubs.length) scriptIdx = subIdx;
+      if (scriptIdx !== -1) {
+        scriptSubs[scriptIdx] = { ...scriptSubs[scriptIdx], [flag]: newValue };
+      }
+    }
+    manifestCopy[sceneIdx].sub_visuals[subIdx] = { ...manifestCopy[sceneIdx].sub_visuals[subIdx], [flag]: newValue };
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist audio cut flag:', e);
+    }
+  }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
+
   // Sync scriptEditing's alert to the pipeline hook so handleResumePipeline can use it.
   // Use a ref to only propagate CHANGES — prevents a race where handleResumePipeline
   // clears the pipeline's alert but this effect re-sets it from the still-true source.
@@ -219,56 +295,86 @@ export const EditorWorkspace: React.FC = () => {
   }, [isPlaying, setIsPlaying]);
 
   const handleResizeSubVisual = useCallback(async (sceneIndex: number, newRatios: number[]) => {
-    if (!id || !scriptData || !manifestData) return;
+    if (!id || !scriptDataRef.current || !manifestDataRef.current) return;
 
-    const sceneDuration = manifestData[sceneIndex]?.duration || 1;
+    const sceneDuration = manifestDataRef.current[sceneIndex]?.duration || 1;
 
-    // 1. Update scriptData locally
-    const scriptCopy = { ...scriptData };
-    const hasIntro = scriptData.introduction ? 1 : 0;
+    // 1. Update scriptData locally (newRatios[i] corresponds to script sub i —
+    // the timeline displays liveScenes, which are script sub-visuals in content).
+    const scriptCopy = { ...scriptDataRef.current };
+    const hasIntro = scriptDataRef.current.introduction ? 1 : 0;
     
-    const updateSv = (sv: any, i: number) => ({
-      ...sv, 
-      duration_ratio: newRatios[i],
-      duration: newRatios[i] * sceneDuration
-    });
+    const updateSv = (sv: any, i: number) => {
+      const ratio = typeof newRatios[i] === 'number' && !isNaN(newRatios[i])
+        ? newRatios[i]
+        : sv.duration_ratio;
+      return {
+        ...sv, 
+        duration_ratio: ratio,
+        duration: ratio * sceneDuration
+      };
+    };
 
+    let scriptSubs: any[] = [];
     if (sceneIndex === 0 && hasIntro) {
       scriptCopy.introduction = { ...scriptCopy.introduction };
       scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map(updateSv);
-    } else if (sceneIndex === (scriptData.scenes?.length || 0) + hasIntro && scriptData.conclusion) {
+      scriptSubs = scriptCopy.introduction.sub_visuals;
+    } else if (sceneIndex === (scriptDataRef.current.scenes?.length || 0) + hasIntro && scriptDataRef.current.conclusion) {
       scriptCopy.conclusion = { ...scriptCopy.conclusion };
       scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map(updateSv);
+      scriptSubs = scriptCopy.conclusion.sub_visuals;
     } else {
       const idx = sceneIndex - hasIntro;
       if (scriptCopy.scenes && scriptCopy.scenes[idx]) {
+        scriptCopy.scenes = [...scriptCopy.scenes];
         scriptCopy.scenes[idx] = { ...scriptCopy.scenes[idx] };
         scriptCopy.scenes[idx].sub_visuals = (scriptCopy.scenes[idx].sub_visuals || []).map(updateSv);
+        scriptSubs = scriptCopy.scenes[idx].sub_visuals;
       }
     }
 
-    // 2. Update manifestData locally
-    const manifestCopy = [...manifestData];
-    if (manifestCopy[sceneIndex] && manifestCopy[sceneIndex].sub_visuals) {
-      manifestCopy[sceneIndex].sub_visuals = manifestCopy[sceneIndex].sub_visuals.map(updateSv);
+    // 2. Update manifestData locally — match each manifest sub-visual to the
+    // updated script sub-visual by content (visual_type + visual_cue) so a
+    // desynced list (insert/delete before Save) doesn't get ratios shifted to
+    // the wrong positions or written as NaN/undefined.
+    const manifestCopy = [...manifestDataRef.current];
+    if (manifestCopy[sceneIndex]?.sub_visuals) {
+      const matchedIndices = new Set<number>();
+      manifestCopy[sceneIndex].sub_visuals = manifestCopy[sceneIndex].sub_visuals.map((sv: any, i: number) => {
+        let scriptIdx = scriptSubs.findIndex((ssv: any, j: number) =>
+          !matchedIndices.has(j) && ssv?.visual_type === sv.visual_type && ssv?.visual_cue === sv.visual_cue
+        );
+        if (scriptIdx === -1 && i < scriptSubs.length) scriptIdx = i;
+        if (scriptIdx !== -1) matchedIndices.add(scriptIdx);
+        if (scriptIdx === -1) return sv;
+        const ratio = typeof newRatios[scriptIdx] === 'number' && !isNaN(newRatios[scriptIdx])
+          ? newRatios[scriptIdx]
+          : sv.duration_ratio;
+        return { ...sv, duration_ratio: ratio, duration: ratio * sceneDuration };
+      });
     }
 
     setScriptData(scriptCopy);
     setManifestData(manifestCopy);
 
-    // 3. Persist to backend
-    const result = await callApi<any>('save_project_with_cleanup', id, scriptCopy, manifestCopy);
-    if (result?.success) {
-      loadFiles(id);
+    // 3. Persist to backend (serialized with other saves)
+    try {
+      const result = await enqueueSave(() => callApi<any>('save_project_with_cleanup', id, scriptCopy, manifestCopy)) as any;
+      if (result?.success) {
+        loadFiles(id);
+      }
+    } catch (e) {
+      console.error('Failed to persist sub-visual duration ratios:', e);
     }
-  }, [id, scriptData, manifestData, setScriptData, setManifestData, loadFiles]);
+  }, [id, enqueueSave, setScriptData, setManifestData, loadFiles]);
 
   const handleResizeScene = useCallback(async (
     sceneIndex: number, newDurationSeconds: number, nextDurationSeconds: number | null, mode: 'boundary' | 'absolute'
   ) => {
-    if (!id || !scriptData || !manifestData) return;
+    if (!id || !scriptDataRef.current || !manifestDataRef.current) return;
 
-    const manifestCopy = [...manifestData];
+    const manifestCopy = [...manifestDataRef.current];
 
     const scaleSubVisuals = (scene: any, durSec: number) => {
       if (!scene.sub_visuals) return scene;
@@ -299,8 +405,8 @@ export const EditorWorkspace: React.FC = () => {
     }
 
     // Mirror into scriptData
-    const scriptCopy = { ...scriptData };
-    const hasIntro = scriptData.introduction ? 1 : 0;
+    const scriptCopy = { ...scriptDataRef.current };
+    const hasIntro = scriptDataRef.current.introduction ? 1 : 0;
 
     const updateSv = (sv: any, durSec: number, totalExistingDur: number, subCount: number) => {
       const ratio = typeof sv.duration_ratio === 'number' && !isNaN(sv.duration_ratio)
@@ -318,12 +424,13 @@ export const EditorWorkspace: React.FC = () => {
       if (idx === 0 && hasIntro) {
         scriptCopy.introduction = { ...scriptCopy.introduction };
         scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
-      } else if (idx === (scriptData.scenes?.length || 0) + hasIntro && scriptData.conclusion) {
+      } else if (idx === (scriptDataRef.current.scenes?.length || 0) + hasIntro && scriptDataRef.current.conclusion) {
         scriptCopy.conclusion = { ...scriptCopy.conclusion };
         scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
       } else {
         const sIdx = idx - hasIntro;
         if (scriptCopy.scenes && scriptCopy.scenes[sIdx]) {
+          scriptCopy.scenes = [...scriptCopy.scenes];
           scriptCopy.scenes[sIdx] = { ...scriptCopy.scenes[sIdx] };
           scriptCopy.scenes[sIdx].sub_visuals = (scriptCopy.scenes[sIdx].sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
         }
@@ -338,11 +445,15 @@ export const EditorWorkspace: React.FC = () => {
     setManifestData(manifestCopy);
     setScriptData(scriptCopy);
 
-    const result = await callApi<any>('save_project_with_cleanup', id, scriptCopy, manifestCopy);
-    if (result?.success) {
-      loadFiles(id);
+    try {
+      const result = await enqueueSave(() => callApi<any>('save_project_with_cleanup', id, scriptCopy, manifestCopy)) as any;
+      if (result?.success) {
+        loadFiles(id);
+      }
+    } catch (e) {
+      console.error('Failed to persist scene duration resize:', e);
     }
-  }, [id, scriptData, manifestData, setScriptData, setManifestData, loadFiles]);
+  }, [id, enqueueSave, setScriptData, setManifestData, loadFiles]);
 
   // ── Refs for shortcut handlers that need latest state ──
   const sceneTimingsRef = useRef(sceneTimings);
@@ -664,6 +775,7 @@ export const EditorWorkspace: React.FC = () => {
           onResizeSubVisual={handleResizeSubVisual}
           onResizeScene={handleResizeScene}
           onTimingsDragUpdate={setActiveTimings}
+          onToggleSubVisualAudioFlag={handleToggleSubVisualAudioFlag}
         />
       </div>
 

@@ -5,6 +5,7 @@ import re
 import subprocess
 import shutil
 import hashlib
+import math
 from pathlib import Path
 from backend.database.db import get_setting, update_project
 from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir, get_startupinfo, is_production
@@ -16,6 +17,70 @@ def clean_media_path(path_str):
         return ""
     normalized = str(Path(path_str).resolve()).replace('\\', '/')
     return f"file:///{normalized}"
+
+
+def _round_half_up(x):
+    """Match JavaScript's Math.round (round half up), not Python's banker's rounding."""
+    return int(math.floor(x + 0.5))
+
+
+def compute_sub_visual_timings_frames(sub_visuals, scene_frames):
+    """Replicate the frontend's calculateSubVisualTimings (utils/duration.ts)
+    in frames so audio cut ranges and video-audio placement match the preview.
+    Priority: duration_ratio (Adjust Durations) > per-sub duration > equal split.
+    Returns a list of (start_frame, end_frame) per sub-visual."""
+    num_subs = len(sub_visuals)
+    if num_subs == 0:
+        return []
+
+    def is_valid_number(v):
+        return (isinstance(v, (int, float))
+                and not isinstance(v, bool)
+                and not (isinstance(v, float) and math.isnan(v)))
+
+    durations = [sv.get("duration") for sv in sub_visuals]
+    all_durations_valid = all(is_valid_number(d) and d > 0 for d in durations)
+
+    ratios = [sv.get("duration_ratio") for sv in sub_visuals]
+    has_valid_ratios = (
+        all(is_valid_number(r) for r in ratios)
+        and abs(sum(ratios) - 1.0) < 0.01
+    )
+
+    current_offset = 0
+    subs = []
+    for idx in range(num_subs):
+        if has_valid_ratios:
+            if idx == num_subs - 1:
+                sub_duration = max(1, scene_frames - current_offset)
+            else:
+                sub_duration = max(1, _round_half_up(scene_frames * ratios[idx]))
+        elif all_durations_valid:
+            sub_duration = max(1, _round_half_up(durations[idx] * 30))
+            if idx == num_subs - 1:
+                sub_duration = max(1, scene_frames - current_offset)
+        else:
+            if idx == num_subs - 1:
+                sub_duration = max(1, scene_frames - current_offset)
+            else:
+                sub_duration = max(1, math.floor(scene_frames / num_subs))
+        sub_from = current_offset
+        sub_end = sub_from + max(1, sub_duration)
+        current_offset = sub_end
+        subs.append((sub_from, sub_end))
+    return subs
+
+
+def scene_frame_offsets(scenes):
+    """Yield (scene, scene_start_frame, scene_frames) per scene, replicating the
+    composition's frame math: max(30, ceil(duration * 30)) per scene. The 30-frame
+    minimum is applied per scene in the composition, so it must be replicated here
+    or every later mute range drifts by the deficit."""
+    offset = 0
+    for sc in scenes:
+        scene_frames = max(30, int(math.ceil(float(sc.get("duration") or 0.0) * 30)))
+        yield sc, offset, scene_frames
+        offset += scene_frames
 
 
 def compute_frame_hash(props_dict, render_settings):
@@ -60,26 +125,38 @@ def compute_audio_hash(props_dict, render_settings):
 
     # Collect video audio sources (only when not muted)
     video_audio_sources = []
-    cumulative_time = 0.0
-    for sc in props_dict.get("scenes", []):
-        scene_dur = float(sc.get("duration") or 0.0)
+    for sc, scene_start, scene_frames in scene_frame_offsets(props_dict.get("scenes", [])):
         sub_visuals = sc.get("sub_visuals", [])
-        num_subs = len(sub_visuals) if sub_visuals else 1
-        sub_dur = scene_dur / num_subs if num_subs > 0 else scene_dur
-        sub_cumulative = cumulative_time
-        for sv in sub_visuals:
+        timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames)
+        for sv, (t_start, t_end) in zip(sub_visuals, timings):
             vol = sv.get("videoVolume") or 0
             if not mute_video_audio and vol > 0:
                 vpath = sv.get("visual_path") or ""
                 video_audio_sources.append({
                     "path": vpath,
                     "volume": vol,
-                    "start_time": sub_cumulative,
-                    "duration": sub_dur,
+                    "start_time": (scene_start + t_start) / 30.0,
+                    "duration": (t_end - t_start) / 30.0,
                 })
-            sub_cumulative += sub_dur
-        cumulative_time += scene_dur
     audio_props["videoAudioSources"] = video_audio_sources
+
+    # Per-sub-visual audio cut flags (mute_voiceover / mute_bg_music) — toggling
+    # them must invalidate the cached audio mix.
+    audio_cuts = []
+    for sc, scene_start, scene_frames in scene_frame_offsets(props_dict.get("scenes", [])):
+        sub_visuals = sc.get("sub_visuals", [])
+        timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames)
+        for sv, (t_start, t_end) in zip(sub_visuals, timings):
+            mv = sv.get("mute_voiceover")
+            mb = sv.get("mute_bg_music")
+            if mv or mb:
+                audio_cuts.append({
+                    "start": (scene_start + t_start) / 30.0,
+                    "end": (scene_start + t_end) / 30.0,
+                    "mute_voiceover": mv or False,
+                    "mute_bg_music": mb or False,
+                })
+    audio_props["audioCuts"] = audio_cuts
 
     # Hash file contents/mtime rather than just string paths to detect in-place overwrites
     for key in ["audioUrl", "bgMusicUrl"]:
@@ -219,16 +296,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         sc["audio_url"] = clean_media_path(sc["audio_path"])
         
         sub_visuals = sc.get("sub_visuals", [])
-        scene_duration = float(sc.get("duration") or 0.0)
-        num_subs = len(sub_visuals) if sub_visuals else 1
-        sub_duration = scene_duration / num_subs if num_subs > 0 else scene_duration
         
         for sv in sub_visuals:
             if sv.get("visual_path"):
                 sv["visual_url"] = clean_media_path(sv["visual_path"])
             else:
                 sv["visual_url"] = ""
-            sv["duration"] = sub_duration
         
         sc["sub_visuals"] = sub_visuals
 
@@ -657,14 +730,13 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
         # ── Collect video audio sources from sub-visuals ──────────────────
         video_audio_tracks = []
-        cumulative_time = 0.0
-        for sc in scenes:
-            scene_dur = float(sc.get("duration") or 0.0)
+        # Per-sub-visual audio cut ranges (seconds): mute_voiceover / mute_bg_music
+        voice_cuts = []  # (start_sec, end_sec)
+        bg_cuts = []     # (start_sec, end_sec)
+        for sc, scene_start, scene_frames in scene_frame_offsets(scenes):
             sub_visuals = sc.get("sub_visuals", [])
-            num_subs = len(sub_visuals) if sub_visuals else 1
-            sub_dur = scene_dur / num_subs if num_subs > 0 else scene_dur
-            sub_cumulative = cumulative_time
-            for sv in sub_visuals:
+            timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames)
+            for sv, (t_start, t_end) in zip(sub_visuals, timings):
                 vol = sv.get("videoVolume") or 0
                 if not mute_video_audio and vol > 0:
                     vpath = sv.get("visual_path") or ""
@@ -672,10 +744,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                         video_audio_tracks.append({
                             "path": vpath,
                             "volume": float(vol),
-                            "start_time": sub_cumulative,
+                            "start_time": (scene_start + t_start) / 30.0,
                         })
-                sub_cumulative += sub_dur
-            cumulative_time += scene_dur
+                if sv.get("mute_voiceover"):
+                    voice_cuts.append(((scene_start + t_start) / 30.0, (scene_start + t_end) / 30.0))
+                if sv.get("mute_bg_music"):
+                    bg_cuts.append(((scene_start + t_start) / 30.0, (scene_start + t_end) / 30.0))
 
         ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
         
@@ -713,13 +787,27 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         filter_parts = []
         mix_inputs = []
 
+        # Chain per-sub-visual cut ranges: volume=0:enable='gte(t,s)*lt(t,e)'.
+        # gte/lt replicate the frontend's `frame >= start && frame < end` semantics;
+        # `between(t,s,e)` is inclusive at both ends and keeps each cut muted one
+        # frame longer than the preview.
+        def _apply_cuts(vol: float, cuts: list) -> str:
+            if not cuts:
+                return f"volume={vol}"
+            parts = [f"volume={vol}"]
+            for s, e in cuts:
+                parts.append(f"volume=0:enable='gte(t,{s:.3f})*lt(t,{e:.3f})'")
+            return ",".join(parts)
+
         # Voiceover
-        filter_parts.append(f"[0:a]volume={voice_vol}[voice]")
+        voice_filter = _apply_cuts(voice_vol, voice_cuts)
+        filter_parts.append(f"[0:a]{voice_filter}[voice]")
         mix_inputs.append("[voice]")
 
         # BG music (input index 1 if present)
         if has_bg:
-            filter_parts.append(f"[1:a]volume={bg_vol}[bg]")
+            bg_filter = _apply_cuts(bg_vol, bg_cuts)
+            filter_parts.append(f"[1:a]{bg_filter}[bg]")
             mix_inputs.append("[bg]")
 
         # Video audio tracks
@@ -738,9 +826,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             filter_parts.append(amix_expr)
             filter_str = ";".join(filter_parts)
             cmd_audio.extend(["-filter_complex", filter_str, "-map", "[aout]", "-ac", "2", "-ar", "44100"])
-        elif voice_vol != 1.0:
-            # Single voice input with volume adjustment
-            cmd_audio.extend(["-filter_complex", f"[0:a]volume={voice_vol}[aout]", "-map", "[aout]", "-ac", "2", "-ar", "44100"])
+        elif voice_vol != 1.0 or voice_cuts:
+            # Single voice input with volume adjustment and/or cut ranges
+            cmd_audio.extend(["-filter_complex", f"[0:a]{voice_filter}[aout]", "-map", "[aout]", "-ac", "2", "-ar", "44100"])
         else:
             cmd_audio.extend(["-c:a", "copy"])
 
