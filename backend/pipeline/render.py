@@ -422,6 +422,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     
     if render_concurrency == "logical":
         concurrency_arg = "100%"
+        # Long videos (>= 6 min at 30fps) spawn one Chrome tab per logical core,
+        # each holding its own DOM/GPU buffers. Cap to half to avoid the RAM/GPU
+        # exhaustion that manifests as system freezes or screen blackouts.
+        if total_frames > 10800:
+            concurrency_arg = "50%"
+            logger.info(f"Long video ({total_frames} frames): capping render concurrency to 50% to prevent system hang.")
     elif render_concurrency == "physical":
         concurrency_arg = "50%"
     else:

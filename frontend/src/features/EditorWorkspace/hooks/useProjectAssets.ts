@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { callApi } from '../../../utils/call-api';
 
 export interface AssetEntry {
@@ -77,6 +77,16 @@ export function useProjectAssets(
   const [isScanning, setIsScanning] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** Filename (without extension) -> disk info, for O(1) asset lookups. */
+  const diskFilesByBase = useMemo(() => {
+    const map: Record<string, DiskFileInfo> = {};
+    for (const f of Object.values(diskFiles)) {
+      const base = f.filename.replace(/\.[^.]+$/, '');
+      if (!(base in map)) map[base] = f;
+    }
+    return map;
+  }, [diskFiles]);
+
   /** Flatten manifest into per-asset entries, merged with disk info */
   const assets: AssetEntry[] = (() => {
     const result: AssetEntry[] = [];
@@ -93,9 +103,13 @@ export function useProjectAssets(
 
         // Derive the expected filename for disk-info lookup
         const expectedFilename = `asset_${String(sceneIdx).padStart(3, '0')}_${String(subIdx).padStart(2, '0')}`;
-        const diskInfo = Object.values(diskFiles).find(
-          (f) => f.filename.startsWith(expectedFilename),
-        );
+        let diskInfo: DiskFileInfo | undefined = diskFilesByBase[expectedFilename];
+        if (!diskInfo) {
+          // Fallback for unusual filenames with suffixes (rare)
+          diskInfo = Object.values(diskFiles).find(
+            (f) => f.filename.startsWith(expectedFilename),
+          ) as DiskFileInfo | undefined;
+        }
 
         result.push({
           key,

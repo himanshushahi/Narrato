@@ -18,7 +18,6 @@ interface InspectorPanelProps {
   manifestData: any[];
   transcriptionData: any;
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
-  currentFrame: number;
   activeSceneIdx: number;
   activeSubIdx: number;
   localProjectSettings: any;
@@ -80,7 +79,7 @@ const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   scriptData, manifestData, transcriptionData, sceneTimings,
-  currentFrame, activeSceneIdx, activeSubIdx, localProjectSettings, projectId,
+  activeSceneIdx, activeSubIdx, localProjectSettings, projectId,
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
   onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
@@ -103,7 +102,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             scriptData={scriptData}
             manifestData={manifestData}
             sceneTimings={sceneTimings}
-            currentFrame={currentFrame}
             activeSceneIdx={activeSceneIdx}
             activeSubIdx={activeSubIdx}
             editingCard={editingCard}

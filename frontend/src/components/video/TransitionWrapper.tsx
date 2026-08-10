@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, interpolate, spring, useVideoConfig } from 'remotion';
+import { useCurrentFrame, interpolate, spring, useVideoConfig, getRemotionEnvironment } from 'remotion';
 
 interface Props {
   children: React.ReactNode;
@@ -28,6 +28,8 @@ export const TransitionWrapper: React.FC<Props> = ({
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
+  const { isRendering } = getRemotionEnvironment();
+
   // ─── base layer: GPU-composited, isolated stacking context ───────────────
   const baseStyle: React.CSSProperties = {
     width: '100%',
@@ -37,7 +39,7 @@ export const TransitionWrapper: React.FC<Props> = ({
     // Force the element onto its own compositor layer once, up-front.
     // Using translate3d(0,0,0) instead of willChange avoids the browser
     // promoting/demoting the layer mid-animation (a primary flicker cause).
-    transform: 'translate3d(0,0,0)',
+    transform: isRendering ? 'none' : 'translate3d(0,0,0)',
     // Isolate this stacking context so filter changes don't repaint siblings.
     isolation: 'isolate',
     // backfaceVisibility hidden prevents "flash of back face" on scale flips.
@@ -163,7 +165,7 @@ export const TransitionWrapper: React.FC<Props> = ({
               height: '100%',
               transform: `translate3d(${glitchX}px,0,0)`,
               filter: filterStr,
-              willChange: 'transform, filter',
+              willChange: isRendering ? 'auto' : 'transform, filter',
               backfaceVisibility: 'hidden',
               WebkitBackfaceVisibility: 'hidden',
             }}
@@ -195,7 +197,7 @@ export const TransitionWrapper: React.FC<Props> = ({
               height: '100%',
               transform: `translate3d(${tx}%,0,0)`,
               filter: blur > 0 ? `blur(${blur}px)` : undefined,
-              willChange: blur > 0 ? 'transform, filter' : 'transform',
+              willChange: isRendering ? 'auto' : (blur > 0 ? 'transform, filter' : 'transform'),
               backfaceVisibility: 'hidden',
               WebkitBackfaceVisibility: 'hidden',
             }}

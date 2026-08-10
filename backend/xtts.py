@@ -457,7 +457,23 @@ def _chunk_text_for_xtts(text: str) -> list[str]:
     Handles both English and Hindi sentence delimiters.
     """
     # Split by sentence-ending punctuation (English and Hindi danda)
-    chunks = re.split(r'(?<=[.!?।\n])\s+', text.strip())
+    raw_chunks = re.split(r'(?<=[.!?।\n])\s+', text.strip())
+
+    chunks = []
+    for c in raw_chunks:
+        if len(c.split()) > 30:
+            # Try splitting by comma first
+            sub_chunks = re.split(r'(?<=[,])\s+', c)
+            for sc in sub_chunks:
+                if len(sc.split()) > 30:
+                    # Force split every 30 words if still too long
+                    words = sc.split()
+                    for i in range(0, len(words), 30):
+                        chunks.append(" ".join(words[i:i+30]))
+                else:
+                    chunks.append(sc)
+        else:
+            chunks.append(c)
 
     # Merge very short chunks
     merged = []
@@ -518,6 +534,7 @@ def generate_xtts_tts(
     try:
         _check_cancel()
         model = _load_xtts_model()
+        _check_cancel()
 
         # Resolve reference voice
         if not speaker_wav or not Path(speaker_wav).exists():
@@ -539,32 +556,35 @@ def generate_xtts_tts(
         logger.info(f"Synthesizing {len(chunks)} chunks with XTTS...")
 
         # Compute speaker latents once (reused across chunks)
-        gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
-            audio_path=[speaker_wav]
-        )
-
-        all_samples = []
-        sample_rate = 24000  # XTTS default
-
-        for i, chunk in enumerate(chunks):
+        _check_cancel()
+        with torch.no_grad():
+            gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
+                audio_path=[speaker_wav]
+            )
             _check_cancel()
-            if not chunk.strip():
-                continue
-            try:
-                out = model.inference(
-                    text=chunk,
-                    language=language,
-                    gpt_cond_latent=gpt_cond_latent,
-                    speaker_embedding=speaker_embedding,
-                    speed=speed,
-                )
-                wav = out.get("wav")
-                if wav is not None:
-                    if hasattr(wav, 'cpu'):
-                        wav = wav.cpu().numpy()
-                    all_samples.append(wav)
-            except Exception as e:
-                logger.warning(f"XTTS failed on chunk {i+1} '{chunk[:40]}...': {e}")
+    
+            all_samples = []
+            sample_rate = 24000  # XTTS default
+    
+            for i, chunk in enumerate(chunks):
+                _check_cancel()
+                if not chunk.strip():
+                    continue
+                try:
+                    out = model.inference(
+                        text=chunk,
+                        language=language,
+                        gpt_cond_latent=gpt_cond_latent,
+                        speaker_embedding=speaker_embedding,
+                        speed=speed,
+                    )
+                    wav = out.get("wav")
+                    if wav is not None:
+                        if hasattr(wav, 'cpu'):
+                            wav = wav.cpu().numpy()
+                        all_samples.append(wav)
+                except Exception as e:
+                    logger.warning(f"XTTS failed on chunk {i+1} '{chunk[:40]}...': {e}")
 
         _check_cancel()
         if all_samples:

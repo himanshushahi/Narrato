@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useEditorStore } from '../../store/useEditorStore';
+import { usePlaybackStore } from '../../store/usePlaybackStore';
 import { useEditorData } from './hooks/useEditorData';
 import { usePipeline } from './hooks/usePipeline';
 import { useScriptEditing } from './hooks/useScriptEditing';
@@ -129,17 +130,37 @@ export const EditorWorkspace: React.FC = () => {
     prevScriptGenStatusRef.current = currentStatus;
   }, [tasks, setInspectorTab]);
 
-  // === Local state ===
-  const [currentFrame, setCurrentFrame] = useState(0);
+  // === Playback (playhead lives in a store so per-frame updates don't
+  // re-render the whole workspace) ===
   const playerRef = useRef<any>(null);
   const fullscreenToggleRef = useRef<(() => void) | null>(null);
+  const currentFrameRef = useRef(0);
+  useEffect(() => {
+    const unsub = usePlaybackStore.subscribe((s) => { currentFrameRef.current = s.currentFrame; });
+    return unsub;
+  }, []);
+
+  const handleFrameUpdate = useCallback((frame: number) => {
+    usePlaybackStore.getState().setCurrentFrame(frame);
+  }, []);
 
   // === Computed values ===
   const activeTimingsToUse = activeTimings.length > 0 ? activeTimings : sceneTimings;
-  const activeSceneIdx = activeTimingsToUse.findIndex(t => currentFrame >= t.start && currentFrame < t.end);
-  const activeSubIdx = activeSceneIdx >= 0 && activeTimingsToUse[activeSceneIdx].subs.length > 0
-    ? activeTimingsToUse[activeSceneIdx].subs.findIndex(t => currentFrame >= t.start && currentFrame < t.end)
-    : -1;
+  // Derive the active scene/sub indices INSIDE the store selector so this
+  // component re-renders only when the active item actually changes
+  // (scene boundaries), not on every playhead frame.
+  const activeSceneIdx = usePlaybackStore((s) => {
+    const timings = activeTimingsToUse;
+    return timings.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end);
+  });
+  const activeSubIdx = usePlaybackStore((s) => {
+    if (activeSceneIdx < 0) return -1;
+    const timings = activeTimingsToUse;
+    const subs = timings[activeSceneIdx]?.subs;
+    return subs && subs.length > 0
+      ? subs.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end)
+      : -1;
+  });
   const hasScriptData = !!scriptData;
   const isLoading = !selectedProject || !projectReady;
 
@@ -324,8 +345,6 @@ export const EditorWorkspace: React.FC = () => {
   }, [id, scriptData, manifestData, setScriptData, setManifestData, loadFiles]);
 
   // ── Refs for shortcut handlers that need latest state ──
-  const currentFrameRef = useRef(currentFrame);
-  currentFrameRef.current = currentFrame;
   const sceneTimingsRef = useRef(sceneTimings);
   sceneTimingsRef.current = sceneTimings;
   const totalFrames = useMemo(
@@ -563,7 +582,6 @@ export const EditorWorkspace: React.FC = () => {
           playerRef={playerRef}
           liveScenes={effectiveLiveScenes || liveScenes || EMPTY_ARRAY}
           transcriptionData={transcriptionData}
-          currentFrame={currentFrame}
           audioUrl={audioUrl}
           bgMusicUrl={bgMusicUrl}
           bgMusicVolume={safeProject.bg_music_volume}
@@ -572,7 +590,7 @@ export const EditorWorkspace: React.FC = () => {
           language={safeProject.language}
           videoFormat={safeProject.video_format || 'landscape'}
           subtitleSettings={localProjectSettings}
-          onFrameUpdate={setCurrentFrame}
+          onFrameUpdate={handleFrameUpdate}
           isPipelineRunning={isRunning}
           fullscreenToggleRef={fullscreenToggleRef}
         />
@@ -586,7 +604,6 @@ export const EditorWorkspace: React.FC = () => {
           manifestData={manifestData}
           transcriptionData={transcriptionData}
           sceneTimings={activeTimings}
-          currentFrame={currentFrame}
           activeSceneIdx={activeSceneIdx}
           activeSubIdx={activeSubIdx}
           localProjectSettings={localProjectSettings}
@@ -642,7 +659,6 @@ export const EditorWorkspace: React.FC = () => {
           liveScenes={liveScenes || EMPTY_ARRAY}
           sceneTimings={sceneTimings}
           transcriptionData={transcriptionData}
-          currentFrame={currentFrame}
           onSeek={handleSeek}
           onDeleteScene={handleDeleteSceneTimeline}
           onResizeSubVisual={handleResizeSubVisual}

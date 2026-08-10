@@ -3,12 +3,12 @@ import { motion } from 'framer-motion';
 import { VscPlay, VscDebugPause, VscScreenFull, VscScreenNormal, VscLoading } from 'react-icons/vsc';
 import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../../components/video/RemotionVideoPlayer';
 import { useEditorStore } from '../../store/useEditorStore';
+import { usePlaybackStore } from '../../store/usePlaybackStore';
 
 interface VideoPreviewProps {
   playerRef: React.RefObject<RemotionVideoPlayerRef | null>;
   liveScenes: any[];
   transcriptionData: any;
-  currentFrame: number;
   audioUrl: string;
   bgMusicUrl: string;
   bgMusicVolume?: number;
@@ -23,13 +23,19 @@ interface VideoPreviewProps {
   fullscreenToggleRef?: React.MutableRefObject<(() => void) | null>;
 }
 
+// Player re-renders only when its props actually change (scenes, media URLs,
+// toggles) — NOT on every playhead tick. This keeps Remotion's <Player>
+// untouched while the seek bar/timecode update 5x/sec.
+const MemoizedRemotionPlayer = React.memo(RemotionVideoPlayer);
+
 export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
-  playerRef, liveScenes, transcriptionData, currentFrame,
+  playerRef, liveScenes, transcriptionData,
   audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
   onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef
 }) => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
+  const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const [zoom, setZoom] = React.useState<'fit' | '100' | '150'>('fit');
   const [showOverlay, setShowOverlay] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
@@ -91,6 +97,12 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   }
 
   const zoomScale = zoom === 'fit' ? 0.9 : zoom === '100' ? 0.8 : 1.35;
+
+  // Stable object identity so the memoized Player skips re-renders.
+  const playerSubtitleSettings = React.useMemo(
+    () => ({ ...subtitleSettings, hide_subtitles: trackHidden['subs'] }),
+    [subtitleSettings, trackHidden['subs']]
+  );
 
   // Compute total duration in frames from live scenes (matches RemotionVideoPlayer logic)
   const totalFrames = React.useMemo(() => {
@@ -169,7 +181,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
             <div className="rounded-lg overflow-hidden shadow-2xl shadow-black/60 border border-zinc-800/40 bg-black">
               {/* Inner screen bezel */}
               <div className="rounded-[3px] overflow-hidden">
-                <RemotionVideoPlayer
+                <MemoizedRemotionPlayer
                   ref={playerRef}
                   audioUrl={audioUrl}
                   bgMusicUrl={bgMusicUrl}
@@ -181,7 +193,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   styleType={styleType}
                   language={language}
                   videoFormat={videoFormat}
-                  subtitleSettings={{ ...subtitleSettings, hide_subtitles: trackHidden['subs'] }}
+                  subtitleSettings={playerSubtitleSettings}
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}
                 />

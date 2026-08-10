@@ -1,5 +1,5 @@
 import React from 'react';
-import { useCurrentFrame, interpolate, Img, Video } from 'remotion';
+import { useCurrentFrame, interpolate, Img, Video, getRemotionEnvironment } from 'remotion';
 import { ZoomWrapper } from './ZoomWrapper';
 import { SubVisualTransform } from './SubVisualTransform';
 
@@ -141,6 +141,8 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, tran
   const cleanSrc = src.split('&t=')[0].split('?t=')[0];
   const isVideo = cleanSrc.toLowerCase().includes('.mp4') || cleanSrc.toLowerCase().includes('.webm');
 
+  const { isRendering } = getRemotionEnvironment();
+
   return (
     <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', backgroundColor: '#000' }}>
       <ZoomWrapper transform={transform}>
@@ -149,7 +151,7 @@ export const PanScanImage: React.FC<Props> = ({ src, cue, durationInFrames, tran
           width: '100%',
           height: '100%',
           transform: `scale(${scale}) translate3d(${x}px, ${y}px, 0)`,
-          willChange: 'transform',
+          willChange: isRendering ? 'auto' : 'transform',
           transformOrigin: 'center center',
         }}>
           {isVideo ? (

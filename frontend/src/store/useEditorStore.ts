@@ -88,6 +88,12 @@ const defaults = {
   trackHidden: {} as Record<string, boolean>,
 };
 
+const normalizeTrackHidden = (th: Record<string, boolean>): Record<string, boolean> => {
+  const next = { ...(th ?? {}) };
+  delete next['subs'];
+  return next;
+};
+
 let persisted: Partial<EditorStore> = {};
 try {
   const prefs = (window as any).__INITIAL_PREFS__ || {};
@@ -109,7 +115,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   isPlaying: false,
   timelineZoom: persisted.timelineZoom ?? defaults.timelineZoom,
   trackMuted: persisted.trackMuted ?? defaults.trackMuted,
-  trackHidden: persisted.trackHidden ?? defaults.trackHidden,
+  trackHidden: normalizeTrackHidden(persisted.trackHidden ?? defaults.trackHidden),
   audioChangedAlert: false,
 
   // Actions

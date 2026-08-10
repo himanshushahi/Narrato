@@ -24,6 +24,28 @@ interface SentenceGroup {
   text: string;
 }
 
+/**
+ * Binary search for the sentence active at `time`. Sentences are sorted by
+ * startTime and contiguous (endTime forced to next startTime in post-processing),
+ * so O(log n) replaces the per-frame linear scan over thousands of sentences.
+ */
+function findSentenceAtTime(sentences: SentenceGroup[], time: number): SentenceGroup | undefined {
+  let low = 0;
+  let high = sentences.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const sentence = sentences[mid];
+    if (time < sentence.startTime) {
+      high = mid - 1;
+    } else if (time >= sentence.endTime) {
+      low = mid + 1;
+    } else {
+      return sentence;
+    }
+  }
+  return undefined;
+}
+
 function splitWordsIntoSentences(words: TranscriptionWord[], maxWordsPerScreen: number): SentenceGroup[] {
   if (words.length === 0) return [];
 
@@ -163,10 +185,16 @@ export const KineticSubtitles: React.FC<Props> = ({
       }
     }
 
-    // Post-process to eliminate gaps and overlaps between sentences globally
+    // Post-process to eliminate gaps and overlaps between sentences globally.
+    // findSentenceAtTime binary-searches a sorted, non-overlapping timeline —
+    // sort first, or an unsorted/overlapping list makes the search silently
+    // miss sentences (subtitle lines vanish with no error).
+    sentences.sort((a, b) => a.startTime - b.startTime);
     for (let j = 0; j < sentences.length - 1; j++) {
       // Force the current sentence to end exactly when the next sentence begins
-      sentences[j].endTime = sentences[j + 1].startTime;
+      if (sentences[j].endTime > sentences[j + 1].startTime) {
+        sentences[j].endTime = sentences[j + 1].startTime;
+      }
     }
 
     return sentences;
@@ -181,19 +209,16 @@ export const KineticSubtitles: React.FC<Props> = ({
         sentences.push(...groups);
       }
     }
+    sentences.sort((a, b) => a.startTime - b.startTime);
     return sentences;
   }, [sceneTimings, wordsPerScreen]);
 
   // 1. Find active sentence from transcription (primary source)
-  let activeSentence = allSentences.find(
-    (s) => currentTime >= s.startTime && currentTime < s.endTime
-  );
+  let activeSentence = findSentenceAtTime(allSentences, currentTime);
 
   // 2. If no transcription sentence found, fall back to scene timing sentences ONLY if we have no transcription data
   if (!activeSentence && allSentences.length === 0 && fallbackSentences.length > 0) {
-    activeSentence = fallbackSentences.find(
-      (s) => currentTime >= s.startTime && currentTime < s.endTime
-    );
+    activeSentence = findSentenceAtTime(fallbackSentences, currentTime);
   }
 
   if (!activeSentence) return null;

@@ -4,6 +4,9 @@ import * as d3Geo from 'd3-geo';
 import * as topojson from 'topojson-client';
 import worldData from './world-110m.json';
 
+// Cache TopoJSON conversion once at module scope to prevent CPU lag on map frames
+const cachedWorldCountries = topojson.feature(worldData as any, worldData.objects.countries as any);
+
 interface Props {
   type: 'map' | 'document' | 'network';
   meta: any;
@@ -15,8 +18,8 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
   const { width, height } = useVideoConfig();
 
   const renderMap = () => {
-    // TopoJSON to GeoJSON
-    const countries = topojson.feature(worldData as any, worldData.objects.countries as any);
+    // TopoJSON to GeoJSON (memoized)
+    const countries = cachedWorldCountries;
 
     const locations = meta.locations || [
       { name: 'Start', coord: [28.6139, 77.2090] }, // Delhi
@@ -124,11 +127,11 @@ export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFram
                 {/* SVG Filters for Glow */}
                 <defs>
                   <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur stdDeviation="15" result="blur" />
+                    <feGaussianBlur stdDeviation="8" result="blur" />
                     <feComposite in="SourceGraphic" in2="blur" operator="over" />
                   </filter>
                   <filter id="atmosphere">
-                    <feGaussianBlur stdDeviation="30" result="blur" />
+                    <feGaussianBlur stdDeviation="15" result="blur" />
                     <feComposite in="SourceGraphic" in2="blur" operator="over" />
                   </filter>
                 </defs>

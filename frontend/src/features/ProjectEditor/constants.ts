@@ -41,6 +41,10 @@ export const PIPELINE_STAGES = [
 export const getDefaultMetaForType = (type: string, existingMeta: any) => {
   const meta: any = {};
 
+  if (existingMeta?.custom_html_ui) {
+    meta.custom_html_ui = existingMeta.custom_html_ui;
+  }
+
   // Inject defaults based on type
   if (type === 'map') {
     meta.map_style = 'vintage';

@@ -1,4 +1,6 @@
 import React, { useMemo } from 'react';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
+import { usePlaybackStore } from '../../../store/usePlaybackStore';
 import { VscTrash } from 'react-icons/vsc';
 import { Clapperboard, Image, User, Map, Layers, MonitorPlay, Link, FileText, MessageCircle, Smartphone } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
@@ -61,7 +63,8 @@ interface SceneBlockProps {
   timing: { start: number; end: number; subs: Array<{ start: number; end: number }> };
   scene: any;
   timelineZoom: number;
-  currentFrame: number;
+  isActive: boolean;
+  activeSubIdx: number;
   isHovered: boolean;
   isDraggingScene: boolean;
   readOnly: boolean;
@@ -79,14 +82,13 @@ interface SceneBlockProps {
 }
 
 const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
-  idx, timing, scene, timelineZoom, currentFrame, isHovered, isDraggingScene,
+  idx, timing, scene, timelineZoom, isActive, activeSubIdx, isHovered, isDraggingScene,
   readOnly, hoveredSubVisual, isLast, onSeek, onHoverEnter,
   onHoverLeave, onSubHoverEnter, onSubHoverLeave,
   onSubVisualResizeStart, onSceneBoundaryResizeStart, onSceneAbsoluteResizeStart, onDeleteScene
 }) => {
   const x = (timing.start / FPS) * timelineZoom;
   const w = Math.max(8, ((timing.end - timing.start) / FPS) * timelineZoom);
-  const isActive = currentFrame >= timing.start && currentFrame < timing.end;
   const colorIdx = idx % SCENE_COLORS.length;
   const subVisuals = scene?.sub_visuals || [];
   const isIntroOrConclusion = scene?.section_type === 'introduction' || scene?.section_type === 'conclusion';
@@ -98,12 +100,12 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
       const subW = Math.max(4, ((sub.end - sub.start) / FPS) * timelineZoom);
       const svType = subVisuals[subIdx]?.visual_type || 'scene';
       const svColor = SUBVISUAL_COLORS[svType] || SUBVISUAL_COLORS.scene;
-      const isSubActive = currentFrame >= sub.start && currentFrame < sub.end;
+      const isSubActive = activeSubIdx === subIdx;
       const isSubHovered = hoveredSubVisual?.scene === idx && hoveredSubVisual?.sub === subIdx;
       const IconComponent = SUBVISUAL_ICONS[svType] || Clapperboard;
       return { subX, subW, svType, svColor, isSubActive, isSubHovered, subIdx, subStart: sub.start, subEnd: sub.end, IconComponent };
     });
-  }, [timing, timelineZoom, currentFrame, subVisuals, hoveredSubVisual, idx]);
+  }, [timing, timelineZoom, activeSubIdx, subVisuals, hoveredSubVisual, idx]);
 
   return (
     <div
@@ -236,7 +238,6 @@ interface VideoTrackProps {
   localTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
   liveScenes: any[];
   timelineZoom: number;
-  currentFrame: number;
   hoveredSceneIdx: number | null;
   hoveredSubVisual: { scene: number; sub: number } | null;
   isDraggingScene: boolean;
@@ -253,12 +254,30 @@ interface VideoTrackProps {
 }
 
 export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
-  localTimings, liveScenes, timelineZoom, currentFrame,
+  localTimings, liveScenes, timelineZoom,
   hoveredSceneIdx, hoveredSubVisual, isDraggingScene, readOnly,
   onSeek, onSceneHoverEnter, onSceneHoverLeave,
   onSubHoverEnter, onSubHoverLeave,
   onSubVisualResizeStart, onSceneBoundaryResizeStart, onSceneAbsoluteResizeStart, onDeleteScene
 }) => {
+  // Subscribed with custom equality: re-renders only when the ACTIVE
+  // scene/sub changes (scene boundaries), not on every playhead frame.
+  const [activeSceneIdx, activeSubIdxInScene] = useStoreWithEqualityFn(
+    usePlaybackStore,
+    (s) => {
+      const sceneIdx = localTimings.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end);
+      let subIdx = -1;
+      if (sceneIdx !== -1) {
+        const timing = localTimings[sceneIdx];
+        if (timing && timing.subs) {
+          subIdx = timing.subs.findIndex(x => s.currentFrame >= x.start && s.currentFrame < x.end);
+        }
+      }
+      return [sceneIdx, subIdx] as const;
+    },
+    (a, b) => a[0] === b[0] && a[1] === b[1]
+  );
+
   return (
     <div className="relative h-14 border-b border-zinc-800/40 bg-zinc-900/10 hover:bg-zinc-900/30 transition-colors">
       <div
@@ -272,6 +291,8 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
       </div>
       {localTimings.map((timing, idx) => {
         const scene = liveScenes?.[idx];
+        const isSceneActive = idx === activeSceneIdx;
+        const currentActiveSubIdx = isSceneActive ? activeSubIdxInScene : -1;
         return (
           <SceneBlock
             key={idx}
@@ -279,7 +300,8 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
             timing={timing}
             scene={scene}
             timelineZoom={timelineZoom}
-            currentFrame={currentFrame}
+            isActive={isSceneActive}
+            activeSubIdx={currentActiveSubIdx}
             isHovered={hoveredSceneIdx === idx}
             readOnly={readOnly}
             isDraggingScene={isDraggingScene}

@@ -1,13 +1,16 @@
 import React from 'react';
 import { FPS, HEADER_WIDTH } from '../timelineConstants';
+import { usePlaybackStore } from '../../../store/usePlaybackStore';
 
 interface TimelinePlayheadProps {
-  currentFrame: number;
   timelineZoom: number;
   onStartDrag: (e: React.MouseEvent) => void;
 }
 
-export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = React.memo(({ currentFrame, timelineZoom, onStartDrag }) => {
+export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = React.memo(({ timelineZoom, onStartDrag }) => {
+  // Only the playhead subscribes to per-frame updates — the rest of the
+  // timeline no longer re-renders on every tick.
+  const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const playheadX = (currentFrame / FPS) * timelineZoom + HEADER_WIDTH;
 
   return (

@@ -2,7 +2,11 @@ import http.server
 import os
 import socketserver
 import threading
+import queue
 import shutil
+import hashlib
+import subprocess
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 VALID_MEDIA = ('.mp3', '.wav', '.mp4', '.png', '.jpg', '.jpeg', '.gif', '.webm', '.mkv', '.mov', '.avi', '.ogg', '.webp', '.svg', '.css', '.woff2', '.ttf')
@@ -40,10 +44,161 @@ _thread = None
 
 
 from backend.core.config import BASE_DIR
+from backend.core.config import get_remotion_cache_dir, get_startupinfo, BIN_DIR
 from backend.core.logger import logger
 import json
 
+# ── On-demand thumbnails ──────────────────────────────────────────────
+# The editor browser shows many media assets at once (hundreds for long
+# videos). Serving them at full resolution decodes hundreds of MB and
+# stalls the UI. `?path=<file>&thumb=1` serves a small cached JPEG
+# (images via Pillow, video poster frame via ffmpeg) instead.
+THUMB_WIDTH = 320
+
+IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tiff'}
+VIDEO_EXTS = {'.mp4', '.webm', '.mkv', '.mov', '.avi', '.m4v'}
+
+_thumb_lock = threading.Lock()
+
+
+def _get_ffmpeg_path() -> str:
+    exe = BIN_DIR / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    return str(exe) if exe.exists() else "ffmpeg"
+
+
+def _thumbnail_path_for(media_path: Path):
+    """Cache key includes file identity (mtime+size) so re-downloaded
+    assets regenerate their thumbnail automatically.
+
+    Returns None if the media file vanished (e.g. a re-download swapped
+    the file between the existence check and here) — callers must handle
+    it instead of crashing the request."""
+    try:
+        stat = media_path.stat()
+    except OSError:
+        return None
+    raw = f"{media_path}|{stat.st_mtime_ns}|{stat.st_size}"
+    key = hashlib.md5(raw.encode('utf-8')).hexdigest()[:20]
+    cache_dir = get_remotion_cache_dir() / "thumbs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{key}.jpg"
+
+
+def _placeholder_thumb_path() -> Path:
+    """One-shot placeholder JPEG served while a video thumbnail is generating
+    in the background. NOTE: this is a separate file with its own ETag — once
+    the real thumbnail exists the browser does NOT magically revalidate to it;
+    the client must re-request the URL (MediaSidebar retries video thumbs with
+    a cache-buster) for the real thumb to be served."""
+    cache_dir = get_remotion_cache_dir() / "thumbs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    placeholder = cache_dir / "_placeholder.jpg"
+    if not placeholder.exists():
+        with _thumb_lock:
+            if not placeholder.exists():
+                try:
+                    from PIL import Image
+                    img = Image.new("RGB", (THUMB_WIDTH, THUMB_WIDTH), (28, 25, 23))
+                    img.save(placeholder, "JPEG", quality=70)
+                except Exception:
+                    return None
+    return placeholder
+
+
+_thumb_queue = queue.Queue()
+_thumb_worker_started = False
+# Thumb paths currently queued or generating — dedupes the duplicate ffmpeg
+# jobs that repeated client retries would otherwise enqueue.
+_thumb_in_flight = set()
+
+
+def _enqueue_thumbnail(media_path: Path, thumb_path: Path, ext: str):
+    key = str(thumb_path)
+    with _thumb_lock:
+        if key in _thumb_in_flight:
+            return
+        _thumb_in_flight.add(key)
+    _thumb_queue.put((media_path, thumb_path, ext))
+
+
+def _ensure_thumbnail_worker():
+    global _thumb_worker_started
+    if _thumb_worker_started:
+        return
+    with _thumb_lock:
+        if _thumb_worker_started:
+            return
+        _thumb_worker_started = True
+
+        def worker():
+            while True:
+                media_path, thumb_path, ext = _thumb_queue.get()
+                try:
+                    _generate_thumbnail(media_path, thumb_path, ext)
+                except Exception:
+                    logger.warning(f"Background thumbnail generation failed for {media_path}")
+                finally:
+                    with _thumb_lock:
+                        _thumb_in_flight.discard(str(thumb_path))
+                    _thumb_queue.task_done()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+
+def _etag_for(media_path: Path, file_size: int) -> str:
+    """Weak ETag from file identity — lets the browser revalidate cheaply."""
+    try:
+        stat = media_path.stat()
+        tag = f"{stat.st_mtime_ns:x}-{stat.st_size:x}"
+    except Exception:
+        tag = f"x-{file_size:x}"
+    return f'W/"{tag}"'
+
+
+def _generate_thumbnail(media_path: Path, thumb_path: Path, ext: str) -> bool:
+    try:
+        if ext in VIDEO_EXTS:
+            cmd = [
+                _get_ffmpeg_path(), "-y",
+                "-ss", "0.5",
+                "-i", str(media_path),
+                "-vf", f"scale={THUMB_WIDTH}:-2",
+                "-frames:v", "1",
+                "-q:v", "5",
+                str(thumb_path),
+            ]
+            subprocess.run(cmd, capture_output=True, timeout=20, startupinfo=get_startupinfo())
+        else:
+            from PIL import Image
+            with Image.open(media_path) as img:
+                img = img.convert("RGB")
+                img.thumbnail((THUMB_WIDTH, THUMB_WIDTH))
+                img.save(thumb_path, "JPEG", quality=70)
+        return thumb_path.exists() and thumb_path.stat().st_size > 0
+    except Exception as e:
+        logger.warning(f"Thumbnail generation failed for {media_path}: {e}")
+        return False
+
 class MediaHandler(http.server.BaseHTTPRequestHandler):
+    def _send_thumb(self, thumb_path: Path):
+        """Serve a thumbnail JPEG with revalidation-friendly headers.
+
+        no-cache: the client retries the thumb URL (with a cache-buster)
+        until the real thumbnail replaces the placeholder; ETag keeps those
+        retries cheap via 304."""
+        thumb_size = thumb_path.stat().st_size
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/jpeg')
+        self.send_header('Content-Length', str(thumb_size))
+        origin = self.headers.get('Origin', '')
+        if _is_loopback_origin(origin):
+            self.send_header('Access-Control-Allow-Origin', origin)
+        self.send_header('ETag', _etag_for(thumb_path, thumb_size))
+        self.send_header('Cache-Control', 'private, no-cache')
+        self.end_headers()
+        with open(thumb_path, 'rb') as f:
+            shutil.copyfileobj(f, self.wfile)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         
@@ -198,10 +353,67 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        # Thumbnail request: serve the cached JPEG if present; otherwise
+        # generate image thumbs inline (Pillow, ~5ms) and queue only video
+        # poster frames (ffmpeg is slow). Video generation must NEVER block
+        # the request thread — hundreds of thumbs on first load would
+        # serialize 20s ffmpeg jobs and freeze the whole app.
+        if 'thumb' in params and (ext in IMAGE_EXTS or ext in VIDEO_EXTS):
+            thumb_path = _thumbnail_path_for(resolved_path)
+            if thumb_path is not None and thumb_path.exists():
+                try:
+                    self._send_thumb(thumb_path)
+                    return
+                except Exception:
+                    pass
+            if thumb_path is not None:
+                if ext in IMAGE_EXTS:
+                    # Images are cheap: generate inline so the first request
+                    # returns the real thumbnail. A placeholder would never
+                    # refresh on its own — the browser only revalidates when
+                    # the URL is requested again.
+                    if _generate_thumbnail(resolved_path, thumb_path, ext):
+                        try:
+                            self._send_thumb(thumb_path)
+                            return
+                        except Exception:
+                            pass
+                else:
+                    _ensure_thumbnail_worker()
+                    _enqueue_thumbnail(resolved_path, thumb_path, ext)
+            placeholder = _placeholder_thumb_path()
+            if placeholder is not None:
+                try:
+                    self._send_thumb(placeholder)
+                    return
+                except Exception:
+                    pass
+
         content_type = CONTENT_TYPES.get(ext, 'application/octet-stream')
-        file_size = resolved_path.stat().st_size
+        try:
+            file_size = resolved_path.stat().st_size
+        except OSError:
+            # Media file vanished between the existence check and here (e.g.
+            # a re-download swapped it in place) — never crash the handler.
+            self.send_response(404)
+            self.end_headers()
+            return
         file_path = str(resolved_path)
         range_header = self.headers.get('Range')
+
+        # Revalidate: media must never be served stale. Assets are re-downloaded
+        # in place by the pipeline while the app runs; `max-age` caching would
+        # serve the OLD bytes (or heuristically-cached 404s during a download)
+        # for the cache lifetime — seen as black/empty frames. `no-cache` keeps
+        # the browser round-trip cheap via If-None-Match → 304.
+        etag = _etag_for(resolved_path, file_size)
+        if_none_match = self.headers.get('If-None-Match')
+        if if_none_match and etag in [t.strip() for t in if_none_match.split(',')]:
+            self.send_response(304)
+            self.send_header('ETag', etag)
+            self.send_header('Cache-Control', 'private, no-cache')
+            self.end_headers()
+            return
 
         if range_header:
             try:
@@ -228,7 +440,10 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
             if _is_loopback_origin(origin):
                 self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Accept-Ranges', 'bytes')
-            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+            self.send_header('ETag', etag)
+            # no-cache: see revalidation note above — stale media is the #1
+            # cause of black/empty frames in the preview.
+            self.send_header('Cache-Control', 'private, no-cache')
             self.end_headers()
 
             try:
@@ -251,7 +466,10 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
             if _is_loopback_origin(origin):
                 self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Accept-Ranges', 'bytes')
-            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+            self.send_header('ETag', etag)
+            # no-cache: see revalidation note above — stale media is the #1
+            # cause of black/empty frames in the preview.
+            self.send_header('Cache-Control', 'private, no-cache')
             self.end_headers()
 
             try:

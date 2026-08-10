@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 import { useEditorStore } from '../../store/useEditorStore';
+import { usePlaybackStore } from '../../store/usePlaybackStore';
 import { FPS, HEADER_WIDTH, MIN_SCENE_DURATION_SECONDS } from './timelineConstants';
 
 import { TimelineRuler } from './components/TimelineRuler';
@@ -16,7 +17,6 @@ interface TimelineProps {
   liveScenes: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
   transcriptionData?: any;
-  currentFrame: number;
   onSeek: (frame: number) => void;
   onDeleteScene?: (index: number) => void;
   onResizeSubVisual?: (sceneIndex: number, newRatios: number[]) => void;
@@ -35,7 +35,6 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   liveScenes,
   sceneTimings,
   transcriptionData,
-  currentFrame,
   onSeek,
   onDeleteScene,
   onResizeSubVisual,
@@ -95,16 +94,23 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   const totalDuration = localTimings.length > 0 ? localTimings[localTimings.length - 1].end : 300;
   const totalW = Math.max((totalDuration / FPS) * timelineZoom + 100, 400);
 
+  // Follow the playhead while scrubbing — imperative scroll, no re-render.
+  const timelineZoomRef = useRef(timelineZoom);
+  timelineZoomRef.current = timelineZoom;
   useEffect(() => {
-    if (scrollRef.current && !dragRef.current && !isDraggingPlayheadRef.current) {
-      const playheadX = (currentFrame / FPS) * timelineZoom;
-      const containerWidth = scrollRef.current.clientWidth;
-      if (playheadX > scrollRef.current.scrollLeft + containerWidth - 100 ||
-          playheadX < scrollRef.current.scrollLeft + 100) {
-        scrollRef.current.scrollLeft = Math.max(0, playheadX - containerWidth / 2);
+    const unsub = usePlaybackStore.subscribe((s, prev) => {
+      if (s.currentFrame === prev.currentFrame) return;
+      if (scrollRef.current && !dragRef.current && !isDraggingPlayheadRef.current) {
+        const playheadX = (s.currentFrame / FPS) * timelineZoomRef.current;
+        const containerWidth = scrollRef.current.clientWidth;
+        if (playheadX > scrollRef.current.scrollLeft + containerWidth - 100 ||
+            playheadX < scrollRef.current.scrollLeft + 100) {
+          scrollRef.current.scrollLeft = Math.max(0, playheadX - containerWidth / 2);
+        }
       }
-    }
-  }, [currentFrame, timelineZoom]);
+    });
+    return unsub;
+  }, []);
 
   const startSubVisualResize = useCallback((e: React.MouseEvent, sceneIdx: number, subIdx: number) => {
     e.stopPropagation();
@@ -393,7 +399,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     isDraggingPlayheadRef.current = true;
 
     const getFrameFromMouse = (clientX: number) => {
-      if (!scrollRef.current) return currentFrame;
+      if (!scrollRef.current) return usePlaybackStore.getState().currentFrame;
       const rect = scrollRef.current.getBoundingClientRect();
       const x = clientX - rect.left + scrollRef.current.scrollLeft - HEADER_WIDTH;
       return Math.max(0, Math.floor((x / timelineZoom) * FPS));
@@ -418,7 +424,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     document.addEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = 'grabbing';
     document.body.style.userSelect = 'none';
-  }, [currentFrame, onSeek, timelineZoom]);
+  }, [onSeek, timelineZoom]);
 
   const isDraggingScene = dragState?.type === 'resize_sub_visual' || dragState?.type === 'resize_scene_boundary' || dragState?.type === 'resize_scene_absolute';
 
@@ -453,7 +459,6 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
             localTimings={localTimings}
             liveScenes={liveScenes}
             timelineZoom={timelineZoom}
-            currentFrame={currentFrame}
             hoveredSceneIdx={hoveredSceneIdx}
             hoveredSubVisual={hoveredSubVisual}
             isDraggingScene={isDraggingScene}
@@ -515,7 +520,6 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
           )}
 
           <TimelinePlayhead
-            currentFrame={currentFrame}
             timelineZoom={timelineZoom}
             onStartDrag={startPlayheadDrag}
           />

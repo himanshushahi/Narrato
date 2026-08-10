@@ -1,5 +1,5 @@
-import { useMemo, useCallback } from 'react';
-import { Sequence, Audio, useVideoConfig, getRemotionEnvironment } from 'remotion';
+import React, { useMemo, useCallback } from 'react';
+import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
 import { PanScanImage } from './PanScanImage';
@@ -78,6 +78,58 @@ export interface SceneTiming {
   end: number;
   text: string;
 }
+
+// ── Time-window virtualization gates ────────────────────────────────────────
+// Heavy scene/sub-visual trees are only mounted while the playhead is near.
+// Defined at module scope so their component identity is stable across frames;
+// each gate re-renders on frame change (useCurrentFrame) and bails out on the
+// placeholder for distant content. Applies during preview AND headless
+// rendering (no isRendering exemption): each rendered frame's DOM then holds
+// ~1-3 scenes instead of all 250 visuals, which prevents the OOM/GPU timeout
+// hang on 10-15 minute videos.
+
+const BLACK_PLACEHOLDER_STYLE: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  backgroundColor: '#0c0a09',
+};
+
+const SceneGate: React.FC<{
+  from: number;
+  durationInFrames: number;
+  children: React.ReactNode;
+}> = ({ from, durationInFrames, children }) => {
+  // useCurrentFrame at composition-root level = the global frame. The
+  // Sequence is only mounted while the playhead is near, so the gate is a
+  // real decision here (unlike rendering it inside the Sequence, where
+  // Remotion already drops inactive trees and the check is tautological).
+  const frame = useCurrentFrame();
+  // Buffer: mount -90f before start, keep +120f past end
+  const isNear = frame >= from - 90 && frame <= from + durationInFrames + 120;
+  return isNear ? (
+    <Sequence from={from} durationInFrames={durationInFrames}>
+      {children}
+    </Sequence>
+  ) : (
+    <div style={BLACK_PLACEHOLDER_STYLE} />
+  );
+};
+
+const SubGate: React.FC<{
+  subFrom: number;
+  subDuration: number;
+  children: React.ReactNode;
+}> = ({ subFrom, subDuration, children }) => {
+  // frame is scene-relative here (SubGate lives inside SceneGate's Sequence).
+  const frame = useCurrentFrame();
+  // Buffer: mount -60f before start, keep +90f past end
+  const isNear = frame >= subFrom - 60 && frame <= subFrom + subDuration + 90;
+  return isNear ? (
+    <Sequence from={subFrom} durationInFrames={subDuration}>
+      {children}
+    </Sequence>
+  ) : null;
+};
 
 export const NitishRajputComposition = ({
   audioUrl,
@@ -210,10 +262,12 @@ export const NitishRajputComposition = ({
         videoVolume={muteVideoAudio ? 0 : (subVis.videoVolume || 0)}
       />
     );
-  }, [subtitleSettings]);
+  }, [subtitleSettings, muteVideoAudio]);
 
-  // Pre-calculate and memoize the entire timeline tree.
-  // This drastically reduces React reconciliation during video playback.
+  // ── Time-window virtualization ──────────────────────────────────────────────
+  // Pre-calculate and memoize the timeline tree once; per-frame virtualization
+  // decisions are made inside the module-scope SceneGate/SubGate components,
+  // so the memo only recomputes when scenes/settings actually change.
   const renderedScenes = useMemo(() => {
     let frameOffset = 0;
     return scenes.map((scene, idx) => {
@@ -222,45 +276,34 @@ export const NitishRajputComposition = ({
       frameOffset += durationFrames;
 
       const subVisuals = scene.sub_visuals || [];
-      const numSubs = subVisuals.length;
+      const timings = subVisuals.length > 0 ? calculateSubVisualTimings(subVisuals, durationFrames, 0) : [];
 
       return (
-        <Sequence
-          key={`scene-${idx}`}
-          from={currentOffset}
-          durationInFrames={durationFrames}
-        >
-          {numSubs > 0 ? (() => {
-            const timings = calculateSubVisualTimings(subVisuals, durationFrames, 0);
+        <SceneGate key={`scene-${idx}`} from={currentOffset} durationInFrames={durationFrames}>
+          {subVisuals.map((subVis, subIdx) => {
+            const timing = timings[subIdx];
+            const subFrom = timing.start;
+            const subDuration = Math.max(1, timing.end - timing.start);
+            const htmlUiMeta = subVis.visual_meta?.custom_html_ui;
 
-            return subVisuals.map((subVis, subIdx) => {
-              const timing = timings[subIdx];
-              const subFrom = timing.start;
-              const subDuration = Math.max(1, timing.end - timing.start);
-              
-              const htmlUiMeta = subVis.visual_meta?.custom_html_ui;
+            return (
+              <SubGate
+                key={`sub-${subIdx}`}
+                subFrom={subFrom}
+                subDuration={subDuration}
+              >
+                <TransitionWrapper durationInFrames={subDuration} type={subVis.transition_type}>
+                  {renderSubVisual(subVis, subDuration)}
+                </TransitionWrapper>
+                {htmlUiMeta && (
+                  <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
+                    <CustomHtmlUiOverlay meta={htmlUiMeta} />
+                  </div>
+                )}
+              </SubGate>
+            );
+          })}
 
-              return (
-                <Sequence
-                  key={`sub-${subIdx}`}
-                  from={subFrom}
-                  durationInFrames={subDuration}
-                >
-                  <TransitionWrapper durationInFrames={subDuration} type={subVis.transition_type}>
-                    {renderSubVisual(subVis, subDuration)}
-                  </TransitionWrapper>
-                  {htmlUiMeta && (
-                    <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
-                      <CustomHtmlUiOverlay meta={htmlUiMeta} />
-                    </div>
-                  )}
-                </Sequence>
-              );
-            });
-          })() : (
-            <div style={{ width: '100%', height: '100%', backgroundColor: '#0c0a09' }} />
-          )}
-          
           {!subtitleSettings?.hide_chapter_name && scene.title && (
             <div style={{
               position: 'absolute',
@@ -280,7 +323,7 @@ export const NitishRajputComposition = ({
               {scene.title}
             </div>
           )}
-        </Sequence>
+        </SceneGate>
       );
     });
   }, [scenes, subtitleSettings, renderSubVisual]);

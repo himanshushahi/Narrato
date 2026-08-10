@@ -11,7 +11,7 @@ import { CustomAudioPlayer } from '../../components/ui/CustomAudioPlayer';
 import { useEditorStore, LeftPanelTab } from '../../store/useEditorStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { callApi } from '../../utils/call-api';
-import { getMediaUrlSync } from '../../utils/mediaUrl';
+import { getMediaUrlSync, getMediaThumbUrl } from '../../utils/mediaUrl';
 import { formatTime } from '../../features/ProjectEditor/constants';
 import { useProjectAssets, AssetEntry } from './hooks/useProjectAssets';
 
@@ -737,6 +737,12 @@ const AssetsEmptyState: React.FC<{
   );
 };
 
+// Video posters are generated asynchronously by the file server (ffmpeg);
+// retry the thumb URL with a cache-buster until the real thumbnail is
+// served. Images are generated synchronously and never need this.
+const THUMB_RETRY_DELAY_MS = 2500;
+const THUMB_MAX_RETRIES = 6;
+
 const AssetThumbnail: React.FC<{
   asset: AssetEntry;
   isFetching: boolean;
@@ -744,41 +750,64 @@ const AssetThumbnail: React.FC<{
 }> = ({ asset, isFetching, size = 'small' }) => {
   const hasFile = asset.fileExists && !asset.isProgrammatic;
   const ext = asset.extension || (asset.visualPath ? '.' + asset.visualPath.split('.').pop() : '');
+  const [videoHovered, setVideoHovered] = useState(false);
 
-  if (hasFile && isImageFile(ext) && asset.visualUrl) {
-    return (
-      <img
-        src={asset.visualUrl}
-        alt={asset.visualCue || ''}
-        className="w-full h-full object-cover"
-        loading="lazy"
-        draggable={false}
-      />
-    );
-  }
+  // Video posters are generated asynchronously by the file server (ffmpeg) —
+  // the first request returns a placeholder that never refreshes on its own,
+  // so re-request the URL with a cache-buster until the real thumbnail is
+  // served. Image thumbs are generated synchronously and never need this.
+  const [thumbAttempt, setThumbAttempt] = useState(0);
+  useEffect(() => {
+    if (thumbAttempt >= THUMB_MAX_RETRIES) return;
+    if (!isVideoFile(ext)) return;
+    const t = setTimeout(() => setThumbAttempt(a => a + 1), THUMB_RETRY_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [thumbAttempt, ext]);
 
-  if (hasFile && isVideoFile(ext) && asset.visualUrl) {
+  // Images and videos both render a small thumbnail instead of the
+  // full-resolution file (hundreds of full-size media elements previously
+  // mounted at once for long videos). Videos only mount the real <video>
+  // element while hovered, for a lightweight motion preview.
+  if (hasFile && (isImageFile(ext) || isVideoFile(ext))) {
+    const thumbSrc = (getMediaThumbUrl(asset.visualPath) + (asset.lastModified ? `&v=${asset.lastModified}` : '')) + `&r=${thumbAttempt}`;
+    const isVideo = isVideoFile(ext);
     const playCircleClass = size === 'small' ? 'w-4 h-4' : 'w-8 h-8';
     const playIconClass = size === 'small' ? 'text-[7px] ml-px' : 'text-sm ml-0.5';
 
     return (
-      <div className="relative w-full h-full">
-        <video
-          src={asset.visualUrl}
+      <div
+        className="relative w-full h-full"
+        onMouseEnter={() => { if (isVideo) setVideoHovered(true); }}
+        onMouseLeave={() => setVideoHovered(false)}
+      >
+        <img
+          src={thumbSrc}
+          alt={asset.visualCue || ''}
           className="w-full h-full object-cover"
-          preload="metadata"
-          muted
-          playsInline
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget;
-            v.currentTime = Math.min(0.5, v.duration / 2);
-          }}
+          loading="lazy"
+          draggable={false}
         />
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className={`${playCircleClass} rounded-full bg-black/50 flex items-center justify-center`}>
-            <VscPlay className={`text-blue-300 ${playIconClass}`} />
+        {videoHovered && asset.visualUrl && (
+          <video
+            src={asset.visualUrl}
+            className="absolute inset-0 w-full h-full object-cover"
+            preload="metadata"
+            muted
+            playsInline
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget;
+              v.currentTime = Math.min(0.5, v.duration / 2);
+              v.play().catch(() => {});
+            }}
+          />
+        )}
+        {isVideo && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className={`${playCircleClass} rounded-full bg-black/50 flex items-center justify-center`}>
+              <VscPlay className={`text-blue-300 ${playIconClass}`} />
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
@@ -831,6 +860,12 @@ const getAssetContainerClasses = (hasFile: boolean, isProgrammatic: boolean, isG
   return `${baseClasses} ${stateClasses}`;
 };
 
+/** Browser-level virtualization: skips rendering offscreen asset rows. */
+const assetContainerStyle = (isGrid: boolean) => ({
+  contentVisibility: 'auto' as const,
+  containIntrinsicSize: isGrid ? 'auto 140px' : 'auto 64px',
+});
+
 /** Single asset item in list view */
 const AssetListItem: React.FC<{
   asset: AssetEntry;
@@ -843,6 +878,7 @@ const AssetListItem: React.FC<{
     <div
       onClick={onClick}
       className={getAssetContainerClasses(hasFile, !!asset.isProgrammatic, false)}
+      style={assetContainerStyle(false)}
     >
       <div className="w-9 h-9 shrink-0 rounded-md overflow-hidden bg-zinc-800/80 border border-zinc-700/40 flex items-center justify-center">
         <AssetThumbnail asset={asset} isFetching={isFetching} size="small" />
@@ -910,6 +946,7 @@ const AssetGridItem: React.FC<{
     <div
       onClick={onClick}
       className={getAssetContainerClasses(hasFile, !!asset.isProgrammatic, true)}
+      style={assetContainerStyle(true)}
     >
       {/* Thumbnail area — image preview for photos, video poster for videos */}
       <div className="aspect-video bg-zinc-800/60 flex items-center justify-center overflow-hidden relative">

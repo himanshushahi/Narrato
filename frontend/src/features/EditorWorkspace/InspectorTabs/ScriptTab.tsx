@@ -14,7 +14,6 @@ interface ScriptTabProps {
   scriptData: any;
   manifestData: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
-  currentFrame: number;
   activeSceneIdx: number;
   activeSubIdx: number;
   editingCard: { key: string, mode: 'script' | 'visuals' } | null;
@@ -39,14 +38,14 @@ interface ScriptTabProps {
   uploadingSubVisual?: string | null;
 }
 
-export const ScriptTab: React.FC<ScriptTabProps> = ({
+export const ScriptTab = React.memo(function ScriptTab({
   scriptData, sceneTimings, activeSceneIdx, activeSubIdx,
   editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection,
   onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
   onPreviewSubVisual, previewingSubVisual,
   onUploadSubVisual, uploadingSubVisual
-}) => {
+}: ScriptTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -493,7 +492,8 @@ export const ScriptTab: React.FC<ScriptTabProps> = ({
 
     </div>
   );
-};
+});
+ScriptTab.displayName = 'ScriptTab';
 
 /* ══════════════════════════════════════════
    Section Card
@@ -554,7 +554,6 @@ const SceneCard: React.FC<SceneCardProps> = ({
   onCardClick, onEditScript, onEditVisuals, onSave, onCancel, onDelete, disabled
 }) => (
   <motion.div
-    layout
     data-active-scene={isActive ? 'true' : undefined}
     className={`relative rounded-xl border overflow-hidden transition-all ${
       isEditing

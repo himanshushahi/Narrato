@@ -12,6 +12,13 @@ export function getMediaUrlSync(filePath: string | undefined | null): string {
   return `/api/media?path=${encodeURIComponent(filePath)}`;
 }
 
+/** URL for a small on-demand thumbnail (images + video poster frames). */
+export function getMediaThumbUrl(filePath: string | undefined | null): string {
+  if (!filePath) return '';
+  const base = getMediaUrlSync(filePath);
+  return `${base}&thumb=1`;
+}
+
 export async function getMediaUrl(filePath: string): Promise<string> {
   if (!filePath) return '';
   // Ensure the port is fetched if not yet available, though typically pywebviewready handles this
