@@ -3,6 +3,7 @@ import { useProjectStore } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { callApi, callApiOrThrow } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
+import { getValidVisualType } from '../../../utils/visualType';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -504,19 +505,40 @@ export function useScriptEditing(
       manifestIdx = sceneIdx + (hasIntro ? 1 : 0);
     }
 
+    // Read the current type from scriptData — the same live source the UI
+    // renders — and normalize it (getValidVisualType) so the backend's
+    // strict video/image decision matches the button the user clicked.
+    // Reading from manifestData here could be stale (an unsaved type change)
+    // or carry a fuzzy label that the backend rejects.
+    let rawVisualType = '';
+    if (sectionType === 'introduction') {
+      rawVisualType = scriptData.introduction?.sub_visuals?.[subIdx]?.visual_type || '';
+    } else if (sectionType === 'conclusion') {
+      rawVisualType = scriptData.conclusion?.sub_visuals?.[subIdx]?.visual_type || '';
+    } else {
+      rawVisualType = scriptData.scenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.visual_type || '';
+    }
+    const visualType = getValidVisualType(rawVisualType);
+
     setUploadingSubVisual(assetKey);
     try {
       const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
-        'upload_sub_visual_image', projectId, manifestIdx, subIdx
+        'upload_sub_visual_media', projectId, manifestIdx, subIdx, visualType
       );
       if (result?.success && result.visual_path) {
         const vPath: string = result.visual_path;
         const visualUrl = `${getMediaUrlSync(vPath)}&t=${Date.now()}`;
+        // Re-uploading over an existing preview orphans the replaced file
+        // (videos can be hundreds of MB) — delete it right away, best-effort.
+        const existing = previewAssets[assetKey];
+        if (existing?.visual_path && existing.visual_path !== vPath) {
+          callApi('cleanup_preview_assets', projectId, [existing.visual_path]).catch(() => {});
+        }
         setPreviewAssets(prev => ({
           ...prev,
           [assetKey]: { visual_path: vPath, visual_url: visualUrl }
         }));
-        addToast("Image uploaded successfully!", 'success');
+        addToast("Media uploaded successfully!", 'success');
       } else {
         addToast("Upload failed: " + (result?.error || "Unknown error"), 'error');
       }
@@ -526,7 +548,7 @@ export function useScriptEditing(
     } finally {
       setUploadingSubVisual(null);
     }
-  }, [projectId, scriptData, manifestData, addToast]);
+  }, [projectId, scriptData, manifestData, previewAssets, addToast]);
 
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;

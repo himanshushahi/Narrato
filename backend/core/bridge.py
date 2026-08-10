@@ -68,6 +68,61 @@ def _safe_float(val, default: float = 0.0) -> float:
         return default
 
 
+def _probe_video_codec(path_str: str):
+    """Return (ok, codec_name) for the first video stream via the bundled ffprobe.
+
+    Chrome/Chromium (both the WebView2 preview and Remotion's headless-Chrome
+    export) can only decode H.264/AVC, VP8, VP9 and AV1. HEVC/H.265 files
+    (iPhone/GoPro/DJI default) pass a container-extension check and play in the
+    preview, but produce a black clip in the export — so the codec is validated
+    at upload time instead. Returns ok=False with codec 'none' when the file has
+    no video stream, and 'unknown' when ffprobe itself failed.
+    """
+    import subprocess
+    from backend.core.config import get_ffprobe_path, get_startupinfo
+    try:
+        cmd = [
+            get_ffprobe_path(), "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name",
+            "-of", "csv=p=0",
+            str(path_str),
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=30, startupinfo=get_startupinfo())
+        codec = result.stdout.decode("utf-8", errors="ignore").strip().lower()
+        if not codec:
+            return False, "none"
+        return codec in ("h264", "vp8", "vp9", "av1"), codec
+    except Exception as e:
+        logger.warning(f"FFprobe failed for {path_str}: {e}")
+        return False, "unknown"
+
+
+def _sweep_stale_uploads(project_id: str, max_age_seconds: int = 3600):
+    """Delete abandoned preview uploads for a project.
+
+    Every upload copies a fresh previews/upload_<uuid>.<ext> file. Files orphaned
+    by an app close without save, or by an upload that was cancelled before the
+    edit was committed, would otherwise linger forever — with multi-hundred-MB
+    video uploads that is real disk churn. Anything older than max_age_seconds
+    is presumed abandoned (an active session finalizes within minutes)."""
+    import time
+    from backend.core.config import get_storage_dir
+    preview_dir = get_storage_dir() / project_id / "assets" / "previews"
+    if not preview_dir.exists():
+        return
+    now = time.time()
+    for f in preview_dir.iterdir():
+        try:
+            if not f.name.startswith("upload_"):
+                continue
+            if now - f.stat().st_mtime > max_age_seconds:
+                f.unlink()
+                logger.info(f"Swept stale preview upload: {f}")
+        except OSError:
+            pass
+
+
 def _get_design_system_prompt(project_id: str) -> str:
     from backend.core.config import get_storage_dir
     from backend.pipeline.ai import format_design_system_prompt
@@ -1387,29 +1442,67 @@ class ApiBridge:
             logger.error(f"Failed to cleanup preview assets: {e}")
             return {"success": False, "error": str(e)}
 
-    def upload_sub_visual_image(self, project_id: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
-        logger.info(f"Bridge API: upload_sub_visual_image for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
+    def upload_sub_visual_media(self, project_id: str, manifest_scene_index: int, sub_visual_index: int, visual_type: str = "") -> dict:
+        logger.info(f"Bridge API: upload_sub_visual_media for project {project_id} [{manifest_scene_index}:{sub_visual_index}] (visual_type: {visual_type})")
         import webview
         window = self._get_window()
         if not window:
             return {"success": False, "error": "No window available for file dialog"}
 
+        # Video/image is decided by the layer type: scene (and youtube, kept
+        # for API compatibility) accept video only; image visuals accept images
+        # only. .mov/.avi stay rejected: Chromium (the WebView2 preview AND
+        # Remotion's headless-Chrome export) cannot decode those containers,
+        # and the media detection in PanScanImage only handles .mp4/.webm.
+        is_video_type = visual_type in ('scene', 'youtube')
+        file_types = ('Video Files (*.mp4;*.webm)',) if is_video_type else ('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
+        allowed_exts = (".mp4", ".webm") if is_video_type else (".jpg", ".jpeg", ".png", ".webp", ".gif")
+
         try:
             result = window.create_file_dialog(
                 dialog_type=webview.OPEN_DIALOG,
                 allow_multiple=False,
-                file_types=('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
+                file_types=file_types
             )
             if not result:
                 return {"success": False, "error": "No file selected"}
             src_path = Path(result[0])
         except Exception as e:
-            logger.error(f"upload_sub_visual_image file dialog error: {e}")
+            logger.error(f"upload_sub_visual_media file dialog error: {e}")
             return {"success": False, "error": str(e)}
 
+        _sweep_stale_uploads(project_id)
+
         ext = src_path.suffix.lower()
-        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
-            return {"success": False, "error": f"Unsupported file extension '{ext}'. Use .jpg, .jpeg, .png, .webp, or .gif"}
+        if ext not in allowed_exts:
+            media_type = "video" if is_video_type else "image"
+            return {"success": False, "error": f"Unsupported file extension '{ext}'. Please upload a valid {media_type} file ({'; '.join(allowed_exts)})."}
+
+        is_video = is_video_type
+
+        # Container extensions lie: a .mp4 can hold HEVC/H.265 (iPhone/GoPro/DJI
+        # default), which WebView2 previews fine but the headless-Chrome export
+        # cannot decode — that is a black clip discovered at export time. Verify
+        # the actual codec before copying anything.
+        if is_video:
+            codec_ok, codec_name = _probe_video_codec(str(src_path))
+            if not codec_ok:
+                if codec_name in ("none", "unknown"):
+                    return {"success": False, "error": f"Video rejected: no decodable video stream could be verified ({codec_name}). Please upload an H.264/AVC, VP9, or AV1 encoded video."}
+                return {"success": False, "error": f"Video codec '{codec_name}' is not supported for rendering (Chrome can only decode H.264/AVC, VP8, VP9, AV1). Please re-encode or upload a compatible file."}
+
+        # Cap upload sizes: videos run 50-500 MB, images (incl. archival scans
+        # for document/portrait layers) are smaller. Reject oversize files before
+        # copying so disk usage stays bounded.
+        max_size_bytes = (500 * 1024 * 1024) if is_video else (50 * 1024 * 1024)
+        max_size_mb = 500 if is_video else 50
+        media_type = "video" if is_video else "image"
+        try:
+            src_size = src_path.stat().st_size
+        except OSError:
+            return {"success": False, "error": "Could not read the selected file."}
+        if src_size > max_size_bytes:
+            return {"success": False, "error": f"File is {src_size / (1024 * 1024):.0f} MB, exceeding the {max_size_mb} MB limit for {media_type} uploads."}
 
         from backend.core.config import get_storage_dir
         import uuid
@@ -1444,7 +1537,7 @@ class ApiBridge:
             return {"success": False, "error": "Preview file not found"}
 
         ext = src.suffix.lower()
-        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm"):
             return {"success": False, "error": f"Unsupported extension: {ext}"}
 
         from backend.core.config import get_storage_dir
@@ -1454,8 +1547,10 @@ class ApiBridge:
 
         dest_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{ext}"
 
-        # Clean up old asset with different extension at this position
-        for old_ext in (".mp4", ".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        # Clean up old asset with a different extension at this position —
+        # cover every extension that was ever uploadable, including legacy
+        # .mov/.avi files uploaded before they were restricted.
+        for old_ext in (".mp4", ".webm", ".mov", ".avi", ".jpg", ".jpeg", ".png", ".webp", ".gif"):
             if old_ext == ext:
                 continue
             old_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{old_ext}"
