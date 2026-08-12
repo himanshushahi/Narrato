@@ -1,3 +1,4 @@
+import { useCallback, useRef } from 'react';
 import { BiReset } from 'react-icons/bi';
 
 // ─── Parallax defaults (mirrors component defaults) ─────────────
@@ -42,19 +43,36 @@ export const ParallaxEditor = ({
   const strVal = (key: 'camera_path'): string =>
     p[key] ?? DEFAULTS[key];
 
-  const update = (key: string, v: number | string) => {
-    onChange({
-      ...visualMeta,
-      parallax: { ...p, [key]: v },
-    });
-  };
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const visualMetaRef = useRef(visualMeta);
+  visualMetaRef.current = visualMeta;
+  const parallaxRef = useRef(p);
+  parallaxRef.current = p;
 
-  const resetAll = () => {
-    onChange({
-      ...visualMeta,
+  // Stable per-key handlers (created once, cached by key) that read the
+  // latest state via refs, so SliderField's memo can skip the sliders whose
+  // value didn't change on each drag tick.
+  const handlerCache = useRef<Record<string, (v: number | string) => void>>({});
+  const getHandler = useCallback((key: string) => {
+    const cache = handlerCache.current;
+    if (!cache[key]) {
+      cache[key] = (v: number | string) => {
+        onChangeRef.current({
+          ...visualMetaRef.current,
+          parallax: { ...parallaxRef.current, [key]: v },
+        });
+      };
+    }
+    return cache[key];
+  }, []);
+
+  const resetAll = useCallback(() => {
+    onChangeRef.current({
+      ...visualMetaRef.current,
       parallax: { ...DEFAULTS },
     });
-  };
+  }, []);
 
   return (
     <div className="col-span-2 space-y-5 mt-3 pt-3 border-t border-white/5">
@@ -92,7 +110,7 @@ export const ParallaxEditor = ({
             <button
               key={cp.value}
               type="button"
-              onClick={() => update('camera_path', cp.value)}
+              onClick={() => getHandler('camera_path')(cp.value)}
               className={`text-[10px] px-3 py-1.5 rounded-lg font-semibold transition-all duration-300 cursor-pointer ${
                 strVal('camera_path') === cp.value
                   ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]'
@@ -114,7 +132,7 @@ export const ParallaxEditor = ({
           max={100}
           step={5}
           unit="%"
-          onChange={v => update('strength', v)}
+          onChange={getHandler('strength')}
         />
         <SliderField
           label="Background Zoom Min"
@@ -122,7 +140,7 @@ export const ParallaxEditor = ({
           min={1.0}
           max={1.5}
           step={0.05}
-          onChange={v => update('bg_zoom_min', v)}
+          onChange={getHandler('bg_zoom_min')}
         />
         <SliderField
           label="Background Zoom Max"
@@ -130,7 +148,7 @@ export const ParallaxEditor = ({
           min={1.0}
           max={1.8}
           step={0.05}
-          onChange={v => update('bg_zoom_max', v)}
+          onChange={getHandler('bg_zoom_max')}
         />
         <SliderField
           label="Foreground Zoom Min"
@@ -138,7 +156,7 @@ export const ParallaxEditor = ({
           min={0.8}
           max={1.5}
           step={0.05}
-          onChange={v => update('fg_zoom_min', v)}
+          onChange={getHandler('fg_zoom_min')}
         />
         <SliderField
           label="Foreground Zoom Max"
@@ -146,7 +164,7 @@ export const ParallaxEditor = ({
           min={0.8}
           max={2.0}
           step={0.05}
-          onChange={v => update('fg_zoom_max', v)}
+          onChange={getHandler('fg_zoom_max')}
         />
         <SliderField
           label="Background Blur"
@@ -155,7 +173,7 @@ export const ParallaxEditor = ({
           max={15}
           step={1}
           unit="px"
-          onChange={v => update('bg_blur', v)}
+          onChange={getHandler('bg_blur')}
         />
         <SliderField
           label="Horizontal Drift"
@@ -164,7 +182,7 @@ export const ParallaxEditor = ({
           max={120}
           step={5}
           unit="px"
-          onChange={v => update('drift_x', v)}
+          onChange={getHandler('drift_x')}
         />
         <SliderField
           label="Vertical Drift"
@@ -173,7 +191,7 @@ export const ParallaxEditor = ({
           max={80}
           step={5}
           unit="px"
-          onChange={v => update('drift_y', v)}
+          onChange={getHandler('drift_y')}
         />
         <SliderField
           label="Y-Axis Rotation"
@@ -182,7 +200,7 @@ export const ParallaxEditor = ({
           max={15}
           step={1}
           unit="°"
-          onChange={v => update('rotate_y', v)}
+          onChange={getHandler('rotate_y')}
         />
         <SliderField
           label="Depth Z Separation"
@@ -191,7 +209,7 @@ export const ParallaxEditor = ({
           max={200}
           step={10}
           unit="px"
-          onChange={v => update('depth_z', v)}
+          onChange={getHandler('depth_z')}
         />
       </div>
 

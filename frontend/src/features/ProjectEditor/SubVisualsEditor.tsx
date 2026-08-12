@@ -16,12 +16,25 @@ import { VISUAL_TYPE_OPTIONS, TRANSITION_TYPE_OPTIONS, formatTime, getDefaultMet
 import { getValidVisualType } from '../../utils/visualType';
 import { BiTrashAlt } from 'react-icons/bi';
 import { BsPlus, BsStars, BsSendFill, BsEye, BsUpload } from 'react-icons/bs';
-import { useState, Fragment, useEffect } from 'react';
+import { useState, Fragment, useEffect, useRef, useCallback } from 'react';
 
 export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, previewingSubVisual, onPreviewSubVisual, onUploadSubVisual, uploadingSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, previewingSubVisual?: string | null, onPreviewSubVisual?: (idx: number) => void, onUploadSubVisual?: (idx: number) => void, uploadingSubVisual?: string | null }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
+
+  // Keep the latest array in a ref so rapid consecutive edits build on top of
+  // each other, and only resync when the prop actually changes.
+  const latestSubVisualsRef = useRef(subVisuals);
+  const prevSubVisualsRef = useRef(subVisuals);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => {
+    if (prevSubVisualsRef.current !== subVisuals) {
+      prevSubVisualsRef.current = subVisuals;
+      latestSubVisualsRef.current = subVisuals;
+    }
+  });
 
   useEffect(() => {
     if (activeIdx === undefined || activeIdx < 0) return;
@@ -31,8 +44,8 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
     }
   }, [activeIdx]);
 
-  const handleUpdate = (idx: number, field: string, val: any) => {
-    const copy = [...subVisuals];
+  const handleUpdate = useCallback((idx: number, field: string, val: any) => {
+    const copy = [...latestSubVisualsRef.current];
     copy[idx] = { ...copy[idx] };
 
     if (field === 'visual_type' && copy[idx][field] === val) {
@@ -48,27 +61,46 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
     if (field === 'visual_type') {
       copy[idx].visual_meta = getDefaultMetaForType(val, copy[idx].visual_meta);
     }
-    onChange(copy);
-  };
+    latestSubVisualsRef.current = copy;
+    onChangeRef.current(copy);
+  }, []);
 
-  const handleUpdateMeta = (idx: number, newMeta: any) => {
-    const copy = [...subVisuals];
+  const handleUpdateMeta = useCallback((idx: number, newMeta: any) => {
+    const copy = [...latestSubVisualsRef.current];
     copy[idx] = { ...copy[idx], visual_meta: newMeta };
-    onChange(copy);
-  };
+    latestSubVisualsRef.current = copy;
+    onChangeRef.current(copy);
+  }, []);
+
+  // Stable per-idx TransformEditor handler (cached by idx) so TransformEditor's
+  // memo can skip re-rendering when the editor re-renders for unrelated
+  // reasons (AI prompt typing, other sub-visual edits).
+  const transformHandlerCache = useRef<Record<number, (nt: any) => void>>({});
+  const getTransformHandler = useCallback((idx: number) => {
+    const cache = transformHandlerCache.current;
+    if (!cache[idx]) {
+      cache[idx] = (nt: any) => handleUpdate(idx, 'transform', nt);
+    }
+    return cache[idx];
+  }, [handleUpdate]);
 
   const handleAdd = () => {
-    onChange([...subVisuals, { visual_type: 'scene', visual_cue: '', visual_meta: {} }]);
+    const copy = [...latestSubVisualsRef.current, { visual_type: 'scene', visual_cue: '', visual_meta: {} }];
+    latestSubVisualsRef.current = copy;
+    onChange(copy);
   };
 
   const handleInsert = (idx: number) => {
-    const copy = [...subVisuals];
+    const copy = [...latestSubVisualsRef.current];
     copy.splice(idx, 0, { visual_type: 'scene', visual_cue: '', visual_meta: {} });
+    latestSubVisualsRef.current = copy;
     onChange(copy);
   };
 
   const handleRemove = (idx: number) => {
-    onChange(subVisuals.filter((_: any, i: number) => i !== idx));
+    const copy = latestSubVisualsRef.current.filter((_: any, i: number) => i !== idx);
+    latestSubVisualsRef.current = copy;
+    onChange(copy);
   };
 
   return (
@@ -80,11 +112,12 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
       <SubVisualsDurationBar 
         subVisuals={subVisuals} 
         onChange={(ratios) => {
-          const copy = [...subVisuals];
+          const copy = [...latestSubVisualsRef.current];
           ratios.forEach((r, i) => {
              copy[i].duration_ratio = r;
              copy[i].duration = r * ((totalDurationFrames || 0) / 30);
           });
+          latestSubVisualsRef.current = copy;
           onChange(copy);
         }} 
         totalDurationFrames={totalDurationFrames || 0} 
@@ -129,7 +162,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
             {aiPromptIdx === idx && onRewriteSubVisual && (
               <div className="bg-amber-950/40 p-2.5 rounded border border-amber-900/50 mt-8 mb-2 relative" onClick={e => e.stopPropagation()}>
                 <div className="flex gap-2">
-                  <input 
+                  <CustomInput 
                     autoFocus
                     type="text" 
                     placeholder={`e.g. Change this to a stunning network diagram...`}
@@ -177,7 +210,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
             </div>
             <div className="grid grid-cols-2 gap-4" onClick={e => e.stopPropagation()}>
               <div className="col-span-2">
-                <CustomInput label="Visual Cue Keyword" type="text" placeholder="e.g. A bustling city at night..." value={sv.visual_cue || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
+                <CustomInput label="Visual Cue Keyword" type="text" placeholder="e.g. A bustling city at night..." value={(latestSubVisualsRef.current[idx]?.visual_cue) || ''} onChange={(e) => handleUpdate(idx, 'visual_cue', e.target.value)} />
               </div>
               <div className="col-span-1">
                 <CustomSelect label="Layer Type" options={VISUAL_TYPE_OPTIONS} value={getValidVisualType(sv.visual_type)} onChange={(val) => handleUpdate(idx, 'visual_type', val)} />
@@ -233,7 +266,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               {/* Always-visible Camera Transform controls */}
               <TransformEditor
                 transform={sv.transform}
-                onChange={(newTransform) => handleUpdate(idx, 'transform', newTransform)}
+                onChange={getTransformHandler(idx)}
               />
 
               {sv.visual_type === 'youtube' && (

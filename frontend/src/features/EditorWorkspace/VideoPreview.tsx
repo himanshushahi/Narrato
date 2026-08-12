@@ -35,6 +35,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
 }) => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
+  const previewQuality = useEditorStore((s) => s.previewQuality);
+  const setPreviewQuality = useEditorStore((s) => s.setPreviewQuality);
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const [zoom, setZoom] = React.useState<'fit' | '100' | '150'>('fit');
   const [showOverlay, setShowOverlay] = React.useState(false);
@@ -67,6 +69,35 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
       fullscreenToggleRef.current = toggleFullscreen;
     }
   }, [fullscreenToggleRef, toggleFullscreen]);
+
+  // Restore playhead seamlessly when quality toggle remounts the player.
+  // The new Player may not be ready immediately, so retry the seek until it
+  // sticks (or ~1s elapses), and only resume playback if still playing — a
+  // pause during the restore window is respected.
+  React.useEffect(() => {
+    const frameToSeek = usePlaybackStore.getState().currentFrame;
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      if (++attempts > 20) {
+        window.clearInterval(timer);
+        return;
+      }
+      try {
+        const player = playerRef.current;
+        if (!player) return;
+        player.seekTo(frameToSeek);
+        if (useEditorStore.getState().isPlaying) player.play();
+        if (player.getCurrentFrame() === frameToSeek) {
+          window.clearInterval(timer);
+        }
+      } catch {
+        // Player is still re-initializing after the quality remount — retry
+        // on the next tick. Without this guard a throw would escape the tick
+        // before the attempt cap increments and leak the interval forever.
+      }
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [previewQuality, playerRef]);
 
   const togglePlay = () => {
     if (playerRef.current) {
@@ -194,6 +225,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   language={language}
                   videoFormat={videoFormat}
                   subtitleSettings={playerSubtitleSettings}
+                  compositionScale={previewQuality === 'full' ? 1 : 0.5}
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}
                 />
@@ -295,6 +327,34 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
               }`}
             >
               150%
+            </button>
+          </div>
+
+          <div className="w-px h-5 bg-zinc-800/50 mx-0.5" />
+
+          {/* Preview resolution toggle */}
+          <div className="flex items-center rounded-md border border-zinc-800/50 bg-zinc-900/60 overflow-hidden">
+            <button
+              onClick={() => setPreviewQuality('fast')}
+              className={`px-2.5 h-7 text-[10px] font-semibold transition-colors cursor-pointer ${
+                previewQuality === 'fast'
+                  ? 'bg-amber-600/30 text-amber-400 border-r border-zinc-800/50'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 border-r border-zinc-800/30'
+              }`}
+              title="Fast preview (960x540) — 75% less GPU load"
+            >
+              Fast
+            </button>
+            <button
+              onClick={() => setPreviewQuality('full')}
+              className={`px-2.5 h-7 text-[10px] font-semibold transition-colors cursor-pointer ${
+                previewQuality === 'full'
+                  ? 'bg-amber-600/30 text-amber-400'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60'
+              }`}
+              title="Full preview (1920x1080)"
+            >
+              Full
             </button>
           </div>
 

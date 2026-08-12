@@ -1,8 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useVideoConfig, useCurrentFrame, delayRender, continueRender } from 'remotion';
+import { getLogicalCanvasSize } from './compositionScale';
 
 export const CustomHtmlUiOverlay: React.FC<{ meta: any }> = ({ meta }) => {
-  const { width, height, fps } = useVideoConfig();
+  const { width: configWidth, height: configHeight, fps } = useVideoConfig();
+  // Fast preview renders on a reduced canvas; the overlay must span the logical
+  // 1080p canvas so the scaled composition keeps identical framing.
+  const { width, height } = getLogicalCanvasSize(configWidth, configHeight);
   const frame = useCurrentFrame();
   const containerRef = useRef<HTMLDivElement>(null);
   const [handle] = useState(() => delayRender("Loading Custom HTML UI Overlay Shadow DOM"));

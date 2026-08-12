@@ -1,5 +1,6 @@
 import React from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { getLogicalCanvasSize } from './compositionScale';
 
 interface Message {
   sender?: string;
@@ -14,7 +15,10 @@ interface ThreadSimulationProps {
 
 export const ThreadSimulation: React.FC<ThreadSimulationProps> = ({ meta }) => {
   const frame = useCurrentFrame();
-  const { fps, width, height } = useVideoConfig();
+  const { fps, width: configWidth, height: configHeight } = useVideoConfig();
+  // Fast preview renders on a reduced canvas; the phone must fill the logical
+  // 1080p canvas so the scaled composition keeps identical framing.
+  const { width, height } = getLogicalCanvasSize(configWidth, configHeight);
   const isPortrait = height > width;
 
   // Phone must always render as 9:16 aspect ratio (portrait phone mockup).

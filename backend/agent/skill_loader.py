@@ -74,8 +74,15 @@ class SkillLoader:
         except Exception as e:
             logger.error(f"Failed to parse skill at {file_path}: {e}")
             
-    def get_skill(self, name: str) -> Skill:
-        """Retrieves a skill by name. Reloads from disk if modified."""
+    def get_skill(self, name: str, context: str = "preload") -> Skill:
+        """Retrieves a skill by name. Reloads from disk if modified.
+
+        context: 'preload' (default) when the skill is read to assemble a
+        system prompt before any LLM execution; 'tool' when the skill was
+        requested by an explicit agent tool call (get_skill /
+        get_visual_type_rules). The telemetry label makes this distinction
+        visible in the activity feed.
+        """
         skill = self._skills_cache.get(name)
         if skill:
             # Check if file changed
@@ -87,9 +94,12 @@ class SkillLoader:
                 pass
         from backend.agent.telemetry import emit_activity
         if skill:
-            emit_activity("skill", name, f"v{skill.version}", "ok")
+            label = "Agent Tool Call" if context == "tool" else "System Prompt Preload"
+            emit_activity("skill", name, f"{label} (v{skill.version})", "ok",
+                          args={"version": skill.version, "scope": context})
         else:
-            emit_activity("skill", name, "not found", "error")
+            emit_activity("skill", name, "not found", "error",
+                          args={"version": None, "scope": context})
         return skill
 
     def get_all_skills(self) -> dict:

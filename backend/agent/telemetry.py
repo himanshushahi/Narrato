@@ -16,6 +16,11 @@ Entry shape:
         "status": str,      # "running" | "ok" | "error" | "skipped"
     }
 
+Emitters may attach structured payloads via keyword arguments (e.g.
+args=/result= for tool calls, version=/scope= for skill reads). These extra
+keys are stored verbatim on the entry so the UI can render them without
+parsing the detail string, and are preserved by update_activity().
+
 Long-running calls emit a "running" entry once and then RESOLVE it in place via
 update_activity(), so the feed shows one entry per call and the frontend's
 "active" badge reflects only genuinely in-flight work.
@@ -46,9 +51,13 @@ def register_activity_callback(callback):
         _callbacks.append(callback)
 
 
-def emit_activity(kind: str, name: str, detail: str = "", status: str = "ok") -> str:
+def emit_activity(kind: str, name: str, detail: str = "", status: str = "ok", **extra) -> str:
     """Record one activity entry, broadcast it, and return its id so the caller
-    can later resolve it via update_activity()."""
+    can later resolve it via update_activity().
+
+    extra: optional structured fields (e.g. args, result, version, scope)
+    stored verbatim on the entry for the UI to render.
+    """
     entry = {
         "id": _next_id(),
         "ts": time.time(),
@@ -56,6 +65,7 @@ def emit_activity(kind: str, name: str, detail: str = "", status: str = "ok") ->
         "name": name,
         "detail": detail,
         "status": status,
+        **extra,
     }
     with _lock:
         _activity.appendleft(entry)
@@ -68,11 +78,14 @@ def emit_activity(kind: str, name: str, detail: str = "", status: str = "ok") ->
     return entry["id"]
 
 
-def update_activity(entry_id: str, status: str, detail: str = None):
+def update_activity(entry_id: str, status: str, detail: str = None, **extra):
     """Resolve a previously emitted entry in place (e.g. "running" -> "ok").
 
     Sends the updated snapshot to callbacks so the frontend can replace the
     existing row instead of appending a duplicate.
+
+    extra: structured fields to merge into the entry (e.g. result for tool
+    calls), keeping fields emitted earlier (args) intact.
     """
     if not entry_id:
         return
@@ -82,6 +95,8 @@ def update_activity(entry_id: str, status: str, detail: str = None):
                 entry["status"] = status
                 if detail is not None:
                     entry["detail"] = detail
+                for key, value in extra.items():
+                    entry[key] = value
                 snapshot = dict(entry)
                 callbacks = list(_callbacks)
                 break

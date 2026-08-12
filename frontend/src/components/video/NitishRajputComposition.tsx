@@ -14,6 +14,7 @@ import { CustomHtmlUiOverlay } from './CustomHtmlUiOverlay';
 import { ThreadSimulation } from './ThreadSimulation';
 import { DeviceMockup } from './DeviceMockup';
 import { calculateSubVisualTimings } from '../../utils/duration';
+import { getCanvasScaleFactor } from './compositionScale';
 
 interface SubVisual {
   visual_type: 'scene' | 'portrait' | 'image' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'thread' | 'device_mockup' | 'ai_image';
@@ -175,7 +176,12 @@ export const NitishRajputComposition = ({
   style = 'nitish_rajput',
   subtitleSettings = {}
 }: Props) => {
-  useVideoConfig();
+  const { width: canvasWidth, height: canvasHeight } = useVideoConfig();
+  // Fast preview (compositionScale=0.5) shrinks the Player canvas to 960x540.
+  // Visuals are authored in 1080p logical pixels, so the content tree is laid
+  // out at the logical size and scaled down to fill the smaller canvas — the
+  // exported 1080p render (scaleFactor 1) is untouched.
+  const scaleFactor = getCanvasScaleFactor(canvasWidth, canvasHeight);
 
   // Build scene timing lookup (cumulative start/end times) for subtitle gap-filling
   const sceneTimings: SceneTiming[] = useMemo(() => {
@@ -382,23 +388,14 @@ export const NitishRajputComposition = ({
     });
   }, [scenes, subtitleSettings, renderSubVisual]);
 
-  return (
-    <div style={{ flex: 1, backgroundColor: '#0c0a09', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
-      {/* 1. Spoken Narration Track & Ambient Soundtrack (Preview Only) */}
-      {/* In production render, audio is now mixed directly via FFmpeg for speed */}
-      {/* Volume is a frame-based function: muted sub-visuals (mute_voiceover / */}
-      {/* mute_bg_music) silence their track for exactly their timeline interval. */}
-      {!getRemotionEnvironment().isRendering && (
-        <>
-          {audioUrl && (
-            <FrameVolumeAudio src={audioUrl} muteRanges={voiceMuteRanges} baseVolume={voiceoverVolume} />
-          )}
-          {bgMusicUrl && (
-            <FrameVolumeAudio src={bgMusicUrl} muteRanges={bgMuteRanges} baseVolume={bgMusicVolume} loop />
-          )}
-        </>
-      )}
-
+  // ── Resolution scaling (fast preview) ─────────────────────────────────────
+  // At scaleFactor 1 (export / full-res preview) the layers mount directly.
+  // Otherwise the entire visual tree is laid out at the logical 1080p size
+  // inside a div scaled to fill the reduced Player canvas, so every absolute
+  // pixel coordinate stays correct while the GPU only rasterizes at
+  // (scaleFactor)^2 of the pixels.
+  const visualLayers = (
+    <>
       {/* 3. Chronological Scene Sequences */}
       {renderedScenes}
 
@@ -418,6 +415,43 @@ export const NitishRajputComposition = ({
       <div style={{ position: 'absolute', inset: 0, zIndex: 110, pointerEvents: 'none' }}>
         <PaperOverlay />
       </div>
+    </>
+  );
+
+  return (
+    <div style={{ flex: 1, backgroundColor: '#0c0a09', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
+      {/* 1. Spoken Narration Track & Ambient Soundtrack (Preview Only) */}
+      {/* In production render, audio is now mixed directly via FFmpeg for speed */}
+      {/* Volume is a frame-based function: muted sub-visuals (mute_voiceover / */}
+      {/* mute_bg_music) silence their track for exactly their timeline interval. */}
+      {!getRemotionEnvironment().isRendering && (
+        <>
+          {audioUrl && (
+            <FrameVolumeAudio src={audioUrl} muteRanges={voiceMuteRanges} baseVolume={voiceoverVolume} />
+          )}
+          {bgMusicUrl && (
+            <FrameVolumeAudio src={bgMusicUrl} muteRanges={bgMuteRanges} baseVolume={bgMusicVolume} loop />
+          )}
+        </>
+      )}
+
+      {scaleFactor !== 1 ? (
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: canvasWidth / scaleFactor,
+            height: canvasHeight / scaleFactor,
+            transform: `scale(${scaleFactor})`,
+            transformOrigin: 'top left',
+          }}>
+            {visualLayers}
+          </div>
+        </div>
+      ) : (
+        visualLayers
+      )}
     </div>
   );
 };

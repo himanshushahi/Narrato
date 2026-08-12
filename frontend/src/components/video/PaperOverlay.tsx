@@ -1,9 +1,13 @@
 import React from 'react';
 import { useCurrentFrame, useVideoConfig } from 'remotion';
+import { getLogicalCanvasSize } from './compositionScale';
 
 export const PaperOverlay: React.FC = () => {
   const frame = useCurrentFrame();
-  const { width, height } = useVideoConfig();
+  const { width: configWidth, height: configHeight } = useVideoConfig();
+  // Visuals are authored in 1080p logical pixels; fast preview uses a reduced
+  // canvas, so positions must span the logical canvas for identical framing.
+  const { width, height } = getLogicalCanvasSize(configWidth, configHeight);
 
   // Create 6 random moving film dust particles / scratch elements
   // We use the frame index modulo operations to randomly snap them on and off screen

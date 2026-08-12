@@ -621,21 +621,28 @@ def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
     """Executes a requested tool and returns the string result to be fed back to the LLM.
 
     Wraps the implementation with telemetry so the UI can show live which
-    tools the agent calls and whether they succeed.
+    tools the agent calls and whether they succeed. The telemetry entry keeps
+    BOTH the input arguments (emitted at start) and the execution result
+    (added on completion) as structured fields, with a combined human-readable
+    detail line.
     """
     from backend.agent.telemetry import emit_activity, update_activity
     args_summary = json.dumps(arguments, ensure_ascii=False, default=str)
-    entry_id = emit_activity("tool", tool_name, args_summary[:200], "running")
+    entry_id = emit_activity("tool", tool_name, args_summary[:300], "running", args=arguments)
     try:
         result = _execute_tool(tool_name, arguments)
     except InterruptedError:
-        update_activity(entry_id, "error", "interrupted by user")
+        update_activity(entry_id, "error", "interrupted by user", result=None)
         raise
     except Exception as e:
-        update_activity(entry_id, "error", f"exception: {e}")
+        update_activity(entry_id, "error", f"exception: {e}", result=None)
         raise
     status = "ok" if not (isinstance(result, str) and result.startswith("Error")) else "error"
-    update_activity(entry_id, status, str(result)[:200])
+    update_activity(
+        entry_id, status,
+        f"Args: {args_summary[:300]} ➔ Result: {str(result)[:300]}",
+        result=result,
+    )
     return result
 
 
@@ -656,9 +663,11 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
 
             logger.info(f"Executing tool: web_search for '{query}'")
             from backend.agent.telemetry import emit_activity, update_activity
-            entry_id = emit_activity("web", "web_search", f"'{query}'", "running")
+            entry_id = emit_activity("web", "web_search", f"'{query}'", "running",
+                                     args={"query": query, "count": count})
             res = search_and_format(query, api_key, count=count)
-            update_activity(entry_id, "ok" if res else "skipped", f"'{query}' → {len(res or '')} chars")
+            update_activity(entry_id, "ok" if res else "skipped", f"'{query}' → {len(res or '')} chars",
+                            result=res if res else None)
             return res if res else "No results found."
 
         if tool_name == "get_visual_type_rules":
@@ -668,12 +677,12 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
 
             from backend.agent.skill_loader import skill_loader
             skill_name = f"visual-type-{vtype.replace('_', '-')}"
-            skill = skill_loader.get_skill(skill_name)
+            skill = skill_loader.get_skill(skill_name, context="tool")
             if not skill:
                 # Defensive fallback: image/ai_image rules live in their own
                 # skills now; fall back to the shared scene rules if a specific
                 # skill is missing from disk.
-                skill = skill_loader.get_skill("visual-type-scene")
+                skill = skill_loader.get_skill("visual-type-scene", context="tool")
             if skill:
                 return skill.content
             return f"Error: Rules for visual type '{vtype}' not found."
@@ -683,7 +692,7 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             if not name:
                 return "Error: Missing skill name."
             from backend.agent.skill_loader import skill_loader
-            skill = skill_loader.get_skill(name)
+            skill = skill_loader.get_skill(name, context="tool")
             if skill:
                 return f"--- SKILL: {name} (v{skill.version}) ---\n{skill.content}"
             return f"Error: Skill '{name}' not found. Available: scriptwriter, subtitle-designer, custom-html-designer, stock-asset-searcher, editor-qa, visual-director-core, visual-type-*."

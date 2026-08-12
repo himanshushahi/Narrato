@@ -14,6 +14,8 @@ interface Props {
   language?: string;
   videoFormat?: string;
   subtitleSettings?: any;
+  /** Preview resolution scale (0.5 = 960x540, 1 = full 1920x1080). Defaults to 0.5 for fast scrubbing/playback. */
+  compositionScale?: number;
   onFrameUpdate?: (frame: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
 }
@@ -23,6 +25,7 @@ export interface RemotionVideoPlayerRef {
   toggle: () => void;
   play: () => void;
   pause: () => void;
+  getCurrentFrame: () => number;
 }
 
 const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
@@ -37,6 +40,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   language = 'hi',
   videoFormat = 'landscape',
   subtitleSettings = {},
+  compositionScale = 0.5,
   onFrameUpdate,
   onPlayStateChange
 }, ref) => {
@@ -64,6 +68,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         playerRef.current.pause();
       }
     },
+    getCurrentFrame: () => (playerRef.current ? playerRef.current.getCurrentFrame() : 0),
   }));
 
   const hasScenes = scenes && scenes.length > 0;
@@ -107,6 +112,14 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
     return Math.max(150, Math.ceil(totalDuration * 30));
   }, [scenes]);
 
+  // Fast preview renders the composition canvas at compositionScale resolution
+  // (0.5 => 960x540) while the composition scales its 1080p layout to fill it —
+  // identical visual output at a fraction of the GPU rasterization load.
+  const baseWidth = videoFormat === 'portrait' ? 1080 : 1920;
+  const baseHeight = videoFormat === 'portrait' ? 1920 : 1080;
+  const compWidth = Math.round(baseWidth * compositionScale);
+  const compHeight = Math.round(baseHeight * compositionScale);
+
   const inputProps = useMemo(() => {
     return {
       audioUrl,
@@ -143,8 +156,8 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         inputProps={inputProps as any}
         durationInFrames={durationInFrames}
         fps={30}
-        compositionWidth={videoFormat === 'portrait' ? 1080 : 1920}
-        compositionHeight={videoFormat === 'portrait' ? 1920 : 1080}
+        compositionWidth={compWidth}
+        compositionHeight={compHeight}
         style={{
           width: '100%',
           height: '100%',

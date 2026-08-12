@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLoading, VscSave, VscEdit, VscTrash, VscAdd, VscSparkle,
@@ -47,6 +47,24 @@ export const ScriptTab = React.memo(function ScriptTab({
   onUploadSubVisual, uploadingSubVisual
 }: ScriptTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ── Script state updates ──────────────────────────────────────────
+  // No debounce/throttle: every edit is applied to the parent store
+  // synchronously, so typing is instant.
+  const onSetScriptDataRef = useRef(onSetScriptData);
+  const onSaveCardRef = useRef(onSaveCard);
+  useEffect(() => {
+    onSetScriptDataRef.current = onSetScriptData;
+    onSaveCardRef.current = onSaveCard;
+  });
+
+  const handleSetScriptData = useCallback((data: any) => {
+    onSetScriptDataRef.current(data);
+  }, []);
+
+  const handleSaveCard = useCallback((cardKey?: string, index?: number) => {
+    onSaveCardRef.current?.(cardKey, index);
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -115,7 +133,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                 onCardClick={() => { if (!isEditing && sceneTimings[introSceneIdx]) onSeek(sceneTimings[introSceneIdx].start); }}
                 onEditScript={() => onStartEdit('intro', 'script')}
                 onEditVisuals={() => onStartEdit('intro', 'visuals')}
-                onSave={() => onSaveCard('introduction')}
+                onSave={() => handleSaveCard('introduction')}
                 onCancel={onCancelEdit}
                 disabled={savingCardKey !== null || rewritingSection !== null}
               >
@@ -132,7 +150,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                               const copy = { ...scriptData };
                               copy.introduction = copy.introduction || {};
                               copy.introduction.hook = e.target.value;
-                              onSetScriptData(copy);
+                              handleSetScriptData(copy);
                             }}
                           />
                         </InsetCard>
@@ -148,7 +166,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             onChange={(newSubs) => {
                               const copy = { ...scriptData };
                               copy.introduction = { ...copy.introduction, sub_visuals: newSubs };
-                              onSetScriptData(copy);
+                              handleSetScriptData(copy);
                             }}
                             timings={introTimings}
                             totalDurationFrames={sceneTimings[0] ? sceneTimings[0].end - sceneTimings[0].start : 0}
@@ -225,7 +243,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                       onCardClick={() => { if (!isEditing && sceneTimings[globalSceneIdx]) onSeek(sceneTimings[globalSceneIdx].start); }}
                       onEditScript={() => onStartEdit(cardKey, 'script')}
                       onEditVisuals={() => onStartEdit(cardKey, 'visuals')}
-                      onSave={() => onSaveCard(cardKey, idx)}
+                      onSave={() => handleSaveCard(cardKey, idx)}
                       onCancel={onCancelEdit}
                       onDelete={() => onSetSceneToDelete(idx)}
                       disabled={savingCardKey !== null || rewritingSection !== null}
@@ -238,21 +256,21 @@ export const ScriptTab = React.memo(function ScriptTab({
                                 <CustomInput
                                   label="Chapter Name"
                                   type="text"
-                                  value={scene.title || ''}
+                                  value={scriptData.scenes?.[idx]?.title || ''}
                                   onChange={(e) => {
                                     const copy = { ...scriptData };
                                     if (copy.scenes?.[idx]) copy.scenes[idx].title = e.target.value;
-                                    onSetScriptData(copy);
+                                    handleSetScriptData(copy);
                                   }}
                                 />
                                 <CustomTextarea
                                   rows={3}
                                   placeholder="Write the narration for this scene..."
-                                  value={scene.narration}
+                                  value={scriptData.scenes?.[idx]?.narration || ''}
                                   onChange={(e) => {
                                     const copy = { ...scriptData };
                                     if (copy.scenes?.[idx]) copy.scenes[idx].narration = e.target.value;
-                                    onSetScriptData(copy);
+                                    handleSetScriptData(copy);
                                   }}
                                 />
                               </InsetCard>
@@ -273,7 +291,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                                         copy.scenes[idx] = { ...copy.scenes[idx], sub_visuals: newSubs };
                                       }
                                     }
-                                    onSetScriptData(copy);
+                                    handleSetScriptData(copy);
                                   }}
                                   timings={timings}
                                   totalDurationFrames={sceneTimings[globalSceneIdx] ? sceneTimings[globalSceneIdx].end - sceneTimings[globalSceneIdx].start : 0}
@@ -394,7 +412,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                 onCardClick={() => { if (!isEditing && sceneTimings[concSceneIdx]) onSeek(sceneTimings[concSceneIdx].start); }}
                 onEditScript={() => onStartEdit('conclusion', 'script')}
                 onEditVisuals={() => onStartEdit('conclusion', 'visuals')}
-                onSave={() => onSaveCard('conclusion')}
+                onSave={() => handleSaveCard('conclusion')}
                 onCancel={onCancelEdit}
                 disabled={savingCardKey !== null || rewritingSection !== null}
               >
@@ -411,7 +429,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                               const copy = { ...scriptData };
                               copy.conclusion = copy.conclusion || {};
                               copy.conclusion.summary = e.target.value;
-                              onSetScriptData(copy);
+                              handleSetScriptData(copy);
                             }}
                           />
                           <CustomTextarea
@@ -422,7 +440,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                               const copy = { ...scriptData };
                               copy.conclusion = copy.conclusion || {};
                               copy.conclusion.cta = e.target.value;
-                              onSetScriptData(copy);
+                              handleSetScriptData(copy);
                             }}
                           />
                         </InsetCard>
@@ -438,7 +456,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             onChange={(newSubs) => {
                               const copy = { ...scriptData };
                               copy.conclusion = { ...copy.conclusion, sub_visuals: newSubs };
-                              onSetScriptData(copy);
+                              handleSetScriptData(copy);
                             }}
                             timings={concTimings}
                             totalDurationFrames={sceneTimings[concSceneIdx] ? sceneTimings[concSceneIdx].end - sceneTimings[concSceneIdx].start : 0}
@@ -740,11 +758,17 @@ const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptCha
     </div>
     <div className="flex items-end gap-2">
       <div className="flex-1">
-        <input
+        <CustomInput
           type="text"
           placeholder="e.g., make it more dramatic..."
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !isRewriting && prompt.trim()) {
+              e.preventDefault();
+              onRewrite();
+            }
+          }}
           disabled={isRewriting}
           className="w-full bg-zinc-900/80 border border-zinc-700/60 rounded-lg px-3 py-2 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all disabled:opacity-50"
         />

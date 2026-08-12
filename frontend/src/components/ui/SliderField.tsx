@@ -11,7 +11,7 @@ export interface SliderFieldProps {
   onChange: (v: number) => void;
 }
 
-export const SliderField: React.FC<SliderFieldProps> = ({
+export const SliderField: React.FC<SliderFieldProps> = React.memo(({
   label,
   value,
   min,
@@ -38,4 +38,6 @@ export const SliderField: React.FC<SliderFieldProps> = ({
       className="w-full h-1.5 bg-black/40 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30 transition-all shadow-inner border border-white/5"
     />
   </div>
-);
+));
+SliderField.displayName = 'SliderField';
+

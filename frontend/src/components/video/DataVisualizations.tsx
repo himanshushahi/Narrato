@@ -3,6 +3,7 @@ import { useCurrentFrame, spring, interpolate, useVideoConfig, Img } from 'remot
 import * as d3Geo from 'd3-geo';
 import * as topojson from 'topojson-client';
 import worldData from './world-110m.json';
+import { getLogicalCanvasSize } from './compositionScale';
 
 // Cache TopoJSON conversion once at module scope to prevent CPU lag on map frames
 const cachedWorldCountries = topojson.feature(worldData as any, worldData.objects.countries as any);
@@ -15,7 +16,10 @@ interface Props {
 
 export const DataVisualizations: React.FC<Props> = ({ type, meta, durationInFrames }) => {
   const frame = useCurrentFrame();
-  const { width, height } = useVideoConfig();
+  const { width: configWidth, height: configHeight } = useVideoConfig();
+  // Fast preview renders on a reduced canvas; chart geometry must span the
+  // logical 1080p canvas so the scaled composition keeps identical framing.
+  const { width, height } = getLogicalCanvasSize(configWidth, configHeight);
 
   const renderMap = () => {
     // TopoJSON to GeoJSON (memoized)

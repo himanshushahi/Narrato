@@ -1,3 +1,4 @@
+import React, { useCallback, useRef } from 'react';
 import { BiReset } from 'react-icons/bi';
 import { SubVisualTransform, DEFAULT_TRANSFORM } from '../../components/video/SubVisualTransform';
 
@@ -9,16 +10,32 @@ interface Props {
   onChange: (newTransform: SubVisualTransform) => void;
 }
 
-export const TransformEditor = ({ transform, onChange }: Props) => {
+export const TransformEditor = React.memo(({ transform, onChange }: Props) => {
+
   const t = transform ?? DEFAULT_TRANSFORM;
 
-  const update = (key: keyof SubVisualTransform, value: number) => {
-    onChange({ ...t, [key]: value });
-  };
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const tRef = useRef(t);
+  tRef.current = t;
 
-  const resetAll = () => {
-    onChange({ ...DEFAULT_TRANSFORM });
-  };
+  // Stable per-key handlers (created once, cached by key) that read the
+  // latest transform/onChange via refs, so SliderField's memo can skip the
+  // sliders whose value didn't change on each drag tick.
+  const handlerCache = useRef<Record<string, (v: number) => void>>({});
+  const getHandler = useCallback((key: keyof SubVisualTransform) => {
+    const cache = handlerCache.current;
+    if (!cache[key]) {
+      cache[key] = (v: number) => {
+        onChangeRef.current({ ...tRef.current, [key]: v });
+      };
+    }
+    return cache[key];
+  }, []);
+
+  const resetAll = useCallback(() => {
+    onChangeRef.current({ ...DEFAULT_TRANSFORM });
+  }, []);
 
   const formatOffset = (v: number) =>
     `${v >= 0 ? '+' : ''}${v}px`;
@@ -47,7 +64,7 @@ export const TransformEditor = ({ transform, onChange }: Props) => {
         max={5.0}
         step={0.05}
         displayValue={`${t.zoom.toFixed(2)}x`}
-        onChange={v => update('zoom', v)}
+        onChange={getHandler('zoom')}
       />
 
       {/* X Offset slider */}
@@ -58,7 +75,7 @@ export const TransformEditor = ({ transform, onChange }: Props) => {
         max={500}
         step={1}
         displayValue={formatOffset(t.offsetX)}
-        onChange={v => update('offsetX', v)}
+        onChange={getHandler('offsetX')}
       />
 
       {/* Y Offset slider */}
@@ -69,8 +86,10 @@ export const TransformEditor = ({ transform, onChange }: Props) => {
         max={500}
         step={1}
         displayValue={formatOffset(t.offsetY)}
-        onChange={v => update('offsetY', v)}
+        onChange={getHandler('offsetY')}
       />
     </div>
   );
-};
+});
+TransformEditor.displayName = 'TransformEditor';
+

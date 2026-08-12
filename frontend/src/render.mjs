@@ -284,7 +284,24 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("\nRender failed:", err.message || err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Force-exit even if a child (headless Chromium, ffmpeg worker) keeps the
+    // event loop alive — otherwise the process never exits and the parent
+    // pipeline hangs waiting for this process's stdout pipe to close.
+    //
+    // process.exit() terminates without flushing pending async pipe writes on
+    // Windows, which could drop the final progress line and stall the UI
+    // below 100%. Write the completion line through the async stdout queue
+    // and exit only after it has been flushed.
+    process.stdout.write("\rRender progress: 100.0%  \n", () => {
+      process.exit(0);
+    });
+  })
+  .catch((err) => {
+    // Same flush concern on the error path — the parent reads this text to
+    // build failure diagnostics.
+    process.stderr.write(`\nRender failed: ${err.message || err}\n`, () => {
+      process.exit(1);
+    });
+  });

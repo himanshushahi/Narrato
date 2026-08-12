@@ -457,3 +457,159 @@ def test_validate_and_correct_visuals_corrects_broken_output(monkeypatch):
 
     assert calls["n"] == 2
     assert sum(v["duration"] for v in result["sub_visuals"]) == 15.0
+
+
+# ---------------------------------------------------------------------------
+# Multi-format tool block extraction
+# ---------------------------------------------------------------------------
+
+def test_extract_tool_blocks_multiformats():
+    """Tool calls must be detected in ```tool```, ```json```, plain ``` and
+    bare-JSON formats, with nested 'arguments' objects captured whole."""
+    from backend.agent.agent_engine import _extract_tool_blocks
+
+    cases = [
+        # ```tool fence (legacy format)
+        ('Some reasoning.\n```tool\n{"name": "web_search", "arguments": {"query": "x"}}\n```\n',
+         [("web_search", {"query": "x"})]),
+        # ```json fence (the format models most often pick)
+        ('```json\n{"name": "web_search", "arguments": {"query": "x"}}\n```',
+         [("web_search", {"query": "x"})]),
+        # plain ``` fence
+        ('```\n{"name": "get_skill", "arguments": {"name": "editor-qa"}}\n```',
+         [("get_skill", {"name": "editor-qa"})]),
+        # bare JSON object in prose
+        ('Use this: {"name": "list_project_files", "arguments": {"project_id": "p"}} now.',
+         [("list_project_files", {"project_id": "p"})]),
+        # nested arguments must not be cut at the first '}'
+        ('{"name": "update_subtitle_style", "arguments": {"updates": {"activeColor": "#facc15", "fontSize": 64}}}',
+         [("update_subtitle_style", {"updates": {"activeColor": "#facc15", "fontSize": 64}})]),
+        # multiple blocks in one response
+        ('```tool\n{"name": "web_search", "arguments": {"query": "x"}}\n``` then ```json\n{"name": "get_skill", "arguments": {"name": "scriptwriter"}}\n```',
+         [("web_search", {"query": "x"}), ("get_skill", {"name": "scriptwriter"})]),
+        # final answers with name/arguments-free JSON must NOT be tool calls
+        ('{"success": true, "name": "not-a-call"}', []),
+        ('{"type": "document", "visual_meta": {"name": "title", "text": "x"}}', []),
+        ('this is not json', []),
+    ]
+    for raw, expected in cases:
+        blocks = _extract_tool_blocks(raw)
+        got = [(b["name"], b.get("arguments")) for b in blocks]
+        assert got == expected, f"{raw!r}: got {got}"
+
+
+def test_run_with_tools_executes_json_fenced_tool_blocks(monkeypatch):
+    """A ```json```-fenced tool call must execute, not be treated as the final answer."""
+    import backend.agent.agent_engine as ae
+    from backend.agent.agent_engine import AgentRunner
+
+    calls = {"n": 0}
+    executed = []
+
+    def fake_call(system, user, schema, cancel_event, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return '```json\n{"name": "web_search", "arguments": {"query": "test"}}\n```\n'
+        return '{"final": true}'
+
+    def fake_execute(name, args):
+        executed.append((name, args))
+        return "results"
+
+    monkeypatch.setattr(ae, "_call_llm_json", fake_call)
+    monkeypatch.setattr(ae, "execute_tool", fake_execute)
+
+    result = AgentRunner().run_with_tools("system", "prompt", {"type": "object"})
+
+    assert result == {"final": True}
+    assert executed == [("web_search", {"query": "test"})]
+    assert calls["n"] == 2
+
+
+def test_run_with_tools_executes_bare_json_tool_block(monkeypatch):
+    """A bare JSON tool-call object must execute, not be treated as the final answer."""
+    import backend.agent.agent_engine as ae
+    from backend.agent.agent_engine import AgentRunner
+
+    calls = {"n": 0}
+    executed = []
+
+    def fake_call(system, user, schema, cancel_event, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return '{"name": "get_skill", "arguments": {"name": "editor-qa"}}'
+        return '{"final": true}'
+
+    def fake_execute(name, args):
+        executed.append((name, args))
+        return "results"
+
+    monkeypatch.setattr(ae, "_call_llm_json", fake_call)
+    monkeypatch.setattr(ae, "execute_tool", fake_execute)
+
+    result = AgentRunner().run_with_tools("system", "prompt", {"type": "object"})
+
+    assert result == {"final": True}
+    assert executed == [("get_skill", {"name": "editor-qa"})]
+    assert calls["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Telemetry: args + result preservation, skill read context labels
+# ---------------------------------------------------------------------------
+
+def test_execute_tool_telemetry_preserves_args_and_result(monkeypatch):
+    """Tool telemetry must keep BOTH the input arguments and the execution
+    result as structured fields, with a combined detail line."""
+    import backend.agent.tools as t
+    from backend.agent.telemetry import get_agent_activity, clear_agent_activity
+
+    clear_agent_activity()
+    monkeypatch.setattr(t, "_execute_tool", lambda name, args: "fake result")
+
+    result = t.execute_tool("web_search", {"query": "hello", "count": 2})
+
+    assert result == "fake result"
+    entry = next(e for e in get_agent_activity() if e["kind"] == "tool" and e["name"] == "web_search")
+    assert entry["args"] == {"query": "hello", "count": 2}
+    assert entry["result"] == "fake result"
+    assert entry["detail"].startswith("Args: ")
+    assert "➔ Result: fake result" in entry["detail"]
+    assert entry["status"] == "ok"
+
+
+def test_execute_tool_telemetry_marks_error_status(monkeypatch):
+    """Tools returning an error string must be flagged as 'error' while still
+    preserving the arguments."""
+    import backend.agent.tools as t
+    from backend.agent.telemetry import get_agent_activity, clear_agent_activity
+
+    clear_agent_activity()
+    monkeypatch.setattr(t, "_execute_tool", lambda name, args: "Error: missing query parameter.")
+
+    t.execute_tool("web_search", {})
+
+    entry = next(e for e in get_agent_activity() if e["kind"] == "tool" and e["name"] == "web_search")
+    assert entry["status"] == "error"
+    assert entry["args"] == {}
+    assert "Result: Error: missing query parameter." in entry["detail"]
+
+
+def test_skill_telemetry_labels_preload_vs_tool():
+    """Skill reads must distinguish system-prompt preloads from explicit agent
+    tool calls, and carry the version + scope as structured fields."""
+    from backend.agent.skill_loader import skill_loader
+    from backend.agent.telemetry import get_agent_activity, clear_agent_activity
+
+    clear_agent_activity()
+    skill_loader.get_skill("scriptwriter")  # preload (default)
+    skill_loader.get_skill("scriptwriter", context="tool")
+
+    feed = get_agent_activity()
+    skills = [e for e in feed if e["kind"] == "skill" and e["name"] == "scriptwriter"]
+    assert len(skills) == 2
+    # feed is newest-first: the tool call is the most recent entry
+    assert "Agent Tool Call (v1.0)" in skills[0]["detail"]
+    assert skills[0]["args"] == {"version": "1.0", "scope": "tool"}
+    assert "System Prompt Preload (v1.0)" in skills[1]["detail"]
+    assert skills[1]["args"] == {"version": "1.0", "scope": "preload"}

@@ -9,6 +9,96 @@ from backend.pipeline.ai import _call_llm_json, clean_json_response
 # Matches a ```tool\n{...}\n``` block the model emits before the final JSON.
 TOOL_BLOCK_RE = re.compile(r"```tool\s*\n*(\{.*?\})\s*```", re.DOTALL)
 
+# Any fenced block (```tool / ```json / plain ```) that may hold a tool call.
+FENCED_BLOCK_RE = re.compile(r"```(?:json|tool)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+
+
+def _try_extract_json_objects(text: str) -> list:
+    """Yield the brace-delimited JSON objects found in text using balanced
+    brace counting (string-aware), so nested objects inside 'arguments' are
+    captured whole instead of being cut at the first '}'."""
+    objects = []
+    i, n = 0, len(text)
+    while i < n:
+        char = text[i]
+        if char == '"':
+            i += 1
+            while i < n:
+                if text[i] == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    break
+                i += 1
+        elif char == "{":
+            depth = 0
+            start = i
+            in_str = False
+            while i < n:
+                ch = text[i]
+                if in_str:
+                    if ch == "\\":
+                        i += 2
+                        continue
+                    if ch == '"':
+                        in_str = False
+                else:
+                    if ch == '"':
+                        in_str = True
+                    elif ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            objects.append(text[start:i + 1])
+                            break
+                i += 1
+        i += 1
+    return objects
+
+
+def _looks_like_tool_call(call) -> bool:
+    return (
+        isinstance(call, dict)
+        and call.get("name")
+        and isinstance(call["name"], str)
+        and "arguments" in call
+        and (call["arguments"] is None or isinstance(call["arguments"], dict))
+    )
+
+
+def _extract_tool_blocks(text: str) -> list:
+    """Extract tool-call objects from model output across all common formats:
+    ```tool``` fenced blocks, ```json```-fenced blocks, plain ``` fences, and
+    bare JSON objects shaped like {"name": ..., "arguments": ...}. Deduplicates
+    identical calls (same name + same arguments).
+    """
+    found = []
+    seen = set()
+
+    def _add(call):
+        if not _looks_like_tool_call(call):
+            return
+        key = (call["name"], json.dumps(call.get("arguments") or {}, sort_keys=True, default=str))
+        if key not in seen:
+            seen.add(key)
+            found.append(call)
+
+    for match in FENCED_BLOCK_RE.finditer(text):
+        for obj in _try_extract_json_objects(match.group(1)):
+            try:
+                _add(json.loads(obj))
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+    for obj in _try_extract_json_objects(text):
+        try:
+            _add(json.loads(obj))
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    return found
+
 # Budget: tool turns + one final strict-schema turn. Kept small so interactive
 # editor rewrites don't stall the UI thread for minutes.
 MAX_AGENT_TURNS = 4
@@ -114,18 +204,13 @@ class AgentRunner:
                 # accept it as the final answer.
                 return raw
 
-            tool_blocks = TOOL_BLOCK_RE.findall(raw)
+            tool_blocks = _extract_tool_blocks(raw)
             if tool_blocks:
                 executed_any = False
-                for block in tool_blocks:
+                for call in tool_blocks:
                     self._check_cancel()
-                    try:
-                        call = json.loads(block)
-                        name = call.get("name")
-                        args = call.get("arguments") or {}
-                    except Exception as e:
-                        current_user_prompt += f"\n\n[System: invalid tool block {block[:200]!r} — {e}]"
-                        continue
+                    name = call.get("name")
+                    args = call.get("arguments") or {}
                     if not name:
                         continue
                     if allowed_tools and name not in allowed_tools:

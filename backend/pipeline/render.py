@@ -6,6 +6,7 @@ import subprocess
 import shutil
 import hashlib
 import math
+import threading
 from pathlib import Path
 from backend.database.db import get_setting, update_project
 from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir, get_startupinfo, is_production
@@ -222,12 +223,71 @@ def get_missing_frame_ranges(frames_dir, total_frames):
         
     return ",".join(missing_ranges)
 
+def _cancel_pipe_read(stdout):
+    """Cancel a pending blocking read on a pipe handle (Windows only).
+
+    A reader thread blocked in read(1) cannot be unblocked by closing the
+    stream from another thread: on Windows both process.stdout.close() and
+    os.close(fd) block until the pending read completes, which just moves
+    the hang to the caller. CancelIoEx aborts the pending ReadFile so the
+    reader wakes with an error and exits. Returns True on success."""
+    try:
+        import ctypes
+        import msvcrt
+        handle = msvcrt.get_osfhandle(stdout.fileno())
+        return bool(ctypes.windll.kernel32.CancelIoEx(ctypes.c_void_p(handle), None))
+    except Exception:
+        return False
+
+
 def _stream_process_output(process, cancel_event, line_callback, label="Process"):
-    """Helper to stream subprocess output line by line, handle cancellation, and collect error context."""
-    buffer = ""
+    """Helper to stream subprocess output line by line, handle cancellation, and collect error context.
+
+    Reading happens on a daemon thread: a blocking pipe read would otherwise hang
+    forever when a grandchild (e.g. headless Chromium) keeps stdout open after the
+    main process has already exited, leaving the whole pipeline stuck.
+
+    Note: line_callback (and anything it calls, e.g. progress_cb) executes on the
+    reader thread, not the caller's thread. It must only touch thread-safe targets
+    (ui_queue.put, per-call SQLite connections).
+    """
     last_output_lines = []
-    
-    while True:
+    lines_lock = threading.Lock()
+
+    def reader():
+        buffer = ""
+        while True:
+            try:
+                char = process.stdout.read(1)
+            except Exception:
+                break
+            if not char:
+                break
+            if char in ('\r', '\n'):
+                line = buffer
+                buffer = ""
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                with lines_lock:
+                    last_output_lines.append(stripped)
+                    if len(last_output_lines) > 20:
+                        last_output_lines.pop(0)
+                line_callback(stripped)
+            else:
+                buffer += char
+
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
+
+    try:
+        while not cancel_event.is_set():
+            try:
+                process.wait(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+
         if cancel_event.is_set():
             logger.warning(f"{label} cancelled by user. Terminating process.")
             process.terminate()
@@ -236,28 +296,24 @@ def _stream_process_output(process, cancel_event, line_callback, label="Process"
             except subprocess.TimeoutExpired:
                 process.kill()
             raise InterruptedError("Cancelled")
+    finally:
+        # The process has exited — give the reader a moment to flush remaining
+        # lines, but never block on pipe EOF (see docstring). If a grandchild
+        # (e.g. headless Chromium) keeps the write end of the pipe open, the
+        # reader never sees EOF and would stay blocked forever: cancel the
+        # pending read on Windows so the thread can exit. On other platforms
+        # (where this scenario cannot be interrupted) the daemon thread is
+        # left to drain when the pipe eventually closes.
+        reader_thread.join(timeout=2.0)
+        if reader_thread.is_alive():
+            _cancel_pipe_read(process.stdout)
+            reader_thread.join(timeout=1.0)
+        # Snapshot under the lock so the returned list is never touched by the
+        # reader afterwards (it may still be draining the pipe).
+        with lines_lock:
+            tail = list(last_output_lines)
 
-        char = process.stdout.read(1)
-        if not char and process.poll() is not None:
-            break
-            
-        if char in ('\r', '\n'):
-            line = buffer
-            buffer = ""
-            stripped = line.strip()
-            if not stripped:
-                continue
-                
-            last_output_lines.append(stripped)
-            if len(last_output_lines) > 20:
-                last_output_lines.pop(0)
-                
-            line_callback(stripped)
-        else:
-            buffer += char
-            
-    process.wait()
-    return process.returncode, last_output_lines
+    return process.returncode, tail
 
 def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering."""

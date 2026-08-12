@@ -140,23 +140,26 @@ export function useScriptEditing(
   }, [selectedProject?.id, updateProject]);
 
   const handleSaveCard = useCallback(async (cardKey?: string, index?: number) => {
-    if (!projectId || !scriptData || !selectedProject?.script_path) return;
+    // Edits apply to state synchronously on every keystroke, so the closure
+    // scriptData is always the latest — no flush needed before saving.
+    const data = scriptData;
+    if (!projectId || !data || !selectedProject?.script_path) return;
 
     if (cardKey) setSavingCardKey(cardKey);
 
     let narrationChanged = false;
     if (originalScriptData && editingCard?.mode === 'script') {
       if (cardKey === 'introduction' || cardKey === 'intro') {
-        if (scriptData.introduction?.hook !== originalScriptData.introduction?.hook) narrationChanged = true;
+        if (data.introduction?.hook !== originalScriptData.introduction?.hook) narrationChanged = true;
       } else if (cardKey === 'conclusion') {
-        if (scriptData.conclusion?.summary !== originalScriptData.conclusion?.summary ||
-          scriptData.conclusion?.cta !== originalScriptData.conclusion?.cta) narrationChanged = true;
-      } else if (index !== undefined && scriptData.scenes && originalScriptData.scenes) {
-        if (scriptData.scenes[index]?.narration !== originalScriptData.scenes[index]?.narration) narrationChanged = true;
+        if (data.conclusion?.summary !== originalScriptData.conclusion?.summary ||
+          data.conclusion?.cta !== originalScriptData.conclusion?.cta) narrationChanged = true;
+      } else if (index !== undefined && data.scenes && originalScriptData.scenes) {
+        if (data.scenes[index]?.narration !== originalScriptData.scenes[index]?.narration) narrationChanged = true;
       }
     }
 
-    const success = await callApi<boolean>('save_json_file', selectedProject.script_path, scriptData);
+    const success = await callApi<boolean>('save_json_file', selectedProject.script_path, data);
     if (success) {
       // Build live manifest
       let sceneCounter = 0;
@@ -164,15 +167,15 @@ export function useScriptEditing(
         const type = manifestScene.section_type;
         let liveSubVisuals: any[] = [];
         let assetKeyPrefix: string;
-        if (type === 'introduction' && scriptData?.introduction) {
-          liveSubVisuals = scriptData.introduction?.sub_visuals || [];
+        if (type === 'introduction' && data?.introduction) {
+          liveSubVisuals = data.introduction?.sub_visuals || [];
           assetKeyPrefix = 'intro';
-        } else if (type === 'conclusion' && scriptData?.conclusion) {
-          liveSubVisuals = scriptData.conclusion?.sub_visuals || [];
+        } else if (type === 'conclusion' && data?.conclusion) {
+          liveSubVisuals = data.conclusion?.sub_visuals || [];
           assetKeyPrefix = 'conclusion';
-        } else if (type === 'scene' && Array.isArray(scriptData?.scenes)) {
+        } else if (type === 'scene' && Array.isArray(data?.scenes)) {
           const currentIdx = sceneCounter++;
-          const scriptScene = scriptData.scenes[currentIdx];
+          const scriptScene = data.scenes[currentIdx];
           if (scriptScene) liveSubVisuals = scriptScene?.sub_visuals || [];
           assetKeyPrefix = `scene_${currentIdx}`;
         } else {
@@ -227,15 +230,15 @@ export function useScriptEditing(
           return { ...lsv, visual_path: undefined, visual_url: undefined };
         }));
 
-        const sceneText = type === 'introduction' ? scriptData?.introduction?.hook
-          : type === 'conclusion' ? scriptData?.conclusion?.summary
-            : scriptData?.scenes?.[sceneCounter - 1]?.narration;
+        const sceneText = type === 'introduction' ? data?.introduction?.hook
+          : type === 'conclusion' ? data?.conclusion?.summary
+            : data?.scenes?.[sceneCounter - 1]?.narration;
         const sceneDuration = manifestScene.duration > 0 ? manifestScene.duration : estimateTextDuration(sceneText);
 
         return { ...manifestScene, duration: sceneDuration, sub_visuals: mergedSubVisuals };
       }));
 
-      await callApi<any>('save_project_with_cleanup', projectId, scriptData, liveManifest);
+      await callApi<any>('save_project_with_cleanup', projectId, data, liveManifest);
 
       // Fetch assets only for genuinely new/changed sub-visuals
       const origManifest = originalManifestData && originalManifestData.length > 0 ? originalManifestData : manifestData;
@@ -316,40 +319,41 @@ export function useScriptEditing(
   }, [projectId, scriptData, selectedProject, originalScriptData, originalManifestData, manifestData, loadFiles, addToast, previewAssets]);
 
   const handleRewriteSection = useCallback(async (type: string, index: number) => {
-    if (!projectId || !scriptData || !selectedProject?.script_path) return;
+    const data = scriptData;
+    if (!projectId || !data || !selectedProject?.script_path) return;
 
     const sectionKey = type === 'introduction' ? 'intro' : type === 'conclusion' ? 'conclusion' : `scene_${index}`;
     setRewritingSection(sectionKey);
 
     try {
       let res;
-      const isNewScene = type === 'scenes' && scriptData.scenes?.[index] &&
-        (!scriptData.scenes[index].narration || scriptData.scenes[index].narration.trim() === '');
+      const isNewScene = type === 'scenes' && data.scenes?.[index] &&
+        (!data.scenes[index].narration || data.scenes[index].narration.trim() === '');
       const isNewIntroduction = type === 'introduction' &&
-        (!scriptData.introduction?.hook || scriptData.introduction?.hook.trim() === '');
+        (!data.introduction?.hook || data.introduction?.hook.trim() === '');
       const isNewConclusion = type === 'conclusion' &&
-        (!scriptData.conclusion?.summary || scriptData.conclusion?.summary.trim() === '');
+        (!data.conclusion?.summary || data.conclusion?.summary.trim() === '');
 
       if (isNewScene) {
         res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
-          'add_scene_with_ai', scriptData,
-          rewritePrompt || `Create content for ${scriptData.scenes[index].title || 'this scene'}`,
+          'add_scene_with_ai', data,
+          rewritePrompt || `Create content for ${data.scenes[index].title || 'this scene'}`,
           selectedProject.language
         );
       } else {
         if (editingCard?.mode === 'visuals') {
           res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
-            'regenerate_visuals_section', projectId, index, type, scriptData, rewritePrompt
+            'regenerate_visuals_section', projectId, index, type, data, rewritePrompt
           );
         } else {
           res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
-            'regenerate_script_section', index, type, scriptData, rewritePrompt, selectedProject.language
+            'regenerate_script_section', index, type, data, rewritePrompt, selectedProject.language
           );
         }
       }
 
       if (res?.success && res.data) {
-        const updated = { ...scriptData };
+        const updated = { ...data };
         if (editingCard?.mode === 'visuals') {
           // Visuals rewrite only returns the sub_visuals array, we merge it into the existing scene/section
           if (type === 'introduction') updated.introduction.sub_visuals = res.data.sub_visuals || [];
@@ -396,14 +400,15 @@ export function useScriptEditing(
   }, [projectId, scriptData, selectedProject, rewritePrompt, setScriptData, addToast]);
 
   const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
-    if (!projectId || !scriptData || !selectedProject?.script_path) return;
+    const data = scriptData;
+    if (!projectId || !data || !selectedProject?.script_path) return;
     try {
       const res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
-        'regenerate_sub_visual', projectId, sceneIdx, sectionType, subIdx, scriptData, prompt, selectedProject.language
+        'regenerate_sub_visual', projectId, sceneIdx, sectionType, subIdx, data, prompt, selectedProject.language
       );
       if (res?.success && res.data) {
         // Deep clone to avoid mutating React state via shared nested references
-        const updated = JSON.parse(JSON.stringify(scriptData));
+        const updated = JSON.parse(JSON.stringify(data));
 
         let targetSection;
         if (sectionType === 'introduction') targetSection = updated.introduction;
@@ -426,22 +431,23 @@ export function useScriptEditing(
   }, [projectId, scriptData, selectedProject, setScriptData, addToast]);
 
   const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
-    if (!projectId || !scriptData) return;
+    const data = scriptData;
+    if (!projectId || !data) return;
 
     // Read current type+cue from scriptData
     let visual_type: string, visual_cue: string, visual_meta: any = {};
     if (sectionType === 'introduction') {
-      const sv = scriptData.introduction?.sub_visuals?.[subIdx] || {};
+      const sv = data.introduction?.sub_visuals?.[subIdx] || {};
       visual_type = sv.visual_type || 'scene';
       visual_cue = sv.visual_cue || '';
       visual_meta = sv.visual_meta || {};
     } else if (sectionType === 'conclusion') {
-      const sv = scriptData.conclusion?.sub_visuals?.[subIdx] || {};
+      const sv = data.conclusion?.sub_visuals?.[subIdx] || {};
       visual_type = sv.visual_type || 'scene';
       visual_cue = sv.visual_cue || '';
       visual_meta = sv.visual_meta || {};
     } else {
-      const sv = scriptData.scenes?.[sceneIdx]?.sub_visuals?.[subIdx] || {};
+      const sv = data.scenes?.[sceneIdx]?.sub_visuals?.[subIdx] || {};
       visual_type = sv.visual_type || 'scene';
       visual_cue = sv.visual_cue || '';
       visual_meta = sv.visual_meta || {};
@@ -487,7 +493,8 @@ export function useScriptEditing(
   }, [projectId, scriptData, addToast]);
 
   const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
-    if (!projectId || !scriptData) return;
+    const data = scriptData;
+    if (!projectId || !data) return;
 
     const sectionKey = sectionType === 'introduction' ? 'intro'
       : sectionType === 'conclusion' ? 'conclusion'
@@ -512,11 +519,11 @@ export function useScriptEditing(
     // or carry a fuzzy label that the backend rejects.
     let rawVisualType = '';
     if (sectionType === 'introduction') {
-      rawVisualType = scriptData.introduction?.sub_visuals?.[subIdx]?.visual_type || '';
+      rawVisualType = data.introduction?.sub_visuals?.[subIdx]?.visual_type || '';
     } else if (sectionType === 'conclusion') {
-      rawVisualType = scriptData.conclusion?.sub_visuals?.[subIdx]?.visual_type || '';
+      rawVisualType = data.conclusion?.sub_visuals?.[subIdx]?.visual_type || '';
     } else {
-      rawVisualType = scriptData.scenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.visual_type || '';
+      rawVisualType = data.scenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.visual_type || '';
     }
     const visualType = getValidVisualType(rawVisualType);
 

@@ -22,6 +22,8 @@ export interface AgentActivity {
   name: string;
   detail: string;
   status: 'running' | 'ok' | 'error' | 'skipped';
+  args?: any;
+  result?: any;
 }
 
 interface UIStore {

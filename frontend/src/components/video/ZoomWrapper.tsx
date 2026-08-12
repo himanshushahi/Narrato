@@ -15,6 +15,12 @@ interface Props {
  *
  * Lives **inside** TransitionWrapper so entrance animations compose
  * naturally on top of the base transform.
+ *
+ * Deliberately NOT memoized: the parents (NitishRajputComposition,
+ * ParallaxImage, PanScanImage) re-render every frame and build new children
+ * elements per frame, so a shallow memo never skips; a custom comparator
+ * that ignored children would freeze per-frame content like the parallax
+ * Img styles that ParallaxImage computes in its own render.
  */
 export const ZoomWrapper: React.FC<Props> = ({ transform, children }) => {
   const t = transform ?? DEFAULT_TRANSFORM;
@@ -37,8 +43,10 @@ export const ZoomWrapper: React.FC<Props> = ({ transform, children }) => {
         style={{
           width: '100%',
           height: '100%',
-          transform: `scale(${t.zoom}) translate3d(${t.offsetX}px, ${t.offsetY}px, 0)`,
+          transform: `scale(${t.zoom}) translate3d(${t.offsetX}px, ${t.offsetY}px, 0px)`,
           transformOrigin: 'center center',
+          willChange: 'transform',
+          backfaceVisibility: 'hidden',
         }}
       >
         {children}
@@ -46,3 +54,4 @@ export const ZoomWrapper: React.FC<Props> = ({ transform, children }) => {
     </div>
   );
 };
+

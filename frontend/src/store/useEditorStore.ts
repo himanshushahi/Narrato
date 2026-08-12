@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 export type LeftPanelTab = 'scenes' | 'assets' | 'music';
 export type InspectorTab = 'script' | 'subtitle' | 'voice' | 'export' | 'settings';
+export type PreviewQuality = 'fast' | 'full';
 
 interface EditorStore {
   // Panel dimensions (resizable like VS Code)
@@ -30,6 +31,9 @@ interface EditorStore {
   trackMuted: Record<string, boolean>;
   trackHidden: Record<string, boolean>;
 
+  // Preview render resolution (fast = 960x540, full = 1920x1080)
+  previewQuality: PreviewQuality;
+
   // Alerts
   audioChangedAlert: boolean;
 
@@ -46,6 +50,7 @@ interface EditorStore {
   setTimelineZoom: (zoom: number) => void;
   toggleTrackMute: (trackId: string) => void;
   toggleTrackHide: (trackId: string) => void;
+  setPreviewQuality: (q: PreviewQuality) => void;
   getRenderTrackOverrides: () => { render_mute_voice: boolean; render_mute_music: boolean; render_mute_video_audio: boolean; render_hide_subtitles: boolean };
   setAudioChangedAlert: (val: boolean) => void;
 }
@@ -70,6 +75,7 @@ const saveLayout = async (state: Partial<EditorStore>) => {
           timelineZoom: state.timelineZoom,
           trackMuted: state.trackMuted,
           trackHidden: state.trackHidden,
+          previewQuality: state.previewQuality,
         });
         await window.pywebview.api.save_prefs(prefs);
       }
@@ -86,6 +92,7 @@ const defaults = {
   timelineZoom: 15,
   trackMuted: {} as Record<string, boolean>,
   trackHidden: {} as Record<string, boolean>,
+  previewQuality: 'fast' as PreviewQuality,
 };
 
 const normalizeTrackHidden = (th: Record<string, boolean>): Record<string, boolean> => {
@@ -116,6 +123,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   timelineZoom: persisted.timelineZoom ?? defaults.timelineZoom,
   trackMuted: persisted.trackMuted ?? defaults.trackMuted,
   trackHidden: normalizeTrackHidden(persisted.trackHidden ?? defaults.trackHidden),
+  previewQuality: persisted.previewQuality ?? defaults.previewQuality,
   audioChangedAlert: false,
 
   // Actions
@@ -139,6 +147,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     saveLayout(next);
     return next;
   }),
+  setPreviewQuality: (q) => set((s) => { const next = { ...s, previewQuality: q }; saveLayout(next); return next; }),
   getRenderTrackOverrides: () => {
     const state = get();
     return {
@@ -148,5 +157,5 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       render_hide_subtitles: !!state.trackHidden['subs'],
     };
   },
-  setAudioChangedAlert: (val) => set({ audioChangedAlert: val }),
+  setAudioChangedAlert: (val: boolean) => set({ audioChangedAlert: val }),
 }));
