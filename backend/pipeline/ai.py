@@ -106,7 +106,8 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
             "You generate precise English search queries for video research. "
             "Given a video topic and section, output ONE specific search query "
             "(max 12 words) that would find the most current, relevant information. "
-            "Output ONLY the raw query text — no explanation, no quotes, no punctuation."
+            "CRITICAL: You MUST think step-by-step and wrap your reasoning inside <think>...</think> tags. "
+            "After the closing </think> tag, output ONLY the raw query text — no explanation, no quotes, no punctuation."
         )
         user_prompt = f"Section: {stage}\nTopic: {context_description}\nSearch query:"
 
@@ -116,12 +117,22 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=50,
+            max_tokens=2048,
             temperature=0.3,
             stream=False,
         )
 
-        query = resp.choices[0].message.content.strip().strip('"').strip("'")
+        query = resp.choices[0].message.content
+        # Strip <think>...</think> blocks from reasoning models (handling unclosed blocks)
+        query = re.sub(r'<think>.*?(?:</think>|$)', '', query, flags=re.DOTALL | re.IGNORECASE)
+        query = query.strip().strip('"').strip("'")
+        
+        # If it still includes a "Thinking Process:" block, try to take the last line as the query
+        if "Thinking Process" in query or "Thinking:" in query:
+            lines = [line.strip() for line in query.split('\n') if line.strip()]
+            if lines:
+                query = lines[-1].strip('*').strip('"').strip("'").removeprefix("Query:").removeprefix("Search query:").strip()
+
         if query and len(query) > 3:
             logger.info(f"AI generated search query: \"{query}\" for stage '{stage}'")
             return query
@@ -536,13 +547,29 @@ def repair_json_string(s):
 def clean_json_response(raw_response):
     """Strips markdown backticks and attempts parsing or repairing JSON."""
     clean_text = raw_response.strip()
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean_text, re.DOTALL | re.IGNORECASE)
+    # Strip <think>...</think> blocks from reasoning models before parsing
+    clean_text = re.sub(r'<think>.*?(?:</think>|$)', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
+    
+    match = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", clean_text, re.DOTALL | re.IGNORECASE)
     if match:
         clean_text = match.group(1)
     else:
-        start_idx = clean_text.find('{')
-        if start_idx != -1:
-            clean_text = clean_text[start_idx:]
+        first_bracket = clean_text.find('[')
+        first_brace = clean_text.find('{')
+        if first_bracket != -1 and (first_brace == -1 or first_bracket < first_brace):
+            clean_text = clean_text[first_bracket:]
+        else:
+            try:
+                from backend.agent.agent_engine import _try_extract_json_objects
+                objs = _try_extract_json_objects(clean_text)
+                if objs:
+                    clean_text = objs[-1]
+                else:
+                    if first_brace != -1:
+                        clean_text = clean_text[first_brace:]
+            except ImportError:
+                if first_brace != -1:
+                    clean_text = clean_text[first_brace:]
 
     try:
         return json.loads(clean_text)
@@ -562,6 +589,8 @@ def clean_json_response(raw_response):
         pass
 
     logger.error(f"Failed all JSON parsing attempts. Raw response length: {len(raw_response)}")
+    logger.error(f"Raw response preview (first 500 chars):\n{raw_response[:500]}")
+    logger.error(f"Raw response preview (last 500 chars):\n{raw_response[-500:]}")
     raise ValueError("LLM response could not be parsed into valid JSON.")
 
 
@@ -704,14 +733,25 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
 
     logger.info(f"LLM Call: Provider={llm_provider}, Model={model}, BaseURL={base_url}")
 
-    # Reasoning models (e.g. DeepSeek) consume max_tokens on internal "thinking"
+    # Force CoT thinking blocks globally for all JSON tasks
+    forced_think = False
+    if schema is not None and "<think>" not in system_prompt:
+        system_prompt = system_prompt.rstrip() + (
+            "\n\nCRITICAL INSTRUCTION: Before outputting the final JSON, you must think step-by-step "
+            "and write out your reasoning. You MUST wrap your entire reasoning process inside <think>...</think> tags. "
+            "Immediately after the closing </think> tag, output ONLY the valid JSON matching the requested schema. "
+            "Do not write any text after the JSON."
+        )
+        forced_think = True
+
+    # Reasoning models (and models we forced to reason) consume max_tokens on internal "thinking"
     # before producing visible content. If max_tokens is too small, ALL tokens go
     # to reasoning and content_len=0. Boost to 16384 so there's headroom for both
     # reasoning AND the actual JSON output.
     model_lower = model.lower()
-    is_reasoning_model = any(tag in model_lower for tag in ("deepseek", "r1", "qwq", "reasoning", "think"))
+    is_reasoning_model = forced_think or any(tag in model_lower for tag in ("deepseek", "r1", "qwq", "reasoning", "think"))
     if is_reasoning_model and max_tokens <= 8192:
-        logger.info(f"Reasoning model detected ('{model}'). Boosting max_tokens {max_tokens} -> 16384 to allow room for reasoning + content.")
+        logger.info(f"Reasoning model/CoT detected. Boosting max_tokens {max_tokens} -> 16384 to allow room for reasoning + content.")
         max_tokens = 16384
 
     # Check response cache for deterministic prompts (same params + same prompt).
@@ -784,9 +824,12 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
                     response_stream.close()
                     raise InterruptedError("Cancelled")
                 if chunk.choices and len(chunk.choices) > 0:
-                    delta_content = chunk.choices[0].delta.content
-                    if delta_content:
-                        raw_content += delta_content
+                    delta = chunk.choices[0].delta
+                    delta_content = getattr(delta, "content", "") or ""
+                    reasoning_content = getattr(delta, "reasoning_content", "") or ""
+                    text_to_add = reasoning_content + delta_content
+                    if text_to_add:
+                        raw_content += text_to_add
                 if getattr(chunk, "usage", None) is not None:
                     usage = chunk.usage
 
@@ -1282,6 +1325,11 @@ CONTENT RULES:
 - Include specific, concrete details and examples
 - Every sentence must add value
 - Do not repeat information from previous scenes
+
+STRICT BOUNDARY RULES:
+- DO NOT write an introduction, welcome, or hook. A separate introduction has already been written.
+- DO NOT write a conclusion, summary, or call-to-action at the end of this scene. A separate dedicated conclusion will be appended to the video immediately after the final scene.
+- End this scene's narration naturally based on its specific context without trying to wrap up the entire video.
 
 SPEAKING STYLE:
 - Write as if you're the narrator, explaining this topic clearly

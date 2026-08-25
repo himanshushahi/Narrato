@@ -318,7 +318,7 @@ def _format_sub_visual_durations(sub_visuals: list, highlight_idx: int = -1) -> 
     return "\n".join(lines) + "\n"
 
 
-def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None, use_tools=False):
+def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None, use_tools=False, allowed_tools=None):
     """Wrapper around ai._call_llm_json that catches exceptions and returns dict.
 
     Provides retry, streaming, and automatic provider resolution via the
@@ -330,7 +330,7 @@ def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None, use_to
             endpoints currently don't expose a cancel mechanism, so this
             defaults to a never-set event (no-op). Pipeline callers pass
             a real event wired to the QueueManager's cancel machinery.
-        use_tools: When True, the call runs through AgentRunner.run_with_tools,
+        use_tools: When True, the call runs through AgentRunner.run_with_tools_safe,
             letting the model emit ```tool``` blocks (web search, skill lookup,
             project file reads) before producing the final JSON.
     """
@@ -339,9 +339,14 @@ def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None, use_to
         cancel_event = threading.Event()  # never set for bridge calls
     try:
         if use_tools:
-            from backend.agent.agent_engine import AgentRunner, INTERACTIVE_AGENT_TOOLS
+            from backend.agent.agent_engine import AgentRunner
+            from backend.agent.tools import get_tools_schema
+            
+            if allowed_tools is None:
+                allowed_tools = [t["function"]["name"] for t in get_tools_schema()]
+                
             return AgentRunner(cancel_event=cancel_event).run_with_tools_safe(
-                system_prompt, user_prompt, schema, allowed_tools=INTERACTIVE_AGENT_TOOLS)
+                system_prompt, user_prompt, schema, allowed_tools=allowed_tools)
         data = _call_llm_json(system_prompt, user_prompt, schema, cancel_event)
         return {"success": True, "data": data}
     except InterruptedError:
@@ -914,6 +919,10 @@ class ApiBridge:
         save_prefs({"gpu_enabled": False})
         return {"success": ok}
 
+    # Tool sets for each bridge endpoint are imported from agent_engine.py
+    # (BRIDGE_SCRIPT_TOOLS, BRIDGE_VISUAL_TOOLS, BRIDGE_ADD_SCENE_TOOLS)
+    # and passed via _call_llm_safe(allowed_tools=...) to scope each call.
+
     def regenerate_script_section(self, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: regenerate_script_section index {scene_idx} ({section_type})")
         existing_scenes = full_script.get("scenes", [])
@@ -1027,7 +1036,8 @@ class ApiBridge:
             user_prompt += f"Web Search Results:\n{_web_ctx}\n\n"
             user_prompt += f"Use ONLY verified information from these sources. DO NOT use information from general knowledge or invented facts.\n"
 
-        return _call_llm_safe(system_prompt, user_prompt, schema, use_tools=True)
+        from backend.agent.agent_engine import BRIDGE_SCRIPT_TOOLS
+        return _call_llm_safe(system_prompt, user_prompt, schema, use_tools=True, allowed_tools=BRIDGE_SCRIPT_TOOLS)
 
     def regenerate_visuals_section(self, project_id: str, scene_idx: int, section_type: str, full_script: dict, rewrite_prompt: str) -> dict:
         logger.info(f"Bridge API: regenerate_visuals_section index {scene_idx} ({section_type})")
@@ -1042,7 +1052,10 @@ class ApiBridge:
             "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
             "Return ONLY valid JSON matching the provided schema. No markdown backticks.\n\n"
             f"{design_system_text}\n"
-            "IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n\n"
+            "CRITICAL RULES:\n"
+            "- COUNT: Generate as many sub-visuals as needed (usually one per visual beat, each lasting 2-15 seconds).\n"
+            "- DURATION: The sum of 'duration' for all sub-visuals MUST exactly equal the target duration.\n"
+            "- IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n\n"
             f"{visual_rules}\n"
         )
         if section_type == "introduction":
@@ -1056,7 +1069,7 @@ class ApiBridge:
         total_duration = sum(_safe_float(sv.get("duration", 0)) for sv in current_visuals if isinstance(sv, dict))
         if total_duration <= 0:
             total_duration = 15.0
-        prompt_struct = "Expected: { \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 15.0 }] }"
+        prompt_struct = "Expected: { \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 5.0 }, { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 10.0 }] } (generate as many items as needed)"
 
         # Gather word-level transcript and duration breakdown for precise AI timing
         narration_text = _get_section_narration(section_type, target_content)
@@ -1073,13 +1086,30 @@ class ApiBridge:
             f"Total Duration to fill: {total_duration} seconds.\n"
             f"Generate the rewritten JSON sub_visuals array now. The sum of sub-visual durations MUST equal {total_duration}. Structure matches: {prompt_struct}."
         )
-        result = _call_llm_safe(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, use_tools=True)
+        from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
+        result = _call_llm_safe(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
         if result.get("success") and "data" in result:
-            svs = result["data"].get("sub_visuals", [])
+            data = result["data"]
+            if isinstance(data, list):
+                svs = data
+            elif isinstance(data, dict):
+                # If the dict is a single sub_visual, wrap it in a list
+                if "visual_type" in data and "sub_visuals" not in data:
+                    svs = [data]
+                else:
+                    svs = data.get("sub_visuals", [])
+            else:
+                svs = []
+                
             _norm = sum(_safe_float(v.get("duration", 0)) for v in svs if isinstance(v, dict))
             if _norm > 0 and abs(_norm - total_duration) > 0.1:
                 for v in svs:
-                    v["duration"] = round(_safe_float(v.get("duration", 1.0), 1.0) / _norm * total_duration, 2)
+                    if isinstance(v, dict):
+                        v["duration"] = round(_safe_float(v.get("duration", 1.0), 1.0) / _norm * total_duration, 2)
+            
+            # Ensure the structure matches what the caller expects
+            if isinstance(data, list) or (isinstance(data, dict) and "visual_type" in data and "sub_visuals" not in data):
+                result["data"] = {"sub_visuals": svs}
         return result
 
     def regenerate_sub_visual(self, project_id: str, scene_idx: int, section_type: str, sub_idx: int, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
@@ -1137,7 +1167,8 @@ class ApiBridge:
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
-        return _call_llm_safe(system_prompt, user_prompt, SUB_VISUAL_SCHEMA, use_tools=True)
+        from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
+        return _call_llm_safe(system_prompt, user_prompt, SUB_VISUAL_SCHEMA, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
 
     def add_scene_with_ai(self, full_script: dict, user_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: add_scene_with_ai — user_prompt: '{user_prompt[:80]}...'")
@@ -1187,7 +1218,8 @@ class ApiBridge:
         _web_ctx = _get_web_context_for_topic(f"{doc_title} - add scene: {user_prompt[:100]}", "add new scene")
         if _web_ctx:
             user_content += f"\n\n---\nIncorporate relevant facts from this web search into your new scene:\n{_web_ctx}"
-        result = _call_llm_safe(system_prompt, user_content, SCRIPT_SCENE_JSON_SCHEMA, use_tools=True)
+        from backend.agent.agent_engine import BRIDGE_ADD_SCENE_TOOLS
+        result = _call_llm_safe(system_prompt, user_content, SCRIPT_SCENE_JSON_SCHEMA, use_tools=True, allowed_tools=BRIDGE_ADD_SCENE_TOOLS)
         if result.get("success") and "data" in result:
             result["data"]["sub_visuals"] = []
         return result

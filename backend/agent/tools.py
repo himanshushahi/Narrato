@@ -549,7 +549,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "regenerate_script_section",
-                "description": "Rewrites narration for a script section (introduction/conclusion/scene) based on a rewrite instruction, keeping narrative consistency and the project language. Updates the script in place.",
+                "description": "Rewrites the text narration for a script section (introduction/conclusion/scene) based on a rewrite instruction. Do NOT use this if the user only wants to change the visuals.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -567,7 +567,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "regenerate_scene_visuals",
-                "description": "Regenerates the full sub_visuals array for one script section based on a rewrite instruction. Uses the agent itself, so it may search the web or consult visual-type rules. Updates script.json and the asset manifests.",
+                "description": "Rewrites or regenerates the full sub_visuals array for one script section based on a user instruction. Use this when the user wants to change, replace, or rewrite the visuals of a scene without changing the text narration.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -941,11 +941,14 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                 script["conclusion"] = {**script.get("conclusion", {}), **new_data}
             else:
                 scenes = script.get("scenes", [])
-                if not (0 <= (scene_idx or 0) < len(scenes)):
+                idx = scene_idx or 0
+                if not (0 <= idx < len(scenes)):
                     return f"Error: Invalid scene index {scene_idx}"
-                merged = {**scenes[scene_idx], **new_data}
-                merged.pop("sub_visuals", None)
-                scenes[scene_idx] = merged
+                # Merge new script data while preserving existing sub_visuals
+                existing_sub_visuals = scenes[idx].get("sub_visuals", [])
+                merged = {**scenes[idx], **new_data}
+                merged["sub_visuals"] = existing_sub_visuals
+                scenes[idx] = merged
                 script["scenes"] = scenes
             if _save_json(project_id, "script.json", script):
                 return "Successfully rewrote the script section."

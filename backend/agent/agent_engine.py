@@ -73,6 +73,9 @@ def _extract_tool_blocks(text: str) -> list:
     bare JSON objects shaped like {"name": ..., "arguments": ...}. Deduplicates
     identical calls (same name + same arguments).
     """
+    # Strip <think>...</think> blocks from reasoning models before extracting tools
+    text = re.sub(r'<think>.*?(?:</think>|$)', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
     found = []
     seen = set()
 
@@ -123,12 +126,24 @@ SCRIPT_NARRATION_TOOLS = frozenset({
     "list_project_files", "project_status_report",
 })
 
-# Interactive bridge endpoints (Script tab AI buttons) run a tool-using agent
-# to RESEARCH before rewriting. Writes are performed by the endpoint itself,
-# not by tools, so only read-only research tools are exposed here. This keeps
-# destructive tools (delete_scene, reorder_scenes, update_*, regenerate_*)
-# out of reach and prevents an agent from recursively spawning nested agents.
-INTERACTIVE_AGENT_TOOLS = frozenset({
+# Bridge: script rewrites — research + read-only project access.
+# No visual-type rules or asset search needed for narration-only rewrites.
+BRIDGE_SCRIPT_TOOLS = frozenset({
+    "web_search", "get_skill", "read_project_file",
+    "list_project_files", "project_status_report",
+})
+
+# Bridge: visual rewrites — research + visual-type rules + asset search.
+# Needs Pexels/Wikipedia/preview tools to verify assets exist before using them.
+BRIDGE_VISUAL_TOOLS = frozenset({
+    "web_search", "get_skill", "get_visual_type_rules",
+    "read_project_file", "list_project_files", "project_status_report",
+    "search_pexels_photo", "search_pexels_video", "search_wikipedia_image",
+})
+
+# Bridge: add scene — research only (narration-only, visuals added later).
+# No asset/visual tools needed since sub_visuals are set to [] by the caller.
+BRIDGE_ADD_SCENE_TOOLS = frozenset({
     "web_search", "get_skill", "read_project_file",
     "list_project_files", "project_status_report",
 })
@@ -167,6 +182,8 @@ class AgentRunner:
             "emit EXACTLY ONE tool call block:\n"
             '```tool\n{"name": "tool_name", "arguments": {"param": "value"}}\n```\n'
             "You will receive the tool result in the next message. "
+            "CRITICAL: Before making a tool call or outputting the final JSON, you MUST think step-by-step "
+            "and wrap your entire reasoning inside <think>...</think> tags. "
             "After you have all the data you need, output ONLY the final JSON matching the "
             "requested schema — no tool block, no markdown, no extra text."
         )
