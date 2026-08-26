@@ -5,12 +5,13 @@ import { DataVisualizations } from './DataVisualizations';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
 
 export interface ASTLayerContent {
-  type: 'Image' | 'Video' | 'Text' | 'Map';
+  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML';
   local_path?: string;
   text?: string;
   font?: string;
   weight?: string;
   color?: string;
+  html_content?: string;
   locations?: { name?: string, coord: [number, number] }[];
   map_style?: string;
   style?: React.CSSProperties;
@@ -186,6 +187,13 @@ export const ASTRenderer: React.FC<{
               map_style={content.map_style}
               durationInFrames={300} // Default since we don't pass sequence duration down here directly
             />
+          );
+        } else if (content.type === 'HTML') {
+          const defaultHtmlStyle: React.CSSProperties = hasCustomLayout
+            ? { ...innerStyle }
+            : { position: 'absolute', width: '100%', height: '100%', ...innerStyle };
+          node = (
+            <div style={defaultHtmlStyle} dangerouslySetInnerHTML={{ __html: content.html_content || '' }} />
           );
         }
 

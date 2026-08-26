@@ -448,10 +448,8 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                 except OSError:
                     pass
 
-    # Preserve visual_path/visual_url from existing manifest for unchanged sub-visuals.
-    # This prevents re-downloading all assets when only voiceover is regenerated.
-    # Matches sub-visuals by content (visual_type + visual_cue) rather than by
-    # position, so it works correctly even when scenes are inserted or reordered.
+    # Preserve visual_path/visual_url from existing manifest for unchanged AST sub-visuals.
+    # This prevents re-downloading assets when only voiceover is regenerated.
     old_manifest_path = voice_dir / "manifest.json"
     if old_manifest_path.exists():
         try:

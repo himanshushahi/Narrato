@@ -76,6 +76,7 @@ The `content` object inside a `Layer` must have a `type`:
 - `Image` or `Video`: Provide `query` and `source` (`pexels`, `pixabay`, `wikipedia`). The engine will automatically search and download these assets.
 - `Text`: Provide `text`, `color`, `font`, and `weight`.
 - `Map`: Provide `map_style` (e.g., `modern_dark`) and an array of `locations` (e.g. `[{"name": "London", "coord": [51.5074, -0.1278]}]`).
+- `HTML`: Provide `html_content` containing raw HTML/CSS or inline `<svg>` elements with `<style>` blocks for keyframe animations (like stroke-dashoffset path drawing).
 
 **These are the ONLY valid content types.** Do not use any other type value.
 
@@ -112,6 +113,11 @@ Without `style`, layers default to fullscreen stacked — which looks like a bor
 ```json
 {"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "dark forest aerial", "source": "pexels"}}
 {"type": "Layer", "z_index": 5, "content": {"type": "Image", "query": "film grain noise texture", "source": "pexels"}, "filters": ["opacity(0.3)", "mix-blend-mode: overlay"]}
+```
+
+### Native Motion Graphics (SVG/HTML)
+```json
+{"type": "Layer", "z_index": 10, "content": {"type": "HTML", "html_content": "<style>@keyframes draw { to { stroke-dashoffset: 0; } }</style><svg width='100%' height='100%' viewBox='0 0 100 100'><path d='M10 50 Q 50 10 90 50' fill='transparent' stroke='#00F5D4' stroke-width='2' stroke-dasharray='100' stroke-dashoffset='100' style='animation: draw 2s forwards;' /></svg>"}}
 ```
 
 ## Animations

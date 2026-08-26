@@ -341,7 +341,8 @@ export function useScriptEditing(
       }
 
       if (res?.success && res.data) {
-        const updated = { ...data };
+        // Deep clone to avoid mutating React state via shared nested references
+        const updated = JSON.parse(JSON.stringify(data));
         if (editingCard?.mode === 'visuals') {
           // Visuals rewrite only returns the sub_visuals array, we merge it into the existing scene/section
           if (type === 'introduction') updated.introduction.sub_visuals = res.data.sub_visuals || [];

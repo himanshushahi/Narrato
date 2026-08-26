@@ -127,13 +127,13 @@ SCRIPT_NARRATION_TOOLS = frozenset({
 })
 
 # Bridge: script rewrites — research + read-only project access.
-# No visual-type rules or asset search needed for narration-only rewrites.
+# No visual AST rules or asset search needed for narration-only rewrites.
 BRIDGE_SCRIPT_TOOLS = frozenset({
     "web_search", "get_skill", "read_project_file",
     "list_project_files", "project_status_report",
 })
 
-# Bridge: visual rewrites — research + visual-type rules + asset search.
+# Bridge: visual rewrites — research + declarative AST composition rules + asset search.
 # Needs Pexels/Wikipedia/preview tools to verify assets exist before using them.
 BRIDGE_VISUAL_TOOLS = frozenset({
     "web_search", "get_skill",
@@ -177,7 +177,7 @@ class AgentRunner:
             lines.append(f"  Parameters: {json.dumps(props)}")
         lines.append("")
         lines.append(
-            "If you need external data (web facts, visual-type schemas, project files, "
+            "If you need external data (web facts, declarative AST schemas, project files, "
             "design settings) to produce a correct result, BEFORE outputting the final JSON "
             "emit EXACTLY ONE tool call block:\n"
             '```tool\n{"name": "tool_name", "arguments": {"param": "value"}}\n```\n'
@@ -223,7 +223,6 @@ class AgentRunner:
 
             tool_blocks = _extract_tool_blocks(raw)
             if tool_blocks:
-                executed_any = False
                 for call in tool_blocks:
                     self._check_cancel()
                     name = call.get("name")
@@ -236,9 +235,7 @@ class AgentRunner:
                     self._emit_progress(f"Agent: Executing tool {name}...")
                     result_str = execute_tool(name, args)
                     current_user_prompt += f"\n\nTool '{name}' result:\n{result_str}"
-                    executed_any = True
-                if executed_any:
-                    continue  # give the model a turn to act on the results
+                continue  # give the model a turn to act on the results or rejection notices
 
             # No tool block: try to parse the loose response as the final JSON.
             try:

@@ -1,5 +1,5 @@
 import pytest
-from backend.agent.validators import validate_sub_visuals, normalize_visual_type, normalize_transition
+from backend.agent.validators import validate_sub_visuals, normalize_transition
 from backend.agent.cache import build_cache_key
 from backend.agent.skill_loader import skill_loader
 
@@ -14,14 +14,15 @@ def test_cache_key_schema_flag():
 
 def test_validate_sub_visuals():
     svs = [
-        {"duration": 10.0},
+        {"duration": 10.0, "composition": {"type": "Sequence", "children": []}},
         {"duration": 5.0}
     ]
     is_valid, normalized, err = validate_sub_visuals(svs, 15.0)
     assert is_valid is True
     assert err == ""
-    # Types are normalized onto the enums even when validation passes
-    assert normalized[0]["visual_type"] == "scene"
+    assert normalized[0]["composition"] == {"type": "Sequence", "children": []}
+    assert normalized[0]["duration"] == 10.0
+    assert normalized[1]["duration"] == 5.0
 
 def test_validate_sub_visuals_normalization():
     svs = [
@@ -40,51 +41,44 @@ def test_validate_sub_visuals_empty_gets_dummy():
     assert is_valid is False
     assert len(normalized) == 1
     assert normalized[0]["duration"] == 15.0
-
-def test_normalize_visual_type_fuzzy():
-    assert normalize_visual_type("Custom HTML") == "custom_html"
-    assert normalize_visual_type("ai image") == "ai_image"
-    assert normalize_visual_type("device mockup") == "device_mockup"
-    assert normalize_visual_type("chat") == "thread"
-    assert normalize_visual_type("garbage") == "scene"
+    assert "composition" in normalized[0]
 
 def test_normalize_transition_fuzzy():
     assert normalize_transition("slide-up") == "slide_up"
     assert normalize_transition("zoom in") == "zoom_in"
-    assert normalize_transition("dissolve") == "fade"
+    assert normalize_transition("dissolve") == "dissolve"
     assert normalize_transition("made up") == "fade"
 
 def test_skill_loader():
     skills = skill_loader.get_all_skills()
-    assert "visual-type-custom-html" in skills
-    skill = skill_loader.get_skill("visual-type-custom-html")
+    assert "declarative-ast" in skills
+    skill = skill_loader.get_skill("declarative-ast")
     assert skill is not None
     assert skill.version == "1.0"
 
 def test_skill_loader_new_skills():
-    for name in ("scriptwriter", "subtitle-designer", "custom-html-designer",
-                 "stock-asset-searcher", "editor-qa",
-                 "visual-director-core", "visual-type-image", "visual-type-ai-image"):
+    for name in ("scriptwriter", "subtitle-designer", "declarative-ast",
+                 "stock-asset-searcher", "editor-qa", "visual-director-core"):
         skill = skill_loader.get_skill(name)
         assert skill is not None, f"Skill {name} missing"
-        assert skill.version == "1.0"
+        assert skill.version in ("1.0", "2.0")
         assert len(skill.content.strip()) > 50
 
-def test_visual_type_rules_cover_all_types():
-    for vtype in ("map", "document", "network", "list",
-                  "thread", "device_mockup", "custom_html", "scene", "portrait",
-                  "parallax", "youtube", "image", "ai_image"):
-        skill = skill_loader.get_skill(f"visual-type-{vtype.replace('_', '-')}")
-        assert skill is not None, f"visual-type-{vtype} skill missing"
+def test_declarative_ast_skill_structure():
+    skill = skill_loader.get_skill("declarative-ast")
+    assert skill is not None
+    assert "Sequence" in skill.content
+    assert "Layer" in skill.content
+    assert "content" in skill.content
 
 def test_visual_rules_built_from_skills():
     from backend.pipeline.ai import get_shared_visual_rules
     rules = get_shared_visual_rules("landscape", "hi")
-    # Skill-driven composition: director rules + schemas + safety net.
-    assert "MAXIMIZE CREATIVITY" in rules
-    assert "AI_IMAGE SCHEMA" in rules
-    assert "IMAGE SCHEMA" in rules
-    assert "ANTI-HALLUCINATION" in rules
+    # Skill-driven composition: AST architecture rules + safety net
+    assert "Declarative AST" in rules
+    assert "Sequence" in rules
+    assert "Layer" in rules
+    assert "SHARED RULES" in rules
     assert "ANIMATION TIMING" in rules
 
 
@@ -269,7 +263,7 @@ def test_invalidate_scene_resolves_by_section_type(monkeypatch):
 def test_run_with_tools_restricts_allowed_tools(monkeypatch):
     """Disallowed tools (e.g. delete_scene) must never be executed."""
     import backend.agent.agent_engine as ae
-    from backend.agent.agent_engine import AgentRunner, INTERACTIVE_AGENT_TOOLS
+    from backend.agent.agent_engine import AgentRunner, BRIDGE_VISUAL_TOOLS
 
     calls = {"n": 0}
     executed = []
@@ -288,7 +282,7 @@ def test_run_with_tools_restricts_allowed_tools(monkeypatch):
     monkeypatch.setattr(ae, "execute_tool", fake_execute)
 
     result = AgentRunner().run_with_tools(
-        "system", "prompt", {"type": "object"}, allowed_tools=INTERACTIVE_AGENT_TOOLS)
+        "system", "prompt", {"type": "object"}, allowed_tools=BRIDGE_VISUAL_TOOLS)
     assert result == {"final": True}
     assert executed == []  # delete_scene was rejected, never executed
 

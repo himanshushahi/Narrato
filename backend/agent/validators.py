@@ -30,10 +30,10 @@ def normalize_transition(transition: str) -> str:
     if t in VALID_TRANSITIONS:
         return t
     for key in ("subtle_slide", "slide_left", "slide_right", "slide_up",
-                "slide_down", "zoom_in", "zoom_out", "glitch"):
+                "slide_down", "zoom_in", "zoom_out", "glitch", "crossfade", "dissolve"):
         if key in t:
             return key
-    if "fade" in t or "dissolve" in t:
+    if "fade" in t:
         return "fade"
     return "fade"
 
@@ -48,8 +48,8 @@ def _dummy_visual(target_duration: float) -> List[Dict[str, Any]]:
 
 def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1) -> Tuple[bool, List[Dict[str, Any]], str]:
     """
-    Validates a list of sub-visuals, ensuring their durations sum up to the
-    target_duration, and normalizes types/transitions onto the valid enums.
+    Validates a list of AST sub-visuals, ensuring their durations sum up to the
+    target_duration, and normalizes transitions onto valid enums.
 
     Returns: (is_valid, normalized_sub_visuals, error_message)
     """
@@ -63,7 +63,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     total_duration = 0.0
 
     # Validation pass
-    for i, v in enumerate(sub_visuals):
+    for v in sub_visuals:
         if not isinstance(v, dict):
             continue
 
@@ -73,10 +73,16 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
 
         total_duration += dur
 
-        normalized.append({
+        entry = {
             "composition": v.get("composition", {"type": "Sequence", "children": []}),
+            "transition": normalize_transition(v.get("transition", "fade")),
             "duration": dur,
-        })
+        }
+        if "visual_path" in v:
+            entry["visual_path"] = v["visual_path"]
+        if "visual_url" in v:
+            entry["visual_url"] = v["visual_url"]
+        normalized.append(entry)
 
     if not normalized:
         return False, _dummy_visual(target_duration), "No valid sub_visuals found."

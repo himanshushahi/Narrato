@@ -158,10 +158,11 @@ ANIMATION_SCHEMA = {
 LAYER_CONTENT_SCHEMA = {
     "type": "object",
     "properties": {
-        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Map"]},
+        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Map", "HTML"]},
         "query": {"type": "string", "description": "Search query for Pexels, Wikipedia, or Pixabay (if Image/Video)"},
         "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay"], "description": "Source of media (if Image/Video)"},
         "text": {"type": "string", "description": "Text content (if Text)"},
+        "html_content": {"type": "string", "description": "Raw HTML/SVG content (if HTML), e.g., <svg>...</svg> or <div style='...'>...</div>"},
         "font": {"type": "string", "description": "Font family (if Text)"},
         "weight": {"type": "string", "description": "Font weight (if Text)"},
         "color": {"type": "string", "description": "Text color in hex (if Text)"},
@@ -208,6 +209,7 @@ SUB_VISUAL_SCHEMA = {
     "type": "object",
     "properties": {
         "duration": {"type": "number", "description": "Precise duration in seconds"},
+        "transition": {"type": "string", "description": "Transition effect (fade, slide_left, etc.)"},
         "composition": {
             "type": "object",
             "properties": {
@@ -220,7 +222,7 @@ SUB_VISUAL_SCHEMA = {
             "required": ["type", "children"]
         }
     },
-    "required": ["duration", "composition"]
+    "required": ["duration", "transition", "composition"]
 }
 
 # Schema validations for JSON parsing
@@ -1740,7 +1742,8 @@ RULES:
 - style: USE the `style` property on layers to position them — do NOT leave everything at fullscreen defaults
 - VARIETY: Never use the same composition layout for two consecutive sub-visuals
 - VIDEO: Use `Video` type layers when motion would enhance the visual (timelapses, B-roll, ambient footage)
-- ONLY use content types: Image, Video, Text, Map. No other types exist.
+- ONLY use content types: Image, Video, Text, Map, HTML. No other types exist.
+- HTML: You can generate raw inline SVG path animations, charts, or HTML UI elements using `html_content`.
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
@@ -1751,7 +1754,7 @@ ERROR PREVENTION:
 - Use only valid AST structures
 - All JSON numbers as numbers, not strings
 - All required fields present for each content type
-- content.type MUST be one of: Image, Video, Text, Map
+- content.type MUST be one of: Image, Video, Text, Map, HTML
 
 FINAL CHECK before submitting:
 1. Duration sum equals scene duration
@@ -1846,7 +1849,7 @@ FINAL CHECK before submitting:
         is_default = False
         if len(existing_sub_visuals) == 1:
             v = existing_sub_visuals[0]
-            if len(v.get("composition", {}).get("children", [])) == 0 and not v.get("visual_type"):
+            if not v.get("composition", {}).get("children"):
                 is_default = True
 
         narration_changed = (stored_hash and stored_hash != narration_hash)
