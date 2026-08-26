@@ -11,6 +11,8 @@ interface SubVisual {
   composition?: any;
   /** Proportional duration share within the scene (values sum to ~1.0). Set by Adjust Durations bar. */
   duration_ratio?: number;
+  /** Dynamic subtitle dodging position for this sub-visual */
+  subtitle_position?: 'bottom' | 'top' | 'hidden';
   /** Cut the narrator voiceover during this sub-visual's timeline interval. */
   mute_voiceover?: boolean;
   /** Cut the background music during this sub-visual's timeline interval. */
@@ -58,6 +60,7 @@ export interface Props {
   style?: string;
   language?: string;
   subtitleSettings?: any;
+  designSystem?: any;
 }
 
 export interface SceneTiming {
@@ -113,51 +116,41 @@ const SubGate: React.FC<{
   // frame is scene-relative here (SubGate lives inside SceneGate's Sequence).
   const frame = useCurrentFrame();
   // Buffer: mount -60f before start, keep +90f past end
-  const isNear = frame >= subFrom - 60 && frame <= subFrom + subDuration + 90;
+  const isNear = frame >= subFrom - 60 && frame <= subFrom + subDuration + 60;
   return isNear ? (
     <Sequence from={subFrom} durationInFrames={subDuration}>
       {children}
     </Sequence>
-  ) : null;
-};
-
-// Volume for the narration/music tracks is evaluated against GLOBAL timeline
-// frames. But `<Audio loop>` internally wraps the element in a Remotion
-// `<Loop>`, so the `frame` argument given to the `volume` callback is
-// LOOP-RELATIVE (it resets to 0 on every loop pass and never matches the
-// global timeline after the first pass). Instead of trusting that argument,
-// this component subscribes to the global frame itself: Remotion evaluates
-// the volume callback during the render of the current frame, so the captured
-// global frame is always the frame being rendered.
-const FrameVolumeAudio: React.FC<{
-  src: string;
-  loop?: boolean;
-  muteRanges: Array<{ start: number; end: number }>;
-  baseVolume: number;
-}> = ({ src, loop, muteRanges, baseVolume }) => {
-  const frame = useCurrentFrame();
-  const volume = Math.max(0, Math.min(1, baseVolume));
-  return (
-    <Audio
-      src={src}
-      loop={loop}
-      pauseWhenBuffering
-      volume={() => (isFrameInRanges(frame, muteRanges) ? 0 : volume)}
-    />
+  ) : (
+    <div style={BLACK_PLACEHOLDER_STYLE} />
   );
 };
 
-export const NitishRajputComposition = ({
+// ── Frame-accurate volume modulation for audio elements ─────────────────────
+const FrameVolumeAudio: React.FC<{
+  src: string;
+  muteRanges: Array<{ start: number; end: number }>;
+  baseVolume?: number;
+  loop?: boolean;
+}> = ({ src, muteRanges, baseVolume = 1, loop = false }) => {
+  const frame = useCurrentFrame();
+  const isMuted = isFrameInRanges(frame, muteRanges);
+  const volume = isMuted ? 0 : baseVolume;
+  return <Audio src={src} volume={volume} loop={loop} />;
+};
+
+export const NitishRajputComposition: React.FC<Props> = ({
   audioUrl,
   bgMusicUrl,
-  bgMusicVolume = 0.15,
+  bgMusicVolume = 0.2,
   voiceoverVolume = 1.0,
 
-  scenes = [],
-  transcription = { language: '', segments: [] },
+  scenes,
+  transcription,
   style = 'nitish_rajput',
-  subtitleSettings = {}
-}: Props) => {
+  subtitleSettings = {},
+  designSystem
+}) => {
   const { width: canvasWidth, height: canvasHeight } = useVideoConfig();
   // Fast preview (compositionScale=0.5) shrinks the Player canvas to 960x540.
   // Visuals are authored in 1080p logical pixels, so the content tree is laid
@@ -167,12 +160,12 @@ export const NitishRajputComposition = ({
 
   // Build scene timing lookup (cumulative start/end times) for subtitle gap-filling
   const sceneTimings: SceneTiming[] = useMemo(() => {
-    let offset = 0;
+    let currentTime = 0;
     return scenes.map(scene => {
-      const start = offset;
-      const end = offset + (scene.duration || 0);
-      offset = end;
-      return { start, end, text: scene.text };
+      const start = currentTime;
+      const end = currentTime + (scene.duration || 0);
+      currentTime = end;
+      return { start, end, text: scene.text || '' };
     });
   }, [scenes]);
 
@@ -195,6 +188,29 @@ export const NitishRajputComposition = ({
       offset += durationFrames;
     }
     return { voiceMuteRanges: voice, bgMuteRanges: bg };
+  }, [scenes]);
+
+  // Compute frame-range subtitle displacements for dodging (top, bottom, hidden)
+  const subtitleDisplacements = useMemo(() => {
+    const list: Array<{ startFrame: number; endFrame: number; position: 'bottom' | 'top' | 'hidden' }> = [];
+    let offset = 0;
+    for (const scene of scenes) {
+      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      const subVisuals = scene.sub_visuals || [];
+      const timings = subVisuals.length > 0 ? calculateSubVisualTimings(subVisuals, durationFrames, 0) : [];
+      subVisuals.forEach((sv, i) => {
+        const t = timings[i];
+        if (t && sv.subtitle_position) {
+          list.push({
+            startFrame: offset + t.start,
+            endFrame: offset + t.end,
+            position: sv.subtitle_position
+          });
+        }
+      });
+      offset += durationFrames;
+    }
+    return list;
   }, [scenes]);
 
   // Helper to render a single sub-visual's content
@@ -235,30 +251,10 @@ export const NitishRajputComposition = ({
               </SubGate>
             );
           })}
-
-          {!subtitleSettings?.hide_chapter_name && scene.title && (
-            <div style={{
-              position: 'absolute',
-              top: 50,
-              left: 60,
-              fontFamily: 'Montserrat, sans-serif',
-              fontWeight: 800,
-              fontSize: 24,
-              color: subtitleSettings?.chapter_text_color || '#d6d3d1',
-              textTransform: 'uppercase',
-              letterSpacing: 2,
-              opacity: 0.6,
-              borderLeft: `4px solid ${subtitleSettings?.chapter_border_color || '#b45309'}`,
-              paddingLeft: 12,
-              zIndex: 50
-            }}>
-              {scene.title}
-            </div>
-          )}
         </SceneGate>
       );
     });
-  }, [scenes, subtitleSettings, renderSubVisual]);
+  }, [scenes, renderSubVisual]);
 
   // ── Resolution scaling (fast preview) ─────────────────────────────────────
   // At scaleFactor 1 (export / full-res preview) the layers mount directly.
@@ -279,6 +275,8 @@ export const NitishRajputComposition = ({
             sceneTimings={sceneTimings}
             styleType={style} 
             subtitleSettings={subtitleSettings}
+            subtitleDisplacements={subtitleDisplacements}
+            designSystem={designSystem}
           />
         </div>
       )}

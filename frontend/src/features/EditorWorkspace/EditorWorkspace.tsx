@@ -65,6 +65,7 @@ export const EditorWorkspace: React.FC = () => {
   // === Hooks ===
   const {
     scriptData, setScriptData,
+    designData,
     manifestData, setManifestData,
     transcriptionData, setTranscriptionData,
     liveScenes, sceneTimings, reloadKey,
@@ -683,6 +684,7 @@ export const EditorWorkspace: React.FC = () => {
           language={safeProject.language}
           videoFormat={safeProject.video_format || 'landscape'}
           subtitleSettings={localProjectSettings}
+          designSystem={designData}
           onFrameUpdate={handleFrameUpdate}
           isPipelineRunning={isRunning}
           fullscreenToggleRef={fullscreenToggleRef}

@@ -120,6 +120,68 @@ Without `style`, layers default to fullscreen stacked — which looks like a bor
 {"type": "Layer", "z_index": 10, "content": {"type": "HTML", "html_content": "<style>@keyframes draw { to { stroke-dashoffset: 0; } }</style><svg width='100%' height='100%' viewBox='0 0 100 100'><path d='M10 50 Q 50 10 90 50' fill='transparent' stroke='#00F5D4' stroke-width='2' stroke-dasharray='100' stroke-dashoffset='100' style='animation: draw 2s forwards;' /></svg>"}}
 ```
 
+## Standardized Z-Index Hierarchy (STRICT)
+All layers must strictly use the following Z-index ranges to prevent visual clobbering:
+- `0 - 9`: Backgrounds (Fullscreen Images, Videos, Maps, ambient textures)
+- `10 - 29`: Midground (Picture-in-Picture insets, multi-image collages, animated SVG charts, vector shapes)
+- `30 - 39`: Foreground Text (Lower-third titles, kinetic typography, callout quotes)
+- `40 - 50`: Scene UI & Chapter Badges (Chapter titles, milestone pills, header badges)
+
+## Subtitle Safe Areas & Dodging (`subtitle_position`)
+Subtitles are rendered as an active kinetic typography track.
+- **Landscape (16:9)**: Bottom 15% is reserved for subtitles. Position lower-third text above `bottom: 18%` or use top/left/right coordinates.
+- **Portrait (9:16)**: Bottom 25% is reserved for stacked mobile captions. Position lower-third text above `bottom: 28%`.
+- **Dynamic Subtitle Dodging**: Each sub-visual object can optionally declare `"subtitle_position"`:
+  - `"bottom"` (default)
+  - `"top"`: Moves subtitles to top (useful when bottom area contains documents, maps, or data to read)
+  - `"hidden"`: Temporarily suppresses subtitles (useful for dense full-screen charts)
+
+```json
+{
+  "sub_visuals": [
+    {
+      "subtitle_position": "top",
+      "transition": "fade",
+      "duration": 4.0,
+      "composition": { ... }
+    }
+  ]
+}
+```
+
+## Chapter Title Layers (Sub-Visual 0 of Each Scene)
+In the **first sub-visual of every scene (sub-visual 0)**, you MUST include a Chapter Title layer (`z_index: 40 - 50`) that introduces the scene title:
+```json
+{
+  "type": "Layer",
+  "z_index": 45,
+  "content": {
+    "type": "Text",
+    "text": "CHAPTER 1: THE DISCOVERY",
+    "font": "Outfit",
+    "weight": "800",
+    "style": {
+      "position": "absolute",
+      "top": "5%",
+      "left": "5%",
+      "fontSize": "22px",
+      "letterSpacing": "2px",
+      "textTransform": "uppercase",
+      "color": "#f8fafc",
+      "padding": "6px 16px",
+      "backgroundColor": "rgba(15, 23, 42, 0.75)",
+      "borderLeft": "4px solid #f59e0b",
+      "borderRadius": "6px",
+      "backdropFilter": "blur(8px)"
+    }
+  },
+  "animations": [
+    { "property": "opacity", "from": 0.0, "to": 1.0, "duration": 0.4 },
+    { "property": "translateX", "from": -25.0, "to": 0.0, "duration": 0.4 }
+  ]
+}
+```
+
 ## Animations
 You can apply native Remotion physics by providing an array of `animations` on any layer.
 Supported properties: `scale`, `opacity`, `translateX`, `translateY`, `rotate`, `rotateX`, `rotateY`.

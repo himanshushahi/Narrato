@@ -78,6 +78,8 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             "transition": normalize_transition(v.get("transition", "fade")),
             "duration": dur,
         }
+        if "subtitle_position" in v and v["subtitle_position"] in ("bottom", "top", "hidden"):
+            entry["subtitle_position"] = v["subtitle_position"]
         if "visual_path" in v:
             entry["visual_path"] = v["visual_path"]
         if "visual_url" in v:

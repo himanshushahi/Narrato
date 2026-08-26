@@ -8,6 +8,8 @@ import { estimateTextDuration, calculateSubVisualTimings } from '../../../utils/
 interface UseEditorDataReturn {
   scriptData: any;
   setScriptData: (data: any) => void;
+  designData: any;
+  setDesignData: (data: any) => void;
   manifestData: any[];
   setManifestData: (data: any[]) => void;
   transcriptionData: any;
@@ -25,6 +27,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const fetchProjectDetail = useProjectStore((s) => s.fetchProjectDetail);
 
   const [scriptData, setScriptData] = useState<any>(null);
+  const [designData, setDesignData] = useState<any>(null);
   const [manifestData, setManifestData] = useState<any[]>([]);
   const [transcriptionData, setTranscriptionData] = useState<any>({ segments: [] });
   const [loadingScript, setLoadingScript] = useState(false);
@@ -39,6 +42,9 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
         if (project.script_path) {
           const script = await callApi<any>('read_json_file', project.script_path);
           setScriptData(script);
+          const designPath = project.script_path.replace(/script\.json$/, 'design.json');
+          const design = await callApi<any>('read_json_file', designPath);
+          setDesignData(design);
         }
         if (project.assets_manifest_path) {
           const manifest = await callApi<any>('read_json_file', project.assets_manifest_path);
@@ -246,6 +252,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
 
   return {
     scriptData, setScriptData,
+    designData, setDesignData,
     manifestData, setManifestData,
     transcriptionData, setTranscriptionData,
     loadingScript, reloadKey,

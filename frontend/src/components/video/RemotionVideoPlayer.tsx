@@ -14,6 +14,7 @@ interface Props {
   language?: string;
   videoFormat?: string;
   subtitleSettings?: any;
+  designSystem?: any;
   /** Preview resolution scale (0.5 = 960x540, 1 = full 1920x1080). Defaults to 0.5 for fast scrubbing/playback. */
   compositionScale?: number;
   onFrameUpdate?: (frame: number) => void;
@@ -40,6 +41,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   language = 'hi',
   videoFormat = 'landscape',
   subtitleSettings = {},
+  designSystem,
   compositionScale = 0.5,
   onFrameUpdate,
   onPlayStateChange
@@ -68,7 +70,12 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         playerRef.current.pause();
       }
     },
-    getCurrentFrame: () => (playerRef.current ? playerRef.current.getCurrentFrame() : 0),
+    getCurrentFrame: () => {
+      if (playerRef.current) {
+        return playerRef.current.getCurrentFrame();
+      }
+      return 0;
+    }
   }));
 
   const hasScenes = scenes && scenes.length > 0;
@@ -133,8 +140,9 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       language,
       videoFormat,
       subtitleSettings,
+      designSystem,
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem]);
 
   if (!scenes || scenes.length === 0) {
     return (

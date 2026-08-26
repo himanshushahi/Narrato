@@ -17,6 +17,7 @@ interface VideoPreviewProps {
   language?: string;
   videoFormat?: string;
   subtitleSettings: any;
+  designSystem?: any;
   onFrameUpdate: (frame: number) => void;
   isPipelineRunning?: boolean;
   pipelineProgress?: number;
@@ -31,6 +32,7 @@ const MemoizedRemotionPlayer = React.memo(RemotionVideoPlayer);
 export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   playerRef, liveScenes, transcriptionData,
   audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
+  designSystem,
   onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef
 }) => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
@@ -225,6 +227,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   language={language}
                   videoFormat={videoFormat}
                   subtitleSettings={playerSubtitleSettings}
+                  designSystem={designSystem}
                   compositionScale={previewQuality === 'full' ? 1 : 0.5}
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}

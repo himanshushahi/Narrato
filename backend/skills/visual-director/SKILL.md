@@ -44,9 +44,15 @@ Use the `style` property on AST layers to create complex After Effects-style com
 
 **Darkened Backgrounds for Text** — When text overlays an image, add `filters: ["brightness(0.35)", "contrast(1.2)"]` on the image layer to ensure readability.
 
-=== COMPOSITION VARIETY RULES ===
-- NEVER use the same layout pattern twice in a row
-- Alternate between: fullscreen media, split screens, PiP, collages, typography-driven
-- Use Video layers for motion when the narration calls for dynamic energy
-- Use `style` on most layers — fullscreen defaults should be the exception, not the rule
-- Create depth with z_index: backgrounds at 0, media at 1-5, text/overlays at 10+
+=== COMPOSITION VARIETY & SCENE RULES ===
+- CHAPTER TITLES: In the FIRST sub-visual of every scene (sub-visual 0), you MUST include a Chapter Title layer (`z_index: 40-50`) with an entrance animation introducing the scene.
+- NEVER use the same layout pattern twice in a row.
+- Alternate between: fullscreen media, split screens, PiP, collages, typography-driven, SVG diagrams.
+- Use Video layers for motion when the narration calls for dynamic energy.
+- Use `style` on most layers — fullscreen defaults should be the exception, not the rule.
+- Create depth with standardized z_index:
+  * 0 - 9: Background media / textures
+  * 10 - 29: Insets, collages, animated vector charts
+  * 30 - 39: Foreground typography / lower-thirds (respect subtitle safe area)
+  * 40 - 50: Chapter title badges & scene UI
+- SUBTITLE DODGING: If a sub-visual has crucial bottom content (diagram, document, lower screen map), set `"subtitle_position": "top"` to move subtitles away from the bottom.

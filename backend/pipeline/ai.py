@@ -210,6 +210,7 @@ SUB_VISUAL_SCHEMA = {
     "properties": {
         "duration": {"type": "number", "description": "Precise duration in seconds"},
         "transition": {"type": "string", "description": "Transition effect (fade, slide_left, etc.)"},
+        "subtitle_position": {"type": "string", "enum": ["bottom", "top", "hidden"], "description": "Position of subtitles during this sub-visual"},
         "composition": {
             "type": "object",
             "properties": {
@@ -1615,11 +1616,23 @@ Every sub-visual MUST have a `composition` property matching the AST schema.
 
 def _visual_rules_safety_net(video_format: str, language: str) -> str:
     """Shared rules for AST generation."""
+    safe_bottom_pct = "25%" if video_format == "portrait" else "15%"
+    text_bottom_limit = "28%" if video_format == "portrait" else "18%"
     return f"""
 === SHARED RULES (apply to every layer) ===
 - `query` in Image/Video MUST ALWAYS be in English. Use 1-3 broad stock keywords for media types.
 - All text content MUST be in English, EXCEPT if you are specifically creating a subtitle/translation layer which must match the target language ({language}).
 - Design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths where applicable.
+- SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
+- SUBTITLE DODGING: If a sub-visual needs full bottom space (e.g. document, lower map, dense graphic), include `"subtitle_position": "top"` to move subtitles to top.
+- STANDARDIZED Z-INDEX HIERARCHY:
+  * 0 - 9: Background media / textures
+  * 10 - 29: Insets, collages, animated vector charts
+  * 30 - 39: Foreground typography / lower-thirds (respect subtitle safe area)
+  * 40 - 50: Chapter title badges & scene UI
+
+=== CHAPTER TITLE IN SUB-VISUAL 0 ===
+In the FIRST sub-visual of every scene (sub-visual 0), you MUST include a Chapter Title layer (z_index: 40-50) introducing the scene title with an entrance animation (e.g. glassmorphism badge with accent border at top-left or top-center).
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
 When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
@@ -1722,8 +1735,8 @@ You MUST vary your compositions across sub-visuals. Use these techniques:
    - Background: {{"style": {{"width": "100%", "height": "100%", "objectFit": "cover"}}}}
    - Inset: {{"style": {{"width": "35%", "height": "35%", "top": "5%", "right": "5%", "borderRadius": "16px", "objectFit": "cover", "boxShadow": "0 10px 40px rgba(0,0,0,0.6)"}}}}
 
-3. LOWER-THIRD TEXT: Position text at the bottom, not centered:
-   - {{"style": {{"position": "absolute", "bottom": "8%", "left": "5%", "width": "90%", "fontSize": "48px", "textAlign": "left"}}}}
+3. LOWER-THIRD TEXT: Position text at the bottom (respecting subtitle safe area), not centered:
+   - {{"style": {{"position": "absolute", "bottom": "18%", "left": "5%", "width": "90%", "fontSize": "48px", "textAlign": "left"}}}}
 
 4. KINETIC TYPOGRAPHY: Large text with dramatic animations (scale from 0.3→1, translateY from 200→0)
 
@@ -1737,6 +1750,7 @@ RULES:
 - COUNT: One sub-visual per visual beat
 - DURATION: Each 2-15 seconds, sum MUST equal scene duration
 - TRANSITION: Vary transitions — never repeat the same one
+- CHAPTER TITLES: In the FIRST sub-visual of each scene (sub-visual 0), include a Chapter Title layer (z_index: 40-50)
 - query: ALWAYS in English. Use descriptive, specific keywords for relevant results (e.g. 'programmer typing on retro computer terminal' or 'old floppy disk close up'). Avoid vague single words.
 - Text content: ALWAYS in English
 - style: USE the `style` property on layers to position them — do NOT leave everything at fullscreen defaults
@@ -1747,7 +1761,7 @@ RULES:
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
-{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "transition": "fade", "duration": 3.5}}]}}
+{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "transition": "fade", "duration": 3.5, "subtitle_position": "bottom"}}]}}
 
 ERROR PREVENTION:
 - Duration sum must equal exactly the provided scene duration (2 decimal places)

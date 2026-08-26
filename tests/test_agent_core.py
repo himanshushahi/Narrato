@@ -602,3 +602,55 @@ def test_skill_telemetry_labels_preload_vs_tool():
     assert skills[0]["args"] == {"version": "1.0", "scope": "tool"}
     assert "System Prompt Preload (v1.0)" in skills[1]["detail"]
     assert skills[1]["args"] == {"version": "1.0", "scope": "preload"}
+
+
+# ---------------------------------------------------------------------------
+# AST Subtitle Positioning, Safe Areas & Chapter Badges
+# ---------------------------------------------------------------------------
+
+def test_sub_visual_schema_subtitle_position():
+    """SUB_VISUAL_SCHEMA must include subtitle_position enum."""
+    from backend.pipeline.ai import SUB_VISUAL_SCHEMA
+    props = SUB_VISUAL_SCHEMA["properties"]
+    assert "subtitle_position" in props
+    assert props["subtitle_position"]["enum"] == ["bottom", "top", "hidden"]
+
+
+def test_visual_rules_format_aware_safe_areas():
+    """Visual rules must configure format-aware safe areas (15% landscape, 25% portrait)."""
+    from backend.pipeline.ai import _visual_rules_safety_net
+    landscape_rules = _visual_rules_safety_net("landscape", "hi")
+    assert "15%" in landscape_rules
+    assert "18%" in landscape_rules
+    assert "CHAPTER TITLE" in landscape_rules
+    assert "STANDARDIZED Z-INDEX HIERARCHY" in landscape_rules
+
+    portrait_rules = _visual_rules_safety_net("portrait", "hi")
+    assert "25%" in portrait_rules
+    assert "28%" in portrait_rules
+
+
+def test_validate_sub_visuals_preserves_subtitle_position():
+    """validate_sub_visuals must preserve subtitle_position across normalization."""
+    from backend.agent.validators import validate_sub_visuals
+    raw = [
+        {"duration": 2.0, "subtitle_position": "top", "composition": {"type": "Sequence", "children": []}},
+        {"duration": 3.0, "subtitle_position": "hidden", "composition": {"type": "Sequence", "children": []}},
+        {"duration": 5.0, "composition": {"type": "Sequence", "children": []}}
+    ]
+    valid, normalized, err = validate_sub_visuals(raw, 10.0)
+    assert valid is True
+    assert normalized[0].get("subtitle_position") == "top"
+    assert normalized[1].get("subtitle_position") == "hidden"
+    assert "subtitle_position" not in normalized[2]
+
+
+def test_declarative_ast_skill_has_z_index_and_chapter_guidelines():
+    """declarative-ast skill must document standardized Z-indexes and Chapter Title layers."""
+    from backend.agent.skill_loader import skill_loader
+    skill = skill_loader.get_skill("declarative-ast")
+    assert skill is not None
+    assert "Standardized Z-Index Hierarchy" in skill.content
+    assert "Chapter Title Layers" in skill.content
+    assert "subtitle_position" in skill.content
+
