@@ -15,7 +15,6 @@ import {
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
 } from 'react-icons/vsc';
 import { MdOutlineMovie } from 'react-icons/md';
-import { BsStars } from 'react-icons/bs';
 import { callApi } from '../utils/call-api';
 import { getMediaUrlSync } from '../utils/mediaUrl';
 
@@ -64,11 +63,6 @@ export const SettingsPage: React.FC = () => {
   const [ytdlpInstalled, setYtdlpInstalled] = useState(false);
   const [ytdlpPath, setYtdlpPath] = useState<string | null>(null);
 
-  // HF Test States
-  const [hfTestPrompt, setHfTestPrompt] = useState('A futuristic city skyline');
-  const [hfTestFormat, setHfTestFormat] = useState('portrait');
-  const [hfTestImage, setHfTestImage] = useState('');
-  const [isHfTesting, setIsHfTesting] = useState(false);
 
   // App language state (computed locally based on voice settings)
   const [appLanguage, setAppLanguage] = useState<'hi' | 'en'>('hi');
@@ -153,33 +147,6 @@ export const SettingsPage: React.FC = () => {
     const ok = await callApi<boolean>('check_xtts_downloaded');
     setXttsInstalled(!!ok);
   };
-  const handleTestHfModel = async () => {
-    if (!window.pywebview) return;
-    const apiKey = formData.huggingface_api_key;
-    const model = formData.huggingface_model || "black-forest-labs/FLUX.1-schnell";
-    const provider = formData.huggingface_provider || "auto";
-    if (!apiKey) {
-      useUIStore.getState().addToast("Please enter a Hugging Face API Key first", "warning");
-      return;
-    }
-    
-    setIsHfTesting(true);
-    setHfTestImage('');
-    try {
-      const res = await window.pywebview.api.test_huggingface_model(apiKey, model, provider, hfTestPrompt, hfTestFormat);
-      if (res && res.success && res.image) {
-        setHfTestImage(res.image);
-        useUIStore.getState().addToast("Image generated successfully!", "success");
-      } else {
-        useUIStore.getState().addToast(res?.error || "Failed to generate image", "error");
-      }
-    } catch (e: any) {
-      useUIStore.getState().addToast(e.message || "Failed to test model", "error");
-    } finally {
-      setIsHfTesting(false);
-    }
-  };
-
 
 
   // Check Whisper model downloads
@@ -472,119 +439,37 @@ export const SettingsPage: React.FC = () => {
             </AIProviderCard>
           </div>
 
-          {/* HuggingFace Image Generation Card */}
+
+
+          {/* Stock Media APIs */}
           <div>
             <GlassCard className="p-6 space-y-6">
               <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
-                <BsStars className="text-base text-[var(--color-accent-primary)]" />
-                Hugging Face Image Generation
+                <MdOutlineMovie className="text-base text-[var(--color-accent-primary)]" />
+                Stock Media Providers
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <CustomInput
-                  label="Hugging Face API Key"
+                  label="Pexels API Key"
                   type="password"
-                  name="huggingface_api_key"
-                  value={formData.huggingface_api_key || ''}
+                  name="pexels_api_key"
+                  value={formData.pexels_api_key || ''}
                   onChange={handleInputChange}
-                  placeholder="hf_..."
+                  placeholder="Enter Pexels API Key"
                   icon={<VscKey />}
                 />
                 <CustomInput
-                  label="Default Model Name"
-                  type="text"
-                  name="huggingface_model"
-                  value={formData.huggingface_model || ''}
+                  label="Pixabay API Key"
+                  type="password"
+                  name="pixabay_api_key"
+                  value={formData.pixabay_api_key || ''}
                   onChange={handleInputChange}
-                  placeholder="black-forest-labs/FLUX.1-schnell"
-                  icon={<VscSymbolClass />}
-                />
-                <CustomSelect
-                  label="Inference Provider"
-                  options={[
-                    { value: 'auto', label: 'Auto (Default)' },
-                    { value: 'black-forest-labs', label: 'Black Forest Labs' },
-                    { value: 'cerebras', label: 'Cerebras' },
-                    { value: 'clarifai', label: 'Clarifai' },
-                    { value: 'cohere', label: 'Cohere' },
-                    { value: 'deepinfra', label: 'DeepInfra' },
-                    { value: 'fal-ai', label: 'Fal.ai' },
-                    { value: 'featherless-ai', label: 'Featherless AI' },
-                    { value: 'fireworks-ai', label: 'Fireworks AI' },
-                    { value: 'groq', label: 'Groq' },
-                    { value: 'hf-inference', label: 'HF Inference Endpoints' },
-                    { value: 'hyperbolic', label: 'Hyperbolic' },
-                    { value: 'nebius', label: 'Nebius' },
-                    { value: 'novita', label: 'Novita' },
-                    { value: 'nscale', label: 'Nscale' },
-                    { value: 'nvidia', label: 'NVIDIA' },
-                    { value: 'openai', label: 'OpenAI' },
-                    { value: 'ovhcloud', label: 'OVHcloud' },
-                    { value: 'publicai', label: 'PublicAI' },
-                    { value: 'replicate', label: 'Replicate' },
-                    { value: 'sambanova', label: 'SambaNova' },
-                    { value: 'scaleway', label: 'Scaleway' },
-                    { value: 'together', label: 'Together AI' },
-                    { value: 'wavespeed', label: 'Wavespeed' },
-                    { value: 'zai-org', label: 'ZAI Org' }
-                  ]}
-                  value={formData.huggingface_provider || 'auto'}
-                  onChange={(val) => handleSelectChange('huggingface_provider', val)}
+                  placeholder="Enter Pixabay API Key"
+                  icon={<VscKey />}
                 />
               </div>
               <div className="text-[10px] text-stone-400">
-                This is used for generating AI Images when using the "AI Generated Image" visual type. Leave Model Name blank to use the prompt's specified model or the backend default. Set Inference Provider to "Auto" to let Hugging Face choose, or force a specific provider.
-              </div>
-              
-              <div className="mt-4 pt-6 border-t border-stone-800/50">
-                <h3 className="text-xs font-semibold text-stone-300 mb-4 uppercase tracking-wider flex items-center gap-2">
-                  <VscSymbolClass className="text-[var(--color-accent-primary)]" />
-                  Test Image Generation
-                </h3>
-                <div className="flex flex-col lg:flex-row gap-6">
-                  <div className="flex-1 space-y-4">
-                    <CustomInput
-                      label="Test Prompt"
-                      type="text"
-                      name="hfTestPrompt"
-                      value={hfTestPrompt}
-                      onChange={(e) => setHfTestPrompt(e.target.value)}
-                      placeholder="A futuristic city skyline..."
-                    />
-                    <CustomSelect
-                      label="Aspect Ratio"
-                      options={[
-                        { value: 'portrait', label: 'Portrait (9:16)' },
-                        { value: 'landscape', label: 'Landscape (16:9)' }
-                      ]}
-                      value={hfTestFormat}
-                      onChange={(val) => setHfTestFormat(val)}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleTestHfModel}
-                      disabled={isHfTesting || !formData.huggingface_api_key}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-lg text-sm transition-colors border border-stone-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isHfTesting ? (
-                        <div className="w-4 h-4 border-2 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <BsStars className="text-[var(--color-accent-primary)]" />
-                      )}
-                      {isHfTesting ? 'Generating Preview...' : 'Test Generation'}
-                    </button>
-                  </div>
-                  
-                  <div className="flex-[1.5] bg-black/40 border border-stone-800/50 rounded-lg overflow-hidden flex flex-col items-center justify-center min-h-[250px] relative">
-                    {hfTestImage ? (
-                      <img src={hfTestImage} alt="Generated Test" className="object-contain max-h-[350px] max-w-full" />
-                    ) : (
-                      <div className="text-stone-600 text-xs flex flex-col items-center gap-3">
-                        <VscSymbolClass className="text-3xl opacity-30" />
-                        <span>Preview will appear here</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                These keys are required to automatically search and download stock photos and videos when using the AI pipeline. You can obtain free keys by registering on their respective developer portals.
               </div>
             </GlassCard>
           </div>

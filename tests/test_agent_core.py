@@ -87,12 +87,7 @@ def test_visual_rules_built_from_skills():
     assert "ANTI-HALLUCINATION" in rules
     assert "ANIMATION TIMING" in rules
 
-def test_get_visual_type_rules_tool_ai_image(monkeypatch):
-    """The get_visual_type_rules tool must resolve image/ai_image skill names."""
-    from backend.agent.tools import execute_tool
-    result = execute_tool("get_visual_type_rules", {"visual_type": "ai_image"})
-    assert "Error" not in result
-    assert "AI_IMAGE" in result.upper()
+
 
 def test_run_with_tools_rejects_disallowed_tools(monkeypatch):
     """Tools not on the allowlist must be rejected and never executed."""

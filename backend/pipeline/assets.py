@@ -43,6 +43,13 @@ def compute_script_content_hash(script_data):
     content_str = "\n".join(parts)
     return hashlib.sha256(content_str.encode("utf-8")).hexdigest()
 
+def strip_local_paths(data):
+    if isinstance(data, dict):
+        return {k: strip_local_paths(v) for k, v in data.items() if k != "local_path"}
+    elif isinstance(data, list):
+        return [strip_local_paths(v) for v in data]
+    return data
+
 def is_visuals_stale(project_dict, project_dir):
     """Check if the sub-visual structure in script.json differs from manifest.json."""
     script_path = project_dir / "script.json"
@@ -76,8 +83,9 @@ def is_visuals_stale(project_dict, project_dir):
                 
             orig_sub_visuals = manifest_scene.get("sub_visuals", [])
             
-            relevant_live = [{"visual_type": lsv.get("visual_type"), "visual_cue": lsv.get("visual_cue")} for lsv in live_sub_visuals]
-            relevant_orig = [{"visual_type": osv.get("visual_type"), "visual_cue": osv.get("visual_cue")} for osv in orig_sub_visuals]
+            # Compare the AST trees, ignoring local_path
+            relevant_live = strip_local_paths(live_sub_visuals)
+            relevant_orig = strip_local_paths(orig_sub_visuals)
             
             if relevant_live != relevant_orig:
                 return True
@@ -85,6 +93,16 @@ def is_visuals_stale(project_dict, project_dir):
         logger.warning(f"Failed to check visuals staleness: {e}")
         return True
     return False
+
+def _collect_local_paths(node, paths):
+    if isinstance(node, dict):
+        if "local_path" in node and node["local_path"]:
+            paths.append(node["local_path"])
+        for v in node.values():
+            _collect_local_paths(v, paths)
+    elif isinstance(node, list):
+        for v in node:
+            _collect_local_paths(v, paths)
 
 def is_assets_stale(project_dict, project_dir):
     """Check if any downloaded files referenced in assets_manifest.json are missing."""
@@ -96,11 +114,12 @@ def is_assets_stale(project_dict, project_dir):
         with open(assets_manifest_path, "r", encoding="utf-8") as f:
             assets_manifest = json.load(f)
             
-        for scene in assets_manifest:
-            for sv in scene.get("sub_visuals", []):
-                v_path = sv.get("visual_path")
-                if v_path and not Path(v_path).exists():
-                    return True
+        paths = []
+        _collect_local_paths(assets_manifest, paths)
+        
+        for p in paths:
+            if not Path(p).exists():
+                return True
                     
         bg_music = project_dict.get("bg_music_path")
         if bg_music and not Path(bg_music).exists():
@@ -137,7 +156,7 @@ def search_pexels_photo(query, api_key, video_format=None):
     Uses the provided video_format (e.g. "landscape", "portrait", "9:16")
     to determine orientation. Falls back to the global setting if not given.
     """
-    if not api_key:
+    if not api_key or not query:
         return None
         
     import random
@@ -145,7 +164,8 @@ def search_pexels_photo(query, api_key, video_format=None):
     preferred_orientation, fallback_orientation = _resolve_pexels_orientation(video_format)
 
     def _do_search(orientation):
-        url = f"https://api.pexels.com/v1/search?query={requests.utils.quote(query)}&per_page=5&orientation={orientation}"
+        safe_query = requests.utils.quote(str(query))
+        url = f"https://api.pexels.com/v1/search?query={safe_query}&per_page=5&orientation={orientation}"
         headers = {"Authorization": api_key}
         try:
             res = requests.get(url, headers=headers, timeout=15)
@@ -173,7 +193,7 @@ def search_pexels_video(query, api_key, video_format=None):
     Uses the provided video_format (e.g. "landscape", "portrait", "9:16")
     to determine orientation. Falls back to the global setting if not given.
     """
-    if not api_key:
+    if not api_key or not query:
         return None
         
     import random
@@ -181,7 +201,8 @@ def search_pexels_video(query, api_key, video_format=None):
     preferred_orientation, fallback_orientation = _resolve_pexels_orientation(video_format)
 
     def _do_search(orientation):
-        url = f"https://api.pexels.com/videos/search?query={requests.utils.quote(query)}&per_page=5&orientation={orientation}"
+        safe_query = requests.utils.quote(str(query))
+        url = f"https://api.pexels.com/videos/search?query={safe_query}&per_page=5&orientation={orientation}"
         headers = {"Authorization": api_key}
         try:
             res = requests.get(url, headers=headers, timeout=15)
@@ -209,6 +230,69 @@ def search_pexels_video(query, api_key, video_format=None):
         
     logger.info(f"Pexels video search returned 0 results for '{query}' ({preferred_orientation}). Retrying with {fallback_orientation}.")
     return _do_search(fallback_orientation)
+
+def _resolve_pixabay_orientation(video_format=None):
+    from backend.database.db import get_setting
+    if video_format is None:
+        video_format = get_setting("video_format") or "Shorts/Reels (9:16)"
+    preferred = "vertical" if ("9:16" in video_format or video_format == "portrait") else "horizontal"
+    fallback = "horizontal" if preferred == "vertical" else "vertical"
+    return preferred, fallback
+
+def search_pixabay_photo(query, api_key, video_format=None):
+    """Searches Pixabay for a photo matching the query. Returns url to download."""
+    if not api_key:
+        return None
+    import random
+    preferred, fallback = _resolve_pixabay_orientation(video_format)
+    
+    def _do_search(orientation):
+        url = f"https://pixabay.com/api/?key={api_key}&q={requests.utils.quote(query)}&orientation={orientation}&per_page=5"
+        try:
+            res = requests.get(url, timeout=15)
+            res.raise_for_status()
+            data = res.json()
+            hits = data.get("hits", [])
+            if hits:
+                photo = random.choice(hits[:3])
+                return photo.get("largeImageURL")
+        except Exception as e:
+            logger.warning(f"Pixabay photo search failed for '{query}' with orientation '{orientation}': {e}")
+        return None
+        
+    result = _do_search(preferred)
+    if result:
+        return result
+    return _do_search(fallback)
+
+def search_pixabay_video(query, api_key, video_format=None):
+    """Searches Pixabay for a video matching the query. Returns url to download."""
+    if not api_key:
+        return None
+    import random
+    
+    # Note: Pixabay doesn't directly support orientation in video search API in the same way, but we can search without it
+    # or just use the generic search.
+    url = f"https://pixabay.com/api/videos/?key={api_key}&q={requests.utils.quote(query)}&per_page=5"
+    try:
+        res = requests.get(url, timeout=15)
+        res.raise_for_status()
+        data = res.json()
+        hits = data.get("hits", [])
+        if hits:
+            video = random.choice(hits[:3])
+            videos = video.get("videos", {})
+            # Try to get hd
+            if videos.get("large", {}).get("url"):
+                return videos["large"]["url"]
+            if videos.get("medium", {}).get("url"):
+                return videos["medium"]["url"]
+            if videos.get("small", {}).get("url"):
+                return videos["small"]["url"]
+    except Exception as e:
+        logger.warning(f"Pixabay video search failed for '{query}': {e}")
+    return None
+
 
 def _get_original_wikimedia_url(image_filename, headers):
     """Resolve a Wikimedia image filename to its original (full-resolution) URL.
@@ -457,187 +541,108 @@ def download_asset(url, dest_path, cancel_event=None):
         logger.error(f"Failed to download stock asset from {url}: {e}")
     return False
 
-def _fetch_single_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, cancel_event, *, force_download=False, dest_path=None, video_format):
-    """Downloads a single sub-visual asset. Returns updated sub_visual dict.
-
-    When force_download is True, the existing-file skip check is bypassed,
-    ensuring a fresh download even if the asset file already exists on disk.
-    This is used by fetch_single_scene_asset which handles its own cleanup.
-
-    video_format: REQUIRED keyword arg from the project (e.g. "landscape",
-      "portrait", "9:16").  No default — callers must pass it explicitly.
-    """
-    visual_type = sub_visual.get("visual_type", "scene")
-    visual_cue = sub_visual.get("visual_cue", "")
-    visual_meta = sub_visual.get("visual_meta") or {}
-    if not isinstance(visual_meta, dict):
-        visual_meta = {}
-
-    # Smart check: If asset is already downloaded, skip!
-    # When force_download is True (e.g., from fetch_single_scene_asset),
-    # skip this check — the caller guarantees a new download is needed.
-    existing_path = sub_visual.get("visual_path", "")
-    if not force_download and existing_path and Path(existing_path).exists():
-        logger.info(f"Asset already exists for [{seg_idx}:{sub_idx}] '{existing_path}', skipping download.")
-        return sub_visual
-
-    sub_visual["visual_path"] = ""  # default
-
-    if visual_type == "youtube":
-        dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.mp4"
-        logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] YouTube: '{visual_cue}'")
-
-        start_offset = int(visual_meta.get("start_offset", 15))
-        duration = int(visual_meta.get("duration", 15))
-
-        yt_success = download_youtube_video(visual_cue, dest_file, start_offset=start_offset, duration=duration, cancel_event=cancel_event)
-        if yt_success:
-            sub_visual["visual_path"] = str(dest_file)
-        else:
-            logger.warning(f"YouTube failed for [{seg_idx}:{sub_idx}]. Falling back to stock.")
-            fallback_type = "scene"
-            asset_url = None
-            ext = ".mp4"
-
-            if api_key:
-                asset_url = search_pexels_video(visual_cue, api_key, video_format)
-                if not asset_url:
-                    asset_url = search_pexels_photo(visual_cue, api_key, video_format)
-                    ext = ".jpg"
-                    fallback_type = "image"
-
-            if asset_url:
-                dest_file_fb = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
-                if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
-                    sub_visual["visual_path"] = str(dest_file_fb)
-                    sub_visual["visual_type"] = fallback_type
-                    logger.info(f"Saved fallback {fallback_type} for [{seg_idx}:{sub_idx}].")
-
-    elif visual_type == "ai_image":
-        hf_api_key = get_setting("huggingface_api_key")
-        hf_model = (get_setting("huggingface_model") or "black-forest-labs/FLUX.1-schnell").strip()
-        hf_provider = get_setting("huggingface_provider") or "auto"
-        prompt = visual_cue
-
-        if not hf_api_key:
-            logger.warning(f"No HuggingFace API key for [{seg_idx}:{sub_idx}]. Falling back to stock image.")
-            fallback_type = "image"
-            asset_url = search_pexels_photo(visual_cue, api_key, video_format) if api_key else None
-            if asset_url:
-                dest_file_fb = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.jpg"
-                if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
-                    sub_visual["visual_path"] = str(dest_file_fb)
-                    sub_visual["visual_type"] = fallback_type
-                    logger.info(f"Saved fallback image for [{seg_idx}:{sub_idx}].")
-        else:
-            try:
-                from huggingface_hub import InferenceClient
-                client_provider = None if hf_provider == "auto" else hf_provider
-                client = InferenceClient(api_key=hf_api_key, provider=client_provider)
-                logger.info(f"Generating AI image for [{seg_idx}:{sub_idx}] with model '{hf_model}' and provider '{hf_provider}'...")
-                
-                # Check for cancellation before expensive call
-                if cancel_event and cancel_event.is_set():
-                    raise InterruptedError("Cancelled")
-                    
-                is_portrait = (video_format == "portrait") or ("9:16" in video_format)
-                img_width = 576 if is_portrait else 1024
-                img_height = 1024 if is_portrait else 576
-                
-                image = client.text_to_image(prompt=prompt, model=hf_model, width=img_width, height=img_height)
-                dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.png"
-                image.save(str(dest_file))
-                sub_visual["visual_path"] = str(dest_file)
-                logger.info(f"Successfully generated AI image to {dest_file}")
-            except Exception as e:
-                logger.error(f"Failed to generate AI image for [{seg_idx}:{sub_idx}]: {e}. Falling back to stock image.")
-                
-                try:
-                    from backend.core.bridge import ui_queue
-                    ui_queue.put(("onShowToast", (f"AI Image Generation failed. Falling back to stock image. ({e})", "warning")))
-                except Exception as ui_e:
-                    logger.error(f"Failed to send warning toast: {ui_e}")
-
-                fallback_type = "image"
-                asset_url = search_pexels_photo(visual_cue, api_key, video_format) if api_key else None
-                if asset_url:
-                    dest_file_fb = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}.jpg"
-                    if download_asset(asset_url, dest_file_fb, cancel_event=cancel_event):
-                        sub_visual["visual_path"] = str(dest_file_fb)
-                        sub_visual["visual_type"] = fallback_type
-
-    elif visual_type in ("scene", "portrait", "image", "parallax") and api_key:
-        asset_url = None
-        ext = ".jpg"
-
-        # If scene or parallax, search video first (B-Roll)
-        if visual_type == "scene":
-            asset_url = search_pexels_video(visual_cue, api_key, video_format)
-            ext = ".mp4"
-
-        # For portrait: try Wikipedia first for accurate images of specific people
-        if not asset_url and visual_type == "portrait":
-            search_term = visual_cue or visual_meta.get("person_name", "")
-            logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Wikipedia portrait search: '{search_term}'")
-            asset_url = search_wikipedia_image(search_term)
-            ext = ".jpg"
-
-        # Fallback to Pexels image search if Wikipedia didn't find anything
-        # or if type is image/parallax (which don't use Wikipedia)
-        if not asset_url:
-            logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Pexels fallback: '{visual_cue}' (type: {visual_type})")
-            asset_url = search_pexels_photo(visual_cue, api_key, video_format)
-            ext = ".jpg"
-
-        if asset_url:
-            dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
-            if download_asset(asset_url, dest_file, cancel_event=cancel_event):
-                sub_visual["visual_path"] = str(dest_file)
-                logger.info(f"Saved asset_{seg_idx:03d}_{sub_idx:02d}{ext}")
-
-    elif visual_type == "device_mockup":
-        screen_url = visual_meta.get("screen_image_url", "")
-        if screen_url:
-            parsed = urlparse(screen_url)
-            _, ext = os.path.splitext(parsed.path)
-            if not ext:
-                ext = ".jpg"
-            dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
-            if download_asset(screen_url, dest_file, cancel_event=cancel_event):
-                sub_visual["visual_path"] = str(dest_file)
-                logger.info(f"Downloaded device_mockup screen asset_{seg_idx:03d}_{sub_idx:02d}{ext}")
+def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format):
+    """Downloads media for a single AST layer if it is Image or Video."""
+    content = layer.get("content", {})
+    content_type = content.get("type", "")
+    
+    if content_type not in ["Image", "Video"]:
+        return layer
         
-        # Fallback to searching Pexels using visual_cue if no URL provided or download failed
-        if not sub_visual.get("visual_path") and visual_cue and api_key:
-            logger.info(f"Sub-visual [{seg_idx}:{sub_idx}] Pexels fallback for device_mockup: '{visual_cue}'")
-            asset_url = search_pexels_photo(visual_cue, api_key, video_format)
-            if asset_url:
-                ext = ".jpg"
-                dest_file = Path(dest_path) if dest_path else assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}{ext}"
-                if download_asset(asset_url, dest_file, cancel_event=cancel_event):
-                    sub_visual["visual_path"] = str(dest_file)
-                    sub_visual.setdefault("visual_meta", {})["screen_image_url"] = asset_url
-                    logger.info(f"Saved fallback Pexels image for device_mockup {seg_idx:03d}_{sub_idx:02d}{ext}")
+    existing_path = content.get("local_path", "")
+    if existing_path and Path(existing_path).exists():
+        logger.info(f"Asset already exists for layer [{seg_idx}:{sub_idx}:{layer_idx}] '{existing_path}', skipping download.")
+        return layer
+        
+    query = content.get("query", "")
+    source = content.get("source", "pexels").lower()
+    
+    if not query:
+        return layer
+        
+    asset_url = None
+    ext = ".mp4" if content_type == "Video" else ".jpg"
+    
+    logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] AST search: '{query}' (source: {source}, type: {content_type})")
+    
+    if source == "wikipedia" and content_type == "Image":
+        asset_url = search_wikipedia_image(query)
+        if not asset_url and api_key:
+            logger.info("Wikipedia failed, falling back to Pexels.")
+            asset_url = search_pexels_photo(query, api_key, video_format)
+            
+    elif source == "pixabay":
+        if not pixabay_api_key:
+            logger.warning("Pixabay API key missing, falling back to Pexels.")
+            if content_type == "Video":
+                asset_url = search_pexels_video(query, api_key, video_format) if api_key else None
+            else:
+                asset_url = search_pexels_photo(query, api_key, video_format) if api_key else None
+        else:
+            if content_type == "Video":
+                asset_url = search_pixabay_video(query, pixabay_api_key, video_format)
+            else:
+                asset_url = search_pixabay_photo(query, pixabay_api_key, video_format)
+            
+            # fallback to pexels
+            if not asset_url and api_key:
+                logger.info("Pixabay failed, falling back to Pexels.")
+                if content_type == "Video":
+                    asset_url = search_pexels_video(query, api_key, video_format)
+                else:
+                    asset_url = search_pexels_photo(query, api_key, video_format)
+                    
+    else:
+        # Default to pexels
+        if content_type == "Video" and api_key:
+            asset_url = search_pexels_video(query, api_key, video_format)
+        elif api_key:
+            asset_url = search_pexels_photo(query, api_key, video_format)
+            
+    if asset_url:
+        dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}{ext}"
+        if download_asset(asset_url, dest_file, cancel_event=cancel_event):
+            content["local_path"] = str(dest_file)
+            logger.info(f"Saved AST asset to {dest_file}")
+            
+    return layer
 
-    # Programmatic types (map, document, network) don't need downloads
-
+def _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, pixabay_api_key, cancel_event, video_format):
+    """Traverses the AST composition and downloads required media for Image/Video layers."""
+    composition = sub_visual.get("composition", {})
+    if composition.get("type") == "Sequence":
+        children = composition.get("children", [])
+        for layer_idx, layer in enumerate(children):
+            if cancel_event and cancel_event.is_set():
+                raise InterruptedError("Cancelled")
+                
+            # If it's a Layer containing content, fetch asset
+            if layer.get("type") == "Layer" and "content" in layer:
+                _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format)
+                
     return sub_visual
 
 
 def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Assets acquisition step of pipeline."""
-    manifest_path = Path(project_dict['assets_manifest_path'])
+    manifest_path_str = project_dict.get('assets_manifest_path')
+    manifest_path = Path(manifest_path_str) if manifest_path_str else None
+    
+    # If the user deleted the assets folder, fallback to the voiceover manifest
+    if not manifest_path or not manifest_path.exists():
+        manifest_path = project_dir / "voiceover" / "manifest.json"
+
     if not manifest_path.exists():
-        raise FileNotFoundError(f"Segment manifest not found: {manifest_path}")
+        raise FileNotFoundError(f"Segment manifest not found. Please re-run Voiceover generation.")
 
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
 
     api_key = get_setting("pexels_api_key")
+    pixabay_api_key = get_setting("pixabay_api_key")
 
-
-    if not api_key:
-        logger.warning("Pexels API key is not configured. Falling back to internal programmatic layouts.")
+    if not api_key and not pixabay_api_key:
+        logger.warning("No API keys configured (Pexels/Pixabay). Will fall back to programmatic layouts or text-only AST.")
 
     assets_dir = project_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
@@ -647,9 +652,9 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     total_sub_visuals = max(1, total_sub_visuals)
     completed_sub_visuals = 0
 
-    progress_cb(10.0, "Starting visual assets download...")
+    progress_cb(10.0, "Starting AST visual assets download...")
 
-    # 1. Fetch visual assets for each sub_visual in each scene
+    # 1. Fetch visual assets for each AST sequence
     for idx, segment in enumerate(manifest):
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
@@ -662,12 +667,12 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
 
-            _fetch_single_sub_visual(sub_visual, assets_dir, idx, sub_idx, api_key, cancel_event, video_format=project_dict.get("video_format", "landscape"))
+            _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, idx, sub_idx, api_key, pixabay_api_key, cancel_event, video_format=project_dict.get("video_format", "landscape"))
 
             completed_sub_visuals += 1
             progress_cb(
                 10.0 + (completed_sub_visuals / total_sub_visuals) * 70.0,
-                f"Downloading visual assets... {completed_sub_visuals}/{total_sub_visuals}"
+                f"Downloading AST assets... {completed_sub_visuals}/{total_sub_visuals}"
             )
 
         segment["sub_visuals"] = sub_visuals
@@ -743,9 +748,9 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     logger.info("Asset gathering pipeline step completed.")
 
 
-def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index, visual_type, visual_cue):
+def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index):
     """
-    Searches and downloads a visual asset for a single sub_visual within a scene,
+    Searches and downloads missing visual assets for a single sub_visual's AST composition,
     and updates the assets manifest file.
     """
     from backend.database.db import get_project, get_setting
@@ -776,61 +781,24 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
         return {"success": False, "error": "Invalid sub_visual index"}
 
     sub_visual = sub_visuals[sub_visual_index]
-    sub_visual["visual_type"] = visual_type
-    sub_visual["visual_cue"] = visual_cue
 
     project_dir = get_storage_dir() / project_id
     assets_dir = project_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save the old visual_path BEFORE downloading so we can fall back if the
-    # re-download fails.  This prevents the "self-extinguishing" bug where a
-    # transient download failure erases the old asset permanently.
-    old_visual_path = sub_visual.get("visual_path", "")
-
-    # 1. Fetch the asset using the shared helper
-    # force_download=True: the caller already determined the sub-visual changed,
-    # so bypass the "already exists" skip check in _fetch_single_sub_visual.
+    # Fetch AST assets
     api_key = get_setting("pexels_api_key")
-    _fetch_single_sub_visual(sub_visual, assets_dir, manifest_scene_index, sub_visual_index, api_key, cancel_event=None, force_download=True, video_format=project.get("video_format", "landscape"))
+    pixabay_api_key = get_setting("pixabay_api_key")
+    _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, manifest_scene_index, sub_visual_index, api_key, pixabay_api_key, cancel_event=None, video_format=project.get("video_format", "landscape"))
 
-    downloaded_path = sub_visual.get("visual_path", "")
-
-    # 2. If the download gave us nothing useful, restore the old path so the
-    #    sub-visual still has a fallback asset rather than becoming empty.
-    if not downloaded_path:
-        if old_visual_path and Path(old_visual_path).exists():
-            sub_visual["visual_path"] = old_visual_path
-            logger.info(f"Re-download failed for [{manifest_scene_index}:{sub_visual_index}], "
-                        f"restored old visual_path: {old_visual_path}")
-        else:
-            logger.warning(f"Re-download failed for [{manifest_scene_index}:{sub_visual_index}], "
-                           f"and no viable old file exists either.")
-
-    # 3. Clean up old asset files with extensions that differ from the new download.
-    #    This prevents orphaned files when visual_type changes (e.g., .mp4 -> .jpg).
-    #    Only run this when the download (or fallback) actually produced a valid file.
-    else:
-        downloaded_ext = Path(downloaded_path).suffix.lower()
-        for existing_ext in (".mp4", ".jpg", ".png", ".jpeg"):
-            if existing_ext == downloaded_ext:
-                continue  # Same extension -- _fetch_single_sub_visual already overwrote it
-            old_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{existing_ext}"
-            if old_file.exists():
-                try:
-                    old_file.unlink()
-                    logger.info(f"Cleaned up stale asset with different extension: {old_file}")
-                except Exception as e:
-                    logger.warning(f"Could not delete stale asset file {old_file}: {e}")
-
-    # 4. Write back the updated manifest
+    # Write back the updated manifest
     sub_visuals[sub_visual_index] = sub_visual
     segment["sub_visuals"] = sub_visuals
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
-    # 5. Save visual_path back to script.json for persistence
+    # Save visual_path back to script.json for persistence
     script_path = project_dir / "script.json"
     if script_path.exists():
         try:
@@ -863,7 +831,7 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index,
     return {"success": True, "segment": segment, "sub_visual": sub_visual}
 
 
-def preview_asset_download(project_id, visual_type, visual_cue, visual_meta=None):
+def preview_asset_download(project_id, query):
     """
     Downloads a single asset for preview without modifying manifest or script.
     Saves to assets/previews/ directory with a unique temp name.
@@ -877,12 +845,11 @@ def preview_asset_download(project_id, visual_type, visual_cue, visual_meta=None
     if not project:
         return {"success": False, "error": "Project not found"}
 
-    # Programmatic types don't need downloading
-    if visual_type in ("map", "document", "network", "list", "custom_html", "thread"):
-        return {"success": True, "path": "", "message": "Non-media visual type previewed successfully."}
+    if not query:
+        return {"success": False, "error": "Query is required"}
 
     api_key = get_setting("pexels_api_key")
-    if not api_key and visual_type not in ("youtube", "ai_image"):
+    if not api_key:
         return {"success": False, "error": "Pexels API key not configured"}
 
     from backend.core.config import get_storage_dir
@@ -892,30 +859,38 @@ def preview_asset_download(project_id, visual_type, visual_cue, visual_meta=None
     preview_dir = assets_dir / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
-    # Determine extension based on visual_type
-    if visual_type == "youtube" or visual_type == "scene":
-        ext = ".mp4"
-    elif visual_type == "ai_image":
-        ext = ".png"
-    else:
-        ext = ".jpg"
+    content_type = "Image" # Default to image for simple previews
+    source = "pexels"
 
-    preview_id = uuid.uuid4().hex[:8]
-    dest_path = preview_dir / f"preview_{preview_id}{ext}"
+    # Mock AST Layer for preview fetching
+    layer = {
+        "type": "Layer",
+        "content": {
+            "type": content_type,
+            "query": query,
+            "source": source
+        }
+    }
 
-    if visual_meta is None:
-        visual_meta = {}
-    sub_visual = {"visual_type": visual_type, "visual_cue": visual_cue, "visual_meta": visual_meta}
-
-    _fetch_single_sub_visual(
-        sub_visual, assets_dir, 0, 0, api_key,
-        cancel_event=None, force_download=True, dest_path=str(dest_path),
-        video_format=project.get("video_format", "landscape")
+    _fetch_ast_layer_asset(
+        layer, preview_dir, 0, 0, 99, api_key, get_setting("pixabay_api_key"),
+        cancel_event=None, video_format=project.get("video_format", "landscape")
     )
 
-    if sub_visual.get("visual_path"):
-        logger.info(f"Preview asset downloaded to {sub_visual['visual_path']}")
-        return {"success": True, "visual_path": sub_visual["visual_path"]}
+    if layer["content"].get("local_path"):
+        local_path = layer["content"]["local_path"]
+        # Rename to a random ID
+        ext = Path(local_path).suffix
+        preview_id = uuid.uuid4().hex[:8]
+        dest_path = preview_dir / f"preview_{preview_id}{ext}"
+        try:
+            Path(local_path).rename(dest_path)
+            local_path = str(dest_path)
+        except:
+            pass
+
+        logger.info(f"Preview asset downloaded to {local_path}")
+        return {"success": True, "visual_path": local_path}
     else:
         return {"success": False, "error": "Failed to download asset"}
 
@@ -1003,87 +978,25 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
 
     assets_dir = get_storage_dir() / project_id / "assets"
 
-    import re
-    import uuid
-
-    # Build set of (scene_idx, sub_idx) from new manifest — these are the positions
-    # that should have asset files after the rename pass completes.
-    kept_positions = set()
-    for scene_idx, segment in enumerate(new_manifest_data):
-        sub_visuals = segment.get("sub_visuals", [])
-        for sub_idx, sv in enumerate(sub_visuals):
-            # Only track positions that have actual media files (not programmatic types)
-            visual_type = sv.get("visual_type", "")
-            if visual_type in ("scene", "image", "portrait", "parallax", "youtube", "ai_image", "device_mockup"):
-                kept_positions.add((scene_idx, sub_idx))
+    # Build set of all kept paths from the AST
+    kept_paths = []
+    _collect_local_paths(new_manifest_data, kept_paths)
+    kept_paths_set = set(str(Path(p).resolve()) for p in kept_paths if p)
 
     deleted_files = []
     preserved_files = []
 
-    # ── Phase 1: Rename surviving files to match new manifest indices ──
-    # This must run BEFORE deletion so that survivors are at their correct
-    # positions before we determine which files are truly orphaned.
-    # We do this in two passes with temporary names to avoid overwriting
-    # files when scenes are INSERTED (which shifts indices and causes collisions).
-    rename_operations = []
-
-    # Pass 1a: Move mismatched files to safe temporary names
-    for scene_idx, segment in enumerate(new_manifest_data):
-        sub_visuals = segment.get("sub_visuals", [])
-        for sub_idx, sv in enumerate(sub_visuals):
-            old_path_str = sv.get("visual_path", "")
-            if not old_path_str:
-                continue
-            old_path = Path(old_path_str)
-            if not old_path.exists():
-                sv["visual_path"] = ""
-                continue
-
-            expected_stem = f"asset_{scene_idx:03d}_{sub_idx:02d}"
-            actual_stem = old_path.stem
-
-            if actual_stem != expected_stem:
-                tmp_path = old_path.parent / f"tmp_{uuid.uuid4().hex[:8]}_{old_path.name}"
-                try:
-                    old_path.rename(tmp_path)
-                    final_path = old_path.parent / f"{expected_stem}{old_path.suffix}"
-                    rename_operations.append((tmp_path, final_path, sv))
-                except Exception as e:
-                    logger.warning(f"Could not rename {old_path} to temp: {e}")
-
-    # Pass 1b: Move temporary files to their final expected names
-    rename_count = 0
-    for tmp_path, final_path, sv in rename_operations:
-        try:
-            if final_path.exists():
-                final_path.unlink()
-            tmp_path.rename(final_path)
-            sv["visual_path"] = str(final_path)
-            rename_count += 1
-            logger.info(f"Renamed asset to {final_path.name}")
-        except Exception as e:
-            logger.warning(f"Could not finalize rename {tmp_path} -> {final_path}: {e}")
-
-    if rename_count > 0:
-        logger.info(f"Renamed {rename_count} asset files to match new manifest indices")
-
-    # ── Phase 2: Delete orphaned files by scanning the assets directory ──
-    # Any asset_* file whose (scene_idx, sub_idx) position is NOT in
-    # kept_positions (from the new manifest) is orphaned and can be removed.
-    # This replaces the old approach of iterating old-manifest positions,
-    # which broke when scene insert/deletion shifted indices.
     if assets_dir.exists():
         for file_path in assets_dir.iterdir():
             if not file_path.is_file():
                 continue
-            match = re.match(r"asset_(\d+)_(\d+)", file_path.stem)
-            if not match:
+            # Only clean up files matching asset_* pattern
+            if not file_path.stem.startswith("asset_") and not file_path.stem.startswith("preview_"):
                 continue
-            scene_idx, sub_idx = int(match.group(1)), int(match.group(2))
-            if (scene_idx, sub_idx) in kept_positions:
+                
+            if str(file_path.resolve()) in kept_paths_set:
                 preserved_files.append(str(file_path))
             else:
-                # Check it's one of the known extensions
                 if file_path.suffix.lower() in [".mp4", ".jpg", ".png", ".jpeg"]:
                     try:
                         file_path.unlink()

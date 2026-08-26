@@ -79,8 +79,7 @@ class SkillLoader:
 
         context: 'preload' (default) when the skill is read to assemble a
         system prompt before any LLM execution; 'tool' when the skill was
-        requested by an explicit agent tool call (get_skill /
-        get_visual_type_rules). The telemetry label makes this distinction
+        requested by an explicit agent tool call (get_skill). The telemetry label makes this distinction
         visible in the activity feed.
         """
         skill = self._skills_cache.get(name)

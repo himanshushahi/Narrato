@@ -12,7 +12,7 @@ export const SubVisualsView = ({ subVisuals, timings, activeIdx, onSeek }: { sub
 
   return (
     <div className="flex flex-col gap-2 border-t border-stone-800/40 pt-2">
-      {subVisuals.map((sv: any, idx: number) => {
+      {subVisuals.map((_: any, idx: number) => {
         const isActive = activeIdx === idx;
         const timing = timings?.[idx];
 
@@ -28,10 +28,9 @@ export const SubVisualsView = ({ subVisuals, timings, activeIdx, onSeek }: { sub
                   {formatTime(timing.start)}
                 </span>
               )}
-              <span>Layer: <strong className={isActive ? 'text-amber-300 capitalize' : 'text-stone-300 capitalize'}>{sv.visual_type === 'custom_html' ? 'Html' : sv.visual_type === 'device_mockup' ? 'Device' : sv.visual_type.replace('_', ' ')}</strong></span>
             </div>
             <div className="pl-6 flex items-center gap-2">
-              <span>Cue: <strong className={isActive ? 'text-amber-200' : 'text-stone-300'}>{sv.visual_cue}</strong></span>
+              <span>AST Composition <strong className={isActive ? 'text-amber-200' : 'text-stone-300'}></strong></span>
               {isActive && <span className="ml-auto text-[9px] text-amber-500 bg-amber-500/10 px-1 rounded animate-pulse">Playing</span>}
             </div>
           </div>

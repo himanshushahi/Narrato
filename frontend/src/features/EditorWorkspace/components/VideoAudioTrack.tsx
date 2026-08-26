@@ -17,15 +17,11 @@ export const VideoAudioTrack: React.FC<VideoAudioTrackProps> = React.memo(({
   const getValidVisualType = (type: string) => {
     if (!type) return 'scene';
     const t = String(type).toLowerCase();
-    if (['scene', 'portrait', 'image', 'map', 'document', 'youtube', 'parallax', 'network', 'list', 'custom_html', 'thread', 'device_mockup', 'ai_image'].includes(t)) {
+    if (['ast', 'scene', 'youtube', 'image', 'video'].includes(t)) {
       if (t.includes('youtube') || t.includes('video')) return 'youtube';
       return t;
     }
-    if (t.includes('parallax')) return 'parallax';
-    if (t.includes('portrait')) return 'portrait';
-    if (t.includes('youtube') || t.includes('video')) return 'youtube';
-    if (t.includes('image')) return 'image';
-    return 'scene';
+    return 'ast'; // Default fallback to ast
   };
 
   const hasAnyVideoAudio = localTimings.some((_, idx) => {

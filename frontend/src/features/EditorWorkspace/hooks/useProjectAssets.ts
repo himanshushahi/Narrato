@@ -50,10 +50,6 @@ interface DiskScanResult {
   total_files: number;
 }
 
-/**
- * Programmatic visual types that have no downloaded asset file.
- */
-const PROGRAMMATIC_TYPES = new Set(['map', 'document', 'network', 'thread']);
 
 /**
  * Hook that provides a flattened, real-time view of all visual assets for a project.
@@ -99,7 +95,7 @@ export function useProjectAssets(
 
       subVisuals.forEach((sv: any, subIdx: number) => {
         const key = `${sceneIdx}-${subIdx}`;
-        const isProgrammatic = PROGRAMMATIC_TYPES.has(sv.visual_type);
+        const isProgrammatic = sv.composition?.type !== 'Video' && sv.composition?.type !== 'Image';
 
         // Derive the expected filename for disk-info lookup
         const expectedFilename = `asset_${String(sceneIdx).padStart(3, '0')}_${String(subIdx).padStart(2, '0')}`;
@@ -117,8 +113,8 @@ export function useProjectAssets(
           sceneTitle,
           sectionType: scene.section_type || 'scene',
           subIndex: subIdx,
-          visualType: sv.visual_type || 'unknown',
-          visualCue: sv.visual_cue || '',
+          visualType: 'ast',
+          visualCue: '',
           visualPath: sv.visual_path,
           visualUrl: sv.visual_url || '',
           duration: sv.duration,

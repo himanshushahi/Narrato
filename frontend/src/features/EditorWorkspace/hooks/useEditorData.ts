@@ -133,28 +133,13 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
         }
 
         const origSubVisuals = manifestScene.sub_visuals || [];
-        // Match sub-visuals by content (visual_type + visual_cue) rather than by index.
-        // This prevents visual URL desync when sub-visuals are inserted, deleted, or reordered.
-        const matchedOrigIndices = new Set<number>();
         const resolvedSubVisuals = liveSubVisuals.map((lsv: any, idx: number) => {
-          // Try content-based match first
-          let matchIdx = origSubVisuals.findIndex((osv: any, i: number) =>
-            !matchedOrigIndices.has(i) &&
-            osv.visual_type === lsv.visual_type &&
-            osv.visual_cue === lsv.visual_cue
-          );
-          // Fall back to same index if content match fails
-          if (matchIdx === -1 && idx < origSubVisuals.length && !matchedOrigIndices.has(idx)) {
-            matchIdx = idx;
-          }
+          const matchIdx = idx < origSubVisuals.length ? idx : -1;
           const osv = matchIdx !== -1 ? origSubVisuals[matchIdx] : {};
-          if (matchIdx !== -1) matchedOrigIndices.add(matchIdx);
 
           const visualUrl = osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '';
           return {
             ...osv,
-            visual_type: lsv.visual_type,
-            visual_cue: lsv.visual_cue,
             transition_type: lsv.transition_type || lsv.transition,
             visual_meta: lsv.visual_meta,
             transform: lsv.transform,
@@ -163,6 +148,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             mute_voiceover: lsv.mute_voiceover,
             mute_bg_music: lsv.mute_bg_music,
             visual_url: visualUrl,
+            composition: lsv.composition || osv.composition,
             duration: osv.duration
           };
         });

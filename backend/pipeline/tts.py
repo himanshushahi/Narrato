@@ -402,9 +402,8 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                 orig_scene = script["scenes"][scene_idx]
                 sub_visuals = orig_scene.get("sub_visuals", [])
 
-        # Ensure sub_visuals is a valid list
         if not isinstance(sub_visuals, list) or len(sub_visuals) == 0:
-            sub_visuals = [{"visual_type": "scene", "visual_cue": sec["title"], "visual_meta": {}}]
+            sub_visuals = [{"composition": {"type": "Sequence", "children": []}}]
 
         manifest_entries.append({
             "index": idx,
@@ -459,44 +458,18 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             with open(old_manifest_path, "r", encoding="utf-8") as f:
                 old_manifest = json.load(f)
 
-            for new_entry in manifest_entries:
-                new_sub_visuals = new_entry.get("sub_visuals", [])
-
-                # Find the best-matching old entry by counting how many sub-visuals
-                # share the same content-determining fields (visual_type, visual_cue).
-                best_old_entry = None
-                best_match_count = -1
-                for old_entry in old_manifest:
+            for i, new_entry in enumerate(manifest_entries):
+                if i < len(old_manifest):
+                    old_entry = old_manifest[i]
+                    new_sub_visuals = new_entry.get("sub_visuals", [])
                     old_sub_visuals = old_entry.get("sub_visuals", [])
-                    count = sum(
-                        1 for nsv in new_sub_visuals
-                        for osv in old_sub_visuals
-                        if (nsv.get("visual_type") == osv.get("visual_type")
-                            and nsv.get("visual_cue") == osv.get("visual_cue"))
-                    )
-                    if count > best_match_count:
-                        best_match_count = count
-                        best_old_entry = old_entry
-
-                if best_old_entry is None or best_match_count < 1:
-                    continue
-
-                old_sub_visuals = best_old_entry.get("sub_visuals", [])
-                for nsv in new_sub_visuals:
-                    # Find the matching sub-visual by content within the chosen old entry
-                    osv = next(
-                        (osv for osv in old_sub_visuals
-                         if (nsv.get("visual_type") == osv.get("visual_type")
-                             and nsv.get("visual_cue") == osv.get("visual_cue")
-                             and json.dumps(nsv.get("visual_meta", {}), sort_keys=True, default=str)
-                             == json.dumps(osv.get("visual_meta", {}), sort_keys=True, default=str))),
-                        None
-                    )
-                    if osv:
-                        if osv.get("visual_path"):
-                            nsv["visual_path"] = osv["visual_path"]
-                        if osv.get("visual_url"):
-                            nsv["visual_url"] = osv["visual_url"]
+                    for j, nsv in enumerate(new_sub_visuals):
+                        if j < len(old_sub_visuals):
+                            osv = old_sub_visuals[j]
+                            if osv.get("visual_path"):
+                                nsv["visual_path"] = osv["visual_path"]
+                            if osv.get("visual_url"):
+                                nsv["visual_url"] = osv["visual_url"]
         except Exception as e:
             logger.warning(f"Could not preserve visual_path from old manifest: {e}")
 

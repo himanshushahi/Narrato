@@ -40,8 +40,8 @@ interface PywebviewApi {
   generate_voice_preview(text: string, engine: string, voice: string, speed: string, pitch: string, language: string): Promise<{ success: boolean; audio_path?: string; error?: string }>;
   get_ytdlp_version(): Promise<{ installed: boolean; version: string | null; path: string | null }>;
   update_ytdlp(): Promise<{ status: string }>;
-  fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number, visual_type: string, visual_cue: string): Promise<any>;
-  preview_asset_download(project_id: string, visual_type: string, visual_cue: string, visual_meta?: any): Promise<{ success: boolean; visual_path?: string; error?: string }>;
+  fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number): Promise<any>;
+  preview_asset_download(project_id: string, query: string): Promise<{ success: boolean; visual_path?: string; error?: string }>;
   cleanup_preview_assets(project_id: string, preview_paths: string[]): Promise<{ success: boolean; deleted?: string[] }>;
   save_project_with_cleanup(project_id: string, script_data: any, manifest_data: any): Promise<any>;
   update_scene_duration(project_id: string, scene_index: number, new_duration_seconds: number): Promise<{ success: boolean; error?: string }>;
@@ -49,7 +49,6 @@ interface PywebviewApi {
   delete_scene(project_id: string, scene_index: number): Promise<{ success: boolean; error?: string }>;
   get_prefs(): Promise<any>;
   save_prefs(prefs: any): Promise<void>;
-  test_huggingface_model(api_key: string, model: string, provider: string, prompt: string, aspect_ratio: string): Promise<{ success: boolean; image?: string; error?: string }>;
   get_agent_activity(): Promise<any[]>;
 }
 

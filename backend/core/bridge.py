@@ -308,11 +308,9 @@ def _format_sub_visual_durations(sub_visuals: list, highlight_idx: int = -1) -> 
     for i, sv in enumerate(sub_visuals):
         if not isinstance(sv, dict):
             continue
-        v_type = sv.get("visual_type", "unknown")
-        v_cue = sv.get("visual_cue", "")
         dur = _safe_float(sv.get("duration", 0))
         marker = "  ← EDITING THIS" if i == highlight_idx else ""
-        lines.append(f'  [{i}] {v_type} "{v_cue}" — {dur}s (starts at {cumulative:.1f}s){marker}')
+        lines.append(f'  [{i}] AST node — {dur}s (starts at {cumulative:.1f}s){marker}')
         cumulative += dur
 
     return "\n".join(lines) + "\n"
@@ -1055,7 +1053,7 @@ class ApiBridge:
             "CRITICAL RULES:\n"
             "- COUNT: Generate as many sub-visuals as needed (usually one per visual beat, each lasting 2-15 seconds).\n"
             "- DURATION: The sum of 'duration' for all sub-visuals MUST exactly equal the target duration.\n"
-            "- IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n\n"
+            "- IMPORTANT: Every sub_visual must have a 'composition' object (AST format) and a 'duration' (in seconds).\n\n"
             f"{visual_rules}\n"
         )
         if section_type == "introduction":
@@ -1069,7 +1067,7 @@ class ApiBridge:
         total_duration = sum(_safe_float(sv.get("duration", 0)) for sv in current_visuals if isinstance(sv, dict))
         if total_duration <= 0:
             total_duration = 15.0
-        prompt_struct = "Expected: { \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 5.0 }, { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 10.0 }] } (generate as many items as needed)"
+        prompt_struct = "Expected: { \"sub_visuals\": [{ \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": 5.0 }] } (generate as many items as needed)"
 
         # Gather word-level transcript and duration breakdown for precise AI timing
         narration_text = _get_section_narration(section_type, target_content)
@@ -1094,7 +1092,7 @@ class ApiBridge:
                 svs = data
             elif isinstance(data, dict):
                 # If the dict is a single sub_visual, wrap it in a list
-                if "visual_type" in data and "sub_visuals" not in data:
+                if "composition" in data and "sub_visuals" not in data:
                     svs = [data]
                 else:
                     svs = data.get("sub_visuals", [])
@@ -1108,7 +1106,7 @@ class ApiBridge:
                         v["duration"] = round(_safe_float(v.get("duration", 1.0), 1.0) / _norm * total_duration, 2)
             
             # Ensure the structure matches what the caller expects
-            if isinstance(data, list) or (isinstance(data, dict) and "visual_type" in data and "sub_visuals" not in data):
+            if isinstance(data, list) or (isinstance(data, dict) and "composition" in data and "sub_visuals" not in data):
                 result["data"] = {"sub_visuals": svs}
         return result
 
@@ -1122,11 +1120,11 @@ class ApiBridge:
             "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
             "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
             "Your task is to rewrite this single sub-visual based strictly on the user's request. "
-            "You may change any field including 'visual_type' if the user's request warrants it. "
+            "You may change any field including 'composition' if the user's request warrants it. "
             "Do NOT change the narration.\n"
             "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
             f"{design_system_text}\n"
-            "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": float }\n\n"
+            "The sub_visual has: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": float }\n\n"
             f"{visual_rules}\n"
         )
         if section_type == "introduction":
@@ -1144,7 +1142,7 @@ class ApiBridge:
         target_sub_visual = sub_visuals[sub_idx]
         if not isinstance(target_sub_visual, dict):
             target_sub_visual = {}
-        prompt_struct = "Expected: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 4.5 }"
+        prompt_struct = "Expected: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": 4.5 }"
         scene_title = section.get('title', 'Introduction/Conclusion')
         doc_title = full_script.get('title', 'Untitled')
 
@@ -1447,20 +1445,20 @@ class ApiBridge:
         threading.Thread(target=_update_task, daemon=True).start()
         return {"status": "started"}
 
-    def fetch_single_scene_asset(self, project_id: str, manifest_scene_index: int, sub_visual_index: int, visual_type: str, visual_cue: str) -> dict:
-        logger.info(f"Bridge API: fetch_single_scene_asset index {manifest_scene_index}:{sub_visual_index} for project {project_id} (type: {visual_type})")
+    def fetch_single_scene_asset(self, project_id: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
+        logger.info(f"Bridge API: fetch_single_scene_asset index {manifest_scene_index}:{sub_visual_index} for project {project_id}")
         from backend.pipeline.assets import fetch_single_scene_asset as fetch_single
         try:
-            return fetch_single(project_id, manifest_scene_index, sub_visual_index, visual_type, visual_cue)
+            return fetch_single(project_id, manifest_scene_index, sub_visual_index)
         except Exception as e:
             logger.error(f"Failed to fetch single scene asset: {e}")
             return {"success": False, "error": str(e)}
 
-    def preview_asset_download(self, project_id: str, visual_type: str, visual_cue: str, visual_meta: dict = None) -> dict:
-        logger.info(f"Bridge API: preview_asset_download for project {project_id} (type: {visual_type}, cue: {visual_cue})")
+    def preview_asset_download(self, project_id: str, query: str) -> dict:
+        logger.info(f"Bridge API: preview_asset_download for project {project_id} (query: {query})")
         from backend.pipeline.assets import preview_asset_download as preview_fn
         try:
-            return preview_fn(project_id, visual_type, visual_cue, visual_meta)
+            return preview_fn(project_id, query)
         except Exception as e:
             logger.error(f"Failed to preview asset: {e}")
             return {"success": False, "error": str(e)}
@@ -1474,21 +1472,15 @@ class ApiBridge:
             logger.error(f"Failed to cleanup preview assets: {e}")
             return {"success": False, "error": str(e)}
 
-    def upload_sub_visual_media(self, project_id: str, manifest_scene_index: int, sub_visual_index: int, visual_type: str = "") -> dict:
-        logger.info(f"Bridge API: upload_sub_visual_media for project {project_id} [{manifest_scene_index}:{sub_visual_index}] (visual_type: {visual_type})")
+    def upload_sub_visual_media(self, project_id: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
+        logger.info(f"Bridge API: upload_sub_visual_media for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
         import webview
         window = self._get_window()
         if not window:
             return {"success": False, "error": "No window available for file dialog"}
 
-        # Video/image is decided by the layer type: scene (and youtube, kept
-        # for API compatibility) accept video only; image visuals accept images
-        # only. .mov/.avi stay rejected: Chromium (the WebView2 preview AND
-        # Remotion's headless-Chrome export) cannot decode those containers,
-        # and the media detection in PanScanImage only handles .mp4/.webm.
-        is_video_type = visual_type in ('scene', 'youtube')
-        file_types = ('Video Files (*.mp4;*.webm)',) if is_video_type else ('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
-        allowed_exts = (".mp4", ".webm") if is_video_type else (".jpg", ".jpeg", ".png", ".webp", ".gif")
+        file_types = ('Media Files (*.mp4;*.webm;*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
+        allowed_exts = (".mp4", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".gif")
 
         try:
             result = window.create_file_dialog(
@@ -1507,10 +1499,9 @@ class ApiBridge:
 
         ext = src_path.suffix.lower()
         if ext not in allowed_exts:
-            media_type = "video" if is_video_type else "image"
-            return {"success": False, "error": f"Unsupported file extension '{ext}'. Please upload a valid {media_type} file ({'; '.join(allowed_exts)})."}
+            return {"success": False, "error": f"Unsupported file extension '{ext}'. Please upload a valid media file ({'; '.join(allowed_exts)})."}
 
-        is_video = is_video_type
+        is_video = ext in (".mp4", ".webm")
 
         # Container extensions lie: a .mp4 can hold HEVC/H.265 (iPhone/GoPro/DJI
         # default), which WebView2 previews fine but the headless-Chrome export
@@ -1929,35 +1920,6 @@ class ApiBridge:
             logger.error(f"update_scene_duration failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
-    def test_huggingface_model(self, api_key: str, model: str, provider: str, prompt: str, aspect_ratio: str) -> dict:
-        try:
-            import base64
-            from io import BytesIO
-            from huggingface_hub import InferenceClient
-
-            if not api_key or not model:
-                return {"success": False, "error": "API Key and Model are required"}
-
-            model = model.strip()
-            # Pass provider only if it's not "auto"
-            client_provider = None if provider == "auto" else provider
-            client = InferenceClient(api_key=api_key, provider=client_provider)
-
-            is_portrait = aspect_ratio == "portrait"
-            img_width = 576 if is_portrait else 1024
-            img_height = 1024 if is_portrait else 576
-
-            image = client.text_to_image(prompt=prompt, model=model, width=img_width, height=img_height)
-
-            buffered = BytesIO()
-            image.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-            return {"success": True, "image": f"data:image/png;base64,{img_str}"}
-        except Exception as e:
-            from backend.core.logger import logger
-            logger.error(f"test_huggingface_model failed: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
 
 
 api_bridge = ApiBridge()

@@ -88,7 +88,7 @@ export const EditorWorkspace: React.FC = () => {
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
     scriptChangedAlert: scriptEditingAlert,
     setScriptChangedAlert: setScriptEditingAlert,
-    previewAssets, previewingSubVisual, uploadingSubVisual, handlePreviewSubVisual, handleUploadSubVisual,
+    previewAssets, uploadingSubVisual, handleUploadSubVisual,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription, handleResetTranscription
@@ -147,13 +147,8 @@ export const EditorWorkspace: React.FC = () => {
     else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
     if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals.length > 0) {
       const scriptSubs = scriptScene.sub_visuals;
-      // Match the manifest sub-visual by content (visual_type + visual_cue),
-      // mirroring liveScenes — index-based mapping desyncs when sub-visuals
-      // are inserted, deleted, or reordered in one file but not the other.
-      const target = manifestScene.sub_visuals[subIdx];
-      let scriptIdx = scriptSubs.findIndex((ssv: any) =>
-        ssv?.visual_type === target.visual_type && ssv?.visual_cue === target.visual_cue
-      );
+      // Removed unused updateSv
+      let scriptIdx = subIdx;
       // Fall back to same index if content match fails (same fallback as liveScenes)
       if (scriptIdx === -1 && subIdx < scriptSubs.length) scriptIdx = subIdx;
       if (scriptIdx !== -1) {
@@ -315,41 +310,28 @@ export const EditorWorkspace: React.FC = () => {
       };
     };
 
-    let scriptSubs: any[] = [];
     if (sceneIndex === 0 && hasIntro) {
       scriptCopy.introduction = { ...scriptCopy.introduction };
       scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map(updateSv);
-      scriptSubs = scriptCopy.introduction.sub_visuals;
     } else if (sceneIndex === (scriptDataRef.current.scenes?.length || 0) + hasIntro && scriptDataRef.current.conclusion) {
       scriptCopy.conclusion = { ...scriptCopy.conclusion };
       scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map(updateSv);
-      scriptSubs = scriptCopy.conclusion.sub_visuals;
     } else {
       const idx = sceneIndex - hasIntro;
       if (scriptCopy.scenes && scriptCopy.scenes[idx]) {
         scriptCopy.scenes = [...scriptCopy.scenes];
         scriptCopy.scenes[idx] = { ...scriptCopy.scenes[idx] };
         scriptCopy.scenes[idx].sub_visuals = (scriptCopy.scenes[idx].sub_visuals || []).map(updateSv);
-        scriptSubs = scriptCopy.scenes[idx].sub_visuals;
       }
     }
 
-    // 2. Update manifestData locally — match each manifest sub-visual to the
-    // updated script sub-visual by content (visual_type + visual_cue) so a
-    // desynced list (insert/delete before Save) doesn't get ratios shifted to
-    // the wrong positions or written as NaN/undefined.
+    // 2. Update manifestData locally — match each manifest sub-visual by index
     const manifestCopy = [...manifestDataRef.current];
     if (manifestCopy[sceneIndex]?.sub_visuals) {
-      const matchedIndices = new Set<number>();
       manifestCopy[sceneIndex].sub_visuals = manifestCopy[sceneIndex].sub_visuals.map((sv: any, i: number) => {
-        let scriptIdx = scriptSubs.findIndex((ssv: any, j: number) =>
-          !matchedIndices.has(j) && ssv?.visual_type === sv.visual_type && ssv?.visual_cue === sv.visual_cue
-        );
-        if (scriptIdx === -1 && i < scriptSubs.length) scriptIdx = i;
-        if (scriptIdx !== -1) matchedIndices.add(scriptIdx);
-        if (scriptIdx === -1) return sv;
-        const ratio = typeof newRatios[scriptIdx] === 'number' && !isNaN(newRatios[scriptIdx])
-          ? newRatios[scriptIdx]
+        if (i >= newRatios.length) return sv;
+        const ratio = typeof newRatios[i] === 'number' && !isNaN(newRatios[i])
+          ? newRatios[i]
           : sv.duration_ratio;
         return { ...sv, duration_ratio: ratio, duration: ratio * sceneDuration };
       });
@@ -735,8 +717,6 @@ export const EditorWorkspace: React.FC = () => {
           onInsertScene={insertAndSaveNewScene}
           onSetSceneToDelete={setSceneToDelete}
           onSetScriptData={setScriptData}
-          onPreviewSubVisual={handlePreviewSubVisual}
-          previewingSubVisual={previewingSubVisual}
           onUploadSubVisual={handleUploadSubVisual}
           uploadingSubVisual={uploadingSubVisual}
 

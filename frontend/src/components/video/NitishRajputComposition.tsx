@@ -2,33 +2,15 @@ import React, { useMemo, useCallback } from 'react';
 import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
-import { PanScanImage } from './PanScanImage';
-import { ParallaxImage } from './ParallaxImage';
-import { DataVisualizations } from './DataVisualizations';
-import { NumberingList } from './NumberingList';
-import { TransitionWrapper } from './TransitionWrapper';
-import { ZoomWrapper } from './ZoomWrapper';
-import { SubVisualTransform } from './SubVisualTransform';
-import { CustomHtmlVisual } from './CustomHtmlVisual';
-import { CustomHtmlUiOverlay } from './CustomHtmlUiOverlay';
-import { ThreadSimulation } from './ThreadSimulation';
-import { DeviceMockup } from './DeviceMockup';
+
+import { ASTRenderer } from './ASTRenderer';
 import { calculateSubVisualTimings } from '../../utils/duration';
 import { getCanvasScaleFactor } from './compositionScale';
 
 interface SubVisual {
-  visual_type: 'scene' | 'portrait' | 'image' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'thread' | 'device_mockup' | 'ai_image';
-  visual_cue: string;
-  transition_type?: string;
-  visual_url?: string;
-  visual_meta?: any;
-  duration?: number;
-  /** User-configured zoom & pan offset applied uniformly to this sub-visual */
-  transform?: SubVisualTransform;
+  composition?: any;
   /** Proportional duration share within the scene (values sum to ~1.0). Set by Adjust Durations bar. */
   duration_ratio?: number;
-  /** Volume for video-type sub-visuals (0-1). 0 = muted (default), 1 = full volume. */
-  videoVolume?: number;
   /** Cut the narrator voiceover during this sub-visual's timeline interval. */
   mute_voiceover?: boolean;
   /** Cut the background music during this sub-visual's timeline interval. */
@@ -170,7 +152,7 @@ export const NitishRajputComposition = ({
   bgMusicUrl,
   bgMusicVolume = 0.15,
   voiceoverVolume = 1.0,
-  muteVideoAudio = false,
+
   scenes = [],
   transcription = { language: '', segments: [] },
   style = 'nitish_rajput',
@@ -216,113 +198,12 @@ export const NitishRajputComposition = ({
   }, [scenes]);
 
   // Helper to render a single sub-visual's content
-  const renderSubVisual = useCallback((subVis: SubVisual, durationFrames: number) => {
-    const type = subVis.visual_type;
-    const url = subVis.visual_url || '';
-    const meta = subVis.visual_meta || {};
-    const transform = subVis.transform;
-
-    if (type === 'map' || type === 'document' || type === 'network') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          {/* ZoomWrapper wraps both background and visualization — they scale together */}
-          <ZoomWrapper transform={transform}>
-            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-              <div style={{
-                position: 'absolute', inset: 0,
-                backgroundColor: '#1c1917',
-                backgroundImage: 'radial-gradient(circle, #292524 0%, #0c0a09 100%)'
-              }} />
-              <DataVisualizations type={type} meta={meta} durationInFrames={durationFrames} />
-            </div>
-          </ZoomWrapper>
-          {/* Vignette overlay stays OUTSIDE ZoomWrapper so it never scales with camera zoom — same pattern as ParallaxImage */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
-            pointerEvents: 'none', zIndex: 10
-          }} />
-        </div>
-      );
+  const renderSubVisual = useCallback((subVis: SubVisual) => {
+    if (subVis.composition) {
+      return <ASTRenderer composition={subVis.composition} />;
     }
-
-    if (type === 'parallax') {
-      return (
-        <ParallaxImage
-          backgroundUrl={url}
-          foregroundUrl={meta.foreground_url}
-          meta={meta.parallax || meta}
-          cue={subVis.visual_cue}
-          durationInFrames={durationFrames}
-          transform={transform}
-        />
-      );
-    }
-
-    if (type === 'list') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          <ZoomWrapper transform={transform}>
-            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-              <div style={{
-                position: 'absolute', inset: 0,
-                backgroundColor: '#1c1917',
-                backgroundImage: 'radial-gradient(circle, #292524 0%, #0c0a09 100%)'
-              }} />
-              <NumberingList meta={meta} durationInFrames={durationFrames} subtitleSettings={subtitleSettings} cue={subVis.visual_cue} />
-            </div>
-          </ZoomWrapper>
-          <div style={{
-            position: 'absolute', inset: 0,
-            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
-            pointerEvents: 'none', zIndex: 10
-          }} />
-        </div>
-      );
-    }
-
-    if (type === 'custom_html') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          <ZoomWrapper transform={transform}>
-            <CustomHtmlVisual meta={meta} />
-          </ZoomWrapper>
-        </div>
-      );
-    }
-
-    if (type === 'thread') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          <ZoomWrapper transform={transform}>
-            <ThreadSimulation meta={meta} durationInFrames={durationFrames} />
-          </ZoomWrapper>
-        </div>
-      );
-    }
-    if (type === 'device_mockup') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          <ZoomWrapper transform={transform}>
-            <DeviceMockup meta={meta} durationInFrames={durationFrames} visualUrl={url} />
-          </ZoomWrapper>
-        </div>
-      );
-    }
-
-
-    // Default: Image, portrait, or B-roll video. Display with pan-and-scan camera glide
-    return (
-      <PanScanImage
-        src={url}
-        type={type}
-        cue={subVis.visual_cue}
-        durationInFrames={durationFrames}
-        transform={transform}
-        videoVolume={muteVideoAudio ? 0 : (subVis.videoVolume || 0)}
-      />
-    );
-  }, [subtitleSettings, muteVideoAudio]);
+    return null;
+  }, []);
 
   // ── Time-window virtualization ──────────────────────────────────────────────
   // Pre-calculate and memoize the timeline tree once; per-frame virtualization
@@ -344,22 +225,13 @@ export const NitishRajputComposition = ({
             const timing = timings[subIdx];
             const subFrom = timing.start;
             const subDuration = Math.max(1, timing.end - timing.start);
-            const htmlUiMeta = subVis.visual_meta?.custom_html_ui;
-
             return (
               <SubGate
                 key={`sub-${subIdx}`}
                 subFrom={subFrom}
                 subDuration={subDuration}
               >
-                <TransitionWrapper durationInFrames={subDuration} type={subVis.transition_type}>
-                  {renderSubVisual(subVis, subDuration)}
-                </TransitionWrapper>
-                {htmlUiMeta && (
-                  <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
-                    <CustomHtmlUiOverlay meta={htmlUiMeta} />
-                  </div>
-                )}
+                {renderSubVisual(subVis)}
               </SubGate>
             );
           })}

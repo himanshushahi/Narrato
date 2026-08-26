@@ -40,6 +40,7 @@ export interface Settings {
   bg_music_path: string;
   bg_music_volume: string;
   pexels_api_key: string;
+  pixabay_api_key: string;
   use_pexels: boolean;
   use_youtube: boolean;
   youtube_download_duration: string;
@@ -59,9 +60,7 @@ export interface Settings {
   web_search_provider: string;
   web_search_api_key: string;
   voiceover_volume: string;
-  huggingface_api_key: string;
-  huggingface_model: string;
-  huggingface_provider: string;
+
 }
 
 interface XttsDownload {
@@ -169,6 +168,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     bg_music_path: "",
     bg_music_volume: "0.15",
     pexels_api_key: "",
+    pixabay_api_key: "",
     use_pexels: true,
     use_youtube: true,
     youtube_download_duration: "15",
@@ -184,9 +184,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     render_hardware: "cpu",
     render_timeout: "600000",
     voiceover_volume: "1.0",
-    huggingface_api_key: "",
-    huggingface_model: "",
-    huggingface_provider: "auto"
+
   },
   gpuAvailable: false,
   xttsDownload: {

@@ -35,19 +35,7 @@ const formatFileSize = (bytes: number): string => {
   return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 };
 
-/** Visual type to display label mapping */
-const VISUAL_TYPE_LABELS: Record<string, string> = {
-  youtube: 'YouTube Clip',
-  scene: 'Stock Video',
-  image: 'Stock Photo',
-  portrait: 'Stock Photo',
-  parallax: 'Parallax Image',
-  map: 'Map Data',
-  document: 'Document',
-  network: 'Network Diagram',
-  thread: 'Social Chat',
-  device_mockup: 'Device Mockup',
-};
+
 
 /** Guess if a file is a video by its extension */
 const isVideoFile = (ext?: string): boolean => ext === '.mp4' || ext === '.webm';
@@ -259,7 +247,6 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
         (a) =>
           a.sceneTitle.toLowerCase().includes(q) ||
           a.visualCue.toLowerCase().includes(q) ||
-          a.visualType.toLowerCase().includes(q) ||
           a.visualPath?.toLowerCase().includes(q),
       );
     }
@@ -895,7 +882,7 @@ const AssetListItem: React.FC<{
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-[8px] text-zinc-500 capitalize truncate">
-            {VISUAL_TYPE_LABELS[asset.visualType] || asset.visualType}
+            AST Node
           </span>
           {hasFile && (
             <>

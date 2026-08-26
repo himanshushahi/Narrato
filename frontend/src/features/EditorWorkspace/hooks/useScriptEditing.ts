@@ -3,7 +3,6 @@ import { useProjectStore } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { callApi, callApiOrThrow } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
-import { getValidVisualType } from '../../../utils/visualType';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -20,9 +19,7 @@ interface UseScriptEditingReturn {
   scriptChangedAlert: boolean;
   setScriptChangedAlert: (alert: boolean) => void;
   previewAssets: Record<string, { visual_path: string; visual_url: string }>;
-  previewingSubVisual: string | null;
   uploadingSubVisual: string | null;
-  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number) => Promise<void>;
   handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number) => Promise<void>;
   handleStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   handleCancelEdit: () => void;
@@ -61,7 +58,6 @@ export function useScriptEditing(
   const [rewritingSection, setRewritingSection] = useState<string | null>(null);
   const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const [previewAssets, setPreviewAssets] = useState<Record<string, { visual_path: string; visual_url: string }>>({});
-  const [previewingSubVisual, setPreviewingSubVisual] = useState<string | null>(null);
   const [uploadingSubVisual, setUploadingSubVisual] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -195,10 +191,8 @@ export function useScriptEditing(
             if (preview?.visual_path) {
               // Mark the matching original manifest entry as consumed so
               // subsequent sub-visuals with the same type+cue don't match it.
-              const origIdx = origSubVisuals.findIndex((osv: any, i: number) =>
-                !matchedIndices.has(i) &&
-                osv.visual_type === lsv.visual_type &&
-                osv.visual_cue === lsv.visual_cue
+              const origIdx = origSubVisuals.findIndex((_: any, i: number) =>
+                !matchedIndices.has(i)
               );
               if (origIdx !== -1) matchedIndices.add(origIdx);
 
@@ -212,17 +206,16 @@ export function useScriptEditing(
               return { ...lsv, visual_path: finalPath, visual_url: preview.visual_url };
             }
           }
-          // Fall back to matching by content (type+cue) with original manifest
-          // so re-runs don't re-download unchanged assets
-          const matchIdx = origSubVisuals.findIndex((osv: any, i: number) =>
-            !matchedIndices.has(i) &&
-            osv.visual_type === lsv.visual_type &&
-            osv.visual_cue === lsv.visual_cue
-          );
+          const matchIdx = sIdx < origSubVisuals.length ? sIdx : -1;
           if (matchIdx !== -1) {
             matchedIndices.add(matchIdx);
             const match = origSubVisuals[matchIdx];
-            return { ...lsv, visual_path: match.visual_path, visual_url: match.visual_url };
+            return { 
+                ...lsv, 
+                visual_path: match.visual_path, 
+                visual_url: match.visual_url,
+                composition: lsv.composition || match.composition 
+            };
           }
           // New or changed sub-visual — strip any stale visual_path/visual_url
           // that scriptData may have carried over from a previous pipeline run,
@@ -255,7 +248,6 @@ export function useScriptEditing(
         const origSubs = origManifest[mIdx]?.sub_visuals || [];
         const matchedOrigIndices = new Set<number>();
         for (let sIdx = 0; sIdx < liveSubs.length; sIdx++) {
-          const lsv = liveSubs[sIdx];
           // Skip download if this sub-visual was handled via upload/preview
           const sectionKey = liveManifest[mIdx].section_type === 'introduction' ? 'intro'
             : liveManifest[mIdx].section_type === 'conclusion' ? 'conclusion'
@@ -264,14 +256,10 @@ export function useScriptEditing(
           if (handledFromPreview.has(assetKey)) {
             continue;
           }
-          const origMatch = origSubs.findIndex((osv: any, i: number) =>
-            !matchedOrigIndices.has(i) &&
-            osv.visual_type === lsv.visual_type &&
-            osv.visual_cue === lsv.visual_cue
-          );
-          if (origMatch === -1 && lsv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(lsv.visual_type)) {
+          const origMatch = sIdx < origSubs.length ? sIdx : -1;
+          if (origMatch === -1) {
             try {
-              const result = await callApi<any>('fetch_single_scene_asset', projectId, mIdx, sIdx, lsv.visual_type, lsv.visual_cue || '');
+              const result = await callApi<any>('fetch_single_scene_asset', projectId, mIdx, sIdx);
               if (!result?.success) {
                 assetDownloadFailures++;
                 console.warn(`Asset download failed for [${mIdx}:${sIdx}]: ${result?.error || 'Unknown error'}`);
@@ -280,7 +268,7 @@ export function useScriptEditing(
               assetDownloadFailures++;
               console.error("Failed to fetch asset", sIdx, e);
             }
-          } else if (origMatch !== -1) {
+          } else {
             matchedOrigIndices.add(origMatch);
           }
         }
@@ -430,68 +418,6 @@ export function useScriptEditing(
     }
   }, [projectId, scriptData, selectedProject, setScriptData, addToast]);
 
-  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
-    const data = scriptData;
-    if (!projectId || !data) return;
-
-    // Read current type+cue from scriptData
-    let visual_type: string, visual_cue: string, visual_meta: any = {};
-    if (sectionType === 'introduction') {
-      const sv = data.introduction?.sub_visuals?.[subIdx] || {};
-      visual_type = sv.visual_type || 'scene';
-      visual_cue = sv.visual_cue || '';
-      visual_meta = sv.visual_meta || {};
-    } else if (sectionType === 'conclusion') {
-      const sv = data.conclusion?.sub_visuals?.[subIdx] || {};
-      visual_type = sv.visual_type || 'scene';
-      visual_cue = sv.visual_cue || '';
-      visual_meta = sv.visual_meta || {};
-    } else {
-      const sv = data.scenes?.[sceneIdx]?.sub_visuals?.[subIdx] || {};
-      visual_type = sv.visual_type || 'scene';
-      visual_cue = sv.visual_cue || '';
-      visual_meta = sv.visual_meta || {};
-    }
-
-    if (!visual_cue.trim()) {
-      addToast("Enter a visual cue before previewing", 'warning');
-      return;
-    }
-
-    // Build key: "intro_0", "scene_2_1", "conclusion_0"
-    const sectionKey = sectionType === 'introduction' ? 'intro'
-      : sectionType === 'conclusion' ? 'conclusion'
-      : `scene_${sceneIdx}`;
-    const assetKey = `${sectionKey}_${subIdx}`;
-
-    setPreviewingSubVisual(assetKey);
-    try {
-      const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
-        'preview_asset_download', projectId, visual_type, visual_cue, visual_meta
-      );
-      if (result?.success) {
-        if (result.visual_path) {
-          const vPath: string = result.visual_path;
-          const visualUrl = getMediaUrlSync(vPath);
-          setPreviewAssets(prev => ({
-            ...prev,
-            [assetKey]: { visual_path: vPath, visual_url: visualUrl }
-          }));
-          addToast("Preview downloaded!", 'success');
-        } else {
-          addToast((result as any).message || "Non-media visual - rendered natively", 'success');
-        }
-      } else {
-        addToast("Preview failed: " + (result?.error || "Unknown error"), 'error');
-      }
-    } catch (err: any) {
-      console.error(err);
-      addToast("Preview failed: " + (err?.message || String(err)), 'error');
-    } finally {
-      setPreviewingSubVisual(null);
-    }
-  }, [projectId, scriptData, addToast]);
-
   const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
     const data = scriptData;
     if (!projectId || !data) return;
@@ -525,6 +451,15 @@ export function useScriptEditing(
     } else {
       rawVisualType = data.scenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.visual_type || '';
     }
+    const getValidVisualType = (type: string) => {
+      if (!type) return 'scene';
+      const t = String(type).toLowerCase();
+      if (['ast', 'scene', 'youtube', 'image', 'video'].includes(t)) {
+        if (t.includes('youtube') || t.includes('video')) return 'youtube';
+        return t;
+      }
+      return 'ast'; // Default fallback
+    };
     const visualType = getValidVisualType(rawVisualType);
 
     setUploadingSubVisual(assetKey);
@@ -677,7 +612,7 @@ export function useScriptEditing(
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
     scriptChangedAlert, setScriptChangedAlert,
-    previewAssets, previewingSubVisual, uploadingSubVisual, handlePreviewSubVisual, handleUploadSubVisual,
+    previewAssets, uploadingSubVisual, handleUploadSubVisual,
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,

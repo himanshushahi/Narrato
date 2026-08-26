@@ -110,8 +110,8 @@ class QueueManager:
         for step in steps_to_queue:
             create_task(project_id, step)
 
-        self._queue.append((project_id, steps_to_queue))
-        logger.info(f"Queued project {project_id} for steps: {steps_to_queue}")
+        self._queue.append((project_id, steps_to_queue, is_resume))
+        logger.info(f"Queued project {project_id} for steps: {steps_to_queue} (is_resume={is_resume})")
         self._broadcast_queue_status()
         return True
 
@@ -176,7 +176,7 @@ class QueueManager:
                 time.sleep(0.5)
                 continue
 
-            project_id, steps = self._queue.pop(0)
+            project_id, steps, is_resume = self._queue.pop(0)
             self._active_project_id = project_id
             self._broadcast_queue_status()
 
@@ -205,7 +205,7 @@ class QueueManager:
                         # Run the specific pipeline step
                         from backend.pipeline.ai import usage_tracking_context
                         with usage_tracking_context(task_id):
-                            self._execute_step(project_id, step, cancel_event)
+                            self._execute_step(project_id, step, cancel_event, is_resume)
                         
                         update_task(task_id, status='completed', progress=100.0, message='Step completed.')
                         self._broadcast_task_progress(project_id, step, 100.0, 'Step completed.', 'completed')
@@ -247,7 +247,7 @@ class QueueManager:
             self._active_project_id = None
             self._broadcast_queue_status()
 
-    def _execute_step(self, project_id, step, cancel_event):
+    def _execute_step(self, project_id, step, cancel_event, is_resume=False):
         """Router to execute pipeline steps."""
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
@@ -288,7 +288,7 @@ class QueueManager:
             
         elif step == 'generate_visuals':
             from backend.pipeline.ai import generate_visuals_pipeline
-            generate_visuals_pipeline(proj, proj_dir, progress_cb, cancel_event)
+            generate_visuals_pipeline(proj, proj_dir, progress_cb, cancel_event, force=not is_resume)
             
         elif step == 'render':
             logger.info(f"Smart Resume: Starting render step — cache hashes will determine incremental scope.")

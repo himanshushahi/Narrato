@@ -142,23 +142,85 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
     # Fallback: just clean the original context description
     return clean_search_query(context_description)
 
-# Schema for individual sub-visual entries
+# Schema for declarative AST Nodes
+ANIMATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "property": {"type": "string", "enum": ["scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY"]},
+        "from": {"type": "number"},
+        "to": {"type": "number"},
+        "duration": {"type": "number", "description": "Duration of the animation in seconds"},
+        "easing": {"type": "string", "enum": ["linear", "spring", "ease-in", "ease-out", "ease-in-out"]}
+    },
+    "required": ["property", "from", "to", "duration", "easing"]
+}
+
+LAYER_CONTENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Map"]},
+        "query": {"type": "string", "description": "Search query for Pexels, Wikipedia, or Pixabay (if Image/Video)"},
+        "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay"], "description": "Source of media (if Image/Video)"},
+        "text": {"type": "string", "description": "Text content (if Text)"},
+        "font": {"type": "string", "description": "Font family (if Text)"},
+        "weight": {"type": "string", "description": "Font weight (if Text)"},
+        "color": {"type": "string", "description": "Text color in hex (if Text)"},
+        "locations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "coord": {"type": "array", "items": {"type": "number"}, "description": "[Lat, Lon]"}
+                }
+            },
+            "description": "Locations to map (if Map)"
+        },
+        "map_style": {"type": "string", "enum": ["vintage", "modern_dark", "minimal_light", "nautical_blue"], "description": "Style of map (if Map)"},
+        "style": {
+            "type": "object", 
+            "description": "CSS style attributes (e.g. width, height, top, left, borderRadius, objectFit, mixBlendMode, fontSize) to position and design this layer."
+        }
+    },
+    "required": ["type"]
+}
+
+AST_LAYER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "const": "Layer"},
+        "z_index": {"type": "integer"},
+        "content": LAYER_CONTENT_SCHEMA,
+        "animations": {
+            "type": "array",
+            "items": ANIMATION_SCHEMA
+        },
+        "filters": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "CSS filters like brightness(0.6) or blur(2px)"
+        }
+    },
+    "required": ["type", "z_index", "content"]
+}
+
 SUB_VISUAL_SCHEMA = {
     "type": "object",
     "properties": {
-        "visual_cue": {"type": "string"},
-        "visual_type": {
-            "type": "string",
-            "enum": ["map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "thread", "device_mockup", "ai_image"]
-        },
-        "transition": {
-            "type": "string",
-            "enum": ["subtle_slide", "fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "none"]
-        },
-        "visual_meta": {"type": "object"},
-        "duration": {"type": "number", "description": "Precise duration in seconds"}
+        "duration": {"type": "number", "description": "Precise duration in seconds"},
+        "composition": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "const": "Sequence"},
+                "children": {
+                    "type": "array",
+                    "items": AST_LAYER_SCHEMA
+                }
+            },
+            "required": ["type", "children"]
+        }
     },
-    "required": ["visual_cue", "visual_type", "transition", "duration"]
+    "required": ["duration", "composition"]
 }
 
 # Schema validations for JSON parsing
@@ -203,8 +265,6 @@ VISUALS_ARRAY_SCHEMA = {
 # Visual types removed from the app (renderers deleted). Legacy projects can
 # still hold sub-visuals of these types; the pipeline swaps them for neutral
 # scene entries so they render instead of a blank frame.
-REMOVED_VISUAL_TYPES = frozenset({"chart", "timeline"})
-
 DESIGN_SYSTEM_SCHEMA = {
     "type": "object",
     "properties": {
@@ -246,7 +306,7 @@ DESIGN_DEFAULTS = {
         "text": "#f8fafc",
     },
     "typography": {"heading_font": "Oswald", "body_font": "Inter"},
-    "css_guidelines": "Use bold gradients and high contrast. Apply all rules only via CSS inside custom_html/custom_html_ui.",
+    "css_guidelines": "Use bold gradients, cohesive color accents, and high contrast. Apply styling via layer style and filter properties.",
 }
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -285,9 +345,7 @@ def format_design_system_prompt(design_data: dict) -> str:
         return ""
     return (
         f"\n=== GLOBAL DESIGN SYSTEM ===\n"
-        f"Strictly adhere to these design rules when generating custom_html or custom_html_ui. "
-        f"These colors and styles MUST ONLY be applied via CSS inside custom_html. "
-        f"Do NOT add them as new fields to the visual_meta JSON object:\n"
+        f"Strictly adhere to these design rules when styling AST Text and Layer elements:\n"
         f"{json.dumps(clean, indent=2)}\n"
     )
 
@@ -321,8 +379,7 @@ Return ONLY valid JSON matching the schema. No markdown backticks.
 
 DESIGN GUIDELINES:
 - color_palette: Must use modern, vibrant, or highly readable hex codes.
-- typography: Use EXACTLY one of these modern Google Fonts: 'Inter', 'Oswald', 'Outfit', or 'Montserrat'. Do not use any others.
-- css_guidelines: Provide brief layout and style rules. These MUST ONLY be applied via CSS inside custom_html/custom_html_ui components. Do NOT add them as new fields to the visual_meta JSON object.
+- css_guidelines: Provide brief layout and aesthetic styling rules (e.g. contrast, accents, card borders, typography scales).
 """
     import uuid
     user_prompt = f"Topic: {topic}\nLanguage: {language}\nVideo Title: {script_data.get('title', 'Untitled')}\nRequest ID: {uuid.uuid4().hex}\n"
@@ -584,7 +641,18 @@ def clean_json_response(raw_response):
 
     try:
         repaired_val = repair_json_string(clean_text)
-        return ast.literal_eval(repaired_val)
+        evaluated = ast.literal_eval(repaired_val)
+        
+        def _sanitize_sets(obj):
+            if isinstance(obj, set):
+                return list(obj)
+            elif isinstance(obj, dict):
+                return {k: _sanitize_sets(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [_sanitize_sets(v) for v in obj]
+            return obj
+            
+        return _sanitize_sets(evaluated)
     except Exception:
         pass
 
@@ -1016,8 +1084,6 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
   For example, if the language is Hindi ('hi'), you MUST use the Devanagari script. Do NOT use English alphabet transliterations.
   CRITICAL: This strictly applies to the Introduction and Conclusion as well!
 - The 'title' and 'chapter_title' fields can be in the requested language.
-- CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH, regardless of the script language. This is used as a search keyword for media APIs which only understand English.
-- CRITICAL: All 'visual_meta' text fields MUST ALWAYS be in English.
 """
 
     narration_emphasis = f"""
@@ -1534,172 +1600,72 @@ def _skill_content(name: str) -> str:
 
 
 def _visual_rules_legacy_fallback(video_format: str, language: str) -> str:
-    """Hardcoded copy of the visual rules, used ONLY if the skill registry is unavailable."""
+    """Fallback rules if declarative-ast skill is missing."""
     return f"""
-=== MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
-Be extremely creative! Build a visually engaging video:
-- If explaining a concept, build a 'custom_html' animation or a 'network' diagram.
-- If making a claim, use a 'document' to flash dramatic evidence on screen.
-- If showing data, use a dynamic 'list' or 'network'.
-- Use 'visual_meta' to write evocative copy, inject dramatic headlines, and compose visually stunning overlays.
+=== VISUAL COMPOSITION SCHEMA ===
+You must use the declarative AST format for all visual compositions.
+Every sub-visual MUST have a `composition` property matching the AST schema.
 
-=== QUANTITY & TIMING ===
-- Break narration into logical visual beats — one sub-visual per beat.
-- Each sub-visual: 2-15 seconds. The sum MUST equal the Total Scene Duration.
-- For 'list' type: create 1 sub-visual PER LIST ITEM.
-- Vary transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
-
-=== VALID VISUAL TYPES (USE ONLY THESE) ===
-map | document | portrait | scene | image | youtube | parallax | network | list | custom_html | thread | device_mockup | ai_image
-
-=== TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL ===
-- list: Ranked items, countdowns, top-N lists, step-by-step. E.g. "Top 5", "How to".
-
-- map: Geography, routes, locations, territories, borders.
-- document: Factual claims, news events, classified archives, archival evidence. (See DOCUMENT RULES below.)
-
-- network: Connections between people, organizations, relationships.
-- portrait: Specific people or entities. visual_cue = person's EXACT FULL NAME only (used as Wikipedia search query). Do NOT add descriptive words — just the name. E.g. "Harshad Mehta", not "Harshad Mehta stockbroker".
-- parallax: Dramatic visual reveals with layered 3D depth.
-- custom_html: A FULL-SCREEN standalone visual type. See CRITICAL DISTINCTION below.
-- thread: Simulated social media / chat conversations.
-- device_mockup: Content inside a realistic device frame (iphone/macbook).
-- scene/image/ai_image: Default fallback (ai_image = AI-generated via HuggingFace). visual_cue MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon' instead of 'a sprawling city with neon lights at night').
-- youtube: Real-world footage.
-
-=== ⚠️ CRITICAL DISTINCTION: custom_html (visual type) vs custom_html_ui (overlay) ===
-These are TWO COMPLETELY DIFFERENT THINGS. DO NOT confuse them:
-
-1. "custom_html" as visual_type:
-   - This is a STANDALONE FULL-SCREEN VISUAL. It replaces the entire background.
-   - Use when the ENTIRE visual should be a coded UI/animation (no background image/video).
-   - Set visual_type = "custom_html" and visual_meta = {{"html": str, "css": str}}.
-   - The HTML is rendered at 100% width/height as the main visual content.
-   - Example use: An animated infographic, a stylized quote card, a dynamic data dashboard.
-
-2. "custom_html_ui" as an OVERLAY inside visual_meta:
-   - This is a TRANSPARENT OVERLAY that floats ON TOP of a background image/video.
-   - The background comes from scene/image/portrait/parallax/youtube/ai_image.
-   - Add it inside visual_meta: {{"custom_html_ui": {{"html": str, "css": str}}}}.
-   - Example use: An animated label over a portrait, a styled stat counter over stock footage.
-   - ONLY allowed on these types: scene, image, portrait, parallax, youtube, ai_image.
-
-NEVER set visual_type = "custom_html" when you actually want an overlay on a background.
-NEVER add custom_html_ui to data types (map, document, list, network, thread, device_mockup, custom_html).
-
-=== DOCUMENT RULES (ARCHIVAL / EVIDENCE VISUALS) ===
-- ALWAYS set "show_image": false in document visual_meta.
-- DO NOT generate "image_url" or "image_caption" fields.
-- The user will manually upload archival/evidence images themselves.
-- Focus on writing compelling text content: headline, doc_text, highlight_text, pull_quote.
-
-=== VISUAL META SCHEMAS (FILL CREATIVELY) ===
-- scene/image/parallax/ai_image: {{}} (empty object). visual_cue = 1-3 stock photo keywords.
-- portrait: {{"person_name": str}}. visual_cue = person's EXACT full name only.
-- youtube: {{"start_offset": 15, "duration": 15, "skip_intro": true}}
-- map: {{"map_style": "vintage", "locations": [{{"name": str, "coord": [lat, lon]}}]}} (2 locations)
-- document: {{"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": false}} (NEVER set show_image to true — user adds images manually)
-- network: {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
-- list: {{"number": int, "title": str, "description": str}}
-- thread: {{"platform": "whatsapp"|"imessage"|"twitter"|"discord", "messages": [{{"sender": str, "text": str, "is_self": bool}}], "title": str}}
-- device_mockup: {{"device": "iphone"|"macbook"}} (optional: "screen_image_url": str)
-- custom_html: {{"html": str, "css": str}} (CRITICAL: Design for {video_format} orientation. Use raw CSS — no Tailwind. NOT a normal web page. Must look like a high-end video editor template with abundant smooth CSS animations.)
-
-=== OVERLAY RULES ===
-- custom_html_ui: Add {{"custom_html_ui": {{"html": str, "css": str}}}} inside visual_meta for custom overlays.
-- ONLY FOR: scene, image, parallax, portrait, youtube, ai_image.
-- NEVER FOR: custom_html, list, map, document, network, thread, device_mockup. For these types, bake all text directly into their specific visual_meta fields.
-- custom_html_ui content text: Match the target language ({language}).
-
-=== ANIMATION TIMING WITH WORD TIMESTAMPS ===
-When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
-- CSS animation-delay values in custom_html and custom_html_ui visuals
-- Text reveal animations timed to when specific words are spoken
-- Data visualization build-up animations synced to narration beats
-- Element entry/exit timings matching spoken content transitions
-Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP text element.
-When sub-visual duration breakdowns are provided, use the start offset and duration of each sub-visual to ensure animations fit within the allocated time window.
-
-=== ANTI-HALLUCINATION ===
-- DO NOT invent visual_meta fields not listed in the schemas above.
-- DO NOT add fields like "background_color", "font_size", "animation", etc. to visual_meta unless they are part of the schema.
-- The ONLY optional addition to visual_meta is "custom_html_ui" (and ONLY for allowed types).
-- visual_cue MUST ALWAYS be in English.
-- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which should match the target language.
+- Design for the {video_format} orientation.
+- Use `Image`, `Video`, `Text`, or `Map` layers inside a `Sequence`.
 """
 
 
 def _visual_rules_safety_net(video_format: str, language: str) -> str:
-    """Shared rules not owned by any single visual-type skill."""
+    """Shared rules for AST generation."""
     return f"""
-=== SHARED RULES (apply to every visual) ===
-- visual_cue MUST ALWAYS be in English. Use 1-3 broad stock keywords for media types, the EXACT full name for portrait, or a short descriptive prompt for ai_image.
-- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which must match the target language ({language}).
-- custom_html / custom_html_ui: design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths, not fixed px.
+=== SHARED RULES (apply to every layer) ===
+- `query` in Image/Video MUST ALWAYS be in English. Use 1-3 broad stock keywords for media types.
+- All text content MUST be in English, EXCEPT if you are specifically creating a subtitle/translation layer which must match the target language ({language}).
+- Design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths where applicable.
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
 When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
-- CSS animation-delay values in custom_html and custom_html_ui visuals
 - Text reveal animations timed to when specific words are spoken
 - Data visualization build-up animations synced to narration beats
 - Element entry/exit timings matching spoken content transitions
 Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP text element.
 When sub-visual duration breakdowns are provided, use the start offset and duration of each sub-visual to ensure animations fit within the allocated time window.
 
-=== ANTI-HALLUCINATION ===
-- DO NOT invent visual_meta fields not listed in the schemas above.
-- DO NOT add fields like "background_color", "font_size", "animation", etc. to visual_meta unless they are part of the schema.
-- The ONLY optional addition to visual_meta is "custom_html_ui" (and ONLY for allowed types).
-- visual_cue MUST ALWAYS be in English.
-- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which should match the target language ({language}).
+- DO NOT add arbitrary properties that are not supported.
+- `query` in `Image` and `Video` content MUST ALWAYS be in English.
+- All text content MUST be in English.
 """
 
 
 def get_shared_visual_rules(video_format: str, language: str = "hi") -> str:
-    """Centralized visual generation rules shared by ai.py and bridge.py.
-
-    Built from the skill registry — visual-director-core plus every
-    visual-type-* skill — which is the SINGLE SOURCE OF TRUTH. Falls back to a
-    hardcoded copy only if the skill registry is missing or broken, so the
-    prompts never go empty.
-    """
+    """Centralized visual generation rules for the Declarative AST."""
     from backend.agent.skill_loader import skill_loader
 
-    core = skill_loader.get_skill("visual-director-core")
-    type_skills = sorted(
-        name for name in skill_loader.get_all_skills()
-        if name.startswith("visual-type-")
-    )
-    type_parts = []
-    for name in type_skills:
-        skill = skill_loader.get_skill(name)
-        if skill:
-            type_parts.append(skill.content)
+    ast = skill_loader.get_skill("declarative-ast")
 
-    if core is not None and len(type_parts) >= 10:
-        parts = [core.content] + type_parts
-        return "\n\n".join(parts) + "\n\n" + _visual_rules_safety_net(video_format, language)
+    if ast is not None:
+        return ast.content + "\n\n" + _visual_rules_safety_net(video_format, language)
 
-    logger.warning(
-        f"Skill registry incomplete (core={core is not None}, "
-        f"type_skills={len(type_parts)}/{len(type_skills)}). "
-        "Falling back to hardcoded visual rules."
-    )
+    logger.warning("declarative-ast skill not found. Using fallback rules.")
     return _visual_rules_legacy_fallback(video_format, language)
 
 
-def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event):
+def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=False):
     from backend.database.db import get_setting, update_project, get_project
     from backend.core.logger import logger
 
     script_path = project_dir / "script.json"
-    manifest_path = Path(project_dict.get('assets_manifest_path', project_dir / "voiceover" / "manifest.json"))
+    
+    # Try the database path first
+    manifest_path_str = project_dict.get('assets_manifest_path')
+    manifest_path = Path(manifest_path_str) if manifest_path_str else None
+    
+    # If it's missing or the file was deleted, fallback to the original voiceover manifest
+    if not manifest_path or not manifest_path.exists():
+        manifest_path = project_dir / "voiceover" / "manifest.json"
+        
     transcription_path = Path(project_dict.get('transcription_path', project_dir / "subtitles" / "transcription.json"))
 
     if not script_path.exists():
         raise FileNotFoundError("script.json is missing.")
     if not manifest_path.exists():
-        raise FileNotFoundError("manifest.json is missing.")
+        raise FileNotFoundError("manifest.json is missing. Please re-run from Voiceover generation.")
 
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
@@ -1724,41 +1690,77 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
         current_design_hash = hashlib.md5(json.dumps(design_system, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     visual_rules = get_shared_visual_rules(video_format, language)
+    visual_director = _skill_content("visual-director-core")
     editor_qa_rules = _skill_content("editor-qa")
     editor_qa_block = f"""=== EDITOR QA GUARDRAILS ===
 {editor_qa_rules}
 
 """ if editor_qa_rules else ""
 
-    visuals_system_prompt = f"""{editor_qa_block}You are an expert AI Visual Director for YouTube videos.
+    visual_director_block = f"""{visual_director}
+
+""" if visual_director else ""
+
+    visuals_system_prompt = f"""{editor_qa_block}You are an expert AI Visual Director and Motion Graphics Designer for YouTube videos.
 
 CORE MISSION:
-Transform narration into compelling visual sequences that enhance the message.
+Transform narration into visually stunning, cinematic sequences. Think like a top-tier After Effects artist.
+DO NOT default to the lazy pattern of [Full-Screen Stock Image] → [Centered Text].
+Every sub-visual should feel like a deliberate creative decision — not a slideshow.
 {design_system_text}
-CRITICAL RULES:
+{visual_director_block}
+=== COMPOSITION VARIETY (CRITICAL) ===
+You MUST vary your compositions across sub-visuals. Use these techniques:
+
+1. SPLIT SCREENS: Place 2-3 images/videos side by side using the `style` property:
+   - Left half: {{"style": {{"width": "50%", "height": "100%", "left": "0", "top": "0", "objectFit": "cover"}}}}
+   - Right half: {{"style": {{"width": "50%", "height": "100%", "right": "0", "top": "0", "objectFit": "cover"}}}}
+
+2. PICTURE-IN-PICTURE: A large background with a smaller inset:
+   - Background: {{"style": {{"width": "100%", "height": "100%", "objectFit": "cover"}}}}
+   - Inset: {{"style": {{"width": "35%", "height": "35%", "top": "5%", "right": "5%", "borderRadius": "16px", "objectFit": "cover", "boxShadow": "0 10px 40px rgba(0,0,0,0.6)"}}}}
+
+3. LOWER-THIRD TEXT: Position text at the bottom, not centered:
+   - {{"style": {{"position": "absolute", "bottom": "8%", "left": "5%", "width": "90%", "fontSize": "48px", "textAlign": "left"}}}}
+
+4. KINETIC TYPOGRAPHY: Large text with dramatic animations (scale from 0.3→1, translateY from 200→0)
+
+5. MULTI-IMAGE COLLAGE: 3-4 images arranged in a grid with different z_indexes and entry animations
+
+6. VIDEO BACKGROUNDS: Use `Video` type for motion backgrounds (timelapses, ambient footage, B-roll)
+
+7. TEXTURE OVERLAYS: Layer a translucent texture/pattern Image over the main media with `mixBlendMode` in filters
+
+RULES:
 - COUNT: One sub-visual per visual beat
 - DURATION: Each 2-15 seconds, sum MUST equal scene duration
 - TRANSITION: Vary transitions — never repeat the same one
-- visual_cue: ALWAYS in English. MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon' instead of 'a sprawling city with neon lights'). Do not use complex sentences.
-- visual_meta text: ALWAYS in English
-- custom_html_ui content: Match the target language from the user prompt
+- query: ALWAYS in English. Use descriptive, specific keywords for relevant results (e.g. 'programmer typing on retro computer terminal' or 'old floppy disk close up'). Avoid vague single words.
+- Text content: ALWAYS in English
+- style: USE the `style` property on layers to position them — do NOT leave everything at fullscreen defaults
+- VARIETY: Never use the same composition layout for two consecutive sub-visuals
+- VIDEO: Use `Video` type layers when motion would enhance the visual (timelapses, B-roll, ambient footage)
+- ONLY use content types: Image, Video, Text, Map. No other types exist.
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
-{{"sub_visuals": [{{"visual_type": "...", "visual_cue": "...", "transition": "...", "visual_meta": {{...}}, "duration": 3.5}}]}}
+{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "transition": "fade", "duration": 3.5}}]}}
 
 ERROR PREVENTION:
 - Duration sum must equal exactly the provided scene duration (2 decimal places)
-- Use only valid visual types
+- Use only valid AST structures
 - All JSON numbers as numbers, not strings
-- All required fields present for each visual type
+- All required fields present for each content type
+- content.type MUST be one of: Image, Video, Text, Map
 
 FINAL CHECK before submitting:
 1. Duration sum equals scene duration
-2. All visual_cue are English
-3. visual_meta fields match the type's schema
+2. All search queries are English
+3. The root must contain `sub_visuals` array of objects with `composition`, `transition`, `duration`
 4. Transitions are all different
 5. No markdown — raw JSON only
+6. At least some sub-visuals use `style` for non-fullscreen positioning
+7. Composition layouts vary across sub-visuals
 
 {visual_rules}"""
 
@@ -1835,16 +1837,6 @@ FINAL CHECK before submitting:
         # --- Smart Preservation Logic ---
         existing_sub_visuals = entry.get("sub_visuals", [])
 
-        # Migrate legacy sub-visuals whose visual types were removed from the
-        # app (chart/timeline): swap them for a neutral scene entry that keeps
-        # the duration slot and renders normally.
-        existing_sub_visuals = [
-            {"visual_type": "scene", "visual_cue": v.get("visual_cue") or scene_title,
-             "transition": "fade", "visual_meta": {}, "duration": v.get("duration", 0)}
-            if v.get("visual_type") in REMOVED_VISUAL_TYPES else v
-            for v in existing_sub_visuals
-        ]
-
         # Compute narration hash for change-detection: when narration changes,
         # we must regenerate even if sub-visuals exist from a previous run.
         narration_hash = hashlib.md5(narration.encode("utf-8")).hexdigest()[:12]
@@ -1854,7 +1846,7 @@ FINAL CHECK before submitting:
         is_default = False
         if len(existing_sub_visuals) == 1:
             v = existing_sub_visuals[0]
-            if v.get("visual_type") == "scene" and v.get("visual_cue") == scene_title and not v.get("visual_meta"):
+            if len(v.get("composition", {}).get("children", [])) == 0 and not v.get("visual_type"):
                 is_default = True
 
         narration_changed = (stored_hash and stored_hash != narration_hash)
@@ -1862,7 +1854,7 @@ FINAL CHECK before submitting:
         stored_design_hash = entry.get("_design_hash", "")
         design_changed = (stored_design_hash and stored_design_hash != current_design_hash)
 
-        if existing_sub_visuals and not is_default and not narration_changed and not design_changed and not is_new_design:
+        if not force and existing_sub_visuals and not is_default and not narration_changed and not design_changed and not is_new_design:
             logger.info(f"Preserving existing sub-visuals for scene '{scene_title}'. Scaling durations to new total {duration}s.")
             old_total = sum([float(v.get("duration", 0)) for v in existing_sub_visuals])
             if old_total > 0:
@@ -1913,7 +1905,7 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
             raise
         except Exception as e:
             logger.error(f"Failed to generate visuals for scene {i}: {e}")
-            entry["sub_visuals"] = [{"visual_type": "scene", "visual_cue": scene_title, "transition": "fade", "visual_meta": {}, "duration": duration}]
+            entry["sub_visuals"] = [{"transition": "fade", "composition": {"type": "Sequence", "children": []}, "duration": duration}]
             entry["_narr_hash"] = narration_hash
             entry["_design_hash"] = current_design_hash
 

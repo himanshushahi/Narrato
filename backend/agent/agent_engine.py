@@ -115,7 +115,7 @@ PIPELINE_SCRIPT_TURNS = 5
 # AI rewrite tools are excluded so a pipeline run can never mutate the project
 # or spawn recursive ReAct loops mid-generation.
 PIPELINE_VISUAL_TOOLS = frozenset({
-    "web_search", "get_skill", "get_visual_type_rules",
+    "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
     "search_pexels_photo", "search_pexels_video",
     "search_wikipedia_image", "preview_asset",
@@ -136,7 +136,7 @@ BRIDGE_SCRIPT_TOOLS = frozenset({
 # Bridge: visual rewrites — research + visual-type rules + asset search.
 # Needs Pexels/Wikipedia/preview tools to verify assets exist before using them.
 BRIDGE_VISUAL_TOOLS = frozenset({
-    "web_search", "get_skill", "get_visual_type_rules",
+    "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
     "search_pexels_photo", "search_pexels_video", "search_wikipedia_image",
 })

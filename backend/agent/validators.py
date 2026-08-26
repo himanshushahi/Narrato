@@ -5,15 +5,9 @@ logger = logging.getLogger(__name__)
 
 # The same enums the pipeline enforces (ai.py SUB_VISUAL_SCHEMA /
 # get_shared_visual_rules). Keep in sync with backend/pipeline/ai.py.
-VALID_VISUAL_TYPES = {
-    "map", "document", "portrait", "scene", "image", "youtube",
-    "parallax", "network", "list", "custom_html", "thread",
-    "device_mockup", "ai_image",
-}
-
 VALID_TRANSITIONS = {
-    "subtle_slide", "fade", "slide_left", "slide_right", "slide_up",
-    "slide_down", "zoom_in", "zoom_out", "glitch", "none",
+    "none", "fade", "crossfade", "slide_left", "slide_right", 
+    "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "dissolve"
 }
 
 
@@ -27,31 +21,7 @@ def _safe_float(val, default: float = 0.0) -> float:
         return default
 
 
-def normalize_visual_type(v_type: str) -> str:
-    """Fuzzy-map a visual type string onto the valid enum (mirrors ai.py)."""
-    t = str(v_type or "scene").lower().strip().replace("_", " ")
-    if t in VALID_VISUAL_TYPES:
-        return t
-    for key, mapped in (
-        ("parallax", "parallax"),
-        ("portrait", "portrait"),
-        ("map", "map"),
-        ("network", "network"),
-        ("document", "document"),
-        ("youtube", "youtube"),
-        ("list", "list"),
-        ("html", "custom_html"),
-        ("ai image", "ai_image"),
-        ("image", "image"),
-        ("thread", "thread"),
-        ("chat", "thread"),
-        ("mockup", "device_mockup"),
-        ("device", "device_mockup"),
-        ("scene", "scene"),
-    ):
-        if key in t:
-            return mapped
-    return "scene"
+
 
 
 def normalize_transition(transition: str) -> str:
@@ -70,10 +40,8 @@ def normalize_transition(transition: str) -> str:
 
 def _dummy_visual(target_duration: float) -> List[Dict[str, Any]]:
     return [{
-        "visual_type": "scene",
-        "visual_cue": "General visual",
         "transition": "fade",
-        "visual_meta": {},
+        "composition": {"type": "Sequence", "children": []},
         "duration": target_duration,
     }]
 
@@ -106,10 +74,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
         total_duration += dur
 
         normalized.append({
-            "visual_type": normalize_visual_type(v.get("visual_type")),
-            "visual_cue": str(v.get("visual_cue", f"Visual {i+1}")),
-            "transition": normalize_transition(v.get("transition")),
-            "visual_meta": v.get("visual_meta", {}) if isinstance(v.get("visual_meta"), dict) else {},
+            "composition": v.get("composition", {"type": "Sequence", "children": []}),
             "duration": dur,
         })
 

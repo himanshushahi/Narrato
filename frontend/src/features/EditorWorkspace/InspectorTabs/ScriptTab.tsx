@@ -32,8 +32,6 @@ interface ScriptTabProps {
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
-  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
-  previewingSubVisual?: string | null;
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
   uploadingSubVisual?: string | null;
 }
@@ -43,7 +41,6 @@ export const ScriptTab = React.memo(function ScriptTab({
   editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection,
   onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
-  onPreviewSubVisual, previewingSubVisual,
   onUploadSubVisual, uploadingSubVisual
 }: ScriptTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -173,8 +170,6 @@ export const ScriptTab = React.memo(function ScriptTab({
                             activeIdx={introActiveSubIdx}
                             onSeek={onSeek}
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
-                            onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(-1, 'introduction', subIdx) : undefined}
-                            previewingSubVisual={previewingSubVisual}
                             onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(-1, 'introduction', subIdx) : undefined}
                             uploadingSubVisual={uploadingSubVisual}
                           />
@@ -298,8 +293,6 @@ export const ScriptTab = React.memo(function ScriptTab({
                                   activeIdx={activeSubIdxForScene}
                                   onSeek={onSeek}
                                   onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
-                                  onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(idx, 'scenes', subIdx) : undefined}
-                                  previewingSubVisual={previewingSubVisual}
                                   onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(idx, 'scenes', subIdx) : undefined}
                                   uploadingSubVisual={uploadingSubVisual}
                                 />
@@ -341,7 +334,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             scene_number: idx + 2,
                             title: "New Scene",
                             narration: "",
-                            sub_visuals: [{ visual_type: "scene", visual_cue: "", transition: "fade", visual_meta: {} }]
+                            sub_visuals: [{ composition: { type: "Sequence", children: [] } }]
                           };
                           onInsertScene(blankScene, idx);
                         }}
@@ -370,7 +363,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                     scene_number: lastIdx + 2,
                     title: "New Scene",
                     narration: "",
-                    sub_visuals: [{ visual_type: "scene", visual_cue: "", transition: "fade", visual_meta: {} }]
+                    sub_visuals: [{ visual_cue: "", visual_meta: {} }]
                   };
                   onInsertScene(blankScene, Math.max(0, lastIdx));
                 }}
@@ -463,8 +456,6 @@ export const ScriptTab = React.memo(function ScriptTab({
                             activeIdx={concActiveSubIdx}
                             onSeek={onSeek}
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}
-                            onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(-1, 'conclusion', subIdx) : undefined}
-                            previewingSubVisual={previewingSubVisual}
                             onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(-1, 'conclusion', subIdx) : undefined}
                             uploadingSubVisual={uploadingSubVisual}
                           />

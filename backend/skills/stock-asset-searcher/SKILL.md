@@ -4,7 +4,7 @@ version: "1.0"
 when_to_use: "When crafting search queries for stock media (Pexels photos/videos, Wikipedia images) or choosing visual_cue keywords."
 ---
 === STOCK KEYWORD RULES ===
-- visual_cue MUST always be in English, even when the video language is Hindi/Marathi/etc.
+- The `query` MUST always be in English, even when the video language is Hindi/Marathi/etc.
 - Use 1-3 BROAD keywords optimized for stock search engines — NOT sentences.
   GOOD: "city neon"  BAD: "a sprawling city with neon lights at night"
 - Prefer concrete, visually rich nouns (e.g. "mountain fog", "trading floor", "old map").

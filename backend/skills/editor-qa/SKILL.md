@@ -9,8 +9,7 @@ when_to_use: "Before finalizing any edit to a project — scene rewrites, visual
 2. LANGUAGE — Edits must stay in the project's language and native script. Never mix transliterations.
 3. DURATION MATH — When regenerating visuals, sub-visual durations must sum EXACTLY to the scene duration.
    Use the validation error feedback to recalculate rather than shipping approximate sums.
-4. ENUMS — visual_type must be one of: map, document, portrait, scene, image, youtube, parallax,
-   network, list, custom_html, thread, device_mockup, ai_image. Transitions: subtle_slide, fade,
+4. COMPOSITION — The visual AST is contained in the `composition` property. Transitions: subtle_slide, fade,
    slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
 5. HASH DISCIPLINE — After edits that change narration, the corresponding _narr_hash must be updated so
    downstream smart-resume does not treat the scene as unchanged.
@@ -19,6 +18,6 @@ when_to_use: "Before finalizing any edit to a project — scene rewrites, visual
 === CHECKLIST BEFORE SUBMITTING ===
 - [ ] Spoken text in correct script, no transliterations
 - [ ] Duration sum matches scene duration
-- [ ] All enums valid, no hallucinated visual_meta fields
-- [ ] visual_cue and visual_meta in English (except custom_html_ui content)
+- [ ] All AST layer types and properties are valid (Image, Video, Text, Map)
+- [ ] Content search queries (`query`) in English
 - [ ] No markdown/backticks around the JSON output

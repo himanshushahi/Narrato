@@ -266,34 +266,18 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                 }
             }
         },
-        {
-            "type": "function",
-            "function": {
-                "name": "get_visual_type_rules",
-                "description": "Fetches the required JSON schema and design rules for a specific visual type (e.g., 'custom_html', 'network'). Use this before generating complex sub-visuals to ensure you follow the design system.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "visual_type": {
-                            "type": "string",
-                            "description": "The visual type to look up. E.g., 'custom_html', 'map', 'document', 'network', 'thread', 'device_mockup', 'list', 'portrait', 'parallax', 'scene', 'image', 'ai_image', 'youtube'."
-                        }
-                    },
-                    "required": ["visual_type"]
-                }
-            }
-        },
+
         {
             "type": "function",
             "function": {
                 "name": "get_skill",
-                "description": "Loads a specialized skill definition: 'scriptwriter' (narration/TTS rules), 'subtitle-designer' (subtitle styling), 'custom-html-designer' (HTML/CSS design rules), 'stock-asset-searcher' (stock keyword rules), 'editor-qa' (guardrails for editing projects), 'visual-director-core' (visual selection rules).",
+                "description": "Loads a specialized skill definition: 'scriptwriter' (narration/TTS rules), 'subtitle-designer' (subtitle styling), 'stock-asset-searcher' (stock keyword rules), 'editor-qa' (guardrails for editing projects), 'visual-director-core' (visual selection rules), 'declarative-ast' (AST structure & style).",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Skill name: scriptwriter, subtitle-designer, custom-html-designer, stock-asset-searcher, editor-qa, visual-director-core, or a visual-type-* skill (e.g. visual-type-custom-html, visual-type-document)"
+                            "description": "Skill name: scriptwriter, subtitle-designer, stock-asset-searcher, editor-qa, visual-director-core, declarative-ast"
                         }
                     },
                     "required": ["name"]
@@ -354,11 +338,9 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                     "type": "object",
                     "properties": {
                         "project_id": {"type": "string"},
-                        "visual_type": {"type": "string", "description": "e.g. 'scene', 'image', 'portrait', 'parallax', 'youtube', 'ai_image', 'device_mockup'"},
-                        "visual_cue": {"type": "string", "description": "1-3 word English stock keyword or person name"},
-                        "visual_meta": {"type": "object", "description": "Optional meta (e.g. person_name for portrait)"}
+                        "query": {"type": "string", "description": "Search query for the image asset"}
                     },
-                    "required": ["project_id", "visual_type", "visual_cue"]
+                    "required": ["project_id", "query"]
                 }
             }
         },
@@ -470,7 +452,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "update_scene_properties",
-                "description": "Edits a specific sub-visual's properties in the project's script.json. Use this to tweak visual_meta or inject a camera transform ({'transform': {'zoom': 1.2, 'offsetX': 50, 'offsetY': -20}}).",
+                "description": "Edits a specific sub-visual's properties in the project's script.json (e.g. modifying composition, animations, filters, style, or transition).",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -670,22 +652,7 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                             result=res if res else None)
             return res if res else "No results found."
 
-        if tool_name == "get_visual_type_rules":
-            vtype = arguments.get("visual_type")
-            if not vtype:
-                return "Error: Missing visual_type."
 
-            from backend.agent.skill_loader import skill_loader
-            skill_name = f"visual-type-{vtype.replace('_', '-')}"
-            skill = skill_loader.get_skill(skill_name, context="tool")
-            if not skill:
-                # Defensive fallback: image/ai_image rules live in their own
-                # skills now; fall back to the shared scene rules if a specific
-                # skill is missing from disk.
-                skill = skill_loader.get_skill("visual-type-scene", context="tool")
-            if skill:
-                return skill.content
-            return f"Error: Rules for visual type '{vtype}' not found."
 
         if tool_name == "get_skill":
             name = arguments.get("name")
@@ -695,7 +662,7 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             skill = skill_loader.get_skill(name, context="tool")
             if skill:
                 return f"--- SKILL: {name} (v{skill.version}) ---\n{skill.content}"
-            return f"Error: Skill '{name}' not found. Available: scriptwriter, subtitle-designer, custom-html-designer, stock-asset-searcher, editor-qa, visual-director-core, visual-type-*."
+            return f"Error: Skill '{name}' not found. Available: scriptwriter, subtitle-designer, stock-asset-searcher, editor-qa, visual-director-core, declarative-ast."
 
         if tool_name == "search_pexels_photo":
             query = arguments.get("query")
@@ -727,13 +694,11 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
 
         if tool_name == "preview_asset":
             project_id = arguments.get("project_id")
-            visual_type = arguments.get("visual_type")
-            visual_cue = arguments.get("visual_cue")
-            visual_meta = arguments.get("visual_meta") or {}
-            if not project_id or not visual_type or not visual_cue:
-                return "Error: project_id, visual_type, and visual_cue are required."
+            query = arguments.get("query")
+            if not project_id or not query:
+                return "Error: project_id and query are required."
             from backend.pipeline.assets import preview_asset_download
-            result = preview_asset_download(project_id, visual_type, visual_cue, visual_meta)
+            result = preview_asset_download(project_id, query)
             if result.get("success"):
                 return f"Preview asset saved to: {result.get('visual_path') or result.get('path') or ''}"
             return f"Error: {result.get('error', 'preview failed')}"
