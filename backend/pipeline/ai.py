@@ -159,8 +159,8 @@ LAYER_CONTENT_SCHEMA = {
     "type": "object",
     "properties": {
         "type": {"type": "string", "enum": ["Image", "Video", "Text", "Map", "HTML"]},
-        "query": {"type": "string", "description": "Search query for Pexels, Wikipedia, or Pixabay (if Image/Video)"},
-        "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay"], "description": "Source of media (if Image/Video)"},
+        "query": {"type": "string", "description": "Search query for Pexels, Wikipedia, Pixabay, or YouTube (if Image/Video)"},
+        "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay", "youtube"], "description": "Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed."},
         "text": {"type": "string", "description": "Text content (if Text)"},
         "html_content": {"type": "string", "description": "Raw HTML/SVG content (if HTML), e.g., <svg>...</svg> or <div style='...'>...</div>"},
         "font": {"type": "string", "description": "Font family (if Text)"},
@@ -178,6 +178,9 @@ LAYER_CONTENT_SCHEMA = {
             "description": "Locations to map (if Map)"
         },
         "map_style": {"type": "string", "enum": ["vintage", "modern_dark", "minimal_light", "nautical_blue"], "description": "Style of map (if Map)"},
+        "image_type": {"type": "string", "enum": ["all", "photo", "illustration", "vector"], "description": "Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons."},
+        "yt_start_offset": {"type": "number", "description": "Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15."},
+        "yt_duration": {"type": "number", "description": "Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30."},
         "style": {
             "type": "object", 
             "description": "CSS style attributes (e.g. width, height, top, left, borderRadius, objectFit, mixBlendMode, fontSize) to position and design this layer."
@@ -299,6 +302,30 @@ DESIGN_SYSTEM_SCHEMA = {
 # Sane fallbacks used to repair partial AI design-system responses. OpenAI-
 # compatible endpoints only force "some JSON object" (unlike NVIDIA guided_json
 # which enforces the schema), so models frequently omit optional-looking keys.
+# Language-to-Noto-font mapping used across the pipeline whenever a complex script
+# is detected. Add new script-language pairs here as they are supported.
+_NOTO_FONT_MAP = {
+    "hi": "Noto Sans Devanagari",
+    "mr": "Noto Sans Devanagari",
+    "bn": "Noto Sans Bengali",
+    "ta": "Noto Sans Tamil",
+    "te": "Noto Sans Telugu",
+    "ar": "Noto Sans Arabic",
+    "th": "Noto Sans Thai",
+    "gu": "Noto Sans Gujarati",
+    "pa": "Noto Sans Gurmukhi",
+    "ml": "Noto Sans Malayalam",
+    "kn": "Noto Sans Kannada",
+}
+
+# Latin-only fonts that must NEVER be used as the heading/body font when the
+# project language is a complex script — they will render Devanagari/Arabic/etc.
+# glyphs as empty boxes or tofu.
+_LATIN_ONLY_FONTS = frozenset({
+    "Oswald", "Outfit", "Montserrat", "Raleway", "Anton", "Bebas Neue",
+    "Lobster", "Pacifico", "Abril Fatface",
+})
+
 DESIGN_DEFAULTS = {
     "theme_name": "Custom",
     "color_palette": {
@@ -308,17 +335,23 @@ DESIGN_DEFAULTS = {
         "accent": "#f472b6",
         "text": "#f8fafc",
     },
-    "typography": {"heading_font": "Oswald", "body_font": "Inter"},
+    # Use Inter as the neutral default — it has good Latin coverage and is
+    # clearly named so it won't be mistaken for a complex-script font.
+    # _repair_design_data() will override this for complex-script languages.
+    "typography": {"heading_font": "Inter", "body_font": "Inter"},
     "css_guidelines": "Use bold gradients, cohesive color accents, and high contrast. Apply styling via layer style and filter properties.",
 }
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
-def _repair_design_data(design_data):
+def _repair_design_data(design_data, language: str = "en"):
     """Fill missing/empty/Non-hex fields of a partial design system with defaults.
 
     Mutates and returns the dict. Values the model DID provide are kept.
+    Language-aware: for complex scripts (Hindi, Tamil, etc.) the typography
+    defaults are overridden with the appropriate Noto font so subtitles and
+    AST text layers never fall back to a Latin-only font.
     """
     for key, default in DESIGN_DEFAULTS.items():
         if design_data.get(key) in (None, ""):
@@ -334,6 +367,22 @@ def _repair_design_data(design_data):
         for key, default in DESIGN_DEFAULTS["typography"].items():
             if fonts.get(key) in (None, ""):
                 fonts[key] = default
+        # For complex-script languages, reject Latin-only fonts that the model
+        # may have chosen and substitute the correct Noto font instead.
+        noto_font = _NOTO_FONT_MAP.get(language)
+        if noto_font:
+            if fonts.get("heading_font") in _LATIN_ONLY_FONTS:
+                logger.info(
+                    f"Replacing Latin-only heading_font '{fonts['heading_font']}' "
+                    f"with '{noto_font}' for language '{language}'."
+                )
+                fonts["heading_font"] = noto_font
+            if fonts.get("body_font") in _LATIN_ONLY_FONTS:
+                logger.info(
+                    f"Replacing Latin-only body_font '{fonts['body_font']}' "
+                    f"with '{noto_font}' for language '{language}'."
+                )
+                fonts["body_font"] = noto_font
     if not isinstance(design_data.get("css_guidelines"), str) or not design_data["css_guidelines"].strip():
         design_data["css_guidelines"] = DESIGN_DEFAULTS["css_guidelines"]
     return design_data
@@ -383,6 +432,7 @@ Return ONLY valid JSON matching the schema. No markdown backticks.
 DESIGN GUIDELINES:
 - color_palette: Must use modern, vibrant, or highly readable hex codes.
 - css_guidelines: Provide brief layout and aesthetic styling rules (e.g. contrast, accents, card borders, typography scales).
+- fonts: CRITICAL - If Language is a complex script (like Hindi/hi, Tamil/ta, Bengali/bn, Arabic), you MUST specify Noto fonts (e.g. `Noto Sans Devanagari`) to prevent broken rendering. For English, use modern fonts (e.g. Inter, Outfit, Oswald).
 """
     import uuid
     user_prompt = f"Topic: {topic}\nLanguage: {language}\nVideo Title: {script_data.get('title', 'Untitled')}\nRequest ID: {uuid.uuid4().hex}\n"
@@ -400,7 +450,7 @@ DESIGN GUIDELINES:
         return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
     
     if isinstance(design_data, dict) and design_data.get('theme_name'):
-        design_data = _repair_design_data(design_data)
+        design_data = _repair_design_data(design_data, language)
         # Validate that all required schema fields are present
         required_keys = {'color_palette', 'typography', 'css_guidelines'}
         if not required_keys.issubset(design_data.keys()):
@@ -414,7 +464,7 @@ DESIGN GUIDELINES:
         # Model returned JSON but skipped top-level keys (common on OpenAI-
         # compatible endpoints that don't enforce the schema). Repair it
         # instead of discarding the AI's palette/typography work.
-        design_data = _repair_design_data(design_data)
+        design_data = _repair_design_data(design_data, language)
         if design_data.get('theme_name'):
             logger.warning("Design system was missing top-level keys — repaired from defaults.")
             design_data['_language'] = language
@@ -1622,6 +1672,7 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
 === SHARED RULES (apply to every layer) ===
 - `query` in Image/Video MUST ALWAYS be in English. Use 1-3 broad stock keywords for media types.
 - All text content MUST be in English, EXCEPT if you are specifically creating a subtitle/translation layer which must match the target language ({language}).
+- CRITICAL FONT RULE: If generating text/subtitles in a complex script (e.g., Hindi, Tamil, Bengali, Arabic), you MUST specify a Noto font (e.g., `Noto Sans Devanagari`) in the design system or layer style to prevent broken Unicode shaping.
 - Design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths where applicable.
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
 - SUBTITLE DODGING: If a sub-visual needs full bottom space (e.g. document, lower map, dense graphic), include `"subtitle_position": "top"` to move subtitles to top.

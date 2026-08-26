@@ -61,7 +61,7 @@ def test_skill_loader_new_skills():
                  "stock-asset-searcher", "editor-qa", "visual-director-core"):
         skill = skill_loader.get_skill(name)
         assert skill is not None, f"Skill {name} missing"
-        assert skill.version in ("1.0", "2.0")
+        assert skill.version in ("1.0", "1.1", "2.0")
         assert len(skill.content.strip()) > 50
 
 def test_declarative_ast_skill_structure():
@@ -168,7 +168,7 @@ def test_visual_settings_tool_schema_present():
 def test_tools_schema_has_new_tools():
     from backend.agent.tools import get_tools_schema
     names = {t["function"]["name"] for t in get_tools_schema()}
-    for tool in ("web_search", "get_skill", "preview_asset",
+    for tool in ("web_search", "get_skill",
                  "project_status_report", "update_scene_duration", "reorder_scenes",
                  "delete_scene", "add_scene_with_ai", "regenerate_script_section",
                  "regenerate_scene_visuals", "set_tts_settings"):

@@ -44,7 +44,7 @@ The engine parses a top-level `composition` property for every scene's sub_visua
               "type": "Text",
               "text": "THE FUTURE",
               "color": "#ffffff",
-              "font": "Outfit",
+              "font": "Inter",
               "style": {
                 "position": "absolute",
                 "bottom": "10%",
@@ -73,8 +73,11 @@ The engine parses a top-level `composition` property for every scene's sub_visua
 
 ## Content Types
 The `content` object inside a `Layer` must have a `type`:
-- `Image` or `Video`: Provide `query` and `source` (`pexels`, `pixabay`, `wikipedia`). The engine will automatically search and download these assets.
-- `Text`: Provide `text`, `color`, `font`, and `weight`.
+- `Image` or `Video`: Provide `query` and `source` (`pexels`, `pixabay`, `wikipedia`, `youtube`). The engine will automatically search and download these assets.
+  - For `source: "pixabay"` you may also set `"image_type": "illustration"` or `"image_type": "vector"` to request transparent-background PNG cutouts (icons, diagrams, clipart).
+  - For `source: "youtube"` (Video layers only): yt-dlp downloads a clip matching the query. Optional: `"yt_start_offset"` (seconds to skip intro, default 15) and `"yt_duration"` (clip length in seconds, max 30). Use for cinematic B-roll, timelapse, or footage not on Pexels/Pixabay.
+- `Text`: Provide `text`, `color`, `font`, and `weight`. 
+  - **CRITICAL FONT RULE**: For complex text scripts (e.g., Hindi/Devanagari, Bengali, Tamil, Arabic, Thai), you MUST use a Noto font (e.g., `Noto Sans Devanagari`, `Noto Sans Bengali`, `Noto Sans Tamil`, `Noto Sans Arabic`, `Noto Sans Thai`) to ensure proper Unicode matra and ligature shaping. Never use basic fonts like `Outfit`, `Oswald`, or system defaults for these languages, or the text will render broken.
 - `Map`: Provide `map_style` (e.g., `modern_dark`) and an array of `locations` (e.g. `[{"name": "London", "coord": [51.5074, -0.1278]}]`).
 - `HTML`: Provide `html_content` containing raw HTML/CSS or inline `<svg>` elements with `<style>` blocks for keyframe animations (like stroke-dashoffset path drawing).
 
@@ -100,7 +103,7 @@ Without `style`, layers default to fullscreen stacked — which looks like a bor
 
 ### Lower-Third Text
 ```json
-{"type": "Layer", "z_index": 10, "content": {"type": "Text", "text": "THE TURNING POINT", "color": "#ffffff", "font": "Oswald", "weight": 700, "style": {"position": "absolute", "bottom": "8%", "left": "5%", "width": "90%", "fontSize": "56px", "textAlign": "left", "letterSpacing": "4px"}}}
+{"type": "Layer", "z_index": 10, "content": {"type": "Text", "text": "THE TURNING POINT", "color": "#ffffff", "font": "Inter", "weight": 700, "style": {"position": "absolute", "bottom": "8%", "left": "5%", "width": "90%", "fontSize": "56px", "textAlign": "left", "letterSpacing": "4px"}}}
 ```
 
 ### Multi-Image Collage
@@ -158,7 +161,7 @@ In the **first sub-visual of every scene (sub-visual 0)**, you MUST include a Ch
   "content": {
     "type": "Text",
     "text": "CHAPTER 1: THE DISCOVERY",
-    "font": "Outfit",
+    "font": "Inter",
     "weight": "800",
     "style": {
       "position": "absolute",

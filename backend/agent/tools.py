@@ -332,15 +332,51 @@ def get_tools_schema() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "function": {
-                "name": "preview_asset",
-                "description": "Downloads a single asset for a visual type/cue into the project's previews directory so the result can be shown in the editor. Returns the downloaded file path.",
+                "name": "search_pixabay_photo",
+                "description": "Searches Pixabay for a stock photo. Returns a URL if found, or a not-found message. "
+                               "Pixabay has a large catalog of illustrations, vectors, and photos — many available as transparent PNG (use image_type='png' for cutouts). "
+                               "Useful to verify a Pixabay asset exists before setting source:'pixabay' in an AST layer.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "project_id": {"type": "string"},
-                        "query": {"type": "string", "description": "Search query for the image asset"}
+                        "query": {"type": "string", "description": "Search query (in English)"},
+                        "orientation": {"type": "string", "enum": ["landscape", "portrait"], "description": "Preferred orientation (default landscape)"},
+                        "image_type": {"type": "string", "enum": ["all", "photo", "illustration", "vector"], "description": "Filter by image type. Use 'illustration' or 'vector' for transparent-bg cutout assets."}
                     },
-                    "required": ["project_id", "query"]
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_pixabay_video",
+                "description": "Searches Pixabay for stock video footage. Returns a URL if found. "
+                               "Pixabay video catalog is smaller than Pexels — prefer Pexels for B-roll, use Pixabay for animation loops or abstract footage.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query (in English)"}
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_youtube_video",
+                "description": "Checks whether a YouTube video matching the query can be downloaded via yt-dlp. "
+                               "Returns the video title and duration if found, or an error. "
+                               "Use this to verify source='youtube' will work before adding it to an AST layer. "
+                               "Best for: animation loops, timelapse footage, cinematic B-roll, specific footage not on Pexels/Pixabay. "
+                               "Requires yt-dlp to be installed.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query (in English, e.g. 'city timelapse night', 'ocean waves')"}
+                    },
+                    "required": ["query"]
                 }
             }
         },
@@ -396,7 +432,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                     "type": "object",
                     "properties": {
                         "project_id": {"type": "string"},
-                        "updates": {"type": "object", "description": "Key-value pairs to deep-merge into design.json (e.g. {'color_palette': {'primary': '#4F46E5'}, 'typography': {'heading_font': 'Oswald'}, 'css_guidelines': '...'})"}
+                        "updates": {"type": "object", "description": "Key-value pairs to deep-merge into design.json. Example: {'color_palette': {'primary': '#4F46E5'}, 'typography': {'heading_font': 'Noto Sans Devanagari'}, 'css_guidelines': '...'}. CRITICAL: For complex-script languages (Hindi, Tamil, Bengali, Arabic, etc.) always use Noto fonts (e.g. 'Noto Sans Devanagari') — never Latin-only fonts like Oswald or Outfit."}
                     },
                     "required": ["project_id", "updates"]
                 }
@@ -692,16 +728,68 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             url = search_wikipedia_image(query)
             return url if url else f"No Wikipedia image found for '{query}'"
 
-        if tool_name == "preview_asset":
-            project_id = arguments.get("project_id")
+        if tool_name == "search_pixabay_photo":
             query = arguments.get("query")
-            if not project_id or not query:
-                return "Error: project_id and query are required."
-            from backend.pipeline.assets import preview_asset_download
-            result = preview_asset_download(project_id, query)
-            if result.get("success"):
-                return f"Preview asset saved to: {result.get('visual_path') or result.get('path') or ''}"
-            return f"Error: {result.get('error', 'preview failed')}"
+            orientation = arguments.get("orientation")
+            image_type = arguments.get("image_type", "all")
+            from backend.database.db import get_setting
+            from backend.pipeline.assets import search_pixabay_photo
+            api_key = get_setting("pixabay_api_key")
+            if not api_key:
+                return "Error: Pixabay API key not configured in settings."
+            url = search_pixabay_photo(query, api_key, orientation, image_type=image_type)
+            return url if url else f"No Pixabay photo found for '{query}'"
+
+        if tool_name == "search_pixabay_video":
+            query = arguments.get("query")
+            from backend.database.db import get_setting
+            from backend.pipeline.assets import search_pixabay_video
+            api_key = get_setting("pixabay_api_key")
+            if not api_key:
+                return "Error: Pixabay API key not configured in settings."
+            url = search_pixabay_video(query, api_key)
+            return url if url else f"No Pixabay video found for '{query}'"
+
+        if tool_name == "search_youtube_video":
+            query = arguments.get("query")
+            if not query:
+                return "Error: query is required."
+            from backend.core.config import get_ytdlp_path, get_startupinfo
+            import subprocess, json as _json
+            ytdlp_path = get_ytdlp_path()
+            try:
+                startupinfo = get_startupinfo()
+                res = subprocess.run(
+                    [
+                        ytdlp_path,
+                        f"ytsearch1:{query}",
+                        "--dump-json",
+                        "--no-download",
+                        "--no-warnings",
+                        "--quiet",
+                    ],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, timeout=20, startupinfo=startupinfo
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    try:
+                        info = _json.loads(res.stdout.strip().splitlines()[0])
+                        title = info.get("title", "Unknown")
+                        duration = info.get("duration", "?")
+                        uploader = info.get("uploader", "")
+                        return (
+                            f"YouTube match found: '{title}' by {uploader} "
+                            f"({duration}s). Use source='youtube', query='{query}'."
+                        )
+                    except Exception:
+                        return f"YouTube match found for '{query}' but metadata parse failed. Still usable."
+                return f"No YouTube result found for '{query}'."
+            except FileNotFoundError:
+                return "Error: yt-dlp binary not found. Install it from Settings → Binaries."
+            except subprocess.TimeoutExpired:
+                return f"Error: YouTube search timed out for '{query}'."
+            except Exception as e:
+                return f"Error during YouTube search: {e}"
 
         # --- Project file / state tools ---
         if tool_name == "read_project_file":

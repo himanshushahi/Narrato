@@ -239,15 +239,30 @@ def _resolve_pixabay_orientation(video_format=None):
     fallback = "horizontal" if preferred == "vertical" else "vertical"
     return preferred, fallback
 
-def search_pixabay_photo(query, api_key, video_format=None):
-    """Searches Pixabay for a photo matching the query. Returns url to download."""
+def search_pixabay_photo(query, api_key, video_format=None, image_type: str = "all"):
+    """Searches Pixabay for a photo matching the query. Returns url to download.
+
+    Args:
+        image_type: Pixabay image_type filter — 'all', 'photo', 'illustration', 'vector'.
+            Use 'illustration' or 'vector' to request transparent-background PNG assets
+            (icons, cutouts, diagrams). The returned URL will be a PNG when these types
+            are requested and Pixabay has matching assets.
+    """
     if not api_key:
         return None
     import random
     preferred, fallback = _resolve_pixabay_orientation(video_format)
-    
+    valid_types = {"all", "photo", "illustration", "vector"}
+    image_type = image_type if image_type in valid_types else "all"
+
     def _do_search(orientation):
-        url = f"https://pixabay.com/api/?key={api_key}&q={requests.utils.quote(query)}&orientation={orientation}&per_page=5"
+        url = (
+            f"https://pixabay.com/api/?key={api_key}"
+            f"&q={requests.utils.quote(query)}"
+            f"&orientation={orientation}"
+            f"&image_type={image_type}"
+            f"&per_page=5"
+        )
         try:
             res = requests.get(url, timeout=15)
             res.raise_for_status()
@@ -255,11 +270,15 @@ def search_pixabay_photo(query, api_key, video_format=None):
             hits = data.get("hits", [])
             if hits:
                 photo = random.choice(hits[:3])
+                # For illustrations/vectors Pixabay returns a PNG webformat URL.
+                # largeImageURL is always JPEG; for transparent assets prefer webformatURL.
+                if image_type in ("illustration", "vector"):
+                    return photo.get("webformatURL") or photo.get("largeImageURL")
                 return photo.get("largeImageURL")
         except Exception as e:
             logger.warning(f"Pixabay photo search failed for '{query}' with orientation '{orientation}': {e}")
         return None
-        
+
     result = _do_search(preferred)
     if result:
         return result
@@ -561,16 +580,17 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
         return layer
         
     asset_url = None
+    # Determine default extension — will be refined once we have the actual URL.
     ext = ".mp4" if content_type == "Video" else ".jpg"
-    
+
     logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] AST search: '{query}' (source: {source}, type: {content_type})")
-    
+
     if source == "wikipedia" and content_type == "Image":
         asset_url = search_wikipedia_image(query)
         if not asset_url and api_key:
             logger.info("Wikipedia failed, falling back to Pexels.")
             asset_url = search_pexels_photo(query, api_key, video_format)
-            
+
     elif source == "pixabay":
         if not pixabay_api_key:
             logger.warning("Pixabay API key missing, falling back to Pexels.")
@@ -582,8 +602,11 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
             if content_type == "Video":
                 asset_url = search_pixabay_video(query, pixabay_api_key, video_format)
             else:
-                asset_url = search_pixabay_photo(query, pixabay_api_key, video_format)
-            
+                # Pass through image_type if the LLM set it on the layer (e.g. "illustration"
+                # for transparent-background PNG cutouts)
+                pixabay_image_type = content.get("image_type", "all")
+                asset_url = search_pixabay_photo(query, pixabay_api_key, video_format, image_type=pixabay_image_type)
+
             # fallback to pexels
             if not asset_url and api_key:
                 logger.info("Pixabay failed, falling back to Pexels.")
@@ -591,21 +614,61 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
                     asset_url = search_pexels_video(query, api_key, video_format)
                 else:
                     asset_url = search_pexels_photo(query, api_key, video_format)
-                    
+
+    elif source == "youtube":
+        if content_type != "Video":
+            # YouTube makes no sense for Image layers; fall back to Pexels photo.
+            logger.warning("source='youtube' used on a non-Video layer — falling back to Pexels photo.")
+            asset_url = search_pexels_photo(query, api_key, video_format) if api_key else None
+        else:
+            start_offset = int(content.get("yt_start_offset") or 15)
+            yt_duration = min(int(content.get("yt_duration") or 15), 30)  # cap at 30s
+            dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}.mp4"
+            logger.info(
+                f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] YouTube search: '{query}' "
+                f"offset={start_offset}s duration={yt_duration}s"
+            )
+            success = download_youtube_video(
+                query, dest_file,
+                start_offset=start_offset,
+                duration=yt_duration,
+                cancel_event=cancel_event,
+            )
+            if success:
+                content["local_path"] = str(dest_file)
+                logger.info(f"Saved YouTube clip to {dest_file}")
+                return layer  # local_path already set, skip the URL download path
+            else:
+                logger.warning(f"YouTube download failed for '{query}', falling back to Pexels video.")
+                asset_url = search_pexels_video(query, api_key, video_format) if api_key else None
+
     else:
         # Default to pexels
         if content_type == "Video" and api_key:
             asset_url = search_pexels_video(query, api_key, video_format)
         elif api_key:
             asset_url = search_pexels_photo(query, api_key, video_format)
-            
+
     if asset_url:
+        # Sniff the real extension from the URL to correctly handle Pixabay PNGs,
+        # Wikipedia images (which may be .jpg, .png, .svg, or .webp), etc.
+        if content_type != "Video":
+            url_path = asset_url.split("?")[0].lower()
+            if url_path.endswith(".png"):
+                ext = ".png"
+            elif url_path.endswith(".webp"):
+                ext = ".webp"
+            elif url_path.endswith(".gif"):
+                ext = ".gif"
+            else:
+                ext = ".jpg"
         dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}{ext}"
         if download_asset(asset_url, dest_file, cancel_event=cancel_event):
             content["local_path"] = str(dest_file)
             logger.info(f"Saved AST asset to {dest_file}")
             
     return layer
+
 
 def _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, pixabay_api_key, cancel_event, video_format):
     """Traverses the AST composition and downloads required media for Image/Video layers."""

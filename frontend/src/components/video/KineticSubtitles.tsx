@@ -190,8 +190,22 @@ export const KineticSubtitles: React.FC<Props> = ({
   const effectiveBackgroundStyle = subtitleSettings.backgroundStyle || (subtitleSettings.showBackgroundHighlight !== false ? 'highlight' : 'none');
   const fullBgColor = subtitleSettings.fullBgColor || 'rgba(0,0,0,0.6)';
 
-  // Design system token fallbacks
-  const themeFont = designSystem?.typography?.heading_font || designSystem?.typography?.body_font || 'Montserrat';
+  // Design system token fallbacks.
+  // For complex-script languages (Hindi, Tamil, Arabic, etc.) we must never
+  // fall back to a Latin-only font — doing so renders Devanagari/Tamil/Arabic
+  // glyphs as tofu boxes. Use the language stored in the design system's
+  // _language metadata to pick the correct Noto family when typography is absent.
+  const NOTO_FONT_MAP: Record<string, string> = {
+    hi: 'Noto Sans Devanagari', mr: 'Noto Sans Devanagari',
+    bn: 'Noto Sans Bengali',    ta: 'Noto Sans Tamil',
+    te: 'Noto Sans Telugu',     ar: 'Noto Sans Arabic',
+    th: 'Noto Sans Thai',       gu: 'Noto Sans Gujarati',
+    pa: 'Noto Sans Gurmukhi',   ml: 'Noto Sans Malayalam',
+    kn: 'Noto Sans Kannada',
+  };
+  const projectLang: string = designSystem?._language || '';
+  const complexScriptFallback = NOTO_FONT_MAP[projectLang] || 'Inter';
+  const themeFont = designSystem?.typography?.heading_font || designSystem?.typography?.body_font || complexScriptFallback;
   const themeAccent = designSystem?.color_palette?.accent || designSystem?.color_palette?.primary || '#fbbf24';
   const effectiveFontFamily = subtitleSettings.fontFamily ? `"${subtitleSettings.fontFamily}", sans-serif` : `"${themeFont}", sans-serif`;
 

@@ -118,7 +118,9 @@ PIPELINE_VISUAL_TOOLS = frozenset({
     "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
     "search_pexels_photo", "search_pexels_video",
-    "search_wikipedia_image", "preview_asset",
+    "search_wikipedia_image",
+    "search_pixabay_photo", "search_pixabay_video",
+    "search_youtube_video",
 })
 
 SCRIPT_NARRATION_TOOLS = frozenset({
@@ -134,11 +136,13 @@ BRIDGE_SCRIPT_TOOLS = frozenset({
 })
 
 # Bridge: visual rewrites — research + declarative AST composition rules + asset search.
-# Needs Pexels/Wikipedia/preview tools to verify assets exist before using them.
+# Needs Pexels/Wikipedia/Pixabay/YouTube tools to verify assets exist before using them.
 BRIDGE_VISUAL_TOOLS = frozenset({
     "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
     "search_pexels_photo", "search_pexels_video", "search_wikipedia_image",
+    "search_pixabay_photo", "search_pixabay_video",
+    "search_youtube_video",
 })
 
 # Bridge: add scene — research only (narration-only, visuals added later).

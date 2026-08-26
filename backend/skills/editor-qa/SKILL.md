@@ -20,4 +20,5 @@ when_to_use: "Before finalizing any edit to a project — scene rewrites, visual
 - [ ] Duration sum matches scene duration
 - [ ] All AST layer types and properties are valid (Image, Video, Text, Map)
 - [ ] Content search queries (`query`) in English
+- [ ] Complex scripts (Hindi, Tamil, Arabic, etc.) use Noto fonts (`Noto Sans Devanagari`, etc.) in Text styles
 - [ ] No markdown/backticks around the JSON output

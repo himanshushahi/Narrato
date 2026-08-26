@@ -19,7 +19,7 @@ Image | Video | Text | Map | HTML
 === CONTENT TYPE SELECTION GUIDE ===
 - **Image**: Stock photos, textures, overlays, portraits, evidence photos, backgrounds. Use `source: "wikipedia"` for real people/entities (query = exact full name). Use `source: "pexels"` or `"pixabay"` for stock.
 - **Video**: B-roll, timelapses, ambient footage, dramatic motion backgrounds. Use when movement adds energy. `source: "pexels"` for stock video.
-- **Text**: Headlines, data callouts, dramatic reveals, lower-thirds, kinetic typography. Position with `style` — don't just center everything.
+- **Text**: Headlines, data callouts, dramatic reveals, lower-thirds, kinetic typography. Position with `style` — don't just center everything. For complex scripts (Hindi, Tamil, etc.), use Noto fonts (e.g. `Noto Sans Devanagari`) in the style/font to avoid broken rendering.
 - **Map**: Geography, routes, locations, territories. Use `map_style`: `vintage`, `modern_dark`, `minimal_light`, or `nautical_blue`.
 - **HTML**: Native motion graphics! Supply raw SVG path animations or HTML/CSS elements in the `html_content` property. Use this for animated vector illustrations, diagrams, custom shapes, HUD interfaces, or glowing neon vectors. Use embedded `<style>` for keyframes and inline SVGs.
 
