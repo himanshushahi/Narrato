@@ -1074,11 +1074,22 @@ class ApiBridge:
         word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
         duration_table = _format_sub_visual_durations(current_visuals)
 
+        prev_scene_context = ""
+        if section_type == "scenes" and scene_idx > 0:
+            scenes = full_script.get("scenes", [])
+            if scene_idx < len(scenes):
+                prev_scene = scenes[scene_idx - 1]
+                prev_svs = prev_scene.get("sub_visuals", [])
+                if prev_svs:
+                    last_sv = prev_svs[-1].get("composition", {})
+                    prev_scene_context = f"IMPORTANT CONTEXT - Previous Scene's Last Visual Layout:\n{json.dumps(last_sv, indent=2)}\n(Ensure your FIRST sub-visual does NOT use the exact same layout as this to maintain variety).\n\n"
+
         user_prompt = (
             f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
             f"Narration for this segment:\n\"{narration_text}\"\n"
             + (f"{word_timings}\n" if word_timings else "")
             + (f"{duration_table}\n" if duration_table else "")
+            + prev_scene_context
             + f"Current Sub-Visuals:\n{json.dumps(current_visuals, indent=2)}\n\n"
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Total Duration to fill: {total_duration} seconds.\n"
@@ -1154,6 +1165,14 @@ class ApiBridge:
         # Compute cumulative start offset for the target sub-visual within the scene
         sub_start_offset = sum(_safe_float(sv.get("duration", 0)) for sv in sub_visuals[:sub_idx] if isinstance(sv, dict))
 
+        prev_context = ""
+        if sub_idx > 0:
+            prev_context = f"Previous Sub-Visual Layout:\n{json.dumps(sub_visuals[sub_idx - 1].get('composition', {}), indent=2)}\n\n"
+        
+        next_context = ""
+        if sub_idx < len(sub_visuals) - 1:
+            next_context = f"Next Sub-Visual Layout:\n{json.dumps(sub_visuals[sub_idx + 1].get('composition', {}), indent=2)}\n\n"
+
         user_prompt = (
             f"Video Title: \"{doc_title}\"\n"
             f"Scene Title: \"{scene_title}\"\n"
@@ -1161,8 +1180,11 @@ class ApiBridge:
             + (f"{word_timings}\n" if word_timings else "")
             + (f"{duration_table}\n" if duration_table else "")
             + f"This sub-visual's target start offset is {sub_start_offset:.1f}s into the scene and lasts {_safe_float(target_sub_visual.get('duration', 0)):.1f}s.\n\n"
-            f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
-            f"Rewrite Instruction: {rewrite_prompt}\n\n"
+            + prev_context
+            + f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
+            + next_context
+            + f"Rewrite Instruction: {rewrite_prompt}\n\n"
+            f"CRITICAL: Ensure your new sub-visual layout is distinctly different from the Previous and Next Sub-Visual Layouts to avoid visual repetition.\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS

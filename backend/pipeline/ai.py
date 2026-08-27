@@ -1480,10 +1480,8 @@ VIDEO PRODUCTION CONSIDERATIONS:
 Write the narration content now. Be specific, focused, and engaging. Make it sound natural when spoken.
 """
 
-        # Optionally augment with scene-specific web search context
-        _web_ctx = _get_web_context_for_topic(f"{topic}: {chapter_title} - {context}", "scene narration")
-        if _web_ctx:
-            scene_user_prompt += f"\n\nIncorporate relevant facts from this web search into your narration:\n{_web_ctx}"
+        # Manual web search injection removed. The LLM has access to the `web_search` tool 
+        # and should use it autonomously if specific facts are needed.
 
         return runner.run_with_tools(
             scene_system_prompt, scene_user_prompt, SINGLE_SCENE_JSON_SCHEMA,
