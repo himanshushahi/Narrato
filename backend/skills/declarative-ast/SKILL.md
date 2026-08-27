@@ -130,27 +130,47 @@ All layers must strictly use the following Z-index ranges to prevent visual clob
 - `30 - 39`: Foreground Text (Lower-third titles, kinetic typography, callout quotes)
 - `40 - 50`: Scene UI & Chapter Badges (Chapter titles, milestone pills, header badges)
 
-## Subtitle Safe Areas & Dodging (`subtitle_position`)
+## Modern Video Editing Aesthetics (After Effects Style)
+To make visuals look professional and dynamic, employ these advanced design techniques using the declarative AST features:
+
+### 1. The Ken Burns Effect (Continuous Motion)
+Never leave a background static. Apply a slow scale to give life to still images:
+```json
+{"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "cinematic landscape", "source": "pexels"}, "animations": [{"property": "scale", "from": 1.0, "to": 1.15, "duration": 10.0, "easing": "linear"}]}
+```
+
+### 2. Glassmorphism (Frosted Glass Panels)
+Use blur filters and semi-transparent backgrounds to create modern Apple/AE style UI panels:
+```json
+{"type": "Layer", "z_index": 10, "content": {"type": "Text", "text": "DATA ANALYSIS", "font": "Inter", "style": {"padding": "40px", "backgroundColor": "rgba(20,20,20,0.5)", "backdropFilter": "blur(16px)", "border": "1px solid rgba(255,255,255,0.1)", "borderRadius": "24px"}}}
+```
+
+### 3. Cinematic Depth of Field
+When placing foreground elements (PiP, text), blur and darken the background layer to create artificial camera depth:
+```json
+{"type": "Layer", "z_index": 0, "content": {"type": "Video", "query": "city traffic", "source": "pexels"}, "filters": ["blur(12px)", "brightness(0.5)"]}
+```
+
+### 4. Cinematic Color Grading
+Enhance flat stock media using CSS filters to boost contrast and saturation for a graded look:
+```json
+{"type": "Layer", "z_index": 0, "content": {"type": "Video", "query": "ocean waves", "source": "pexels"}, "filters": ["contrast(1.2)", "saturate(1.3)", "sepia(0.1)"]}
+```
+
+### 5. Complex Animation Sequencing
+Combine transform properties simultaneously for punchy, dynamic reveals:
+```json
+"animations": [
+  { "property": "scale", "from": 0.5, "to": 1.0, "duration": 0.6, "easing": "spring" },
+  { "property": "opacity", "from": 0.0, "to": 1.0, "duration": 0.4, "easing": "ease-out" },
+  { "property": "translateY", "from": 100, "to": 0, "duration": 0.6, "easing": "spring" }
+]
+```
+
+## Subtitle Safe Areas
 Subtitles are rendered as an active kinetic typography track.
 - **Landscape (16:9)**: Bottom 15% is reserved for subtitles. Position lower-third text above `bottom: 18%` or use top/left/right coordinates.
 - **Portrait (9:16)**: Bottom 25% is reserved for stacked mobile captions. Position lower-third text above `bottom: 28%`.
-- **Dynamic Subtitle Dodging**: Each sub-visual object can optionally declare `"subtitle_position"`:
-  - `"bottom"` (default)
-  - `"top"`: Moves subtitles to top (useful when bottom area contains documents, maps, or data to read)
-  - `"hidden"`: Temporarily suppresses subtitles (useful for dense full-screen charts)
-
-```json
-{
-  "sub_visuals": [
-    {
-      "subtitle_position": "top",
-      "transition": "fade",
-      "duration": 4.0,
-      "composition": { ... }
-    }
-  ]
-}
-```
 
 ## Chapter Title Layers (Sub-Visual 0 of Each Scene)
 In the **first sub-visual of every scene (sub-visual 0)**, you MUST include a Chapter Title layer (`z_index: 40 - 50`) that introduces the scene title:

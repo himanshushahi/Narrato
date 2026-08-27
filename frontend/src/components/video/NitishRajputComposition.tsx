@@ -11,8 +11,6 @@ interface SubVisual {
   composition?: any;
   /** Proportional duration share within the scene (values sum to ~1.0). Set by Adjust Durations bar. */
   duration_ratio?: number;
-  /** Dynamic subtitle dodging position for this sub-visual */
-  subtitle_position?: 'bottom' | 'top' | 'hidden';
   /** Cut the narrator voiceover during this sub-visual's timeline interval. */
   mute_voiceover?: boolean;
   /** Cut the background music during this sub-visual's timeline interval. */
@@ -197,26 +195,9 @@ export const NitishRajputComposition: React.FC<Props> = ({
   }, [scenes]);
 
   // Compute frame-range subtitle displacements for dodging (top, bottom, hidden)
+  // Disabled to keep subtitles consistent at the bottom of the screen.
   const subtitleDisplacements = useMemo(() => {
-    const list: Array<{ startFrame: number; endFrame: number; position: 'bottom' | 'top' | 'hidden' }> = [];
-    let offset = 0;
-    for (const scene of scenes) {
-      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
-      const subVisuals = scene.sub_visuals || [];
-      const timings = subVisuals.length > 0 ? calculateSubVisualTimings(subVisuals, durationFrames, 0) : [];
-      subVisuals.forEach((sv, i) => {
-        const t = timings[i];
-        if (t && sv.subtitle_position) {
-          list.push({
-            startFrame: offset + t.start,
-            endFrame: offset + t.end,
-            position: sv.subtitle_position
-          });
-        }
-      });
-      offset += durationFrames;
-    }
-    return list;
+    return [];
   }, [scenes]);
 
   // Helper to render a single sub-visual's content

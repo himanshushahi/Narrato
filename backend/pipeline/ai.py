@@ -213,7 +213,6 @@ SUB_VISUAL_SCHEMA = {
     "properties": {
         "duration": {"type": "number", "description": "Precise duration in seconds"},
         "transition": {"type": "string", "description": "Transition effect (fade, slide_left, etc.)"},
-        "subtitle_position": {"type": "string", "enum": ["bottom", "top", "hidden"], "description": "Position of subtitles during this sub-visual"},
         "composition": {
             "type": "object",
             "properties": {
@@ -1707,7 +1706,6 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
 - CRITICAL FONT RULE: If generating text/subtitles in a complex script (e.g., Hindi, Tamil, Bengali, Arabic), you MUST specify a Noto font (e.g., `Noto Sans Devanagari`) in the design system or layer style to prevent broken Unicode shaping.
 - Design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths where applicable.
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
-- SUBTITLE DODGING: If a sub-visual needs full bottom space (e.g. document, lower map, dense graphic), include `"subtitle_position": "top"` to move subtitles to top.
 - STANDARDIZED Z-INDEX HIERARCHY:
   * 0 - 9: Background media / textures
   * 10 - 29: Insets, collages, animated vector charts
@@ -1807,27 +1805,15 @@ DO NOT default to the lazy pattern of [Full-Screen Stock Image] → [Centered Te
 Every sub-visual should feel like a deliberate creative decision — not a slideshow.
 {design_system_text}
 {visual_director_block}
-=== COMPOSITION VARIETY (CRITICAL) ===
-You MUST vary your compositions across sub-visuals. Use these techniques:
+=== COMPOSITION VARIETY & MODERN DESIGN (CRITICAL) ===
+You MUST vary your compositions across sub-visuals and apply modern After Effects style aesthetics:
 
-1. SPLIT SCREENS: Place 2-3 images/videos side by side using the `style` property:
-   - Left half: {{"style": {{"width": "50%", "height": "100%", "left": "0", "top": "0", "objectFit": "cover"}}}}
-   - Right half: {{"style": {{"width": "50%", "height": "100%", "right": "0", "top": "0", "objectFit": "cover"}}}}
-
-2. PICTURE-IN-PICTURE: A large background with a smaller inset:
-   - Background: {{"style": {{"width": "100%", "height": "100%", "objectFit": "cover"}}}}
-   - Inset: {{"style": {{"width": "35%", "height": "35%", "top": "5%", "right": "5%", "borderRadius": "16px", "objectFit": "cover", "boxShadow": "0 10px 40px rgba(0,0,0,0.6)"}}}}
-
-3. LOWER-THIRD TEXT: Position text at the bottom (respecting subtitle safe area), not centered:
-   - {{"style": {{"position": "absolute", "bottom": "18%", "left": "5%", "width": "90%", "fontSize": "48px", "textAlign": "left"}}}}
-
-4. KINETIC TYPOGRAPHY: Large text with dramatic animations (scale from 0.3→1, translateY from 200→0)
-
-5. MULTI-IMAGE COLLAGE: 3-4 images arranged in a grid with different z_indexes and entry animations
-
-6. VIDEO BACKGROUNDS: Use `Video` type for motion backgrounds (timelapses, ambient footage, B-roll)
-
-7. TEXTURE OVERLAYS: Layer a translucent texture/pattern Image over the main media with `mixBlendMode` in filters
+1. THE KEN BURNS EFFECT: Never leave a background image perfectly static. Add a 10-second `scale` animation from 1.0 to 1.15 to give it life.
+2. CINEMATIC COLOR GRADING: Use CSS filters on stock media to boost contrast, saturation, and depth (e.g., `["blur(2px)", "brightness(0.6)", "contrast(1.2)"]`).
+3. GLASSMORPHISM PANELS: Create sleek frosted glass backgrounds for text reading using `{"backgroundColor": "rgba(0,0,0,0.5)", "backdropFilter": "blur(12px)", "border": "1px solid rgba(255,255,255,0.15)", "borderRadius": "20px"}`.
+4. SPLIT SCREENS & PiP: Place 2-3 media assets simultaneously to show comparisons or depth, rather than a single fullscreen image.
+5. DYNAMIC KINETIC TYPOGRAPHY: Large text with mixed weights (800 for emphasis) and dramatic simultaneous animations (scale + translateY + opacity).
+6. TEXTURE OVERLAYS: Layer translucent noise/grain/textures over the main media with CSS blend modes in filters.
 
 RULES:
 - COUNT: One sub-visual per visual beat
@@ -1844,7 +1830,7 @@ RULES:
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
-{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "transition": "fade", "duration": 3.5, "subtitle_position": "bottom"}}]}}
+{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "transition": "fade", "duration": 3.5}}]}}
 
 ERROR PREVENTION:
 - Duration sum must equal exactly the provided scene duration (2 decimal places)

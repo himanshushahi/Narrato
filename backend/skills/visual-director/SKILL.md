@@ -55,4 +55,11 @@ Use the `style` property on AST layers to create complex After Effects-style com
   * 10 - 29: Insets, collages, animated vector charts
   * 30 - 39: Foreground typography / lower-thirds (respect subtitle safe area)
   * 40 - 50: Chapter title badges & scene UI
-- SUBTITLE DODGING: If a sub-visual has crucial bottom content (diagram, document, lower screen map), set `"subtitle_position": "top"` to move subtitles away from the bottom.
+
+=== MODERN AFTER EFFECTS DESIGN PRINCIPLES ===
+- **Continuous Motion (Ken Burns)**: Never leave backgrounds completely static. Apply a 10-second `scale` animation (1.0 → 1.15) to background images for continuous slow momentum.
+- **Glassmorphism (Frosted Glass)**: For text backgrounds, use `backgroundColor: "rgba(0, 0, 0, 0.4)"`, `backdropFilter: "blur(12px)"`, and a subtle `border: "1px solid rgba(255,255,255,0.15)"`.
+- **Cinematic Depth of Field**: When layering a Picture-in-Picture or text over a background, apply `filters: ["blur(8px)", "brightness(0.6)"]` to the background to create a simulated camera depth of field.
+- **Color Grading**: Enhance raw stock footage/images by applying cinematic CSS filters: `filters: ["contrast(1.15)", "saturate(1.2)", "sepia(0.1)"]`.
+- **Impact Typography**: Mix font weights (e.g. "800" for headlines, "400" for subtitles). Use `textShadow: "0px 10px 30px rgba(0,0,0,0.9)"` to make text pop against complex backgrounds.
+- **Dynamic Transitions**: Use `spring` easing for energetic entrances and `ease-out` for smooth reveals. Combine scale, translate, and opacity animations simultaneously to mimic AE keyframing.
