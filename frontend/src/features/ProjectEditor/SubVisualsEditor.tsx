@@ -97,14 +97,14 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
 
 
   const handleAdd = () => {
-    const copy = [...latestSubVisualsRef.current, { duration: 3.0, transition: 'fade', composition: { type: 'Sequence', children: [] } }];
+    const copy = [...latestSubVisualsRef.current, { duration: 3.0, composition: { type: 'Sequence', children: [] } }];
     latestSubVisualsRef.current = copy;
     onChange(copy);
   };
 
   const handleInsert = (idx: number) => {
     const copy = [...latestSubVisualsRef.current];
-    copy.splice(idx, 0, { duration: 3.0, transition: 'fade', composition: { type: 'Sequence', children: [] } });
+    copy.splice(idx, 0, { duration: 3.0, composition: { type: 'Sequence', children: [] } });
     latestSubVisualsRef.current = copy;
     onChange(copy);
   };

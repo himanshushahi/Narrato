@@ -6,7 +6,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GlowButton } from '../components/ui/GlowButton';
-import { CustomInput, CustomTextarea } from '../components/ui/CustomInput';
+import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { VscPlay, VscTrash, VscAdd, VscFolderOpened, VscCircleFilled, VscLayers, VscLoading } from 'react-icons/vsc';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -21,7 +21,7 @@ const Dashboard: React.FC = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
-  const [prompt, setPrompt] = useState('');
+  const [videoType, setVideoType] = useState('documentary');
   const [language, setLanguage] = useState('hi');
   const [videoFormat, setVideoFormat] = useState('landscape');
   const [durationMode, setDurationMode] = useState('medium');
@@ -34,7 +34,7 @@ const Dashboard: React.FC = () => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !prompt.trim()) return;
+    if (!name.trim() || !videoType.trim()) return;
     if (!exportFolder.trim()) {
       addToast("Please select an export destination folder", "error");
       return;
@@ -42,12 +42,12 @@ const Dashboard: React.FC = () => {
 
     setLoading(true);
     try {
-      const res = await callApi<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, prompt, exportFolder, language, 'nitish_rajput', durationMode, videoFormat);
+      const res = await callApi<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, videoType, exportFolder, language, 'nitish_rajput', durationMode, videoFormat);
       if (res?.success && res.project_id) {
         fetchProjects();
         setShowModal(false);
         setName('');
-        setPrompt('');
+        setVideoType('documentary');
         setExportFolder('');
         
         // Open export tab for newly created project
@@ -267,14 +267,16 @@ const Dashboard: React.FC = () => {
                       className="bg-stone-950"
                     />
 
-                    <CustomTextarea
-                      label="Script & Art Direction Prompt"
-                      required
-                      rows={3}
-                      placeholder="Describe what the video should cover — key events, important figures, causes and effects, interesting facts, or any specific angle you want the script to focus on. The AI will use this to generate a structured outline and narration."
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      className="bg-stone-950"
+                    <CustomSelect
+                      label="Video Style / Genre"
+                      options={[
+                        { value: 'documentary', label: 'Documentary (Ken Burns, Maps, Cinematic)' },
+                        { value: 'explainer', label: 'Tech Explainer (Vector Graphics, Fast, Neon)' },
+                        { value: 'storytime', label: 'Personal Story (Portraits, Warm, Soft)' },
+                        { value: 'news', label: 'News/Journalism (Split Screens, Lower Thirds)' }
+                      ]}
+                      value={videoType}
+                      onChange={(val) => setVideoType(val)}
                     />
 
                     <div>

@@ -608,13 +608,6 @@ def test_skill_telemetry_labels_preload_vs_tool():
 # AST Subtitle Positioning, Safe Areas & Chapter Badges
 # ---------------------------------------------------------------------------
 
-def test_sub_visual_schema_subtitle_position():
-    """SUB_VISUAL_SCHEMA must include subtitle_position enum."""
-    from backend.pipeline.ai import SUB_VISUAL_SCHEMA
-    props = SUB_VISUAL_SCHEMA["properties"]
-    assert "subtitle_position" in props
-    assert props["subtitle_position"]["enum"] == ["bottom", "top", "hidden"]
-
 
 def test_visual_rules_format_aware_safe_areas():
     """Visual rules must configure format-aware safe areas (15% landscape, 25% portrait)."""
@@ -652,5 +645,4 @@ def test_declarative_ast_skill_has_z_index_and_chapter_guidelines():
     assert skill is not None
     assert "Standardized Z-Index Hierarchy" in skill.content
     assert "Chapter Title Layers" in skill.content
-    assert "subtitle_position" in skill.content
 

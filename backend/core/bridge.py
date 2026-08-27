@@ -546,9 +546,9 @@ class ApiBridge:
         update_settings(settings_dict)
         return True
 
-    def create_new_project(self, name: str, prompt: str, export_folder: str, language: str = "hi", style: str = "nitish_rajput", duration_mode: str = "medium", video_format: str = "landscape") -> dict:
+    def create_new_project(self, name: str, video_type: str, export_folder: str, language: str = "hi", style: str = "nitish_rajput", duration_mode: str = "medium", video_format: str = "landscape") -> dict:
         try:
-            project_id = create_project(name, prompt, export_folder, language, style, duration_mode, video_format)
+            project_id = create_project(name, video_type, export_folder, language, style, duration_mode, video_format)
             return {"project_id": project_id, "success": True}
         except Exception as e:
             logger.error(f"Error creating project: {e}")

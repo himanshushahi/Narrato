@@ -241,7 +241,18 @@ export const AstGraphicalEditor = ({
               <select
                 className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
                 value={cType}
-                onChange={e => updateContent(idx, 'type', e.target.value)}
+                onChange={e => {
+                  const newType = e.target.value as any;
+                  const copy = { ...composition };
+                  copy.children = [...(copy.children || [])];
+                  const oldLayer = copy.children[idx] || {};
+                  const newContent = { ...(oldLayer.content || {}), type: newType };
+                  if (newType === 'Video') {
+                    newContent.volume = 0;
+                  }
+                  copy.children[idx] = { ...oldLayer, content: newContent };
+                  triggerChange(copy);
+                }}
               >
                 <option value="Image">Image</option>
                 <option value="Video">Video</option>
@@ -333,7 +344,7 @@ export const AstGraphicalEditor = ({
                 )}
 
                 {/* Source & Image Type in a clean grid */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className={`grid gap-2 ${content.source === 'pixabay' ? 'grid-cols-2' : 'grid-cols-1'}`}>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Source</label>
                     <select
@@ -365,6 +376,25 @@ export const AstGraphicalEditor = ({
                     </div>
                   )}
                 </div>
+
+                {/* Video Volume Slider */}
+                {cType === 'Video' && (
+                  <div className="flex items-center gap-2 pt-2">
+                    <label htmlFor={`vol-${idx}`} className="text-[10px] font-bold uppercase tracking-wider text-stone-400 w-24 shrink-0 whitespace-nowrap">
+                      Volume: {Math.round((content.volume ?? 0) * 100)}%
+                    </label>
+                    <input
+                      type="range"
+                      id={`vol-${idx}`}
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={content.volume ?? 0}
+                      onChange={e => updateContent(idx, 'volume', parseFloat(e.target.value))}
+                      className="flex-1 accent-amber-500 bg-black/40 h-1.5 rounded-lg cursor-pointer appearance-none"
+                    />
+                  </div>
+                )}
 
                 {/* YouTube Start & Duration */}
                 {content.source === 'youtube' && (

@@ -14,6 +14,7 @@ interface ASTLayerContent {
   html_content?: string;
   locations?: { name?: string, coord: [number, number] }[];
   map_style?: string;
+  volume?: number;
   style?: React.CSSProperties;
 }
 
@@ -86,7 +87,7 @@ function parseFilters(filters?: string[]): { filterStyle?: string; blendStyle: R
 
 import { delayRender, continueRender } from 'remotion';
 
-const AsyncMediaNode: React.FC<{ type: 'Image' | 'Video'; localPath: string; style?: React.CSSProperties }> = ({ type, localPath, style }) => {
+const AsyncMediaNode: React.FC<{ type: 'Image' | 'Video'; localPath: string; style?: React.CSSProperties; volume?: number }> = ({ type, localPath, style, volume }) => {
   const [url, setUrl] = React.useState<string>('');
   const [handle] = React.useState(() => delayRender("Fetching Media URL"));
 
@@ -125,7 +126,7 @@ const AsyncMediaNode: React.FC<{ type: 'Image' | 'Video'; localPath: string; sty
   if (type === 'Image') {
     return <Img src={url} style={mergedStyle} />;
   }
-  return <Video src={url} style={mergedStyle} />;
+  return <Video src={url} style={mergedStyle} muted={volume === 0 || volume === undefined} volume={volume ?? 0} />;
 };
 
 export const ASTRenderer: React.FC<{
@@ -155,7 +156,7 @@ export const ASTRenderer: React.FC<{
           const mediaStyle = hasCustomLayout
             ? { objectFit: innerStyle.objectFit || 'cover' as const }
             : innerStyle;
-          node = <AsyncMediaNode type={content.type} localPath={content.local_path} style={mediaStyle} />;
+          node = <AsyncMediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} />;
         } else if (content.type === 'Text') {
           // Default text: centered fullscreen. Custom style overrides positioning.
           const defaultTextStyle: React.CSSProperties = hasCustomLayout

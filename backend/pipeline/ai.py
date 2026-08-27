@@ -163,6 +163,7 @@ LAYER_CONTENT_SCHEMA = {
         "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay", "youtube"], "description": "Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed."},
         "text": {"type": "string", "description": "Text content (if Text)"},
         "html_content": {"type": "string", "description": "Raw HTML/SVG content (if HTML), e.g., <svg>...</svg> or <div style='...'>...</div>"},
+        "volume": {"type": "number", "description": "Audio volume from 0 to 1 (default 0)"},
         "font": {"type": "string", "description": "Font family (if Text)"},
         "weight": {"type": "string", "description": "Font weight (if Text)"},
         "color": {"type": "string", "description": "Text color in hex (if Text)"},
@@ -212,7 +213,6 @@ SUB_VISUAL_SCHEMA = {
     "type": "object",
     "properties": {
         "duration": {"type": "number", "description": "Precise duration in seconds"},
-        "transition": {"type": "string", "description": "Transition effect (fade, slide_left, etc.)"},
         "composition": {
             "type": "object",
             "properties": {
@@ -225,7 +225,7 @@ SUB_VISUAL_SCHEMA = {
             "required": ["type", "children"]
         }
     },
-    "required": ["duration", "transition", "composition"]
+    "required": ["duration", "composition"]
 }
 
 # Schema validations for JSON parsing
@@ -1091,7 +1091,7 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     from backend.core.logger import logger
 
     topic = project_dict['name']
-    prompt_desc = project_dict['prompt']
+    video_type = project_dict.get('prompt') or "DOCUMENTARY"
     language = project_dict.get('language', 'hi')
     duration_mode = project_dict.get('duration_mode', 'medium')
     video_format = project_dict.get('video_format', 'landscape')
@@ -1185,7 +1185,9 @@ BREAKDOWN REQUIREMENTS:
 """
 
     outline_user_prompt = f"""Topic: "{topic}"
-Detail: "{prompt_desc}"
+Video Type / Genre: "{video_type.upper()}"
+
+Adapt the narrative style and tone specifically to fit the "{video_type.upper()}" genre.
 
 VIDEO SPECIFICATIONS:
 - Target Duration: {target_duration} seconds
@@ -1202,10 +1204,13 @@ REQUIREMENTS:
 CHAPTER FORMAT NEEDED:
 {{ "scene_number": number, "chapter_title": "Short descriptive title", "scene_context": "Detailed factual context for this chapter" }}
 
+CRITICAL: Provide the outline as a raw JSON object matching the schema.
+NO markdown blocks (` ```json `), NO conversational text. Just the JSON object.
+
 NO generic phrases, no clickbait, no assumptions or unverified claims. Be precise and factual."""
 
     # Optionally augment with web search context
-    _web_ctx = _get_web_context_for_topic(f"{topic} - {prompt_desc}", "outline generation")
+    _web_ctx = _get_web_context_for_topic(f"{topic} {video_type}", "outline generation")
     if _web_ctx:
         outline_user_prompt += f"\n\nRelevant web context to inform your outline:\n{_web_ctx}"
 
@@ -1566,7 +1571,6 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
         intro = {}
         final_script["introduction"] = intro
     intro["hook"] = _safe_str(intro.get("hook", ""))
-    intro["transition"] = _safe_str(intro.get("transition", ""))
 
     conclusion = final_script.get("conclusion")
     if not isinstance(conclusion, dict):
@@ -1797,7 +1801,8 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
 
 """ if visual_director else ""
 
-    visuals_system_prompt = f"""{editor_qa_block}You are an expert AI Visual Director and Motion Graphics Designer for YouTube videos.
+    visuals_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
+{editor_qa_block}You are an expert AI Visual Director and Motion Graphics Designer for YouTube videos.
 
 CORE MISSION:
 Transform narration into visually stunning, cinematic sequences. Think like a top-tier After Effects artist.
@@ -1810,7 +1815,7 @@ You MUST vary your compositions across sub-visuals and apply modern After Effect
 
 1. THE KEN BURNS EFFECT: Never leave a background image perfectly static. Add a 10-second `scale` animation from 1.0 to 1.15 to give it life.
 2. CINEMATIC COLOR GRADING: Use CSS filters on stock media to boost contrast, saturation, and depth (e.g., `["blur(2px)", "brightness(0.6)", "contrast(1.2)"]`).
-3. GLASSMORPHISM PANELS: Create sleek frosted glass backgrounds for text reading using `{"backgroundColor": "rgba(0,0,0,0.5)", "backdropFilter": "blur(12px)", "border": "1px solid rgba(255,255,255,0.15)", "borderRadius": "20px"}`.
+3. GLASSMORPHISM PANELS: Create sleek frosted glass backgrounds for text reading using `{{"backgroundColor": "rgba(0,0,0,0.5)", "backdropFilter": "blur(12px)", "border": "1px solid rgba(255,255,255,0.15)", "borderRadius": "20px"}}`.
 4. SPLIT SCREENS & PiP: Place 2-3 media assets simultaneously to show comparisons or depth, rather than a single fullscreen image.
 5. DYNAMIC KINETIC TYPOGRAPHY: Large text with mixed weights (800 for emphasis) and dramatic simultaneous animations (scale + translateY + opacity).
 6. TEXTURE OVERLAYS: Layer translucent noise/grain/textures over the main media with CSS blend modes in filters.
@@ -1818,19 +1823,18 @@ You MUST vary your compositions across sub-visuals and apply modern After Effect
 RULES:
 - COUNT: One sub-visual per visual beat
 - DURATION: Each 2-15 seconds, sum MUST equal scene duration
-- TRANSITION: Vary transitions — never repeat the same one
 - CHAPTER TITLES: In the FIRST sub-visual of each scene (sub-visual 0), include a Chapter Title layer (z_index: 40-50)
 - query: ALWAYS in English. Use descriptive, specific keywords for relevant results (e.g. 'programmer typing on retro computer terminal' or 'old floppy disk close up'). Avoid vague single words.
 - Text content: ALWAYS in English
 - style: USE the `style` property on layers to position them — do NOT leave everything at fullscreen defaults
 - VARIETY: Never use the same composition layout for two consecutive sub-visuals
-- VIDEO: Use `Video` type layers when motion would enhance the visual (timelapses, B-roll, ambient footage)
+- VIDEO: Use `Video` type layers when motion would enhance the visual (timelapses, B-roll, ambient footage). By default, set `"volume": 0` for all Video layers unless narration specifically calls for its original sound.
 - ONLY use content types: Image, Video, Text, Map, HTML. No other types exist.
 - HTML: You can generate raw inline SVG path animations, charts, or HTML UI elements using `html_content`.
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
-{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "transition": "fade", "duration": 3.5}}]}}
+{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "duration": 3.5}}]}}
 
 ERROR PREVENTION:
 - Duration sum must equal exactly the provided scene duration (2 decimal places)
@@ -1842,11 +1846,10 @@ ERROR PREVENTION:
 FINAL CHECK before submitting:
 1. Duration sum equals scene duration
 2. All search queries are English
-3. The root must contain `sub_visuals` array of objects with `composition`, `transition`, `duration`
-4. Transitions are all different
-5. No markdown — raw JSON only
-6. At least some sub-visuals use `style` for non-fullscreen positioning
-7. Composition layouts vary across sub-visuals
+3. The root must contain `sub_visuals` array of objects with `composition`, `duration`
+4. No markdown — raw JSON only
+5. At least some sub-visuals use `style` for non-fullscreen positioning
+6. Composition layouts vary across sub-visuals
 
 {visual_rules}"""
 
@@ -1957,10 +1960,35 @@ FINAL CHECK before submitting:
             with _progress_lock:
                 completed += 1
             base_prog = 15.0 if is_new_design else 10.0
-            _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Preserved visual cues... {completed}/{total_scenes}")
+            _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Preserved AST scenes... {completed}/{total_scenes}")
             return entry
         # --- End Smart Preservation Logic ---
 
+        # --- STAGE 1: Visual Storyboard Planning ---
+        plan_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
+You are an expert Visual Director. Your job is to read the narration for this scene and write a highly creative, detailed storyboard plan describing the sub-visuals needed.
+Adapt the narrative style and tone specifically to fit the "{(project_dict.get('prompt') or 'documentary').upper()}" genre.
+Do not output AST JSON, just output a detailed text description of what each sub-visual should look like (e.g. 'Beat 1: A slow zoom on a vintage map. Beat 2: Split screen showing two contrasting images.')."""
+
+        plan_user_prompt = f"Topic: {topic}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n\nWrite a storyboard plan for each sub-visual beat."
+
+        plan_schema = {
+            "type": "object",
+            "properties": {
+                "storyboard_plan": {"type": "string", "description": "The detailed visual plan/storyboard for this scene"}
+            },
+            "required": ["storyboard_plan"]
+        }
+        
+        try:
+            from backend.pipeline.ai import _call_llm_json
+            plan_response = _call_llm_json(plan_system_prompt, plan_user_prompt, plan_schema, cancel_event, activity_label=f"Planning Scene {i+1}")
+            storyboard = plan_response.get("storyboard_plan", "") if isinstance(plan_response, dict) else ""
+        except Exception as plan_e:
+            logger.warning(f"Stage 1 Planning failed for scene {i}: {plan_e}. Falling back to direct generation.")
+            storyboard = "No plan available. Make creative decisions directly."
+
+        # --- STAGE 2: AST Generation ---
         user_prompt = f"""Topic: "{topic}"
 Scene: {scene_title} ({scene_type})
 Total Scene Duration: {duration} seconds
@@ -1968,7 +1996,11 @@ Total Scene Duration: {duration} seconds
 Narration:
 {narration}
 {word_timings}
-Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST exactly equal {duration} seconds."""
+
+APPROVED STORYBOARD PLAN:
+{storyboard}
+
+Generate the sub_visuals array following the APPROVED STORYBOARD PLAN precisely. The sum of 'duration' for all sub_visuals MUST exactly equal {duration} seconds."""
 
         try:
             # Generation + duration-math validation + enum correction via the
@@ -1991,14 +2023,14 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
             raise
         except Exception as e:
             logger.error(f"Failed to generate visuals for scene {i}: {e}")
-            entry["sub_visuals"] = [{"transition": "fade", "composition": {"type": "Sequence", "children": []}, "duration": duration}]
+            entry["sub_visuals"] = [{"composition": {"type": "Sequence", "children": []}, "duration": duration}]
             entry["_narr_hash"] = narration_hash
             entry["_design_hash"] = current_design_hash
 
         with _progress_lock:
             completed += 1
         base_prog = 15.0 if is_new_design else 10.0
-        _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Generated visual cues... {completed}/{total_scenes}")
+        _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Planned & Built AST scenes... {completed}/{total_scenes}")
         return entry
 
     import concurrent.futures
