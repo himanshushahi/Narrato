@@ -5,6 +5,7 @@ import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { CustomSelect } from '../../../components/ui/CustomSelect';
 import { WHISPER_MODEL_OPTIONS } from '../../Settings/voiceConstants';
+import { SubtitleSettings } from './SubtitleSettings';
 
 
 
@@ -121,6 +122,17 @@ type SectionDef = {
 };
 
 const SECTION_DEFS: SectionDef[] = [
+  {
+    id: 'subtitles',
+    title: 'Subtitle Styling',
+    icon: VscSettingsGear as React.ComponentType<{ className?: string }>,
+    keywords: ['subtitle', 'style', 'font', 'size', 'color', 'background', 'caption', 'text'],
+    fields: [
+      { id: 'subtitle_font', label: 'Font Family', keywords: ['font', 'family', 'typeface'] },
+      { id: 'subtitle_size', label: 'Font Size', keywords: ['size', 'scale', 'big', 'small'] },
+      { id: 'subtitle_color', label: 'Color', keywords: ['color', 'fill', 'active', 'past'] },
+    ],
+  },
   {
     id: 'whisper',
     title: 'Speech-to-Text (Whisper)',
@@ -365,7 +377,21 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         </CollapsibleSection>
       )}
 
-
+      {/* Subtitle Styling section */}
+      {visibleSections.some(s => s.id === 'subtitles') && (
+        <CollapsibleSection
+          id="subtitles"
+          title="Subtitle Styling"
+          icon={<span className="text-sm text-zinc-500 font-semibold">CC</span>}
+          collapsed={collapsedSections.has('subtitles')}
+          onToggle={toggleSection}
+        >
+          <SubtitleSettings
+            settings={localProjectSettings}
+            onUpdate={onSettingsUpdate}
+          />
+        </CollapsibleSection>
+      )}
 
       {/* Empty state */}
       {visibleSections.length === 0 && searchQuery.trim() && (
