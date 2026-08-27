@@ -32,7 +32,7 @@ interface ScriptTabProps {
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
-  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
 }
 
@@ -170,7 +170,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             activeIdx={introActiveSubIdx}
                             onSeek={onSeek}
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
-                            onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(-1, 'introduction', subIdx) : undefined}
+                            onUploadSubVisual={onUploadSubVisual ? (subIdx, visualType) => onUploadSubVisual(-1, 'introduction', subIdx, visualType) : undefined}
                             uploadingSubVisual={uploadingSubVisual}
                           />
                         </div>
@@ -293,7 +293,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                                   activeIdx={activeSubIdxForScene}
                                   onSeek={onSeek}
                                   onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
-                                  onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(idx, 'scenes', subIdx) : undefined}
+                                  onUploadSubVisual={onUploadSubVisual ? (subIdx, visualType) => onUploadSubVisual(idx, 'scenes', subIdx, visualType) : undefined}
                                   uploadingSubVisual={uploadingSubVisual}
                                 />
                               </div>
@@ -456,7 +456,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             activeIdx={concActiveSubIdx}
                             onSeek={onSeek}
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}
-                            onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(-1, 'conclusion', subIdx) : undefined}
+                            onUploadSubVisual={onUploadSubVisual ? (subIdx, visualType) => onUploadSubVisual(-1, 'conclusion', subIdx, visualType) : undefined}
                             uploadingSubVisual={uploadingSubVisual}
                           />
                         </div>

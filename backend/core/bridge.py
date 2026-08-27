@@ -1472,15 +1472,22 @@ class ApiBridge:
             logger.error(f"Failed to cleanup preview assets: {e}")
             return {"success": False, "error": str(e)}
 
-    def upload_sub_visual_media(self, project_id: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
-        logger.info(f"Bridge API: upload_sub_visual_media for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
+    def upload_sub_visual_media(self, project_id: str, manifest_scene_index: int, sub_visual_index: int, visual_type: str = "ast") -> dict:
+        logger.info(f"Bridge API: upload_sub_visual_media for project {project_id} [{manifest_scene_index}:{sub_visual_index}] visual_type={visual_type}")
         import webview
         window = self._get_window()
         if not window:
             return {"success": False, "error": "No window available for file dialog"}
 
-        file_types = ('Media Files (*.mp4;*.webm;*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
-        allowed_exts = (".mp4", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".gif")
+        if visual_type == "video":
+            file_types = ('Video Files (*.mp4;*.webm)',)
+            allowed_exts = (".mp4", ".webm")
+        elif visual_type == "image":
+            file_types = ('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
+            allowed_exts = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+        else:
+            file_types = ('Media Files (*.mp4;*.webm;*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
+            allowed_exts = (".mp4", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".gif")
 
         try:
             result = window.create_file_dialog(

@@ -1,8 +1,9 @@
 import { CustomInput } from '../../components/ui/CustomInput';
 import { SubVisualsDurationBar } from './SubVisualsDurationBar';
+import { AstGraphicalEditor } from './components/AstGraphicalEditor';
 import { formatTime } from './constants';
 import { BiTrashAlt } from 'react-icons/bi';
-import { BsPlus, BsStars, BsSendFill, BsUpload } from 'react-icons/bs';
+import { BsPlus, BsStars, BsSendFill } from 'react-icons/bs';
 import { useState, Fragment, useEffect, useRef, useCallback } from 'react';
 import Editor from 'react-simple-code-editor';
 import hljs from 'highlight.js/lib/core';
@@ -56,10 +57,11 @@ const AstJsonEditor = ({ initialValue, onChange }: { initialValue: object, onCha
   );
 };
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, uploadingSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number) => void, uploadingSubVisual?: string | null }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, uploadingSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string) => Promise<string | undefined> | void, uploadingSubVisual?: string | null }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
+  const [viewMode, setViewMode] = useState<Record<number, 'gui'|'json'>>({});
 
   // Keep the latest array in a ref so rapid consecutive edits build on top of
   // each other, and only resync when the prop actually changes.
@@ -153,11 +155,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
               className={`p-4 rounded-xl border space-y-4 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}>
               <div className="absolute top-2 right-2 flex gap-1">
-                {onUploadSubVisual && (
-                  <button type="button" onClick={(e) => { e.stopPropagation(); onUploadSubVisual(idx); }} disabled={uploadingSubVisual !== null} className="text-green-500/80 hover:text-green-400 text-xs px-2 py-1 bg-green-500/10 rounded-md cursor-pointer transition-colors disabled:opacity-50" title={"Upload Media"}>
-                    {uploadingSubVisual !== null ? <div className="w-3 h-3 border-2 border-green-500/30 border-t-green-500 rounded-full animate-spin" /> : <BsUpload size={14} />}
-                  </button>
-                )}
+
                 {onRewriteSubVisual && (
                   <button type="button" onClick={(e) => { e.stopPropagation(); if (aiPromptIdx === idx) { setAiPromptIdx(null); setAiPromptText(''); } else { setAiPromptIdx(idx); setAiPromptText(''); } }} className="text-amber-500/80 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded-md cursor-pointer transition-colors" title="AI Magic Rewrite"><BsStars size={14} /></button>
                 )}
@@ -214,12 +212,30 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                 {isActive && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
               </div>
               <div className="grid grid-cols-2 gap-4" onClick={e => e.stopPropagation()}>
-                <div className="col-span-2 flex flex-col gap-1">
-                  <label className="text-xs font-bold uppercase tracking-wider text-stone-400">Composition (JSON AST)</label>
-                  <AstJsonEditor
-                    initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
-                    onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
-                  />
+                <div className="col-span-2 flex flex-col gap-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold uppercase tracking-wider text-stone-400">Composition (AST)</label>
+                    <button 
+                      type="button" 
+                      onClick={(e) => { e.stopPropagation(); setViewMode(prev => ({ ...prev, [idx]: prev[idx] === 'json' ? 'gui' : 'json' })) }} 
+                      className="text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-white/10 text-stone-300 px-2 py-1 rounded transition-colors"
+                    >
+                       View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}
+                    </button>
+                  </div>
+                  {viewMode[idx] === 'json' ? (
+                    <AstJsonEditor
+                      initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
+                      onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
+                    />
+                  ) : (
+                    <AstGraphicalEditor
+                      initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
+                      onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
+                      onUploadSubVisual={onUploadSubVisual ? (visualType) => onUploadSubVisual(idx, visualType) : undefined}
+                      uploadingSubVisual={uploadingSubVisual}
+                    />
+                  )}
                 </div>
 
                 {/* Audio cut toggles — available for every sub-visual type: silence

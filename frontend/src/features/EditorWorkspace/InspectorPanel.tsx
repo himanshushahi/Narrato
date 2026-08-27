@@ -39,7 +39,7 @@ interface InspectorPanelProps {
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
-  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
 
   // Pipeline props

@@ -20,7 +20,7 @@ interface UseScriptEditingReturn {
   setScriptChangedAlert: (alert: boolean) => void;
   previewAssets: Record<string, { visual_path: string; visual_url: string }>;
   uploadingSubVisual: string | null;
-  handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number) => Promise<void>;
+  handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string) => Promise<string | undefined>;
   handleStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   handleCancelEdit: () => void;
   handleSaveCard: (cardKey?: string, index?: number) => Promise<void>;
@@ -419,9 +419,9 @@ export function useScriptEditing(
     }
   }, [projectId, scriptData, selectedProject, setScriptData, addToast]);
 
-  const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
+  const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string) => {
     const data = scriptData;
-    if (!projectId || !data) return;
+    if (!projectId || !data) return undefined;
 
     const sectionKey = sectionType === 'introduction' ? 'intro'
       : sectionType === 'conclusion' ? 'conclusion'
@@ -439,11 +439,6 @@ export function useScriptEditing(
       manifestIdx = sceneIdx + (hasIntro ? 1 : 0);
     }
 
-    // Read the current type from scriptData — the same live source the UI
-    // renders — and normalize it (getValidVisualType) so the backend's
-    // strict video/image decision matches the button the user clicked.
-    // Reading from manifestData here could be stale (an unsaved type change)
-    // or carry a fuzzy label that the backend rejects.
     let rawVisualType = '';
     if (sectionType === 'introduction') {
       rawVisualType = data.introduction?.sub_visuals?.[subIdx]?.visual_type || '';
@@ -461,7 +456,9 @@ export function useScriptEditing(
       }
       return 'ast'; // Default fallback
     };
-    const visualType = getValidVisualType(rawVisualType);
+    
+    // If AstGraphicalEditor passed an explicit override (e.g. "image" or "video") based on the layer type, use it!
+    const visualType = overrideVisualType || getValidVisualType(rawVisualType);
 
     setUploadingSubVisual(assetKey);
     try {
@@ -482,16 +479,19 @@ export function useScriptEditing(
           [assetKey]: { visual_path: vPath, visual_url: visualUrl }
         }));
         addToast("Media uploaded successfully!", 'success');
+        return vPath;
       } else {
         addToast("Upload failed: " + (result?.error || "Unknown error"), 'error');
+        return undefined;
       }
     } catch (err: any) {
       console.error(err);
       addToast("Upload failed: " + (err?.message || String(err)), 'error');
+      return undefined;
     } finally {
       setUploadingSubVisual(null);
     }
-  }, [projectId, scriptData, manifestData, previewAssets, addToast]);
+  }, [projectId, scriptData, selectedProject, setScriptData, addToast, manifestData, previewAssets]);
 
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
