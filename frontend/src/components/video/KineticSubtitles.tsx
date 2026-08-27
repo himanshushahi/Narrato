@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { useCurrentFrame, useVideoConfig, spring, interpolate } from 'remotion';
 import { Transcription, TranscriptionWord, SceneTiming } from './NitishRajputComposition';
 
-export interface SubtitleDisplacement {
+interface SubtitleDisplacement {
   startFrame: number;
   endFrame: number;
   position?: 'bottom' | 'top' | 'hidden';

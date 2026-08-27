@@ -119,3 +119,6 @@ def clear_agent_activity():
     """Drop all recorded entries (used by tests and the UI clear button)."""
     with _lock:
         _activity.clear()
+
+
+

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type LeftPanelTab = 'scenes' | 'assets' | 'music';
 export type InspectorTab = 'script' | 'subtitle' | 'voice' | 'export' | 'settings';
-export type PreviewQuality = 'fast' | 'full';
+type PreviewQuality = 'fast' | 'full';
 
 interface EditorStore {
   // Panel dimensions (resizable like VS Code)

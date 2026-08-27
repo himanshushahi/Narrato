@@ -8,7 +8,7 @@ interface SubtitlePreset {
   settings: any;
 }
 
-export interface XttsProfile {
+interface XttsProfile {
   id: string;
   name: string;
   language: string;

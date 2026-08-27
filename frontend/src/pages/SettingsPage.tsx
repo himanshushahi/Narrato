@@ -27,7 +27,7 @@ const GPU_ERROR_TEXT: Record<string, string> = {
   extract_failed: 'Extraction failed — retry.',
 };
 
-export const SettingsPage: React.FC = () => {
+const SettingsPage: React.FC = () => {
   const settings = useSettingsStore((state) => state.settings);
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const fetchSettings = useSettingsStore((state) => state.fetchSettings);

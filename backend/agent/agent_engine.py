@@ -6,9 +6,6 @@ from backend.agent.tools import get_tools_schema, execute_tool
 from backend.agent.validators import validate_sub_visuals
 from backend.pipeline.ai import _call_llm_json, clean_json_response
 
-# Matches a ```tool\n{...}\n``` block the model emits before the final JSON.
-TOOL_BLOCK_RE = re.compile(r"```tool\s*\n*(\{.*?\})\s*```", re.DOTALL)
-
 # Any fenced block (```tool / ```json / plain ```) that may hold a tool call.
 FENCED_BLOCK_RE = re.compile(r"```(?:json|tool)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
@@ -270,14 +267,6 @@ class AgentRunner:
             logger.error(f"Agent LLM call failed: {type(e).__name__}: {e}")
             return {"success": False, "error": str(e)}
 
-    def generate_bulk_scenes_oneshot(self, system_prompt: str, user_prompt: str, schema: dict) -> dict:
-        """
-        For bulk scene generation, ReAct looping is too slow.
-        We just do a single-shot execution using _call_llm_json.
-        """
-        self._emit_progress("Agent: Generating visuals (One-Shot)...")
-        return _call_llm_json(system_prompt, user_prompt, schema, self.cancel_event, activity_label="Agent: bulk visuals")
-
     def validate_and_correct_visuals(self, system_prompt: str, user_prompt: str, schema: dict, expected_duration: float,
                                      allowed_tools=None, max_turns: int = None) -> dict:
         """
@@ -314,7 +303,7 @@ class AgentRunner:
             corrected_result = self.run_with_tools(system_prompt, correction_prompt, schema, base_activity_label="Agent: visual correction",
                                                    allowed_tools=allowed_tools, max_turns=max_turns)
             if isinstance(corrected_result, dict) and "sub_visuals" in corrected_result:
-                is_valid2, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
+                _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
                 corrected_result["sub_visuals"] = final_svs
                 return corrected_result
         except Exception:

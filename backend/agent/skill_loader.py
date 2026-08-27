@@ -83,14 +83,7 @@ class SkillLoader:
         visible in the activity feed.
         """
         skill = self._skills_cache.get(name)
-        if skill:
-            # Check if file changed
-            try:
-                mtime = os.path.getmtime(skill.file_path)
-                # We could add an mtime check for hot-reloading here,
-                # but for now we'll just reload the whole directory if we want a fresh state
-            except OSError:
-                pass
+
         from backend.agent.telemetry import emit_activity
         if skill:
             label = "Agent Tool Call" if context == "tool" else "System Prompt Preload"
@@ -102,7 +95,9 @@ class SkillLoader:
         return skill
 
     def get_all_skills(self) -> dict:
+        """Returns the dictionary of all loaded skills."""
         return self._skills_cache
+
 
 # Singleton instance
 skill_loader = SkillLoader()

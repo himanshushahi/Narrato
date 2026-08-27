@@ -109,23 +109,3 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     return True, normalized, ""
 
 
-def validate_script(script_json: Dict[str, Any]) -> Tuple[bool, str]:
-    """
-    Validates that a generated script meets the basic structural requirements.
-    """
-    if not isinstance(script_json, dict):
-        return False, "Script must be a JSON object."
-
-    if not script_json.get("title"):
-        return False, "Script is missing a title."
-
-    if not isinstance(script_json.get("scenes"), list):
-        return False, "Scenes must be a list."
-
-    if not script_json.get("introduction", {}).get("hook"):
-        return False, "Introduction hook is missing."
-
-    if not script_json.get("conclusion", {}).get("summary"):
-        return False, "Conclusion summary is missing."
-
-    return True, ""

@@ -19,15 +19,5 @@ export function getMediaThumbUrl(filePath: string | undefined | null): string {
   return `${base}&thumb=1`;
 }
 
-export async function getMediaUrl(filePath: string): Promise<string> {
-  if (!filePath) return '';
-  // Ensure the port is fetched if not yet available, though typically pywebviewready handles this
-  if (!window.__file_server_port__ && window.pywebview?.api?.get_file_server_port) {
-    try {
-      window.__file_server_port__ = await window.pywebview.api.get_file_server_port();
-    } catch {}
-  }
-  const baseUrl = getMediaUrlSync(filePath);
-  return `${baseUrl}&t=${Date.now()}`;
-}
+
 

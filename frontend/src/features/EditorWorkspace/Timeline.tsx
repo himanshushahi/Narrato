@@ -539,4 +539,4 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
 
 Timeline.displayName = 'Timeline';
 
-export default Timeline;
+

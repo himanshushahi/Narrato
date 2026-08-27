@@ -4,7 +4,7 @@ import { ASTAnimator, ASTAnimation } from './ASTAnimator';
 import { DataVisualizations } from './DataVisualizations';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
 
-export interface ASTLayerContent {
+interface ASTLayerContent {
   type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML';
   local_path?: string;
   text?: string;

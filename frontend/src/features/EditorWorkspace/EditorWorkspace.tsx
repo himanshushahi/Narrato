@@ -20,7 +20,7 @@ import { InspectorPanel } from './InspectorPanel';
 
 const EMPTY_ARRAY: any[] = [];
 
-export const EditorWorkspace: React.FC = () => {
+const EditorWorkspace: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const selectedProject = useProjectStore((s) => s.selectedProject);
   const [projectReady, setProjectReady] = useState(false);

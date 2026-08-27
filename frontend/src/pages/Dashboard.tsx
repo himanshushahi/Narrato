@@ -12,7 +12,7 @@ import { VscPlay, VscTrash, VscAdd, VscFolderOpened, VscCircleFilled, VscLayers,
 import { motion, AnimatePresence } from 'framer-motion';
 import { callApi } from '../utils/call-api';
 
-export const Dashboard: React.FC = () => {
+const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const projects = useProjectStore((s) => s.projects);
   const fetchProjects = useProjectStore((s) => s.fetchProjects);

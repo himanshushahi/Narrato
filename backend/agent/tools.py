@@ -236,10 +236,6 @@ def _format_settings_overview(settings: dict) -> str:
     return "\n".join(lines) if lines else "  (none stored)"
 
 
-def _get_project_row(project_id: str):
-    from backend.database.db import get_project
-    return get_project(project_id)
-
 
 def get_tools_schema() -> List[Dict[str, Any]]:
     """Returns the JSON schema definitions for all available agent tools."""
