@@ -1623,6 +1623,7 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
         raise ValueError(error_msg)
 
     final_script["video_format"] = project_dict.get('video_format', 'landscape')
+    final_script["_project_hash"] = compute_project_script_hash(project_dict)
 
     script_path = project_dir / "script.json"
     with open(script_path, "w", encoding="utf-8") as f:
@@ -1641,9 +1642,40 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
     progress_cb(100.0, "Script generation complete!")
     logger.info(f"Script generated successfully and saved to: {script_path}")
 
+def compute_project_script_hash(project_dict):
+    import hashlib
+    key_data = {
+        "name": project_dict.get('name', ''),
+        "prompt": project_dict.get('prompt', ''),
+        "language": project_dict.get('language', 'hi'),
+        "duration_mode": project_dict.get('duration_mode', 'medium'),
+        "video_format": project_dict.get('video_format', 'landscape'),
+        "style": project_dict.get('style', 'nitish_rajput')
+    }
+    return hashlib.md5(json.dumps(key_data, sort_keys=True).encode("utf-8")).hexdigest()
 
-
-
+def is_script_stale(project_dict, project_dir):
+    script_path = project_dir / "script.json"
+    if not script_path.exists():
+        return True
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script_data = json.load(f)
+        stored_hash = script_data.get("_project_hash")
+        
+        # If the project is from before the _project_hash was introduced,
+        # default to False so we don't accidentally wipe out legacy scripts.
+        if not stored_hash:
+            return False
+            
+        current_hash = compute_project_script_hash(project_dict)
+        if stored_hash != current_hash:
+            logger.info(f"script stale: project properties changed (stored={stored_hash} current={current_hash})")
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to check script staleness: {e}")
+        return True
 
 def _skill_content(name: str) -> str:
     """Loads a skill's markdown body from the skill registry, or '' if missing."""

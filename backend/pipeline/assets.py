@@ -51,23 +51,73 @@ def strip_local_paths(data):
     return data
 
 def is_visuals_stale(project_dict, project_dir):
-    """Check if the sub-visual structure in script.json differs from manifest.json."""
+    """Check if the sub-visuals in script.json are missing or empty."""
     script_path = project_dir / "script.json"
-    raw = project_dict.get('assets_manifest_path')
-    if not raw:
+    if not script_path.exists():
         return True
-    manifest_path = Path(raw)
-    if not script_path.exists() or not manifest_path.exists():
-        return True
-        
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             script_data = json.load(f)
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest_data = json.load(f)
             
+        def has_visuals(section):
+            if not section: return False
+            return len(section.get('sub_visuals', [])) > 0
+
+        if not has_visuals(script_data.get('introduction')):
+            return True
+        if not has_visuals(script_data.get('conclusion')):
+            return True
+            
+        scenes = script_data.get('scenes', [])
+        if not scenes:
+            return True
+        for scene in scenes:
+            if not has_visuals(scene):
+                return True
+                
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to check visuals staleness: {e}")
+        return True
+
+def _collect_local_paths(node, paths):
+    if isinstance(node, dict):
+        if "local_path" in node and node["local_path"]:
+            paths.append(node["local_path"])
+        for v in node.values():
+            _collect_local_paths(v, paths)
+    elif isinstance(node, list):
+        for v in node:
+            _collect_local_paths(v, paths)
+
+def is_assets_stale(project_dict, project_dir):
+    """Check if the sub-visual structure in script.json differs from manifest, or if files are missing."""
+    assets_manifest_path = project_dir / "assets" / "assets_manifest.json"
+    script_path = project_dir / "script.json"
+    
+    if not assets_manifest_path.exists() or not script_path.exists():
+        return True
+        
+    try:
+        with open(assets_manifest_path, "r", encoding="utf-8") as f:
+            assets_manifest = json.load(f)
+        with open(script_path, "r", encoding="utf-8") as f:
+            script_data = json.load(f)
+            
+        # Check 1: Are any files missing?
+        paths = []
+        _collect_local_paths(assets_manifest, paths)
+        for p in paths:
+            if not Path(p).exists():
+                return True
+                    
+        bg_music = project_dict.get("bg_music_path")
+        if bg_music and not Path(bg_music).exists():
+            return True
+            
+        # Check 2: Did the sub_visuals change?
         scene_counter = 0
-        for manifest_scene in manifest_data:
+        for manifest_scene in assets_manifest:
             sec_type = manifest_scene.get("section_type")
             live_sub_visuals = []
             
@@ -83,52 +133,16 @@ def is_visuals_stale(project_dict, project_dir):
                 
             orig_sub_visuals = manifest_scene.get("sub_visuals", [])
             
-            # Compare the AST trees, ignoring local_path
             relevant_live = strip_local_paths(live_sub_visuals)
             relevant_orig = strip_local_paths(orig_sub_visuals)
             
             if relevant_live != relevant_orig:
                 return True
-    except Exception as e:
-        logger.warning(f"Failed to check visuals staleness: {e}")
-        return True
-    return False
-
-def _collect_local_paths(node, paths):
-    if isinstance(node, dict):
-        if "local_path" in node and node["local_path"]:
-            paths.append(node["local_path"])
-        for v in node.values():
-            _collect_local_paths(v, paths)
-    elif isinstance(node, list):
-        for v in node:
-            _collect_local_paths(v, paths)
-
-def is_assets_stale(project_dict, project_dir):
-    """Check if any downloaded files referenced in assets_manifest.json are missing."""
-    assets_manifest_path = project_dir / "assets" / "assets_manifest.json"
-    if not assets_manifest_path.exists():
-        return True
-        
-    try:
-        with open(assets_manifest_path, "r", encoding="utf-8") as f:
-            assets_manifest = json.load(f)
-            
-        paths = []
-        _collect_local_paths(assets_manifest, paths)
-        
-        for p in paths:
-            if not Path(p).exists():
-                return True
-                    
-        bg_music = project_dict.get("bg_music_path")
-        if bg_music and not Path(bg_music).exists():
-            return True
-            
+                
+        return False
     except Exception as e:
         logger.warning(f"Failed to check assets staleness: {e}")
         return True
-    return False
 
 
 def _resolve_pexels_orientation(video_format=None):

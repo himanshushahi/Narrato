@@ -30,6 +30,7 @@ frontend/dist-render/
 gpu_runtime/
 .hermes/
 spike_gpu/
+.remotion
 
 # Project Specific (Temporary/Generated data)
 temp/

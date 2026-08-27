@@ -61,6 +61,7 @@ export interface Props {
   language?: string;
   subtitleSettings?: any;
   designSystem?: any;
+  __file_server_port__?: number;
 }
 
 export interface SceneTiming {
@@ -149,8 +150,13 @@ export const NitishRajputComposition: React.FC<Props> = ({
   transcription,
   style = 'nitish_rajput',
   subtitleSettings = {},
-  designSystem
+  designSystem,
+  __file_server_port__
 }) => {
+  if (__file_server_port__ && typeof window !== 'undefined') {
+    window.__file_server_port__ = __file_server_port__;
+  }
+
   const { width: canvasWidth, height: canvasHeight } = useVideoConfig();
   // Fast preview (compositionScale=0.5) shrinks the Player canvas to 960x540.
   // Visuals are authored in 1080p logical pixels, so the content tree is laid

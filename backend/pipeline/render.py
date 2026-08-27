@@ -199,9 +199,16 @@ def get_missing_frame_ranges(frames_dir, total_frames):
     
     existing_frames = set()
     for f in frames_dir.glob("element-*.webp"):
-        match = re.search(r"element-(\d+)\.webp", f.name)
-        if match:
-            existing_frames.add(int(match.group(1)))
+        if f.stat().st_size > 0:
+            match = re.search(r"element-(\d+)\.webp", f.name)
+            if match:
+                existing_frames.add(int(match.group(1)))
+        else:
+            # Clean up corrupted 0-byte frames so FFmpeg doesn't choke on them later
+            try:
+                f.unlink()
+            except OSError:
+                pass
             
     missing_ranges = []
     start = None

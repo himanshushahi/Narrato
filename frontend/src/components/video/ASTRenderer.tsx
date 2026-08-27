@@ -84,18 +84,21 @@ function parseFilters(filters?: string[]): { filterStyle?: string; blendStyle: R
   };
 }
 
+import { delayRender, continueRender } from 'remotion';
+
 const AsyncMediaNode: React.FC<{ type: 'Image' | 'Video'; localPath: string; style?: React.CSSProperties }> = ({ type, localPath, style }) => {
   const [url, setUrl] = React.useState<string>('');
+  const [handle] = React.useState(() => delayRender("Fetching Media URL"));
 
   React.useEffect(() => {
     let active = true;
     const fetchUrl = async () => {
+      // If rendering headlessly, the port is already injected synchronously via props.
       if (!window.__file_server_port__ && window.pywebview?.api?.get_file_server_port) {
         try {
           window.__file_server_port__ = await window.pywebview.api.get_file_server_port();
         } catch (e) {}
-      } else if (!window.__file_server_port__) {
-        // Wait briefly in case pywebview is slow to inject
+      } else if (!window.__file_server_port__ && typeof window.pywebview !== 'undefined') {
         await new Promise(r => setTimeout(r, 500));
         if (window.pywebview?.api?.get_file_server_port) {
           try {
@@ -106,12 +109,13 @@ const AsyncMediaNode: React.FC<{ type: 'Image' | 'Video'; localPath: string; sty
       
       if (active) {
         setUrl(getMediaUrlSync(localPath));
+        continueRender(handle);
       }
     };
     
     fetchUrl();
     return () => { active = false; };
-  }, [localPath]);
+  }, [localPath, handle]);
 
   if (!url) return null;
 

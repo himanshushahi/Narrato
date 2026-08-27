@@ -72,7 +72,10 @@ class QueueManager:
                     is_stale = True
                 elif not is_downstream_stale:
                     try:
-                        if step == 'generate_voiceover':
+                        if step == 'generate_script':
+                            from backend.pipeline.ai import is_script_stale
+                            is_stale = is_script_stale(proj, proj_dir)
+                        elif step == 'generate_voiceover':
                             from backend.pipeline.tts import is_voiceover_stale
                             is_stale = is_voiceover_stale(proj, proj_dir)
                         elif step == 'transcribe':
@@ -105,6 +108,16 @@ class QueueManager:
             steps_to_queue = remaining_steps
         else:
             steps_to_queue = steps
+            # Reset tasks for downstream stages not included in this forced run
+            all_steps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']
+            if steps_to_queue:
+                try:
+                    first_step_idx = all_steps.index(steps_to_queue[0])
+                    for s in all_steps[first_step_idx:]:
+                        if s not in steps_to_queue:
+                            update_task(f"{project_id}_{s}", status='pending', progress=0.0, message='Pending upstream changes')
+                except ValueError:
+                    pass
 
         # Create/reset database task entries
         for step in steps_to_queue:

@@ -154,6 +154,11 @@ async function main() {
   }
   
   const inputProps = rewriteUrls(inputPropsRaw);
+  
+  // Inject the dynamically bound static file server port into props so the 
+  // frontend `getMediaUrlSync` utility knows where to request local files from 
+  // during headless Remotion rendering instead of falling back to the Vite dev server.
+  inputProps.__file_server_port__ = assetServer.address().port;
 
   const bundleLocation = resolve(bundleDir);
   console.log(`Using pre-bundled project at: ${bundleLocation}`);
@@ -216,6 +221,7 @@ async function main() {
 
   if (ffmpegExecutable) commonOptions.ffmpegExecutable = ffmpegExecutable;
   if (ffprobeExecutable) commonOptions.ffprobeExecutable = ffprobeExecutable;
+  commonOptions.offthreadVideoCacheSizeInBytes = null;
   // Frame range will be set per renderFrames call
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -301,7 +307,7 @@ main()
   .catch((err) => {
     // Same flush concern on the error path — the parent reads this text to
     // build failure diagnostics.
-    process.stderr.write(`\nRender failed: ${err.message || err}\n`, () => {
+    process.stderr.write(`\nRender failed: ${err.stack || err.message || err}\n`, () => {
       process.exit(1);
     });
   });
