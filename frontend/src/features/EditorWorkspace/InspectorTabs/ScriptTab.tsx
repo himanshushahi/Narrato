@@ -33,6 +33,7 @@ interface ScriptTabProps {
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
 }
 
@@ -41,7 +42,7 @@ export const ScriptTab = React.memo(function ScriptTab({
   editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection,
   onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
-  onUploadSubVisual, uploadingSubVisual
+  onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual
 }: ScriptTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -171,6 +172,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             onSeek={onSeek}
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
                             onUploadSubVisual={onUploadSubVisual ? (subIdx, visualType) => onUploadSubVisual(-1, 'introduction', subIdx, visualType) : undefined}
+                            onPreviewSubVisual={onPreviewSubVisual ? (subIdx, query) => onPreviewSubVisual(-1, 'introduction', subIdx, query) : undefined}
                             uploadingSubVisual={uploadingSubVisual}
                           />
                         </div>
@@ -294,6 +296,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                                   onSeek={onSeek}
                                   onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
                                   onUploadSubVisual={onUploadSubVisual ? (subIdx, visualType) => onUploadSubVisual(idx, 'scenes', subIdx, visualType) : undefined}
+                                  onPreviewSubVisual={onPreviewSubVisual ? (subIdx, query) => onPreviewSubVisual(idx, 'scenes', subIdx, query) : undefined}
                                   uploadingSubVisual={uploadingSubVisual}
                                 />
                               </div>
@@ -457,6 +460,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             onSeek={onSeek}
                             onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}
                             onUploadSubVisual={onUploadSubVisual ? (subIdx, visualType) => onUploadSubVisual(-1, 'conclusion', subIdx, visualType) : undefined}
+                            onPreviewSubVisual={onPreviewSubVisual ? (subIdx, query) => onPreviewSubVisual(-1, 'conclusion', subIdx, query) : undefined}
                             uploadingSubVisual={uploadingSubVisual}
                           />
                         </div>

@@ -84,6 +84,8 @@ def _collect_local_paths(node, paths):
     if isinstance(node, dict):
         if "local_path" in node and node["local_path"]:
             paths.append(node["local_path"])
+        if "visual_path" in node and node["visual_path"]:
+            paths.append(node["visual_path"])
         for v in node.values():
             _collect_local_paths(v, paths)
     elif isinstance(node, list):

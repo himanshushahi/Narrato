@@ -5,9 +5,6 @@ import Editor from 'react-simple-code-editor';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
 import 'highlight.js/styles/atom-one-dark.css';
-import { callApi } from '../../../utils/call-api';
-import { useProjectStore } from '../../../store/useProjectStore';
-import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 hljs.registerLanguage('json', json);
 
@@ -33,24 +30,28 @@ const MiniJsonEditor = ({ label, value, onChange }: { label: string; value: any;
       const parsed = JSON.parse(newText);
       setError(false);
       onChange(parsed);
-    } catch {
+    } catch (e) {
       setError(true);
     }
   };
 
   return (
-    <div className="flex flex-col gap-1 w-full min-w-0">
+    <div className="space-y-1">
       <div className="flex items-center justify-between">
         <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">{label}</label>
-        {error && <span className="text-[9px] text-red-400 font-mono">Invalid JSON</span>}
+        {error && <span className="text-[10px] text-red-400">Invalid JSON</span>}
       </div>
-      <div className={`w-full bg-black/50 border rounded-md text-[11px] font-mono overflow-auto transition-colors ${error ? 'border-red-500/50' : 'border-white/10 focus-within:border-amber-500/50'}`}>
+      <div className={`w-full bg-black/40 border rounded-md text-xs font-mono overflow-auto max-h-[140px] ${error ? 'border-red-500/50' : 'border-white/10 focus-within:border-amber-500/50'}`}>
         <Editor
           value={text}
           onValueChange={handleChange}
           highlight={code => hljs.highlight(code, { language: 'json' }).value}
           padding={8}
-          style={{ fontFamily: 'ui-monospace,SFMono-Regular,SF Mono,Consolas,Liberation Mono,Menlo,monospace', minHeight: '65px' }}
+          style={{
+            fontFamily: 'ui-monospace,SFMono-Regular,SF Mono,Consolas,Liberation Mono,Menlo,monospace',
+            fontSize: '11px',
+            minHeight: '40px',
+          }}
           textareaClassName="focus:outline-none"
         />
       </div>
@@ -62,14 +63,15 @@ export const AstGraphicalEditor = ({
   initialValue,
   onChange,
   onUploadSubVisual,
+  onPreviewSubVisual,
   uploadingSubVisual
 }: {
   initialValue: any;
   onChange: (val: any) => void;
   onUploadSubVisual?: (visualType?: string) => Promise<string | undefined> | void;
+  onPreviewSubVisual?: (query: string) => Promise<string | undefined> | void;
   uploadingSubVisual?: string | null;
 }) => {
-  const selectedProject = useProjectStore(s => s.selectedProject);
   const [composition, setComposition] = useState(() => {
     if (!initialValue || !initialValue.type) {
       return { type: 'Sequence', children: [] };
@@ -77,18 +79,19 @@ export const AstGraphicalEditor = ({
     return initialValue;
   });
 
-  const [draftQueries, setDraftQueries] = useState<Record<number, string>>({});
   const [previewingIdx, setPreviewingIdx] = useState<number | null>(null);
-  const [previewPaths, setPreviewPaths] = useState<Record<number, string>>({});
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
-    if (initialValue && initialValue !== composition) {
-      if (JSON.stringify(initialValue) !== JSON.stringify(composition)) {
-        setComposition(initialValue);
-      }
+    if (initialValue) {
+      setComposition((prev: any) => {
+        if (JSON.stringify(initialValue) !== JSON.stringify(prev)) {
+          return initialValue;
+        }
+        return prev;
+      });
     }
-  }, [initialValue, composition]);
+  }, [initialValue]);
 
   const triggerChange = (newComp: any) => {
     setComposition(newComp);
@@ -138,49 +141,19 @@ export const AstGraphicalEditor = ({
     triggerChange(newComp);
   };
 
-  const handleQueryChange = (idx: number, newQuery: string) => {
-    setDraftQueries(prev => ({ ...prev, [idx]: newQuery }));
-  };
-
   const handlePreviewQuery = async (idx: number, queryToSearch: string) => {
-    if (!selectedProject?.id || !queryToSearch) return;
+    if (!queryToSearch || !onPreviewSubVisual) return;
     setPreviewingIdx(idx);
     try {
-      const res = await callApi<{ success: boolean; visual_path?: string; error?: string }>('preview_asset_download', selectedProject.id, queryToSearch);
-      if (res?.success && res.visual_path) {
-        setPreviewPaths(prev => ({ ...prev, [idx]: res.visual_path as string }));
-      } else {
-        alert('Preview failed: ' + res?.error);
+      const p = await onPreviewSubVisual(queryToSearch);
+      if (p) {
+        updateContent(idx, 'local_path', p);
       }
     } catch (e) {
-      alert('Preview error: ' + e);
+      console.error('Preview error:', e);
     } finally {
       setPreviewingIdx(null);
     }
-  };
-
-  const handleSavePreview = (idx: number) => {
-    if (draftQueries[idx] !== undefined) {
-      updateContent(idx, 'query', draftQueries[idx]);
-    }
-    setDraftQueries(prev => {
-      const copy = { ...prev };
-      delete copy[idx];
-      return copy;
-    });
-  };
-
-  const handleDiscardPreview = (idx: number) => {
-    setDraftQueries(prev => {
-      const copy = { ...prev };
-      delete copy[idx];
-      return copy;
-    });
-    setPreviewPaths(prev => {
-      const copy = { ...prev };
-      delete copy[idx];
-      return copy;
-    });
   };
 
   const toggleAdvanced = (idx: number) => {
@@ -272,8 +245,8 @@ export const AstGraphicalEditor = ({
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
-                        disabled={previewingIdx === idx}
-                        onClick={() => handlePreviewQuery(idx, draftQueries[idx] !== undefined ? draftQueries[idx] : (content.query || ''))}
+                        disabled={previewingIdx === idx || content.source === 'upload'}
+                        onClick={() => handlePreviewQuery(idx, content.query || '')}
                         className="px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
                         title="Search stock preview"
                       >
@@ -303,45 +276,11 @@ export const AstGraphicalEditor = ({
                   <input
                     type="text"
                     className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 placeholder-stone-600 transition-colors"
-                    value={draftQueries[idx] !== undefined ? draftQueries[idx] : (content.query || '')}
-                    onChange={e => handleQueryChange(idx, e.target.value)}
+                    value={content.query || ''}
+                    onChange={e => updateContent(idx, 'query', e.target.value)}
                     placeholder="e.g. cinematic cityscape, futuristic neon..."
                   />
                 </div>
-
-                {/* Unsaved Query Notice */}
-                {draftQueries[idx] !== undefined && draftQueries[idx] !== (content.query || '') && (
-                  <div className="flex items-center justify-between gap-2 bg-amber-950/40 border border-amber-900/60 p-2 rounded-md">
-                    <span className="text-[10px] text-amber-400 font-medium">Unsaved query</span>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleDiscardPreview(idx)}
-                        className="px-2 py-0.5 text-[10px] uppercase font-bold bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors cursor-pointer"
-                      >
-                        Discard
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSavePreview(idx)}
-                        className="px-2 py-0.5 text-[10px] uppercase font-bold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded transition-colors cursor-pointer"
-                      >
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Media Preview Box */}
-                {previewPaths[idx] && (
-                  <div className="mt-1 relative rounded-lg overflow-hidden border border-white/10 w-full max-w-[260px] aspect-video bg-black/60 mx-auto flex items-center justify-center shadow-inner">
-                    {previewPaths[idx].endsWith('.mp4') || previewPaths[idx].endsWith('.webm') ? (
-                      <video src={`${getMediaUrlSync(previewPaths[idx])}&t=${Date.now()}`} className="w-full h-full object-contain" controls muted autoPlay loop />
-                    ) : (
-                      <img src={`${getMediaUrlSync(previewPaths[idx])}&t=${Date.now()}`} className="w-full h-full object-contain" alt="Preview" />
-                    )}
-                  </div>
-                )}
 
                 {/* Source & Image Type in a clean grid */}
                 <div className={`grid gap-2 ${content.source === 'pixabay' ? 'grid-cols-2' : 'grid-cols-1'}`}>

@@ -89,7 +89,7 @@ const EditorWorkspace: React.FC = () => {
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
     scriptChangedAlert: scriptEditingAlert,
     setScriptChangedAlert: setScriptEditingAlert,
-    previewAssets, uploadingSubVisual, handleUploadSubVisual,
+    previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription, handleResetTranscription
@@ -253,7 +253,30 @@ const EditorWorkspace: React.FC = () => {
           key = `scene_${sceneCounter}_${sIdx}`;
         }
         const preview = previewAssets[key];
-        return preview ? { ...sv, visual_url: preview.visual_url } : sv;
+        if (!preview) return sv;
+
+        let updatedComposition = sv.composition;
+        if (sv.composition && Array.isArray(sv.composition.children)) {
+          const updatedChildren = sv.composition.children.map((layer: any) => {
+            if (layer?.content && (layer.content.type === 'Image' || layer.content.type === 'Video')) {
+              return {
+                ...layer,
+                content: {
+                  ...layer.content,
+                  local_path: preview.visual_path
+                }
+              };
+            }
+            return layer;
+          });
+          updatedComposition = { ...sv.composition, children: updatedChildren };
+        }
+
+        return {
+          ...sv,
+          visual_url: preview.visual_url,
+          composition: updatedComposition
+        };
       });
       if (type === 'scene') sceneCounter++;
       return { ...scene, sub_visuals };
@@ -720,6 +743,7 @@ const EditorWorkspace: React.FC = () => {
           onSetSceneToDelete={setSceneToDelete}
           onSetScriptData={setScriptData}
           onUploadSubVisual={handleUploadSubVisual}
+          onPreviewSubVisual={handlePreviewSubVisual}
           uploadingSubVisual={uploadingSubVisual}
 
           tasks={tasks}

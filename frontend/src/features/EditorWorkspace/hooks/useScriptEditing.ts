@@ -32,6 +32,7 @@ interface UseScriptEditingReturn {
   handleSettingsUpdate: (newSettings: any) => void;
   handleSaveTranscription: () => Promise<void>;
   handleResetTranscription: () => void;
+  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
 }
 
 export function useScriptEditing(
@@ -197,13 +198,44 @@ export function useScriptEditing(
               if (origIdx !== -1) matchedIndices.add(origIdx);
 
               let finalPath = preview.visual_path;
-              if (preview.visual_path.includes('previews')) {
+              if (preview.visual_path.includes('previews') || preview.visual_path.includes('preview_') || preview.visual_path.includes('upload_')) {
                 const result = await callApi<any>('finalize_upload_asset', projectId, preview.visual_path, mIdx, sIdx);
-                if (result?.success) {
+                if (result?.success && result.visual_path) {
                   finalPath = result.visual_path;
                 }
               }
-              return { ...lsv, visual_path: finalPath, visual_url: preview.visual_url };
+
+              // Update AST composition media layers to point to finalPath
+              let updatedComposition = lsv.composition;
+              if (updatedComposition && Array.isArray(updatedComposition.children)) {
+                const updatedChildren = updatedComposition.children.map((layer: any) => {
+                  if (layer?.content && (layer.content.local_path === preview.visual_path || layer.content.type === 'Image' || layer.content.type === 'Video')) {
+                    return {
+                      ...layer,
+                      content: {
+                        ...layer.content,
+                        local_path: finalPath
+                      }
+                    };
+                  }
+                  return layer;
+                });
+                updatedComposition = { ...updatedComposition, children: updatedChildren };
+              }
+
+              // Propagate the finalized composition back into scriptData
+              if (type === 'introduction' && data?.introduction?.sub_visuals?.[sIdx]) {
+                data.introduction.sub_visuals[sIdx].composition = updatedComposition;
+              } else if (type === 'conclusion' && data?.conclusion?.sub_visuals?.[sIdx]) {
+                data.conclusion.sub_visuals[sIdx].composition = updatedComposition;
+              } else if (type === 'scene' && Array.isArray(data?.scenes)) {
+                const currentSceneIdx = sceneCounter - 1;
+                if (data.scenes[currentSceneIdx]?.sub_visuals?.[sIdx]) {
+                  data.scenes[currentSceneIdx].sub_visuals[sIdx].composition = updatedComposition;
+                }
+              }
+
+              return { ...lsv, composition: updatedComposition, visual_path: finalPath, visual_url: preview.visual_url };
             }
           }
           const matchIdx = sIdx < origSubVisuals.length ? sIdx : -1;
@@ -492,6 +524,46 @@ export function useScriptEditing(
       setUploadingSubVisual(null);
     }
   }, [projectId, scriptData, selectedProject, setScriptData, addToast, manifestData, previewAssets]);
+  
+  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, query: string) => {
+    if (!projectId) return undefined;
+
+    const sectionKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const assetKey = `${sectionKey}_${subIdx}`;
+
+    try {
+      const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
+        'preview_asset_download', projectId, query
+      );
+      if (result?.success && result.visual_path) {
+        const vPath: string = result.visual_path;
+        const visualUrl = `${getMediaUrlSync(vPath)}&t=${Date.now()}`;
+        
+        setPreviewAssets(prev => {
+          const existing = prev[assetKey];
+          if (existing?.visual_path && existing.visual_path !== vPath) {
+            callApi('cleanup_preview_assets', projectId, [existing.visual_path]).catch(() => {});
+          }
+          return {
+            ...prev,
+            [assetKey]: { visual_path: vPath, visual_url: visualUrl }
+          };
+        });
+        addToast("Preview downloaded successfully!", 'success');
+        return vPath;
+      } else {
+        addToast("Preview failed: " + (result?.error || "Unknown error"), 'error');
+        return undefined;
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast("Preview failed: " + (err?.message || String(err)), 'error');
+      return undefined;
+    }
+  }, [projectId, addToast]);
+
 
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
@@ -613,7 +685,7 @@ export function useScriptEditing(
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
     scriptChangedAlert, setScriptChangedAlert,
-    previewAssets, uploadingSubVisual, handleUploadSubVisual,
+    previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,

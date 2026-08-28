@@ -57,7 +57,7 @@ const AstJsonEditor = ({ initialValue, onChange }: { initialValue: object, onCha
   );
 };
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, uploadingSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string) => Promise<string | undefined> | void, uploadingSubVisual?: string | null }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string) => Promise<string | undefined> | void, uploadingSubVisual?: string | null }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
@@ -233,6 +233,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                       initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
                       onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
                       onUploadSubVisual={onUploadSubVisual ? (visualType) => onUploadSubVisual(idx, visualType) : undefined}
+                      onPreviewSubVisual={onPreviewSubVisual ? (query) => onPreviewSubVisual(idx, query) : undefined}
                       uploadingSubVisual={uploadingSubVisual}
                     />
                   )}

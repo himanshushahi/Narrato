@@ -40,6 +40,7 @@ interface InspectorPanelProps {
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
 
   // Pipeline props
@@ -81,7 +82,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
   onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData,
-  onUploadSubVisual, uploadingSubVisual,
+  onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
@@ -118,6 +119,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             onSetSceneToDelete={onSetSceneToDelete}
             onSetScriptData={onSetScriptData}
             onUploadSubVisual={onUploadSubVisual}
+            onPreviewSubVisual={onPreviewSubVisual}
             uploadingSubVisual={uploadingSubVisual}
           />
         );
