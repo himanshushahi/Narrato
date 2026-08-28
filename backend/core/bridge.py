@@ -1582,6 +1582,58 @@ class ApiBridge:
             "extension": ext,
         }
 
+    def upload_overlay_asset(self, project_id: str) -> dict:
+        logger.info(f"Bridge API: upload_overlay_asset for project {project_id}")
+        import webview
+        window = self._get_window()
+        if not window:
+            return {"success": False, "error": "No window available for file dialog"}
+
+        file_types = ('Image Files (*.png;*.jpg;*.jpeg;*.webp;*.svg;*.gif)',)
+        allowed_exts = (".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif")
+
+        try:
+            result = window.create_file_dialog(
+                dialog_type=webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=file_types
+            )
+            if not result:
+                return {"success": False, "error": "No file selected"}
+            src_path = Path(result[0])
+        except Exception as e:
+            logger.error(f"upload_overlay_asset file dialog error: {e}")
+            return {"success": False, "error": str(e)}
+
+        ext = src_path.suffix.lower()
+        if ext not in allowed_exts:
+            return {"success": False, "error": f"Unsupported file extension '{ext}'."}
+
+        from backend.core.config import get_storage_dir
+        import shutil
+        import time
+        assets_dir = get_storage_dir() / project_id / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"overlay_{int(time.time() * 1000)}{ext}"
+        dest_file = assets_dir / filename
+
+        try:
+            shutil.copy2(str(src_path), str(dest_file))
+            logger.info(f"Uploaded overlay asset to {dest_file}")
+        except Exception as e:
+            logger.error(f"Failed to copy overlay file: {e}")
+            return {"success": False, "error": f"Failed to copy file: {e}"}
+
+        stat = dest_file.stat()
+        return {
+            "success": True,
+            "asset_path": str(dest_file),
+            "filename": filename,
+            "size_bytes": stat.st_size,
+            "extension": ext,
+        }
+
     def finalize_upload_asset(self, project_id: str, preview_path: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
         logger.info(f"Bridge API: finalize_upload_asset for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
         src = Path(preview_path)

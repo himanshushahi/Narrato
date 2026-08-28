@@ -2,6 +2,7 @@ import React, { useMemo, useCallback } from 'react';
 import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
+import { GlobalOverlaysRenderer, GlobalOverlayItem } from './GlobalOverlaysRenderer';
 
 import { ASTRenderer } from './ASTRenderer';
 import { calculateSubVisualTimings } from '../../utils/duration';
@@ -59,6 +60,7 @@ export interface Props {
   language?: string;
   subtitleSettings?: any;
   designSystem?: any;
+  overlays?: GlobalOverlayItem[];
   __file_server_port__?: number;
 }
 
@@ -149,6 +151,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
   style = 'nitish_rajput',
   subtitleSettings = {},
   designSystem,
+  overlays = [],
   __file_server_port__
 }) => {
   if (__file_server_port__ && typeof window !== 'undefined') {
@@ -161,6 +164,11 @@ export const NitishRajputComposition: React.FC<Props> = ({
   // out at the logical size and scaled down to fill the smaller canvas — the
   // exported 1080p render (scaleFactor 1) is untouched.
   const scaleFactor = getCanvasScaleFactor(canvasWidth, canvasHeight);
+
+  // Compute total duration in frames
+  const totalDurationInFrames = useMemo(() => {
+    return scenes.reduce((acc, s) => acc + Math.max(30, Math.ceil((s.duration || 0) * 30)), 0);
+  }, [scenes]);
 
   // Build scene timing lookup (cumulative start/end times) for subtitle gap-filling
   const sceneTimings: SceneTiming[] = useMemo(() => {
@@ -254,7 +262,15 @@ export const NitishRajputComposition: React.FC<Props> = ({
       {/* 3. Chronological Scene Sequences */}
       {renderedScenes}
 
-      {/* 4. Active Typographic Subtitle Overlay */}
+      {/* 4. Global Overlays & Branding Layer */}
+      {overlays && overlays.length > 0 && (
+        <GlobalOverlaysRenderer
+          overlays={overlays}
+          totalDurationInFrames={totalDurationInFrames}
+        />
+      )}
+
+      {/* 5. Active Typographic Subtitle Overlay */}
       {!subtitleSettings?.hide_subtitles && transcription && transcription.segments && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 100, pointerEvents: 'none' }}>
           <KineticSubtitles 

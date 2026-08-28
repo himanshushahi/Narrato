@@ -14,15 +14,21 @@ const MiniJsonEditor = ({ label, value, onChange }: { label: string; value: any;
 
   useEffect(() => {
     try {
-      const currentParsed = JSON.parse(text);
       const newText = JSON.stringify(value || {}, null, 2);
-      if (JSON.stringify(currentParsed, null, 2) !== newText) {
-        setText(newText);
-      }
+      setText(prev => {
+        try {
+          if (JSON.stringify(JSON.parse(prev), null, 2) !== newText) {
+            return newText;
+          }
+          return prev;
+        } catch {
+          return prev;
+        }
+      });
     } catch {
       // ignore
     }
-  }, [value, text]);
+  }, [value]);
 
   const handleChange = (newText: string) => {
     setText(newText);
@@ -105,13 +111,16 @@ export const AstGraphicalEditor = ({
     triggerChange(newComp);
   };
 
-  const updateContent = (idx: number, field: string, val: any) => {
+  const updateContentFields = (idx: number, updates: Record<string, any>) => {
     const newComp = { ...composition };
     newComp.children = newComp.children ? [...newComp.children] : [];
-    const content = { ...(newComp.children[idx]?.content || {}) };
-    content[field] = val;
+    const content = { ...(newComp.children[idx]?.content || {}), ...updates };
     newComp.children[idx] = { ...newComp.children[idx], content };
     triggerChange(newComp);
+  };
+
+  const updateContent = (idx: number, field: string, val: any) => {
+    updateContentFields(idx, { [field]: val });
   };
 
   const handleAddLayer = () => {
@@ -229,8 +238,13 @@ export const AstGraphicalEditor = ({
               >
                 <option value="Image">Image</option>
                 <option value="Video">Video</option>
-                <option value="Text">Text</option>
-                <option value="HTML">HTML / SVG</option>
+                <option value="Text">Text (Kinetic)</option>
+                <option value="Chart">Chart (Bar/Line/Pie)</option>
+                <option value="Counter">Counter (Rolling Number)</option>
+                <option value="Mockup">Mockup (Social/News/Browser)</option>
+                <option value="Timeline">Timeline (Milestones)</option>
+                <option value="Shape">Shape / Vector (Native)</option>
+                <option value="HTML">HTML / SVG (Custom)</option>
                 <option value="Map">Map</option>
               </select>
             </div>
@@ -260,8 +274,7 @@ export const AstGraphicalEditor = ({
                           onClick={async () => {
                             const p = await onUploadSubVisual(cType === 'Image' ? 'image' : cType === 'Video' ? 'video' : 'ast');
                             if (p) {
-                              updateContent(idx, 'local_path', p);
-                              updateContent(idx, 'source', 'upload');
+                              updateContentFields(idx, { local_path: p, source: 'upload' });
                             }
                           }}
                           className="px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
@@ -378,6 +391,40 @@ export const AstGraphicalEditor = ({
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Animation Mode</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      value={content.animation_mode || 'static'}
+                      onChange={e => updateContent(idx, 'animation_mode', e.target.value)}
+                    >
+                      <option value="static">Static Block</option>
+                      <option value="words_stagger">Words Stagger (Pop-in)</option>
+                      <option value="typewriter">Typewriter (Caret)</option>
+                      <option value="marker_highlight">Marker Highlight</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Highlight Color</label>
+                    <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50 min-w-0">
+                      <input
+                        type="color"
+                        value={content.highlight_color?.startsWith('#') && content.highlight_color.length === 7 ? content.highlight_color : '#facc15'}
+                        onChange={e => updateContent(idx, 'highlight_color', e.target.value)}
+                        className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                      />
+                      <input
+                        type="text"
+                        className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono min-w-0"
+                        value={content.highlight_color || ''}
+                        onChange={e => updateContent(idx, 'highlight_color', e.target.value)}
+                        placeholder="#facc15"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Font</label>
                     <input
                       type="text"
@@ -406,6 +453,305 @@ export const AstGraphicalEditor = ({
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Dynamic Content Fields for Chart */}
+            {cType === 'Chart' && (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Chart Type</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      value={content.chart_type || 'bar'}
+                      onChange={e => updateContent(idx, 'chart_type', e.target.value)}
+                    >
+                      <option value="bar">Bar Chart</option>
+                      <option value="line">Line Graph</option>
+                      <option value="donut">Donut Chart</option>
+                      <option value="progress">Progress Bars</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Title (Optional)</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                      value={content.title || ''}
+                      onChange={e => updateContent(idx, 'title', e.target.value)}
+                      placeholder="e.g. Market Share 2024"
+                    />
+                  </div>
+                </div>
+                <div className="w-full">
+                  <MiniJsonEditor label="Data Array [{label, value, color}]" value={content.data || []} onChange={val => updateContent(idx, 'data', val)} />
+                </div>
+              </div>
+            )}
+
+            {/* Dynamic Content Fields for Counter */}
+            {cType === 'Counter' && (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">From Number</label>
+                    <input
+                      type="number"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                      value={content.from ?? 0}
+                      onChange={e => updateContent(idx, 'from', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">To (Target)</label>
+                    <input
+                      type="number"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 font-mono font-bold text-amber-400"
+                      value={content.to ?? 100}
+                      onChange={e => updateContent(idx, 'to', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Prefix</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.prefix || ''}
+                      onChange={e => updateContent(idx, 'prefix', e.target.value)}
+                      placeholder="$"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Suffix</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.suffix || ''}
+                      onChange={e => updateContent(idx, 'suffix', e.target.value)}
+                      placeholder="M"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Decimals</label>
+                    <input
+                      type="number"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.decimals ?? 0}
+                      onChange={e => updateContent(idx, 'decimals', parseInt(e.target.value) || 0)}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1 min-w-0">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Sub-Label (Optional)</label>
+                  <input
+                    type="text"
+                    className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
+                    value={content.label || ''}
+                    onChange={e => updateContent(idx, 'label', e.target.value)}
+                    placeholder="e.g. Total Revenue Generated"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Dynamic Content Fields for Mockup */}
+            {cType === 'Mockup' && (
+              <div className="space-y-2.5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Preset</label>
+                  <select
+                    className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                    value={content.preset || 'social_post'}
+                    onChange={e => updateContent(idx, 'preset', e.target.value)}
+                  >
+                    <option value="social_post">Social Media Card (X / Twitter)</option>
+                    <option value="newspaper">Newspaper Masthead Clipping</option>
+                    <option value="browser">Browser Window Frame</option>
+                    <option value="document">Classified Document Dossier</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Headline / Title</label>
+                  <input
+                    type="text"
+                    className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
+                    value={content.headline || ''}
+                    onChange={e => updateContent(idx, 'headline', e.target.value)}
+                    placeholder="Breaking Headline..."
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Author / Source</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none"
+                      value={content.author || ''}
+                      onChange={e => updateContent(idx, 'author', e.target.value)}
+                      placeholder="The New York Times"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Handle / URL</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.handle || ''}
+                      onChange={e => updateContent(idx, 'handle', e.target.value)}
+                      placeholder="@nytimes"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Body / Description</label>
+                  <textarea
+                    className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 min-h-[40px] resize-none"
+                    value={content.body || ''}
+                    onChange={e => updateContent(idx, 'body', e.target.value)}
+                    placeholder="Article snippet or post details..."
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Dynamic Content Fields for Timeline */}
+            {cType === 'Timeline' && (
+              <div className="space-y-2.5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Timeline Title</label>
+                  <input
+                    type="text"
+                    className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
+                    value={content.title || ''}
+                    onChange={e => updateContent(idx, 'title', e.target.value)}
+                    placeholder="Key Milestones"
+                  />
+                </div>
+                <div className="w-full">
+                  <MiniJsonEditor label="Events Array [{year_or_date, title, description}]" value={content.events || []} onChange={val => updateContent(idx, 'events', val)} />
+                </div>
+              </div>
+            )}
+
+            {/* Dynamic Content Fields for Shape */}
+            {cType === 'Shape' && (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Shape Type</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      value={content.shape_type || 'rectangle'}
+                      onChange={e => updateContent(idx, 'shape_type', e.target.value)}
+                    >
+                      <option value="rectangle">Rectangle (Rounded)</option>
+                      <option value="circle">Circle</option>
+                      <option value="star">Star (Badge)</option>
+                      <option value="triangle">Triangle</option>
+                      <option value="arrow">Arrow</option>
+                      <option value="polygon">Polygon</option>
+                      <option value="path">SVG Path (Animated Draw)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Size / Radius</label>
+                    <input
+                      type="number"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.radius ?? 50}
+                      onChange={e => updateContent(idx, 'radius', parseFloat(e.target.value) || 50)}
+                      placeholder="50"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Fill Color</label>
+                    <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50 min-w-0">
+                      <input
+                        type="color"
+                        value={content.fill?.startsWith('#') && content.fill.length === 7 ? content.fill : '#f59e0b'}
+                        onChange={e => updateContent(idx, 'fill', e.target.value)}
+                        className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                      />
+                      <input
+                        type="text"
+                        className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono min-w-0"
+                        value={content.fill || ''}
+                        onChange={e => updateContent(idx, 'fill', e.target.value)}
+                        placeholder="#f59e0b"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Stroke Color</label>
+                    <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50 min-w-0">
+                      <input
+                        type="color"
+                        value={content.stroke?.startsWith('#') && content.stroke.length === 7 ? content.stroke : '#ffffff'}
+                        onChange={e => updateContent(idx, 'stroke', e.target.value)}
+                        className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                      />
+                      <input
+                        type="text"
+                        className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono min-w-0"
+                        value={content.stroke || ''}
+                        onChange={e => updateContent(idx, 'stroke', e.target.value)}
+                        placeholder="#ffffff"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Stroke Width</label>
+                    <input
+                      type="number"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.stroke_width ?? 2}
+                      onChange={e => updateContent(idx, 'stroke_width', parseInt(e.target.value) || 0)}
+                      placeholder="2"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 pt-4">
+                    <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={content.glow !== false}
+                        onChange={e => updateContent(idx, 'glow', e.target.checked)}
+                        className="rounded accent-amber-500 cursor-pointer"
+                      />
+                      Glow
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={content.draw_animation !== false}
+                        onChange={e => updateContent(idx, 'draw_animation', e.target.checked)}
+                        className="rounded accent-amber-500 cursor-pointer"
+                      />
+                      Draw Anim
+                    </label>
+                  </div>
+                </div>
+
+                {content.shape_type === 'path' && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">SVG Path Data (d attribute)</label>
+                    <textarea
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 font-mono focus:outline-none focus:border-amber-500/50 min-h-[50px]"
+                      value={content.path_d || ''}
+                      onChange={e => updateContent(idx, 'path_d', e.target.value)}
+                      placeholder="M 10,50 Q 50,10 90,50..."
+                    />
+                  </div>
+                )}
               </div>
             )}
 

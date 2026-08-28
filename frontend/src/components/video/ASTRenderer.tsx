@@ -2,20 +2,70 @@ import React from 'react';
 import { AbsoluteFill, Img, Video } from 'remotion';
 import { ASTAnimator, ASTAnimation } from './ASTAnimator';
 import { DataVisualizations } from './DataVisualizations';
+import { ChartRenderer, ChartDataItem } from './ChartRenderer';
+import { CounterRenderer } from './CounterRenderer';
+import { MockupRenderer } from './MockupRenderer';
+import { TimelineRenderer, TimelineEvent } from './TimelineRenderer';
+import { ShapeRenderer } from './ShapeRenderer';
+import { KineticText } from './KineticText';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
 
 interface ASTLayerContent {
-  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML';
+  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Counter' | 'Mockup' | 'Timeline' | 'Shape';
   local_path?: string;
   text?: string;
   font?: string;
-  weight?: string;
+  weight?: string | number;
   color?: string;
   html_content?: string;
-  locations?: { name?: string, coord: [number, number] }[];
+  locations?: { name?: string; coord: [number, number] }[];
   map_style?: string;
   volume?: number;
   style?: React.CSSProperties;
+
+  // Shape props
+  shape_type?: 'rectangle' | 'circle' | 'star' | 'triangle' | 'arrow' | 'polygon' | 'path';
+  fill?: string;
+  stroke?: string;
+  stroke_width?: number;
+  radius?: number;
+  points?: number;
+  inner_radius?: number;
+  path_d?: string;
+  draw_animation?: boolean;
+  glow?: boolean;
+
+  // Chart props
+  chart_type?: 'bar' | 'line' | 'pie' | 'donut' | 'progress';
+  data?: ChartDataItem[];
+  title?: string;
+
+  // Counter props
+  from?: number;
+  to?: number;
+  prefix?: string;
+  suffix?: string;
+  decimals?: number;
+  label?: string;
+
+  // Mockup props
+  preset?: 'social_post' | 'newspaper' | 'browser' | 'document' | 'phone';
+  headline?: string;
+  author?: string;
+  handle?: string;
+  avatar_url?: string;
+  date?: string;
+  body?: string;
+  badge?: string;
+  image_url?: string;
+
+  // Timeline props
+  events?: TimelineEvent[];
+
+  // Kinetic Typography props
+  animation_mode?: 'static' | 'words_stagger' | 'typewriter' | 'marker_highlight';
+  highlight_color?: string;
+  highlight_words?: string[];
 }
 
 export interface ASTLayer {
@@ -158,39 +208,88 @@ export const ASTRenderer: React.FC<{
             : innerStyle;
           node = <AsyncMediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} />;
         } else if (content.type === 'Text') {
-          // Default text: centered fullscreen. Custom style overrides positioning.
-          const defaultTextStyle: React.CSSProperties = hasCustomLayout
-            ? {
-                color: content.color || '#fff',
-                fontFamily: content.font || 'Inter, sans-serif',
-                fontWeight: content.weight || 'bold',
-                fontSize: '120px',
-                ...innerStyle,
-              }
-            : {
-                position: 'absolute', width: '100%', height: '100%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: content.color || '#fff',
-                fontFamily: content.font || 'Inter, sans-serif',
-                fontWeight: content.weight || 'bold',
-                fontSize: '120px',
-                textAlign: 'center',
-                ...innerStyle,
-              };
           node = (
-            <div style={defaultTextStyle}>
-              {content.text}
-            </div>
+            <KineticText
+              text={content.text || ''}
+              mode={content.animation_mode || 'static'}
+              font={content.font}
+              weight={content.weight}
+              color={content.color}
+              highlight_color={content.highlight_color}
+              highlight_words={content.highlight_words}
+              style={{
+                fontSize: hasCustomLayout ? (innerStyle.fontSize || '64px') : '100px',
+                ...innerStyle,
+              }}
+            />
+          );
+        } else if (content.type === 'Chart') {
+          node = (
+            <ChartRenderer
+              chart_type={content.chart_type}
+              data={content.data}
+              title={content.title}
+              style={innerStyle}
+            />
+          );
+        } else if (content.type === 'Counter') {
+          node = (
+            <CounterRenderer
+              from={content.from}
+              to={content.to ?? 100}
+              prefix={content.prefix}
+              suffix={content.suffix}
+              decimals={content.decimals}
+              label={content.label}
+              color={content.color}
+              style={innerStyle}
+            />
+          );
+        } else if (content.type === 'Mockup') {
+          node = (
+            <MockupRenderer
+              preset={content.preset}
+              headline={content.headline}
+              author={content.author}
+              handle={content.handle}
+              avatar_url={content.avatar_url}
+              date={content.date}
+              body={content.body}
+              badge={content.badge}
+              image_url={content.image_url}
+              style={innerStyle}
+            />
+          );
+        } else if (content.type === 'Timeline') {
+          node = (
+            <TimelineRenderer
+              events={content.events}
+              title={content.title}
+              style={innerStyle}
+            />
+          );
+        } else if (content.type === 'Shape') {
+          node = (
+            <ShapeRenderer
+              shape_type={content.shape_type}
+              fill={content.fill}
+              stroke={content.stroke}
+              stroke_width={content.stroke_width}
+              radius={content.radius}
+              points={content.points}
+              inner_radius={content.inner_radius}
+              path_d={content.path_d}
+              draw_animation={content.draw_animation}
+              glow={content.glow}
+              style={innerStyle}
+            />
           );
         } else if (content.type === 'Map') {
-          // Duration in frames can be approximated from fps
-          // The true duration in frames is passed to sequence, but we can pass an arbitrary large number or calculate it 
-          // We'll calculate it safely based on the sequence duration or fallback.
           node = (
             <DataVisualizations 
               locations={content.locations} 
               map_style={content.map_style}
-              durationInFrames={300} // Default since we don't pass sequence duration down here directly
+              durationInFrames={300}
             />
           );
         } else if (content.type === 'HTML') {

@@ -708,6 +708,7 @@ const EditorWorkspace: React.FC = () => {
           videoFormat={safeProject.video_format || 'landscape'}
           subtitleSettings={localProjectSettings}
           designSystem={designData}
+          overlays={scriptData?.overlays || EMPTY_ARRAY}
           onFrameUpdate={handleFrameUpdate}
           isPipelineRunning={isRunning}
           fullscreenToggleRef={fullscreenToggleRef}

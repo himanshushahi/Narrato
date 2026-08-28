@@ -75,13 +75,19 @@ The engine parses a top-level `composition` property for every scene's sub_visua
 The `content` object inside a `Layer` must have a `type`:
 - `Image` or `Video`: Provide `query` and `source` (`pexels`, `pixabay`, `wikipedia`, `youtube`). The engine will automatically search and download these assets.
   - For `source: "pixabay"` you may also set `"image_type": "illustration"` or `"image_type": "vector"` to request transparent-background PNG cutouts (icons, diagrams, clipart).
-  - For `source: "youtube"` (Video layers only): yt-dlp downloads a clip matching the query. Optional: `"yt_start_offset"` (seconds to skip intro, default 15) and `"yt_duration"` (clip length in seconds, max 30). Use for cinematic B-roll, timelapse, or footage not on Pexels/Pixabay.
-- `Text`: Provide `text`, `color`, `font`, and `weight`. 
-  - **CRITICAL FONT RULE**: For complex text scripts (e.g., Hindi/Devanagari, Bengali, Tamil, Arabic, Thai), you MUST use a Noto font (e.g., `Noto Sans Devanagari`, `Noto Sans Bengali`, `Noto Sans Tamil`, `Noto Sans Arabic`, `Noto Sans Thai`) to ensure proper Unicode matra and ligature shaping. Never use basic fonts like `Outfit`, `Oswald`, or system defaults for these languages, or the text will render broken.
+  - For `source: "youtube"` (Video layers only): yt-dlp downloads a clip matching the query. Optional: `"yt_start_offset"` and `"yt_duration"`.
+- `Text`: Provide `text`, `color`, `font`, `weight`.
+  - **Kinetic Typography Modes**: `"animation_mode": "words_stagger" | "typewriter" | "marker_highlight" | "static"`
+  - `"highlight_words": ["word1", "word2"]` and `"highlight_color": "#facc15"`
+  - **CRITICAL FONT RULE**: For complex text scripts (e.g., Hindi/Devanagari, Bengali, Tamil, Arabic, Thai), you MUST use a Noto font (e.g., `Noto Sans Devanagari`, `Noto Sans Bengali`, `Noto Sans Tamil`, `Noto Sans Arabic`, `Noto Sans Thai`) to ensure proper Unicode matra and ligature shaping.
+- `Chart`: Animated data visualization. Provide `"chart_type": "bar" | "line" | "pie" | "donut" | "progress"`, `"data": [{"label": "2020", "value": 45}, ...]`, and optional `"title": "Market Growth"`.
+- `Counter`: High-impact rolling number counter. Provide `"from": 0`, `"to": 15000000`, `"prefix": "$"`, `"suffix": "M"`, `"decimals": 1`, `"label": "Total Revenue"`.
+- `Mockup`: Professional documentary artifacts. Provide `"preset": "social_post" | "newspaper" | "browser" | "document"`, `"headline": "...", "author": "...", "handle": "...", "body": "...", "badge": "..."`.
+- `Shape`: Native Remotion vector shapes & animated paths (`@remotion/shapes` & `@remotion/paths`). Provide `"shape_type": "rectangle" | "circle" | "star" | "triangle" | "arrow" | "polygon" | "path"`, `"fill": "#f59e0b"`, `"stroke": "#ffffff"`, `"radius": 60`. For custom SVG stroke drawing, use `"shape_type": "path"` with `"path_d": "M..."` and `"draw_animation": true`.
 - `Map`: Provide `map_style` (e.g., `modern_dark`) and an array of `locations` (e.g. `[{"name": "London", "coord": [51.5074, -0.1278]}]`).
-- `HTML`: Provide `html_content` containing raw HTML/CSS or inline `<svg>` elements with `<style>` blocks for keyframe animations (like stroke-dashoffset path drawing).
+- `HTML`: Advanced custom markup fallback. Provide `html_content` containing raw HTML/CSS or inline `<svg>` markup when a rare, intricate graphic cannot be represented with native primitives.
 
-**These are the ONLY valid content types.** Do not use any other type value.
+**These are the ONLY 10 valid content types.** Do not use any other type value.
 
 ## The `style` Property (CRITICAL)
 Every layer's `content` can include a `style` object with CSS properties that control layout and positioning.

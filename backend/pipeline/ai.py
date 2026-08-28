@@ -158,15 +158,83 @@ ANIMATION_SCHEMA = {
 LAYER_CONTENT_SCHEMA = {
     "type": "object",
     "properties": {
-        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Map", "HTML"]},
+        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Chart", "Counter", "Mockup", "Timeline", "Shape", "Map", "HTML"]},
         "query": {"type": "string", "description": "Search query for Pexels, Wikipedia, Pixabay, or YouTube (if Image/Video)"},
         "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay", "youtube"], "description": "Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed."},
         "text": {"type": "string", "description": "Text content (if Text)"},
-        "html_content": {"type": "string", "description": "Raw HTML/SVG content (if HTML), e.g., <svg>...</svg> or <div style='...'>...</div>"},
-        "volume": {"type": "number", "description": "Audio volume from 0 to 1 (default 0)"},
+        "animation_mode": {"type": "string", "enum": ["static", "words_stagger", "typewriter", "marker_highlight"], "description": "Kinetic typography animation mode (if Text)"},
+        "highlight_words": {"type": "array", "items": {"type": "string"}, "description": "Words to highlight with marker/color (if Text)"},
+        "highlight_color": {"type": "string", "description": "Color for marker highlight (e.g. #facc15)"},
         "font": {"type": "string", "description": "Font family (if Text)"},
         "weight": {"type": "string", "description": "Font weight (if Text)"},
-        "color": {"type": "string", "description": "Text color in hex (if Text)"},
+        "color": {"type": "string", "description": "Text/accent color in hex"},
+        
+        # Shape properties
+        "shape_type": {"type": "string", "enum": ["rectangle", "circle", "star", "triangle", "arrow", "polygon", "path"], "description": "Type of vector shape (if Shape)"},
+        "fill": {"type": "string", "description": "Fill color hex or 'transparent' (if Shape)"},
+        "stroke": {"type": "string", "description": "Stroke border color hex (if Shape)"},
+        "stroke_width": {"type": "number", "description": "Stroke width in pixels (if Shape)"},
+        "radius": {"type": "number", "description": "Radius / size in pixels (if Shape)"},
+        "points": {"type": "integer", "description": "Number of points for star/polygon (if Shape)"},
+        "inner_radius": {"type": "number", "description": "Inner radius for star (if Shape)"},
+        "path_d": {"type": "string", "description": "SVG path d string for custom animated drawing (if Shape and shape_type='path')"},
+        "draw_animation": {"type": "boolean", "description": "Whether to animate stroke path drawing (if Shape, default true)"},
+        "glow": {"type": "boolean", "description": "Whether to add subtle neon glow (if Shape, default true)"},
+        
+        # Chart properties
+        "chart_type": {"type": "string", "enum": ["bar", "line", "pie", "donut", "progress"], "description": "Type of infographic chart (if Chart)"},
+        "data": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "value": {"type": "number"},
+                    "color": {"type": "string"}
+                },
+                "required": ["label", "value"]
+            },
+            "description": "Array of data points (if Chart)"
+        },
+        "title": {"type": "string", "description": "Title or headline for Chart or Timeline"},
+        
+        # Counter properties
+        "from": {"type": "number", "description": "Start number (if Counter, default 0)"},
+        "to": {"type": "number", "description": "Target number to roll to (if Counter)"},
+        "prefix": {"type": "string", "description": "Prefix like '$' or '+' (if Counter)"},
+        "suffix": {"type": "string", "description": "Suffix like 'M', 'B', '%' (if Counter)"},
+        "decimals": {"type": "integer", "description": "Decimal places (if Counter)"},
+        "label": {"type": "string", "description": "Sub-label below Counter"},
+        
+        # Mockup properties
+        "preset": {"type": "string", "enum": ["social_post", "newspaper", "browser", "document"], "description": "Mockup template style (if Mockup)"},
+        "headline": {"type": "string", "description": "Main title/headline (if Mockup)"},
+        "author": {"type": "string", "description": "Author/Publisher name (if Mockup)"},
+        "handle": {"type": "string", "description": "Social handle or web URL (if Mockup)"},
+        "avatar_url": {"type": "string", "description": "Avatar image URL (if Mockup)"},
+        "date": {"type": "string", "description": "Publication date/time (if Mockup)"},
+        "body": {"type": "string", "description": "Article/post body text (if Mockup)"},
+        "badge": {"type": "string", "description": "Badge text like 'TOP SECRET' or 'VERIFIED' (if Mockup)"},
+        "image_url": {"type": "string", "description": "Embedded media URL (if Mockup)"},
+        
+        # Timeline properties
+        "events": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "year_or_date": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"}
+                },
+                "required": ["year_or_date", "title"]
+            },
+            "description": "Chronological milestones (if Timeline)"
+        },
+        
+        # Other media properties
+        "html_content": {"type": "string", "description": "Raw HTML/SVG content (if HTML), e.g., <svg>...</svg> or <div style='...'>...</div>"},
+        "volume": {"type": "number", "description": "Audio volume from 0 to 1 (default 0)"},
         "locations": {
             "type": "array",
             "items": {

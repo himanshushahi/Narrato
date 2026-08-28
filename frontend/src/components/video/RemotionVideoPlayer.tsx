@@ -1,6 +1,7 @@
 import { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Player, PlayerRef } from '@remotion/player';
 import { NitishRajputComposition, Scene, Transcription } from './NitishRajputComposition';
+import { GlobalOverlayItem } from './GlobalOverlaysRenderer';
 
 interface Props {
   audioUrl: string;
@@ -15,6 +16,7 @@ interface Props {
   videoFormat?: string;
   subtitleSettings?: any;
   designSystem?: any;
+  overlays?: GlobalOverlayItem[];
   /** Preview resolution scale (0.5 = 960x540, 1 = full 1920x1080). Defaults to 0.5 for fast scrubbing/playback. */
   compositionScale?: number;
   onFrameUpdate?: (frame: number) => void;
@@ -42,6 +44,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   videoFormat = 'landscape',
   subtitleSettings = {},
   designSystem,
+  overlays = [],
   compositionScale = 0.5,
   onFrameUpdate,
   onPlayStateChange
@@ -98,25 +101,28 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         const frame = playerRef.current.getCurrentFrame();
         if (frame !== lastFrame) {
           lastFrame = frame;
-          onFrameUpdateRef.current?.(frame);
+          if (onFrameUpdateRef.current) {
+            onFrameUpdateRef.current(frame);
+          }
         }
-        const playing = playerRef.current.isPlaying();
-        if (playing !== lastPlaying) {
-          lastPlaying = playing;
-          onPlayStateChangeRef.current?.(playing);
+        const isPlaying = playerRef.current.isPlaying();
+        if (isPlaying !== lastPlaying) {
+          lastPlaying = isPlaying;
+          if (onPlayStateChangeRef.current) {
+            onPlayStateChangeRef.current(isPlaying);
+          }
         }
       }
-    }, 200);
+    }, 50);
 
     return () => clearInterval(interval);
   }, [hasScenes]);
 
   const durationInFrames = useMemo(() => {
-    if (!scenes || scenes.length === 0) {
-      return 150;
-    }
-    const totalDuration = scenes.reduce((acc, scene) => acc + (scene.duration || 0), 0);
-    return Math.max(150, Math.ceil(totalDuration * 30));
+    if (!scenes || scenes.length === 0) return 300;
+    return scenes.reduce((acc, scene) => {
+      return acc + Math.max(30, Math.ceil((scene.duration || 0) * 30));
+    }, 0);
   }, [scenes]);
 
   // Fast preview renders the composition canvas at compositionScale resolution
@@ -141,8 +147,9 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       videoFormat,
       subtitleSettings,
       designSystem,
+      overlays,
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays]);
 
   if (!scenes || scenes.length === 0) {
     return (

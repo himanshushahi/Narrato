@@ -18,7 +18,7 @@ when_to_use: "Before finalizing any edit to a project — scene rewrites, visual
 === CHECKLIST BEFORE SUBMITTING ===
 - [ ] Spoken text in correct script, no transliterations
 - [ ] Duration sum matches scene duration
-- [ ] All AST layer types and properties are valid (Image, Video, Text, Map)
+- [ ] All AST layer types and properties are valid (Image, Video, Text, Chart, Counter, Mockup, Timeline, Shape, Map, HTML)
 - [ ] Content search queries (`query`) in English
 - [ ] Complex scripts (Hindi, Tamil, Arabic, etc.) use Noto fonts (`Noto Sans Devanagari`, etc.) in Text styles
 - [ ] No markdown/backticks around the JSON output

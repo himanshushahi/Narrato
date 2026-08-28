@@ -14,14 +14,31 @@ Every sub-visual should feel like a deliberate creative composition.
 - Vary transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
 
 === VALID CONTENT TYPES (USE ONLY THESE) ===
-Image | Video | Text | Map | HTML
+Image | Video | Text | Chart | Counter | Mockup | Timeline | Shape | Map | HTML
 
 === CONTENT TYPE SELECTION GUIDE ===
 - **Image**: Stock photos, textures, overlays, portraits, evidence photos, backgrounds. Use `source: "wikipedia"` for real people/entities (query = exact full name). Use `source: "pexels"` or `"pixabay"` for stock.
 - **Video**: B-roll, timelapses, ambient footage, dramatic motion backgrounds. Use when movement adds energy. `source: "pexels"` for stock video.
-- **Text**: Headlines, data callouts, dramatic reveals, lower-thirds, kinetic typography. Position with `style` — don't just center everything. For complex scripts (Hindi, Tamil, etc.), use Noto fonts (e.g. `Noto Sans Devanagari`) in the style/font to avoid broken rendering.
+- **Text**: Headlines, data callouts, dramatic reveals, lower-thirds, kinetic typography.
+  * Use `animation_mode: "words_stagger"` for impactful sentences.
+  * Use `animation_mode: "typewriter"` for quotes or investigative notes.
+  * Use `animation_mode: "marker_highlight"` with `highlight_words: ["keyword"]` for emphasis.
+  * For complex scripts (Hindi, Tamil, etc.), use Noto fonts (e.g. `Noto Sans Devanagari`).
+- **Chart**: Statistics, comparisons, growth trends, market share.
+  * `chart_type: "bar"` for category comparisons.
+  * `chart_type: "line"` for historical trends / growth over time.
+  * `chart_type: "donut"` for budget or percentage breakdowns.
+  * `chart_type: "progress"` for completion rates or goal milestones.
+- **Counter**: Financial figures, metrics, subscriber numbers, scale callouts (e.g. `$0` to `$14.2B`, `100K+`, `78%`).
+- **Mockup**: Real-world evidence, news headlines, tweets, official documents.
+  * `preset: "social_post"` for quotes or public tweets.
+  * `preset: "newspaper"` for historical press releases or media coverage.
+  * `preset: "browser"` for website screenshots or online articles.
+  * `preset: "document"` with `badge: "CONFIDENTIAL"` for investigative leaks or dossier evidence.
+- **Timeline**: Multi-year chronological events or milestone roadmaps.
+- **Shape**: Native vector shapes, arrows, callout pointers, icons, and animated SVG path drawing (`@remotion/shapes` & `@remotion/paths`). Use for visual callouts, focus rings, directional arrows, geometric frames.
 - **Map**: Geography, routes, locations, territories. Use `map_style`: `vintage`, `modern_dark`, `minimal_light`, or `nautical_blue`.
-- **HTML**: Native motion graphics! Supply raw SVG path animations or HTML/CSS elements in the `html_content` property. Use this for animated vector illustrations, diagrams, custom shapes, HUD interfaces, or glowing neon vectors. Use embedded `<style>` for keyframes and inline SVGs.
+- **HTML**: Advanced custom markup fallback. Use only when a very specific custom layout cannot be achieved with native primitives.
 
 === ADVANCED COMPOSITIONS & MOTION GRAPHICS ===
 Use the `style` property on AST layers to create complex After Effects-style composites:

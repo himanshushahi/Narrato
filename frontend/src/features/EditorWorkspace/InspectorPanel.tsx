@@ -2,13 +2,14 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscEdit, VscAccount, VscSettingsGear,
-  VscExport, VscSymbolKeyword
+  VscExport, VscSymbolKeyword, VscLayers
 } from 'react-icons/vsc';
 import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
 import { useEditorStore, InspectorTab } from '../../store/useEditorStore';
 import { ScriptTab } from './InspectorTabs/ScriptTab';
 import { SubtitleTab } from './InspectorTabs/SubtitleTab';
 import { VoiceTab } from './InspectorTabs/VoiceTab';
+import { OverlaysTab } from './InspectorTabs/OverlaysTab';
 import { ExportTab } from './InspectorTabs/ExportTab';
 import { SettingsTab } from './InspectorTabs/SettingsTab';
 import { Task } from '../../store/useProjectStore';
@@ -72,6 +73,7 @@ const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
   { id: 'script', label: 'Script', icon: <VscEdit /> },
   { id: 'subtitle', label: 'Subtitle', icon: <VscSymbolKeyword /> },
   { id: 'voice', label: 'Voice', icon: <VscAccount /> },
+  { id: 'overlays', label: 'Overlays', icon: <VscLayers /> },
   { id: 'settings', label: 'Settings', icon: <VscSettingsGear /> },
   { id: 'export', label: 'Export', icon: <VscExport /> },
 ];
@@ -142,6 +144,16 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
           <VoiceTab
             localProjectSettings={localProjectSettings}
             onSettingsUpdate={onSettingsUpdate}
+          />
+        );
+      case 'overlays':
+        return (
+          <OverlaysTab
+            scriptData={scriptData}
+            projectId={projectId}
+            onSetScriptData={onSetScriptData}
+            onSave={() => onSaveCard()}
+            isSaving={isSaving}
           />
         );
       case 'export':
