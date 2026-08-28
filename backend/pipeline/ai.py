@@ -1777,13 +1777,12 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
 - Design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths where applicable.
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
 - STANDARDIZED Z-INDEX HIERARCHY:
-  * 0 - 9: Background media / textures
-  * 10 - 29: Insets, collages, animated vector charts
-  * 30 - 39: Foreground typography / lower-thirds (respect subtitle safe area)
-  * 40 - 50: Chapter title badges & scene UI
+  * 0 - 9: Background media / textures / footage
+  * 10 - 29: Midground motion primitives (Charts, Counters, Mockups, Timelines, Shapes, Insets)
+  * 30 - 39: Foreground typography / callouts (respect subtitle safe area)
 
-=== CHAPTER TITLE IN SUB-VISUAL 0 ===
-In the FIRST sub-visual of every scene (sub-visual 0), you MUST include a Chapter Title layer (z_index: 40-50) introducing the scene title with an entrance animation (e.g. glassmorphism badge with accent border at top-left or top-center).
+=== NO STATIC CHAPTER TITLE CARDS IN SUB-VISUALS ===
+Do NOT create static chapter title badges, scene name cards, or temporary header pills inside sub-visual cuts. Chapter indicators and video branding are managed continuously at the root composition level. Dedicate sub-visual cuts entirely to motion graphics, infographics, evidence mockups, b-roll, and visual storytelling.
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
 When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
@@ -1876,26 +1875,27 @@ DO NOT default to the lazy pattern of [Full-Screen Stock Image] → [Centered Te
 Every sub-visual should feel like a deliberate creative decision — not a slideshow.
 {design_system_text}
 {visual_director_block}
-=== COMPOSITION VARIETY & MODERN DESIGN (CRITICAL) ===
-You MUST vary your compositions across sub-visuals and apply modern After Effects style aesthetics:
+=== MOTION GRAPHIC COMPOSITION GUIDELINES ===
+You MUST vary your visual primitives across sub-visuals to maintain high audience engagement:
+- Use `Chart` for statistics, comparisons, and growth trends (`chart_type: "bar" | "line" | "pie" | "donut" | "progress"`).
+- Use `Counter` for monetary numbers, valuations, subscriber spikes, and metric highlights.
+- Use `Mockup` for leaked documents, tweets, news headlines, and browser evidence.
+- Use `Timeline` for milestone dates and chronological events.
+- Use `Shape` for focus callouts, directional arrows, framing elements, and animated SVG paths.
+- Use `Text` with `animation_mode: "words_stagger"` or `"typewriter"` for kinetic quotes and data callouts.
+- Use `Video` / `Image` for cinematic ambient motion and real-world reference imagery.
 
-1. THE KEN BURNS EFFECT: Never leave a background image perfectly static. Add a 10-second `scale` animation from 1.0 to 1.15 to give it life.
-2. CINEMATIC COLOR GRADING: Use CSS filters on stock media to boost contrast, saturation, and depth (e.g., `["blur(2px)", "brightness(0.6)", "contrast(1.2)"]`).
-3. GLASSMORPHISM PANELS: Create sleek frosted glass backgrounds for text reading using `{{"backgroundColor": "rgba(0,0,0,0.5)", "backdropFilter": "blur(12px)", "border": "1px solid rgba(255,255,255,0.15)", "borderRadius": "20px"}}`.
-4. SPLIT SCREENS & PiP: Place 2-3 media assets simultaneously to show comparisons or depth, rather than a single fullscreen image.
-5. DYNAMIC KINETIC TYPOGRAPHY: Large text with mixed weights (800 for emphasis) and dramatic simultaneous animations (scale + translateY + opacity).
-6. TEXTURE OVERLAYS: Layer translucent noise/grain/textures over the main media with CSS blend modes in filters.
 
 RULES:
 - COUNT: One sub-visual per visual beat
 - DURATION: Each 2-15 seconds, sum MUST equal scene duration
-- CHAPTER TITLES: In the FIRST sub-visual of each scene (sub-visual 0), include a Chapter Title layer (z_index: 40-50)
+- 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
 - query: ALWAYS in English. Use descriptive, specific keywords for relevant results (e.g. 'programmer typing on retro computer terminal' or 'old floppy disk close up'). Avoid vague single words.
 - Text content: ALWAYS in English
 - style: USE the `style` property on layers to position them — do NOT leave everything at fullscreen defaults
 - VARIETY: Never use the same composition layout for two consecutive sub-visuals
 - VIDEO: Use `Video` type layers when motion would enhance the visual (timelapses, B-roll, ambient footage). By default, set `"volume": 0` for all Video layers unless narration specifically calls for its original sound.
-- ONLY use content types: Image, Video, Text, Map, HTML. No other types exist.
+- ONLY use the 10 valid content types: Image, Video, Text, Chart, Counter, Mockup, Timeline, Shape, Map, HTML.
 - HTML: You can generate raw inline SVG path animations, charts, or HTML UI elements using `html_content`.
 
 OUTPUT STRUCTURE:
@@ -1907,7 +1907,7 @@ ERROR PREVENTION:
 - Use only valid AST structures
 - All JSON numbers as numbers, not strings
 - All required fields present for each content type
-- content.type MUST be one of: Image, Video, Text, Map, HTML
+- content.type MUST be one of: Image, Video, Text, Chart, Counter, Mockup, Timeline, Shape, Map, HTML
 
 FINAL CHECK before submitting:
 1. Duration sum equals scene duration
@@ -2034,7 +2034,9 @@ FINAL CHECK before submitting:
         plan_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
 You are an expert Visual Director. Your job is to read the narration for this scene and write a highly creative, detailed storyboard plan describing the sub-visuals needed.
 Adapt the narrative style and tone specifically to fit the "{(project_dict.get('prompt') or 'documentary').upper()}" genre.
-Do not output AST JSON, just output a detailed text description of what each sub-visual should look like (e.g. 'Beat 1: A slow zoom on a vintage map. Beat 2: Split screen showing two contrasting images.')."""
+Emphasize rich motion graphic primitives (Charts, Counters, Mockups, Timelines, Shapes, Kinetic Text, Footage).
+Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling (e.g. 'Beat 1: Animated bar chart showing revenue loss. Beat 2: Leaked document mockup highlighting suspicious transactions. Beat 3: Dramatic aerial b-roll video with typewriter quote callout.').
+Do not output AST JSON, just output a detailed text description of what each sub-visual should look like."""
 
         plan_user_prompt = f"Topic: {topic}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n\nWrite a storyboard plan for each sub-visual beat."
 

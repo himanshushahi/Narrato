@@ -639,10 +639,11 @@ def test_validate_sub_visuals_preserves_subtitle_position():
 
 
 def test_declarative_ast_skill_has_z_index_and_chapter_guidelines():
-    """declarative-ast skill must document standardized Z-indexes and Chapter Title layers."""
+    """declarative-ast skill must document standardized Z-indexes and Chapter guidelines."""
     from backend.agent.skill_loader import skill_loader
     skill = skill_loader.get_skill("declarative-ast")
     assert skill is not None
     assert "Standardized Z-Index Hierarchy" in skill.content
-    assert "Chapter Title Layers" in skill.content
+    assert "Chapter Guidelines" in skill.content
+
 

@@ -1053,7 +1053,8 @@ class ApiBridge:
             "CRITICAL RULES:\n"
             "- COUNT: Generate as many sub-visuals as needed (usually one per visual beat, each lasting 2-15 seconds).\n"
             "- DURATION: The sum of 'duration' for all sub-visuals MUST exactly equal the target duration.\n"
-            "- IMPORTANT: Every sub_visual must have a 'composition' object (AST format) and a 'duration' (in seconds).\n\n"
+            "- IMPORTANT: Every sub_visual must have a 'composition' object (AST format) and a 'duration' (in seconds).\n"
+            "- 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.\n\n"
             f"{visual_rules}\n"
         )
         if section_type == "introduction":
@@ -1135,7 +1136,8 @@ class ApiBridge:
             "Do NOT change the narration.\n"
             "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
             f"{design_system_text}\n"
-            "The sub_visual has: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": float }\n\n"
+            "The sub_visual has: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": float }\n"
+            "- 🚫 NO CHAPTER TITLE BADGES: Do NOT place static chapter title badges or temporary header pills inside sub_visual cuts. Root overlays manage continuous chapter branding.\n\n"
             f"{visual_rules}\n"
         )
         if section_type == "introduction":

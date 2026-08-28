@@ -1,227 +1,326 @@
 ---
 name: declarative-ast
-description: Learn how to generate the Declarative AST for the video rendering engine.
+description: Complete specification and best practices for the Declarative AST visual rendering engine in Remotion.
+version: "1.0"
+when_to_use: "Always loaded during scene visual generation, sub-visual rewrites, and motion graphics planning."
 ---
 
-# Declarative AST Architecture
+# Declarative AST Architecture & Motion Graphics Specification
 
-You are the director of a video generation engine. Instead of providing rigid templates, you must construct an Abstract Syntax Tree (AST) representing the visual composition. 
+You are the Lead Visual Director and Motion Graphics Engineer for a documentary video rendering engine powered by Remotion.
 
-The AST is composed of `Sequence` nodes (which hold children) and `Layer` nodes (which hold content).
+The engine constructs visuals using an **Abstract Syntax Tree (AST)**. Each sub-visual cut in a scene defines a declarative `composition` tree consisting of `Sequence` nodes (containers) and `Layer` nodes (renderable content).
 
-## Schema
-The engine parses a top-level `composition` property for every scene's sub_visual.
+---
 
-```json
-{
-  "sub_visuals": [
-    {
-      "composition": {
-        "type": "Sequence",
-        "children": [
-          {
-            "type": "Layer",
-            "z_index": 0,
-            "content": {
-              "type": "Image",
-              "query": "cinematic wide shot of a futuristic city",
-              "source": "pexels"
-            },
-            "animations": [
-              {
-                "property": "scale",
-                "from": 1.0,
-                "to": 1.2,
-                "duration": 5.0,
-                "easing": "ease-in-out"
-              }
-            ]
-          },
-          {
-            "type": "Layer",
-            "z_index": 10,
-            "content": {
-              "type": "Text",
-              "text": "THE FUTURE",
-              "color": "#ffffff",
-              "font": "Inter",
-              "style": {
-                "position": "absolute",
-                "bottom": "10%",
-                "left": "5%",
-                "fontSize": "80px",
-                "textAlign": "left",
-                "textShadow": "0 4px 20px rgba(0,0,0,0.8)"
-              }
-            },
-            "animations": [
-              {
-                "property": "opacity",
-                "from": 0.0,
-                "to": 1.0,
-                "duration": 1.0,
-                "easing": "linear"
-              }
-            ]
-          }
-        ]
-      }
-    }
-  ]
-}
+## 1. Composition Hierarchy & Chapter Guidelines (No Static Chapter Title Layers)
+
+```
+Root Video Composition (NitishRajputComposition)
+├── Scene Sequences (Scene 1, Scene 2, ... cuts)
+│   └── Sub-Visual AST Compositions (Charts, Mockups, B-Roll, Kinetic Text) [z-index: 0–39]
+├── Global Overlays & Branding Track (Watermarks, Progress Bars, Chapter Pills) [z-index: 95]
+└── Kinetic Subtitles Track (Word-level animated captions) [z-index: 100]
 ```
 
-## Content Types
-The `content` object inside a `Layer` must have a `type`:
-- `Image` or `Video`: Provide `query` and `source` (`pexels`, `pixabay`, `wikipedia`, `youtube`). The engine will automatically search and download these assets.
-  - For `source: "pixabay"` you may also set `"image_type": "illustration"` or `"image_type": "vector"` to request transparent-background PNG cutouts (icons, diagrams, clipart).
-  - For `source: "youtube"` (Video layers only): yt-dlp downloads a clip matching the query. Optional: `"yt_start_offset"` and `"yt_duration"`.
-- `Text`: Provide `text`, `color`, `font`, `weight`.
-  - **Kinetic Typography Modes**: `"animation_mode": "words_stagger" | "typewriter" | "marker_highlight" | "static"`
-  - `"highlight_words": ["word1", "word2"]` and `"highlight_color": "#facc15"`
-  - **CRITICAL FONT RULE**: For complex text scripts (e.g., Hindi/Devanagari, Bengali, Tamil, Arabic, Thai), you MUST use a Noto font (e.g., `Noto Sans Devanagari`, `Noto Sans Bengali`, `Noto Sans Tamil`, `Noto Sans Arabic`, `Noto Sans Thai`) to ensure proper Unicode matra and ligature shaping.
-- `Chart`: Animated data visualization. Provide `"chart_type": "bar" | "line" | "pie" | "donut" | "progress"`, `"data": [{"label": "2020", "value": 45}, ...]`, and optional `"title": "Market Growth"`.
-- `Counter`: High-impact rolling number counter. Provide `"from": 0`, `"to": 15000000`, `"prefix": "$"`, `"suffix": "M"`, `"decimals": 1`, `"label": "Total Revenue"`.
-- `Mockup`: Professional documentary artifacts. Provide `"preset": "social_post" | "newspaper" | "browser" | "document"`, `"headline": "...", "author": "...", "handle": "...", "body": "...", "badge": "..."`.
-- `Shape`: Native Remotion vector shapes & animated paths (`@remotion/shapes` & `@remotion/paths`). Provide `"shape_type": "rectangle" | "circle" | "star" | "triangle" | "arrow" | "polygon" | "path"`, `"fill": "#f59e0b"`, `"stroke": "#ffffff"`, `"radius": 60`. For custom SVG stroke drawing, use `"shape_type": "path"` with `"path_d": "M..."` and `"draw_animation": true`.
-- `Map`: Provide `map_style` (e.g., `modern_dark`) and an array of `locations` (e.g. `[{"name": "London", "coord": [51.5074, -0.1278]}]`).
-- `HTML`: Advanced custom markup fallback. Provide `html_content` containing raw HTML/CSS or inline `<svg>` markup when a rare, intricate graphic cannot be represented with native primitives.
+### 🚫 CRITICAL RULE: NO STATIC CHAPTER TITLES IN SUB-VISUALS
+* **DO NOT** add static chapter title badges, scene name cards, or temporary header pills inside sub-visual AST cuts (e.g. `CHAPTER 1: THE DISCOVERY`).
+* **Why**: Sub-visual cuts only last 2–4 seconds. Embedding chapter badges inside sub-visuals causes them to flash and abruptly disappear, breaking visual continuity.
+* **How Chapters Work**: Chapter names and persistent branding are managed **continuously** across the video at the Root Composition level via the Global Overlays engine (`GlobalOverlaysRenderer`).
+* **Sub-Visual Focus**: Every sub-visual must be dedicated 100% to **meaningful content storytelling** — motion graphics, infographics, document evidence, cinematic footage, kinetic typography, and data visualization.
 
-**These are the ONLY 10 valid content types.** Do not use any other type value.
+---
 
-## The `style` Property (CRITICAL)
-Every layer's `content` can include a `style` object with CSS properties that control layout and positioning.
-Without `style`, layers default to fullscreen stacked — which looks like a boring slideshow.
+## 2. Standardized Z-Index Hierarchy
 
-**Use `style` to create dynamic compositions:**
+All AST layers must strictly follow this Z-index scale:
 
-### Split Screen
-```json
-{"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "old computer lab", "source": "pexels", "style": {"width": "50%", "height": "100%", "left": "0", "top": "0", "objectFit": "cover"}}}
-{"type": "Layer", "z_index": 1, "content": {"type": "Image", "query": "modern server room", "source": "pexels", "style": {"width": "50%", "height": "100%", "right": "0", "top": "0", "objectFit": "cover"}}}
-```
+| Z-Index Range | Layer Classification | Description & Examples |
+|---|---|---|
+| **0 – 9** | **Background Media** | Fullscreen stock video, ambient background images, interactive maps, subtle texture overlays |
+| **10 – 29** | **Midground Visuals** | Infographic charts (`Chart`), metric counters (`Counter`), document mockups (`Mockup`), milestone timelines (`Timeline`), vector shapes (`Shape`), picture-in-picture insets, split-screen media |
+| **30 – 39** | **Foreground Typography** | Kinetic callouts, quote highlights, data callouts, lower-third titles (respecting subtitle safe area) |
+| *95* | *Root Global Overlays* | *Managed automatically by root engine: persistent channel watermark, chapter pill, progress bar* |
+| *100* | *Kinetic Subtitles* | *Managed automatically by root engine: word-level subtitle captions* |
 
-### Picture-in-Picture
-```json
-{"type": "Layer", "z_index": 0, "content": {"type": "Video", "query": "data center timelapse", "source": "pexels", "style": {"width": "100%", "height": "100%", "objectFit": "cover"}}}
-{"type": "Layer", "z_index": 5, "content": {"type": "Image", "query": "portrait of scientist", "source": "wikipedia", "style": {"width": "30%", "height": "30%", "top": "5%", "right": "5%", "borderRadius": "16px", "objectFit": "cover", "boxShadow": "0 8px 32px rgba(0,0,0,0.5)"}}}
-```
+---
 
-### Lower-Third Text
-```json
-{"type": "Layer", "z_index": 10, "content": {"type": "Text", "text": "THE TURNING POINT", "color": "#ffffff", "font": "Inter", "weight": 700, "style": {"position": "absolute", "bottom": "8%", "left": "5%", "width": "90%", "fontSize": "56px", "textAlign": "left", "letterSpacing": "4px"}}}
-```
+## 3. The 10 Valid AST Content Types
 
-### Multi-Image Collage
-```json
-{"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "newspaper headline", "source": "pexels", "style": {"width": "55%", "height": "55%", "top": "5%", "left": "3%", "objectFit": "cover", "borderRadius": "12px", "boxShadow": "0 4px 20px rgba(0,0,0,0.4)"}}}
-{"type": "Layer", "z_index": 1, "content": {"type": "Image", "query": "courtroom interior", "source": "pexels", "style": {"width": "45%", "height": "45%", "bottom": "5%", "right": "3%", "objectFit": "cover", "borderRadius": "12px", "boxShadow": "0 4px 20px rgba(0,0,0,0.4)"}}}
-```
+The `content` object inside every `Layer` must specify one of the **10 supported types**:
 
-### Texture Overlay with Blending
-```json
-{"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "dark forest aerial", "source": "pexels"}}
-{"type": "Layer", "z_index": 5, "content": {"type": "Image", "query": "film grain noise texture", "source": "pexels"}, "filters": ["opacity(0.3)", "mix-blend-mode: overlay"]}
-```
-
-### Native Motion Graphics (SVG/HTML)
-```json
-{"type": "Layer", "z_index": 10, "content": {"type": "HTML", "html_content": "<style>@keyframes draw { to { stroke-dashoffset: 0; } }</style><svg width='100%' height='100%' viewBox='0 0 100 100'><path d='M10 50 Q 50 10 90 50' fill='transparent' stroke='#00F5D4' stroke-width='2' stroke-dasharray='100' stroke-dashoffset='100' style='animation: draw 2s forwards;' /></svg>"}}
-```
-
-## Standardized Z-Index Hierarchy (STRICT)
-All layers must strictly use the following Z-index ranges to prevent visual clobbering:
-- `0 - 9`: Backgrounds (Fullscreen Images, Videos, Maps, ambient textures)
-- `10 - 29`: Midground (Picture-in-Picture insets, multi-image collages, animated SVG charts, vector shapes)
-- `30 - 39`: Foreground Text (Lower-third titles, kinetic typography, callout quotes)
-- `40 - 50`: Scene UI & Chapter Badges (Chapter titles, milestone pills, header badges)
-
-## Modern Video Editing Aesthetics (After Effects Style)
-To make visuals look professional and dynamic, employ these advanced design techniques using the declarative AST features:
-
-### 1. The Ken Burns Effect (Continuous Motion)
-Never leave a background static. Apply a slow scale to give life to still images:
-```json
-{"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "cinematic landscape", "source": "pexels"}, "animations": [{"property": "scale", "from": 1.0, "to": 1.15, "duration": 10.0, "easing": "linear"}]}
-```
-
-### 2. Glassmorphism (Frosted Glass Panels)
-Use blur filters and semi-transparent backgrounds to create modern Apple/AE style UI panels:
-```json
-{"type": "Layer", "z_index": 10, "content": {"type": "Text", "text": "DATA ANALYSIS", "font": "Inter", "style": {"padding": "40px", "backgroundColor": "rgba(20,20,20,0.5)", "backdropFilter": "blur(16px)", "border": "1px solid rgba(255,255,255,0.1)", "borderRadius": "24px"}}}
-```
-
-### 3. Cinematic Depth of Field
-When placing foreground elements (PiP, text), blur and darken the background layer to create artificial camera depth:
-```json
-{"type": "Layer", "z_index": 0, "content": {"type": "Video", "query": "city traffic", "source": "pexels"}, "filters": ["blur(12px)", "brightness(0.5)"]}
-```
-
-### 4. Cinematic Color Grading
-Enhance flat stock media using CSS filters to boost contrast and saturation for a graded look:
-```json
-{"type": "Layer", "z_index": 0, "content": {"type": "Video", "query": "ocean waves", "source": "pexels"}, "filters": ["contrast(1.2)", "saturate(1.3)", "sepia(0.1)"]}
-```
-
-### 5. Complex Animation Sequencing
-Combine transform properties simultaneously for punchy, dynamic reveals:
-```json
-"animations": [
-  { "property": "scale", "from": 0.5, "to": 1.0, "duration": 0.6, "easing": "spring" },
-  { "property": "opacity", "from": 0.0, "to": 1.0, "duration": 0.4, "easing": "ease-out" },
-  { "property": "translateY", "from": 100, "to": 0, "duration": 0.6, "easing": "spring" }
-]
-```
-
-## Subtitle Safe Areas
-Subtitles are rendered as an active kinetic typography track.
-- **Landscape (16:9)**: Bottom 15% is reserved for subtitles. Position lower-third text above `bottom: 18%` or use top/left/right coordinates.
-- **Portrait (9:16)**: Bottom 25% is reserved for stacked mobile captions. Position lower-third text above `bottom: 28%`.
-
-## Chapter Title Layers (Sub-Visual 0 of Each Scene)
-In the **first sub-visual of every scene (sub-visual 0)**, you MUST include a Chapter Title layer (`z_index: 40 - 50`) that introduces the scene title:
+### 1. `Chart` (Infographics & Data Visualization)
+Renders animated data charts with smooth spring physics.
+* **Fields**:
+  * `chart_type`: `"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`
+  * `data`: Array of objects `[{"label": "2021", "value": 45, "color": "#f59e0b"}, ...]`
+  * `title` (optional): Chart headline string
+* **Example**:
 ```json
 {
   "type": "Layer",
-  "z_index": 45,
+  "z_index": 15,
   "content": {
-    "type": "Text",
-    "text": "CHAPTER 1: THE DISCOVERY",
-    "font": "Inter",
-    "weight": "800",
-    "style": {
-      "position": "absolute",
-      "top": "5%",
-      "left": "5%",
-      "fontSize": "22px",
-      "letterSpacing": "2px",
-      "textTransform": "uppercase",
-      "color": "#f8fafc",
-      "padding": "6px 16px",
-      "backgroundColor": "rgba(15, 23, 42, 0.75)",
-      "borderLeft": "4px solid #f59e0b",
-      "borderRadius": "6px",
-      "backdropFilter": "blur(8px)"
-    }
+    "type": "Chart",
+    "chart_type": "bar",
+    "title": "ANNUAL REVENUE GROWTH ($M)",
+    "data": [
+      { "label": "2021", "value": 12, "color": "#38bdf8" },
+      { "label": "2022", "value": 28, "color": "#60a5fa" },
+      { "label": "2023", "value": 64, "color": "#f59e0b" },
+      { "label": "2024", "value": 110, "color": "#10b981" }
+    ],
+    "style": { "width": "75%", "height": "65%", "left": "12.5%", "top": "15%" }
+  }
+}
+```
+
+---
+
+### 2. `Counter` (High-Impact Metric Callouts)
+Renders a dynamic rolling number counter with easing.
+* **Fields**:
+  * `from`: Starting number (e.g. `0`)
+  * `to`: Ending number (e.g. `14200000`)
+  * `prefix` (optional): Currency or symbol (e.g. `"$"` or `"₹"`)
+  * `suffix` (optional): Unit string (e.g. `"M"`, `"%"` or `"+ Users"`)
+  * `decimals` (optional): Number of decimal places (e.g. `1`)
+  * `label` (optional): Description underneath counter
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 20,
+  "content": {
+    "type": "Counter",
+    "from": 0,
+    "to": 85.4,
+    "prefix": "$",
+    "suffix": " Billion",
+    "decimals": 1,
+    "label": "Total Valuation Slashed in 48 Hours",
+    "color": "#ef4444",
+    "style": { "top": "30%", "left": "10%", "width": "80%" }
+  }
+}
+```
+
+---
+
+### 3. `Mockup` (Documentary Artifacts & Evidence)
+Renders stylized real-world artifacts (documents, leaks, tweets, browser pages).
+* **Fields**:
+  * `preset`: `"newspaper"` | `"document"` | `"browser"` | `"social_post"`
+  * `headline`: Primary article or post heading
+  * `author` / `handle`: Author details (for social/newspaper)
+  * `body`: Text snippet or quote
+  * `badge` (optional): Stamp like `"CONFIDENTIAL"`, `"LEAKED"`, `"BREAKING"`
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 15,
+  "content": {
+    "type": "Mockup",
+    "preset": "document",
+    "badge": "CLASSIFIED",
+    "headline": "INTERNAL AUDIT MEMORANDUM #409",
+    "author": "Financial Crimes Investigation Division",
+    "body": "Discrepancies identified across offshore transaction logs totaling $240,000,000 between Q2 and Q4.",
+    "style": { "width": "65%", "height": "70%", "left": "17.5%", "top": "12%" }
   },
   "animations": [
-    { "property": "opacity", "from": 0.0, "to": 1.0, "duration": 0.4 },
-    { "property": "translateX", "from": -25.0, "to": 0.0, "duration": 0.4 }
+    { "property": "scale", "from": 0.8, "to": 1.0, "duration": 0.6, "easing": "spring" },
+    { "property": "translateY", "from": 60, "to": 0, "duration": 0.6, "easing": "spring" }
   ]
 }
 ```
 
-## Animations
-You can apply native Remotion physics by providing an array of `animations` on any layer.
-Supported properties: `scale`, `opacity`, `translateX`, `translateY`, `rotate`, `rotateX`, `rotateY`.
-Supported easing: `linear`, `spring`, `ease-in`, `ease-out`, `ease-in-out`.
+---
 
-Use dramatic animation values for impact:
-- Scale entrances: from 0.3 → 1.0 with `spring` easing
-- Slide-ins: translateX from ±300 or translateY from ±200
-- Rotations: rotateY from 90 → 0 for a 3D reveal
-- Combine multiple properties for cinematic motion (e.g., scale + opacity + translateY simultaneously)
+### 4. `Timeline` (Chronological Milestones & Roadmaps)
+Renders a sequence of historical dates and events with animated markers.
+* **Fields**:
+  * `title` (optional): Timeline headline
+  * `events`: Array of `[{"year": "2019", "title": "Initial IPO", "description": "Listed on NASDAQ"}, ...]`
+  * `orientation`: `"vertical"` | `"horizontal"`
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 15,
+  "content": {
+    "type": "Timeline",
+    "title": "KEY INVESTIGATION MILESTONES",
+    "events": [
+      { "year": "JAN 2022", "title": "Whistleblower Report", "description": "First internal memo leaked to regulators" },
+      { "year": "OCT 2022", "title": "Formal Subpoena", "description": "Federal authorities initiate joint audit" },
+      { "year": "MAR 2023", "title": "Court Settlement", "description": "$1.2B civil penalty imposed" }
+    ],
+    "style": { "width": "80%", "left": "10%", "top": "15%" }
+  }
+}
+```
 
-## Filters
-You can apply standard CSS filters via the `filters` array on a layer. For example: `["blur(5px)", "brightness(0.8)"]`.
-Use `brightness(0.3)` or `brightness(0.4)` on background images to make overlaid text pop.
+---
+
+### 5. `Shape` (Vector Shapes, Paths & Callouts)
+Renders hardware-accelerated vector shapes (`@remotion/shapes`) and animated SVG path drawings (`@remotion/paths`).
+* **Fields**:
+  * `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"`
+  * `fill`: Hex color or `"transparent"`
+  * `stroke`: Border/line color (e.g. `"#f59e0b"`)
+  * `stroke_width`: Border width in pixels
+  * `radius`: Size in pixels
+  * `path_d` (if `shape_type="path"`): SVG path definition string
+  * `draw_animation`: `true` (animates line drawing)
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 12,
+  "content": {
+    "type": "Shape",
+    "shape_type": "rectangle",
+    "fill": "rgba(245, 158, 11, 0.1)",
+    "stroke": "#f59e0b",
+    "stroke_width": 2,
+    "style": { "width": "400px", "height": "250px", "left": "10%", "top": "20%", "borderRadius": "16px" }
+  }
+}
+```
+
+---
+
+### 6. `Text` (Kinetic Typography & Lower-Thirds)
+Renders animated typography with advanced kinetic modes.
+* **Fields**:
+  * `text`: Content string
+  * `font`: Font family name (e.g. `"Inter"`, `"Oswald"`, `"Montserrat"`)
+  * `animation_mode`: `"words_stagger"` | `"typewriter"` | `"marker_highlight"` | `"static"`
+  * `highlight_words` (optional): Words to accentuate with marker color
+  * `highlight_color` (optional): Accent color (e.g. `"#facc15"`)
+  * **CRITICAL CTL/INDIC FONT RULE**: For complex scripts (Hindi/Devanagari, Tamil, Bengali, Arabic, etc.), ALWAYS specify a Noto font (e.g. `Noto Sans Devanagari`) to guarantee correct Unicode matra and ligature shaping.
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 30,
+  "content": {
+    "type": "Text",
+    "text": "WHERE DID THE 240 MILLION DOLLARS DISAPPEAR?",
+    "font": "Inter",
+    "weight": "800",
+    "color": "#ffffff",
+    "animation_mode": "marker_highlight",
+    "highlight_words": ["240 MILLION DOLLARS", "DISAPPEAR?"],
+    "highlight_color": "#ef4444",
+    "style": {
+      "position": "absolute",
+      "bottom": "18%",
+      "left": "6%",
+      "width": "88%",
+      "fontSize": "48px",
+      "textAlign": "left",
+      "textShadow": "0 10px 30px rgba(0,0,0,0.9)"
+    }
+  }
+}
+```
+
+---
+
+### 7. `Image` (Photos, Evidence & Vector Cutouts)
+Stock photographs, archival portraits, and transparent PNG cutouts.
+* **Sources**:
+  * `pexels`: High-resolution stock backgrounds and photos.
+  * `pixabay`: Stock photos, and with `"image_type": "illustration"` or `"vector"`, transparent PNG cutouts (icons, badges, diagrams).
+  * `wikipedia`: Real-world figures, historical events, corporate logos (query must be the exact entity name).
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 0,
+  "content": {
+    "type": "Image",
+    "query": "stock market trading board crash red",
+    "source": "pexels",
+    "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+  },
+  "filters": ["brightness(0.4)", "contrast(1.2)"],
+  "animations": [
+    { "property": "scale", "from": 1.0, "to": 1.12, "duration": 8.0, "easing": "linear" }
+  ]
+}
+```
+
+---
+
+### 8. `Video` (Dynamic B-Roll & Ambient Motion)
+High-energy motion footage and timelapses.
+* **Sources**: `pexels` (stock video) or `youtube` (cinematic loops/timelapses via yt-dlp).
+* **Audio Rule**: Set `"volume": 0` by default so background video never clashes with voiceover narration.
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 0,
+  "content": {
+    "type": "Video",
+    "query": "server room lights blinking timelapse",
+    "source": "pexels",
+    "volume": 0,
+    "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+  },
+  "filters": ["contrast(1.15)", "saturate(1.2)"]
+}
+```
+
+---
+
+### 9. `Map` (Geographic Context & Route Markers)
+Interactive vector maps with highlighted locations.
+* **Styles**: `"modern_dark"`, `"vintage"`, `"minimal_light"`, `"nautical_blue"`.
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 5,
+  "content": {
+    "type": "Map",
+    "map_style": "modern_dark",
+    "locations": [
+      { "name": "New Delhi", "coord": [28.6139, 77.2090] },
+      { "name": "Mumbai", "coord": [19.0760, 72.8777] }
+    ],
+    "style": { "width": "100%", "height": "100%" }
+  }
+}
+```
+
+---
+
+### 10. `HTML` (Custom SVG / CSS Fallback)
+Raw SVG or inline HTML markup for bespoke custom diagrams not covered by the standard primitives.
+* **Example**:
+```json
+{
+  "type": "Layer",
+  "z_index": 15,
+  "content": {
+    "type": "HTML",
+    "html_content": "<style>@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }</style><svg width='100%' height='100%' viewBox='0 0 400 200'><rect width='380' height='180' x='10' y='10' rx='16' fill='rgba(24,24,27,0.8)' stroke='#38bdf8' stroke-width='2'/><text x='30' y='60' fill='#f8fafc' font-family='sans-serif' font-size='20' font-weight='bold'>NETWORK NODE VERIFIED</text></svg>"
+  }
+}
+```
+
+---
+
+## 4. Subtitle Safe Areas & Layout Guidelines
+
+- **Landscape (16:9)**: Kinetic subtitles occupy the bottom 15%. Position lower-third text and midground callouts above `bottom: 18%` (or align to center/top).
+- **Portrait (9:16)**: Mobile captions occupy the bottom 25%. Position lower-third text above `bottom: 28%`.
+- **Responsive Positioning**: Use percentage coordinates (e.g. `width: "75%"`, `left: "12.5%"`, `top: "15%"`) so compositions scale smoothly across resolutions.
+- **Layer Stacking**: Place background footage/images on z-index 0–9, motion primitives (`Chart`, `Counter`, `Mockup`, `Timeline`, `Shape`) on z-index 10–29, and kinetic text callouts on z-index 30–39.
+
+
