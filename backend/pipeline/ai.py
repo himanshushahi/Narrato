@@ -218,6 +218,7 @@ LAYER_CONTENT_SCHEMA = {
         "image_url": {"type": "string", "description": "Embedded media URL (if Mockup)"},
         
         # Timeline properties
+        "orientation": {"type": "string", "enum": ["vertical", "horizontal"], "description": "Timeline layout orientation (vertical or horizontal, default vertical)"},
         "events": {
             "type": "array",
             "items": {
@@ -721,60 +722,127 @@ def repair_json_string(s):
 
     return repaired
 
-def clean_json_response(raw_response):
-    """Strips markdown backticks and attempts parsing or repairing JSON."""
-    clean_text = raw_response.strip()
-    # Strip <think>...</think> blocks from reasoning models before parsing
-    clean_text = re.sub(r'<think>.*?(?:</think>|$)', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
-    
-    match = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", clean_text, re.DOTALL | re.IGNORECASE)
-    if match:
-        clean_text = match.group(1)
-    else:
-        first_bracket = clean_text.find('[')
-        first_brace = clean_text.find('{')
-        if first_bracket != -1 and (first_brace == -1 or first_bracket < first_brace):
-            clean_text = clean_text[first_bracket:]
-        else:
-            try:
-                from backend.agent.agent_engine import _try_extract_json_objects
-                objs = _try_extract_json_objects(clean_text)
-                if objs:
-                    clean_text = objs[-1]
+def extract_outer_json_candidates(text: str):
+    """Extracts top-level (outermost) balanced {...} and [...] blocks in text."""
+    candidates = []
+    i, n = 0, len(text)
+    while i < n:
+        char = text[i]
+        if char in ('{', '['):
+            closing = '}' if char == '{' else ']'
+            depth = 0
+            start = i
+            in_str = False
+            escape = False
+            j = i
+            matched = False
+            while j < n:
+                ch = text[j]
+                if in_str:
+                    if escape:
+                        escape = False
+                    elif ch == '\\':
+                        escape = True
+                    elif ch == '"':
+                        in_str = False
                 else:
-                    if first_brace != -1:
-                        clean_text = clean_text[first_brace:]
-            except ImportError:
-                if first_brace != -1:
-                    clean_text = clean_text[first_brace:]
+                    if ch == '"':
+                        in_str = True
+                    elif ch == char:
+                        depth += 1
+                    elif ch == closing:
+                        depth -= 1
+                        if depth == 0:
+                            candidates.append(text[start:j + 1])
+                            matched = True
+                            i = j + 1
+                            break
+                j += 1
+            if not matched:
+                i += 1
+        else:
+            i += 1
+    return candidates
 
+def clean_json_response(raw_response):
+    """Strips markdown backticks, reasoning text, and attempts parsing or repairing JSON."""
+    if not isinstance(raw_response, str):
+        return raw_response
+
+    clean_text = raw_response.strip()
+    # 1. Strip <think>...</think> blocks from reasoning models before parsing
+    clean_text = re.sub(r'<think>.*?(?:</think>|$)', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
+
+    # 2. Direct JSON parse if the whole text is valid JSON
     try:
         return json.loads(clean_text)
-    except json.JSONDecodeError:
-        pass
-
-    try:
-        repaired = repair_json_string(clean_text)
-        return json.loads(repaired)
-    except Exception as e:
-        logger.warning(f"Standard JSON repair failed: {e}. Trying ast.literal_eval fallback...")
-
-    try:
-        repaired_val = repair_json_string(clean_text)
-        evaluated = ast.literal_eval(repaired_val)
-        
-        def _sanitize_sets(obj):
-            if isinstance(obj, set):
-                return list(obj)
-            elif isinstance(obj, dict):
-                return {k: _sanitize_sets(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [_sanitize_sets(v) for v in obj]
-            return obj
-            
-        return _sanitize_sets(evaluated)
     except Exception:
         pass
+
+    # 3. Check markdown code blocks: ```json ... ``` or ``` ... ```
+    code_blocks = re.findall(r"```(?:json)?\s*([\[\{].*?[\]\}])\s*```", clean_text, re.DOTALL | re.IGNORECASE)
+    for block in reversed(code_blocks):
+        block = block.strip()
+        try:
+            return json.loads(block)
+        except Exception:
+            try:
+                repaired = repair_json_string(block)
+                return json.loads(repaired)
+            except Exception:
+                pass
+
+    # 4. Outer balanced {...} and [...] structures
+    candidates = extract_outer_json_candidates(clean_text)
+    for cand in reversed(candidates):
+        try:
+            return json.loads(cand)
+        except Exception:
+            pass
+
+    # 5. Try repair_json_string on candidates
+    for cand in reversed(candidates):
+        try:
+            repaired = repair_json_string(cand)
+            return json.loads(repaired)
+        except Exception:
+            pass
+
+    # 6. Try ast.literal_eval on candidates
+    def _sanitize_sets(obj):
+        if isinstance(obj, set):
+            return list(obj)
+        elif isinstance(obj, dict):
+            return {k: _sanitize_sets(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [_sanitize_sets(v) for v in obj]
+        return obj
+
+    for cand in reversed(candidates):
+        try:
+            repaired_val = repair_json_string(cand)
+            evaluated = ast.literal_eval(repaired_val)
+            return _sanitize_sets(evaluated)
+        except Exception:
+            pass
+
+    # 7. Truncated tail recovery: scan from each '{' and '[' position
+    start_indices = [m.start() for m in re.finditer(r'[\{\[]', clean_text)]
+    for idx in start_indices:
+        tail_text = clean_text[idx:]
+        try:
+            repaired = repair_json_string(tail_text)
+            parsed = json.loads(repaired)
+            if isinstance(parsed, (dict, list)) and parsed:
+                return parsed
+        except Exception:
+            try:
+                evaluated = ast.literal_eval(repair_json_string(tail_text))
+                parsed = _sanitize_sets(evaluated)
+                if isinstance(parsed, (dict, list)) and parsed:
+                    return parsed
+            except Exception:
+                pass
 
     logger.error(f"Failed all JSON parsing attempts. Raw response length: {len(raw_response)}")
     logger.error(f"Raw response preview (first 500 chars):\n{raw_response[:500]}")
@@ -937,9 +1005,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
     # to reasoning and content_len=0. Boost to 16384 so there's headroom for both
     # reasoning AND the actual JSON output.
     model_lower = model.lower()
-    is_reasoning_model = forced_think or any(tag in model_lower for tag in ("deepseek", "r1", "qwq", "reasoning", "think"))
-    if is_reasoning_model and max_tokens <= 8192:
-        logger.info(f"Reasoning model/CoT detected. Boosting max_tokens {max_tokens} -> 16384 to allow room for reasoning + content.")
+    is_reasoning_model = forced_think or "<think>" in system_prompt or any(tag in model_lower for tag in ("deepseek", "r1", "qwq", "reasoning", "think", "auto", "nemotron", "llama"))
+    if (is_reasoning_model or max_tokens <= 4096) and max_tokens < 16384:
+        logger.info(f"Reasoning model/CoT or low token budget detected. Boosting max_tokens {max_tokens} -> 16384 to allow room for reasoning + content.")
         max_tokens = 16384
 
     # Check response cache for deterministic prompts (same params + same prompt).

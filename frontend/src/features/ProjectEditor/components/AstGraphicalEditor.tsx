@@ -423,32 +423,63 @@ export const AstGraphicalEditor = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
+                {content.animation_mode === 'marker_highlight' && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Highlight Words (comma separated)</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
+                      value={Array.isArray(content.highlight_words) ? content.highlight_words.join(', ') : ''}
+                      onChange={e => {
+                        const words = e.target.value.split(',').map((w: string) => w.trim()).filter(Boolean);
+                        updateContent(idx, 'highlight_words', words);
+                      }}
+                      placeholder="e.g. 240 MILLION DOLLARS, DISAPPEAR"
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-2">
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Font</label>
                     <input
                       type="text"
-                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 placeholder-stone-600 font-mono truncate"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 placeholder-stone-600 font-mono truncate"
                       value={content.font || ''}
                       onChange={e => updateContent(idx, 'font', e.target.value)}
-                      placeholder="Inter, Oswald..."
+                      placeholder="Inter"
                     />
                   </div>
                   <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Weight</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-1.5 py-1 focus:outline-none cursor-pointer"
+                      value={content.weight || '700'}
+                      onChange={e => updateContent(idx, 'weight', e.target.value)}
+                    >
+                      <option value="400">400 (Regular)</option>
+                      <option value="500">500 (Medium)</option>
+                      <option value="600">600 (SemiBold)</option>
+                      <option value="700">700 (Bold)</option>
+                      <option value="800">800 (ExtraBold)</option>
+                      <option value="900">900 (Black)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Color</label>
-                    <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50 min-w-0">
+                    <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-md px-1.5 py-1 focus-within:border-amber-500/50 min-w-0">
                       <input
                         type="color"
                         value={content.color?.startsWith('#') && content.color.length === 7 ? content.color : '#ffffff'}
                         onChange={e => updateContent(idx, 'color', e.target.value)}
-                        className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                        className="w-3.5 h-3.5 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
                       />
                       <input
                         type="text"
-                        className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono min-w-0"
+                        className="w-full bg-transparent text-[11px] text-stone-200 focus:outline-none font-mono min-w-0"
                         value={content.color || ''}
                         onChange={e => updateContent(idx, 'color', e.target.value)}
-                        placeholder="#ffffff"
+                        placeholder="#fff"
                       />
                     </div>
                   </div>
@@ -463,12 +494,13 @@ export const AstGraphicalEditor = ({
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Chart Type</label>
                     <select
-                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
                       value={content.chart_type || 'bar'}
                       onChange={e => updateContent(idx, 'chart_type', e.target.value)}
                     >
                       <option value="bar">Bar Chart</option>
                       <option value="line">Line Graph</option>
+                      <option value="pie">Pie Chart</option>
                       <option value="donut">Donut Chart</option>
                       <option value="progress">Progress Bars</option>
                     </select>
@@ -513,7 +545,7 @@ export const AstGraphicalEditor = ({
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Prefix</label>
                     <input
@@ -543,6 +575,24 @@ export const AstGraphicalEditor = ({
                       onChange={e => updateContent(idx, 'decimals', parseInt(e.target.value) || 0)}
                       placeholder="0"
                     />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Color</label>
+                    <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-md px-1.5 py-1 focus-within:border-amber-500/50 min-w-0">
+                      <input
+                        type="color"
+                        value={content.color?.startsWith('#') && content.color.length === 7 ? content.color : '#f59e0b'}
+                        onChange={e => updateContent(idx, 'color', e.target.value)}
+                        className="w-3.5 h-3.5 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                      />
+                      <input
+                        type="text"
+                        className="w-full bg-transparent text-[11px] text-stone-200 focus:outline-none font-mono min-w-0"
+                        value={content.color || ''}
+                        onChange={e => updateContent(idx, 'color', e.target.value)}
+                        placeholder="#f59"
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-1 min-w-0">
@@ -606,6 +656,28 @@ export const AstGraphicalEditor = ({
                     />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Badge / Stamp</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none font-mono uppercase"
+                      value={content.badge || ''}
+                      onChange={e => updateContent(idx, 'badge', e.target.value)}
+                      placeholder="CONFIDENTIAL"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Date / Time</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.date || ''}
+                      onChange={e => updateContent(idx, 'date', e.target.value)}
+                      placeholder="Oct 24, 2023"
+                    />
+                  </div>
+                </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Body / Description</label>
                   <textarea
@@ -621,15 +693,28 @@ export const AstGraphicalEditor = ({
             {/* Dynamic Content Fields for Timeline */}
             {cType === 'Timeline' && (
               <div className="space-y-2.5">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Timeline Title</label>
-                  <input
-                    type="text"
-                    className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
-                    value={content.title || ''}
-                    onChange={e => updateContent(idx, 'title', e.target.value)}
-                    placeholder="Key Milestones"
-                  />
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Timeline Title</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
+                      value={content.title || ''}
+                      onChange={e => updateContent(idx, 'title', e.target.value)}
+                      placeholder="Key Milestones"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Orientation</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      value={content.orientation || 'vertical'}
+                      onChange={e => updateContent(idx, 'orientation', e.target.value)}
+                    >
+                      <option value="vertical">Vertical</option>
+                      <option value="horizontal">Horizontal</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="w-full">
                   <MiniJsonEditor label="Events Array [{year_or_date, title, description}]" value={content.events || []} onChange={val => updateContent(idx, 'events', val)} />
@@ -668,6 +753,33 @@ export const AstGraphicalEditor = ({
                     />
                   </div>
                 </div>
+
+                {(content.shape_type === 'star' || content.shape_type === 'polygon') && (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1 min-w-0">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Points / Sides</label>
+                      <input
+                        type="number"
+                        className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                        value={content.points ?? 5}
+                        onChange={e => updateContent(idx, 'points', parseInt(e.target.value) || 5)}
+                        placeholder="5"
+                      />
+                    </div>
+                    {content.shape_type === 'star' && (
+                      <div className="space-y-1 min-w-0">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Inner Radius</label>
+                        <input
+                          type="number"
+                          className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                          value={content.inner_radius ?? 25}
+                          onChange={e => updateContent(idx, 'inner_radius', parseFloat(e.target.value) || 25)}
+                          placeholder="25"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1 min-w-0">

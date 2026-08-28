@@ -647,3 +647,54 @@ def test_declarative_ast_skill_has_z_index_and_chapter_guidelines():
     assert "Chapter Guidelines" in skill.content
 
 
+# ---------------------------------------------------------------------------
+# Robust JSON Parsing & Reasoning Extraction Tests
+# ---------------------------------------------------------------------------
+
+
+def test_clean_json_response_with_timestamps_and_reasoning():
+    """clean_json_response must ignore timestamp brackets in reasoning text."""
+    from backend.pipeline.ai import clean_json_response
+
+    sample = """We are given a narration with timestamps: hair-thin [0.5s] optical [1.2s] fibers [1.8s] carry [2.2s] data.
+We need to fill this with visuals.
+{
+  "sub_visuals": [
+    {"duration": 13.79, "composition": {"type": "Sequence", "children": []}}
+  ]
+}"""
+    result = clean_json_response(sample)
+    assert isinstance(result, dict)
+    assert "sub_visuals" in result
+    assert result["sub_visuals"][0]["duration"] == 13.79
+
+
+def test_clean_json_response_strips_think_tags():
+    """clean_json_response must strip <think>...</think> blocks."""
+    from backend.pipeline.ai import clean_json_response
+
+    sample = """<think>
+Let's analyze [0.5s] to [2.0s].
+Inner dict: {"dummy": true}
+</think>
+{
+  "sub_visuals": [{"duration": 10.0}]
+}"""
+    result = clean_json_response(sample)
+    assert result["sub_visuals"][0]["duration"] == 10.0
+
+
+def test_clean_json_response_recovers_truncated():
+    """clean_json_response must repair truncated JSON."""
+    from backend.pipeline.ai import clean_json_response
+
+    sample = """Here is the JSON:
+{
+  "sub_visuals": [
+    {"duration": 5.0, "composition": {"type": "Sequence"
+"""
+    result = clean_json_response(sample)
+    assert result["sub_visuals"][0]["duration"] == 5.0
+
+
+
