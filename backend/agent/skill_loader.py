@@ -13,17 +13,35 @@ class Skill:
         self.content = content
         self.file_path = file_path
         self.content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+        self._mtime = Path(file_path).stat().st_mtime if file_path and Path(file_path).exists() else 0
         
     def __repr__(self):
         return f"<Skill {self.name} v{self.version}>"
 
+    def render(self, **context) -> str:
+        """Renders skill markdown with dynamic template variables (e.g. {video_format}, {language}).
+        
+        Uses safe identifier substitution so JSON schema examples with braces like
+        `{"type": "Sequence"}` inside skill markdown are preserved without escaping errors.
+        """
+        rendered = self.content
+        for key, val in context.items():
+            if val is not None:
+                rendered = rendered.replace(f"{{{key}}}", str(val))
+            else:
+                rendered = rendered.replace(f"{{{key}}}", "")
+        return rendered
+
 class SkillLoader:
-    def __init__(self):
+    def __init__(self, skills_dirs: list = None):
         # In development skills live in the workspace; in a frozen build they are
         # bundled read-only under BUNDLE_DIR (_MEIPASS). Prefer the workspace copy
         # (editable) and fall back to the bundle.
-        candidates = [get_workspace_dir() / "backend" / "skills", BUNDLE_DIR / "backend" / "skills"]
-        self.skills_dirs = [d for d in candidates if d.exists()]
+        if skills_dirs is not None:
+            self.skills_dirs = [Path(d) for d in skills_dirs if Path(d).exists()]
+        else:
+            candidates = [get_workspace_dir() / "backend" / "skills", BUNDLE_DIR / "backend" / "skills"]
+            self.skills_dirs = [d for d in candidates if d.exists()]
         self._skills_cache = {}
         self._load_all_skills()
         
@@ -34,8 +52,13 @@ class SkillLoader:
         so iterate bundle first, workspace second.
         """
         if not self.skills_dirs:
-            get_workspace_dir().joinpath("backend", "skills").mkdir(parents=True, exist_ok=True)
-            return
+            candidates = [get_workspace_dir() / "backend" / "skills", BUNDLE_DIR / "backend" / "skills"]
+            self.skills_dirs = [d for d in candidates if d.exists()]
+            if not self.skills_dirs:
+                get_workspace_dir().joinpath("backend", "skills").mkdir(parents=True, exist_ok=True)
+                self.skills_dirs = [d for d in candidates if d.exists()]
+                if not self.skills_dirs:
+                    return
 
         for skills_dir in reversed(self.skills_dirs):
             for skill_folder in skills_dir.iterdir():
@@ -43,6 +66,11 @@ class SkillLoader:
                     skill_file = skill_folder / "SKILL.md"
                     if skill_file.exists():
                         self._parse_and_load(skill_file)
+
+    def reload_skills(self):
+        """Forces a full reload of all skills from disk."""
+        self._skills_cache.clear()
+        self._load_all_skills()
 
     def _parse_and_load(self, file_path: Path):
         try:
@@ -62,6 +90,8 @@ class SkillLoader:
                     
                     skill = Skill(name, version, when_to_use, body, str(file_path))
                     self._skills_cache[name] = skill
+                    if file_path.parent.name != name:
+                        self._skills_cache[file_path.parent.name] = skill
                     logger.debug(f"Loaded skill: {name} (v{version})")
                     return
             
@@ -75,7 +105,7 @@ class SkillLoader:
             logger.error(f"Failed to parse skill at {file_path}: {e}")
             
     def get_skill(self, name: str, context: str = "preload") -> Skill:
-        """Retrieves a skill by name. Reloads from disk if modified.
+        """Retrieves a skill by name. Checks for on-disk file modifications.
 
         context: 'preload' (default) when the skill is read to assemble a
         system prompt before any LLM execution; 'tool' when the skill was
@@ -83,6 +113,18 @@ class SkillLoader:
         visible in the activity feed.
         """
         skill = self._skills_cache.get(name)
+
+        # Check if modified on disk and reload if needed
+        if skill and skill.file_path:
+            p = Path(skill.file_path)
+            if p.exists() and p.stat().st_mtime > skill._mtime:
+                self._parse_and_load(p)
+                skill = self._skills_cache.get(name)
+
+        if not skill:
+            # Check if a new folder was added since startup
+            self._load_all_skills()
+            skill = self._skills_cache.get(name)
 
         from backend.agent.telemetry import emit_activity
         if skill:
@@ -94,6 +136,14 @@ class SkillLoader:
                           args={"version": None, "scope": context})
         return skill
 
+    def render_skill(self, name: str, **context) -> str:
+        """Loads a skill and renders its markdown content with the provided context dictionary."""
+        skill = self.get_skill(name)
+        if not skill:
+            logger.warning(f"Skill '{name}' not found for rendering.")
+            return ""
+        return skill.render(**context)
+
     def get_all_skills(self) -> dict:
         """Returns the dictionary of all loaded skills."""
         return self._skills_cache
@@ -101,3 +151,4 @@ class SkillLoader:
 
 # Singleton instance
 skill_loader = SkillLoader()
+

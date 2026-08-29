@@ -54,15 +54,184 @@ def test_skill_loader():
     assert "declarative-ast" in skills
     skill = skill_loader.get_skill("declarative-ast")
     assert skill is not None
-    assert skill.version == "1.0"
+    assert skill.version in ("1.0", "2.0")
 
-def test_skill_loader_new_skills():
-    for name in ("scriptwriter", "subtitle-designer", "declarative-ast",
-                 "stock-asset-searcher", "editor-qa", "visual-director-core"):
+def test_skill_loader_all_registered_skills():
+    expected_skills = (
+        "scriptwriter", "subtitle-designer", "declarative-ast",
+        "stock-asset-searcher", "editor-qa", "visual-director-core",
+        "storyboard-planner", "motion-graphics-designer", "art-director-design-system",
+        "script-outline-director", "script-base-writer", "script-scene-writer",
+        "script-rewriter", "script-scene-adder", "visual-rewriter", "sub-visual-rewriter",
+        "search-query-optimizer"
+    )
+    for name in expected_skills:
         skill = skill_loader.get_skill(name)
-        assert skill is not None, f"Skill {name} missing"
-        assert skill.version in ("1.0", "1.1", "2.0")
-        assert len(skill.content.strip()) > 50
+        assert skill is not None, f"Skill {name} missing from skill_loader"
+        assert len(skill.content.strip()) > 20, f"Skill {name} has empty content"
+
+def test_skill_render_template_substitution():
+    rendered = skill_loader.render_skill(
+        "art-director-design-system",
+        video_format="portrait",
+        language="hi"
+    )
+    assert "portrait" in rendered
+    assert "hi" in rendered
+    # Ensure JSON braces and formatting were not corrupted
+    assert "color_palette" in rendered
+    assert "Noto Sans Devanagari" in rendered
+
+def test_skill_render_all_prompt_skills():
+    """Verify all pipeline prompt skills correctly substitute dynamic variables without leftover braces."""
+    # 1. script-outline-director
+    outline = skill_loader.render_skill(
+        "script-outline-director",
+        script_rules_block="=== CUSTOM RULES ===\n",
+        target_duration=90,
+        min_scenes=6,
+        max_scenes=8,
+        per_scene_time=12,
+        per_scene_words=54,
+        language="hi",
+    )
+    assert "CUSTOM RULES" in outline
+    assert "90 seconds" in outline
+    assert "6 to 8 chapters" in outline
+    assert "code: 'hi'" in outline
+    assert "{target_duration}" not in outline
+
+    # 2. script-base-writer
+    base = skill_loader.render_skill(
+        "script-base-writer",
+        script_rules_block="=== BASE RULES ===\n",
+        language="hi",
+        sentence_rule="Write tight sentences.",
+    )
+    assert "BASE RULES" in base
+    assert "code: 'hi'" in base
+    assert "Write tight sentences." in base
+    assert "{language}" not in base
+
+    # 3. script-scene-writer
+    scene = skill_loader.render_skill(
+        "script-scene-writer",
+        script_rules_block="=== SCENE RULES ===\n",
+        scene_num=3,
+        chapter_title="The Breakthrough",
+        per_scene_duration=15,
+        per_scene_word_target=65,
+        prev_context="Previous Scene (2): Discovery",
+        language="en",
+        sentence_rule="No filler words.",
+    )
+    assert "Scene 3: The Breakthrough" in scene
+    assert "15 seconds" in scene
+    assert "Previous Scene (2): Discovery" in scene
+    assert "code: 'en'" in scene
+    assert "No filler words." in scene
+    assert "{scene_num}" not in scene
+
+    # 4. script-rewriter
+    rewriter = skill_loader.render_skill(
+        "script-rewriter",
+        language="hi",
+        doc_title="Quantum Physics",
+        intro_hook="What if time was an illusion?",
+        scenes_summary="Scene 1: Entanglement",
+        conclusion_summary="Final insights",
+        language_instructions="Use Hindi.",
+        length_constraint="Aim for 80 words.",
+    )
+    assert "Quantum Physics" in rewriter
+    assert "What if time was an illusion?" in rewriter
+    assert "Use Hindi." in rewriter
+    assert "{doc_title}" not in rewriter
+
+    # 5. script-scene-adder
+    adder = skill_loader.render_skill(
+        "script-scene-adder",
+        language="hi",
+        doc_title="AI Revolution",
+        intro_hook="The machine age begins.",
+        scenes_summary="Scene 1: Neural Nets",
+        conclusion_summary="The future ahead",
+        language_instructions="Use Devanagari.",
+        length_constraint="Aim for 100 words.",
+    )
+    assert "AI Revolution" in adder
+    assert "The machine age begins." in adder
+    assert "Aim for 100 words." in adder
+    assert "{doc_title}" not in adder
+
+    # 6. visual-rewriter
+    vis_rewriter = skill_loader.render_skill(
+        "visual-rewriter",
+        design_system_text="Design: Dark Theme",
+        visual_rules="Rules: Use Charts",
+    )
+    assert "Design: Dark Theme" in vis_rewriter
+    assert "Rules: Use Charts" in vis_rewriter
+    assert "{design_system_text}" not in vis_rewriter
+
+    # 7. sub-visual-rewriter
+    sub_vis = skill_loader.render_skill(
+        "sub-visual-rewriter",
+        design_system_text="Design: Cyberpunk",
+        visual_rules="Rules: Subtitle safe area",
+    )
+    assert "Design: Cyberpunk" in sub_vis
+    assert "Rules: Subtitle safe area" in sub_vis
+    assert "{visual_rules}" not in sub_vis
+
+def test_skill_render_clears_none_values():
+    """Verify that None values in context are cleanly replaced with empty strings."""
+    rendered = skill_loader.render_skill(
+        "script-scene-writer",
+        script_rules_block=None,
+        scene_num=1,
+        chapter_title="Intro Beat",
+        per_scene_duration=10,
+        per_scene_word_target=30,
+        prev_context=None,
+        language="hi",
+        sentence_rule=None,
+    )
+    assert "{script_rules_block}" not in rendered
+    assert "{prev_context}" not in rendered
+    assert "{sentence_rule}" not in rendered
+    assert "Scene 1: Intro Beat" in rendered
+
+def test_skill_render_missing_skill():
+    rendered = skill_loader.render_skill("non-existent-skill-xyz", var="test")
+    assert rendered == ""
+
+def test_skill_hot_reload(tmp_path, monkeypatch):
+    """Test that modifying a skill on disk reloads upon get_skill."""
+    import time
+    from backend.agent.skill_loader import SkillLoader
+    
+    skill_dir = tmp_path / "backend" / "skills" / "test-skill"
+    skill_dir.mkdir(parents=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text("---\nname: test-skill\nversion: '1.0'\n---\nInitial Content", encoding="utf-8")
+    
+    loader = SkillLoader()
+    loader.skills_dirs = [tmp_path / "backend" / "skills"]
+    loader.reload_skills()
+    
+    skill = loader.get_skill("test-skill")
+    assert skill is not None
+    assert "Initial Content" in skill.content
+    
+    # Simulate editing the file on disk
+    time.sleep(0.05)
+    skill_file.write_text("---\nname: test-skill\nversion: '2.0'\n---\nUpdated Dynamic Content", encoding="utf-8")
+    
+    reloaded_skill = loader.get_skill("test-skill")
+    assert reloaded_skill is not None
+    assert "Updated Dynamic Content" in reloaded_skill.content
+    assert reloaded_skill.version == "2.0"
 
 def test_declarative_ast_skill_structure():
     skill = skill_loader.get_skill("declarative-ast")

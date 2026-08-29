@@ -930,29 +930,10 @@ class ApiBridge:
         )
         intro_hook = full_script.get("introduction", {}).get("hook", "")[:200]
         conclusion_summary = full_script.get("conclusion", {}).get("summary", "")[:200]
-        system_prompt = (
-            "You are an expert AI scriptwriter with deep knowledge of video production and narrative structure. You will receive a script segment and a rewrite prompt explaining exactly how to modify it.\n\n"
-            "CRITICAL CORE REQUIREMENTS:\n"
-            "1. MAINTAIN NARRATIVE CONSISTENCY: You MUST preserve the video's core message and tone while making specific changes requested.\n"
-            f"2. LANGUAGE PRECISION: NEVER use English transliterations. Write in the target language ({language}) - for Hindi use Devanagari script (हिंदी), for English use English. NO English words in Hindi sections.\n"
-            "3. STRUCTURE CONSISTENCY: Return ONLY valid JSON matching the provided schema exactly.\n"
-            "4. ANTI-HALLUCINATION: Do NOT invent facts, dates, names, or data you don't have evidence for. Only use verifiable information.\n"
-            "5. LENGTH AWARENESS: Match the speaking duration (roughly 180-220 words per minute).\n"
-            "6. TTS-FRIENDLY WRITING: Write numbers as words (\"forty-two\" NOT \"42\"), avoid abbreviations (\"for example\" NOT \"e.g.\"), use short clear sentences, avoid special characters (& @ ©), write dates in full, use commas/periods for pauses.\n\n"
-            "HERE IS THE COMPLETE SCRIPT CONTEXT:\n"
-            f"Video Title: {full_script.get('title', 'Untitled')}\n"
-            f"Introduction Hook: {intro_hook}\n"
-            f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
-            f"Conclusion: {conclusion_summary}\n\n"
-            "CONTEXTUAL CONSTRAINTS:\n"
-            "- This is part of a multi-scene YouTube video with specific duration targets.\n"
-            "- Narration should sound natural when spoken aloud, with proper rhythm and pacing.\n"
-            "- Every sentence must be factual, specific, and verifiable.\n"
-            "- Avoid generic phrases, clichés, and vague statements.\n"
-            "- Each scene should have a unique, memorable angle on the topic.\n\n"
-        )
+        doc_title = full_script.get('title', 'Untitled')
+        lang_instr = ""
         if language != "en":
-            system_prompt += (
+            lang_instr = (
                 f"LANGUAGE SPELLING RULE:\n"
                 f"- The rewritten narration MUST be written in language code '{language}'.\n"
                 f"- This means for '{language}', you MUST use the {'Devanagari script' if language == 'hi' else 'standard'} script.\n"
@@ -964,7 +945,54 @@ class ApiBridge:
                 "- Match the linguistic style and complexity expected by native speakers\n\n"
             )
         else:
-            system_prompt += "LANGUAGE RULE:\n- The rewritten narration MUST be written in English.\n\n"
+            lang_instr = "LANGUAGE RULE:\n- The rewritten narration MUST be written in English.\n\n"
+
+        length_constraint = ""
+        if section_type not in ("introduction", "conclusion"):
+            lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
+            avg_len = max(20, sum(lengths) // len(lengths)) if lengths else 80
+            length_constraint = (
+                f"LENGTH CONSTRAINT:\n"
+                f"- Aim for approximately {avg_len} words in the rewritten narration.\n"
+                f"- This equals {avg_len * 60 / 180:.1f} to {avg_len * 60 / 150:.1f} seconds of spoken audio (150-180 WPM).\n"
+                f"- Match the pacing and content density of surrounding scenes.\n\n"
+            )
+
+        from backend.agent.skill_loader import skill_loader
+        system_prompt = skill_loader.render_skill(
+            "script-rewriter",
+            language=language,
+            doc_title=doc_title,
+            intro_hook=intro_hook,
+            scenes_summary=scenes_summary if scenes_summary else '  (none yet)',
+            conclusion_summary=conclusion_summary,
+            language_instructions=lang_instr,
+            length_constraint=length_constraint,
+        )
+        if not system_prompt:
+            system_prompt = (
+                "You are an expert AI scriptwriter with deep knowledge of video production and narrative structure. You will receive a script segment and a rewrite prompt explaining exactly how to modify it.\n\n"
+                "CRITICAL CORE REQUIREMENTS:\n"
+                "1. MAINTAIN NARRATIVE CONSISTENCY: You MUST preserve the video's core message and tone while making specific changes requested.\n"
+                f"2. LANGUAGE PRECISION: NEVER use English transliterations. Write in the target language ({language}) - for Hindi use Devanagari script (हिंदी), for English use English. NO English words in Hindi sections.\n"
+                "3. STRUCTURE CONSISTENCY: Return ONLY valid JSON matching the provided schema exactly.\n"
+                "4. ANTI-HALLUCINATION: Do NOT invent facts, dates, names, or data you don't have evidence for. Only use verifiable information.\n"
+                "5. LENGTH AWARENESS: Match the speaking duration (roughly 180-220 words per minute).\n"
+                "6. TTS-FRIENDLY WRITING: Write numbers as words (\"forty-two\" NOT \"42\"), avoid abbreviations (\"for example\" NOT \"e.g.\"), use short clear sentences, avoid special characters (& @ ©), write dates in full, use commas/periods for pauses.\n\n"
+                "HERE IS THE COMPLETE SCRIPT CONTEXT:\n"
+                f"Video Title: {doc_title}\n"
+                f"Introduction Hook: {intro_hook}\n"
+                f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
+                f"Conclusion: {conclusion_summary}\n\n"
+                "CONTEXTUAL CONSTRAINTS:\n"
+                "- This is part of a multi-scene YouTube video with specific duration targets.\n"
+                "- Narration should sound natural when spoken aloud, with proper rhythm and pacing.\n"
+                "- Every sentence must be factual, specific, and verifiable.\n"
+                "- Avoid generic phrases, clichés, and vague statements.\n"
+                "- Each scene should have a unique, memorable angle on the topic.\n\n"
+                f"{lang_instr}"
+                f"{length_constraint}"
+            )
 
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
@@ -979,15 +1007,6 @@ class ApiBridge:
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
             prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }"
             schema = SCRIPT_SCENE_JSON_SCHEMA
-
-        # Calculate appropriate length based on existing content
-        if section_type not in ("introduction", "conclusion"):
-            lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
-            avg_len = max(20, sum(lengths) // len(lengths)) if lengths else 80
-            system_prompt += f"LENGTH CONSTRAINT:\n"
-            system_prompt += f"- Aim for approximately {avg_len} words in the rewritten narration.\n"
-            system_prompt += f"- This equals {avg_len * 60 / 180:.1f} to {avg_len * 60 / 150:.1f} seconds of spoken audio (150-180 WPM).\n"
-            system_prompt += f"- Match the pacing and content density of surrounding scenes.\n\n"
 
         content_is_empty = False
         if section_type == "introduction":
@@ -1044,19 +1063,26 @@ class ApiBridge:
         visual_rules = get_shared_visual_rules(video_format, language)
         design_system_text = _get_design_system_prompt(project_id)
 
-        system_prompt = (
-            "You are an expert AI Visual Director. You will receive a script segment (narration) "
-            "and a prompt explaining how to modify or rewrite its visuals. "
-            "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
-            "Return ONLY valid JSON matching the provided schema. No markdown backticks.\n\n"
-            f"{design_system_text}\n"
-            "CRITICAL RULES:\n"
-            "- COUNT: Generate as many sub-visuals as needed (usually one per visual beat, each lasting 2-15 seconds).\n"
-            "- DURATION: The sum of 'duration' for all sub-visuals MUST exactly equal the target duration.\n"
-            "- IMPORTANT: Every sub_visual must have a 'composition' object (AST format) and a 'duration' (in seconds).\n"
-            "- 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.\n\n"
-            f"{visual_rules}\n"
+        from backend.agent.skill_loader import skill_loader
+        system_prompt = skill_loader.render_skill(
+            "visual-rewriter",
+            design_system_text=design_system_text,
+            visual_rules=visual_rules,
         )
+        if not system_prompt:
+            system_prompt = (
+                "You are an expert AI Visual Director. You will receive a script segment (narration) "
+                "and a prompt explaining how to modify or rewrite its visuals. "
+                "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
+                "Return ONLY valid JSON matching the provided schema. No markdown backticks.\n\n"
+                f"{design_system_text}\n"
+                "CRITICAL RULES:\n"
+                "- COUNT: Generate as many sub-visuals as needed (usually one per visual beat, each lasting 2-15 seconds).\n"
+                "- DURATION: The sum of 'duration' for all sub-visuals MUST exactly equal the target duration.\n"
+                "- IMPORTANT: Every sub_visual must have a 'composition' object (AST format) and a 'duration' (in seconds).\n"
+                "- 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.\n\n"
+                f"{visual_rules}\n"
+            )
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
         elif section_type == "conclusion":
@@ -1128,18 +1154,25 @@ class ApiBridge:
         visual_rules = get_shared_visual_rules(video_format, language)
         design_system_text = _get_design_system_prompt(project_id)
 
-        system_prompt = (
-            "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
-            "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
-            "Your task is to rewrite this single sub-visual based strictly on the user's request. "
-            "You may change any field including 'composition' if the user's request warrants it. "
-            "Do NOT change the narration.\n"
-            "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
-            f"{design_system_text}\n"
-            "The sub_visual has: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": float }\n"
-            "- 🚫 NO CHAPTER TITLE BADGES: Do NOT place static chapter title badges or temporary header pills inside sub_visual cuts. Root overlays manage continuous chapter branding.\n\n"
-            f"{visual_rules}\n"
+        from backend.agent.skill_loader import skill_loader
+        system_prompt = skill_loader.render_skill(
+            "sub-visual-rewriter",
+            design_system_text=design_system_text,
+            visual_rules=visual_rules,
         )
+        if not system_prompt:
+            system_prompt = (
+                "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
+                "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
+                "Your task is to rewrite this single sub-visual based strictly on the user's request. "
+                "You may change any field including 'composition' if the user's request warrants it. "
+                "Do NOT change the narration.\n"
+                "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
+                f"{design_system_text}\n"
+                "The sub_visual has: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": float }\n"
+                "- 🚫 NO CHAPTER TITLE BADGES: Do NOT place static chapter title badges or temporary header pills inside sub_visual cuts. Root overlays manage continuous chapter branding.\n\n"
+                f"{visual_rules}\n"
+            )
         if section_type == "introduction":
             section = full_script.get("introduction", {})
         elif section_type == "conclusion":
@@ -1203,40 +1236,58 @@ class ApiBridge:
         conclusion_summary = full_script.get("conclusion", {}).get("summary", "")[:200]
         scene_lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
         avg_scene_words = max(20, sum(scene_lengths) // len(scene_lengths)) if scene_lengths else 80
-        system_prompt = (
-            "You are an expert video scriptwriter. Your task is to create a BRAND NEW scene "
-            "to insert into an existing video script. The new scene must fit naturally into the "
-            "narrative flow, maintaining consistent tone, style, and pacing with the surrounding content.\n\n"
-            "HERE IS THE FULL SCRIPT CONTEXT:\n"
-            f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
-            f"Introduction Hook: \"{intro_hook}\"\n"
-            f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
-            f"Conclusion: \"{conclusion_summary}\"\n\n"
-            "IMPORTANT: You are generating ONLY the script/narration for this scene. "
-            "Do NOT generate visual cues or a sub_visuals array. The visual team will add visuals later based on your narration.\n\n"
-            "CRITICAL — NARRATION RULES:\n"
-            "- The `narration` field is the spoken voiceover. It MUST be a non-empty string.\n"
-            "- Do NOT skip narration. Do NOT leave it blank or null.\n"
-            "- Never repeat the video title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
-            f"- LENGTH: Aim for approximately {avg_scene_words} words — match the pacing of the surrounding scenes.\n\n"
-            "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
-            "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }\n"
-        )
+        doc_title = full_script.get("title", "Untitled")
+
+        lang_instr = ""
         if language != "en":
-            system_prompt += (
+            lang_instr = (
                 f"LANGUAGE: The narration MUST be written in language code '{language}'.\n"
                 f"For example, if the language is Hindi ('hi'), you MUST use the Devanagari script (हिंदी). "
                 f"Do NOT use English alphabet transliterations.\n\n"
             )
         else:
-            system_prompt += "LANGUAGE: The narration text MUST be written in English.\n\n"
+            lang_instr = "LANGUAGE: The narration text MUST be written in English.\n\n"
+
+        length_constraint = f"LENGTH: Aim for approximately {avg_scene_words} words — match the pacing of the surrounding scenes.\n\n"
+
+        from backend.agent.skill_loader import skill_loader
+        system_prompt = skill_loader.render_skill(
+            "script-scene-adder",
+            language=language,
+            doc_title=doc_title,
+            intro_hook=intro_hook,
+            scenes_summary=scenes_summary if scenes_summary else '  (none yet)',
+            conclusion_summary=conclusion_summary,
+            language_instructions=lang_instr,
+            length_constraint=length_constraint,
+        )
+        if not system_prompt:
+            system_prompt = (
+                "You are an expert video scriptwriter. Your task is to create a BRAND NEW scene "
+                "to insert into an existing video script. The new scene must fit naturally into the "
+                "narrative flow, maintaining consistent tone, style, and pacing with the surrounding content.\n\n"
+                "HERE IS THE FULL SCRIPT CONTEXT:\n"
+                f"Video Title: \"{doc_title}\"\n"
+                f"Introduction Hook: \"{intro_hook}\"\n"
+                f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
+                f"Conclusion: \"{conclusion_summary}\"\n\n"
+                "IMPORTANT: You are generating ONLY the script/narration for this scene. "
+                "Do NOT generate visual cues or a sub_visuals array. The visual team will add visuals later based on your narration.\n\n"
+                "CRITICAL — NARRATION RULES:\n"
+                "- The `narration` field is the spoken voiceover. It MUST be a non-empty string.\n"
+                "- Do NOT skip narration. Do NOT leave it blank or null.\n"
+                "- Never repeat the video title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
+                f"- LENGTH: Aim for approximately {avg_scene_words} words — match the pacing of the surrounding scenes.\n\n"
+                "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
+                "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }\n"
+                f"{lang_instr}"
+            )
         user_content = (
             f"Generate a new scene for this video based on the following description:\n\n"
             f"{user_prompt}\n\n"
             f"Make the scene fit naturally with the existing narrative. "
             f"The scene_number will be assigned by the system, so just put 1 as a placeholder."
         )
-        doc_title = full_script.get("title", "Untitled")
         _web_ctx = _get_web_context_for_topic(f"{doc_title} - add scene: {user_prompt[:100]}", "add new scene")
         if _web_ctx:
             user_content += f"\n\n---\nIncorporate relevant facts from this web search into your new scene:\n{_web_ctx}"

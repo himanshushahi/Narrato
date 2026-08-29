@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 from backend.pipeline.web_search import search_and_format
+from backend.agent.skill_loader import skill_loader
 from backend.core.logger import logger
 
 logger = logging.getLogger(__name__)
@@ -267,13 +268,16 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "get_skill",
-                "description": "Loads a specialized skill definition: 'scriptwriter' (narration/TTS rules), 'subtitle-designer' (subtitle styling), 'stock-asset-searcher' (stock keyword rules), 'editor-qa' (guardrails for editing projects), 'visual-director-core' (visual selection rules), 'declarative-ast' (AST structure & style).",
+                "description": (
+                    "Loads a specialized skill definition for project rules and best practices. "
+                    f"Available skills: {', '.join(sorted(skill_loader.get_all_skills().keys())) if 'skill_loader' in globals() or 'skill_loader' in locals() else 'declarative-ast, visual-director-core, scriptwriter, editor-qa, subtitle-designer, stock-asset-searcher'}."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Skill name: scriptwriter, subtitle-designer, stock-asset-searcher, editor-qa, visual-director-core, declarative-ast"
+                            "description": "Skill name to load"
                         }
                     },
                     "required": ["name"]
@@ -690,11 +694,11 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             name = arguments.get("name")
             if not name:
                 return "Error: Missing skill name."
-            from backend.agent.skill_loader import skill_loader
             skill = skill_loader.get_skill(name, context="tool")
             if skill:
                 return f"--- SKILL: {name} (v{skill.version}) ---\n{skill.content}"
-            return f"Error: Skill '{name}' not found. Available: scriptwriter, subtitle-designer, stock-asset-searcher, editor-qa, visual-director-core, declarative-ast."
+            available = ", ".join(sorted(skill_loader.get_all_skills().keys()))
+            return f"Error: Skill '{name}' not found. Available skills: {available}."
 
         if tool_name == "search_pexels_photo":
             query = arguments.get("query")

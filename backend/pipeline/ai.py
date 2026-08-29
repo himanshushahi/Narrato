@@ -100,15 +100,18 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
 
     try:
         from openai import OpenAI
+        from backend.agent.skill_loader import skill_loader
         client = OpenAI(api_key=api_key, base_url=base_url.rstrip('/') if base_url else None)
 
-        system_prompt = (
-            "You generate precise English search queries for video research. "
-            "Given a video topic and section, output ONE specific search query "
-            "(max 12 words) that would find the most current, relevant information. "
-            "CRITICAL: You MUST think step-by-step and wrap your reasoning inside <think>...</think> tags. "
-            "After the closing </think> tag, output ONLY the raw query text — no explanation, no quotes, no punctuation."
-        )
+        system_prompt = skill_loader.render_skill("search-query-optimizer")
+        if not system_prompt:
+            system_prompt = (
+                "You generate precise English search queries for video research. "
+                "Given a video topic and section, output ONE specific search query "
+                "(max 12 words) that would find the most current, relevant information. "
+                "CRITICAL: You MUST think step-by-step and wrap your reasoning inside <think>...</think> tags. "
+                "After the closing </think> tag, output ONLY the raw query text — no explanation, no quotes, no punctuation."
+            )
         user_prompt = f"Section: {stage}\nTopic: {context_description}\nSearch query:"
 
         resp = client.chat.completions.create(
@@ -122,16 +125,28 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
             stream=False,
         )
 
-        query = resp.choices[0].message.content
+        query = resp.choices[0].message.content or ""
         # Strip <think>...</think> blocks from reasoning models (handling unclosed blocks)
         query = re.sub(r'<think>.*?(?:</think>|$)', '', query, flags=re.DOTALL | re.IGNORECASE)
         query = query.strip().strip('"').strip("'")
         
-        # If it still includes a "Thinking Process:" block, try to take the last line as the query
-        if "Thinking Process" in query or "Thinking:" in query:
-            lines = [line.strip() for line in query.split('\n') if line.strip()]
-            if lines:
-                query = lines[-1].strip('*').strip('"').strip("'").removeprefix("Query:").removeprefix("Search query:").strip()
+        # Extract the concise search query from multi-line reasoning output
+        lines = [line.strip() for line in query.split('\n') if line.strip()]
+        if lines:
+            disallowed_starters = ("let's", "we must", "i need", "i will", "the user", "thinking", "note:", "so we need", "first,", "here is", "we should", "this is", "count words", "we have to")
+            valid_candidates = [
+                l.strip('*').strip('"').strip("'")
+                for l in lines
+                if not any(l.strip().lower().startswith(s) for s in disallowed_starters)
+            ]
+            candidate = valid_candidates[-1] if valid_candidates else lines[-1].strip('*').strip('"').strip("'")
+            for prefix in ["Search query:", "Search Query:", "Query:", "Search:", "Here is the query:", "Result:"]:
+                if candidate.lower().startswith(prefix.lower()):
+                    candidate = candidate[len(prefix):].strip().strip('"').strip("'")
+            if candidate and len(candidate.split()) <= 15:
+                query = candidate
+            elif candidate:
+                query = " ".join(candidate.split()[:12])
 
         if query and len(query) > 3:
             logger.info(f"AI generated search query: \"{query}\" for stage '{stage}'")
@@ -493,7 +508,14 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
             logger.warning(f"Invalidating existing design.json: {e}")
             
     is_new = True
-    system_prompt = f"""You are an expert Art Director. Create a cohesive Design System for a YouTube video.
+    from backend.agent.skill_loader import skill_loader
+    system_prompt = skill_loader.render_skill(
+        "art-director-design-system",
+        video_format=video_format,
+        language=language,
+    )
+    if not system_prompt:
+        system_prompt = f"""You are an expert Art Director. Create a cohesive Design System for a YouTube video.
 The format is {video_format} (e.g. landscape means 16:9, portrait means 9:16).
 Return ONLY valid JSON matching the schema. No markdown backticks.
 
@@ -1145,7 +1167,8 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
                 # back so ```tool {...}``` blocks can be extracted and executed.
                 if cancel_event.is_set():
                     raise InterruptedError("Cancelled")
-                set_cached_response(cache_k, raw_content)
+                if raw_content and len(raw_content.strip()) > 10:
+                    set_cached_response(cache_k, raw_content)
                 _emit_llm("ok", "tool-loop turn")
                 return raw_content
 
@@ -1154,8 +1177,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
 
-            # Cache the response
-            set_cached_response(cache_k, parsed_json)
+            # Cache the response only if it is a meaningful non-empty structure
+            if parsed_json and isinstance(parsed_json, dict) and any(v for v in parsed_json.values() if v is not None and v != "" and v != []):
+                set_cached_response(cache_k, parsed_json)
 
             _emit_llm("ok")
             return parsed_json
@@ -1294,13 +1318,25 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     per_scene_time = max(5, (target_duration - 15) // max_scenes)
     per_scene_words = max(10, int(per_scene_time * speaking_rate))
 
+    from backend.agent.skill_loader import skill_loader
     scriptwriter_rules = _skill_content("scriptwriter")
     script_rules_block = f"""=== WRITING RULES ===
 {scriptwriter_rules}
 
 """ if scriptwriter_rules else ""
 
-    outline_system_prompt = f"""{script_rules_block}You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
+    outline_system_prompt = skill_loader.render_skill(
+        "script-outline-director",
+        script_rules_block=script_rules_block,
+        target_duration=target_duration,
+        min_scenes=min_scenes,
+        max_scenes=max_scenes,
+        per_scene_time=per_scene_time,
+        per_scene_words=per_scene_words,
+        language=language,
+    )
+    if not outline_system_prompt:
+        outline_system_prompt = f"""{script_rules_block}You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
 
 CRITICAL RULES:
 - Return ONLY valid JSON matching the provided schema
@@ -1358,7 +1394,15 @@ NO generic phrases, no clickbait, no assumptions or unverified claims. Be precis
     # 2. Generate Base (Intro & Conclusion)
     progress_cb(20.0, "Writing introduction & conclusion...")
     logger.info("Stage 2: Generating Intro & Conclusion...")
-    base_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in crafting compelling video intros and conclusions.
+    base_system_prompt = skill_loader.render_skill(
+        "script-base-writer",
+        script_rules_block=script_rules_block,
+        target_duration=target_duration,
+        language=language,
+        sentence_rule=sentence_rule,
+    )
+    if not base_system_prompt:
+        base_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in crafting compelling video intros and conclusions.
 
 CRITICAL INTRO REQUIREMENTS:
 - Hook MUST grab immediate attention within 5-8 seconds
@@ -1486,7 +1530,19 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
             prev_chap = chapters[idx - 1]
             prev_context = f"Previous Scene ({prev_chap.get('scene_number')}): {prev_chap.get('chapter_title')} - {prev_chap.get('scene_context')}"
 
-        scene_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
+        scene_system_prompt = skill_loader.render_skill(
+            "script-scene-writer",
+            script_rules_block=script_rules_block,
+            scene_num=scene_num,
+            chapter_title=chapter_title,
+            per_scene_duration=per_scene_duration,
+            per_scene_word_target=per_scene_word_target,
+            prev_context=prev_context,
+            language=language,
+            sentence_rule=sentence_rule,
+        )
+        if not scene_system_prompt:
+            scene_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
 
 SCENE-SPECIFIC RULES:
 - This is Scene {scene_num}: {chapter_title}
@@ -1923,8 +1979,10 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
         current_design_hash = hashlib.md5(json.dumps(design_system, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     visual_rules = get_shared_visual_rules(video_format, language)
-    visual_director = _skill_content("visual-director-core")
+    visual_director = _skill_content("visual-director-core") or _skill_content("visual-director")
     editor_qa_rules = _skill_content("editor-qa")
+    motion_designer_rules = _skill_content("motion-graphics-designer")
+
     editor_qa_block = f"""=== EDITOR QA GUARDRAILS ===
 {editor_qa_rules}
 
@@ -1933,6 +1991,11 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
     visual_director_block = f"""{visual_director}
 
 """ if visual_director else ""
+
+    motion_designer_block = f"""=== MOTION GRAPHICS STYLING & RECIPES ===
+{motion_designer_rules}
+
+""" if motion_designer_rules else ""
 
     visuals_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
 {editor_qa_block}You are an expert AI Visual Director and Motion Graphics Designer for YouTube videos.
@@ -1943,6 +2006,7 @@ DO NOT default to the lazy pattern of [Full-Screen Stock Image] → [Centered Te
 Every sub-visual should feel like a deliberate creative decision — not a slideshow.
 {design_system_text}
 {visual_director_block}
+{motion_designer_block}
 === MOTION GRAPHIC COMPOSITION GUIDELINES ===
 You MUST vary your visual primitives across sub-visuals to maintain high audience engagement:
 - Use `Chart` for statistics, comparisons, and growth trends (`chart_type: "bar" | "line" | "pie" | "donut" | "progress"`).
@@ -2099,12 +2163,15 @@ FINAL CHECK before submitting:
         # --- End Smart Preservation Logic ---
 
         # --- STAGE 1: Visual Storyboard Planning ---
+        genre = (project_dict.get('prompt') or 'documentary').upper()
+        storyboard_skill = skill_loader.get_skill("storyboard-planner")
+        storyboard_guidance = f"\n\n{storyboard_skill.content}" if storyboard_skill else ""
         plan_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
-You are an expert Visual Director. Your job is to read the narration for this scene and write a highly creative, detailed storyboard plan describing the sub-visuals needed.
-Adapt the narrative style and tone specifically to fit the "{(project_dict.get('prompt') or 'documentary').upper()}" genre.
+You are an expert Visual Director and Cinematographer. Your job is to read the narration for this scene and write a highly creative, detailed storyboard plan describing the sub-visual beats needed.
+Adapt the narrative style and tone specifically to fit the "{genre}" genre.
 Emphasize rich motion graphic primitives (Charts, Counters, Mockups, Timelines, Shapes, Kinetic Text, Footage).
 Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling (e.g. 'Beat 1: Animated bar chart showing revenue loss. Beat 2: Leaked document mockup highlighting suspicious transactions. Beat 3: Dramatic aerial b-roll video with typewriter quote callout.').
-Do not output AST JSON, just output a detailed text description of what each sub-visual should look like."""
+Do not output AST JSON, just output a detailed text description of what each sub-visual should look like.{storyboard_guidance}"""
 
         plan_user_prompt = f"Topic: {topic}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n\nWrite a storyboard plan for each sub-visual beat."
 
