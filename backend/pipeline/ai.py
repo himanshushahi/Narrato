@@ -1967,6 +1967,43 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
         except Exception as e:
             logger.warning(f"Failed to delete old design.json: {e}")
 
+    # Clean up obsolete downstream artifacts from previous script runs
+    # 1. Voiceover
+    voice_dir = project_dir / "voiceover"
+    if voice_dir.exists():
+        for f in voice_dir.iterdir():
+            if f.is_file():
+                try:
+                    f.unlink()
+                except Exception as e:
+                    logger.warning(f"Could not delete old voiceover file {f.name}: {e}")
+    merged_audio = project_dir / "voiceover.wav"
+    if merged_audio.exists():
+        try:
+            merged_audio.unlink()
+        except Exception:
+            pass
+
+    # 2. Transcription
+    trans_path = project_dir / "subtitles" / "transcription.json"
+    if trans_path.exists():
+        try:
+            trans_path.unlink()
+            logger.info("Invalidated old transcription.json on new script generation")
+        except Exception:
+            pass
+
+    # 3. Assets
+    assets_dir = project_dir / "assets"
+    if assets_dir.exists():
+        for f in assets_dir.iterdir():
+            if f.is_file() and (f.name.startswith("asset_") or f.name.startswith("preview_") or f.name == "assets_manifest.json"):
+                try:
+                    f.unlink()
+                    logger.info(f"Purged old asset file on new script generation: {f.name}")
+                except Exception as e:
+                    logger.warning(f"Could not delete old asset file {f.name}: {e}")
+
     update_project(project_dict['id'], script_path=str(script_path))
     progress_cb(100.0, "Script generation complete!")
     logger.info(f"Script generated successfully and saved to: {script_path}")
@@ -2137,34 +2174,38 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
 {editor_qa_block}You are an expert AI Visual Director and Motion Graphics Designer for YouTube videos.
 
 CORE MISSION:
-Transform narration into visually stunning, cinematic sequences. Think like a top-tier After Effects artist.
+Transform narration into visually stunning, cinematic motion graphic sequences. Think like a top-tier After Effects artist.
 DO NOT default to the lazy pattern of [Full-Screen Stock Image] → [Centered Text].
-Every sub-visual should feel like a deliberate creative decision — not a slideshow.
+Every sub-visual should feel like a deliberate creative decision with rich multi-layer depth.
 {design_system_text}
 {visual_director_block}
 {motion_designer_block}
-=== MOTION GRAPHIC COMPOSITION GUIDELINES ===
-You MUST vary your visual primitives across sub-visuals to maintain high audience engagement:
-- Use `Chart` for statistics, comparisons, and growth trends (`chart_type: "bar" | "line" | "pie" | "donut" | "progress"`).
-- Use `Counter` for monetary numbers, valuations, subscriber spikes, and metric highlights.
-- Use `Mockup` for leaked documents, tweets, news headlines, and browser evidence.
-- Use `Timeline` for milestone dates and chronological events.
-- Use `Shape` for focus callouts, directional arrows, framing elements, and animated SVG paths.
-- Use `Text` with `animation_mode: "words_stagger"` or `"typewriter"` for kinetic quotes and data callouts.
-- Use `Video` / `Image` for cinematic ambient motion and real-world reference imagery.
+=== 3-LAYER DEPTH & MOTION GRAMMAR ===
+Construct depth across 3 standardized Z-index layers on every visual beat:
+1. **Z-Index 0–9 (Atmospheric Canvas)**: Darkened background footage or vector map + continuous camera drift (`animations: [{{"property": "scale", "from": 1.0, "to": 1.06, "duration": ..., "easing": "linear"}}]`).
+2. **Z-Index 10–29 (Graphic Subject / Midground)**: Glassmorphic cards, charts (`Chart`), rolling counters (`Counter`), document mockups (`Mockup`), milestone timelines (`Timeline`), vector shapes (`Shape`), or split-screen insets + physics spring entrance (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out"}}]`).
+3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (respecting subtitle safe area: `bottom > 18%` for landscape).
 
+=== MASTER VISUAL ARCHETYPES ===
+Vary your spatial layouts across cuts using these master blueprints:
+- **Split-Screen Data HUD**: Left 45% glassmorphic chart/timeline card + Right 45% glowing media inset.
+- **Investigative Dossier**: Leaked document mockup with confidential stamp + glowing marker highlight pull-quote.
+- **Macro Metric Callout**: Dramatic background + large glass badge with rolling counter (`$0` to `$14.2B`, `99%`) + progress bar.
+- **Geographic Route / Map**: Dark vector map with city pins + glowing animated SVG trajectory path.
+- **Technical Blueprint**: Grid background + transparent vector cross-section diagram + animated pointer labels.
+- **Multi-Metric KPI Grid**: 2 top counter cards + bottom comparison/progress bar.
+- **Cinematic Atmosphere Beat**: Graded high-contrast ambient footage with continuous Ken Burns drift (when narrative calls for a breather).
 
 RULES:
 - COUNT: One sub-visual per visual beat
 - DURATION: Each 2-15 seconds, sum MUST equal scene duration
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
-- query: ALWAYS in English. Use descriptive, specific keywords for relevant results (e.g. 'programmer typing on retro computer terminal' or 'old floppy disk close up'). Avoid vague single words.
+- query: ALWAYS in English. Use descriptive, specific keywords for relevant results.
 - Text content: ALWAYS in English
-- style: USE the `style` property on layers to position them — do NOT leave everything at fullscreen defaults
-- VARIETY: Never use the same composition layout for two consecutive sub-visuals
-- VIDEO: Use `Video` type layers when motion would enhance the visual (timelapses, B-roll, ambient footage). By default, set `"volume": 0` for all Video layers unless narration specifically calls for its original sound.
+- style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers.
+- DESIGN SYSTEM: Bind `primary`, `accent`, `surface`, `glow`, and `fontFamily` from the project's design system into layer styles.
+- VIDEO: Set `"volume": 0` by default on all Video layers.
 - ONLY use the 10 valid content types: Image, Video, Text, Chart, Counter, Mockup, Timeline, Shape, Map, HTML.
-- HTML: You can generate raw inline SVG path animations, charts, or HTML UI elements using `html_content`.
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
@@ -2172,18 +2213,8 @@ Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
 
 ERROR PREVENTION:
 - Duration sum must equal exactly the provided scene duration (2 decimal places)
-- Use only valid AST structures
-- All JSON numbers as numbers, not strings
+- Use only valid AST structures with numeric durations and valid easing values ("linear", "spring", "ease-in", "ease-out", "ease-in-out")
 - All required fields present for each content type
-- content.type MUST be one of: Image, Video, Text, Chart, Counter, Mockup, Timeline, Shape, Map, HTML
-
-FINAL CHECK before submitting:
-1. Duration sum equals scene duration
-2. All search queries are English
-3. The root must contain `sub_visuals` array of objects with `composition`, `duration`
-4. No markdown — raw JSON only
-5. At least some sub-visuals use `style` for non-fullscreen positioning
-6. Composition layouts vary across sub-visuals
 
 {visual_rules}"""
 
@@ -2483,6 +2514,13 @@ Generate the sub_visuals array following the APPROVED STORYBOARD PLAN precisely.
 
     with open(script_path, "w", encoding="utf-8") as f:
         json.dump(script, f, indent=2, ensure_ascii=False)
+
+    # Reconcile disk assets with the newly generated manifest
+    try:
+        from backend.pipeline.assets import cleanup_removed_assets
+        cleanup_removed_assets(project_dict['id'], manifest)
+    except Exception as e:
+        logger.warning(f"Post visual-generation asset reconciliation failed: {e}")
 
     progress_cb(100.0, "Visual generation complete!")
     logger.info("Visual generation pipeline completed successfully.")

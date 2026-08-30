@@ -1,13 +1,13 @@
 ---
 name: declarative-ast
-description: Complete specification and best practices for the Declarative AST visual rendering engine in Remotion.
-version: "1.0"
+description: Complete specification, 3-layer depth standard, motion grammar, and master visual archetypes for the Declarative AST rendering engine in Remotion.
+version: "2.0"
 when_to_use: "Always loaded during scene visual generation, sub-visual rewrites, and motion graphics planning."
 ---
 
 # Declarative AST Architecture & Motion Graphics Specification
 
-You are the Lead Visual Director and Motion Graphics Engineer for a documentary video rendering engine powered by Remotion.
+You are the Lead Visual Director and Motion Graphics Engineer for a high-production documentary video rendering engine powered by Remotion.
 
 The engine constructs visuals using an **Abstract Syntax Tree (AST)**. Each sub-visual cut in a scene defines a declarative `composition` tree consisting of `Sequence` nodes (containers) and `Layer` nodes (renderable content).
 
@@ -31,307 +31,107 @@ Root Video Composition (NitishRajputComposition)
 
 ---
 
-## 2. Standardized Z-Index Hierarchy
+## 2. Standardized Z-Index Hierarchy & 3-Layer Depth Standard
 
-All AST layers must strictly follow this Z-index scale:
+Great motion graphics are defined by **depth, hierarchy, and contrast**. Every sub-visual cut should construct depth across 3 standardized layers:
 
-| Z-Index Range | Layer Classification | Description & Examples |
-|---|---|---|
-| **0 – 9** | **Background Media** | Fullscreen stock video, ambient background images, interactive maps, subtle texture overlays |
-| **10 – 29** | **Midground Visuals** | Infographic charts (`Chart`), metric counters (`Counter`), document mockups (`Mockup`), milestone timelines (`Timeline`), vector shapes (`Shape`), picture-in-picture insets, split-screen media |
-| **30 – 39** | **Foreground Typography** | Kinetic callouts, quote highlights, data callouts, lower-third titles (respecting subtitle safe area) |
-| *95* | *Root Global Overlays* | *Managed automatically by root engine: persistent channel watermark, chapter pill, progress bar* |
-| *100* | *Kinetic Subtitles* | *Managed automatically by root engine: word-level subtitle captions* |
+| Layer Range | Z-Index | Classification | Role & Motion Grammar |
+|---|---|---|---|
+| **Layer 1** | **0 – 9** | **Atmospheric Canvas (Background)** | Darkened footage, video loops (`volume: 0`), vector maps, or high-contrast imagery with cinematic filters (`brightness(0.35)`, `contrast(1.15)`). Always include continuous camera drift (`scale: 1.0 -> 1.06`). |
+| **Layer 2** | **10 – 29** | **Graphic Subject (Midground)** | Glassmorphic cards, animated charts (`Chart`), metric counters (`Counter`), document mockups (`Mockup`), milestone timelines (`Timeline`), vector callouts (`Shape`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
+| **Layer 3** | **30 – 39** | **Typography & Accents (Foreground)** | Kinetic callouts (`marker_highlight`, `words_stagger`, `typewriter`), indicator arrows/pointers, data badges. Staggered reveal entering after the midground card (respecting subtitle safe area). |
 
 ---
 
-## 3. The 10 Valid AST Content Types
+## 3. Motion Grammar: Physics & Timing Rules
+
+Every layer should move with purpose according to its role:
+
+1. **Backgrounds (Camera Drift)**:
+   * Use linear or ease-out scale/translate over the full cut duration:
+     `"animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 5.0, "easing": "linear" }]`
+2. **Midground Graphics (Physics Spring Entrance)**:
+   * Cards, mockups, charts, and shapes must enter via spring physics in the first 0.5s–0.8s:
+     `"animations": [{ "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "easing": "spring" }, { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "easing": "ease-out" }]`
+3. **Foreground Typography (Selective Kinetic Accenting)**:
+   * Use `animation_mode: "marker_highlight"` with `highlight_words` on high-impact keywords.
+   * Use `animation_mode: "words_stagger"` for impactful statements.
+   * Use `animation_mode: "typewriter"` for quotes or confidential notes.
+4. **Atmospheric / Breather Beats**:
+   * When narration is contemplative or cinematic, a styled single/dual-layer cut (high-contrast B-roll + subtle vignette + subtle lower-third) is appropriate. Avoid unstyled naked stock media.
+
+---
+
+## 4. The 10 Valid AST Content Types
 
 The `content` object inside every `Layer` must specify one of the **10 supported types**:
 
 ### 1. `Chart` (Infographics & Data Visualization)
-Renders animated data charts with smooth spring physics.
-* **Fields**:
-  * `chart_type`: `"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`
-  * `data`: Array of objects `[{"label": "2021", "value": 45, "color": "#f59e0b"}, ...]`
-  * `title` (optional): Chart headline string
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 15,
-  "content": {
-    "type": "Chart",
-    "chart_type": "bar",
-    "title": "ANNUAL REVENUE GROWTH ($M)",
-    "data": [
-      { "label": "2021", "value": 12, "color": "#38bdf8" },
-      { "label": "2022", "value": 28, "color": "#60a5fa" },
-      { "label": "2023", "value": 64, "color": "#f59e0b" },
-      { "label": "2024", "value": 110, "color": "#10b981" }
-    ],
-    "style": { "width": "75%", "height": "65%", "left": "12.5%", "top": "15%" }
-  }
-}
-```
-
----
+* `chart_type`: `"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`
+* `data`: Array of objects `[{"label": "2021", "value": 45, "color": "#f59e0b"}, ...]`
+* `title` (optional): Chart headline string
 
 ### 2. `Counter` (High-Impact Metric Callouts)
-Renders a dynamic rolling number counter with easing.
-* **Fields**:
-  * `from`: Starting number (e.g. `0`)
-  * `to`: Ending number (e.g. `14200000`)
-  * `prefix` (optional): Currency or symbol (e.g. `"$"` or `"₹"`)
-  * `suffix` (optional): Unit string (e.g. `"M"`, `"%"` or `"+ Users"`)
-  * `decimals` (optional): Number of decimal places (e.g. `1`)
-  * `label` (optional): Description underneath counter
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 20,
-  "content": {
-    "type": "Counter",
-    "from": 0,
-    "to": 85.4,
-    "prefix": "$",
-    "suffix": " Billion",
-    "decimals": 1,
-    "label": "Total Valuation Slashed in 48 Hours",
-    "color": "#ef4444",
-    "style": { "top": "30%", "left": "10%", "width": "80%" }
-  }
-}
-```
-
----
+* `from`: Starting number (e.g. `0`)
+* `to`: Ending number (e.g. `14.2`)
+* `prefix` (optional): Currency or symbol (e.g. `"$"` or `"₹"`)
+* `suffix` (optional): Unit string (e.g. `"B"`, `"%"` or `"+ Users"`)
+* `decimals` (optional): Number of decimal places (e.g. `1`)
+* `label` (optional): Description underneath counter
 
 ### 3. `Mockup` (Documentary Artifacts & Evidence)
-Renders stylized real-world artifacts (documents, leaks, tweets, browser pages).
-* **Fields**:
-  * `preset`: `"newspaper"` | `"document"` | `"browser"` | `"social_post"`
-  * `headline`: Primary article or post heading
-  * `author` / `handle`: Author details (for social/newspaper)
-  * `body`: Text snippet or quote
-  * `badge` (optional): Stamp like `"CONFIDENTIAL"`, `"LEAKED"`, `"BREAKING"`
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 15,
-  "content": {
-    "type": "Mockup",
-    "preset": "document",
-    "badge": "CLASSIFIED",
-    "headline": "INTERNAL AUDIT MEMORANDUM #409",
-    "author": "Financial Crimes Investigation Division",
-    "body": "Discrepancies identified across offshore transaction logs totaling $240,000,000 between Q2 and Q4.",
-    "style": { "width": "65%", "height": "70%", "left": "17.5%", "top": "12%" }
-  },
-  "animations": [
-    { "property": "scale", "from": 0.8, "to": 1.0, "duration": 0.6, "easing": "spring" },
-    { "property": "translateY", "from": 60, "to": 0, "duration": 0.6, "easing": "spring" }
-  ]
-}
-```
-
----
+* `preset`: `"newspaper"` | `"document"` | `"browser"` | `"social_post"` | `"phone"`
+* `headline`: Primary article or post heading
+* `author` / `handle`: Author details (for social/newspaper)
+* `body`: Text snippet or quote
+* `badge` (optional): Stamp like `"CONFIDENTIAL"`, `"LEAKED"`, `"BREAKING"`
+* `image_url` (optional): Inset photo URL
 
 ### 4. `Timeline` (Chronological Milestones & Roadmaps)
-Renders a sequence of historical dates and events with animated markers.
-* **Fields**:
-  * `title` (optional): Timeline headline
-  * `events`: Array of `[{"year": "2019", "title": "Initial IPO", "description": "Listed on NASDAQ"}, ...]`
-  * `orientation`: `"vertical"` | `"horizontal"`
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 15,
-  "content": {
-    "type": "Timeline",
-    "title": "KEY INVESTIGATION MILESTONES",
-    "events": [
-      { "year": "JAN 2022", "title": "Whistleblower Report", "description": "First internal memo leaked to regulators" },
-      { "year": "OCT 2022", "title": "Formal Subpoena", "description": "Federal authorities initiate joint audit" },
-      { "year": "MAR 2023", "title": "Court Settlement", "description": "$1.2B civil penalty imposed" }
-    ],
-    "style": { "width": "80%", "left": "10%", "top": "15%" }
-  }
-}
-```
-
----
+* `title` (optional): Timeline headline
+* `events`: Array of `[{"year": "JAN 2022", "title": "Audit Initiated", "description": "First whistleblow"}, ...]`
 
 ### 5. `Shape` (Vector Shapes, Paths & Callouts)
-Renders hardware-accelerated vector shapes (`@remotion/shapes`) and animated SVG path drawings (`@remotion/paths`).
-* **Fields**:
-  * `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"`
-  * `fill`: Hex color or `"transparent"`
-  * `stroke`: Border/line color (e.g. `"#f59e0b"`)
-  * `stroke_width`: Border width in pixels
-  * `radius`: Size in pixels
-  * `path_d` (if `shape_type="path"`): SVG path definition string
-  * `draw_animation`: `true` (animates line drawing)
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 12,
-  "content": {
-    "type": "Shape",
-    "shape_type": "rectangle",
-    "fill": "rgba(245, 158, 11, 0.1)",
-    "stroke": "#f59e0b",
-    "stroke_width": 2,
-    "style": { "width": "400px", "height": "250px", "left": "10%", "top": "20%", "borderRadius": "16px" }
-  }
-}
-```
-
----
+* `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"`
+* `fill`: Hex color or `"transparent"`
+* `stroke`: Border/line color (e.g. `"#f59e0b"`)
+* `stroke_width`: Border width in pixels
+* `radius`: Size in pixels
+* `path_d` (if `shape_type="path"`): SVG path definition string
+* `draw_animation`: `true` (animates line drawing)
+* `glow`: `true` (adds neon bloom)
 
 ### 6. `Text` (Kinetic Typography & Lower-Thirds)
-Renders animated typography with advanced kinetic modes.
-* **Fields**:
-  * `text`: Content string
-  * `font`: Font family name (e.g. `"Inter"`, `"Oswald"`, `"Montserrat"`)
-  * `animation_mode`: `"words_stagger"` | `"typewriter"` | `"marker_highlight"` | `"static"`
-  * `highlight_words` (optional): Words to accentuate with marker color
-  * `highlight_color` (optional): Accent color (e.g. `"#facc15"`)
-  * **CRITICAL CTL/INDIC FONT RULE**: For complex scripts (Hindi/Devanagari, Tamil, Bengali, Arabic, etc.), ALWAYS specify a Noto font (e.g. `Noto Sans Devanagari`) to guarantee correct Unicode matra and ligature shaping.
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 30,
-  "content": {
-    "type": "Text",
-    "text": "WHERE DID THE 240 MILLION DOLLARS DISAPPEAR?",
-    "font": "Inter",
-    "weight": "800",
-    "color": "#ffffff",
-    "animation_mode": "marker_highlight",
-    "highlight_words": ["240 MILLION DOLLARS", "DISAPPEAR?"],
-    "highlight_color": "#ef4444",
-    "style": {
-      "position": "absolute",
-      "bottom": "18%",
-      "left": "6%",
-      "width": "88%",
-      "fontSize": "48px",
-      "textAlign": "left",
-      "textShadow": "0 10px 30px rgba(0,0,0,0.9)"
-    }
-  }
-}
-```
-
----
+* `text`: Content string
+* `font`: Font family name (e.g. `"Inter"`, `"Oswald"`, `"Montserrat"`)
+* `animation_mode`: `"words_stagger"` | `"typewriter"` | `"marker_highlight"` | `"static"`
+* `highlight_words` (optional): Words to accentuate with marker color
+* `highlight_color` (optional): Accent color (e.g. `"#facc15"`)
+* **CTL/Indic Fonts**: For Hindi, Tamil, Bengali, Arabic, etc., ALWAYS use Noto fonts (e.g. `Noto Sans Devanagari`).
 
 ### 7. `Image` (Photos, Evidence & Vector Cutouts)
-Stock photographs, archival portraits, and transparent PNG cutouts.
-* **Sources**:
-  * `pexels`: High-resolution stock backgrounds and photos.
-  * `pixabay`: Stock photos, and with `"image_type": "illustration"` or `"vector"`, transparent PNG cutouts (icons, badges, diagrams).
-  * `wikipedia`: Real-world figures, historical events, corporate logos (query must be the exact entity name).
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 0,
-  "content": {
-    "type": "Image",
-    "query": "stock market trading board crash red",
-    "source": "pexels",
-    "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
-  },
-  "filters": ["brightness(0.4)", "contrast(1.2)"],
-  "animations": [
-    { "property": "scale", "from": 1.0, "to": 1.12, "duration": 8.0, "easing": "linear" }
-  ]
-}
-```
-
----
+* `sources`: `pexels` (photos/backgrounds), `pixabay` (photos, and with `image_type="illustration"` or `"vector"` transparent PNG cutouts), `wikipedia` (real-world entities/figures).
 
 ### 8. `Video` (Dynamic B-Roll & Ambient Motion)
-High-energy motion footage and timelapses.
-* **Sources**: `pexels` (stock video) or `youtube` (cinematic loops/timelapses via yt-dlp).
-* **Audio Rule**: Set `"volume": 0` by default so background video never clashes with voiceover narration.
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 0,
-  "content": {
-    "type": "Video",
-    "query": "server room lights blinking timelapse",
-    "source": "pexels",
-    "volume": 0,
-    "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
-  },
-  "filters": ["contrast(1.15)", "saturate(1.2)"]
-}
-```
-
----
+* `sources`: `pexels` (stock video) or `youtube` (timelapses/clips). Always `"volume": 0`.
 
 ### 9. `Map` (Geographic Context & Route Markers)
-Interactive vector maps with highlighted locations.
-* **Styles**: `"modern_dark"`, `"vintage"`, `"minimal_light"`, `"nautical_blue"`.
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 5,
-  "content": {
-    "type": "Map",
-    "map_style": "modern_dark",
-    "locations": [
-      { "name": "New Delhi", "coord": [28.6139, 77.2090] },
-      { "name": "Mumbai", "coord": [19.0760, 72.8777] }
-    ],
-    "style": { "width": "100%", "height": "100%" }
-  }
-}
-```
-
----
+* `map_style`: `"modern_dark"`, `"vintage"`, `"minimal_light"`, `"nautical_blue"`
+* `locations`: `[{"name": "City", "coord": [lat, lon]}]`
 
 ### 10. `HTML` (Custom SVG / CSS Fallback)
-Raw SVG or inline HTML markup for bespoke custom diagrams not covered by the standard primitives.
-* **Example**:
-```json
-{
-  "type": "Layer",
-  "z_index": 15,
-  "content": {
-    "type": "HTML",
-    "html_content": "<style>@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }</style><svg width='100%' height='100%' viewBox='0 0 400 200'><rect width='380' height='180' x='10' y='10' rx='16' fill='rgba(24,24,27,0.8)' stroke='#38bdf8' stroke-width='2'/><text x='30' y='60' fill='#f8fafc' font-family='sans-serif' font-size='20' font-weight='bold'>NETWORK NODE VERIFIED</text></svg>"
-  }
-}
-```
+* `html_content`: Custom inline SVG/CSS markup for bespoke technical diagrams.
 
 ---
 
-## 4. Subtitle Safe Areas & Layout Guidelines
+## 5. Master Visual Archetypes (Design Blueprints)
 
-- **Landscape (16:9)**: Kinetic subtitles occupy the bottom 15%. Position lower-third text and midground callouts above `bottom: 18%` (or align to center/top).
-- **Portrait (9:16)**: Mobile captions occupy the bottom 25%. Position lower-third text above `bottom: 28%`.
-- **Responsive Positioning**: Use percentage coordinates (e.g. `width: "75%"`, `left: "12.5%"`, `top: "15%"`) so compositions scale smoothly across resolutions.
-- **Layer Stacking**: Place background footage/images on z-index 0–9, motion primitives (`Chart`, `Counter`, `Mockup`, `Timeline`, `Shape`) on z-index 10–29, and kinetic text callouts on z-index 30–39.
+Use these 6 master patterns as architectural blueprints. Adapt coordinates, colors, and content to fit the specific narrative moment:
 
----
-
-## 5. Sub-Visual Cut Structure & Transition Animations
-
-Each sub-visual cut within a scene represents a distinct visual beat and defines an entrance `transition`:
-
+### Archetype 1: Split-Screen Data HUD (Comparison & Technical Breakdown)
 ```json
 {
-  "duration": 4.2,
+  "duration": 4.5,
   "transition": "slide_left",
   "composition": {
     "type": "Sequence",
@@ -339,22 +139,471 @@ Each sub-visual cut within a scene represents a distinct visual beat and defines
       {
         "type": "Layer",
         "z_index": 0,
-        "content": { "type": "Image", "query": "undersea fiber optic cable map", "source": "pixabay" }
+        "content": {
+          "type": "Video",
+          "query": "underwater server data center lights",
+          "source": "pexels",
+          "volume": 0,
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.3)", "contrast(1.15)"],
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 4.5, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Chart",
+          "chart_type": "bar",
+          "title": "BANDWIDTH CAPACITY (TB/S)",
+          "data": [
+            { "label": "Atlantic", "value": 240, "color": "#00d4ff" },
+            { "label": "Pacific", "value": 310, "color": "#38bdf8" },
+            { "label": "Indian", "value": 180, "color": "#ffb703" }
+          ],
+          "style": {
+            "position": "absolute",
+            "left": "6%",
+            "top": "16%",
+            "width": "42%",
+            "height": "66%",
+            "backgroundColor": "rgba(15, 23, 42, 0.85)",
+            "backdropFilter": "blur(20px)",
+            "borderRadius": "20px",
+            "border": "1px solid rgba(0, 212, 255, 0.3)",
+            "boxShadow": "0 20px 50px rgba(0, 0, 0, 0.6)"
+          }
+        },
+        "animations": [{ "property": "translateY", "from": 40, "to": 0, "duration": 0.6, "easing": "spring" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Image",
+          "query": "fiber optic cable cross section macro",
+          "source": "pexels",
+          "style": {
+            "position": "absolute",
+            "left": "52%",
+            "top": "16%",
+            "width": "42%",
+            "height": "66%",
+            "borderRadius": "20px",
+            "border": "1px solid rgba(255, 255, 255, 0.15)",
+            "boxShadow": "0 20px 50px rgba(0, 0, 0, 0.6)"
+          }
+        },
+        "animations": [{ "property": "translateY", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 30,
+        "content": {
+          "type": "Text",
+          "text": "GLOBAL DATA TRAFFIC EXPANSION",
+          "font": "Inter",
+          "weight": "800",
+          "color": "#ffffff",
+          "animation_mode": "marker_highlight",
+          "highlight_words": ["DATA TRAFFIC"],
+          "highlight_color": "#00d4ff",
+          "style": {
+            "position": "absolute",
+            "top": "8%",
+            "left": "6%",
+            "width": "88%",
+            "fontSize": "32px",
+            "textAlign": "center",
+            "textShadow": "0 4px 20px rgba(0,0,0,0.8)"
+          }
+        }
       }
     ]
   }
 }
 ```
 
-### Supported Cut Transitions:
-* `"fade"` (Default smooth cross-dissolve)
-* `"slide_left"` / `"slide_right"` (Horizontal directional push)
-* `"slide_up"` / `"slide_down"` (Vertical directional push)
-* `"zoom_in"` / `"zoom_out"` (Dramatic scale punch-in / reveal)
-* `"glitch"` (High-energy digital chromatic jitter)
-* `"crossfade"` (Soft continuous blend)
-* `"none"` (Instant hard cut)
+---
 
-**Best Practice**: Vary transitions across cuts to maintain visual dynamism (e.g. use `slide_left` when introducing step-by-step evidence, `zoom_in` on critical data callouts, and `fade` for ambient scene shifts).
+### Archetype 2: Investigative Dossier & Document Spotlight (Leaks & Evidence)
+```json
+{
+  "duration": 4.0,
+  "transition": "zoom_in",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "Video",
+          "query": "dark office desk shadows ambient",
+          "source": "pexels",
+          "volume": 0,
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.25)", "contrast(1.2)"]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Mockup",
+          "preset": "document",
+          "badge": "CONFIDENTIAL",
+          "headline": "TELECOM SUBSEA ROUTE SURVEY MEMO #88",
+          "author": "Department of Maritime Operations",
+          "body": "Seabed seismic activity detected along Section 4B. Emergency rerouting mandated to avoid deep-sea trench collapse.",
+          "style": {
+            "position": "absolute",
+            "left": "15%",
+            "top": "14%",
+            "width": "70%",
+            "height": "68%",
+            "boxShadow": "0 30px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(239, 68, 68, 0.2)"
+          }
+        },
+        "animations": [
+          { "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.6, "easing": "spring" },
+          { "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "easing": "spring" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "z_index": 30,
+        "content": {
+          "type": "Text",
+          "text": "\"EMERGENCY REROUTING MANDATED\"",
+          "font": "Inter",
+          "weight": "800",
+          "color": "#ef4444",
+          "animation_mode": "typewriter",
+          "style": {
+            "position": "absolute",
+            "bottom": "18%",
+            "left": "10%",
+            "width": "80%",
+            "fontSize": "38px",
+            "textAlign": "center",
+            "textShadow": "0 8px 24px rgba(0,0,0,0.9)"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 3: Macro Metric & High-Impact Counter (Financial / Scale Callout)
+```json
+{
+  "duration": 3.8,
+  "transition": "zoom_in",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "Video",
+          "query": "ocean cargo ship aerial storm waves",
+          "source": "pexels",
+          "volume": 0,
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.3)", "contrast(1.2)"],
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.08, "duration": 3.8, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Counter",
+          "from": 0,
+          "to": 1.4,
+          "prefix": "$",
+          "suffix": " Billion",
+          "decimals": 1,
+          "label": "Total Infrastructure Investment Required",
+          "color": "#00d4ff",
+          "style": {
+            "position": "absolute",
+            "left": "12.5%",
+            "top": "22%",
+            "width": "75%",
+            "height": "52%",
+            "backgroundColor": "rgba(15, 23, 42, 0.85)",
+            "backdropFilter": "blur(24px)",
+            "borderRadius": "24px",
+            "border": "1px solid rgba(0, 212, 255, 0.35)",
+            "boxShadow": "0 25px 60px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 212, 255, 0.25)"
+          }
+        },
+        "animations": [
+          { "property": "scale", "from": 0.8, "to": 1.0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "easing": "ease-out" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 4: Geographic Route & Network Trajectory (Maps & Expansion)
+```json
+{
+  "duration": 4.5,
+  "transition": "fade",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 5,
+        "content": {
+          "type": "Map",
+          "map_style": "modern_dark",
+          "locations": [
+            { "name": "New York", "coord": [40.7128, -74.006] },
+            { "name": "London", "coord": [51.5074, -0.1278] }
+          ],
+          "style": { "width": "100%", "height": "100%" }
+        },
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.05, "duration": 4.5, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Shape",
+          "shape_type": "path",
+          "path_d": "M 280 420 Q 550 280 820 340",
+          "stroke": "#00d4ff",
+          "stroke_width": 4,
+          "draw_animation": true,
+          "glow": true,
+          "style": { "position": "absolute", "left": "0%", "top": "0%", "width": "100%", "height": "100%" }
+        }
+      },
+      {
+        "type": "Layer",
+        "z_index": 30,
+        "content": {
+          "type": "Text",
+          "text": "TRANS-ATLANTIC TRANSIT TIME: 58 MILLISECONDS",
+          "font": "Inter",
+          "weight": "800",
+          "color": "#ffffff",
+          "animation_mode": "words_stagger",
+          "style": {
+            "position": "absolute",
+            "bottom": "18%",
+            "left": "8%",
+            "width": "84%",
+            "fontSize": "34px",
+            "textAlign": "center",
+            "textShadow": "0 8px 24px rgba(0,0,0,0.9)"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 5: Technical Blueprint & Cross-Section Diagram
+```json
+{
+  "duration": 4.2,
+  "transition": "slide_up",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background-color:#0b1120;background-image:linear-gradient(rgba(0,212,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.06) 1px, transparent 1px);background-size:40px 40px;'></div>"
+        }
+      },
+      {
+        "type": "Layer",
+        "z_index": 12,
+        "content": {
+          "type": "Image",
+          "query": "optical cable layer structure diagram cross section",
+          "source": "pixabay",
+          "style": {
+            "position": "absolute",
+            "left": "10%",
+            "top": "18%",
+            "width": "45%",
+            "height": "62%",
+            "objectFit": "contain"
+          }
+        },
+        "animations": [{ "property": "scale", "from": 0.9, "to": 1.0, "duration": 0.6, "easing": "spring" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 20,
+        "content": {
+          "type": "Timeline",
+          "title": "ARMORED PROTECTION LAYERS",
+          "events": [
+            { "year": "LAYER 1", "title": "Polyethylene Sheath", "description": "High-density waterproof barrier" },
+            { "year": "LAYER 2", "title": "Galvanized Steel Wires", "description": "Resists crushing deep-sea pressure" },
+            { "year": "LAYER 3", "title": "Copper Conductor Tube", "description": "Powers optical repeaters" }
+          ],
+          "style": {
+            "position": "absolute",
+            "left": "56%",
+            "top": "16%",
+            "width": "38%",
+            "height": "66%",
+            "backgroundColor": "rgba(15, 23, 42, 0.8)",
+            "backdropFilter": "blur(16px)",
+            "borderRadius": "18px",
+            "border": "1px solid rgba(255, 255, 255, 0.12)",
+            "padding": "20px"
+          }
+        },
+        "animations": [{ "property": "translateX", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" }]
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 6: Multi-Metric Infographic Grid (Cards & KPIs)
+```json
+{
+  "duration": 4.0,
+  "transition": "zoom_in",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "Video",
+          "query": "factory manufacturing high tech robotics",
+          "source": "pexels",
+          "volume": 0,
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.28)", "contrast(1.15)"]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Counter",
+          "from": 0,
+          "to": 99,
+          "suffix": "%",
+          "label": "Of All Global Internet Traffic",
+          "color": "#00d4ff",
+          "style": {
+            "position": "absolute",
+            "left": "6%",
+            "top": "18%",
+            "width": "42%",
+            "height": "32%",
+            "backgroundColor": "rgba(15, 23, 42, 0.85)",
+            "backdropFilter": "blur(18px)",
+            "borderRadius": "18px",
+            "border": "1px solid rgba(0, 212, 255, 0.3)"
+          }
+        },
+        "animations": [{ "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.5, "easing": "spring" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Counter",
+          "from": 0,
+          "to": 1.4,
+          "suffix": "M km",
+          "decimals": 1,
+          "label": "Total Submarine Cable Laid",
+          "color": "#ffb703",
+          "style": {
+            "position": "absolute",
+            "left": "52%",
+            "top": "18%",
+            "width": "42%",
+            "height": "32%",
+            "backgroundColor": "rgba(15, 23, 42, 0.85)",
+            "backdropFilter": "blur(18px)",
+            "borderRadius": "18px",
+            "border": "1px solid rgba(255, 183, 3, 0.3)"
+          }
+        },
+        "animations": [{ "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.6, "easing": "spring" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Chart",
+          "chart_type": "progress",
+          "title": "SATELLITE VS SUBSEA CABLE RELIABILITY",
+          "data": [
+            { "label": "Subsea Cables", "value": 99.8, "color": "#00d4ff" },
+            { "label": "Satellites", "value": 0.2, "color": "#94a3b8" }
+          ],
+          "style": {
+            "position": "absolute",
+            "left": "6%",
+            "top": "54%",
+            "width": "88%",
+            "height": "26%",
+            "backgroundColor": "rgba(15, 23, 42, 0.85)",
+            "backdropFilter": "blur(18px)",
+            "borderRadius": "18px",
+            "border": "1px solid rgba(255, 255, 255, 0.12)"
+          }
+        },
+        "animations": [{ "property": "translateY", "from": 30, "to": 0, "duration": 0.7, "easing": "spring" }]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 6. Design System Token Integration
+
+When styling AST layers, inject the specific values generated by the project's **Art Director Design System** (`design.json`):
+* **`color_palette.primary`** → Use for primary bar charts, active counters, main accents (`#00d4ff`).
+* **`color_palette.accent`** → Use for alert metrics, highlighter text, contrasting comparison bars (`#ffb703` or `#ef4444`).
+* **`color_palette.surface`** → Use for card backgrounds (`rgba(15, 23, 42, 0.85)`).
+* **`color_palette.glow`** → Use for border illumination and box shadows (`0 0 30px rgba(0, 212, 255, 0.3)`).
+* **`typography.heading_font`** → Use for titles, counters, and kinetic callouts (`font: "Inter"` or `"Montserrat"`).
+
+---
+
+## 7. Subtitle Safe Areas & Layout Rules
+
+* **Landscape (16:9)**: Subtitles occupy bottom 15%. All lower-third text and card bottoms MUST stay above `bottom: 18%`.
+* **Portrait (9:16)**: Mobile captions occupy bottom 25%. All card bottoms MUST stay above `bottom: 28%`.
+* **Percentage Geometry**: Always use `%` strings for `left`, `top`, `width`, and `height` to ensure flawless rendering across resolutions.
+
 
 

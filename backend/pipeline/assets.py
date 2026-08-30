@@ -94,14 +94,23 @@ def _collect_local_paths(node, paths):
 
 def is_assets_stale(project_dict, project_dir):
     """Check if the sub-visual structure in script.json differs from manifest, or if files are missing."""
-    assets_manifest_path = project_dir / "assets" / "assets_manifest.json"
     script_path = project_dir / "script.json"
-    
-    if not assets_manifest_path.exists() or not script_path.exists():
+    if not script_path.exists():
+        return True
+
+    manifest_path_str = project_dict.get('assets_manifest_path') if project_dict else None
+    manifest_path = Path(manifest_path_str) if manifest_path_str and Path(manifest_path_str).exists() else None
+    if not manifest_path:
+        for candidate in [project_dir / "voiceover" / "manifest.json", project_dir / "assets" / "assets_manifest.json"]:
+            if candidate.exists():
+                manifest_path = candidate
+                break
+
+    if not manifest_path:
         return True
         
     try:
-        with open(assets_manifest_path, "r", encoding="utf-8") as f:
+        with open(manifest_path, "r", encoding="utf-8") as f:
             assets_manifest = json.load(f)
         with open(script_path, "r", encoding="utf-8") as f:
             script_data = json.load(f)
@@ -113,7 +122,7 @@ def is_assets_stale(project_dict, project_dir):
             if not Path(p).exists():
                 return True
                     
-        bg_music = project_dict.get("bg_music_path")
+        bg_music = project_dict.get("bg_music_path") if project_dict else None
         if bg_music and not Path(bg_music).exists():
             return True
             
@@ -576,6 +585,34 @@ def download_asset(url, dest_path, cancel_event=None):
         logger.error(f"Failed to download stock asset from {url}: {e}")
     return False
 
+KNOWN_MEDIA_EXTENSIONS = [".mp4", ".webm", ".mov", ".avi", ".jpg", ".jpeg", ".png", ".webp", ".gif"]
+
+
+def _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=None):
+    """Removes existing asset files for the given segment/sub/layer cut with different extensions or legacy naming."""
+    prefix = f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}"
+    legacy_prefix = f"asset_{seg_idx:03d}_{sub_idx:02d}"
+    keep_norm = None
+    if keep_file:
+        try:
+            keep_norm = os.path.normcase(str(Path(keep_file).resolve()))
+        except Exception:
+            keep_norm = str(keep_file)
+
+    prefixes = [prefix] if layer_idx > 0 else [prefix, legacy_prefix]
+    for check_ext in KNOWN_MEDIA_EXTENSIONS:
+        for pfx in prefixes:
+            old_f = assets_dir / f"{pfx}{check_ext}"
+            if old_f.exists():
+                try:
+                    if keep_norm and os.path.normcase(str(old_f.resolve())) == keep_norm:
+                        continue
+                    old_f.unlink()
+                    logger.info(f"Removed previous conflicting asset file: {old_f.name}")
+                except Exception as e:
+                    logger.warning(f"Could not remove old asset file {old_f}: {e}")
+
+
 def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format):
     """Downloads media for a single AST layer if it is Image or Video."""
     content = layer.get("content", {})
@@ -651,6 +688,7 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
                 cancel_event=cancel_event,
             )
             if success:
+                _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=dest_file)
                 content["local_path"] = str(dest_file)
                 logger.info(f"Saved YouTube clip to {dest_file}")
                 return layer  # local_path already set, skip the URL download path
@@ -680,6 +718,7 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
                 ext = ".jpg"
         dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}{ext}"
         if download_asset(asset_url, dest_file, cancel_event=cancel_event):
+            _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=dest_file)
             content["local_path"] = str(dest_file)
             logger.info(f"Saved AST asset to {dest_file}")
             
@@ -823,6 +862,12 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         except Exception as e:
             logger.error(f"Failed to persist visual_paths to script.json: {e}")
 
+    # 5. Clean up any removed/orphaned assets on disk that are not referenced in the manifest
+    try:
+        cleanup_removed_assets(project_dict['id'], manifest)
+    except Exception as e:
+        logger.warning(f"Post-download asset reconciliation failed: {e}")
+
     progress_cb(100.0, "Asset downloading complete!")
     logger.info("Asset gathering pipeline step completed.")
 
@@ -840,7 +885,11 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index)
         logger.error(f"Project not found: {project_id}")
         return {"success": False, "error": "Project not found"}
 
-    manifest_path = Path(project['assets_manifest_path'])
+    manifest_path_str = project.get('assets_manifest_path')
+    manifest_path = Path(manifest_path_str) if manifest_path_str else None
+    if not manifest_path or not manifest_path.exists():
+        manifest_path = Path(get_storage_dir() / project_id / "voiceover" / "manifest.json")
+
     if not manifest_path.exists():
         logger.error(f"Manifest not found: {manifest_path}")
         return {"success": False, "error": "Manifest file not found"}
@@ -906,6 +955,12 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index)
                 json.dump(script, f, indent=2, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Failed to persist single visual_path to script.json: {e}")
+
+    # Reconcile disk assets to purge any superseded cut files
+    try:
+        cleanup_removed_assets(project_id, manifest)
+    except Exception as e:
+        logger.warning(f"Single scene asset reconciliation failed: {e}")
 
     return {"success": True, "segment": segment, "sub_visual": sub_visual}
 
@@ -1037,30 +1092,39 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
         return {"success": False, "error": "Project not found", "deleted_files": [], "preserved_files": []}
 
     # Resolve old and output manifest paths
+    manifest_path_str = project.get('assets_manifest_path')
     if old_manifest_path:
         old_manifest_file = Path(old_manifest_path)
+    elif manifest_path_str:
+        old_manifest_file = Path(manifest_path_str)
     else:
-        old_manifest_file = Path(project['assets_manifest_path'])
+        old_manifest_file = get_storage_dir() / project_id / "voiceover" / "manifest.json"
 
     if output_manifest_path:
         output_path = Path(output_manifest_path)
     else:
         output_path = old_manifest_file
 
-    if not old_manifest_file.exists():
-        logger.warning(f"Old manifest not found: {old_manifest_file}, skipping cleanup")
-        return {"success": True, "deleted_files": [], "preserved_files": [], "new_manifest": new_manifest_data}
-
-    # Load old manifest
-    with open(old_manifest_file, "r", encoding="utf-8") as f:
-        old_manifest = json.load(f)
+    old_manifest = []
+    if old_manifest_file.exists():
+        try:
+            with open(old_manifest_file, "r", encoding="utf-8") as f:
+                old_manifest = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not load old manifest from {old_manifest_file}: {e}")
 
     assets_dir = get_storage_dir() / project_id / "assets"
 
     # Build set of all kept paths from the AST
     kept_paths = []
     _collect_local_paths(new_manifest_data, kept_paths)
-    kept_paths_set = set(str(Path(p).resolve()) for p in kept_paths if p)
+    kept_paths_set = set()
+    for p in kept_paths:
+        if p and isinstance(p, str):
+            try:
+                kept_paths_set.add(os.path.normcase(str(Path(p).resolve())))
+            except Exception:
+                kept_paths_set.add(os.path.normcase(p))
 
     deleted_files = []
     preserved_files = []
@@ -1069,18 +1133,23 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
         for file_path in assets_dir.iterdir():
             if not file_path.is_file():
                 continue
-            # Only clean up files matching asset_* pattern
+            # Only clean up files matching asset_* or preview_* pattern
             if not file_path.stem.startswith("asset_") and not file_path.stem.startswith("preview_"):
                 continue
                 
-            if str(file_path.resolve()) in kept_paths_set:
+            try:
+                resolved_norm = os.path.normcase(str(file_path.resolve()))
+            except Exception:
+                resolved_norm = os.path.normcase(str(file_path))
+
+            if resolved_norm in kept_paths_set:
                 preserved_files.append(str(file_path))
             else:
-                if file_path.suffix.lower() in [".mp4", ".jpg", ".png", ".jpeg"]:
+                if file_path.suffix.lower() in KNOWN_MEDIA_EXTENSIONS:
                     try:
                         file_path.unlink()
                         deleted_files.append(str(file_path))
-                        logger.info(f"Deleted orphaned asset: {file_path}")
+                        logger.info(f"Deleted orphaned asset: {file_path.name}")
                     except Exception as e:
                         logger.warning(f"Could not delete {file_path}: {e}")
 
@@ -1096,11 +1165,13 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
     # voiceover on every re-run because _voiceover_engine would be None.
     voiceover_keys = ["_voiceover_engine", "_voiceover_voice", "_voiceover_speed", "_voiceover_pitch"]
     old_by_key = {}
-    for idx, old_entry in enumerate(old_manifest):
-        if isinstance(old_entry, dict):
-            key = (old_entry.get("section_type"), old_entry.get("title", ""), old_entry.get("text", ""))
-            old_by_key[key] = old_entry
-            old_by_key[idx] = old_entry  # fallback by position
+    if isinstance(old_manifest, list):
+        for idx, old_entry in enumerate(old_manifest):
+            if isinstance(old_entry, dict):
+                key = (old_entry.get("section_type"), old_entry.get("title", ""), old_entry.get("text", ""))
+                old_by_key[key] = old_entry
+                old_by_key[idx] = old_entry  # fallback by position
+
     for new_idx, new_entry in enumerate(new_manifest_data):
         if not isinstance(new_entry, dict):
             continue
@@ -1114,7 +1185,7 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
                 if k in match:
                     new_entry[k] = match[k]
 
-    # Write new manifest to disk
+    # Write new manifest to disk if output_path is provided
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:

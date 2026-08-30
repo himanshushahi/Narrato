@@ -456,9 +456,17 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             with open(old_manifest_path, "r", encoding="utf-8") as f:
                 old_manifest = json.load(f)
 
-            for i, new_entry in enumerate(manifest_entries):
-                if i < len(old_manifest):
-                    old_entry = old_manifest[i]
+            old_by_key = {}
+            if isinstance(old_manifest, list):
+                for old_entry in old_manifest:
+                    if isinstance(old_entry, dict):
+                        k = (old_entry.get("section_type"), (old_entry.get("text") or "").strip())
+                        old_by_key[k] = old_entry
+
+            for new_entry in manifest_entries:
+                k = (new_entry.get("section_type"), (new_entry.get("text") or "").strip())
+                old_entry = old_by_key.get(k)
+                if old_entry and isinstance(old_entry, dict):
                     new_sub_visuals = new_entry.get("sub_visuals", [])
                     old_sub_visuals = old_entry.get("sub_visuals", [])
                     for j, nsv in enumerate(new_sub_visuals):
@@ -468,23 +476,37 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                                 nsv["visual_path"] = osv["visual_path"]
                             if osv.get("visual_url"):
                                 nsv["visual_url"] = osv["visual_url"]
+                            # Also copy local_path into AST composition layers if matching
+                            n_comp = nsv.get("composition", {})
+                            o_comp = osv.get("composition", {})
+                            if n_comp.get("type") == "Sequence" and o_comp.get("type") == "Sequence":
+                                n_children = n_comp.get("children", [])
+                                o_children = o_comp.get("children", [])
+                                for l_idx, n_layer in enumerate(n_children):
+                                    if l_idx < len(o_children):
+                                        o_layer = o_children[l_idx]
+                                        o_content = o_layer.get("content", {})
+                                        n_content = n_layer.get("content", {})
+                                        if o_content.get("local_path") and not n_content.get("local_path"):
+                                            n_content["local_path"] = o_content["local_path"]
         except Exception as e:
             logger.warning(f"Could not preserve visual_path from old manifest: {e}")
 
-    # Verify preserved visual_path files still exist on disk.
+    # Verify preserved visual_path and AST layer local_path files still exist on disk.
     # Scene insertion/deletion shifts array positions, and cleanup_removed_assets
     # deletes files at old positions. The content-matched preservation above may
     # have copied dangling references. Check each preserved path and update to
     # the new position filename if the old file was cleaned up.
+    from backend.pipeline.assets import KNOWN_MEDIA_EXTENSIONS
+    assets_dir = project_dir / "assets"
     for entry in manifest_entries:
         scene_idx = entry.get("index", 0)
         for sub_idx, sv in enumerate(entry.get("sub_visuals", [])):
             vp = sv.get("visual_path", "")
             if vp and not Path(vp).exists():
                 # Try the new position filename
-                assets_dir = project_dir / "assets"
                 found = False
-                for ext in (".mp4", ".jpg", ".png", ".jpeg"):
+                for ext in KNOWN_MEDIA_EXTENSIONS:
                     candidate = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}{ext}"
                     if candidate.exists():
                         sv["visual_path"] = str(candidate)
@@ -497,9 +519,54 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                     sv["visual_url"] = ""
                     logger.info(f"Cleared stale visual_path for [{scene_idx}:{sub_idx}] - will re-download")
 
+            # Also verify AST composition layer local_paths
+            comp = sv.get("composition", {})
+            if isinstance(comp, dict) and comp.get("type") == "Sequence":
+                for l_idx, layer in enumerate(comp.get("children", [])):
+                    if isinstance(layer, dict):
+                        content = layer.get("content", {})
+                        if isinstance(content, dict):
+                            lp = content.get("local_path", "")
+                            if lp and not Path(lp).exists():
+                                found = False
+                                for ext in KNOWN_MEDIA_EXTENSIONS:
+                                    candidate = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}_{l_idx:02d}{ext}"
+                                    if candidate.exists():
+                                        content["local_path"] = str(candidate)
+                                        logger.info(f"Updated stale AST layer local_path for [{scene_idx}:{sub_idx}:{l_idx}] to {candidate}")
+                                        found = True
+                                        break
+                                if not found:
+                                    content.pop("local_path", None)
+                                    logger.info(f"Cleared stale AST layer local_path for [{scene_idx}:{sub_idx}:{l_idx}] - will re-download")
+
     manifest_path = voice_dir / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_entries, f, indent=2, ensure_ascii=False)
+
+    # Post-completion cleanup:
+    # 1. Purge excess segment audio files beyond total_sections from previous longer runs
+    if voice_dir.exists():
+        for f in voice_dir.iterdir():
+            if f.is_file() and f.name.startswith("segment_") and (f.suffix.lower() in [".wav", ".mp3"]):
+                m = re.match(r"segment_(\d+)", f.name)
+                if m:
+                    seg_num = int(m.group(1))
+                    if seg_num >= total_sections:
+                        try:
+                            f.unlink()
+                            logger.info(f"Purged excess voiceover audio file: {f.name}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete excess segment {f.name}: {e}")
+
+    # 2. Invalidate old transcription so downstream transcription stage generates fresh word timings
+    transcription_file = project_dir / "subtitles" / "transcription.json"
+    if transcription_file.exists():
+        try:
+            transcription_file.unlink()
+            logger.info("Invalidated stale transcription.json on voiceover completion.")
+        except Exception as e:
+            logger.warning(f"Could not delete stale transcription.json: {e}")
 
     # Sync resolved settings back to the project so downstream staleness checks
     # and the UI read the same values that were actually used.

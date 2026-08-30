@@ -866,4 +866,167 @@ def test_clean_json_response_recovers_truncated():
     assert result["sub_visuals"][0]["duration"] == 5.0
 
 
+def test_asset_conflict_cleanup(tmp_path):
+    """_cleanup_conflicting_asset_files deletes old extension variants and legacy names."""
+    from backend.pipeline.assets import _cleanup_conflicting_asset_files
+
+    assets_dir = tmp_path / "assets"
+    assets_dir.mkdir()
+
+    # Create conflicting files
+    old_vid = assets_dir / "asset_001_02_00.mp4"
+    old_vid.write_text("old video")
+    legacy_vid = assets_dir / "asset_001_02.mp4"
+    legacy_vid.write_text("legacy video")
+    new_img = assets_dir / "asset_001_02_00.png"
+    new_img.write_text("new image")
+
+    _cleanup_conflicting_asset_files(assets_dir, seg_idx=1, sub_idx=2, layer_idx=0, keep_file=new_img)
+
+    assert not old_vid.exists()
+    assert not legacy_vid.exists()
+    assert new_img.exists()
+
+
+def test_cleanup_removed_assets_disk_reconciliation(tmp_path, monkeypatch):
+    """cleanup_removed_assets purges all orphaned media files across all media extensions."""
+    from backend.pipeline.assets import cleanup_removed_assets
+    import backend.database.db as db
+
+    proj_id = "test-proj-cleanup"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: {"id": pid, "assets_manifest_path": str(tmp_path / pid / "assets_manifest.json")})
+
+    proj_dir = tmp_path / proj_id
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    kept_file = assets_dir / "asset_000_00_00.mp4"
+    kept_file.write_text("kept")
+    orphaned_jpg = assets_dir / "asset_001_00_00.jpg"
+    orphaned_jpg.write_text("orphaned jpg")
+    orphaned_webp = assets_dir / "asset_002_00_00.webp"
+    orphaned_webp.write_text("orphaned webp")
+
+    manifest_data = [
+        {
+            "index": 0,
+            "section_type": "scene",
+            "sub_visuals": [
+                {
+                    "composition": {
+                        "type": "Sequence",
+                        "children": [
+                            {"type": "Layer", "content": {"type": "Video", "local_path": str(kept_file)}}
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+
+    res = cleanup_removed_assets(proj_id, manifest_data)
+    assert res["success"] is True
+    assert kept_file.exists()
+    assert not orphaned_jpg.exists()
+    assert not orphaned_webp.exists()
+
+
+def test_cleanup_removed_assets_case_insensitive(tmp_path, monkeypatch):
+    """cleanup_removed_assets correctly preserves files when path casing differs on Windows."""
+    from backend.pipeline.assets import cleanup_removed_assets
+    import os
+
+    proj_id = "test-proj-case"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: {"id": pid, "assets_manifest_path": str(tmp_path / pid / "assets_manifest.json")})
+
+    proj_dir = tmp_path / proj_id
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    kept_file = assets_dir / "asset_000_00_00.mp4"
+    kept_file.write_text("kept")
+
+    # Pass the kept path with altered case
+    altered_case_path = str(kept_file).lower()
+
+    manifest_data = [
+        {
+            "index": 0,
+            "section_type": "scene",
+            "sub_visuals": [
+                {
+                    "composition": {
+                        "type": "Sequence",
+                        "children": [
+                            {"type": "Layer", "content": {"type": "Video", "local_path": altered_case_path}}
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+
+    res = cleanup_removed_assets(proj_id, manifest_data)
+    assert res["success"] is True
+    assert kept_file.exists()
+
+
+def test_is_assets_stale_fallback(tmp_path):
+    """is_assets_stale correctly resolves manifest in voiceover/manifest.json when assets/assets_manifest.json does not exist."""
+    from backend.pipeline.assets import is_assets_stale
+    import json
+
+    proj_dir = tmp_path / "test-stale-proj"
+    proj_dir.mkdir(parents=True)
+    voice_dir = proj_dir / "voiceover"
+    voice_dir.mkdir(parents=True)
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    img_file = assets_dir / "asset_000_00_00.jpg"
+    img_file.write_text("img")
+
+    script = {
+        "introduction": {"sub_visuals": []},
+        "scenes": [
+            {
+                "sub_visuals": [
+                    {
+                        "composition": {
+                            "type": "Sequence",
+                            "children": [{"type": "Layer", "content": {"type": "Image", "local_path": str(img_file)}}]
+                        }
+                    }
+                ]
+            }
+        ],
+        "conclusion": {"sub_visuals": []}
+    }
+    (proj_dir / "script.json").write_text(json.dumps(script), encoding="utf-8")
+
+    manifest = [
+        {
+            "index": 0,
+            "section_type": "scene",
+            "sub_visuals": [
+                {
+                    "composition": {
+                        "type": "Sequence",
+                        "children": [{"type": "Layer", "content": {"type": "Image", "local_path": str(img_file)}}]
+                    }
+                }
+            ]
+        }
+    ]
+    (voice_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    project_dict = {"id": "test-stale-proj"}
+    # Should not be stale because voiceover/manifest.json exists and all files exist
+    assert is_assets_stale(project_dict, proj_dir) is False
+
+
+
+
 
