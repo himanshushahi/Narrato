@@ -3,15 +3,12 @@ import { AbsoluteFill, Img, Video } from 'remotion';
 import { ASTAnimator, ASTAnimation } from './ASTAnimator';
 import { DataVisualizations } from './DataVisualizations';
 import { ChartRenderer, ChartDataItem } from './ChartRenderer';
-import { CounterRenderer } from './CounterRenderer';
-import { MockupRenderer } from './MockupRenderer';
-import { TimelineRenderer, TimelineEvent } from './TimelineRenderer';
 import { ShapeRenderer } from './ShapeRenderer';
 import { KineticText } from './KineticText';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
 
 interface ASTLayerContent {
-  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Counter' | 'Mockup' | 'Timeline' | 'Shape';
+  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Shape';
   local_path?: string;
   text?: string;
   font?: string;
@@ -29,9 +26,16 @@ interface ASTLayerContent {
   stroke?: string;
   stroke_width?: number;
   radius?: number;
+  width?: number | string;
+  height?: number | string;
+  corner_radius?: number;
   points?: number;
   inner_radius?: number;
+  direction?: 'up' | 'down' | 'left' | 'right';
+  angle?: number;
+  preset_path?: 'route_arch' | 'horizontal_line' | 'pointer_curve' | 'corner_brackets' | 'wave_pulse' | 'circle_reticle';
   path_d?: string;
+  view_box?: string;
   draw_animation?: boolean;
   glow?: boolean;
 
@@ -39,28 +43,6 @@ interface ASTLayerContent {
   chart_type?: 'bar' | 'line' | 'pie' | 'donut' | 'progress';
   data?: ChartDataItem[];
   title?: string;
-
-  // Counter props
-  from?: number;
-  to?: number;
-  prefix?: string;
-  suffix?: string;
-  decimals?: number;
-  label?: string;
-
-  // Mockup props
-  preset?: 'social_post' | 'newspaper' | 'browser' | 'document' | 'phone';
-  headline?: string;
-  author?: string;
-  handle?: string;
-  avatar_url?: string;
-  date?: string;
-  body?: string;
-  badge?: string;
-  image_url?: string;
-
-  // Timeline props
-  events?: TimelineEvent[];
 
   // Kinetic Typography props
   animation_mode?: 'static' | 'words_stagger' | 'typewriter' | 'marker_highlight';
@@ -84,6 +66,7 @@ const LAYOUT_PROPS = new Set([
   'padding', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight',
   'border', 'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
   'borderWidth', 'borderStyle', 'borderColor',
+  'backgroundColor', 'background', 'backdropFilter', 'WebkitBackdropFilter',
 ]);
 
 /**
@@ -135,7 +118,51 @@ function parseFilters(filters?: string[]): { filterStyle?: string; blendStyle: R
   };
 }
 
-import { delayRender, continueRender } from 'remotion';
+import { delayRender, continueRender, useCurrentFrame, interpolate } from 'remotion';
+
+/**
+ * Procedural ambient canvas rendered when stock media has no local path yet or is still downloading.
+ * Prevents jarring black screens with high-production animated gradient meshes and vector grids.
+ */
+const ProceduralCanvasFallback: React.FC<{ query?: string; type: string; style?: React.CSSProperties }> = ({ query: _query, type: _type, style }) => {
+  const frame = useCurrentFrame();
+
+  const pulse = interpolate(frame % 150, [0, 75, 150], [0.18, 0.35, 0.18], { extrapolateRight: 'clamp' });
+  const driftX = interpolate(frame % 360, [0, 360], [0, 50], { extrapolateRight: 'clamp' });
+  const driftY = interpolate(frame % 360, [0, 360], [0, 30], { extrapolateRight: 'clamp' });
+
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#0a0e17',
+        backgroundImage: `
+          radial-gradient(circle at ${35 + driftX * 0.1}% ${25 + driftY * 0.1}%, rgba(14, 165, 233, ${pulse}) 0%, transparent 60%),
+          radial-gradient(circle at ${75 - driftX * 0.1}% ${75 - driftY * 0.1}%, rgba(99, 102, 241, ${pulse * 0.75}) 0%, transparent 55%),
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px)
+        `,
+        backgroundSize: '100% 100%, 100% 100%, 64px 64px, 64px 64px',
+        position: 'relative',
+        overflow: 'hidden',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...style,
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'radial-gradient(circle at center, transparent 35%, rgba(5, 7, 12, 0.85) 100%)',
+          pointerEvents: 'none',
+        }}
+      />
+    </div>
+  );
+};
 
 const AsyncMediaNode: React.FC<{ type: 'Image' | 'Video'; localPath: string; style?: React.CSSProperties; volume?: number }> = ({ type, localPath, style, volume }) => {
   const [url, setUrl] = React.useState<string>('');
@@ -207,6 +234,9 @@ export const ASTRenderer: React.FC<{
             ? { objectFit: innerStyle.objectFit || 'cover' as const }
             : innerStyle;
           node = <AsyncMediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} />;
+        } else if (content.type === 'Image' || content.type === 'Video') {
+          // Procedural fallback when local media is missing/downloading
+          node = <ProceduralCanvasFallback query={(content as any).query} type={content.type} style={innerStyle} />;
         } else if (content.type === 'Text') {
           node = (
             <KineticText
@@ -232,42 +262,6 @@ export const ASTRenderer: React.FC<{
               style={innerStyle}
             />
           );
-        } else if (content.type === 'Counter') {
-          node = (
-            <CounterRenderer
-              from={content.from}
-              to={content.to ?? 100}
-              prefix={content.prefix}
-              suffix={content.suffix}
-              decimals={content.decimals}
-              label={content.label}
-              color={content.color}
-              style={innerStyle}
-            />
-          );
-        } else if (content.type === 'Mockup') {
-          node = (
-            <MockupRenderer
-              preset={content.preset}
-              headline={content.headline}
-              author={content.author}
-              handle={content.handle}
-              avatar_url={content.avatar_url}
-              date={content.date}
-              body={content.body}
-              badge={content.badge}
-              image_url={content.image_url}
-              style={innerStyle}
-            />
-          );
-        } else if (content.type === 'Timeline') {
-          node = (
-            <TimelineRenderer
-              events={content.events}
-              title={content.title}
-              style={innerStyle}
-            />
-          );
         } else if (content.type === 'Shape') {
           node = (
             <ShapeRenderer
@@ -276,9 +270,16 @@ export const ASTRenderer: React.FC<{
               stroke={content.stroke}
               stroke_width={content.stroke_width}
               radius={content.radius}
+              width={content.width}
+              height={content.height}
+              corner_radius={content.corner_radius}
               points={content.points}
               inner_radius={content.inner_radius}
+              direction={content.direction}
+              angle={content.angle}
+              preset_path={content.preset_path}
               path_d={content.path_d}
+              view_box={content.view_box}
               draw_animation={content.draw_animation}
               glow={content.glow}
               style={innerStyle}

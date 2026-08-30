@@ -4,8 +4,7 @@ import { usePlaybackStore } from '../../../store/usePlaybackStore';
 import { VscTrash } from 'react-icons/vsc';
 import {
   Image as ImageIcon, Map as MapIcon, Layers,
-  FileText, BarChart3,
-  Hash, Milestone, Shapes, Type, Video as VideoIcon,
+  BarChart3, Shapes, Type, Video as VideoIcon,
   Code, Sparkles, Zap, ZoomIn, ZoomOut, MoveRight,
   Minus
 } from 'lucide-react';
@@ -40,9 +39,6 @@ export const TRANSITION_OPTIONS = [
 
 const AST_PRIMITIVE_BADGES: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   Chart: { label: 'Chart', icon: BarChart3, color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
-  Counter: { label: 'Counter', icon: Hash, color: 'bg-rose-500/20 text-rose-300 border-rose-500/30' },
-  Mockup: { label: 'Mockup', icon: FileText, color: 'bg-stone-500/20 text-stone-200 border-stone-500/30' },
-  Timeline: { label: 'Timeline', icon: Milestone, color: 'bg-violet-500/20 text-violet-300 border-violet-500/30' },
   Shape: { label: 'Shape', icon: Shapes, color: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
   Text: { label: 'Text', icon: Type, color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
   Image: { label: 'Image', icon: ImageIcon, color: 'bg-sky-500/20 text-sky-300 border-sky-500/30' },

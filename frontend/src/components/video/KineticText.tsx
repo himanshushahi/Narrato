@@ -37,9 +37,15 @@ export const KineticText: React.FC<KineticTextProps> = ({
     return new Set(highlight_words.map(cleanWordKey));
   }, [highlight_words]);
 
+  const isDevanagari = useMemo(() => {
+    return /[\u0900-\u097F]/.test(text || '');
+  }, [text]);
+
+  const defaultFont = isDevanagari ? "'Noto Sans Devanagari', 'Inter', -apple-system, sans-serif" : 'Inter, -apple-system, sans-serif';
+
   // Base font style
   const baseFontStyle: React.CSSProperties = {
-    fontFamily: font || style.fontFamily || 'Inter, -apple-system, sans-serif',
+    fontFamily: font || style.fontFamily || defaultFont,
     fontWeight: weight || style.fontWeight || 'bold',
     color: color || style.color || '#ffffff',
     fontSize: style.fontSize || '64px',

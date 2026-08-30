@@ -15,7 +15,7 @@ export interface ChartProps {
   durationInFrames?: number;
 }
 
-const DEFAULT_PALETTE = ['#f59e0b', '#3b82f6', '#10b981', '#ec4899', '#8b5cf6', '#06b6d4', '#f97316'];
+const DEFAULT_PALETTE = ['#00d4ff', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#3b82f6', '#f97316'];
 
 export const ChartRenderer: React.FC<ChartProps> = ({
   chart_type = 'bar',
@@ -31,12 +31,14 @@ export const ChartRenderer: React.FC<ChartProps> = ({
   const items = useMemo(() => {
     if (data && data.length > 0) return data;
     return [
-      { label: 'Q1', value: 35, color: '#f59e0b' },
-      { label: 'Q2', value: 58, color: '#3b82f6' },
+      { label: 'Q1', value: 35, color: '#00d4ff' },
+      { label: 'Q2', value: 58, color: '#38bdf8' },
       { label: 'Q3', value: 82, color: '#10b981' },
-      { label: 'Q4', value: 95, color: '#8b5cf6' },
+      { label: 'Q4', value: 95, color: '#f59e0b' },
     ];
   }, [data]);
+
+  const primaryColor = style.color || '#00d4ff';
 
   const maxValue = useMemo(() => {
     const max = Math.max(...items.map((d) => d.value), 1);
@@ -64,7 +66,7 @@ export const ChartRenderer: React.FC<ChartProps> = ({
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: '24px',
+        padding: '20px',
         boxSizing: 'border-box',
         backgroundColor: 'transparent',
         ...style,
@@ -73,15 +75,15 @@ export const ChartRenderer: React.FC<ChartProps> = ({
       {title && (
         <div
           style={{
-            fontSize: '32px',
+            fontSize: '28px',
             fontWeight: 800,
             color: '#ffffff',
-            marginBottom: '24px',
+            marginBottom: '20px',
             letterSpacing: '1px',
             textAlign: 'center',
             opacity: entranceSpr,
             transform: `translateY(${(1 - entranceSpr) * -20}px)`,
-            textShadow: '0 4px 16px rgba(0,0,0,0.6)',
+            textShadow: '0 4px 16px rgba(0,0,0,0.8)',
           }}
         >
           {title}
@@ -110,29 +112,29 @@ export const ChartRenderer: React.FC<ChartProps> = ({
                   {/* Value badge */}
                   <div
                     style={{
-                      fontSize: '22px',
+                      fontSize: '20px',
                       fontWeight: 800,
                       color: '#ffffff',
                       marginBottom: '8px',
                       opacity: barSpring,
                       transform: `scale(${barSpring})`,
-                      textShadow: '0 2px 10px rgba(0,0,0,0.8)',
+                      textShadow: '0 2px 10px rgba(0,0,0,0.9)',
                       fontFamily: 'monospace',
                     }}
                   >
                     {displayVal}
                   </div>
-                  {/* Bar pillar */}
+                  {/* Bar pillar with neon gradient and top cap */}
                   <div
                     style={{
                       width: '100%',
                       maxWidth: '90px',
                       height: `${currentHeightPercent}%`,
-                      backgroundColor: color,
+                      background: `linear-gradient(to top, ${color}33, ${color})`,
                       borderRadius: '10px 10px 4px 4px',
-                      boxShadow: `0 0 25px ${color}55, 0 8px 20px rgba(0,0,0,0.4)`,
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      transition: 'none',
+                      boxShadow: `0 0 25px ${color}66, 0 8px 20px rgba(0,0,0,0.5)`,
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      borderBottom: 'none',
                     }}
                   />
                   {/* X-axis label */}
@@ -140,9 +142,9 @@ export const ChartRenderer: React.FC<ChartProps> = ({
                     style={{
                       position: 'absolute',
                       bottom: '-28px',
-                      fontSize: '18px',
+                      fontSize: '16px',
                       fontWeight: 700,
-                      color: 'rgba(255,255,255,0.85)',
+                      color: 'rgba(255,255,255,0.9)',
                       textAlign: 'center',
                       whiteSpace: 'nowrap',
                       opacity: entranceSpr,
@@ -160,9 +162,9 @@ export const ChartRenderer: React.FC<ChartProps> = ({
           <div style={{ width: '100%', height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg viewBox="0 0 800 400" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
               <defs>
-                <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.4" />
-                  <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
+                <linearGradient id={`lineGrad_${primaryColor.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={primaryColor} stopOpacity="0.45" />
+                  <stop offset="100%" stopColor={primaryColor} stopOpacity="0.0" />
                 </linearGradient>
               </defs>
 
@@ -190,17 +192,17 @@ export const ChartRenderer: React.FC<ChartProps> = ({
                 return (
                   <>
                     {/* Area fill */}
-                    <path d={areaD} fill="url(#lineGrad)" opacity={animProgress * 0.8} />
+                    <path d={areaD} fill={`url(#lineGrad_${primaryColor.replace('#', '')})`} opacity={animProgress * 0.85} />
                     {/* Stroke line */}
                     <path
                       d={pathD}
                       fill="none"
-                      stroke="#f59e0b"
+                      stroke={primaryColor}
                       strokeWidth="5"
                       strokeLinecap="round"
                       strokeDasharray="2000"
                       strokeDashoffset={2000 * (1 - animProgress)}
-                      style={{ filter: 'drop-shadow(0 0 10px rgba(245,158,11,0.6))' }}
+                      style={{ filter: `drop-shadow(0 0 12px ${primaryColor}aa)` }}
                     />
                     {/* Node points */}
                     {points.map((p, i) => {
@@ -212,11 +214,11 @@ export const ChartRenderer: React.FC<ChartProps> = ({
                       });
                       return (
                         <g key={i} opacity={ptSpr} transform={`translate(0, ${(1 - ptSpr) * 10})`}>
-                          <circle cx={p.x} cy={p.y} r="8" fill="#ffffff" stroke="#f59e0b" strokeWidth="4" />
-                          <text x={p.x} y={p.y - 16} fill="#ffffff" fontSize="18" fontWeight="800" textAnchor="middle">
+                          <circle cx={p.x} cy={p.y} r="8" fill="#ffffff" stroke={primaryColor} strokeWidth="4" style={{ filter: `drop-shadow(0 0 8px ${primaryColor})` }} />
+                          <text x={p.x} y={p.y - 16} fill="#ffffff" fontSize="18" fontWeight="800" textAnchor="middle" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
                             {p.value}
                           </text>
-                          <text x={p.x} y={400 - padding + 28} fill="rgba(255,255,255,0.7)" fontSize="16" fontWeight="600" textAnchor="middle">
+                          <text x={p.x} y={400 - padding + 28} fill="rgba(255,255,255,0.8)" fontSize="16" fontWeight="700" textAnchor="middle">
                             {p.label}
                           </text>
                         </g>
@@ -230,8 +232,8 @@ export const ChartRenderer: React.FC<ChartProps> = ({
         )}
 
         {(chart_type === 'donut' || chart_type === 'pie') && (
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '36px' }}>
-            <div style={{ width: '280px', height: '280px', position: 'relative' }}>
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '32px' }}>
+            <div style={{ width: '240px', height: '240px', position: 'relative' }}>
               <svg viewBox="0 0 200 200" style={{ transform: 'rotate(-90deg)', width: '100%', height: '100%' }}>
                 {(() => {
                   let accumulatedPercent = 0;
@@ -266,7 +268,7 @@ export const ChartRenderer: React.FC<ChartProps> = ({
                         strokeDasharray={strokeDasharray}
                         strokeDashoffset={strokeDashoffset}
                         opacity={anim}
-                        style={{ filter: `drop-shadow(0 0 8px ${color}66)` }}
+                        style={{ filter: `drop-shadow(0 0 10px ${color}88)` }}
                       />
                     );
                   });
@@ -275,22 +277,26 @@ export const ChartRenderer: React.FC<ChartProps> = ({
 
               {chart_type === 'donut' && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ fontSize: '28px', fontWeight: 900, color: '#ffffff' }}>100%</div>
-                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase' }}>Total</div>
+                  <div style={{ fontSize: '26px', fontWeight: 900, color: '#ffffff', textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>
+                    {totalValue > 100 ? `${Math.round(totalValue)}` : '100%'}
+                  </div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Total
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Legend */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {items.map((item, idx) => {
                 const color = item.color || DEFAULT_PALETTE[idx % DEFAULT_PALETTE.length];
                 const pct = Math.round((item.value / totalValue) * 100);
                 return (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', opacity: entranceSpr }}>
-                    <div style={{ width: '16px', height: '16px', borderRadius: '4px', backgroundColor: color }} />
-                    <div style={{ fontSize: '18px', fontWeight: 700, color: '#ffffff' }}>{item.label}</div>
-                    <div style={{ fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.6)' }}>({pct}%)</div>
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', opacity: entranceSpr }}>
+                    <div style={{ width: '14px', height: '14px', borderRadius: '4px', backgroundColor: color, boxShadow: `0 0 8px ${color}` }} />
+                    <div style={{ fontSize: '17px', fontWeight: 700, color: '#ffffff' }}>{item.label}</div>
+                    <div style={{ fontSize: '15px', fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>({pct}%)</div>
                   </div>
                 );
               })}
@@ -299,7 +305,7 @@ export const ChartRenderer: React.FC<ChartProps> = ({
         )}
 
         {chart_type === 'progress' && (
-          <div style={{ width: '85%', maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ width: '90%', maxWidth: '640px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
             {items.map((item, idx) => {
               const progressSpring = spring({
                 frame: Math.max(0, frame - idx * 6),
@@ -312,17 +318,17 @@ export const ChartRenderer: React.FC<ChartProps> = ({
               return (
                 <div key={idx} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '20px', fontWeight: 700, color: '#ffffff' }}>{item.label}</span>
-                    <span style={{ fontSize: '22px', fontWeight: 800, color: color, fontFamily: 'monospace' }}>{val}%</span>
+                    <span style={{ fontSize: '19px', fontWeight: 700, color: '#ffffff' }}>{item.label}</span>
+                    <span style={{ fontSize: '20px', fontWeight: 800, color: color, fontFamily: 'monospace' }}>{val}%</span>
                   </div>
-                  <div style={{ width: '100%', height: '18px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '9px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
+                  <div style={{ width: '100%', height: '16px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)' }}>
                     <div
                       style={{
                         width: `${val}%`,
                         height: '100%',
-                        backgroundColor: color,
-                        borderRadius: '9px',
-                        boxShadow: `0 0 16px ${color}88`,
+                        background: `linear-gradient(to right, ${color}88, ${color})`,
+                        borderRadius: '8px',
+                        boxShadow: `0 0 16px ${color}aa`,
                       }}
                     />
                   </div>

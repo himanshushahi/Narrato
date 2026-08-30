@@ -6,6 +6,7 @@ export interface ASTAnimation {
   from: number;
   to: number;
   duration: number; // in seconds
+  delay?: number; // in seconds (optional)
   easing: 'linear' | 'spring' | 'ease-in' | 'ease-out' | 'ease-in-out';
 }
 
@@ -17,21 +18,22 @@ export const ASTAnimator: React.FC<{
   const { fps } = useVideoConfig();
 
   const style = useMemo(() => {
-    const s: React.CSSProperties = { transform: '' };
+    const s: React.CSSProperties = { transform: '', transformOrigin: 'center center' };
     
     for (const anim of animations) {
       if (typeof anim.duration !== 'number' || typeof anim.from !== 'number' || typeof anim.to !== 'number') {
         continue;
       }
       
+      const delayFrames = Math.max(0, Math.round((anim.delay || 0) * fps));
       const durationFrames = Math.max(1, Math.round(anim.duration * fps));
       let val = anim.from;
       
       if (anim.easing === 'spring') {
         const spr = spring({
-          frame,
+          frame: Math.max(0, frame - delayFrames),
           fps,
-          config: { damping: 12, stiffness: 100, mass: 1 },
+          config: { damping: 14, stiffness: 100, mass: 0.9 },
           durationInFrames: durationFrames,
         });
         val = anim.from + (anim.to - anim.from) * spr;
@@ -42,7 +44,7 @@ export const ASTAnimator: React.FC<{
         else if (anim.easing === 'ease-out') easingFn = Easing.out(Easing.ease);
         else if (anim.easing === 'ease-in-out') easingFn = Easing.inOut(Easing.ease);
 
-        val = interpolate(frame, [0, durationFrames], [anim.from, anim.to], {
+        val = interpolate(frame, [delayFrames, delayFrames + durationFrames], [anim.from, anim.to], {
           extrapolateRight: 'clamp',
           extrapolateLeft: 'clamp',
           easing: easingFn,

@@ -166,6 +166,7 @@ ANIMATION_SCHEMA = {
         "from": {"type": "number"},
         "to": {"type": "number"},
         "duration": {"type": "number", "description": "Duration of the animation in seconds"},
+        "delay": {"type": "number", "description": "Delay in seconds before animation begins (optional, default 0)"},
         "easing": {"type": "string", "enum": ["linear", "spring", "ease-in", "ease-out", "ease-in-out"]}
     },
     "required": ["property", "from", "to", "duration", "easing"]
@@ -174,7 +175,7 @@ ANIMATION_SCHEMA = {
 LAYER_CONTENT_SCHEMA = {
     "type": "object",
     "properties": {
-        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Chart", "Counter", "Mockup", "Timeline", "Shape", "Map", "HTML"]},
+        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML"]},
         "query": {"type": "string", "description": "Search query for Pexels, Wikipedia, Pixabay, or YouTube (if Image/Video)"},
         "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay", "youtube"], "description": "Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed."},
         "text": {"type": "string", "description": "Text content (if Text)"},
@@ -191,9 +192,16 @@ LAYER_CONTENT_SCHEMA = {
         "stroke": {"type": "string", "description": "Stroke border color hex (if Shape)"},
         "stroke_width": {"type": "number", "description": "Stroke width in pixels (if Shape)"},
         "radius": {"type": "number", "description": "Radius / size in pixels (if Shape)"},
+        "width": {"type": "number", "description": "Width in pixels for rectangle (if Shape)"},
+        "height": {"type": "number", "description": "Height in pixels for rectangle (if Shape)"},
+        "corner_radius": {"type": "number", "description": "Corner rounding radius in pixels (if Shape)"},
         "points": {"type": "integer", "description": "Number of points for star/polygon (if Shape)"},
         "inner_radius": {"type": "number", "description": "Inner radius for star (if Shape)"},
-        "path_d": {"type": "string", "description": "SVG path d string for custom animated drawing (if Shape and shape_type='path')"},
+        "direction": {"type": "string", "enum": ["up", "down", "left", "right"], "description": "Direction for arrow/triangle (if Shape)"},
+        "angle": {"type": "number", "description": "Rotation angle in degrees (if Shape)"},
+        "preset_path": {"type": "string", "enum": ["route_arch", "horizontal_line", "pointer_curve", "corner_brackets", "wave_pulse", "circle_reticle"], "description": "High-level SVG path preset (if Shape and shape_type='path')"},
+        "path_d": {"type": "string", "description": "Custom SVG path d string in 1920x1080 canvas (if Shape and shape_type='path')"},
+        "view_box": {"type": "string", "description": "SVG viewBox string (default '0 0 1920 1080')"},
         "draw_animation": {"type": "boolean", "description": "Whether to animate stroke path drawing (if Shape, default true)"},
         "glow": {"type": "boolean", "description": "Whether to add subtle neon glow (if Shape, default true)"},
         
@@ -212,46 +220,13 @@ LAYER_CONTENT_SCHEMA = {
             },
             "description": "Array of data points (if Chart)"
         },
-        "title": {"type": "string", "description": "Title or headline for Chart or Timeline"},
+        "title": {"type": "string", "description": "Title or headline for Chart"},
         
-        # Counter properties
-        "from": {"type": "number", "description": "Start number (if Counter, default 0)"},
-        "to": {"type": "number", "description": "Target number to roll to (if Counter)"},
-        "prefix": {"type": "string", "description": "Prefix like '$' or '+' (if Counter)"},
-        "suffix": {"type": "string", "description": "Suffix like 'M', 'B', '%' (if Counter)"},
-        "decimals": {"type": "integer", "description": "Decimal places (if Counter)"},
-        "label": {"type": "string", "description": "Sub-label below Counter"},
+        # Other properties
+        "html_content": {"type": "string", "description": "Raw HTML/SVG markup (if HTML), e.g. custom tables, dossiers, badges, or SVG diagrams"},
+        "volume": {"type": "number", "description": "Audio volume from 0 to 1 (default 0 for Video)"},
         
-        # Mockup properties
-        "preset": {"type": "string", "enum": ["social_post", "newspaper", "browser", "document"], "description": "Mockup template style (if Mockup)"},
-        "headline": {"type": "string", "description": "Main title/headline (if Mockup)"},
-        "author": {"type": "string", "description": "Author/Publisher name (if Mockup)"},
-        "handle": {"type": "string", "description": "Social handle or web URL (if Mockup)"},
-        "avatar_url": {"type": "string", "description": "Avatar image URL (if Mockup)"},
-        "date": {"type": "string", "description": "Publication date/time (if Mockup)"},
-        "body": {"type": "string", "description": "Article/post body text (if Mockup)"},
-        "badge": {"type": "string", "description": "Badge text like 'TOP SECRET' or 'VERIFIED' (if Mockup)"},
-        "image_url": {"type": "string", "description": "Embedded media URL (if Mockup)"},
-        
-        # Timeline properties
-        "orientation": {"type": "string", "enum": ["vertical", "horizontal"], "description": "Timeline layout orientation (vertical or horizontal, default vertical)"},
-        "events": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "year_or_date": {"type": "string"},
-                    "title": {"type": "string"},
-                    "description": {"type": "string"}
-                },
-                "required": ["year_or_date", "title"]
-            },
-            "description": "Chronological milestones (if Timeline)"
-        },
-        
-        # Other media properties
-        "html_content": {"type": "string", "description": "Raw HTML/SVG content (if HTML), e.g., <svg>...</svg> or <div style='...'>...</div>"},
-        "volume": {"type": "number", "description": "Audio volume from 0 to 1 (default 0)"},
+        # Map properties
         "locations": {
             "type": "array",
             "items": {
@@ -2068,26 +2043,27 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
     text_bottom_limit = "28%" if video_format == "portrait" else "18%"
     return f"""
 === SHARED RULES (apply to every layer) ===
-- `query` in Image/Video MUST ALWAYS be in English. Use 1-3 broad stock keywords for media types.
+- `query` in Image/Video MUST ALWAYS be in English. Use 1-3 broad descriptive stock keywords.
 - All text content MUST be in English, EXCEPT if you are specifically creating a subtitle/translation layer which must match the target language ({language}).
 - CRITICAL FONT RULE: If generating text/subtitles in a complex script (e.g., Hindi, Tamil, Bengali, Arabic), you MUST specify a Noto font (e.g., `Noto Sans Devanagari`) in the design system or layer style to prevent broken Unicode shaping.
 - Design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths where applicable.
+  * Landscape (16:9): Split screens use `left: "6%"` & `left: "52%"`, `width: "42%"`, `height: "66%"`.
+  * Portrait (9:16): Stack vertically! Top card `top: "12%"`, `height: "36%"`; Bottom card `top: "50%"`, `height: "22%"`.
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
 - STANDARDIZED Z-INDEX HIERARCHY:
-  * 0 - 9: Background media / textures / footage
-  * 10 - 29: Midground motion primitives (Charts, Counters, Mockups, Timelines, Shapes, Insets)
-  * 30 - 39: Foreground typography / callouts (respect subtitle safe area)
+  * 0 - 9: Background media / textures / footage + continuous camera drift (`animations: [{{"property": "scale", "from": 1.0, "to": 1.06, "duration": ..., "easing": "linear"}}]`)
+  * 10 - 29: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with glassmorphism styling (`backgroundColor: "rgba(15, 23, 42, 0.85)"`, `backdropFilter: "blur(20px)"`, `borderRadius: "20px"`, `border: "1px solid rgba(255, 255, 255, 0.15)"`) + spring entrance (`delay: 0.15`, `easing: "spring"`)
+  * 30 - 39: Foreground typography / callouts (respect subtitle safe area) with staggered reveal (`delay: 0.45` to `0.7`)
 
 === NO STATIC CHAPTER TITLE CARDS IN SUB-VISUALS ===
 Do NOT create static chapter title badges, scene name cards, or temporary header pills inside sub-visual cuts. Chapter indicators and video branding are managed continuously at the root composition level. Dedicate sub-visual cuts entirely to motion graphics, infographics, evidence mockups, b-roll, and visual storytelling.
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
 When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
-- Text reveal animations timed to when specific words are spoken
-- Data visualization build-up animations synced to narration beats
-- Element entry/exit timings matching spoken content transitions
-Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP text element.
-When sub-visual duration breakdowns are provided, use the start offset and duration of each sub-visual to ensure animations fit within the allocated time window.
+- Text reveal animations timed to when specific words are spoken using `delay` in seconds.
+- Data visualization build-up animations synced to narration beats.
+- Element entry/exit timings matching spoken content transitions.
+Example: If "GDP" is spoken at [2.3s], set `delay: 2.3` on the GDP text animation.
 
 - DO NOT add arbitrary properties that are not supported.
 - `query` in `Image` and `Video` content MUST ALWAYS be in English.
@@ -2183,17 +2159,17 @@ Every sub-visual should feel like a deliberate creative decision with rich multi
 === 3-LAYER DEPTH & MOTION GRAMMAR ===
 Construct depth across 3 standardized Z-index layers on every visual beat:
 1. **Z-Index 0–9 (Atmospheric Canvas)**: Darkened background footage or vector map + continuous camera drift (`animations: [{{"property": "scale", "from": 1.0, "to": 1.06, "duration": ..., "easing": "linear"}}]`).
-2. **Z-Index 10–29 (Graphic Subject / Midground)**: Glassmorphic cards, charts (`Chart`), rolling counters (`Counter`), document mockups (`Mockup`), milestone timelines (`Timeline`), vector shapes (`Shape`), or split-screen insets + physics spring entrance (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out"}}]`).
+2. **Z-Index 10–29 (Graphic Subject / Midground)**: Glassmorphic cards, charts (`Chart`), vector shapes (`Shape`), bespoke HTML cards (`HTML`), or split-screen insets + physics spring entrance (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out"}}]`).
 3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (respecting subtitle safe area: `bottom > 18%` for landscape).
 
 === MASTER VISUAL ARCHETYPES ===
 Vary your spatial layouts across cuts using these master blueprints:
-- **Split-Screen Data HUD**: Left 45% glassmorphic chart/timeline card + Right 45% glowing media inset.
-- **Investigative Dossier**: Leaked document mockup with confidential stamp + glowing marker highlight pull-quote.
-- **Macro Metric Callout**: Dramatic background + large glass badge with rolling counter (`$0` to `$14.2B`, `99%`) + progress bar.
-- **Geographic Route / Map**: Dark vector map with city pins + glowing animated SVG trajectory path.
-- **Technical Blueprint**: Grid background + transparent vector cross-section diagram + animated pointer labels.
-- **Multi-Metric KPI Grid**: 2 top counter cards + bottom comparison/progress bar.
+- **Split-Screen Data HUD**: Left 45% glassmorphic chart card + Right 45% glowing media inset.
+- **Investigative Dossier**: Custom HTML leaked document memo with confidential stamp + glowing marker highlight pull-quote.
+- **Macro Metric Callout**: Dramatic background + large glass badge with dynamic metric or progress bar (`Chart`).
+- **Geographic Route / Map**: Dark vector map with city pins + glowing animated SVG trajectory path (`preset_path: "route_arch"`).
+- **Technical Blueprint / HUD**: Grid background + transparent vector diagram + glowing corner brackets (`preset_path: "corner_brackets"`).
+- **Bespoke Infographic Card**: High-production HTML/SVG comparison table, radar chart, or UI mockup.
 - **Cinematic Atmosphere Beat**: Graded high-contrast ambient footage with continuous Ken Burns drift (when narrative calls for a breather).
 
 RULES:
@@ -2205,7 +2181,7 @@ RULES:
 - style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers.
 - DESIGN SYSTEM: Bind `primary`, `accent`, `surface`, `glow`, and `fontFamily` from the project's design system into layer styles.
 - VIDEO: Set `"volume": 0` by default on all Video layers.
-- ONLY use the 10 valid content types: Image, Video, Text, Chart, Counter, Mockup, Timeline, Shape, Map, HTML.
+- ONLY use the 7 valid content types: Image, Video, Text, Chart, Shape, Map, HTML.
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
@@ -2336,7 +2312,7 @@ ERROR PREVENTION:
         plan_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
 You are an expert Visual Director and Cinematographer. Your job is to read the narration for this scene and write a highly creative, detailed storyboard plan describing the sub-visual beats needed.
 Adapt the narrative style and tone specifically to fit the "{genre}" genre.
-Emphasize rich motion graphic primitives (Charts, Counters, Mockups, Timelines, Shapes, Kinetic Text, Footage).
+Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Footage).
 Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling (e.g. 'Beat 1: Animated bar chart showing revenue loss. Beat 2: Leaked document mockup highlighting suspicious transactions. Beat 3: Dramatic aerial b-roll video with typewriter quote callout.').
 Do not output AST JSON, just output a detailed text description of what each sub-visual should look like.{storyboard_guidance}"""
 

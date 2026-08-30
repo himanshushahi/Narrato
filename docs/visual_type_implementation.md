@@ -37,9 +37,6 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 │        ├── Image / Video  ──► <AsyncMediaNode> (Remotion <Img> / <Video>)   │
 │        ├── Text           ──► <KineticText>                                 │
 │        ├── Chart          ──► <ChartRenderer>                               │
-│        ├── Counter        ──► <CounterRenderer>                             │
-│        ├── Mockup         ──► <MockupRenderer>                              │
-│        ├── Timeline       ──► <TimelineRenderer>                            │
 │        ├── Shape          ──► <ShapeRenderer>                               │
 │        ├── Map            ──► <DataVisualizations>                          │
 │        └── HTML           ──► dangerouslySetInnerHTML                       │
@@ -56,7 +53,7 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 
 ---
 
-## 2. The Current 10 Visual Layer Types
+## 2. The 7 Active Visual Layer Types
 
 | # | Layer Type | Primary Purpose | Key Fields / Parameters | Remotion Component |
 |---|---|---|---|---|
@@ -64,12 +61,9 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 | 2 | `Video` | Cinematic B-roll, timelapses, dramatic motion backgrounds | `query`, `source` (`pexels` \| `pixabay` \| `youtube`), `volume`, `yt_start_offset`, `yt_duration`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<AsyncMediaNode>` |
 | 3 | `Text` | Dynamic headlines, kinetic quotes, data callouts | `text`, `font`, `weight`, `color`, `animation_mode`, `highlight_words`, `highlight_color`, `style` | [KineticText.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/KineticText.tsx) |
 | 4 | `Chart` | Statistics, comparisons, growth trends, distributions | `chart_type` (`bar` \| `line` \| `pie` \| `donut` \| `progress`), `data`, `title`, `style` | [ChartRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ChartRenderer.tsx) |
-| 5 | `Counter` | Rolling numeric metrics, financial spikes, valuations | `from`, `to`, `prefix`, `suffix`, `decimals`, `label`, `color`, `style` | [CounterRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/CounterRenderer.tsx) |
-| 6 | `Mockup` | Documentary artifacts, leaked memos, tweets, headlines | `preset` (`newspaper` \| `document` \| `browser` \| `social_post`), `headline`, `author`, `handle`, `date`, `body`, `badge`, `avatar_url`, `style` | [MockupRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/MockupRenderer.tsx) |
-| 7 | `Timeline` | Multi-year chronological events and roadmaps | `title`, `orientation` (`vertical` \| `horizontal`), `events`, `style` | [TimelineRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/TimelineRenderer.tsx) |
-| 8 | `Shape` | Hardware-accelerated vector shapes & animated SVG paths | `shape_type` (`rectangle` \| `circle` \| `star` \| `triangle` \| `arrow` \| `polygon` \| `path`), `fill`, `stroke`, `stroke_width`, `radius`, `points`, `inner_radius`, `path_d`, `draw_animation`, `glow`, `style` | [ShapeRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ShapeRenderer.tsx) |
-| 9 | `Map` | Geographic territories, highlighted routes & markers | `locations` (`[{name, coord}]`), `map_style` (`modern_dark` \| `vintage` \| `minimal_light` \| `nautical_blue`), `style` | [DataVisualizations.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/DataVisualizations.tsx) |
-| 10 | `HTML` | Bespoke inline SVG diagrams and custom CSS animations | `html_content`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<div dangerouslySetInnerHTML>` |
+| 5 | `Shape` | Hardware-accelerated vector shapes & animated SVG paths | `shape_type` (`rectangle` \| `circle` \| `star` \| `triangle` \| `arrow` \| `polygon` \| `path`), `fill`, `stroke`, `stroke_width`, `radius`, `direction`, `angle`, `preset_path`, `path_d`, `draw_animation`, `glow`, `style` | [ShapeRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ShapeRenderer.tsx) |
+| 6 | `Map` | Geographic territories, highlighted routes & markers | `locations` (`[{name, coord}]`), `map_style` (`modern_dark` \| `vintage` \| `minimal_light` \| `nautical_blue`), `style` | [DataVisualizations.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/DataVisualizations.tsx) |
+| 7 | `HTML` | Universal dynamic canvas: bespoke leaked memos, chat UI, comparison cards, SVG diagrams | `html_content`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<div dangerouslySetInnerHTML>` |
 
 ---
 
@@ -308,11 +302,11 @@ CodeBlock: {
        "properties": {
            "type": {
                "type": "string",
-               "enum": [
-                   "Image", "Video", "Text", "Chart", "Counter", 
-                   "Mockup", "Timeline", "Shape", "Map", "HTML",
-                   "CodeBlock"  # <-- Added
-               ]
+                "enum": [
+                    "Image", "Video", "Text", "Chart", 
+                    "Shape", "Map", "HTML",
+                    "CodeBlock"  # <-- Added
+                ]
            },
            # Add CodeBlock properties:
            "code": {"type": "string", "description": "Source code text (if CodeBlock)"},

@@ -27,17 +27,17 @@ A documentary scene must **never** feel like a static slideshow of full-screen s
 
 When planning sub-visual beats, architect spatial variety across the scene. Mix and adapt these core patterns:
 
-### 1. Data Revelation Beat (`Chart` / `Counter` / Split-Screen HUD)
+### 1. Data Revelation Beat (`Chart` / Split-Screen HUD)
 * **When to Use**: Comparisons, growth statistics, financial numbers, percentages, or valuations.
-* **Visual Direction**: Left 45% glassmorphic container with an animated chart/timeline; Right 45% high-contrast media inset with rounded corners; Foreground kinetic headline or large rolling metric counter.
+* **Visual Direction**: Left 45% glassmorphic container with an animated chart; Right 45% high-contrast media inset with rounded corners; Foreground kinetic headline or large callout badge.
 
-### 2. Documentary Evidence Beat (`Mockup` Dossier)
+### 2. Documentary Evidence Beat (`HTML` Leaked Memo / Dossier)
 * **When to Use**: Leaks, secret audit memos, newspaper headlines, public tweets, lawsuit filings, or confidential statements.
-* **Visual Direction**: Darkened ambient background + centered/offset document mockup entering with spring physics + glowing highlighter callout around key quote + typewriter reveal.
+* **Visual Direction**: Darkened ambient background + centered/offset bespoke HTML document memo entering with spring physics + glowing highlighter callout around key quote + typewriter reveal.
 
-### 3. Chronological Milestone Beat (`Timeline` & Roadmaps)
+### 3. Chronological Milestone Beat (Step-by-Step HTML / Shape Route)
 * **When to Use**: Sequence of events, historical dates, background history, or technical roadmap.
-* **Visual Direction**: A milestone timeline with glowing node indicators, year badges, and staggered event entrance.
+* **Visual Direction**: A milestone card sequence or animated connecting line (`preset_path: "horizontal_line"`) with glowing badges and staggered text entrance.
 
 ### 4. Vector Diagram & Technical Blueprint Beat (`Shape` + `Text` / `HTML`)
 * **When to Use**: Explaining internal mechanisms, hardware engineering, physical cable armor layers, networks, or process workflows.
@@ -45,7 +45,7 @@ When planning sub-visual beats, architect spatial variety across the scene. Mix 
 
 ### 5. Archival Portrait & Geographic Route Beat (`Image` / `Map`)
 * **When to Use**: Introducing key figures, CEOs, or geographic routes, oceanic cable networks, and global trade expansion.
-* **Visual Direction**: High-contrast entity portrait with Ken Burns drift OR dark vector map with city pins and glowing animated SVG trajectory path.
+* **Visual Direction**: High-contrast entity portrait with Ken Burns drift OR dark vector map with city pins and glowing animated SVG trajectory path (`preset_path: "route_arch"`).
 
 ### 6. Cinematic Ambient Motion Beat (`Video` / `Image` with grading)
 * **When to Use**: Emotional pauses, contemplative narration shifts, or establishing sweeping geographical mood.

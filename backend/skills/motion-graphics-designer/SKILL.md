@@ -34,7 +34,7 @@ Use these standard responsive percentage coordinates for multi-element compositi
 ```
 
 ### B. Split-Screen Layout (Left: Data / Right: Media Inset)
-* **Left Card (Data / Chart / Timeline)**:
+* **Left Card (Data / Chart / HTML Card)**:
   `"style": { "position": "absolute", "left": "6%", "top": "16%", "width": "42%", "height": "66%", "backgroundColor": "rgba(15, 23, 42, 0.85)", "backdropFilter": "blur(18px)", "borderRadius": "20px", "border": "1px solid rgba(0, 212, 255, 0.3)", "boxShadow": "0 20px 50px rgba(0, 0, 0, 0.6)" }`
 * **Right Inset (Photo / Cutout / B-Roll)**:
   `"style": { "position": "absolute", "left": "52%", "top": "16%", "width": "42%", "height": "66%", "borderRadius": "20px", "border": "1px solid rgba(255, 255, 255, 0.15)", "boxShadow": "0 20px 50px rgba(0, 0, 0, 0.6)" }`
@@ -50,7 +50,7 @@ Use these standard responsive percentage coordinates for multi-element compositi
 
 Every layer should use standardized physics animations:
 
-### A. Midground Entrance Spring (Cards, Charts, Mockups, Shapes)
+### A. Midground Entrance Spring (Cards, Charts, Shapes, HTML UI)
 Enters with natural spring recoil in the first 0.6 seconds:
 ```json
 "animations": [
@@ -141,11 +141,74 @@ Accentuates 1–3 punchy keywords with the design system accent color:
 
 Always apply the project's generated **Art Director Design System** (`design.json`) tokens across the 3 standardized Z-index layers:
 1. **Z-Index 0–9 (Atmospheric Canvas)**: Darkened footage/image + camera drift (`scale: 1.0 -> 1.06`).
-2. **Z-Index 10–29 (Graphic Subject)**: Glassmorphic cards, charts, mockups, counters, timelines, or vector shapes with spring physics.
+2. **Z-Index 10–29 (Graphic Subject)**: Glassmorphic cards, charts, vector shapes, or bespoke HTML evidence UI with spring physics.
 3. **Z-Index 30–39 (Typography & Accents)**: Kinetic text and indicator pointers respecting subtitle safe area (`bottom > 18%` for landscape).
 
-* **Primary Color (`color_palette.primary`)**: Apply to main chart bars, active counters, indicator paths, and key glowing borders.
+* **Primary Color (`color_palette.primary`)**: Apply to main chart bars, indicator paths, and key glowing borders.
 * **Accent Color (`color_palette.accent`)**: Apply to highlight marker text, alert callout badges, and contrasting chart bars.
 * **Surface Background (`color_palette.surface`)**: Apply as the `backgroundColor` of glassmorphic cards (`rgba(15, 23, 42, 0.85)`).
-* **Typography (`typography.heading_font`)**: Use for all header cards, counters, and text callouts (`Inter`, `Montserrat`, `Oswald`, etc.).
+* **Typography (`typography.heading_font`)**: Use for all header cards, callouts, and kinetic text (`Inter`, `Montserrat`, `Oswald`, etc.).
+
+---
+
+## 5. Vector Shape & Path Presets
+
+Use `Shape` layers with `preset_path` for broadcast-grade motion graphics:
+
+### A. Trajectory Arc & Route Connector (Maps / Connections)
+```json
+{
+  "type": "Layer",
+  "z_index": 18,
+  "content": {
+    "type": "Shape",
+    "shape_type": "path",
+    "preset_path": "route_arch",
+    "stroke": "#00d4ff",
+    "stroke_width": 4,
+    "draw_animation": true,
+    "glow": true,
+    "style": { "position": "absolute", "left": "0%", "top": "0%", "width": "100%", "height": "100%" }
+  }
+}
+```
+
+### B. Tech HUD Framing Brackets (Documentary & Evidence Focus)
+```json
+{
+  "type": "Layer",
+  "z_index": 22,
+  "content": {
+    "type": "Shape",
+    "shape_type": "path",
+    "preset_path": "corner_brackets",
+    "stroke": "#f59e0b",
+    "stroke_width": 3,
+    "draw_animation": true,
+    "glow": true,
+    "style": { "position": "absolute", "left": "0%", "top": "0%", "width": "100%", "height": "100%" }
+  }
+}
+```
+
+### C. Directional Indicator Arrow (Pointing to Metrics / Cards)
+```json
+{
+  "type": "Layer",
+  "z_index": 25,
+  "content": {
+    "type": "Shape",
+    "shape_type": "arrow",
+    "direction": "down",
+    "radius": 24,
+    "fill": "#00d4ff",
+    "stroke": "#ffffff",
+    "stroke_width": 2,
+    "glow": true,
+    "style": { "position": "absolute", "left": "48%", "top": "46%", "width": "60px", "height": "60px" }
+  },
+  "animations": [{ "property": "translateY", "from": -20, "to": 0, "duration": 0.5, "easing": "spring" }]
+}
+```
+
 

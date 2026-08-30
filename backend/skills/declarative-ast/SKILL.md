@@ -38,7 +38,7 @@ Great motion graphics are defined by **depth, hierarchy, and contrast**. Every s
 | Layer Range | Z-Index | Classification | Role & Motion Grammar |
 |---|---|---|---|
 | **Layer 1** | **0 – 9** | **Atmospheric Canvas (Background)** | Darkened footage, video loops (`volume: 0`), vector maps, or high-contrast imagery with cinematic filters (`brightness(0.35)`, `contrast(1.15)`). Always include continuous camera drift (`scale: 1.0 -> 1.06`). |
-| **Layer 2** | **10 – 29** | **Graphic Subject (Midground)** | Glassmorphic cards, animated charts (`Chart`), metric counters (`Counter`), document mockups (`Mockup`), milestone timelines (`Timeline`), vector callouts (`Shape`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
+| **Layer 2** | **10 – 29** | **Graphic Subject (Midground)** | Glassmorphic cards, animated charts (`Chart`), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
 | **Layer 3** | **30 – 39** | **Typography & Accents (Foreground)** | Kinetic callouts (`marker_highlight`, `words_stagger`, `typewriter`), indicator arrows/pointers, data badges. Staggered reveal entering after the midground card (respecting subtitle safe area). |
 
 ---
@@ -51,7 +51,7 @@ Every layer should move with purpose according to its role:
    * Use linear or ease-out scale/translate over the full cut duration:
      `"animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 5.0, "easing": "linear" }]`
 2. **Midground Graphics (Physics Spring Entrance)**:
-   * Cards, mockups, charts, and shapes must enter via spring physics in the first 0.5s–0.8s:
+   * Cards, charts, shapes, and HTML UI elements must enter via spring physics in the first 0.5s–0.8s:
      `"animations": [{ "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "easing": "spring" }, { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "easing": "ease-out" }]`
 3. **Foreground Typography (Selective Kinetic Accenting)**:
    * Use `animation_mode: "marker_highlight"` with `highlight_words` on high-impact keywords.
@@ -62,46 +62,35 @@ Every layer should move with purpose according to its role:
 
 ---
 
-## 4. The 10 Valid AST Content Types
+## 4. The 7 Valid AST Content Types
 
-The `content` object inside every `Layer` must specify one of the **10 supported types**:
+The `content` object inside every `Layer` must specify one of the **7 supported types**:
 
 ### 1. `Chart` (Infographics & Data Visualization)
 * `chart_type`: `"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`
 * `data`: Array of objects `[{"label": "2021", "value": 45, "color": "#f59e0b"}, ...]`
 * `title` (optional): Chart headline string
 
-### 2. `Counter` (High-Impact Metric Callouts)
-* `from`: Starting number (e.g. `0`)
-* `to`: Ending number (e.g. `14.2`)
-* `prefix` (optional): Currency or symbol (e.g. `"$"` or `"₹"`)
-* `suffix` (optional): Unit string (e.g. `"B"`, `"%"` or `"+ Users"`)
-* `decimals` (optional): Number of decimal places (e.g. `1`)
-* `label` (optional): Description underneath counter
-
-### 3. `Mockup` (Documentary Artifacts & Evidence)
-* `preset`: `"newspaper"` | `"document"` | `"browser"` | `"social_post"` | `"phone"`
-* `headline`: Primary article or post heading
-* `author` / `handle`: Author details (for social/newspaper)
-* `body`: Text snippet or quote
-* `badge` (optional): Stamp like `"CONFIDENTIAL"`, `"LEAKED"`, `"BREAKING"`
-* `image_url` (optional): Inset photo URL
-
-### 4. `Timeline` (Chronological Milestones & Roadmaps)
-* `title` (optional): Timeline headline
-* `events`: Array of `[{"year": "JAN 2022", "title": "Audit Initiated", "description": "First whistleblow"}, ...]`
-
-### 5. `Shape` (Vector Shapes, Paths & Callouts)
+### 2. `Shape` (Vector Shapes, Paths & Callouts)
 * `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"`
-* `fill`: Hex color or `"transparent"`
-* `stroke`: Border/line color (e.g. `"#f59e0b"`)
-* `stroke_width`: Border width in pixels
-* `radius`: Size in pixels
-* `path_d` (if `shape_type="path"`): SVG path definition string
-* `draw_animation`: `true` (animates line drawing)
-* `glow`: `true` (adds neon bloom)
+* `fill`: Hex color (e.g. `"rgba(0, 212, 255, 0.1)"`) or `"transparent"`
+* `stroke`: Border/line color (e.g. `"#00d4ff"`)
+* `stroke_width`: Border width in pixels (default `2`, for paths `3`–`5`)
+* `corner_radius`: Corner rounding for rectangles (default `16`)
+* `direction` (for `"arrow"` or `"triangle"`): `"up"` | `"down"` | `"left"` | `"right"`
+* `angle` (optional): Rotation in degrees
+* `preset_path` (for `shape_type="path"` - **RECOMMENDED for perfect curves**):
+  * `"route_arch"`: Smooth parabolic trajectory arc connecting across the screen (best for maps & expansion).
+  * `"horizontal_line"`: Animated laser divider or headline underline.
+  * `"pointer_curve"`: Smooth curved connector pointing from one area to a card/metric.
+  * `"corner_brackets"`: Tech HUD framing brackets.
+  * `"wave_pulse"`: Oscillating waveform.
+  * `"circle_reticle"`: Target focus ring.
+* `path_d` (for custom SVG curves in 1920x1080 canvas): e.g. `"M 250 800 Q 960 250 1670 800"`
+* `draw_animation`: `true` (animates line drawing smoothly)
+* `glow`: `true` (adds neon bloom / drop-shadow glow)
 
-### 6. `Text` (Kinetic Typography & Lower-Thirds)
+### 3. `Text` (Kinetic Typography & Lower-Thirds)
 * `text`: Content string
 * `font`: Font family name (e.g. `"Inter"`, `"Oswald"`, `"Montserrat"`)
 * `animation_mode`: `"words_stagger"` | `"typewriter"` | `"marker_highlight"` | `"static"`
@@ -109,18 +98,19 @@ The `content` object inside every `Layer` must specify one of the **10 supported
 * `highlight_color` (optional): Accent color (e.g. `"#facc15"`)
 * **CTL/Indic Fonts**: For Hindi, Tamil, Bengali, Arabic, etc., ALWAYS use Noto fonts (e.g. `Noto Sans Devanagari`).
 
-### 7. `Image` (Photos, Evidence & Vector Cutouts)
+### 4. `Image` (Photos, Evidence & Vector Cutouts)
 * `sources`: `pexels` (photos/backgrounds), `pixabay` (photos, and with `image_type="illustration"` or `"vector"` transparent PNG cutouts), `wikipedia` (real-world entities/figures).
 
-### 8. `Video` (Dynamic B-Roll & Ambient Motion)
+### 5. `Video` (Dynamic B-Roll & Ambient Motion)
 * `sources`: `pexels` (stock video) or `youtube` (timelapses/clips). Always `"volume": 0`.
 
-### 9. `Map` (Geographic Context & Route Markers)
+### 6. `Map` (Geographic Context & Route Markers)
 * `map_style`: `"modern_dark"`, `"vintage"`, `"minimal_light"`, `"nautical_blue"`
 * `locations`: `[{"name": "City", "coord": [lat, lon]}]`
 
-### 10. `HTML` (Custom SVG / CSS Fallback)
-* `html_content`: Custom inline SVG/CSS markup for bespoke technical diagrams.
+### 7. `HTML` (Universal Dynamic Canvas: Evidence Memos, UI Mocks, Custom Shapes, Timelines)
+* `html_content`: Custom inline HTML/SVG/CSS markup. Ideal for bespoke leaked documents, chat bubbles, technical HUD blueprints, comparison cards, and metric tickers.
+* Combine inline CSS with Tailwind-like inline styling, gradients, and backdrop filters for infinite creative variety.
 
 ---
 
@@ -226,7 +216,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
 
 ---
 
-### Archetype 2: Investigative Dossier & Document Spotlight (Leaks & Evidence)
+### Archetype 2: Investigative Dossier & Document Spotlight (Leaks & Evidence via HTML)
 ```json
 {
   "duration": 4.0,
@@ -250,19 +240,14 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
         "type": "Layer",
         "z_index": 15,
         "content": {
-          "type": "Mockup",
-          "preset": "document",
-          "badge": "CONFIDENTIAL",
-          "headline": "TELECOM SUBSEA ROUTE SURVEY MEMO #88",
-          "author": "Department of Maritime Operations",
-          "body": "Seabed seismic activity detected along Section 4B. Emergency rerouting mandated to avoid deep-sea trench collapse.",
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.9);backdrop-filter:blur(20px);border-radius:20px;border:1px solid rgba(239,68,68,0.4);box-shadow:0 30px 60px rgba(0,0,0,0.8),0 0 30px rgba(239,68,68,0.2);padding:28px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;'><div style='display:flex;justify-content:space-between;align-items:center;'><span style='background:#ef4444;color:#fff;font-size:12px;font-weight:900;padding:4px 10px;border-radius:6px;letter-spacing:1.5px;'>CONFIDENTIAL</span><span style='color:#94a3b8;font-size:13px;font-family:monospace;'>MEMO #88</span></div><div><div style='color:#f8fafc;font-size:22px;font-weight:800;margin-bottom:8px;'>TELECOM SUBSEA ROUTE SURVEY</div><div style='color:#cbd5e1;font-size:15px;line-height:1.5;'>Seabed seismic activity detected along Section 4B. Emergency rerouting mandated to avoid trench collapse.</div></div><div style='font-size:12px;color:#ef4444;font-weight:700;'>AUTH: DEPT OF MARITIME OPERATIONS</div></div>",
           "style": {
             "position": "absolute",
             "left": "15%",
             "top": "14%",
             "width": "70%",
-            "height": "68%",
-            "boxShadow": "0 30px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(239, 68, 68, 0.2)"
+            "height": "68%"
           }
         },
         "animations": [
@@ -298,7 +283,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
 
 ---
 
-### Archetype 3: Macro Metric & High-Impact Counter (Financial / Scale Callout)
+### Archetype 3: Macro Metric & High-Impact Callout (Financial / Scale Callout via HTML)
 ```json
 {
   "duration": 3.8,
@@ -323,25 +308,14 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
         "type": "Layer",
         "z_index": 15,
         "content": {
-          "type": "Counter",
-          "from": 0,
-          "to": 1.4,
-          "prefix": "$",
-          "suffix": " Billion",
-          "decimals": 1,
-          "label": "Total Infrastructure Investment Required",
-          "color": "#00d4ff",
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(24px);border-radius:24px;border:1px solid rgba(0,212,255,0.35);box-shadow:0 25px 60px rgba(0,0,0,0.7),0 0 40px rgba(0,212,255,0.25);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;'><div style='font-size:72px;font-weight:900;color:#00d4ff;letter-spacing:-1px;text-shadow:0 0 30px rgba(0,212,255,0.6);'>$1.4B</div><div style='font-size:18px;font-weight:700;color:#f8fafc;margin-top:8px;text-align:center;text-transform:uppercase;letter-spacing:1px;'>Total Infrastructure Investment Required</div></div>",
           "style": {
             "position": "absolute",
-            "left": "12.5%",
+            "left": "15%",
             "top": "22%",
-            "width": "75%",
-            "height": "52%",
-            "backgroundColor": "rgba(15, 23, 42, 0.85)",
-            "backdropFilter": "blur(24px)",
-            "borderRadius": "24px",
-            "border": "1px solid rgba(0, 212, 255, 0.35)",
-            "boxShadow": "0 25px 60px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 212, 255, 0.25)"
+            "width": "70%",
+            "height": "52%"
           }
         },
         "animations": [
@@ -384,7 +358,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
         "content": {
           "type": "Shape",
           "shape_type": "path",
-          "path_d": "M 280 420 Q 550 280 820 340",
+          "preset_path": "route_arch",
           "stroke": "#00d4ff",
           "stroke_width": 4,
           "draw_animation": true,
@@ -458,24 +432,14 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
         "type": "Layer",
         "z_index": 20,
         "content": {
-          "type": "Timeline",
-          "title": "ARMORED PROTECTION LAYERS",
-          "events": [
-            { "year": "LAYER 1", "title": "Polyethylene Sheath", "description": "High-density waterproof barrier" },
-            { "year": "LAYER 2", "title": "Galvanized Steel Wires", "description": "Resists crushing deep-sea pressure" },
-            { "year": "LAYER 3", "title": "Copper Conductor Tube", "description": "Powers optical repeaters" }
-          ],
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(18px);border-radius:20px;border:1px solid rgba(255,255,255,0.14);padding:22px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-around;'><div style='color:#00d4ff;font-size:14px;font-weight:800;letter-spacing:1px;text-transform:uppercase;'>ARMORED PROTECTION LAYERS</div><div style='display:flex;gap:12px;align-items:center;'><span style='background:#00d4ff;color:#0b1120;font-size:11px;font-weight:900;padding:2px 8px;border-radius:4px;'>L1</span><span style='color:#f8fafc;font-size:14px;font-weight:600;'>Polyethylene Sheath (Waterproof)</span></div><div style='display:flex;gap:12px;align-items:center;'><span style='background:#38bdf8;color:#0b1120;font-size:11px;font-weight:900;padding:2px 8px;border-radius:4px;'>L2</span><span style='color:#f8fafc;font-size:14px;font-weight:600;'>Galvanized Steel Wires (Pressure)</span></div><div style='display:flex;gap:12px;align-items:center;'><span style='background:#ffb703;color:#0b1120;font-size:11px;font-weight:900;padding:2px 8px;border-radius:4px;'>L3</span><span style='color:#f8fafc;font-size:14px;font-weight:600;'>Copper Conductor Tube (Power)</span></div></div>",
           "style": {
             "position": "absolute",
             "left": "56%",
             "top": "16%",
             "width": "38%",
-            "height": "66%",
-            "backgroundColor": "rgba(15, 23, 42, 0.8)",
-            "backdropFilter": "blur(16px)",
-            "borderRadius": "18px",
-            "border": "1px solid rgba(255, 255, 255, 0.12)",
-            "padding": "20px"
+            "height": "66%"
           }
         },
         "animations": [{ "property": "translateX", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" }]
@@ -487,7 +451,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
 
 ---
 
-### Archetype 6: Multi-Metric Infographic Grid (Cards & KPIs)
+### Archetype 6: Multi-Metric Infographic Grid (Cards & KPIs via HTML & Chart)
 ```json
 {
   "duration": 4.0,
@@ -511,22 +475,14 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
         "type": "Layer",
         "z_index": 15,
         "content": {
-          "type": "Counter",
-          "from": 0,
-          "to": 99,
-          "suffix": "%",
-          "label": "Of All Global Internet Traffic",
-          "color": "#00d4ff",
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(18px);border-radius:18px;border:1px solid rgba(0,212,255,0.3);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;'><div style='font-size:48px;font-weight:900;color:#00d4ff;'>99%</div><div style='font-size:12px;font-weight:700;color:#94a3b8;text-align:center;text-transform:uppercase;'>Global Internet Traffic</div></div>",
           "style": {
             "position": "absolute",
             "left": "6%",
             "top": "18%",
             "width": "42%",
-            "height": "32%",
-            "backgroundColor": "rgba(15, 23, 42, 0.85)",
-            "backdropFilter": "blur(18px)",
-            "borderRadius": "18px",
-            "border": "1px solid rgba(0, 212, 255, 0.3)"
+            "height": "32%"
           }
         },
         "animations": [{ "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.5, "easing": "spring" }]
@@ -535,23 +491,14 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
         "type": "Layer",
         "z_index": 15,
         "content": {
-          "type": "Counter",
-          "from": 0,
-          "to": 1.4,
-          "suffix": "M km",
-          "decimals": 1,
-          "label": "Total Submarine Cable Laid",
-          "color": "#ffb703",
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(18px);border-radius:18px;border:1px solid rgba(255,183,3,0.3);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;'><div style='font-size:48px;font-weight:900;color:#ffb703;'>1.4M km</div><div style='font-size:12px;font-weight:700;color:#94a3b8;text-align:center;text-transform:uppercase;'>Submarine Cable Laid</div></div>",
           "style": {
             "position": "absolute",
             "left": "52%",
             "top": "18%",
             "width": "42%",
-            "height": "32%",
-            "backgroundColor": "rgba(15, 23, 42, 0.85)",
-            "backdropFilter": "blur(18px)",
-            "borderRadius": "18px",
-            "border": "1px solid rgba(255, 183, 3, 0.3)"
+            "height": "32%"
           }
         },
         "animations": [{ "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.6, "easing": "spring" }]

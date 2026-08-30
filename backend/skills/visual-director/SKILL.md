@@ -15,18 +15,15 @@ Every sub-visual should feel like an intentional, high-production composite with
 
 === 3-LAYER DEPTH STANDARD ===
 1. **Z-Index 0–9 (Atmospheric Canvas)**: Darkened background footage or vector map + continuous camera drift (`scale: 1.0 -> 1.06`).
-2. **Z-Index 10–29 (Graphic Subject / Midground)**: Glassmorphic cards, charts, mockups, counters, timelines, or vector shapes with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
+2. **Z-Index 10–29 (Graphic Subject / Midground)**: Glassmorphic cards, charts, vector shapes, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
 3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (staying above `bottom: 18%` safe area).
 
-=== VALID CONTENT TYPES (USE ONLY THESE 10) ===
-Image | Video | Text | Chart | Counter | Mockup | Timeline | Shape | Map | HTML
+=== VALID CONTENT TYPES (USE ONLY THESE 7) ===
+Image | Video | Text | Chart | Shape | Map | HTML
 
 === CONTENT TYPE SELECTION GUIDE ===
 - **Chart**: Statistics, comparisons, growth trends, market share, distributions (`chart_type: "bar" | "line" | "pie" | "donut" | "progress"`).
-- **Counter**: Financial metrics, valuations, viewer stats, quantitative spikes (e.g. `$0` to `$14.2B`, `100K+`, `78%`).
-- **Mockup**: Documentary evidence, investigative memos, newspaper headlines, public tweets, browser evidence (`preset: "document" | "newspaper" | "browser" | "social_post"`).
-- **Timeline**: Multi-year chronological events or milestone sequences (`events: [...]`).
-- **Shape**: Hardware-accelerated vector shapes, arrows, callout pointers, framing rectangles, and animated SVG paths (`@remotion/shapes` & `@remotion/paths`).
+- **Shape**: Hardware-accelerated vector shapes, arrows, callout pointers, framing rectangles, and animated SVG paths (`preset_path: "route_arch" | "horizontal_line" | "pointer_curve" | "corner_brackets" | "wave_pulse" | "circle_reticle"`).
 - **Text**: Dynamic headlines, data callouts, dramatic reveals, kinetic typography.
   * Use `animation_mode: "words_stagger"` for impactful statements.
   * Use `animation_mode: "typewriter"` for investigative notes or quotes.
@@ -35,12 +32,12 @@ Image | Video | Text | Chart | Counter | Mockup | Timeline | Shape | Map | HTML
 - **Image**: High-resolution stock photos, textures, overlays, portraits, evidence photos. Use `source: "wikipedia"` for real people/entities (query = exact name). Use `source: "pixabay"` with `image_type: "illustration"` or `"vector"` for transparent PNG cutouts.
 - **Video**: Cinematic B-roll, timelapses, dramatic motion backgrounds. Set `"volume": 0` by default.
 - **Map**: Geography, routes, territories (`map_style: "modern_dark" | "vintage" | "minimal_light" | "nautical_blue"`).
-- **HTML**: Custom inline SVG/CSS fallback for bespoke diagrams.
+- **HTML**: Universal dynamic canvas for bespoke documentary evidence, leaked memos, comparison cards, metric callouts, and custom SVG diagrams.
 
 === COMPOSITION VARIETY & SCENE RULES ===
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
 - NEVER use the same layout or primitive twice in a row.
-- Alternate between: split-screen data HUDs, document dossiers, macro metric counters, route maps, technical cross-sections, and cinematic atmosphere beats.
+- Alternate between: split-screen data HUDs, document dossiers (HTML), macro metrics, route maps, technical HUDs (Shape), and cinematic atmosphere beats.
 - Always use `style` on layers — use responsive percentage coordinates (`left`, `top`, `width`, `height`).
 - Always apply the project's generated design system tokens (`primary`, `accent`, `surface`, `glow`, `heading_font`).
 
