@@ -163,6 +163,43 @@ def _get_section_narration(section_type: str, section_data: dict) -> str:
     return section_data.get('narration', section_data.get('hook', ''))
 
 
+def _get_section_duration(project_id: str, scene_idx: int, section_type: str, current_visuals: list) -> float:
+    """Returns the duration for a section, preferring sub_visuals sum or manifest audio duration."""
+    total_duration = sum(_safe_float(sv.get("duration", 0)) for sv in current_visuals if isinstance(sv, dict))
+    if total_duration > 0:
+        return total_duration
+
+    try:
+        from backend.core.config import get_storage_dir
+        project = get_project(project_id)
+        manifest_path = project.get("assets_manifest_path") if project else ""
+        if not manifest_path or not os.path.exists(manifest_path):
+            manifest_path = str(get_storage_dir() / project_id / "voiceover" / "manifest.json")
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            for m_idx, entry in enumerate(manifest):
+                m_sec = entry.get("section_type", "")
+                if section_type == "introduction" and m_sec == "introduction":
+                    dur = _safe_float(entry.get("duration", 0))
+                    if dur > 0:
+                        return dur
+                elif section_type == "conclusion" and m_sec == "conclusion":
+                    dur = _safe_float(entry.get("duration", 0))
+                    if dur > 0:
+                        return dur
+                elif section_type in ("scenes", "scene") and m_sec == "scene":
+                    scene_count = sum(1 for e in manifest[:m_idx] if e.get("section_type") == "scene")
+                    if scene_count == scene_idx:
+                        dur = _safe_float(entry.get("duration", 0))
+                        if dur > 0:
+                            return dur
+    except Exception as e:
+        logger.warning(f"Failed to load section duration from manifest: {e}")
+
+    return 15.0
+
+
 def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, full_script: dict) -> str:
     """Load word-level Whisper transcription and extract timestamps for a specific scene.
 
@@ -1091,9 +1128,7 @@ class ApiBridge:
             scenes = full_script.get("scenes", [])
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
         current_visuals = target_content.get("sub_visuals", [])
-        total_duration = sum(_safe_float(sv.get("duration", 0)) for sv in current_visuals if isinstance(sv, dict))
-        if total_duration <= 0:
-            total_duration = 15.0
+        total_duration = _get_section_duration(project_id, scene_idx, section_type, current_visuals)
         prompt_struct = "Expected: { \"sub_visuals\": [{ \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": 5.0 }] } (generate as many items as needed)"
 
         # Gather word-level transcript and duration breakdown for precise AI timing
@@ -1132,6 +1167,12 @@ class ApiBridge:
                 # If the dict is a single sub_visual, wrap it in a list
                 if "composition" in data and "sub_visuals" not in data:
                     svs = [data]
+                elif "visuals" in data and isinstance(data["visuals"], list):
+                    svs = data["visuals"]
+                elif "subvisuals" in data and isinstance(data["subvisuals"], list):
+                    svs = data["subvisuals"]
+                elif "data" in data and isinstance(data["data"], dict) and "sub_visuals" in data["data"]:
+                    svs = data["data"]["sub_visuals"]
                 else:
                     svs = data.get("sub_visuals", [])
             else:
@@ -1143,9 +1184,7 @@ class ApiBridge:
                     if isinstance(v, dict):
                         v["duration"] = round(_safe_float(v.get("duration", 1.0), 1.0) / _norm * total_duration, 2)
             
-            # Ensure the structure matches what the caller expects
-            if isinstance(data, list) or (isinstance(data, dict) and "composition" in data and "sub_visuals" not in data):
-                result["data"] = {"sub_visuals": svs}
+            result["data"] = {"sub_visuals": svs}
         return result
 
     def regenerate_sub_visual(self, project_id: str, scene_idx: int, section_type: str, sub_idx: int, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:

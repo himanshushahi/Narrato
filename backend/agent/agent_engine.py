@@ -54,21 +54,59 @@ def _try_extract_json_objects(text: str) -> list:
     return objects
 
 
-def _looks_like_tool_call(call) -> bool:
-    return (
-        isinstance(call, dict)
-        and call.get("name")
-        and isinstance(call["name"], str)
-        and "arguments" in call
-        and (call["arguments"] is None or isinstance(call["arguments"], dict))
+def _normalize_tool_call(call) -> dict | None:
+    if not isinstance(call, dict):
+        return None
+    name = (
+        call.get("name")
+        or call.get("tool")
+        or call.get("function")
+        or call.get("tool_name")
+        or call.get("call")
     )
+    if not name or not isinstance(name, str):
+        return None
+
+    # Check if there is an arguments field or an explicit tool-identifying key
+    has_args_key = any(k in call for k in ("arguments", "parameters", "args", "input"))
+    is_explicit_tool_key = any(k in call for k in ("tool", "function", "tool_name", "call"))
+
+    if not has_args_key and not is_explicit_tool_key:
+        return None
+
+    args = (
+        call.get("arguments")
+        if "arguments" in call
+        else call.get("parameters")
+        if "parameters" in call
+        else call.get("args")
+        if "args" in call
+        else call.get("input")
+        if "input" in call
+        else {}
+    )
+    if args is None:
+        args = {}
+    elif isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            args = {"query": args}
+    elif not isinstance(args, dict):
+        return None
+
+    return {"name": name.strip(), "arguments": args}
+
+
+def _looks_like_tool_call(call) -> bool:
+    return _normalize_tool_call(call) is not None
 
 
 def _extract_tool_blocks(text: str) -> list:
     """Extract tool-call objects from model output across all common formats:
     ```tool``` fenced blocks, ```json```-fenced blocks, plain ``` fences, and
-    bare JSON objects shaped like {"name": ..., "arguments": ...}. Deduplicates
-    identical calls (same name + same arguments).
+    bare JSON objects shaped like {"name": ..., "arguments": ...} or {"tool": ...}.
+    Deduplicates identical calls (same name + same arguments).
     """
     # Strip <think>...</think> blocks from reasoning models before extracting tools
     text = re.sub(r'<think>.*?(?:</think>|$)', '', text, flags=re.DOTALL | re.IGNORECASE)
@@ -76,13 +114,14 @@ def _extract_tool_blocks(text: str) -> list:
     found = []
     seen = set()
 
-    def _add(call):
-        if not _looks_like_tool_call(call):
+    def _add(raw_obj):
+        norm = _normalize_tool_call(raw_obj)
+        if not norm:
             return
-        key = (call["name"], json.dumps(call.get("arguments") or {}, sort_keys=True, default=str))
+        key = (norm["name"], json.dumps(norm.get("arguments") or {}, sort_keys=True, default=str))
         if key not in seen:
             seen.add(key)
-            found.append(call)
+            found.append(norm)
 
     for match in FENCED_BLOCK_RE.finditer(text):
         for obj in _try_extract_json_objects(match.group(1)):
@@ -240,14 +279,39 @@ class AgentRunner:
 
             # No tool block: try to parse the loose response as the final JSON.
             try:
-                return clean_json_response(raw)
+                parsed = clean_json_response(raw)
+                if schema is not None and isinstance(schema, dict) and "required" in schema:
+                    required_keys = schema["required"]
+                    if isinstance(parsed, dict):
+                        # Special normalization for visuals schema
+                        if "sub_visuals" in required_keys and "sub_visuals" not in parsed:
+                            if "visuals" in parsed and isinstance(parsed["visuals"], list):
+                                parsed["sub_visuals"] = parsed["visuals"]
+                            elif "subvisuals" in parsed and isinstance(parsed["subvisuals"], list):
+                                parsed["sub_visuals"] = parsed["subvisuals"]
+                            elif "composition" in parsed:
+                                parsed = {"sub_visuals": [parsed]}
+                            elif "data" in parsed and isinstance(parsed["data"], dict) and "sub_visuals" in parsed["data"]:
+                                parsed = parsed["data"]
+
+                        if all(k in parsed for k in required_keys):
+                            return parsed
+                        else:
+                            missing = [k for k in required_keys if k not in parsed]
+                            raise ValueError(f"JSON missing required schema fields: {missing}")
+                    elif isinstance(parsed, list) and "sub_visuals" in required_keys:
+                        return {"sub_visuals": parsed}
+                    else:
+                        raise ValueError("Parsed JSON does not match expected schema object structure")
+                else:
+                    return parsed
             except ValueError:
                 if turn == turns_budget - 1:
                     # Last turn: enforce the schema with a strict call.
                     self._emit_progress(f"{base_activity_label}: Finalizing with strict schema...")
                     return _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (finalizing)")
                 current_user_prompt += (
-                    "\n\n[System: your response was not valid JSON. If you need information, "
+                    "\n\n[System: your response was not valid or complete JSON matching the requested schema. If you need information, "
                     "emit a tool block. Otherwise output ONLY valid JSON matching the requested schema.]"
                 )
 
@@ -284,6 +348,42 @@ class AgentRunner:
         except Exception as e:
             raise e
 
+        if isinstance(result, list):
+            result = {"sub_visuals": result}
+        elif isinstance(result, dict) and "sub_visuals" not in result:
+            if "visuals" in result and isinstance(result["visuals"], list):
+                result = {"sub_visuals": result["visuals"]}
+            elif "subvisuals" in result and isinstance(result["subvisuals"], list):
+                result = {"sub_visuals": result["subvisuals"]}
+            elif "composition" in result:
+                result = {"sub_visuals": [result]}
+            elif "data" in result:
+                if isinstance(result["data"], list):
+                    result = {"sub_visuals": result["data"]}
+                elif isinstance(result["data"], dict) and "sub_visuals" in result["data"]:
+                    result = {"sub_visuals": result["data"]["sub_visuals"]}
+
+        if not isinstance(result, dict) or "sub_visuals" not in result or not result.get("sub_visuals"):
+            self._emit_progress(f"Agent: Sub-visuals missing or empty. Requesting visual generation...")
+            correction_prompt = user_prompt + f"\n\nCRITICAL REQUIREMENT: You MUST generate a non-empty 'sub_visuals' array. Total scene duration is {expected_duration} seconds. Generate at least 2-4 sub-visuals whose durations sum to {expected_duration}."
+            try:
+                corrected_result = self.run_with_tools(system_prompt, correction_prompt, schema, base_activity_label="Agent: visual correction",
+                                                       allowed_tools=allowed_tools, max_turns=max_turns)
+                if isinstance(corrected_result, list):
+                    corrected_result = {"sub_visuals": corrected_result}
+                elif isinstance(corrected_result, dict) and "sub_visuals" not in corrected_result:
+                    if "visuals" in corrected_result and isinstance(corrected_result["visuals"], list):
+                        corrected_result = {"sub_visuals": corrected_result["visuals"]}
+                    elif "composition" in corrected_result:
+                        corrected_result = {"sub_visuals": [corrected_result]}
+
+                if isinstance(corrected_result, dict) and "sub_visuals" in corrected_result and corrected_result["sub_visuals"]:
+                    _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
+                    corrected_result["sub_visuals"] = final_svs
+                    return corrected_result
+            except Exception:
+                pass
+
         if not isinstance(result, dict) or "sub_visuals" not in result:
             return result
 
@@ -302,6 +402,14 @@ class AgentRunner:
         try:
             corrected_result = self.run_with_tools(system_prompt, correction_prompt, schema, base_activity_label="Agent: visual correction",
                                                    allowed_tools=allowed_tools, max_turns=max_turns)
+            if isinstance(corrected_result, list):
+                corrected_result = {"sub_visuals": corrected_result}
+            elif isinstance(corrected_result, dict) and "sub_visuals" not in corrected_result:
+                if "visuals" in corrected_result and isinstance(corrected_result["visuals"], list):
+                    corrected_result = {"sub_visuals": corrected_result["visuals"]}
+                elif "composition" in corrected_result:
+                    corrected_result = {"sub_visuals": [corrected_result]}
+
             if isinstance(corrected_result, dict) and "sub_visuals" in corrected_result:
                 _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
                 corrected_result["sub_visuals"] = final_svs

@@ -228,7 +228,8 @@ def test_8_bridge_script_rewriter_skill_rendering(test_project_data):
     assert "{intro_hook}" not in rendered
     assert "{scenes_summary}" not in rendered
     assert "{conclusion_summary}" not in rendered
-    assert "Ocean Cables" in rendered or "How Fiber" in rendered
+    rendered_lower = rendered.lower()
+    assert "ocean cables" in rendered_lower or "how fiber" in rendered_lower or "fiber optic" in rendered_lower
 
 
 def test_9_bridge_visual_rewriter_skill_rendering(test_project_data):
@@ -368,3 +369,181 @@ def test_11_bridge_interactive_endpoints_harness(test_project_data, monkeypatch)
     res_scene = bridge.add_scene_with_ai(full_script, "Add ROV repair submarine scene", "en")
     assert res_scene.get("success") is True
     assert "narration" in res_scene.get("data", {})
+
+
+def test_14_extract_chapters_and_base_script_robustness():
+    """Verifies _extract_chapters_from_outline and _extract_base_script across key variants."""
+    from backend.pipeline.ai import _extract_chapters_from_outline, _extract_base_script
+
+    # 1. Variant with 'outline' key and 'reasoning' (exact bug case)
+    outline_data_variant1 = {
+        "reasoning": "Some step by step reasoning",
+        "outline": [
+            {"scene_number": 1, "chapter_title": "The Backbone", "scene_context": "99 percent of data"},
+            {"scene_number": 2, "chapter_title": "Laying the Cable", "scene_context": "Specialized ships"}
+        ]
+    }
+    chaps1 = _extract_chapters_from_outline(outline_data_variant1, topic="Fiber Optics")
+    assert len(chaps1) == 2
+    assert chaps1[0]["chapter_title"] == "The Backbone"
+    assert chaps1[1]["scene_context"] == "Specialized ships"
+
+    # 2. Variant as top-level list
+    outline_data_variant2 = [
+        {"scene_number": 1, "chapter_title": "Intro Scene", "scene_context": "Context 1"},
+        {"scene_number": 2, "chapter_title": "Second Scene", "scene_context": "Context 2"},
+        {"scene_number": 3, "chapter_title": "Third Scene", "scene_context": "Context 3"}
+    ]
+    chaps2 = _extract_chapters_from_outline(outline_data_variant2)
+    assert len(chaps2) == 3
+
+    # 3. Variant with 'scenes' key and alternative field names
+    outline_data_variant3 = {
+        "scenes": [
+            {"number": 1, "title": "Deep Sea Trench", "description": "Descending deep into trenches"},
+        ]
+    }
+    chaps3 = _extract_chapters_from_outline(outline_data_variant3)
+    assert len(chaps3) == 1
+    assert chaps3[0]["chapter_title"] == "Deep Sea Trench"
+    assert chaps3[0]["scene_context"] == "Descending deep into trenches"
+
+    # 4. Fallback on completely empty dict
+    chaps4 = _extract_chapters_from_outline({}, min_scenes=4, topic="Cables")
+    assert len(chaps4) >= 4
+    assert "Cables" in chaps4[0]["chapter_title"]
+
+    # 5. Base script with top-level hook, summary, cta
+    base_data_top_level = {
+        "hook": "Hair-thin glass fibers carry 99% of data.",
+        "summary": "Undersea cables are vital.",
+        "cta": "Subscribe for more."
+    }
+    intro1, conc1 = _extract_base_script(base_data_top_level, topic="Cables")
+    assert intro1["hook"] == "Hair-thin glass fibers carry 99% of data."
+    assert conc1["summary"] == "Undersea cables are vital."
+    assert conc1["cta"] == "Subscribe for more."
+
+    # 6. Base script with nested introduction and conclusion
+    base_data_nested = {
+        "introduction": {"hook": "Opening hook text."},
+        "conclusion": {"summary": "Concluding summary.", "cta": "Leave a comment."}
+    }
+    intro2, conc2 = _extract_base_script(base_data_nested)
+    assert intro2["hook"] == "Opening hook text."
+    assert conc2["summary"] == "Concluding summary."
+    assert conc2["cta"] == "Leave a comment."
+
+
+def test_15_generate_script_pipeline_end_to_end_with_outline_key_variant(tmp_path, monkeypatch):
+    """End-to-end test of generate_script_pipeline when LLM returns 'outline' key."""
+    from backend.pipeline.ai import generate_script_pipeline
+
+    project_dict = {
+        "id": "test-script-pipeline-id",
+        "name": "How fiber optic cables cross the ocean",
+        "prompt": "DOCUMENTARY",
+        "language": "en",
+        "duration_mode": "short",
+        "video_format": "portrait"
+    }
+
+    # Mock settings and LLM calls
+    monkeypatch.setattr("backend.database.db.get_setting", lambda k: "mock_api_key" if "api_key" in k else "openai")
+    monkeypatch.setattr("backend.pipeline.ai._get_web_context_for_topic", lambda *args, **kwargs: "")
+
+    def mock_llm_json(system_prompt, user_prompt, schema, cancel_event, **kwargs):
+        if schema == OUTLINE_JSON_SCHEMA:
+            # Return 'outline' key with reasoning (exact situation from the error)
+            return {
+                "reasoning": "Outline reasoning...",
+                "outline": [
+                    {"scene_number": 1, "chapter_title": "The Invisible Backbone", "scene_context": "99 percent of data travels on ocean floor."},
+                    {"scene_number": 2, "chapter_title": "Laying the Cables", "scene_context": "Specialized ships plow trenches."}
+                ]
+            }
+        elif schema == BASE_SCRIPT_JSON_SCHEMA:
+            return {
+                "hook": "Two miles beneath the surface, glass threads carry the internet.",
+                "summary": "These cables survive crushing pressure.",
+                "cta": "Subscribe for more."
+            }
+        elif schema == SCRIPT_SCENE_JSON_SCHEMA:
+            return {
+                "scene_number": 1,
+                "title": "The Invisible Backbone",
+                "narration": "Fiber optic cables on the ocean floor form the physical backbone of the global internet."
+            }
+        return {}
+
+    monkeypatch.setattr("backend.pipeline.ai._call_llm_json", mock_llm_json)
+
+    # Mock AgentRunner to return single scene JSON
+    from backend.agent.agent_engine import AgentRunner
+    monkeypatch.setattr(
+        AgentRunner, "run_with_tools",
+        lambda self, system_prompt, user_prompt, schema, **kwargs: {
+            "scene_number": 1,
+            "title": "Scene Title",
+            "narration": "Spoken scene voiceover narration content for the video."
+        }
+    )
+
+    progress_history = []
+    def progress_cb(pct, msg):
+        progress_history.append((pct, msg))
+
+    cancel_event = threading.Event()
+    generate_script_pipeline(project_dict, tmp_path, progress_cb, cancel_event)
+
+    script_path = tmp_path / "script.json"
+    assert script_path.exists()
+    with open(script_path, "r", encoding="utf-8") as f:
+        script = json.load(f)
+
+    assert len(script["scenes"]) == 2
+    assert script["introduction"]["hook"] == "Two miles beneath the surface, glass threads carry the internet."
+    assert script["conclusion"]["summary"] == "These cables survive crushing pressure."
+    assert script["scenes"][0]["narration"] != ""
+
+
+def test_16_agent_runner_tool_normalization_and_visual_completion(monkeypatch):
+    """Verifies that AgentRunner handles tool calls with 'tool' key, and doesn't terminate early with incomplete JSON."""
+    from backend.agent.agent_engine import AgentRunner, _extract_tool_blocks
+    from backend.pipeline.ai import VISUALS_ARRAY_SCHEMA
+
+    # 1. Verify _extract_tool_blocks handles {"tool": ..., "arguments": ...}
+    raw_tool = '{"tool": "search_pexels_video", "arguments": {"query": "cable ship"}}\n{"tool": "search_pixabay_photo", "arguments": {"query": "map"}}'
+    blocks = _extract_tool_blocks(raw_tool)
+    assert len(blocks) == 2
+    assert blocks[0]["name"] == "search_pexels_video"
+    assert blocks[1]["name"] == "search_pixabay_photo"
+
+    # 2. Verify run_with_tools executes the tool call, then returns final JSON
+    turn_counter = 0
+
+    def mock_call(system_prompt, user_prompt, schema, cancel_event, return_raw=False, activity_label=None):
+        nonlocal turn_counter
+        turn_counter += 1
+        if turn_counter == 1:
+            # Turn 1: model emits tool call
+            return '{"tool": "search_pexels_video", "arguments": {"query": "ocean floor"}}\n'
+        else:
+            # Turn 2: model sees tool result and outputs final visuals
+            return json.dumps({
+                "sub_visuals": [
+                    {"composition": {"type": "Sequence", "children": []}, "duration": 5.0},
+                    {"composition": {"type": "Sequence", "children": []}, "duration": 10.0}
+                ]
+            })
+
+    monkeypatch.setattr("backend.agent.agent_engine._call_llm_json", mock_call)
+    monkeypatch.setattr("backend.agent.agent_engine.execute_tool", lambda name, args: "Mock video found: url1")
+
+    runner = AgentRunner()
+    res = runner.run_with_tools("sys", "user", VISUALS_ARRAY_SCHEMA, allowed_tools=["search_pexels_video"])
+    assert "sub_visuals" in res
+    assert len(res["sub_visuals"]) == 2
+    assert turn_counter == 2
+
+

@@ -12,6 +12,7 @@ from backend.core.logger import logger
 import urllib.request
 import urllib.parse
 from pathlib import Path
+from backend.agent.skill_loader import skill_loader
 
 
 def _get_web_context(search_query: str) -> str:
@@ -594,6 +595,150 @@ BASE_SCRIPT_JSON_SCHEMA = {
 }
 
 SINGLE_SCENE_JSON_SCHEMA = SCRIPT_SCENE_JSON_SCHEMA
+
+def _safe_str(val):
+    """Convert a value to string if it isn't one already, handling nested dicts and lists."""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        # LLM sometimes returns {"text": "..."} or similar nested structure
+        for key in ("text", "content", "value", "hook", "summary", "cta", "narration", "narr"):
+            if key in val:
+                inner = _safe_str(val[key])
+                if inner:
+                    return inner
+        # Fallback: join all string values
+        parts = [str(v) for v in val.values() if isinstance(v, (str, int, float))]
+        return " ".join(parts) if parts else ""
+    if isinstance(val, list):
+        return " ".join(str(v) for v in val)
+    return str(val) if val is not None else ""
+
+
+def _extract_chapters_from_outline(outline_data, min_scenes: int = 4, max_scenes: int = 8, topic: str = ""):
+    """Robustly extracts and normalizes chapter objects from diverse LLM outline structures."""
+    raw_chapters = None
+    if isinstance(outline_data, list):
+        raw_chapters = outline_data
+    elif isinstance(outline_data, dict):
+        # 1. Direct keys
+        for key in ("chapters", "outline", "scenes", "sections", "items", "chapter_list", "scene_list", "sub_topics"):
+            val = outline_data.get(key)
+            if isinstance(val, list) and len(val) > 0:
+                raw_chapters = val
+                break
+        # 2. Check nested dicts/lists if not found
+        if raw_chapters is None:
+            for val in outline_data.values():
+                if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
+                    raw_chapters = val
+                    break
+                if isinstance(val, dict):
+                    for nested_key in ("chapters", "outline", "scenes", "sections", "items"):
+                        nested_val = val.get(nested_key)
+                        if isinstance(nested_val, list) and len(nested_val) > 0:
+                            raw_chapters = nested_val
+                            break
+                    if raw_chapters is not None:
+                        break
+
+    if not isinstance(raw_chapters, list):
+        raw_chapters = []
+
+    normalized = []
+    for idx, chap in enumerate(raw_chapters):
+        if not isinstance(chap, dict):
+            if isinstance(chap, str) and chap.strip():
+                normalized.append({
+                    "scene_number": idx + 1,
+                    "chapter_title": f"Chapter {idx + 1}",
+                    "scene_context": chap.strip()
+                })
+            continue
+        scene_num = chap.get("scene_number") or chap.get("scene_num") or chap.get("number") or chap.get("id") or (idx + 1)
+        try:
+            scene_num = int(scene_num)
+        except (ValueError, TypeError):
+            scene_num = idx + 1
+
+        chapter_title = (
+            chap.get("chapter_title")
+            or chap.get("title")
+            or chap.get("name")
+            or chap.get("scene_title")
+            or chap.get("heading")
+            or f"Scene {scene_num}"
+        )
+        scene_context = (
+            chap.get("scene_context")
+            or chap.get("context")
+            or chap.get("description")
+            or chap.get("summary")
+            or chap.get("narration")
+            or chap.get("details")
+            or chap.get("text")
+            or ""
+        )
+        normalized.append({
+            "scene_number": scene_num,
+            "chapter_title": _safe_str(chapter_title).strip() or f"Scene {scene_num}",
+            "scene_context": _safe_str(scene_context).strip()
+        })
+
+    # If still 0 chapters, generate fallback chapters based on topic to guarantee progress
+    if not normalized:
+        num_fallback = max(min_scenes, 4)
+        for i in range(num_fallback):
+            normalized.append({
+                "scene_number": i + 1,
+                "chapter_title": f"{topic} - Part {i + 1}" if topic else f"Part {i + 1}",
+                "scene_context": f"Detailed exploration and analysis of {topic} part {i + 1}." if topic else f"Analysis of scene {i + 1}."
+            })
+
+    return normalized
+
+
+def _extract_base_script(base_data, topic: str = ""):
+    """Robustly extracts introduction (hook) and conclusion (summary, cta) from LLM output."""
+    hook = ""
+    summary = ""
+    cta = ""
+
+    if isinstance(base_data, dict):
+        # 1. Intro extraction
+        raw_intro = base_data.get("introduction") or base_data.get("intro") or base_data.get("opening")
+        if isinstance(raw_intro, dict):
+            hook = raw_intro.get("hook") or raw_intro.get("narration") or raw_intro.get("text") or raw_intro.get("content") or ""
+        elif isinstance(raw_intro, str):
+            hook = raw_intro
+        elif "hook" in base_data:
+            hook = base_data["hook"]
+
+        # 2. Conclusion extraction
+        raw_conc = base_data.get("conclusion") or base_data.get("outro") or base_data.get("ending")
+        if isinstance(raw_conc, dict):
+            summary = raw_conc.get("summary") or raw_conc.get("narration") or raw_conc.get("text") or raw_conc.get("conclusion") or raw_conc.get("content") or ""
+            cta = raw_conc.get("cta") or raw_conc.get("call_to_action") or raw_conc.get("action") or ""
+        elif isinstance(raw_conc, str):
+            summary = raw_conc
+            cta = base_data.get("cta") or base_data.get("call_to_action") or ""
+        else:
+            summary = base_data.get("summary") or base_data.get("conclusion") or ""
+            cta = base_data.get("cta") or base_data.get("call_to_action") or ""
+
+    hook = _safe_str(hook).strip()
+    summary = _safe_str(summary).strip()
+    cta = _safe_str(cta).strip()
+
+    if not hook:
+        hook = f"Discover the fascinating reality of {topic}." if topic else "Welcome to this breakdown."
+    if not summary:
+        summary = f"In conclusion, {topic} represents a remarkable technological and historical achievement." if topic else "That concludes our deep dive."
+    if not cta:
+        cta = "Subscribe for more in-depth explainers and share your thoughts in the comments."
+
+    return {"hook": hook}, {"summary": summary, "cta": cta}
+
 
 def fix_unescaped_quotes(s):
     """Escapes raw double quotes inside string values to avoid JSON parse errors.
@@ -1511,8 +1656,7 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
     progress_cb(30.0, "Drafting scene narratives...")
     logger.info("Stage 3: Generating Scenes...")
 
-    scenes_array = []
-    chapters = outline_data.get("chapters", [])
+    chapters = _extract_chapters_from_outline(outline_data, min_scenes=min_scenes, max_scenes=max_scenes, topic=topic)
     total_chapters = len(chapters)
 
     # Recalculate per-scene duration based on actual chapter count from outline
@@ -1672,15 +1816,48 @@ VIDEO PRODUCTION CONSIDERATIONS:
 Write the narration content now. Be specific, focused, and engaging. Make it sound natural when spoken.
 """
 
-        # Manual web search injection removed. The LLM has access to the `web_search` tool 
-        # and should use it autonomously if specific facts are needed.
-
-        return runner.run_with_tools(
+        scene_res = runner.run_with_tools(
             scene_system_prompt, scene_user_prompt, SINGLE_SCENE_JSON_SCHEMA,
             base_activity_label="Scene Narration",
             allowed_tools=SCRIPT_NARRATION_TOOLS,
             max_turns=PIPELINE_SCRIPT_TURNS,
         )
+
+        if not isinstance(scene_res, dict):
+            if isinstance(scene_res, str) and scene_res.strip():
+                scene_res = {"narration": scene_res.strip(), "title": chapter_title}
+            else:
+                scene_res = {}
+
+        if "scene" in scene_res and isinstance(scene_res["scene"], dict):
+            scene_res = scene_res["scene"]
+        elif "data" in scene_res and isinstance(scene_res["data"], dict):
+            scene_res = scene_res["data"]
+
+        narration = (
+            scene_res.get("narration")
+            or scene_res.get("narr")
+            or scene_res.get("text")
+            or scene_res.get("content")
+            or scene_res.get("script")
+            or scene_res.get("voiceover")
+            or ""
+        )
+        title = scene_res.get("title") or scene_res.get("chapter_title") or chapter_title
+
+        narration = _safe_str(narration).strip()
+        title = _safe_str(title).strip()
+
+        if not narration:
+            fallback = f"{chapter_title}: {context}"
+            narration = fallback.strip()
+            logger.warning(f"Scene {scene_num} had empty narration; filled from chapter context.")
+
+        return {
+            "scene_number": scene_num,
+            "title": title or chapter_title,
+            "narration": narration
+        }
 
     # Use configurable llm_concurrency from settings for parallelism
     from backend.database.db import get_setting
@@ -1708,6 +1885,12 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
             idx = future_to_idx[future]
             try:
                 scene_data = future.result()
+                if not isinstance(scene_data, dict):
+                    scene_data = {
+                        "scene_number": chapters[idx].get("scene_number", idx + 1),
+                        "title": chapters[idx].get("chapter_title", f"Scene {idx + 1}"),
+                        "narration": _safe_str(scene_data).strip() or chapters[idx].get("scene_context", "")
+                    }
                 scene_data['scene_number'] = chapters[idx].get("scene_number", idx + 1)
                 results[idx] = scene_data
             except Exception as exc:
@@ -1730,67 +1913,20 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
 
     # 4. Assembly
     logger.info("Stage 4: Assembling Script...")
+    intro, conclusion = _extract_base_script(base_data, topic=topic)
+
+    doc_title = topic
+    if isinstance(outline_data, dict):
+        doc_title = outline_data.get("title") or outline_data.get("video_title") or outline_data.get("topic") or topic
+    elif isinstance(outline_data, str) and outline_data.strip():
+        doc_title = outline_data.strip()
+
     final_script = {
-        "title": outline_data.get("title", topic),
-        "introduction": base_data.get("introduction"),
+        "title": _safe_str(doc_title).strip() or topic,
+        "introduction": intro,
         "scenes": scenes_array,
-        "conclusion": base_data.get("conclusion")
+        "conclusion": conclusion
     }
-
-    # Repair LLM output: ensure text fields are strings (not nested objects/dicts)
-    def _safe_str(val):
-        """Convert a value to string if it isn't one already, handling nested dicts."""
-        if isinstance(val, str):
-            return val
-        if isinstance(val, dict):
-            # LLM sometimes returns {"text": "..."} or similar nested structure
-            for key in ("text", "content", "value", "hook", "summary", "cta"):
-                if key in val:
-                    inner = _safe_str(val[key])
-                    if inner:
-                        return inner
-            # Fallback: join all string values
-            parts = [str(v) for v in val.values() if isinstance(v, (str, int, float))]
-            return " ".join(parts) if parts else ""
-        if isinstance(val, list):
-            return " ".join(str(v) for v in val)
-        return str(val) if val is not None else ""
-
-    intro = final_script.get("introduction")
-    if not isinstance(intro, dict):
-        intro = {}
-        final_script["introduction"] = intro
-    intro["hook"] = _safe_str(intro.get("hook", ""))
-
-    conclusion = final_script.get("conclusion")
-    if not isinstance(conclusion, dict):
-        conclusion = {}
-        final_script["conclusion"] = conclusion
-    conclusion["summary"] = _safe_str(conclusion.get("summary", ""))
-    conclusion["cta"] = _safe_str(conclusion.get("cta", ""))
-
-    scenes = final_script.get("scenes")
-    if not isinstance(scenes, list):
-        scenes = []
-        final_script["scenes"] = scenes
-
-    for i in range(len(scenes)):
-        if not isinstance(scenes[i], dict):
-            scenes[i] = {}
-        scenes[i]["narration"] = _safe_str(scenes[i].get("narration", ""))
-        scenes[i]["title"] = _safe_str(scenes[i].get("title", ""))
-
-    # Fallback: fill empty narration from chapter context (LLM sometimes skips it)
-    for i, scene in enumerate(final_script.get("scenes", [])):
-        if not scene.get("narration", "").strip():
-            if i < len(chapters):
-                fallback = f"{chapters[i].get('chapter_title', '')}: {chapters[i].get('scene_context', '')}"
-                scene["narration"] = fallback.strip()
-                logger.warning(f"Scene {i+1} had empty narration; filled from chapter context.")
-    if not intro.get("hook", "").strip():
-        intro["hook"] = topic  # fallback
-    if not conclusion.get("summary", "").strip():
-        conclusion["summary"] = f"In conclusion, {topic} remains a significant chapter in history."
 
     # Initialize empty sub_visuals for everything
     intro["sub_visuals"] = []
