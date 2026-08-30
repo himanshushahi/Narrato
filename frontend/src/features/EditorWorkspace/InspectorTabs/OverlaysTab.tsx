@@ -1,10 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLayers,
   VscAdd,
   VscTrash,
-  VscSave,
   VscLoading,
   VscEye,
   VscEyeClosed,
@@ -22,8 +21,7 @@ interface OverlaysTabProps {
   scriptData: any;
   projectId?: string;
   onSetScriptData: (data: any) => void;
-  onSave: () => void;
-  isSaving: boolean;
+  onSaveOverlays?: (overlays: GlobalOverlayItem[]) => void;
 }
 
 const POSITION_OPTIONS = [
@@ -56,8 +54,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
   scriptData,
   projectId,
   onSetScriptData,
-  onSave,
-  isSaving,
+  onSaveOverlays,
 }) => {
   // Filter out any legacy banner entries if they existed
   const rawOverlays: GlobalOverlayItem[] = scriptData?.overlays || [];
@@ -66,13 +63,41 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeUploadIdxRef = useRef<number | null>(null);
+  const saveDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  const updateOverlays = (newOverlays: GlobalOverlayItem[]) => {
+  const updateOverlays = useCallback((newOverlays: GlobalOverlayItem[], immediate: boolean = false) => {
+    // 1. Immediately update React state for live video player preview
     onSetScriptData({
       ...scriptData,
       overlays: newOverlays,
     });
-  };
+
+    // 2. Persist to disk with debounce for continuous inputs (sliders/text)
+    if (saveDebounceRef.current) {
+      clearTimeout(saveDebounceRef.current);
+      saveDebounceRef.current = null;
+    }
+
+    if (immediate) {
+      onSaveOverlays?.(newOverlays);
+    } else {
+      saveDebounceRef.current = setTimeout(() => {
+        onSaveOverlays?.(newOverlays);
+      }, 350);
+    }
+  }, [scriptData, onSetScriptData, onSaveOverlays]);
+
+  const latestOverlaysRef = useRef(overlays);
+  latestOverlaysRef.current = overlays;
+
+  useEffect(() => {
+    return () => {
+      if (saveDebounceRef.current) {
+        clearTimeout(saveDebounceRef.current);
+        onSaveOverlays?.(latestOverlaysRef.current);
+      }
+    };
+  }, [onSaveOverlays]);
 
   const handleUpdateItem = (index: number, field: keyof GlobalOverlayItem, value: any) => {
     const next = [...overlays];
@@ -80,7 +105,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
       ...next[index],
       [field]: value,
     };
-    updateOverlays(next);
+    updateOverlays(next, false);
   };
 
   const handleToggleEnabled = (index: number, e: React.MouseEvent) => {
@@ -90,13 +115,13 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
       ...next[index],
       enabled: next[index].enabled === false ? true : false,
     };
-    updateOverlays(next);
+    updateOverlays(next, true);
   };
 
   const handleDelete = (index: number, e: React.MouseEvent) => {
     e.stopPropagation();
     const next = overlays.filter((_, i) => i !== index);
-    updateOverlays(next);
+    updateOverlays(next, true);
   };
 
   const handleDuplicate = (index: number, e: React.MouseEvent) => {
@@ -107,7 +132,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
       id: `${item.type}_${Date.now().toString(36)}`,
     };
     const next = [...overlays.slice(0, index + 1), duplicate, ...overlays.slice(index + 1)];
-    updateOverlays(next);
+    updateOverlays(next, true);
     setExpandedId(duplicate.id);
   };
 
@@ -124,34 +149,40 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
         );
         if (res?.success && res.asset_path) {
           const mediaUrl = `${getMediaUrlSync(res.asset_path)}&t=${Date.now()}`;
-          handleUpdateItem(index, 'logo_url', mediaUrl);
+          const next = [...overlays];
+          next[index] = { ...next[index], logo_url: mediaUrl };
+          updateOverlays(next, true);
           setUploadingIdx(null);
           return;
         }
       }
     } catch {
-      // Fall through to browser file picker
+      // Fallback to web file picker
     }
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-      fileInputRef.current.click();
-    }
+    fileInputRef.current?.click();
     setUploadingIdx(null);
   };
 
-  const handleHtmlFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleHtmlFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     const targetIdx = activeUploadIdxRef.current;
-    if (file && targetIdx !== null && targetIdx >= 0 && targetIdx < overlays.length) {
+    if (!file || targetIdx === null || targetIdx === undefined) return;
+
+    try {
       const reader = new FileReader();
-      reader.onload = (loadEvent) => {
-        const dataUrl = loadEvent.target?.result as string;
-        if (dataUrl) {
-          handleUpdateItem(targetIdx, 'logo_url', dataUrl);
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          const next = [...overlays];
+          next[targetIdx] = { ...next[targetIdx], logo_url: reader.result };
+          updateOverlays(next, true);
         }
+        setUploadingIdx(null);
       };
       reader.readAsDataURL(file);
+    } catch {
+      setUploadingIdx(null);
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -247,7 +278,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
     }
 
     const next = [...overlays, newItem];
-    updateOverlays(next);
+    updateOverlays(next, true);
     setExpandedId(newItem.id);
   };
 
@@ -275,14 +306,9 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
             </span>
           </div>
 
-          <button
-            onClick={onSave}
-            disabled={isSaving}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 text-[10px] font-bold transition-all disabled:opacity-50 cursor-pointer"
-          >
-            {isSaving ? <VscLoading className="animate-spin text-[11px]" /> : <VscSave className="text-[11px]" />}
-            {isSaving ? 'Saving...' : 'Save'}
-          </button>
+          <span className="text-[10px] text-zinc-500 font-medium">
+            Changes auto-saved
+          </span>
         </div>
 
         <p className="text-[11px] text-zinc-400 leading-relaxed">
@@ -499,8 +525,9 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                                   </button>
                                 </div>
                               ) : (
-                                <div className="w-12 h-12 rounded-full border border-dashed border-zinc-700 flex items-center justify-center text-zinc-600 text-xs shrink-0 font-bold">
-                                  No Logo
+                                <div className="w-12 h-12 rounded-full border border-dashed border-zinc-700/80 bg-zinc-900/60 flex flex-col items-center justify-center text-center shrink-0 p-1 select-none">
+                                  <span className="text-[9px] font-semibold text-zinc-500 leading-none">No</span>
+                                  <span className="text-[9px] font-semibold text-zinc-500 leading-none mt-0.5">Logo</span>
                                 </div>
                               )}
 
@@ -552,14 +579,16 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                               <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
                                 Logo Size ({item.logo_size ?? 34}px)
                               </label>
-                              <input
-                                type="range"
-                                min="16"
-                                max="100"
-                                value={item.logo_size ?? 34}
-                                onChange={(e) => handleUpdateItem(idx, 'logo_size', parseInt(e.target.value) || 34)}
-                                className="w-full accent-amber-500 cursor-pointer pt-2"
-                              />
+                              <div className="h-[34px] flex items-center px-1">
+                                <input
+                                  type="range"
+                                  min="16"
+                                  max="100"
+                                  value={item.logo_size ?? 34}
+                                  onChange={(e) => handleUpdateItem(idx, 'logo_size', parseInt(e.target.value) || 34)}
+                                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                />
+                              </div>
                             </div>
                           </div>
 
@@ -629,26 +658,33 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                               <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
                                 Bar Height ({item.bar_height ?? 4}px)
                               </label>
-                              <input
-                                type="range"
-                                min="1"
-                                max="24"
-                                value={item.bar_height ?? 4}
-                                onChange={(e) => handleUpdateItem(idx, 'bar_height', parseInt(e.target.value) || 4)}
-                                className="w-full accent-amber-500 cursor-pointer pt-2"
-                              />
+                              <div className="h-[34px] flex items-center px-1">
+                                <input
+                                  type="range"
+                                  min="1"
+                                  max="24"
+                                  value={item.bar_height ?? 4}
+                                  onChange={(e) => handleUpdateItem(idx, 'bar_height', parseInt(e.target.value) || 4)}
+                                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                />
+                              </div>
                             </div>
 
-                            <div className="flex items-center gap-2 pt-4">
-                              <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={item.glow !== false}
-                                  onChange={(e) => handleUpdateItem(idx, 'glow', e.target.checked)}
-                                  className="rounded accent-amber-500 cursor-pointer"
-                                />
-                                Neon Glow
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase tracking-wider text-transparent select-none block">
+                                Effects
                               </label>
+                              <div className="h-[34px] flex items-center">
+                                <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.glow !== false}
+                                    onChange={(e) => handleUpdateItem(idx, 'glow', e.target.checked)}
+                                    className="rounded accent-amber-500 cursor-pointer"
+                                  />
+                                  Neon Glow
+                                </label>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -768,45 +804,51 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                             <label className="text-[9px] text-zinc-500 block">
                               Scale ({(item.scale ?? 1).toFixed(2)}x)
                             </label>
-                            <input
-                              type="range"
-                              min="0.5"
-                              max="2.5"
-                              step="0.05"
-                              value={item.scale ?? 1}
-                              onChange={(e) => handleUpdateItem(idx, 'scale', parseFloat(e.target.value))}
-                              className="w-full accent-amber-500 cursor-pointer"
-                            />
+                            <div className="h-6 flex items-center px-1">
+                              <input
+                                type="range"
+                                min="0.5"
+                                max="2.5"
+                                step="0.05"
+                                value={item.scale ?? 1}
+                                onChange={(e) => handleUpdateItem(idx, 'scale', parseFloat(e.target.value))}
+                                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                              />
+                            </div>
                           </div>
 
                           <div className="space-y-1">
                             <label className="text-[9px] text-zinc-500 block">
                               Nudge X ({item.nudge_x ?? 0}px)
                             </label>
-                            <input
-                              type="range"
-                              min="-150"
-                              max="150"
-                              step="2"
-                              value={item.nudge_x ?? 0}
-                              onChange={(e) => handleUpdateItem(idx, 'nudge_x', parseInt(e.target.value) || 0)}
-                              className="w-full accent-amber-500 cursor-pointer"
-                            />
+                            <div className="h-6 flex items-center px-1">
+                              <input
+                                type="range"
+                                min="-150"
+                                max="150"
+                                step="2"
+                                value={item.nudge_x ?? 0}
+                                onChange={(e) => handleUpdateItem(idx, 'nudge_x', parseInt(e.target.value) || 0)}
+                                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                              />
+                            </div>
                           </div>
 
                           <div className="space-y-1">
                             <label className="text-[9px] text-zinc-500 block">
                               Nudge Y ({item.nudge_y ?? 0}px)
                             </label>
-                            <input
-                              type="range"
-                              min="-150"
-                              max="150"
-                              step="2"
-                              value={item.nudge_y ?? 0}
-                              onChange={(e) => handleUpdateItem(idx, 'nudge_y', parseInt(e.target.value) || 0)}
-                              className="w-full accent-amber-500 cursor-pointer"
-                            />
+                            <div className="h-6 flex items-center px-1">
+                              <input
+                                type="range"
+                                min="-150"
+                                max="150"
+                                step="2"
+                                value={item.nudge_y ?? 0}
+                                onChange={(e) => handleUpdateItem(idx, 'nudge_y', parseInt(e.target.value) || 0)}
+                                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -817,15 +859,17 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                           <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
                             Opacity ({Math.round((item.opacity ?? 0.85) * 100)}%)
                           </label>
-                          <input
-                            type="range"
-                            min="0.1"
-                            max="1"
-                            step="0.05"
-                            value={item.opacity ?? 0.85}
-                            onChange={(e) => handleUpdateItem(idx, 'opacity', parseFloat(e.target.value))}
-                            className="w-full accent-amber-500 cursor-pointer"
-                          />
+                          <div className="h-[34px] flex items-center px-1">
+                            <input
+                              type="range"
+                              min="0.1"
+                              max="1"
+                              step="0.05"
+                              value={item.opacity ?? 0.85}
+                              onChange={(e) => handleUpdateItem(idx, 'opacity', parseFloat(e.target.value))}
+                              className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                            />
+                          </div>
                         </div>
 
                         <div className="space-y-1">

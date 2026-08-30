@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback } from 'react';
-import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment } from 'remotion';
+import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment, interpolate, Easing } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
 import { GlobalOverlaysRenderer, GlobalOverlayItem } from './GlobalOverlaysRenderer';
@@ -16,6 +16,8 @@ interface SubVisual {
   mute_voiceover?: boolean;
   /** Cut the background music during this sub-visual's timeline interval. */
   mute_bg_music?: boolean;
+  /** Entrance transition animation */
+  transition?: string;
 }
 
 export interface Scene {
@@ -109,18 +111,124 @@ const SceneGate: React.FC<{
   );
 };
 
+const SubVisualTransitionWrapper: React.FC<{
+  transition?: string;
+  durationInFrames: number;
+  children: React.ReactNode;
+}> = ({ transition = 'fade', durationInFrames, children }) => {
+  const frame = useCurrentFrame();
+
+  if (!transition || transition === 'none') {
+    return <>{children}</>;
+  }
+
+  // 12-15 frame entrance animation, capped at half the cut duration
+  const transFrames = Math.min(14, Math.max(4, Math.floor(durationInFrames / 2)));
+  let style: React.CSSProperties = { width: '100%', height: '100%' };
+
+  switch (transition) {
+    case 'slide_left': {
+      const x = interpolate(frame, [0, transFrames], [100, 0], {
+        extrapolateRight: 'clamp',
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      style = { ...style, transform: `translateX(${x}%)`, opacity };
+      break;
+    }
+    case 'slide_right': {
+      const x = interpolate(frame, [0, transFrames], [-100, 0], {
+        extrapolateRight: 'clamp',
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      style = { ...style, transform: `translateX(${x}%)`, opacity };
+      break;
+    }
+    case 'slide_up': {
+      const y = interpolate(frame, [0, transFrames], [100, 0], {
+        extrapolateRight: 'clamp',
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      style = { ...style, transform: `translateY(${y}%)`, opacity };
+      break;
+    }
+    case 'slide_down': {
+      const y = interpolate(frame, [0, transFrames], [-100, 0], {
+        extrapolateRight: 'clamp',
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      style = { ...style, transform: `translateY(${y}%)`, opacity };
+      break;
+    }
+    case 'zoom_in': {
+      const scale = interpolate(frame, [0, transFrames], [1.18, 1], {
+        extrapolateRight: 'clamp',
+        easing: Easing.out(Easing.cubic),
+      });
+      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      style = { ...style, transform: `scale(${scale})`, opacity };
+      break;
+    }
+    case 'zoom_out': {
+      const scale = interpolate(frame, [0, transFrames], [0.85, 1], {
+        extrapolateRight: 'clamp',
+        easing: Easing.out(Easing.cubic),
+      });
+      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      style = { ...style, transform: `scale(${scale})`, opacity };
+      break;
+    }
+    case 'glitch': {
+      const isGlitching = frame < Math.min(8, transFrames);
+      const glitchX = isGlitching ? (frame % 2 === 0 ? (frame % 4 === 0 ? 15 : -15) : 0) : 0;
+      const opacity = interpolate(frame, [0, 4], [0.4, 1], { extrapolateRight: 'clamp' });
+      style = {
+        ...style,
+        transform: glitchX ? `translateX(${glitchX}px)` : undefined,
+        filter: isGlitching ? 'contrast(1.3) hue-rotate(90deg)' : undefined,
+        opacity,
+      };
+      break;
+    }
+    case 'crossfade': {
+      const opacity = interpolate(frame, [0, transFrames], [0, 1], {
+        extrapolateRight: 'clamp',
+        easing: Easing.inOut(Easing.quad),
+      });
+      style = { ...style, opacity };
+      break;
+    }
+    case 'fade':
+    default: {
+      const opacity = interpolate(frame, [0, transFrames], [0, 1], {
+        extrapolateRight: 'clamp',
+      });
+      style = { ...style, opacity };
+      break;
+    }
+  }
+
+  return <div style={style}>{children}</div>;
+};
+
 const SubGate: React.FC<{
   subFrom: number;
   subDuration: number;
+  transition?: string;
   children: React.ReactNode;
-}> = ({ subFrom, subDuration, children }) => {
+}> = ({ subFrom, subDuration, transition, children }) => {
   // frame is scene-relative here (SubGate lives inside SceneGate's Sequence).
   const frame = useCurrentFrame();
   // Buffer: mount -60f before start, keep +90f past end
   const isNear = frame >= subFrom - 60 && frame <= subFrom + subDuration + 60;
   return isNear ? (
     <Sequence from={subFrom} durationInFrames={subDuration}>
-      {children}
+      <SubVisualTransitionWrapper transition={transition} durationInFrames={subDuration}>
+        {children}
+      </SubVisualTransitionWrapper>
     </Sequence>
   ) : (
     <div style={BLACK_PLACEHOLDER_STYLE} />
@@ -241,6 +349,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
                 key={`sub-${subIdx}`}
                 subFrom={subFrom}
                 subDuration={subDuration}
+                transition={subVis.transition}
               >
                 {renderSubVisual(subVis)}
               </SubGate>

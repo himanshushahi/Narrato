@@ -285,7 +285,21 @@ export const CodeBlockRenderer: React.FC<CodeBlockProps> = ({
 
 ---
 
-### Step 4: Update Backend Schemas in `backend/pipeline/ai.py`
+### Step 4: Register Timeline Primitive Badge in `frontend/src/features/EditorWorkspace/components/VideoTrack.tsx`
+
+To display an icon badge on the Timeline cut blocks whenever this AST layer type is present:
+```tsx
+// In AST_PRIMITIVE_BADGES:
+CodeBlock: { 
+  label: 'Code', 
+  icon: Code, 
+  color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+},
+```
+
+---
+
+### Step 5: Update Backend Schemas in `backend/pipeline/ai.py`
 
 1. **Update `LAYER_CONTENT_SCHEMA`** (around line 176):
    ```python
@@ -314,14 +328,14 @@ export const CodeBlockRenderer: React.FC<CodeBlockProps> = ({
 
 ---
 
-### Step 5: (If Media-Backed) Update Asset Downloader in `backend/pipeline/assets.py`
+### Step 6: (If Media-Backed) Update Asset Downloader in `backend/pipeline/assets.py`
 
 If the new type downloads media from an API (e.g. 3D models, icons, external SVGs):
 - Update `_fetch_ast_layer_asset()` (lines 584–680) to handle `content_type == "CodeBlock"` (or your custom type).
 
 ---
 
-### Step 6: Update AI Skills (`backend/skills/`)
+### Step 7: Update AI Skills (`backend/skills/`)
 
 1. **`backend/skills/declarative-ast/SKILL.md`**:
    - Update heading: `## 3. The 11 Valid AST Content Types`
@@ -340,7 +354,7 @@ If the new type downloads media from an API (e.g. 3D models, icons, external SVG
 
 ---
 
-### Step 7: Verification & Build
+### Step 8: Verification & Build
 
 1. Rebundle Remotion:
    ```bash

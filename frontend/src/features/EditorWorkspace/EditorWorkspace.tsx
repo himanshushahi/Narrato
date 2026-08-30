@@ -17,6 +17,8 @@ import { MediaSidebar } from './MediaSidebar';
 import { VideoPreview } from './VideoPreview';
 import { Timeline } from './Timeline';
 import { InspectorPanel } from './InspectorPanel';
+import { GlobalOverlayItem } from '../../components/video/GlobalOverlaysRenderer';
+import { FPS } from './timelineConstants';
 
 const EMPTY_ARRAY: any[] = [];
 
@@ -62,6 +64,7 @@ const EditorWorkspace: React.FC = () => {
   const timelineHeight = useEditorStore((s) => s.timelineHeight);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
+  const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
   // === Hooks ===
   const {
     scriptData, setScriptData,
@@ -169,6 +172,259 @@ const EditorWorkspace: React.FC = () => {
     }
   }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
 
+  // ── Timeline: Update Sub-Visual Transition ─────────────────────────────────
+  const handleUpdateSubVisualTransition = useCallback(async (sceneIdx: number, subIdx: number, transition: string) => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    if (!manifestScene?.sub_visuals?.[subIdx]) return;
+
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    const hasIntro = !!scriptDataRef.current.introduction;
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
+    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
+    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
+      scriptScene.sub_visuals[subIdx].transition = transition;
+    }
+    if (manifestCopy[sceneIdx]?.sub_visuals?.[subIdx]) {
+      manifestCopy[sceneIdx].sub_visuals[subIdx].transition = transition;
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist transition:', e);
+    }
+  }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
+
+  // ── Timeline: Split Sub-Visual at Playhead ─────────────────────────────────
+  const handleSplitSubVisualAtFrame = useCallback(async (sceneIdx: number, subIdx: number, frame: number) => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    const timing = sceneTimings[sceneIdx];
+    if (!manifestScene?.sub_visuals?.[subIdx] || !timing?.subs?.[subIdx]) return;
+
+    const subTiming = timing.subs[subIdx];
+    const currentSubStart = subTiming.start;
+    const currentSubEnd = subTiming.end;
+    const totalSubFrames = currentSubEnd - currentSubStart;
+    if (totalSubFrames <= FPS) return;
+
+    const leftFrames = frame - currentSubStart;
+    const rightFrames = currentSubEnd - frame;
+    if (leftFrames < 0.5 * FPS || rightFrames < 0.5 * FPS) return;
+
+    const origDuration = manifestScene.sub_visuals?.[subIdx]?.duration ?? Number(((currentSubEnd - currentSubStart) / FPS).toFixed(2));
+    const leftDuration = Math.max(0.2, Number((leftFrames / FPS).toFixed(2)));
+    const rightDuration = Math.max(0.2, Number((origDuration - leftDuration).toFixed(2)));
+
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    const hasIntro = !!scriptDataRef.current.introduction;
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
+    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
+    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+
+    // Ensure scriptScene has sub_visuals matching manifestScene
+    if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {
+      scriptScene.sub_visuals = JSON.parse(JSON.stringify(manifestScene.sub_visuals));
+    }
+
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
+      const origSub = scriptScene.sub_visuals[subIdx];
+      const leftSub = { ...origSub, duration: leftDuration };
+      const rightSub = JSON.parse(JSON.stringify({ ...origSub, duration: rightDuration }));
+      scriptScene.sub_visuals.splice(subIdx, 1, leftSub, rightSub);
+    }
+
+    if (Array.isArray(manifestCopy[sceneIdx]?.sub_visuals) && manifestCopy[sceneIdx].sub_visuals[subIdx]) {
+      const origManSub = manifestCopy[sceneIdx].sub_visuals[subIdx];
+      const leftManSub = { ...origManSub, duration: leftDuration };
+      const rightManSub = JSON.parse(JSON.stringify({ ...origManSub, duration: rightDuration }));
+      manifestCopy[sceneIdx].sub_visuals.splice(subIdx, 1, leftManSub, rightManSub);
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist split sub-visual:', e);
+    }
+  }, [id, selectedProject, sceneTimings, enqueueSave, setScriptData, setManifestData]);
+
+  // ── Timeline: Duplicate Sub-Visual Cut ─────────────────────────────────────
+  const handleDuplicateSubVisual = useCallback(async (sceneIdx: number, subIdx: number) => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    if (!manifestScene?.sub_visuals?.[subIdx]) return;
+
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    const hasIntro = !!scriptDataRef.current.introduction;
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
+    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
+    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+
+    // Ensure scriptScene has sub_visuals matching manifestScene
+    if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {
+      scriptScene.sub_visuals = JSON.parse(JSON.stringify(manifestScene.sub_visuals));
+    }
+
+    const origManSub = manifestCopy[sceneIdx]?.sub_visuals?.[subIdx];
+    const origDur = origManSub?.duration || 2;
+    const leftDur = Math.max(0.2, Number((origDur / 2).toFixed(2)));
+    const rightDur = Math.max(0.2, Number((origDur - leftDur).toFixed(2)));
+
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
+      const origSub = scriptScene.sub_visuals[subIdx];
+      origSub.duration = leftDur;
+      const cloneSub = JSON.parse(JSON.stringify({ ...origSub, duration: rightDur }));
+      scriptScene.sub_visuals.splice(subIdx + 1, 0, cloneSub);
+    }
+
+    if (Array.isArray(manifestCopy[sceneIdx]?.sub_visuals) && manifestCopy[sceneIdx].sub_visuals[subIdx]) {
+      origManSub.duration = leftDur;
+      const cloneManSub = JSON.parse(JSON.stringify({ ...origManSub, duration: rightDur }));
+      manifestCopy[sceneIdx].sub_visuals.splice(subIdx + 1, 0, cloneManSub);
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist duplicated sub-visual:', e);
+    }
+  }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
+
+  // ── Timeline: Delete Sub-Visual Cut ───────────────────────────────────────
+  const handleDeleteSubVisual = useCallback(async (sceneIdx: number, subIdx: number) => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    if (!manifestScene?.sub_visuals || manifestScene.sub_visuals.length <= 1) return;
+
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    const hasIntro = !!scriptDataRef.current.introduction;
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
+    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
+    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+
+    // Ensure scriptScene has sub_visuals matching manifestScene
+    if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {
+      scriptScene.sub_visuals = JSON.parse(JSON.stringify(manifestScene.sub_visuals));
+    }
+
+    const origManSub = manifestCopy[sceneIdx]?.sub_visuals?.[subIdx];
+    const origScriptSub = scriptScene?.sub_visuals?.[subIdx];
+    const removedDur = Number((origManSub?.duration ?? origScriptSub?.duration ?? 2));
+
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals.length > 1) {
+      scriptScene.sub_visuals.splice(subIdx, 1);
+      const remainingIdx = Math.min(subIdx, scriptScene.sub_visuals.length - 1);
+      scriptScene.sub_visuals[remainingIdx].duration = Number(((scriptScene.sub_visuals[remainingIdx].duration || 2) + removedDur).toFixed(2));
+    }
+
+    if (Array.isArray(manifestCopy[sceneIdx]?.sub_visuals) && manifestCopy[sceneIdx].sub_visuals.length > 1) {
+      manifestCopy[sceneIdx].sub_visuals.splice(subIdx, 1);
+      const remainingIdx = Math.min(subIdx, manifestCopy[sceneIdx].sub_visuals.length - 1);
+      manifestCopy[sceneIdx].sub_visuals[remainingIdx].duration = Number(((manifestCopy[sceneIdx].sub_visuals[remainingIdx].duration || 2) + removedDur).toFixed(2));
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist deleted sub-visual:', e);
+    }
+  }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
+
+  // ── Timeline: Overlays Management ─────────────────────────────────────────
+  const handleUpdateOverlay = useCallback(async (target: number | string, updates: Partial<GlobalOverlayItem>) => {
+    if (!scriptDataRef.current || !selectedProject?.script_path) return;
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    if (!Array.isArray(scriptCopy.overlays)) return;
+
+    const idx = typeof target === 'string'
+      ? scriptCopy.overlays.findIndex((o: any) => o.id === target)
+      : target;
+
+    if (idx === -1 || !scriptCopy.overlays[idx]) return;
+
+    scriptCopy.overlays[idx] = { ...scriptCopy.overlays[idx], ...updates };
+    setScriptData(scriptCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+    } catch (e) {
+      console.error('Failed to persist overlay updates:', e);
+    }
+  }, [selectedProject, enqueueSave, setScriptData]);
+
+  const handleToggleOverlayEnabled = useCallback(async (target: number | string) => {
+    if (!scriptDataRef.current || !selectedProject?.script_path) return;
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    if (!Array.isArray(scriptCopy.overlays)) return;
+
+    const idx = typeof target === 'string'
+      ? scriptCopy.overlays.findIndex((o: any) => o.id === target)
+      : target;
+
+    if (idx === -1 || !scriptCopy.overlays[idx]) return;
+
+    scriptCopy.overlays[idx].enabled = scriptCopy.overlays[idx].enabled === false;
+    setScriptData(scriptCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+    } catch (e) {
+      console.error('Failed to persist overlay toggle:', e);
+    }
+  }, [selectedProject, enqueueSave, setScriptData]);
+
+  const handleSaveOverlays = useCallback(async (newOverlays: GlobalOverlayItem[]) => {
+    if (!scriptDataRef.current || !selectedProject?.script_path) return;
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    scriptCopy.overlays = newOverlays;
+    setScriptData(scriptCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+    } catch (e) {
+      console.error('Failed to auto-save overlays:', e);
+    }
+  }, [selectedProject, enqueueSave, setScriptData]);
+
+  const handleSelectOverlay = useCallback((_overlayId: string) => {
+    setInspectorTab('overlays');
+  }, [setInspectorTab]);
+
   // Sync scriptEditing's alert to the pipeline hook so handleResumePipeline can use it.
   // Use a ref to only propagate CHANGES — prevents a race where handleResumePipeline
   // clears the pipeline's alert but this effect re-sets it from the still-true source.
@@ -191,7 +447,6 @@ const EditorWorkspace: React.FC = () => {
   }, [isRunning, setScriptChangedAlert, setScriptEditingAlert]);
 
   // Auto-switch to Script tab when script generation finishes
-  const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
   const prevScriptGenStatusRef = useRef(tasks['generate_script']?.status);
   
   useEffect(() => {
@@ -289,6 +544,26 @@ const EditorWorkspace: React.FC = () => {
       playerRef.current.seekTo(frame);
     }
   }, []);
+
+  const handleOpenInspectorScript = useCallback((sceneIdx: number, subIdx: number) => {
+    setInspectorTab('script');
+    if (manifestDataRef.current && manifestDataRef.current[sceneIdx]) {
+      const scene = manifestDataRef.current[sceneIdx];
+      const hasIntro = !!scriptDataRef.current?.introduction;
+      let cardKey = '';
+      if (scene.section_type === 'introduction') cardKey = 'intro';
+      else if (scene.section_type === 'conclusion') cardKey = 'conclusion';
+      else cardKey = `scene_${sceneIdx - (hasIntro ? 1 : 0)}`;
+
+      handleStartEdit(cardKey, 'visuals');
+    }
+    const timing = sceneTimings[sceneIdx];
+    if (timing?.subs?.[subIdx]) {
+      handleSeek(timing.subs[subIdx].start);
+    } else if (timing) {
+      handleSeek(timing.start);
+    }
+  }, [setInspectorTab, handleStartEdit, sceneTimings, handleSeek]);
 
   const handleSave = useCallback(() => {
     if (editingCard) {
@@ -743,6 +1018,7 @@ const EditorWorkspace: React.FC = () => {
           onInsertScene={insertAndSaveNewScene}
           onSetSceneToDelete={setSceneToDelete}
           onSetScriptData={setScriptData}
+          onSaveOverlays={handleSaveOverlays}
           onUploadSubVisual={handleUploadSubVisual}
           onPreviewSubVisual={handlePreviewSubVisual}
           uploadingSubVisual={uploadingSubVisual}
@@ -776,13 +1052,24 @@ const EditorWorkspace: React.FC = () => {
         <Timeline
           liveScenes={liveScenes || EMPTY_ARRAY}
           sceneTimings={sceneTimings}
+          overlays={scriptData?.overlays || EMPTY_ARRAY}
           transcriptionData={transcriptionData}
+          audioUrl={audioUrl}
+          bgMusicUrl={bgMusicUrl}
           onSeek={handleSeek}
           onDeleteScene={handleDeleteSceneTimeline}
           onResizeSubVisual={handleResizeSubVisual}
           onResizeScene={handleResizeScene}
           onTimingsDragUpdate={setActiveTimings}
           onToggleSubVisualAudioFlag={handleToggleSubVisualAudioFlag}
+          onUpdateSubVisualTransition={handleUpdateSubVisualTransition}
+          onSplitSubVisualAtFrame={handleSplitSubVisualAtFrame}
+          onDuplicateSubVisual={handleDuplicateSubVisual}
+          onDeleteSubVisual={handleDeleteSubVisual}
+          onUpdateOverlay={handleUpdateOverlay}
+          onToggleOverlayEnabled={handleToggleOverlayEnabled}
+          onSelectOverlay={handleSelectOverlay}
+          onOpenInspectorScript={handleOpenInspectorScript}
         />
       </div>
 

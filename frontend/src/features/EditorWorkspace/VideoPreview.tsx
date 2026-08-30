@@ -229,7 +229,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   videoFormat={videoFormat}
                   subtitleSettings={playerSubtitleSettings}
                   designSystem={designSystem}
-                  overlays={overlays}
+                  overlays={trackHidden['overlays'] ? [] : overlays}
                   compositionScale={previewQuality === 'full' ? 1 : 0.5}
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}

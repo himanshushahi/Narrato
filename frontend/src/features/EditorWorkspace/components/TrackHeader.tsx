@@ -1,41 +1,109 @@
 import React from 'react';
-import { VscMute, VscUnmute } from 'react-icons/vsc';
+import { VscMute, VscUnmute, VscEye, VscEyeClosed } from 'react-icons/vsc';
+import { GripVertical } from 'lucide-react';
 import { HEADER_WIDTH } from '../timelineConstants';
 
 interface TrackHeaderProps {
   title: string;
   dotColorClass: string;
   trackKey: string;
-  isMuted: boolean;
-  onToggleMute: (trackKey: string) => void;
+  isMuted?: boolean;
+  isHidden?: boolean;
+  onToggleMute?: (trackKey: string) => void;
+  onToggleHide?: (trackKey: string) => void;
   hoverColorClass?: string;
+  badgeText?: string;
+  // Drag-and-drop reordering props
+  index?: number;
+  onDragStart?: (e: React.DragEvent, index: number) => void;
+  onDragOver?: (e: React.DragEvent, index: number) => void;
+  onDragEnter?: (e: React.DragEvent, index: number) => void;
+  onDragLeave?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent, index: number) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
+  isDragOver?: boolean;
 }
 
 export const TrackHeader: React.FC<TrackHeaderProps> = ({
   title,
   dotColorClass,
   trackKey,
-  isMuted,
+  isMuted = false,
+  isHidden = false,
   onToggleMute,
-  hoverColorClass = 'hover:text-blue-400'
+  onToggleHide,
+  hoverColorClass = 'hover:text-blue-400',
+  badgeText,
+  index = 0,
+  onDragStart,
+  onDragOver,
+  onDragEnter,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+  isDragOver = false,
 }) => {
   return (
     <div
-      className="sticky left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/60 flex items-center justify-between px-3 z-[60] backdrop-blur-md"
+      className={`sticky left-0 top-0 h-full bg-zinc-950/95 border-r border-zinc-800/80 flex items-center justify-between px-2.5 z-[60] backdrop-blur-md transition-colors select-none ${
+        isDragOver ? 'bg-cyan-950/60 ring-2 ring-inset ring-cyan-400' : ''
+      }`}
       style={{ width: HEADER_WIDTH, boxShadow: '4px 0 15px rgba(0,0,0,0.5)' }}
+      draggable={!!onDragStart}
+      onDragStart={(e) => onDragStart?.(e, index)}
+      onDragOver={(e) => { e.preventDefault(); onDragOver?.(e, index); }}
+      onDragEnter={(e) => onDragEnter?.(e, index)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => { e.preventDefault(); onDrop?.(e, index); }}
+      onDragEnd={onDragEnd}
     >
-      <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
-        <span className={`w-1.5 h-1.5 rounded-full ${dotColorClass}`} />
-        {title}
-      </span>
-      <div className="flex items-center gap-0.5">
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleMute(trackKey); }}
-          className={`text-zinc-500 transition-colors cursor-pointer p-1 rounded hover:bg-zinc-800/50 ${hoverColorClass}`}
-          title={isMuted ? "Unmute track" : "Mute track"}
-        >
-          {isMuted ? <VscMute className="text-[14px] text-red-400" /> : <VscUnmute className="text-[14px]" />}
-        </button>
+      <div className="flex items-center gap-1.5 min-w-0">
+        {/* Drag Grip Handle */}
+        {onDragStart && (
+          <div
+            className="text-zinc-600 hover:text-zinc-300 cursor-grab active:cursor-grabbing p-0.5"
+            title="Drag to reorder track position up/down"
+          >
+            <GripVertical className="w-3 h-3 shrink-0" />
+          </div>
+        )}
+
+        {/* Sharp Square Color Indicator */}
+        <span className={`w-2 h-2 rounded-none shrink-0 ${dotColorClass}`} />
+
+        <span className="text-[10px] font-bold text-zinc-200 uppercase tracking-wider whitespace-nowrap">
+          {title}
+        </span>
+
+        {badgeText && (
+          <span className="text-[7.5px] px-1 py-0.2 rounded-none bg-zinc-800 text-zinc-400 font-mono shrink-0">
+            {badgeText}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-0.5 shrink-0">
+        {onToggleHide && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleHide(trackKey); }}
+            className="text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer p-1 rounded-none hover:bg-zinc-800/60"
+            title={isHidden ? "Show track" : "Hide track"}
+          >
+            {isHidden ? <VscEyeClosed className="text-[13px]" /> : <VscEye className="text-[13px]" />}
+          </button>
+        )}
+
+        {onToggleMute && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleMute(trackKey); }}
+            className={`text-zinc-500 transition-colors cursor-pointer p-1 rounded-none hover:bg-zinc-800/60 ${hoverColorClass}`}
+            title={isMuted ? "Unmute track" : "Mute track"}
+          >
+            {isMuted ? <VscMute className="text-[13px] text-red-400" /> : <VscUnmute className="text-[13px]" />}
+          </button>
+        )}
       </div>
     </div>
   );

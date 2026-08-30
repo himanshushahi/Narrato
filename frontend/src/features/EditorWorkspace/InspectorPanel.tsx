@@ -40,6 +40,7 @@ interface InspectorPanelProps {
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
+  onSaveOverlays?: (overlays: any[]) => void;
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => Promise<string | undefined>;
   onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
@@ -83,7 +84,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   activeSceneIdx, activeSubIdx, localProjectSettings, projectId,
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
   onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
-  onSetSceneToDelete, onSetScriptData,
+  onSetSceneToDelete, onSetScriptData, onSaveOverlays,
   onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
@@ -152,8 +153,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             scriptData={scriptData}
             projectId={projectId}
             onSetScriptData={onSetScriptData}
-            onSave={() => onSaveCard()}
-            isSaving={isSaving}
+            onSaveOverlays={onSaveOverlays}
           />
         );
       case 'export':

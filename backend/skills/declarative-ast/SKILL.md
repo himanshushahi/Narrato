@@ -323,4 +323,38 @@ Raw SVG or inline HTML markup for bespoke custom diagrams not covered by the sta
 - **Responsive Positioning**: Use percentage coordinates (e.g. `width: "75%"`, `left: "12.5%"`, `top: "15%"`) so compositions scale smoothly across resolutions.
 - **Layer Stacking**: Place background footage/images on z-index 0–9, motion primitives (`Chart`, `Counter`, `Mockup`, `Timeline`, `Shape`) on z-index 10–29, and kinetic text callouts on z-index 30–39.
 
+---
+
+## 5. Sub-Visual Cut Structure & Transition Animations
+
+Each sub-visual cut within a scene represents a distinct visual beat and defines an entrance `transition`:
+
+```json
+{
+  "duration": 4.2,
+  "transition": "slide_left",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": { "type": "Image", "query": "undersea fiber optic cable map", "source": "pixabay" }
+      }
+    ]
+  }
+}
+```
+
+### Supported Cut Transitions:
+* `"fade"` (Default smooth cross-dissolve)
+* `"slide_left"` / `"slide_right"` (Horizontal directional push)
+* `"slide_up"` / `"slide_down"` (Vertical directional push)
+* `"zoom_in"` / `"zoom_out"` (Dramatic scale punch-in / reveal)
+* `"glitch"` (High-energy digital chromatic jitter)
+* `"crossfade"` (Soft continuous blend)
+* `"none"` (Instant hard cut)
+
+**Best Practice**: Vary transitions across cuts to maintain visual dynamism (e.g. use `slide_left` when introducing step-by-step evidence, `zoom_in` on critical data callouts, and `fade` for ambient scene shifts).
+
 
