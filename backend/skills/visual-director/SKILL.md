@@ -18,12 +18,13 @@ Every sub-visual should feel like an intentional, high-production composite with
 2. **Z-Index 10–29 (Graphic Subject / Midground)**: Glassmorphic cards, charts, vector shapes, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
 3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (staying above `bottom: 18%` safe area).
 
-=== VALID CONTENT TYPES (USE ONLY THESE 7) ===
-Image | Video | Text | Chart | Shape | Map | HTML
+=== VALID CONTENT TYPES (USE ONLY THESE 8) ===
+Image | Video | Text | Chart | Shape | Map | HTML | Lottie
 
 === CONTENT TYPE SELECTION GUIDE ===
 - **Chart**: Statistics, comparisons, growth trends, market share, distributions (`chart_type: "bar" | "line" | "pie" | "donut" | "progress"`).
-- **Shape**: Hardware-accelerated vector shapes, arrows, callout pointers, framing rectangles, and animated SVG paths (`preset_path: "route_arch" | "horizontal_line" | "pointer_curve" | "corner_brackets" | "wave_pulse" | "circle_reticle"`).
+- **Shape**: Hardware-accelerated vector shapes, arrows, callout pointers, framing rectangles, animated SVG paths (`preset_path: "route_arch" | "horizontal_line" | "pointer_curve" | "corner_brackets" | "wave_pulse" | "circle_reticle"`), and Lucide vector icons (`shape_type: "icon"`, `icon_name: "trending-up" | "shield-alert" | "dollar-sign" | "coins" | "database" | "globe" | "zap" | "flame" | "gavel" | "target"`).
+- **Lottie**: 60 FPS vector micro-animations, animated icons, warning badges, checkmarks, and dynamic vector accents (`lottie_url: "..."`).
 - **Text**: Dynamic headlines, data callouts, dramatic reveals, kinetic typography.
   * Use `animation_mode: "words_stagger"` for impactful statements.
   * Use `animation_mode: "typewriter"` for investigative notes or quotes.
@@ -34,10 +35,14 @@ Image | Video | Text | Chart | Shape | Map | HTML
 - **Map**: Geography, routes, territories (`map_style: "modern_dark" | "vintage" | "minimal_light" | "nautical_blue"`).
 - **HTML**: Universal dynamic canvas for bespoke documentary evidence, leaked memos, comparison cards, metric callouts, and custom SVG diagrams.
 
+=== UNIVERSAL MOTION MODIFIERS ===
+- **Motion Blur**: Set `motion_blur: true` on fast-moving cards or spring entrances to enable physical camera shutter blur.
+- **Camera Shake**: Set `camera_shake: "handheld"` on ambient footage layers for organic documentary breathing, `camera_shake: "shockwave"` for high-impact market crash / explosion reveals, or `camera_shake: "glitch"` for fast digital tech jitter.
+
 === COMPOSITION VARIETY & SCENE RULES ===
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
 - NEVER use the same layout or primitive twice in a row.
-- Alternate between: split-screen data HUDs, document dossiers (HTML), macro metrics, route maps, technical HUDs (Shape), and cinematic atmosphere beats.
+- Alternate between: split-screen data HUDs, document dossiers (HTML), macro metrics, route maps, technical HUDs (Shape), vector animations (Lottie), and cinematic atmosphere beats.
 - Always use `style` on layers — use responsive percentage coordinates (`left`, `top`, `width`, `height`).
 - Always apply the project's generated design system tokens (`primary`, `accent`, `surface`, `glow`, `heading_font`).
 

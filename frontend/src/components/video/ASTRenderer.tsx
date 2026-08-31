@@ -5,10 +5,12 @@ import { DataVisualizations } from './DataVisualizations';
 import { ChartRenderer, ChartDataItem } from './ChartRenderer';
 import { ShapeRenderer } from './ShapeRenderer';
 import { KineticText } from './KineticText';
+import { LottieRenderer } from './LottieRenderer';
+import { CameraShakeType } from './CameraNoise';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
 
 interface ASTLayerContent {
-  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Shape';
+  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Shape' | 'Lottie';
   local_path?: string;
   text?: string;
   font?: string;
@@ -20,8 +22,16 @@ interface ASTLayerContent {
   volume?: number;
   style?: React.CSSProperties;
 
+  // Lottie props
+  animation_data?: any;
+  lottie_url?: string;
+  loop?: boolean;
+  playback_rate?: number;
+  lottie_direction?: 'forward' | 'backward';
+
   // Shape props
-  shape_type?: 'rectangle' | 'circle' | 'star' | 'triangle' | 'arrow' | 'polygon' | 'path';
+  shape_type?: 'rectangle' | 'circle' | 'star' | 'triangle' | 'arrow' | 'polygon' | 'path' | 'icon';
+  icon_name?: string;
   fill?: string;
   stroke?: string;
   stroke_width?: number;
@@ -31,7 +41,7 @@ interface ASTLayerContent {
   corner_radius?: number;
   points?: number;
   inner_radius?: number;
-  direction?: 'up' | 'down' | 'left' | 'right';
+  direction?: 'up' | 'down' | 'left' | 'right' | 'forward' | 'backward';
   angle?: number;
   preset_path?: 'route_arch' | 'horizontal_line' | 'pointer_curve' | 'corner_brackets' | 'wave_pulse' | 'circle_reticle';
   path_d?: string;
@@ -55,6 +65,9 @@ export interface ASTLayer {
   z_index: number;
   content: ASTLayerContent;
   animations?: ASTAnimation[];
+  motion_blur?: boolean;
+  shutter_angle?: number;
+  camera_shake?: CameraShakeType;
   filters?: string[];
 }
 
@@ -266,6 +279,7 @@ export const ASTRenderer: React.FC<{
           node = (
             <ShapeRenderer
               shape_type={content.shape_type}
+              icon_name={content.icon_name}
               fill={content.fill}
               stroke={content.stroke}
               stroke_width={content.stroke_width}
@@ -275,7 +289,7 @@ export const ASTRenderer: React.FC<{
               corner_radius={content.corner_radius}
               points={content.points}
               inner_radius={content.inner_radius}
-              direction={content.direction}
+              direction={content.direction as ('up' | 'down' | 'left' | 'right') | undefined}
               angle={content.angle}
               preset_path={content.preset_path}
               path_d={content.path_d}
@@ -291,6 +305,17 @@ export const ASTRenderer: React.FC<{
               locations={content.locations} 
               map_style={content.map_style}
               durationInFrames={300}
+            />
+          );
+        } else if (content.type === 'Lottie') {
+          node = (
+            <LottieRenderer
+              animation_data={content.animation_data}
+              lottie_url={content.lottie_url}
+              loop={content.loop}
+              playback_rate={content.playback_rate}
+              direction={(content.lottie_direction || content.direction) as ('forward' | 'backward') | undefined}
+              style={innerStyle}
             />
           );
         } else if (content.type === 'HTML') {
@@ -330,8 +355,20 @@ export const ASTRenderer: React.FC<{
           </div>
         );
 
-        if (animations && animations.length > 0) {
-          return <ASTAnimator key={idx} animations={animations}>{inner}</ASTAnimator>;
+        const { motion_blur, shutter_angle, camera_shake } = layer;
+
+        if ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none')) {
+          return (
+            <ASTAnimator
+              key={idx}
+              animations={animations}
+              motion_blur={motion_blur}
+              shutter_angle={shutter_angle}
+              camera_shake={camera_shake}
+            >
+              {inner}
+            </ASTAnimator>
+          );
         }
 
         return <AbsoluteFill key={idx}>{inner}</AbsoluteFill>;

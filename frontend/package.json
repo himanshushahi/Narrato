@@ -12,7 +12,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@remotion/lottie": "^4.0.469",
     "@remotion/media-utils": "^4.0.469",
+    "@remotion/motion-blur": "^4.0.469",
+    "@remotion/noise": "^4.0.469",
     "@remotion/paths": "^4.0.469",
     "@remotion/player": "4.0.469",
     "@remotion/shapes": "^4.0.469",
@@ -23,6 +26,7 @@
     "d3-geo": "3.1.1",
     "framer-motion": "12.39.0",
     "highlight.js": "11.11.1",
+    "lottie-web": "^5.13.0",
     "lucide-react": "1.24.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",

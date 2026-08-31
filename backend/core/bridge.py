@@ -2093,6 +2093,20 @@ class ApiBridge:
             logger.error(f"update_scene_duration failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
+    def search_lucide_icons(self, query: str = "", limit: int = 12):
+        """Search Lucide icon catalog with semantic keywords."""
+        try:
+            from backend.pipeline.icons import search_lucide_icons
+            try:
+                parsed_limit = int(limit) if limit is not None else 12
+            except (ValueError, TypeError):
+                parsed_limit = 12
+            results = search_lucide_icons(query, limit=parsed_limit)
+            return {"success": True, "data": results}
+        except Exception as e:
+            logger.error(f"search_lucide_icons failed: {e}")
+            return {"success": False, "error": str(e)}
+
 
 
 api_bridge = ApiBridge()

@@ -45,6 +45,7 @@ const AST_PRIMITIVE_BADGES: Record<string, { label: string; icon: React.ElementT
   Video: { label: 'Video', icon: VideoIcon, color: 'bg-red-500/20 text-red-300 border-red-500/30' },
   Map: { label: 'Map', icon: MapIcon, color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
   HTML: { label: 'HTML', icon: Code, color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' },
+  Lottie: { label: 'Lottie', icon: Sparkles, color: 'bg-violet-500/20 text-violet-300 border-violet-500/30' },
 };
 
 const extractAstPrimitives = (subVisual: any): string[] => {

@@ -39,17 +39,29 @@ When planning sub-visual beats, architect spatial variety across the scene. Mix 
 * **When to Use**: Sequence of events, historical dates, background history, or technical roadmap.
 * **Visual Direction**: A milestone card sequence or animated connecting line (`preset_path: "horizontal_line"`) with glowing badges and staggered text entrance.
 
-### 4. Vector Diagram & Technical Blueprint Beat (`Shape` + `Text` / `HTML`)
-* **When to Use**: Explaining internal mechanisms, hardware engineering, physical cable armor layers, networks, or process workflows.
-* **Visual Direction**: Blueprint grid canvas + transparent vector cutaway illustration + animated pointer arrows and component labels.
+### 4. Vector Diagram & Technical Blueprint Beat (`Shape` + `Text` / `HTML` / `Lottie`)
+* **When to Use**: Explaining internal mechanisms, hardware engineering, physical cable armor layers, networks, code architecture, or micro-animations.
+* **Visual Direction**: Blueprint grid canvas + transparent vector cutaway illustration + animated Lucide icons (`shape_type="icon"`), animated SVG path pointers, or 60 FPS Lottie motion graphics badges.
 
-### 5. Archival Portrait & Geographic Route Beat (`Image` / `Map`)
+### 5. Financial Indicator & Market Alert Beat (`Chart` + `Shape` + `HTML`)
+* **When to Use**: Stock plunges/surges, market bubbles, inflation rate hikes, economic fallout, or revenue breakdowns.
+* **Visual Direction**: Dark financial matrix grid + glowing candlestick drop / surge with `camera_shake="shockwave"` + trending Lucide icons and rolling metric counters.
+
+### 6. Vox-Style Kinetic Headline & Collage Beat (`Text` + `Image` Cutouts + `Shape`)
+* **When to Use**: High-energy explanations, counter-intuitive paradoxes, core takeaways, and rapid conceptual breakdowns.
+* **Visual Direction**: Stark high-contrast background + bold kinetic typography with bright yellow marker highlight (`animation_mode="marker_highlight"`) + transparent PNG cutouts framed by vector corner brackets.
+
+### 7. Broadcast News & Split-Screen Inset Beat (`HTML` / `Video` / `Image`)
+* **When to Use**: Live updates, developing investigations, breaking news announcements, or expert quote callouts.
+* **Visual Direction**: Slide-in horizontal lower-third banner pill with red urgent badge + dual-camera split-screen inset.
+
+### 8. Archival Portrait & Geographic Route Beat (`Image` / `Map`)
 * **When to Use**: Introducing key figures, CEOs, or geographic routes, oceanic cable networks, and global trade expansion.
 * **Visual Direction**: High-contrast entity portrait with Ken Burns drift OR dark vector map with city pins and glowing animated SVG trajectory path (`preset_path: "route_arch"`).
 
-### 6. Cinematic Ambient Motion Beat (`Video` / `Image` with grading)
+### 9. Cinematic Ambient Motion Beat (`Video` / `Image` with grading)
 * **When to Use**: Emotional pauses, contemplative narration shifts, or establishing sweeping geographical mood.
-* **Visual Direction**: High-production cinematic footage with high contrast / darkening vignette and subtle continuous Ken Burns drift.
+* **Visual Direction**: High-production cinematic footage with high contrast / darkening vignette and subtle continuous Ken Burns drift (`camera_shake="handheld"`).
 
 ---
 

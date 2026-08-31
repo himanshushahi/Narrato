@@ -75,6 +75,19 @@ Gentle continuous motion over the cut's full duration:
 ]
 ```
 
+### D. Physical Camera Shutter Motion Blur
+Use `motion_blur: true` on fast spring reveals or sliding cards:
+```json
+"motion_blur": true,
+"shutter_angle": 180
+```
+
+### E. Procedural Perlin Camera Shake (Documentary Drift & Shockwave)
+Use `camera_shake` on atmospheric background layers:
+* `"camera_shake": "handheld"` — Subtle organic camera breathing (4px drift).
+* `"camera_shake": "shockwave"` — High-intensity decaying impact shake (market crashes, scandals, explosions).
+* `"camera_shake": "glitch"` — Tech stutter / signal loss.
+
 ---
 
 ## 3. Kinetic Typography Recipes

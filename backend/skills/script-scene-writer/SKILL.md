@@ -7,6 +7,8 @@ when_to_use: "Used during Stage 3 of the script generation pipeline to draft ind
 
 {script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
 
+{genre_script_guidance}
+
 SCENE-SPECIFIC RULES:
 - This is Scene {scene_num}: {chapter_title}
 - Must match the exact duration constraint: {per_scene_duration} seconds of spoken audio (roughly {per_scene_word_target} words)

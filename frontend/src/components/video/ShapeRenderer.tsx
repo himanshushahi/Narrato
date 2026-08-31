@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useCurrentFrame, useVideoConfig, spring, interpolate, Easing } from 'remotion';
 import { Circle, Rect, Star, Triangle, Arrow, Polygon } from '@remotion/shapes';
 import { evolvePath } from '@remotion/paths';
+import { DynamicIcon } from './DynamicIcon';
 
 export type PresetPathType =
   | 'route_arch'
@@ -12,7 +13,8 @@ export type PresetPathType =
   | 'circle_reticle';
 
 export interface ShapeProps {
-  shape_type?: 'rectangle' | 'circle' | 'star' | 'triangle' | 'arrow' | 'polygon' | 'path';
+  shape_type?: 'rectangle' | 'circle' | 'star' | 'triangle' | 'arrow' | 'polygon' | 'path' | 'icon';
+  icon_name?: string;
   fill?: string;
   stroke?: string;
   stroke_width?: number;
@@ -44,6 +46,7 @@ const PRESET_PATHS: Record<PresetPathType, string> = {
 
 export const ShapeRenderer: React.FC<ShapeProps> = ({
   shape_type = 'rectangle',
+  icon_name = 'sparkles',
   fill = 'transparent',
   stroke = '#00d4ff',
   stroke_width = 2,
@@ -236,6 +239,16 @@ export const ShapeRenderer: React.FC<ShapeProps> = ({
             strokeDashoffset={pathEvolution?.strokeDashoffset}
           />
         </svg>
+      )}
+
+      {/* 8. Lucide Vector Icon */}
+      {shape_type === 'icon' && (
+        <DynamicIcon
+          name={icon_name || 'sparkles'}
+          size={radius ? radius * 2 : (width || 48)}
+          color={stroke && stroke !== 'transparent' ? stroke : fill && fill !== 'transparent' ? fill : stroke || '#00d4ff'}
+          strokeWidth={stroke_width || 2}
+        />
       )}
     </div>
   );

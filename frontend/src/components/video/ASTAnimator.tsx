@@ -1,5 +1,7 @@
 import React, { useMemo } from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig, Easing } from 'remotion';
+import { CameraMotionBlur } from '@remotion/motion-blur';
+import { getCameraNoise, CameraShakeType } from './CameraNoise';
 
 export interface ASTAnimation {
   property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'rotate' | 'rotateX' | 'rotateY';
@@ -10,16 +12,36 @@ export interface ASTAnimation {
   easing: 'linear' | 'spring' | 'ease-in' | 'ease-out' | 'ease-in-out';
 }
 
-export const ASTAnimator: React.FC<{
-  animations: ASTAnimation[];
+export interface ASTAnimatorProps {
+  animations?: ASTAnimation[];
+  motion_blur?: boolean;
+  shutter_angle?: number;
+  camera_shake?: CameraShakeType;
   children: React.ReactNode;
-}> = ({ animations, children }) => {
+}
+
+interface AnimatedLayerProps {
+  animations?: ASTAnimation[];
+  camera_shake?: CameraShakeType;
+  children: React.ReactNode;
+}
+
+const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
+  animations = [],
+  camera_shake = 'none',
+  children,
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+
+  const cameraOffset = useMemo(() => {
+    return getCameraNoise(frame, camera_shake);
+  }, [frame, camera_shake]);
 
   const style = useMemo(() => {
     const s: React.CSSProperties = { transform: '', transformOrigin: 'center center' };
     
+    // 1. Compute AST keyframe & spring transforms
     for (const anim of animations) {
       if (typeof anim.duration !== 'number' || typeof anim.from !== 'number' || typeof anim.to !== 'number') {
         continue;
@@ -67,9 +89,53 @@ export const ASTAnimator: React.FC<{
         s.transform += ` rotateY(${val}deg)`;
       }
     }
+
+    // 2. Apply procedural camera noise offset if active
+    if (cameraOffset.x !== 0 || cameraOffset.y !== 0) {
+      s.transform += ` translate(${cameraOffset.x}px, ${cameraOffset.y}px)`;
+    }
+    if (cameraOffset.rotation !== 0) {
+      s.transform += ` rotate(${cameraOffset.rotation}deg)`;
+    }
     
     return s;
-  }, [animations, frame, fps]);
+  }, [animations, cameraOffset, frame, fps]);
 
-  return <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>{children}</div>;
+  return (
+    <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
+      {children}
+    </div>
+  );
 };
+
+export const ASTAnimator: React.FC<ASTAnimatorProps> = ({
+  animations = [],
+  motion_blur = false,
+  shutter_angle = 180,
+  camera_shake = 'none',
+  children,
+}) => {
+  const content = (
+    <AnimatedLayer
+      animations={animations}
+      camera_shake={camera_shake}
+    >
+      {children}
+    </AnimatedLayer>
+  );
+
+  if (motion_blur) {
+    const safeShutterAngle = typeof shutter_angle === 'number' && Number.isFinite(shutter_angle)
+      ? Math.max(0, Math.min(360, shutter_angle))
+      : 180;
+
+    return (
+      <CameraMotionBlur shutterAngle={safeShutterAngle} samples={5}>
+        {content}
+      </CameraMotionBlur>
+    );
+  }
+
+  return content;
+};
+

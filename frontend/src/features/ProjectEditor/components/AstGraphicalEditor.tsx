@@ -5,6 +5,8 @@ import Editor from 'react-simple-code-editor';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
 import 'highlight.js/styles/atom-one-dark.css';
+import { DynamicIcon } from '../../../components/video/DynamicIcon';
+import { IconPickerModal } from './IconPickerModal';
 
 hljs.registerLanguage('json', json);
 
@@ -87,6 +89,7 @@ export const AstGraphicalEditor = ({
 
   const [previewingIdx, setPreviewingIdx] = useState<number | null>(null);
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
+  const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (initialValue) {
@@ -241,6 +244,7 @@ export const AstGraphicalEditor = ({
                 <option value="Text">Text (Kinetic)</option>
                 <option value="Chart">Chart (Bar/Line/Pie)</option>
                 <option value="Shape">Shape / Vector (Native)</option>
+                <option value="Lottie">Lottie (Vector Animation)</option>
                 <option value="HTML">HTML / SVG (Custom)</option>
                 <option value="Map">Map</option>
               </select>
@@ -537,6 +541,7 @@ export const AstGraphicalEditor = ({
                       <option value="arrow">Arrow</option>
                       <option value="polygon">Polygon</option>
                       <option value="path">SVG Path (Animated Draw)</option>
+                      <option value="icon">Lucide Vector Icon</option>
                     </select>
                   </div>
                   <div className="space-y-1 min-w-0">
@@ -550,6 +555,33 @@ export const AstGraphicalEditor = ({
                     />
                   </div>
                 </div>
+
+                {content.shape_type === 'icon' && (
+                  <div className="space-y-1.5 p-2.5 bg-black/30 border border-white/5 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Lucide Icon Name</label>
+                      <button
+                        type="button"
+                        onClick={() => setIconPickerIdx(idx)}
+                        className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 rounded transition-colors cursor-pointer"
+                      >
+                        Browse Icons...
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-black/50 border border-white/10 flex items-center justify-center shrink-0">
+                        <DynamicIcon name={content.icon_name || 'sparkles'} size={20} color={content.stroke || content.fill || '#00d4ff'} />
+                      </div>
+                      <input
+                        type="text"
+                        className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                        value={content.icon_name || ''}
+                        onChange={e => updateContent(idx, 'icon_name', e.target.value)}
+                        placeholder="e.g. trending-up, shield-alert"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {(content.shape_type === 'star' || content.shape_type === 'polygon') && (
                   <div className="grid grid-cols-2 gap-2.5">
@@ -664,6 +696,61 @@ export const AstGraphicalEditor = ({
               </div>
             )}
 
+            {/* Dynamic Content Fields for Lottie */}
+            {cType === 'Lottie' && (
+              <div className="space-y-2.5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Lottie URL / Path</label>
+                  <input
+                    type="text"
+                    className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                    value={content.lottie_url || ''}
+                    onChange={e => updateContent(idx, 'lottie_url', e.target.value)}
+                    placeholder="https://assets.lottiefiles.com/... or local JSON path"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Speed</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.playback_rate ?? 1}
+                      onChange={e => updateContent(idx, 'playback_rate', parseFloat(e.target.value) || 1)}
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Direction</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2 py-1 focus:outline-none cursor-pointer"
+                      value={content.direction || 'forward'}
+                      onChange={e => updateContent(idx, 'direction', e.target.value)}
+                    >
+                      <option value="forward">Forward</option>
+                      <option value="backward">Backward</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center pt-4">
+                    <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={content.loop !== false}
+                        onChange={e => updateContent(idx, 'loop', e.target.checked)}
+                        className="rounded accent-amber-500 cursor-pointer"
+                      />
+                      Loop
+                    </label>
+                  </div>
+                </div>
+
+                <div className="w-full">
+                  <MiniJsonEditor label="Raw Animation Data (JSON Override)" value={content.animation_data || {}} onChange={val => updateContent(idx, 'animation_data', val)} />
+                </div>
+              </div>
+            )}
+
             {/* Dynamic Content Fields for HTML */}
             {cType === 'HTML' && (
               <div className="space-y-1">
@@ -699,7 +786,7 @@ export const AstGraphicalEditor = ({
               </div>
             )}
 
-            {/* Collapsible Advanced: Styling, Animations & Filters */}
+            {/* Collapsible Advanced: Styling, Animations, Motion Blur & Camera Noise */}
             <div className="pt-2 border-t border-white/5">
               <button
                 type="button"
@@ -708,13 +795,54 @@ export const AstGraphicalEditor = ({
               >
                 <span className="flex items-center gap-1.5">
                   <BsSliders size={11} className="text-amber-400" />
-                  Advanced (CSS Style & Animations)
+                  Advanced (Motion Blur, Camera FX, Styles)
                 </span>
                 {isAdvancedOpen ? <BsChevronDown size={11} /> : <BsChevronRight size={11} />}
               </button>
 
               {isAdvancedOpen && (
                 <div className="space-y-3 pt-2.5">
+                  {/* Motion Modifiers */}
+                  <div className="p-2.5 bg-black/30 border border-white/5 rounded-lg space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-amber-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!layer.motion_blur}
+                          onChange={e => updateLayer(idx, 'motion_blur', e.target.checked)}
+                          className="rounded accent-amber-500 cursor-pointer"
+                        />
+                        Physical Motion Blur
+                      </label>
+                      {layer.motion_blur && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] text-stone-400 uppercase">Shutter:</span>
+                          <input
+                            type="number"
+                            value={layer.shutter_angle ?? 180}
+                            onChange={e => updateLayer(idx, 'shutter_angle', parseInt(e.target.value) || 180)}
+                            className="w-12 bg-black/40 border border-white/10 text-[10px] font-mono text-stone-200 px-1 py-0.5 rounded text-center"
+                          />
+                          <span className="text-[9px] text-stone-400">°</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 shrink-0">Camera Shake:</label>
+                      <select
+                        className="bg-black/40 border border-white/10 text-xs text-stone-200 rounded px-2 py-1 focus:outline-none cursor-pointer"
+                        value={layer.camera_shake || 'none'}
+                        onChange={e => updateLayer(idx, 'camera_shake', e.target.value)}
+                      >
+                        <option value="none">None</option>
+                        <option value="handheld">Organic Handheld</option>
+                        <option value="shockwave">Earthquake / Shockwave</option>
+                        <option value="glitch">Glitch Jitter</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <MiniJsonEditor label="Style (CSS Object)" value={content.style || {}} onChange={val => updateContent(idx, 'style', val)} />
                   <MiniJsonEditor label="Animations Array" value={layer.animations || []} onChange={val => updateLayer(idx, 'animations', val)} />
                   <MiniJsonEditor label="Filters Array" value={layer.filters || []} onChange={val => updateLayer(idx, 'filters', val)} />
@@ -733,6 +861,18 @@ export const AstGraphicalEditor = ({
       >
         <BsPlus size={16} /> Add Layer
       </button>
+
+      {/* Lucide Icon Picker Modal */}
+      <IconPickerModal
+        isOpen={iconPickerIdx !== null}
+        onClose={() => setIconPickerIdx(null)}
+        onSelectIcon={(iconName) => {
+          if (iconPickerIdx !== null) {
+            updateContent(iconPickerIdx, 'icon_name', iconName);
+          }
+        }}
+        currentIcon={iconPickerIdx !== null ? (composition.children?.[iconPickerIdx]?.content?.icon_name || 'trending-up') : undefined}
+      />
     </div>
   );
 };

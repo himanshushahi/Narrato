@@ -270,10 +270,14 @@ const Dashboard: React.FC = () => {
                     <CustomSelect
                       label="Video Style / Genre"
                       options={[
-                        { value: 'documentary', label: 'Documentary (Ken Burns, Maps, Cinematic)' },
-                        { value: 'explainer', label: 'Tech Explainer (Vector Graphics, Fast, Neon)' },
+                        { value: 'documentary', label: 'Documentary & Geopolitics (Ken Burns, Maps, Cinematic)' },
+                        { value: 'explainer', label: 'Tech & SaaS Explainer (Vector Graphics, Fast, Neon)' },
+                        { value: 'finance', label: 'Finance & Market Analysis (Charts, Metrics, Tickers)' },
+                        { value: 'vox', label: 'Vox-Style Editorial (Typography, Yellow/Black, Collage)' },
+                        { value: 'news', label: 'News/Journalism (Split Screens, Lower Thirds)' },
+                        { value: 'true_crime', label: 'True Crime / Mystery (Redacted Memos, Shockwave)' },
                         { value: 'storytime', label: 'Personal Story (Portraits, Warm, Soft)' },
-                        { value: 'news', label: 'News/Journalism (Split Screens, Lower Thirds)' }
+                        { value: 'viral_short', label: 'Viral Short-Form (Fast Cuts, Kinetic Words, Punchy)' }
                       ]}
                       value={videoType}
                       onChange={(val) => setVideoType(val)}

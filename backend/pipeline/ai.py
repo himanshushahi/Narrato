@@ -175,7 +175,7 @@ ANIMATION_SCHEMA = {
 LAYER_CONTENT_SCHEMA = {
     "type": "object",
     "properties": {
-        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML"]},
+        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie"]},
         "query": {"type": "string", "description": "Search query for Pexels, Wikipedia, Pixabay, or YouTube (if Image/Video)"},
         "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay", "youtube"], "description": "Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed."},
         "text": {"type": "string", "description": "Text content (if Text)"},
@@ -187,7 +187,8 @@ LAYER_CONTENT_SCHEMA = {
         "color": {"type": "string", "description": "Text/accent color in hex"},
         
         # Shape properties
-        "shape_type": {"type": "string", "enum": ["rectangle", "circle", "star", "triangle", "arrow", "polygon", "path"], "description": "Type of vector shape (if Shape)"},
+        "shape_type": {"type": "string", "enum": ["rectangle", "circle", "star", "triangle", "arrow", "polygon", "path", "icon"], "description": "Type of vector shape (if Shape)"},
+        "icon_name": {"type": "string", "description": "Lucide icon name in kebab-case (e.g. 'trending-up', 'trending-down', 'dollar-sign', 'coins', 'shield-alert', 'shield-check', 'lock', 'database', 'globe', 'zap', 'flame', 'gavel', 'target') (if Shape and shape_type='icon')"},
         "fill": {"type": "string", "description": "Fill color hex or 'transparent' (if Shape)"},
         "stroke": {"type": "string", "description": "Stroke border color hex (if Shape)"},
         "stroke_width": {"type": "number", "description": "Stroke width in pixels (if Shape)"},
@@ -197,7 +198,7 @@ LAYER_CONTENT_SCHEMA = {
         "corner_radius": {"type": "number", "description": "Corner rounding radius in pixels (if Shape)"},
         "points": {"type": "integer", "description": "Number of points for star/polygon (if Shape)"},
         "inner_radius": {"type": "number", "description": "Inner radius for star (if Shape)"},
-        "direction": {"type": "string", "enum": ["up", "down", "left", "right"], "description": "Direction for arrow/triangle (if Shape)"},
+        "direction": {"type": "string", "enum": ["up", "down", "left", "right", "forward", "backward"], "description": "Direction for arrow/triangle (if Shape: up/down/left/right) or playback direction (if Lottie: forward/backward)"},
         "angle": {"type": "number", "description": "Rotation angle in degrees (if Shape)"},
         "preset_path": {"type": "string", "enum": ["route_arch", "horizontal_line", "pointer_curve", "corner_brackets", "wave_pulse", "circle_reticle"], "description": "High-level SVG path preset (if Shape and shape_type='path')"},
         "path_d": {"type": "string", "description": "Custom SVG path d string in 1920x1080 canvas (if Shape and shape_type='path')"},
@@ -221,6 +222,12 @@ LAYER_CONTENT_SCHEMA = {
             "description": "Array of data points (if Chart)"
         },
         "title": {"type": "string", "description": "Title or headline for Chart"},
+        
+        # Lottie properties
+        "lottie_url": {"type": "string", "description": "Remote CDN URL (e.g. LottieFiles) or local path for vector motion graphics (if Lottie)"},
+        "loop": {"type": "boolean", "description": "Whether to loop Lottie animation (default true)"},
+        "playback_rate": {"type": "number", "description": "Speed multiplier for Lottie animation (default 1.0)"},
+        "lottie_direction": {"type": "string", "enum": ["forward", "backward"], "description": "Playback direction for Lottie (default 'forward')"},
         
         # Other properties
         "html_content": {"type": "string", "description": "Raw HTML/SVG markup (if HTML), e.g. custom tables, dossiers, badges, or SVG diagrams"},
@@ -260,6 +267,9 @@ AST_LAYER_SCHEMA = {
             "type": "array",
             "items": ANIMATION_SCHEMA
         },
+        "motion_blur": {"type": "boolean", "description": "Whether to apply physical camera shutter motion blur to moving elements"},
+        "shutter_angle": {"type": "number", "description": "Camera shutter angle in degrees for motion blur (default 180)"},
+        "camera_shake": {"type": "string", "enum": ["none", "handheld", "shockwave", "glitch"], "description": "Procedural noise camera motion effect"},
         "filters": {
             "type": "array",
             "items": {"type": "string"},
@@ -467,7 +477,11 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
     topic = project_dict.get('name', 'Unknown')
     language = project_dict.get('language', 'hi')
     video_format = project_dict.get('video_format', 'landscape')
-    
+    video_type = project_dict.get('prompt') or 'documentary'
+
+    from backend.pipeline.genres import normalize_genre_key
+    norm_genre = normalize_genre_key(video_type)
+
     if design_path.exists():
         try:
             with open(design_path, "r", encoding="utf-8") as f:
@@ -478,6 +492,21 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
                 raise ValueError("Previous design generation failed, regenerating")
             if data.get('_language') != language or data.get('_video_format') != video_format:
                 raise ValueError("Language or format changed, invalidating design")
+            
+            # Check genre only if previously set in design.json
+            saved_genre = data.get('_genre')
+            if saved_genre and normalize_genre_key(saved_genre) != norm_genre:
+                raise ValueError(f"Genre changed from {saved_genre} to {video_type}, invalidating design")
+            
+            # If _genre was not previously persisted, backfill it in memory and file
+            if not saved_genre:
+                data['_genre'] = norm_genre
+                try:
+                    with open(design_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2)
+                except Exception:
+                    pass
+
             return data, is_new
         except Exception as e:
             from backend.core.logger import logger
@@ -485,23 +514,29 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
             
     is_new = True
     from backend.agent.skill_loader import skill_loader
+    from backend.pipeline.genres import format_genre_design_prompt
+    genre_guidance = format_genre_design_prompt(video_type)
+
     system_prompt = skill_loader.render_skill(
         "art-director-design-system",
         video_format=video_format,
         language=language,
+        genre_guidance=genre_guidance,
     )
     if not system_prompt:
         system_prompt = f"""You are an expert Art Director. Create a cohesive Design System for a YouTube video.
-The format is {video_format} (e.g. landscape means 16:9, portrait means 9:16).
+The format is {video_format} (e.g. landscape means 16:9, portrait means 9:16) and the language is {language}.
 Return ONLY valid JSON matching the schema. No markdown backticks.
 
+{genre_guidance}
+
 DESIGN GUIDELINES:
-- color_palette: Must use modern, vibrant, or highly readable hex codes.
+- color_palette: Must use modern, vibrant, or highly readable hex codes aligned with the genre.
 - css_guidelines: Provide brief layout and aesthetic styling rules (e.g. contrast, accents, card borders, typography scales).
 - fonts: CRITICAL - If Language is a complex script (like Hindi/hi, Tamil/ta, Bengali/bn, Arabic), you MUST specify Noto fonts (e.g. `Noto Sans Devanagari`) to prevent broken rendering. For English, use modern fonts (e.g. Inter, Outfit, Oswald).
 """
     import uuid
-    user_prompt = f"Topic: {topic}\nLanguage: {language}\nVideo Title: {script_data.get('title', 'Untitled')}\nRequest ID: {uuid.uuid4().hex}\n"
+    user_prompt = f"Topic: {topic}\nGenre: {video_type.upper()}\nLanguage: {language}\nVideo Title: {script_data.get('title', 'Untitled')}\nRequest ID: {uuid.uuid4().hex}\n"
     
     from backend.core.logger import logger
     logger.info("Generating global Design System...")
@@ -513,7 +548,7 @@ DESIGN GUIDELINES:
         if isinstance(e, InterruptedError):
             raise e
         logger.warning(f"Design generation failed, falling back to default: {e}")
-        return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+        return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
     
     if isinstance(design_data, dict) and design_data.get('theme_name'):
         design_data = _repair_design_data(design_data, language)
@@ -521,9 +556,10 @@ DESIGN GUIDELINES:
         required_keys = {'color_palette', 'typography', 'css_guidelines'}
         if not required_keys.issubset(design_data.keys()):
             logger.warning(f"Design system response missing required keys: {required_keys - design_data.keys()}")
-            return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+            return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
         design_data['_language'] = language
         design_data['_video_format'] = video_format
+        design_data['_genre'] = norm_genre
         return design_data, True
 
     if isinstance(design_data, dict):
@@ -535,10 +571,11 @@ DESIGN GUIDELINES:
             logger.warning("Design system was missing top-level keys — repaired from defaults.")
             design_data['_language'] = language
             design_data['_video_format'] = video_format
+            design_data['_genre'] = norm_genre
             return design_data, True
 
     logger.warning("Failed to generate design system, returning default.")
-    return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+    return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
 
 OUTLINE_JSON_SCHEMA = {
     "type": "object",
@@ -1439,6 +1476,9 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     per_scene_words = max(10, int(per_scene_time * speaking_rate))
 
     from backend.agent.skill_loader import skill_loader
+    from backend.pipeline.genres import format_genre_script_prompt
+    genre_script_guidance = format_genre_script_prompt(video_type)
+
     scriptwriter_rules = _skill_content("scriptwriter")
     script_rules_block = f"""=== WRITING RULES ===
 {scriptwriter_rules}
@@ -1454,9 +1494,12 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
         per_scene_time=per_scene_time,
         per_scene_words=per_scene_words,
         language=language,
+        genre_script_guidance=genre_script_guidance,
     )
     if not outline_system_prompt:
         outline_system_prompt = f"""{script_rules_block}You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
+
+{genre_script_guidance}
 
 CRITICAL RULES:
 - Return ONLY valid JSON matching the provided schema
@@ -1478,6 +1521,8 @@ BREAKDOWN REQUIREMENTS:
 
     outline_user_prompt = f"""Topic: "{topic}"
 Video Type / Genre: "{video_type.upper()}"
+
+{genre_script_guidance}
 
 Adapt the narrative style and tone specifically to fit the "{video_type.upper()}" genre.
 
@@ -1659,9 +1704,12 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
             prev_context=prev_context,
             language=language,
             sentence_rule=sentence_rule,
+            genre_script_guidance=genre_script_guidance,
         )
         if not scene_system_prompt:
             scene_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
+
+{genre_script_guidance}
 
 SCENE-SPECIFIC RULES:
 - This is Scene {scene_num}: {chapter_title}
@@ -2181,7 +2229,8 @@ RULES:
 - style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers.
 - DESIGN SYSTEM: Bind `primary`, `accent`, `surface`, `glow`, and `fontFamily` from the project's design system into layer styles.
 - VIDEO: Set `"volume": 0` by default on all Video layers.
-- ONLY use the 7 valid content types: Image, Video, Text, Chart, Shape, Map, HTML.
+- ONLY use the 8 valid content types: Image, Video, Text, Chart, Shape, Map, HTML, Lottie.
+- MOTION MODIFIERS: Set `"motion_blur": true` on fast-moving cards or spring entrances for physical shutter blur. Set `"camera_shake": "handheld" | "shockwave" | "glitch"` on background/composite layers for procedural organic camera motion.
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
@@ -2306,17 +2355,23 @@ ERROR PREVENTION:
         # --- End Smart Preservation Logic ---
 
         # --- STAGE 1: Visual Storyboard Planning ---
-        genre = (project_dict.get('prompt') or 'documentary').upper()
+        genre_key = project_dict.get('prompt') or 'documentary'
+        from backend.pipeline.genres import format_genre_storyboard_prompt, get_genre_profile
+        genre_profile = get_genre_profile(genre_key)
+        genre_storyboard_guidance = format_genre_storyboard_prompt(genre_key)
+
         storyboard_skill = skill_loader.get_skill("storyboard-planner")
         storyboard_guidance = f"\n\n{storyboard_skill.content}" if storyboard_skill else ""
         plan_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
 You are an expert Visual Director and Cinematographer. Your job is to read the narration for this scene and write a highly creative, detailed storyboard plan describing the sub-visual beats needed.
-Adapt the narrative style and tone specifically to fit the "{genre}" genre.
-Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Footage).
-Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling (e.g. 'Beat 1: Animated bar chart showing revenue loss. Beat 2: Leaked document mockup highlighting suspicious transactions. Beat 3: Dramatic aerial b-roll video with typewriter quote callout.').
+
+{genre_storyboard_guidance}
+
+Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Lottie, Footage) with cinematic motion blur and camera shake modifiers aligned with the {genre_profile['name']} style.
+Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling.
 Do not output AST JSON, just output a detailed text description of what each sub-visual should look like.{storyboard_guidance}"""
 
-        plan_user_prompt = f"Topic: {topic}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n\nWrite a storyboard plan for each sub-visual beat."
+        plan_user_prompt = f"Topic: {topic}\nGenre: {genre_profile['name']}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n\nWrite a storyboard plan for each sub-visual beat."
 
         plan_schema = {
             "type": "object",
@@ -2336,6 +2391,7 @@ Do not output AST JSON, just output a detailed text description of what each sub
 
         # --- STAGE 2: AST Generation ---
         user_prompt = f"""Topic: "{topic}"
+Genre: "{genre_profile['name']}"
 Scene: {scene_title} ({scene_type})
 Total Scene Duration: {duration} seconds
 

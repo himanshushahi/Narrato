@@ -53,7 +53,7 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 
 ---
 
-## 2. The 7 Active Visual Layer Types
+## 2. The 8 Active Visual Layer Types
 
 | # | Layer Type | Primary Purpose | Key Fields / Parameters | Remotion Component |
 |---|---|---|---|---|
@@ -62,8 +62,9 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 | 3 | `Text` | Dynamic headlines, kinetic quotes, data callouts | `text`, `font`, `weight`, `color`, `animation_mode`, `highlight_words`, `highlight_color`, `style` | [KineticText.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/KineticText.tsx) |
 | 4 | `Chart` | Statistics, comparisons, growth trends, distributions | `chart_type` (`bar` \| `line` \| `pie` \| `donut` \| `progress`), `data`, `title`, `style` | [ChartRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ChartRenderer.tsx) |
 | 5 | `Shape` | Hardware-accelerated vector shapes & animated SVG paths | `shape_type` (`rectangle` \| `circle` \| `star` \| `triangle` \| `arrow` \| `polygon` \| `path`), `fill`, `stroke`, `stroke_width`, `radius`, `direction`, `angle`, `preset_path`, `path_d`, `draw_animation`, `glow`, `style` | [ShapeRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ShapeRenderer.tsx) |
-| 6 | `Map` | Geographic territories, highlighted routes & markers | `locations` (`[{name, coord}]`), `map_style` (`modern_dark` \| `vintage` \| `minimal_light` \| `nautical_blue`), `style` | [DataVisualizations.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/DataVisualizations.tsx) |
-| 7 | `HTML` | Universal dynamic canvas: bespoke leaked memos, chat UI, comparison cards, SVG diagrams | `html_content`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<div dangerouslySetInnerHTML>` |
+| 6 | `Lottie` | 60 FPS vector micro-animations & dynamic vector icons | `lottie_url`, `animation_data`, `loop`, `playback_rate`, `direction`, `style` | [LottieRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/LottieRenderer.tsx) |
+| 7 | `Map` | Geographic territories, highlighted routes & markers | `locations` (`[{name, coord}]`), `map_style` (`modern_dark` \| `vintage` \| `minimal_light` \| `nautical_blue`), `style` | [DataVisualizations.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/DataVisualizations.tsx) |
+| 8 | `HTML` | Universal dynamic canvas: bespoke leaked memos, chat UI, comparison cards, SVG diagrams | `html_content`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<div dangerouslySetInnerHTML>` |
 
 ---
 

@@ -62,17 +62,18 @@ Every layer should move with purpose according to its role:
 
 ---
 
-## 4. The 7 Valid AST Content Types
+## 4. The 8 Valid AST Content Types & Motion Modifiers
 
-The `content` object inside every `Layer` must specify one of the **7 supported types**:
+The `content` object inside every `Layer` must specify one of the **8 supported types**:
 
 ### 1. `Chart` (Infographics & Data Visualization)
 * `chart_type`: `"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`
 * `data`: Array of objects `[{"label": "2021", "value": 45, "color": "#f59e0b"}, ...]`
 * `title` (optional): Chart headline string
 
-### 2. `Shape` (Vector Shapes, Paths & Callouts)
-* `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"`
+### 2. `Shape` (Vector Shapes, Paths, Icons & Callouts)
+* `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`
+* `icon_name` (for `shape_type="icon"`): Lucide icon name in kebab-case (e.g. `"trending-up"`, `"shield-alert"`, `"dollar-sign"`, `"coins"`, `"database"`, `"globe"`, `"zap"`, `"flame"`, `"gavel"`, `"target"`, `"sparkles"`)
 * `fill`: Hex color (e.g. `"rgba(0, 212, 255, 0.1)"`) or `"transparent"`
 * `stroke`: Border/line color (e.g. `"#00d4ff"`)
 * `stroke_width`: Border width in pixels (default `2`, for paths `3`–`5`)
@@ -90,7 +91,13 @@ The `content` object inside every `Layer` must specify one of the **7 supported 
 * `draw_animation`: `true` (animates line drawing smoothly)
 * `glow`: `true` (adds neon bloom / drop-shadow glow)
 
-### 3. `Text` (Kinetic Typography & Lower-Thirds)
+### 3. `Lottie` (60 FPS Vector Motion Graphics & Micro-Animations)
+* `lottie_url`: Remote CDN URL (e.g. LottieFiles) or local JSON asset path
+* `loop`: `true` | `false` (default `true`)
+* `playback_rate`: Speed multiplier (e.g. `1.0`, `1.5`)
+* `direction`: `"forward"` | `"backward"`
+
+### 4. `Text` (Kinetic Typography & Lower-Thirds)
 * `text`: Content string
 * `font`: Font family name (e.g. `"Inter"`, `"Oswald"`, `"Montserrat"`)
 * `animation_mode`: `"words_stagger"` | `"typewriter"` | `"marker_highlight"` | `"static"`
@@ -98,19 +105,25 @@ The `content` object inside every `Layer` must specify one of the **7 supported 
 * `highlight_color` (optional): Accent color (e.g. `"#facc15"`)
 * **CTL/Indic Fonts**: For Hindi, Tamil, Bengali, Arabic, etc., ALWAYS use Noto fonts (e.g. `Noto Sans Devanagari`).
 
-### 4. `Image` (Photos, Evidence & Vector Cutouts)
+### 5. `Image` (Photos, Evidence & Vector Cutouts)
 * `sources`: `pexels` (photos/backgrounds), `pixabay` (photos, and with `image_type="illustration"` or `"vector"` transparent PNG cutouts), `wikipedia` (real-world entities/figures).
 
-### 5. `Video` (Dynamic B-Roll & Ambient Motion)
+### 6. `Video` (Dynamic B-Roll & Ambient Motion)
 * `sources`: `pexels` (stock video) or `youtube` (timelapses/clips). Always `"volume": 0`.
 
-### 6. `Map` (Geographic Context & Route Markers)
+### 7. `Map` (Geographic Context & Route Markers)
 * `map_style`: `"modern_dark"`, `"vintage"`, `"minimal_light"`, `"nautical_blue"`
 * `locations`: `[{"name": "City", "coord": [lat, lon]}]`
 
-### 7. `HTML` (Universal Dynamic Canvas: Evidence Memos, UI Mocks, Custom Shapes, Timelines)
+### 8. `HTML` (Universal Dynamic Canvas: Evidence Memos, UI Mocks, Custom Shapes, Timelines)
 * `html_content`: Custom inline HTML/SVG/CSS markup. Ideal for bespoke leaked documents, chat bubbles, technical HUD blueprints, comparison cards, and metric tickers.
-* Combine inline CSS with Tailwind-like inline styling, gradients, and backdrop filters for infinite creative variety.
+
+---
+
+### Universal Layer Motion Modifiers
+Every `Layer` can additionally specify:
+* `motion_blur: true` — Applies realistic camera shutter motion blur to moving elements and fast spring entrances (`shutter_angle: 180`).
+* `camera_shake: "handheld" | "shockwave" | "glitch"` — Procedural Perlin noise camera drift or impact shock.
 
 ---
 

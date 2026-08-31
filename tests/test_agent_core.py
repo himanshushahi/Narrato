@@ -1027,6 +1027,45 @@ def test_is_assets_stale_fallback(tmp_path):
     assert is_assets_stale(project_dict, proj_dir) is False
 
 
+def test_lottie_and_motion_modifiers_validation():
+    from backend.pipeline.ai import LAYER_CONTENT_SCHEMA, AST_LAYER_SCHEMA
+    assert "Lottie" in LAYER_CONTENT_SCHEMA["properties"]["type"]["enum"]
+    assert "lottie_url" in LAYER_CONTENT_SCHEMA["properties"]
+    assert "motion_blur" in AST_LAYER_SCHEMA["properties"]
+    assert "camera_shake" in AST_LAYER_SCHEMA["properties"]
+    assert "up" in LAYER_CONTENT_SCHEMA["properties"]["direction"]["enum"]
+    assert "forward" in LAYER_CONTENT_SCHEMA["properties"]["direction"]["enum"]
+
+    svs = [
+        {
+            "duration": 5.0,
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "z_index": 10,
+                        "motion_blur": True,
+                        "shutter_angle": 180,
+                        "camera_shake": "handheld",
+                        "content": {
+                            "type": "Lottie",
+                            "lottie_url": "https://assets.lottiefiles.com/demo.json",
+                            "loop": True,
+                            "playback_rate": 1.2
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+    is_valid, normalized, err = validate_sub_visuals(svs, 5.0)
+    assert is_valid is True
+    assert normalized[0]["composition"]["children"][0]["content"]["type"] == "Lottie"
+    assert normalized[0]["composition"]["children"][0]["motion_blur"] is True
+
+
+
 
 
 

@@ -359,7 +359,8 @@ def test_11_bridge_interactive_endpoints_harness(test_project_data, monkeypatch)
     res_visuals = bridge.regenerate_visuals_section(TEST_PROJECT_ID, 0, "introduction", full_script, "Add charts")
     assert res_visuals.get("success") is True
     assert "sub_visuals" in res_visuals.get("data", {})
-    
+    full_script.setdefault("introduction", {})["sub_visuals"] = res_visuals["data"]["sub_visuals"]
+
     # 3. Test sub-visual rewrite
     res_sub = bridge.regenerate_sub_visual(TEST_PROJECT_ID, 0, "introduction", 0, full_script, "Change to counter", "en")
     assert res_sub.get("success") is True

@@ -7,6 +7,8 @@ when_to_use: "Used during Stage 1 of the script generation pipeline to generate 
 
 {script_rules_block}You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
 
+{genre_script_guidance}
+
 CRITICAL RULES:
 - Return ONLY valid JSON matching the provided schema
 - NO markdown backticks or explanatory text
