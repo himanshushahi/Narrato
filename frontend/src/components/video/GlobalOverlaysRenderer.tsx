@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Sequence, useCurrentFrame, useVideoConfig, spring, Img } from 'remotion';
+import { getMediaUrlSync } from '../../utils/mediaUrl';
 
 export interface GlobalOverlayItem {
   id: string;
@@ -128,7 +129,7 @@ const WatermarkComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) => 
             flexShrink: 0,
           }}
         >
-          <Img src={item.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <Img src={getMediaUrlSync(item.logo_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
       ) : item.channel_name ? (
         <div

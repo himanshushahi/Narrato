@@ -44,6 +44,7 @@ interface PywebviewApi {
   preview_asset_download(project_id: string, query: string): Promise<{ success: boolean; visual_path?: string; error?: string }>;
   cleanup_preview_assets(project_id: string, preview_paths: string[]): Promise<{ success: boolean; deleted?: string[] }>;
   upload_overlay_asset(project_id: string): Promise<{ success: boolean; asset_path?: string; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
+  save_uploaded_overlay_data(project_id: string, data_url: string, filename?: string): Promise<{ success: boolean; asset_path?: string; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
   save_project_with_cleanup(project_id: string, script_data: any, manifest_data: any): Promise<any>;
   update_scene_duration(project_id: string, scene_index: number, new_duration_seconds: number): Promise<{ success: boolean; error?: string }>;
   reorder_scenes(project_id: string, new_scene_order: number[]): Promise<{ success: boolean; error?: string }>;

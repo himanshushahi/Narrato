@@ -224,18 +224,22 @@ const EditorWorkspace: React.FC = () => {
     if (leftFrames < 0.5 * FPS || rightFrames < 0.5 * FPS) return;
 
     const origDuration = manifestScene.sub_visuals?.[subIdx]?.duration ?? Number(((currentSubEnd - currentSubStart) / FPS).toFixed(2));
-    const leftDuration = Math.max(0.2, Number((leftFrames / FPS).toFixed(2)));
+    const leftDuration = Math.max(0.2, Math.min(Math.max(0.2, origDuration - 0.2), Number((leftFrames / FPS).toFixed(2))));
     const rightDuration = Math.max(0.2, Number((origDuration - leftDuration).toFixed(2)));
 
     const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
     const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
 
-    const hasIntro = !!scriptDataRef.current.introduction;
     const sectionType = manifestScene.section_type;
     let scriptScene: any = null;
-    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
-    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
-    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+    if (sectionType === 'introduction') {
+      scriptScene = scriptCopy.introduction;
+    } else if (sectionType === 'conclusion') {
+      scriptScene = scriptCopy.conclusion;
+    } else {
+      const sceneNumber = manifestDataRef.current.slice(0, sceneIdx).filter((m: any) => m.section_type === 'scene').length;
+      scriptScene = scriptCopy.scenes?.[sceneNumber];
+    }
 
     // Ensure scriptScene has sub_visuals matching manifestScene
     if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {
@@ -276,12 +280,16 @@ const EditorWorkspace: React.FC = () => {
     const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
     const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
 
-    const hasIntro = !!scriptDataRef.current.introduction;
     const sectionType = manifestScene.section_type;
     let scriptScene: any = null;
-    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
-    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
-    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+    if (sectionType === 'introduction') {
+      scriptScene = scriptCopy.introduction;
+    } else if (sectionType === 'conclusion') {
+      scriptScene = scriptCopy.conclusion;
+    } else {
+      const sceneNumber = manifestDataRef.current.slice(0, sceneIdx).filter((m: any) => m.section_type === 'scene').length;
+      scriptScene = scriptCopy.scenes?.[sceneNumber];
+    }
 
     // Ensure scriptScene has sub_visuals matching manifestScene
     if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {

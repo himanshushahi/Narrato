@@ -1726,6 +1726,54 @@ class ApiBridge:
             "extension": ext,
         }
 
+    def save_uploaded_overlay_data(self, project_id: str, data_url: str, filename: str = "") -> dict:
+        """Save a base64/data URL uploaded overlay image to the project assets directory."""
+        logger.info(f"Bridge API: save_uploaded_overlay_data for project {project_id}")
+        try:
+            if not data_url:
+                return {"success": False, "error": "No data provided"}
+            import base64
+            import time
+            from backend.core.config import get_storage_dir
+
+            if "," in data_url:
+                header, encoded = data_url.split(",", 1)
+            else:
+                header = ""
+                encoded = data_url
+
+            raw_bytes = base64.b64decode(encoded)
+
+            ext = ".png"
+            if filename and "." in filename:
+                ext = Path(filename).suffix.lower()
+            elif "image/jpeg" in header:
+                ext = ".jpg"
+            elif "image/webp" in header:
+                ext = ".webp"
+            elif "image/svg" in header:
+                ext = ".svg"
+            elif "image/gif" in header:
+                ext = ".gif"
+
+            assets_dir = get_storage_dir() / project_id / "assets"
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            dest_filename = f"overlay_{int(time.time() * 1000)}{ext}"
+            dest_file = assets_dir / dest_filename
+            dest_file.write_bytes(raw_bytes)
+
+            stat = dest_file.stat()
+            return {
+                "success": True,
+                "asset_path": str(dest_file),
+                "filename": dest_filename,
+                "size_bytes": stat.st_size,
+                "extension": ext,
+            }
+        except Exception as e:
+            logger.error(f"save_uploaded_overlay_data error: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     def finalize_upload_asset(self, project_id: str, preview_path: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
         logger.info(f"Bridge API: finalize_upload_asset for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
         src = Path(preview_path)
@@ -2081,13 +2129,90 @@ class ApiBridge:
                     scene_counter += 1
             if manifest_entry is None:
                 return {"success": False, "error": f"Scene index {scene_index} not found"}
+
+            old_dur = float(manifest_entry.get("duration", 0)) or 1.0
             manifest_entry["duration"] = new_duration_seconds
-            logger.info(f"Updated scene {scene_index} duration: -> {new_duration_seconds}s")
+            
+            # Scale sub-visuals proportionally
+            subs = manifest_entry.get("sub_visuals", [])
+            if subs:
+                total_existing = sum(float(sv.get("duration", 0)) for sv in subs)
+                if total_existing > 0:
+                    scale = new_duration_seconds / total_existing
+                    for sv in subs:
+                        ratio = float(sv.get("duration", 0)) / total_existing
+                        sv["duration"] = round(float(sv.get("duration", 0)) * scale, 2)
+                        sv["duration_ratio"] = round(ratio, 4)
+                else:
+                    for sv in subs:
+                        sv["duration"] = round(new_duration_seconds / len(subs), 2)
+                        sv["duration_ratio"] = round(1.0 / len(subs), 4)
+
+            logger.info(f"Updated scene {scene_index} duration: {old_dur}s -> {new_duration_seconds}s")
             for entry in manifest:
                 if "_content_hash" in entry:
                     del entry["_content_hash"]
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2, ensure_ascii=False)
+
+            # Synchronize into script.json if available
+            script_path = project.get("script_path")
+            if script_path and os.path.exists(script_path):
+                try:
+                    with open(script_path, "r", encoding="utf-8") as f:
+                        script_data = json.load(f)
+                    if isinstance(script_data.get("scenes"), list) and scene_index < len(script_data["scenes"]):
+                        script_scene = script_data["scenes"][scene_index]
+                        script_subs = script_scene.get("sub_visuals", [])
+                        if script_subs:
+                            total_existing = sum(float(sv.get("duration", 0)) for sv in script_subs)
+                            if total_existing > 0:
+                                scale = new_duration_seconds / total_existing
+                                for sv in script_subs:
+                                    ratio = float(sv.get("duration", 0)) / total_existing
+                                    sv["duration"] = round(float(sv.get("duration", 0)) * scale, 2)
+                                    sv["duration_ratio"] = round(ratio, 4)
+                            else:
+                                for sv in script_subs:
+                                    sv["duration"] = round(new_duration_seconds / len(script_subs), 2)
+                                    sv["duration_ratio"] = round(1.0 / len(script_subs), 4)
+                        with open(script_path, "w", encoding="utf-8") as f:
+                            json.dump(script_data, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"Failed to sync duration change to script.json: {e}")
+
+            # Synchronize into voiceover/manifest.json if present
+            from backend.core.config import get_storage_dir
+            voiceover_manifest_path = get_storage_dir() / project_id / "voiceover" / "manifest.json"
+            if voiceover_manifest_path.exists() and str(voiceover_manifest_path) != str(manifest_path):
+                try:
+                    with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
+                        vo_manifest = json.load(f)
+                    v_counter = 0
+                    for v_entry in vo_manifest:
+                        if v_entry.get("section_type") == "scene":
+                            if v_counter == scene_index:
+                                v_entry["duration"] = new_duration_seconds
+                                v_subs = v_entry.get("sub_visuals", [])
+                                if v_subs:
+                                    v_total = sum(float(sv.get("duration", 0)) for sv in v_subs)
+                                    if v_total > 0:
+                                        v_scale = new_duration_seconds / v_total
+                                        for sv in v_subs:
+                                            ratio = float(sv.get("duration", 0)) / v_total
+                                            sv["duration"] = round(float(sv.get("duration", 0)) * v_scale, 2)
+                                            sv["duration_ratio"] = round(ratio, 4)
+                                    else:
+                                        for sv in v_subs:
+                                            sv["duration"] = round(new_duration_seconds / len(v_subs), 2)
+                                            sv["duration_ratio"] = round(1.0 / len(v_subs), 4)
+                                break
+                            v_counter += 1
+                    with open(voiceover_manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(vo_manifest, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"Failed to sync duration change to voiceover manifest: {e}")
+
             return {"success": True}
         except Exception as e:
             logger.error(f"update_scene_duration failed: {e}", exc_info=True)

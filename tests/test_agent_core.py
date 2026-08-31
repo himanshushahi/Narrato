@@ -1065,6 +1065,199 @@ def test_lottie_and_motion_modifiers_validation():
     assert normalized[0]["composition"]["children"][0]["motion_blur"] is True
 
 
+def test_is_assets_stale_scene_count_mismatch(tmp_path):
+    """is_assets_stale correctly returns True when script scene count exceeds manifest scene count."""
+    from backend.pipeline.assets import is_assets_stale
+    import json
+
+    proj_dir = tmp_path / "test-count-mismatch"
+    proj_dir.mkdir(parents=True)
+    voice_dir = proj_dir / "voiceover"
+    voice_dir.mkdir(parents=True)
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    img_file = assets_dir / "asset_0.jpg"
+    img_file.write_text("img")
+
+    # Script has 2 scenes, but manifest only has 1 scene
+    script = {
+        "scenes": [
+            {"sub_visuals": [{"composition": {"children": [{"content": {"type": "Image", "local_path": str(img_file)}}]}}]},
+            {"sub_visuals": [{"composition": {"children": [{"content": {"type": "Image", "local_path": str(img_file)}}]}}]}
+        ]
+    }
+    (proj_dir / "script.json").write_text(json.dumps(script), encoding="utf-8")
+
+    manifest = [
+        {"section_type": "scene", "sub_visuals": [{"composition": {"children": [{"content": {"type": "Image", "local_path": str(img_file)}}]}}]}
+    ]
+    (voice_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    project_dict = {"id": "test-count-mismatch"}
+    assert is_assets_stale(project_dict, proj_dir) is True
+
+
+def test_is_transcribe_stale_audio_mtime(tmp_path):
+    """is_transcribe_stale correctly returns True when audio file is newer than transcription."""
+    from backend.pipeline.transcribe import is_transcribe_stale, _compute_transcribe_hash, _write_transcribe_hash
+    import time
+    from pathlib import Path
+
+    proj_dir = tmp_path / "test-transcribe-stale"
+    proj_dir.mkdir(parents=True)
+    sub_dir = proj_dir / "subtitles"
+    sub_dir.mkdir(parents=True)
+
+    json_path = sub_dir / "transcription.json"
+    json_path.write_text("{}", encoding="utf-8")
+
+    # Set transcription file mtime to 100 seconds ago
+    old_time = time.time() - 100
+    import os
+    os.utime(json_path, (old_time, old_time))
+
+    # Write matching transcribe hash
+    hash_val = _compute_transcribe_hash("small", "cpu", "en")
+    _write_transcribe_hash(proj_dir, hash_val)
+
+    # Audio file created now (newer than transcription)
+    audio_file = proj_dir / "voiceover.wav"
+    audio_file.write_text("audio")
+
+    project_dict = {"id": "test-transcribe-stale", "language": "en", "audio_path": str(audio_file)}
+    assert is_transcribe_stale(project_dict, proj_dir) is True
+
+
+def test_fetch_assets_preserves_script_sub_visuals(tmp_path):
+    """fetch_assets_pipeline preserves rich sub-visuals in script.json and does not overwrite with empty manifest."""
+    from backend.pipeline.assets import fetch_assets_pipeline
+    import threading
+    import json
+
+    proj_dir = tmp_path / "test-sub-preservation"
+    proj_dir.mkdir(parents=True)
+    voice_dir = proj_dir / "voiceover"
+    voice_dir.mkdir(parents=True)
+
+    # Script has rich sub-visuals
+    rich_subs = [
+        {
+            "duration": 5.0,
+            "composition": {
+                "type": "Sequence",
+                "children": [{"type": "Layer", "content": {"type": "Text", "text": "Hello World"}}]
+            }
+        }
+    ]
+    script = {
+        "scenes": [
+            {"title": "Scene 1", "sub_visuals": rich_subs}
+        ]
+    }
+    (proj_dir / "script.json").write_text(json.dumps(script), encoding="utf-8")
+
+    # Manifest has empty placeholder sub-visuals (e.g. from TTS)
+    empty_subs = [
+        {
+            "duration": 5.0,
+            "composition": {
+                "type": "Sequence",
+                "children": []
+            }
+        }
+    ]
+    manifest = [
+        {"section_type": "scene", "title": "Scene 1", "duration": 5.0, "sub_visuals": empty_subs}
+    ]
+    manifest_file = voice_dir / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+
+    project_dict = {
+        "id": "test-sub-preservation",
+        "name": "Test Preservation",
+        "assets_manifest_path": str(manifest_file),
+        "video_format": "landscape"
+    }
+
+    cancel_event = threading.Event()
+    fetch_assets_pipeline(project_dict, proj_dir, lambda p, m: None, cancel_event)
+
+    # Verify script.json retained its rich sub-visuals
+    updated_script = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    assert len(updated_script["scenes"][0]["sub_visuals"]) == 1
+    assert len(updated_script["scenes"][0]["sub_visuals"][0]["composition"]["children"]) == 1
+    assert updated_script["scenes"][0]["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "Hello World"
+
+
+def test_save_uploaded_overlay_data(tmp_path, monkeypatch):
+    """save_uploaded_overlay_data saves base64 data to project assets directory."""
+    import base64
+    from backend.core.bridge import ApiBridge
+    import backend.core.config
+
+    monkeypatch.setattr(backend.core.config, "get_storage_dir", lambda: tmp_path)
+
+    bridge = ApiBridge()
+    img_data = b"fake_png_data_12345"
+    data_url = f"data:image/png;base64,{base64.b64encode(img_data).decode('utf-8')}"
+
+    result = bridge.save_uploaded_overlay_data("proj_1", data_url, "my_logo.png")
+    assert result["success"] is True
+    assert result["extension"] == ".png"
+    assert (tmp_path / "proj_1" / "assets" / result["filename"]).exists()
+    assert (tmp_path / "proj_1" / "assets" / result["filename"]).read_bytes() == img_data
+
+
+def test_update_scene_duration_syncs_vo_manifest(tmp_path, monkeypatch):
+    """update_scene_duration correctly synchronizes and scales duration in voiceover/manifest.json."""
+    from backend.core.bridge import ApiBridge
+    import backend.core.bridge as bridge_mod
+    import backend.core.config
+    import json
+
+    monkeypatch.setattr(backend.core.config, "get_storage_dir", lambda: tmp_path)
+
+    proj_dir = tmp_path / "proj_vo_sync"
+    proj_dir.mkdir(parents=True)
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+    vo_dir = proj_dir / "voiceover"
+    vo_dir.mkdir(parents=True)
+
+    manifest_file = assets_dir / "manifest.json"
+    manifest_data = [
+        {"section_type": "scene", "duration": 4.0, "sub_visuals": [{"duration": 2.0}, {"duration": 2.0}]}
+    ]
+    manifest_file.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    vo_manifest_file = vo_dir / "manifest.json"
+    vo_data = [
+        {"section_type": "scene", "duration": 4.0, "sub_visuals": [{"duration": 2.0}, {"duration": 2.0}]}
+    ]
+    vo_manifest_file.write_text(json.dumps(vo_data), encoding="utf-8")
+
+    import backend.database.db as db_mod
+    monkeypatch.setattr(db_mod, "get_project", lambda pid: {"id": pid, "assets_manifest_path": str(manifest_file)})
+
+    bridge = ApiBridge()
+    res = bridge.update_scene_duration("proj_vo_sync", 0, 10.0)
+    assert res["success"] is True
+
+    # Check assets manifest
+    updated_assets = json.loads(manifest_file.read_text(encoding="utf-8"))
+    assert updated_assets[0]["duration"] == 10.0
+    assert updated_assets[0]["sub_visuals"][0]["duration"] == 5.0
+
+    # Check voiceover manifest
+    updated_vo = json.loads(vo_manifest_file.read_text(encoding="utf-8"))
+    assert updated_vo[0]["duration"] == 10.0
+    assert updated_vo[0]["sub_visuals"][0]["duration"] == 5.0
+
+
+
+
+
 
 
 

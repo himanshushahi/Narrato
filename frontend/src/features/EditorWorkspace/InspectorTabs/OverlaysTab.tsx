@@ -148,9 +148,8 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
           projectId
         );
         if (res?.success && res.asset_path) {
-          const mediaUrl = `${getMediaUrlSync(res.asset_path)}&t=${Date.now()}`;
           const next = [...overlays];
-          next[index] = { ...next[index], logo_url: mediaUrl };
+          next[index] = { ...next[index], logo_url: res.asset_path };
           updateOverlays(next, true);
           setUploadingIdx(null);
           return;
@@ -169,11 +168,28 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
     if (!file || targetIdx === null || targetIdx === undefined) return;
 
     try {
+      setUploadingIdx(targetIdx);
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         if (typeof reader.result === 'string') {
+          let savedPath = reader.result;
+          if (projectId) {
+            try {
+              const res = await callApi<{ success: boolean; asset_path?: string; error?: string }>(
+                'save_uploaded_overlay_data',
+                projectId,
+                reader.result,
+                file.name
+              );
+              if (res?.success && res.asset_path) {
+                savedPath = res.asset_path;
+              }
+            } catch (err) {
+              console.warn('[OverlaysTab] Failed to save overlay image to disk, falling back to data URL:', err);
+            }
+          }
           const next = [...overlays];
-          next[targetIdx] = { ...next[targetIdx], logo_url: reader.result };
+          next[targetIdx] = { ...next[targetIdx], logo_url: savedPath };
           updateOverlays(next, true);
         }
         setUploadingIdx(null);
@@ -515,7 +531,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                             <div className="flex items-center gap-3">
                               {item.logo_url ? (
                                 <div className="relative group w-12 h-12 rounded-full overflow-hidden border border-white/20 shrink-0 bg-black/50">
-                                  <img src={item.logo_url} alt="Logo" className="w-full h-full object-cover" />
+                                  <img src={getMediaUrlSync(item.logo_url)} alt="Logo" className="w-full h-full object-cover" />
                                   <button
                                     onClick={() => handleUpdateItem(idx, 'logo_url', '')}
                                     className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-rose-400 cursor-pointer"

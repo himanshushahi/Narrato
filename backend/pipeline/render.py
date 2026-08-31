@@ -344,6 +344,38 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     with open(transcribe_path, "r", encoding="utf-8") as f:
         transcript = json.load(f)
 
+    # Sync live sub_visuals from script.json if available
+    from backend.pipeline.assets import _has_meaningful_sub_visuals
+    script_path = project_dir / "script.json"
+    if script_path.exists():
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script_data = json.load(f)
+            script_scenes = script_data.get("scenes", []) if isinstance(script_data.get("scenes"), list) else []
+            scene_counter = 0
+            for sc in scenes:
+                sec_type = sc.get("section_type")
+                if sec_type == "introduction" and script_data.get("introduction"):
+                    subs = script_data["introduction"].get("sub_visuals")
+                    if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(sc.get("sub_visuals")):
+                        if subs:
+                            sc["sub_visuals"] = subs
+                elif sec_type == "conclusion" and script_data.get("conclusion"):
+                    subs = script_data["conclusion"].get("sub_visuals")
+                    if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(sc.get("sub_visuals")):
+                        if subs:
+                            sc["sub_visuals"] = subs
+                elif sec_type == "scene":
+                    if scene_counter < len(script_scenes):
+                        script_scene = script_scenes[scene_counter]
+                        subs = script_scene.get("sub_visuals")
+                        if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(sc.get("sub_visuals")):
+                            if subs:
+                                sc["sub_visuals"] = subs
+                    scene_counter += 1
+        except Exception as e:
+            logger.warning(f"Could not merge script.json into render scenes: {e}")
+
     # Strip internal pipeline metadata (_content_hash, _voiceover_*) that doesn't affect
     # rendering output. This prevents metadata changes (e.g. first save after hash system
     # was introduced, or TTS engine/voice changes) from invalidating the render cache.

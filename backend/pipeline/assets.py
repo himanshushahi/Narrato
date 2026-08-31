@@ -126,7 +126,29 @@ def is_assets_stale(project_dict, project_dir):
         if bg_music and not Path(bg_music).exists():
             return True
             
-        # Check 2: Did the sub_visuals change?
+        # Check 2: Did the section count or sub_visuals structure change?
+        script_scenes = script_data.get('scenes', []) if isinstance(script_data.get('scenes'), list) else []
+        manifest_scenes = [m for m in assets_manifest if m.get("section_type") == "scene"]
+        if len(manifest_scenes) != len(script_scenes):
+            logger.info(f"assets stale: scene count mismatch (manifest_scenes={len(manifest_scenes)}, script_scenes={len(script_scenes)})")
+            return True
+
+        has_intro_in_manifest = any(m.get("section_type") == "introduction" for m in assets_manifest)
+        has_intro_in_script = bool(script_data.get("introduction") and (
+            script_data["introduction"].get("hook") or script_data["introduction"].get("sub_visuals")
+        ))
+        if has_intro_in_manifest != has_intro_in_script:
+            logger.info(f"assets stale: intro presence mismatch (manifest={has_intro_in_manifest}, script={has_intro_in_script})")
+            return True
+
+        has_conclusion_in_manifest = any(m.get("section_type") == "conclusion" for m in assets_manifest)
+        has_conclusion_in_script = bool(script_data.get("conclusion") and (
+            script_data["conclusion"].get("summary") or script_data["conclusion"].get("cta") or script_data["conclusion"].get("sub_visuals")
+        ))
+        if has_conclusion_in_manifest != has_conclusion_in_script:
+            logger.info(f"assets stale: conclusion presence mismatch (manifest={has_conclusion_in_manifest}, script={has_conclusion_in_script})")
+            return True
+
         scene_counter = 0
         for manifest_scene in assets_manifest:
             sec_type = manifest_scene.get("section_type")
@@ -136,9 +158,9 @@ def is_assets_stale(project_dict, project_dir):
                 live_sub_visuals = script_data['introduction'].get('sub_visuals', [])
             elif sec_type == 'conclusion' and script_data.get('conclusion'):
                 live_sub_visuals = script_data['conclusion'].get('sub_visuals', [])
-            elif sec_type == 'scene' and isinstance(script_data.get('scenes'), list):
-                if scene_counter < len(script_data['scenes']):
-                    script_scene = script_data['scenes'][scene_counter]
+            elif sec_type == 'scene':
+                if scene_counter < len(script_scenes):
+                    script_scene = script_scenes[scene_counter]
                     live_sub_visuals = script_scene.get('sub_visuals', [])
                 scene_counter += 1
                 
@@ -148,7 +170,12 @@ def is_assets_stale(project_dict, project_dir):
             relevant_orig = strip_local_paths(orig_sub_visuals)
             
             if relevant_live != relevant_orig:
+                logger.info(f"assets stale: sub_visuals changed for section {sec_type}")
                 return True
+
+        if scene_counter != len(script_scenes):
+            logger.info(f"assets stale: scene count mismatch (processed={scene_counter}, total={len(script_scenes)})")
+            return True
                 
         return False
     except Exception as e:
@@ -741,6 +768,18 @@ def _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, a
     return sub_visual
 
 
+def _has_meaningful_sub_visuals(subs):
+    """Check if sub_visuals list contains non-empty compositions with children."""
+    if not isinstance(subs, list) or len(subs) == 0:
+        return False
+    for sv in subs:
+        if isinstance(sv, dict):
+            comp = sv.get("composition")
+            if isinstance(comp, dict) and comp.get("children"):
+                return True
+    return False
+
+
 def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Assets acquisition step of pipeline."""
     manifest_path_str = project_dict.get('assets_manifest_path')
@@ -755,6 +794,38 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
 
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
+
+    # Sync live sub-visuals from script.json into manifest BEFORE fetching
+    script_path = project_dir / "script.json"
+    if script_path.exists():
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script_data = json.load(f)
+            
+            script_scenes = script_data.get("scenes", []) if isinstance(script_data.get("scenes"), list) else []
+            scene_counter = 0
+            for segment in manifest:
+                sec_type = segment.get("section_type")
+                if sec_type == "introduction" and script_data.get("introduction"):
+                    subs = script_data["introduction"].get("sub_visuals")
+                    if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(segment.get("sub_visuals")):
+                        if subs:
+                            segment["sub_visuals"] = subs
+                elif sec_type == "conclusion" and script_data.get("conclusion"):
+                    subs = script_data["conclusion"].get("sub_visuals")
+                    if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(segment.get("sub_visuals")):
+                        if subs:
+                            segment["sub_visuals"] = subs
+                elif sec_type == "scene":
+                    if scene_counter < len(script_scenes):
+                        script_scene = script_scenes[scene_counter]
+                        subs = script_scene.get("sub_visuals")
+                        if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(segment.get("sub_visuals")):
+                            if subs:
+                                segment["sub_visuals"] = subs
+                    scene_counter += 1
+        except Exception as e:
+            logger.warning(f"Could not merge script.json into manifest before asset fetch: {e}")
 
     api_key = get_setting("pexels_api_key")
     pixabay_api_key = get_setting("pixabay_api_key")
@@ -832,8 +903,7 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
-    # 4. Save visual_paths back to script.json for persistence
-    script_path = project_dir / "script.json"
+    # 4. Save visual_paths back to script.json for persistence without clobbering rich sub-visuals
     if script_path.exists():
         try:
             with open(script_path, "r", encoding="utf-8") as f:
@@ -845,17 +915,23 @@ def fetch_assets_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             # Intro
             manifest_intro = next((m for m in manifest if m.get("section_type") == "introduction"), None)
             if manifest_intro and "introduction" in script:
-                script["introduction"]["sub_visuals"] = manifest_intro.get("sub_visuals", [])
+                m_subs = manifest_intro.get("sub_visuals", [])
+                if _has_meaningful_sub_visuals(m_subs) or not _has_meaningful_sub_visuals(script["introduction"].get("sub_visuals")):
+                    script["introduction"]["sub_visuals"] = m_subs
                 
             # Conclusion
             manifest_conclusion = next((m for m in manifest if m.get("section_type") == "conclusion"), None)
             if manifest_conclusion and "conclusion" in script:
-                script["conclusion"]["sub_visuals"] = manifest_conclusion.get("sub_visuals", [])
+                m_subs = manifest_conclusion.get("sub_visuals", [])
+                if _has_meaningful_sub_visuals(m_subs) or not _has_meaningful_sub_visuals(script["conclusion"].get("sub_visuals")):
+                    script["conclusion"]["sub_visuals"] = m_subs
                 
             # Scenes
             for i, sc in enumerate(script_scenes):
                 if i < len(manifest_scenes):
-                    sc["sub_visuals"] = manifest_scenes[i].get("sub_visuals", [])
+                    m_subs = manifest_scenes[i].get("sub_visuals", [])
+                    if _has_meaningful_sub_visuals(m_subs) or not _has_meaningful_sub_visuals(sc.get("sub_visuals")):
+                        sc["sub_visuals"] = m_subs
                     
             with open(script_path, "w", encoding="utf-8") as f:
                 json.dump(script, f, indent=2, ensure_ascii=False)
@@ -1115,9 +1191,28 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
 
     assets_dir = get_storage_dir() / project_id / "assets"
 
-    # Build set of all kept paths from the AST
+    # Build set of all kept paths from the AST, script.json, and voiceover manifest
     kept_paths = []
     _collect_local_paths(new_manifest_data, kept_paths)
+    
+    script_file = get_storage_dir() / project_id / "script.json"
+    if script_file.exists():
+        try:
+            with open(script_file, "r", encoding="utf-8") as f:
+                script_content = json.load(f)
+            _collect_local_paths(script_content, kept_paths)
+        except Exception:
+            pass
+
+    vo_manifest_file = get_storage_dir() / project_id / "voiceover" / "manifest.json"
+    if vo_manifest_file.exists():
+        try:
+            with open(vo_manifest_file, "r", encoding="utf-8") as f:
+                vo_manifest_content = json.load(f)
+            _collect_local_paths(vo_manifest_content, kept_paths)
+        except Exception:
+            pass
+
     kept_paths_set = set()
     for p in kept_paths:
         if p and isinstance(p, str):
