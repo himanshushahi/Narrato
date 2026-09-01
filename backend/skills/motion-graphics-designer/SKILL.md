@@ -153,7 +153,7 @@ Accentuates 1–3 punchy keywords with the design system accent color:
 ## 4. Multi-Layer Depth Rules & Design System Binding
 
 Always apply the project's generated **Art Director Design System** (`design.json`) tokens across the 3 standardized Z-index layers:
-1. **Z-Index 0–9 (Atmospheric Canvas)**: Darkened footage/image + camera drift (`scale: 1.0 -> 1.06`).
+1. **Z-Index 0–9 (Atmospheric Canvas)**: Full-screen base — darkened Video footage, Images, HTML gradient canvases, or Maps + camera drift (`scale: 1.0 -> 1.06`). Vary the base type across cuts.
 2. **Z-Index 10–29 (Graphic Subject)**: Glassmorphic cards, charts, vector shapes, or bespoke HTML evidence UI with spring physics.
 3. **Z-Index 30–39 (Typography & Accents)**: Kinetic text and indicator pointers respecting subtitle safe area (`bottom > 18%` for landscape).
 

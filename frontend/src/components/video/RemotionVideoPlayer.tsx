@@ -178,7 +178,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
           height: '100%',
         }}
         controls={false}
-        loop
+        loop={false}
         spaceKeyToPlayOrPause={false}
         renderLoading={() => (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50">

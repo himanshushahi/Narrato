@@ -14,8 +14,14 @@ Every sub-visual should feel like an intentional, high-production composite with
 - Vary transitions across cuts: `subtle_slide`, `fade`, `slide_left`, `slide_right`, `slide_up`, `slide_down`, `zoom_in`, `zoom_out`, `glitch`, `none`.
 
 === 3-LAYER DEPTH STANDARD ===
-1. **Z-Index 0–9 (Atmospheric Canvas)**: Darkened background footage or vector map + continuous camera drift (`scale: 1.0 -> 1.06`).
-2. **Z-Index 10–29 (Graphic Subject / Midground)**: Glassmorphic cards, charts, vector shapes, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
+1. **Z-Index 0–9 (Atmospheric Canvas / Background)**: Full-screen base layer — choose the BEST type for the narrative moment:
+   - **Video**: Darkened B-roll footage + camera drift (atmospheric/cinematic beats).
+   - **Image**: Darkened high-contrast photograph + camera drift (entity spotlights, evidence, historical).
+   - **Map**: Vector globe with animated route (geography-central narration).
+   - **HTML**: CSS gradient/grid canvas (tech/data/infographic beats without distracting footage).
+   ⚠️ VARIETY: Do NOT use the same base type for consecutive cuts. Alternate between Video, Image, HTML Gradients, and Maps.
+2. **Z-Index 10–29 (Graphic Subject / Midground)**: Data charts (`Chart`), glassmorphic cards, vector shapes, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
+   * 💡 Charts MUST sit in Z-Index 10–29 inside glass cards or over HTML gradients. Never render a bare full-screen chart at z-index 0.
 3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (staying above `bottom: 18%` safe area).
 
 === VALID CONTENT TYPES (USE ONLY THESE 8) ===

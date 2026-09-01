@@ -37,8 +37,8 @@ Great motion graphics are defined by **depth, hierarchy, and contrast**. Every s
 
 | Layer Range | Z-Index | Classification | Role & Motion Grammar |
 |---|---|---|---|
-| **Layer 1** | **0 – 9** | **Atmospheric Canvas (Background)** | Darkened footage, video loops (`volume: 0`), vector maps, or high-contrast imagery with cinematic filters (`brightness(0.35)`, `contrast(1.15)`). Always include continuous camera drift (`scale: 1.0 -> 1.06`). |
-| **Layer 2** | **10 – 29** | **Graphic Subject (Midground)** | Glassmorphic cards, animated charts (`Chart`), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
+| **Layer 1** | **0 – 9** | **Atmospheric Canvas (Background)** | Full-screen base layer. Choose the BEST type for the narrative moment: darkened Video footage, high-contrast Images (portraits, evidence, textures), vector Maps, or HTML gradient/grid canvases. Apply cinematic filters (`brightness(0.35)`, `contrast(1.15)`) and continuous camera drift (`scale: 1.0 -> 1.06`). ⚠️ VARY: Do NOT default to Video — alternate between Video, Image, HTML Gradients, and Maps across consecutive cuts. |
+| **Layer 2** | **10 – 29** | **Graphic Subject (Midground)** | Glassmorphic cards, animated charts (`Chart` over HTML gradient or darkened video), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
 | **Layer 3** | **30 – 39** | **Typography & Accents (Foreground)** | Kinetic callouts (`marker_highlight`, `words_stagger`, `typewriter`), indicator arrows/pointers, data badges. Staggered reveal entering after the midground card (respecting subtitle safe area). |
 
 ---
@@ -110,6 +110,7 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 
 ### 6. `Video` (Dynamic B-Roll & Ambient Motion)
 * `sources`: `pexels` (stock video) or `youtube` (timelapses/clips). Always `"volume": 0`.
+* `loop`: `false` (default: naturally freezes on the last frame if video ends before sub-visual duration ends) | `true` (optional: loops video continuously).
 
 ### 7. `Map` (Geographic Context & Route Markers)
 * `map_style`: `"modern_dark"`, `"vintage"`, `"minimal_light"`, `"nautical_blue"`
@@ -540,6 +541,145 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
           }
         },
         "animations": [{ "property": "translateY", "from": 30, "to": 0, "duration": 0.7, "easing": "spring" }]
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 7: Entity Spotlight (Full-Screen Image as Canvas)
+```json
+{
+  "duration": 4.0,
+  "transition": "zoom_in",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "Image",
+          "query": "historical leader portrait formal",
+          "source": "wikipedia",
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.35)", "contrast(1.2)"],
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 4.0, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(20px);border-radius:20px;border:1px solid rgba(250,204,21,0.3);box-shadow:0 25px 60px rgba(0,0,0,0.7);padding:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;'><div style='font-size:14px;font-weight:800;color:#facc15;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;'>KEY FIGURE</div><div style='font-size:28px;font-weight:900;color:#f8fafc;margin-bottom:6px;'>Admiral James Monroe</div><div style='font-size:15px;color:#cbd5e1;line-height:1.5;'>Chief architect of the trans-oceanic defense network. Oversaw 14 cable deployments across hostile waters between 1998–2006.</div></div>",
+          "style": {
+            "position": "absolute",
+            "left": "52%",
+            "top": "16%",
+            "width": "42%",
+            "height": "66%"
+          }
+        },
+        "animations": [
+          { "property": "translateX", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "z_index": 30,
+        "content": {
+          "type": "Text",
+          "text": "THE ARCHITECT OF DEEP SEA DEFENSE",
+          "font": "Inter",
+          "weight": "800",
+          "color": "#ffffff",
+          "animation_mode": "marker_highlight",
+          "highlight_words": ["DEEP SEA DEFENSE"],
+          "highlight_color": "#facc15",
+          "style": {
+            "position": "absolute",
+            "top": "8%",
+            "left": "6%",
+            "width": "44%",
+            "fontSize": "36px",
+            "textShadow": "0 6px 20px rgba(0,0,0,0.9)"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 8: Hero Data Reveal (HTML Gradient + Full-Screen Chart)
+```json
+{
+  "duration": 4.2,
+  "transition": "zoom_in",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:linear-gradient(135deg, #0a0e17 0%, #0f172a 50%, #1e1b4b 100%);'></div>"
+        },
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.04, "duration": 4.2, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Chart",
+          "chart_type": "line",
+          "title": "GLOBAL UNDERSEA CABLE CAPACITY (TBPS)",
+          "data": [
+            { "label": "2010", "value": 20, "color": "#00d4ff" },
+            { "label": "2014", "value": 65, "color": "#00d4ff" },
+            { "label": "2018", "value": 180, "color": "#00d4ff" },
+            { "label": "2022", "value": 420, "color": "#00d4ff" },
+            { "label": "2026", "value": 890, "color": "#38bdf8" }
+          ],
+          "style": {
+            "position": "absolute",
+            "left": "8%",
+            "top": "12%",
+            "width": "84%",
+            "height": "70%"
+          }
+        },
+        "animations": [
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.8, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "z_index": 30,
+        "content": {
+          "type": "Text",
+          "text": "CAPACITY GREW 44x IN 16 YEARS",
+          "font": "Inter",
+          "weight": "900",
+          "color": "#ffffff",
+          "animation_mode": "words_stagger",
+          "style": {
+            "position": "absolute",
+            "bottom": "18%",
+            "left": "10%",
+            "width": "80%",
+            "fontSize": "38px",
+            "textAlign": "center",
+            "textShadow": "0 8px 24px rgba(0,0,0,0.9)"
+          }
+        }
       }
     ]
   }

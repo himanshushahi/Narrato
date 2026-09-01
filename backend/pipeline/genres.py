@@ -29,9 +29,11 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Investigative Leaked Memo Dossier with yellow highlighter pull-quotes",
             "Archival Entity Portrait with Ken Burns slow continuous scale drift",
             "Split-Screen Data HUD with financial chart and contextual footage inset",
-            "Cinematic High-Contrast B-Roll Beat for atmospheric reflection"
+            "Cinematic High-Contrast B-Roll Beat for atmospheric reflection",
+            "Entity Spotlight with darkened full-screen Image and bio card overlay",
+            "Data Infographic Showcase with HTML gradient background, glassmorphic chart card, and floating callout"
         ],
-        "primitive_weights": ["Map", "Video", "HTML", "Image", "Text", "Chart"],
+        "primitive_weights": ["HTML", "Image", "Video", "Chart", "Map", "Shape", "Text"],
         "motion_defaults": {
             "camera_shake": "handheld",
             "motion_blur": True,

@@ -330,22 +330,35 @@ export const AstGraphicalEditor = ({
                   )}
                 </div>
 
-                {/* Video Volume Slider */}
+                {/* Video Volume & Playback Controls */}
                 {cType === 'Video' && (
-                  <div className="flex items-center gap-2 pt-2">
-                    <label htmlFor={`vol-${idx}`} className="text-[10px] font-bold uppercase tracking-wider text-stone-400 w-24 shrink-0 whitespace-nowrap">
-                      Volume: {Math.round((content.volume ?? 0) * 100)}%
-                    </label>
-                    <input
-                      type="range"
-                      id={`vol-${idx}`}
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={content.volume ?? 0}
-                      onChange={e => updateContent(idx, 'volume', parseFloat(e.target.value))}
-                      className="flex-1 accent-amber-500 bg-black/40 h-1.5 rounded-lg cursor-pointer appearance-none"
-                    />
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center gap-2">
+                      <label htmlFor={`vol-${idx}`} className="text-[10px] font-bold uppercase tracking-wider text-stone-400 w-24 shrink-0 whitespace-nowrap">
+                        Volume: {Math.round((content.volume ?? 0) * 100)}%
+                      </label>
+                      <input
+                        type="range"
+                        id={`vol-${idx}`}
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={content.volume ?? 0}
+                        onChange={e => updateContent(idx, 'volume', parseFloat(e.target.value))}
+                        className="flex-1 accent-amber-500 bg-black/40 h-1.5 rounded-lg cursor-pointer appearance-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={content.loop === true}
+                          onChange={e => updateContent(idx, 'loop', e.target.checked)}
+                          className="rounded accent-amber-500 cursor-pointer"
+                        />
+                        Loop Video (Unchecked = Freeze on Last Frame)
+                      </label>
+                    </div>
                   </div>
                 )}
 

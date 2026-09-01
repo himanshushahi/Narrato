@@ -69,6 +69,7 @@ export interface ASTLayer {
   motion_blur?: boolean;
   shutter_angle?: number;
   camera_shake?: CameraShakeType;
+  transform_origin?: string;
   filters?: string[];
 }
 
@@ -183,7 +184,8 @@ const MediaNode: React.FC<{
   localPath: string;
   style?: React.CSSProperties;
   volume?: number;
-}> = ({ type, localPath, style, volume }) => {
+  loop?: boolean;
+}> = ({ type, localPath, style, volume, loop = false }) => {
   const url = getMediaUrlSync(localPath);
   if (!url) return null;
 
@@ -199,7 +201,7 @@ const MediaNode: React.FC<{
       style={mergedStyle}
       muted={volume === 0 || volume === undefined}
       volume={volume ?? 0}
-      loop
+      loop={loop}
     />
   );
 };
@@ -231,7 +233,7 @@ export const ASTRenderer: React.FC<{
           const mediaStyle = hasCustomLayout
             ? { objectFit: innerStyle.objectFit || 'cover' as const }
             : innerStyle;
-          node = <MediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} />;
+          node = <MediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} loop={content.loop} />;
         } else if (content.type === 'Image' || content.type === 'Video') {
           // Procedural fallback when local media is missing/downloading
           node = <ProceduralCanvasFallback query={(content as any).query} type={content.type} style={innerStyle} />;
@@ -340,14 +342,15 @@ export const ASTRenderer: React.FC<{
           </div>
         );
 
-        const { motion_blur, shutter_angle, camera_shake } = layer;
+        const { motion_blur, shutter_angle, camera_shake, transform_origin } = layer;
 
-        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none')) ? (
+        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin) ? (
           <ASTAnimator
             animations={animations}
             motion_blur={motion_blur}
             shutter_angle={shutter_angle}
             camera_shake={camera_shake}
+            transform_origin={transform_origin}
           >
             {inner}
           </ASTAnimator>

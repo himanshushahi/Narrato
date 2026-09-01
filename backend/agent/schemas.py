@@ -202,9 +202,9 @@ class LayerContent(AppBaseModel):
     data: Optional[List[Union[ChartDataPoint, Dict[str, Any]]]] = Field(default=None, description="Array of data points (if Chart)")
     title: Optional[str] = Field(default=None, description="Title or headline for Chart")
     
-    # Lottie properties
+    # Lottie / Video playback properties
     lottie_url: Optional[str] = Field(default=None, description="Remote CDN URL (e.g. LottieFiles) or local path for vector motion graphics (if Lottie)")
-    loop: Optional[bool] = Field(default=None, description="Whether to loop Lottie animation (default true)")
+    loop: Optional[bool] = Field(default=None, description="Playback loop behavior (for Video: default false, freezes on last frame if video ends before cut duration; set true to loop. For Lottie: default true)")
     playback_rate: Optional[float] = Field(default=None, description="Speed multiplier for Lottie animation (default 1.0)")
     lottie_direction: Optional[str] = Field(default=None, description="Playback direction for Lottie (default 'forward')", json_schema_extra={"enum": ["forward", "backward"]})
     
@@ -242,6 +242,7 @@ class ASTLayerNode(AppBaseModel):
     motion_blur: Optional[bool] = Field(default=None, description="Whether to apply physical camera shutter motion blur to moving elements")
     shutter_angle: Optional[float] = Field(default=None, description="Camera shutter angle in degrees for motion blur (default 180)")
     camera_shake: Optional[str] = Field(default=None, description="Procedural noise camera motion effect", json_schema_extra={"enum": ["none", "handheld", "shockwave", "glitch"]})
+    transform_origin: Optional[str] = Field(default=None, description="CSS transform-origin (e.g. 'center center', 'top left', 'bottom center')")
     filters: Optional[List[str]] = Field(default_factory=list, description="CSS filters like brightness(0.6) or blur(2px)")
 
 
@@ -255,7 +256,7 @@ class SubVisualAST(AppBaseModel):
     """A single sub-visual beat/cut in a scene."""
     duration: float = Field(..., gt=0, description="Precise duration in seconds")
     composition: Union[SequenceComposition, Dict[str, Any]] = Field(..., description="Declarative AST composition")
-    transition: Optional[str] = Field(default="fade", description="Transition into this cut")
+    transition: Optional[str] = Field(default="cut", description="Transition into this cut (cut, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none)")
     subtitle_position: Optional[str] = Field(default=None, description="Subtitle placement override (bottom/top/hidden)")
     visual_path: Optional[str] = Field(default=None, description="Resolved local media file path")
     visual_url: Optional[str] = Field(default=None, description="Stock media URL")

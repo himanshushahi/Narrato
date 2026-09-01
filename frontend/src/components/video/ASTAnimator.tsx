@@ -17,18 +17,21 @@ export interface ASTAnimatorProps {
   motion_blur?: boolean;
   shutter_angle?: number;
   camera_shake?: CameraShakeType;
+  transform_origin?: string;
   children: React.ReactNode;
 }
 
 interface AnimatedLayerProps {
   animations?: ASTAnimation[];
   camera_shake?: CameraShakeType;
+  transform_origin?: string;
   children: React.ReactNode;
 }
 
 const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   animations = [],
   camera_shake = 'none',
+  transform_origin = 'center center',
   children,
 }) => {
   const frame = useCurrentFrame();
@@ -39,7 +42,7 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   }, [frame, camera_shake]);
 
   const style = useMemo(() => {
-    const s: React.CSSProperties = { transform: '', transformOrigin: 'center center' };
+    const s: React.CSSProperties = { transform: '', transformOrigin: transform_origin };
     
     // 1. Compute AST keyframe & spring transforms
     for (const anim of animations) {
@@ -99,7 +102,7 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     }
     
     return s;
-  }, [animations, cameraOffset, frame, fps]);
+  }, [animations, cameraOffset, frame, fps, transform_origin]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
@@ -113,12 +116,14 @@ export const ASTAnimator: React.FC<ASTAnimatorProps> = ({
   motion_blur = false,
   shutter_angle = 180,
   camera_shake = 'none',
+  transform_origin,
   children,
 }) => {
   const content = (
     <AnimatedLayer
       animations={animations}
       camera_shake={camera_shake}
+      transform_origin={transform_origin}
     >
       {children}
     </AnimatedLayer>

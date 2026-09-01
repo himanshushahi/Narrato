@@ -47,6 +47,7 @@ def test_normalize_transition_fuzzy():
     assert normalize_transition("slide-up") == "slide_up"
     assert normalize_transition("zoom in") == "zoom_in"
     assert normalize_transition("dissolve") == "dissolve"
+    assert normalize_transition("cut") == "cut"
     assert normalize_transition("made up") == "fade"
 
 def test_skill_loader():
@@ -1253,6 +1254,28 @@ def test_update_scene_duration_syncs_vo_manifest(tmp_path, monkeypatch):
     updated_vo = json.loads(vo_manifest_file.read_text(encoding="utf-8"))
     assert updated_vo[0]["duration"] == 10.0
     assert updated_vo[0]["sub_visuals"][0]["duration"] == 5.0
+
+
+def test_ast_layer_transform_origin_and_sub_visual_defaults():
+    from backend.agent.schemas import ASTLayerNode, SubVisualAST
+
+    layer = ASTLayerNode(
+        type="Layer",
+        z_index=15,
+        content={"type": "HTML", "html_content": "<div>test</div>"},
+        transform_origin="top left",
+        animations=[{"property": "scale", "from": 1.0, "to": 1.05, "duration": 3.0, "easing": "linear"}]
+    )
+    assert layer.transform_origin == "top left"
+    dumped = layer.model_dump()
+    assert dumped["transform_origin"] == "top left"
+
+    sv = SubVisualAST(
+        duration=4.0,
+        composition={"type": "Sequence", "children": [dumped]}
+    )
+    assert sv.transition == "cut"
+
 
 
 

@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 # The same enums the pipeline enforces (ai.py SUB_VISUAL_SCHEMA /
 # get_shared_visual_rules). Keep in sync with backend/pipeline/ai.py.
 VALID_TRANSITIONS = {
-    "none", "fade", "crossfade", "slide_left", "slide_right", 
+    "none", "cut", "fade", "crossfade", "slide_left", "slide_right", 
     "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "dissolve"
 }
 
@@ -27,11 +27,11 @@ def _safe_float(val, default: float = 0.0) -> float:
 
 def normalize_transition(transition: str) -> str:
     """Fuzzy-map a transition string onto the valid enum."""
-    t = str(transition or "fade").lower().strip().replace("-", "_").replace(" ", "_")
+    t = str(transition or "cut").lower().strip().replace("-", "_").replace(" ", "_")
     if t in VALID_TRANSITIONS:
         return t
     for key in ("subtle_slide", "slide_left", "slide_right", "slide_up",
-                "slide_down", "zoom_in", "zoom_out", "glitch", "crossfade", "dissolve"):
+                "slide_down", "zoom_in", "zoom_out", "glitch", "crossfade", "dissolve", "cut", "none"):
         if key in t:
             return key
     if "fade" in t:
@@ -41,7 +41,7 @@ def normalize_transition(transition: str) -> str:
 
 def _dummy_visual(target_duration: float) -> List[Dict[str, Any]]:
     return [{
-        "transition": "fade",
+        "transition": "cut",
         "composition": {"type": "Sequence", "children": []},
         "duration": target_duration,
     }]
@@ -76,7 +76,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
 
         entry = {
             "composition": v.get("composition", {"type": "Sequence", "children": []}),
-            "transition": normalize_transition(v.get("transition", "fade")),
+            "transition": normalize_transition(v.get("transition", "cut")),
             "duration": dur,
         }
         if "subtitle_position" in v and v["subtitle_position"] in ("bottom", "top", "hidden"):

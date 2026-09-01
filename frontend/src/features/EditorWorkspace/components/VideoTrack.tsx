@@ -25,6 +25,7 @@ const SCENE_COLORS = [
 ];
 
 export const TRANSITION_OPTIONS = [
+  { id: 'cut', label: 'Hard Cut', icon: Minus, desc: 'Instant frame cut' },
   { id: 'fade', label: 'Fade In/Out', icon: Layers, desc: 'Smooth cross-dissolve' },
   { id: 'slide_left', label: 'Slide Left', icon: MoveRight, desc: 'Push from right to left' },
   { id: 'slide_right', label: 'Slide Right', icon: MoveRight, desc: 'Push from left to right' },
@@ -34,7 +35,7 @@ export const TRANSITION_OPTIONS = [
   { id: 'zoom_out', label: 'Zoom Out', icon: ZoomOut, desc: 'Reveal scale-down' },
   { id: 'glitch', label: 'Glitch Shift', icon: Zap, desc: 'Digital chromatic glitch' },
   { id: 'crossfade', label: 'Crossfade', icon: Sparkles, desc: 'Seamless layer blend' },
-  { id: 'none', label: 'Hard Cut (None)', icon: Minus, desc: 'Instant frame cut' },
+  { id: 'none', label: 'None', icon: Minus, desc: 'Instant frame cut' },
 ];
 
 const AST_PRIMITIVE_BADGES: Record<string, { label: string; icon: React.ElementType; color: string }> = {
@@ -264,7 +265,7 @@ const SubVisualBlock: React.FC<SubVisualBlockProps> = React.memo(({
   const isEven = block.subIdx % 2 === 0;
   const cutBg = isEven ? 'bg-zinc-900/90 hover:bg-zinc-850/95' : 'bg-zinc-950/95 hover:bg-zinc-900/95';
 
-  const activeTransition = TRANSITION_OPTIONS.find(t => t.id === block.transition) || TRANSITION_OPTIONS[0];
+  const activeTransition = TRANSITION_OPTIONS.find(t => t.id === block.transition || (block.transition === 'none' && t.id === 'cut')) || TRANSITION_OPTIONS[0];
   const TransitionIcon = activeTransition.icon;
 
   return (
