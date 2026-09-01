@@ -213,7 +213,7 @@ Use `Shape` layers with `preset_path` for broadcast-grade motion graphics:
     "type": "Shape",
     "shape_type": "arrow",
     "direction": "down",
-    "radius": 24,
+    "radius": 40,
     "fill": "#00d4ff",
     "stroke": "#ffffff",
     "stroke_width": 2,

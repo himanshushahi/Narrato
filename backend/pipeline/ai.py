@@ -13,6 +13,7 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 from backend.agent.skill_loader import skill_loader
+from backend.pipeline.assets import _has_meaningful_sub_visuals
 
 
 def _get_web_context(search_query: str) -> str:
@@ -89,15 +90,12 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
     from backend.database.db import get_setting as _gs
     from backend.pipeline.web_search import clean_search_query
 
-    llm_provider = _gs("llm_provider") or "openai"
-    api_key = _gs("nvidia_api_key") if llm_provider == "nvidia" else _gs("openai_api_key")
+    api_key = _gs("openai_api_key")
     if not api_key:
         return clean_search_query(context_description)
 
-    base_url = (_gs("nvidia_base_url") if llm_provider == "nvidia" else _gs("openai_base_url")) or \
-               ("https://integrate.api.nvidia.com/v1" if llm_provider == "nvidia" else "https://api.openai.com/v1")
-    model = _gs("nvidia_model") if llm_provider == "nvidia" else _gs("openai_model") or \
-            ("meta/llama-3.1-8b-instruct" if llm_provider == "nvidia" else "gpt-4o")
+    base_url = _gs("openai_base_url") or "https://api.openai.com/v1"
+    model = _gs("openai_model") or "gpt-4o"
 
     try:
         from openai import OpenAI
@@ -158,219 +156,28 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
     # Fallback: just clean the original context description
     return clean_search_query(context_description)
 
-# Schema for declarative AST Nodes
-ANIMATION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "property": {"type": "string", "enum": ["scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY"]},
-        "from": {"type": "number"},
-        "to": {"type": "number"},
-        "duration": {"type": "number", "description": "Duration of the animation in seconds"},
-        "delay": {"type": "number", "description": "Delay in seconds before animation begins (optional, default 0)"},
-        "easing": {"type": "string", "enum": ["linear", "spring", "ease-in", "ease-out", "ease-in-out"]}
-    },
-    "required": ["property", "from", "to", "duration", "easing"]
-}
+# Pydantic model schemas
+from backend.agent.schemas import (
+    ScriptIntroResponse, ScriptConclusionResponse, ScriptSceneResponse,
+    BaseScriptResponse, OutlineResponse, StoryboardPlanResponse,
+    DesignSystemResponse, SubVisualAST, VisualsArrayResponse,
+    AnimationNode, ASTLayerNode, LayerContent, SequenceComposition,
+    get_model_json_schema, parse_and_validate_model
+)
 
-LAYER_CONTENT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "type": {"type": "string", "enum": ["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie"]},
-        "query": {"type": "string", "description": "Search query for Pexels, Wikipedia, Pixabay, or YouTube (if Image/Video)"},
-        "source": {"type": "string", "enum": ["pexels", "wikipedia", "pixabay", "youtube"], "description": "Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed."},
-        "text": {"type": "string", "description": "Text content (if Text)"},
-        "animation_mode": {"type": "string", "enum": ["static", "words_stagger", "typewriter", "marker_highlight"], "description": "Kinetic typography animation mode (if Text)"},
-        "highlight_words": {"type": "array", "items": {"type": "string"}, "description": "Words to highlight with marker/color (if Text)"},
-        "highlight_color": {"type": "string", "description": "Color for marker highlight (e.g. #facc15)"},
-        "font": {"type": "string", "description": "Font family (if Text)"},
-        "weight": {"type": "string", "description": "Font weight (if Text)"},
-        "color": {"type": "string", "description": "Text/accent color in hex"},
-        
-        # Shape properties
-        "shape_type": {"type": "string", "enum": ["rectangle", "circle", "star", "triangle", "arrow", "polygon", "path", "icon"], "description": "Type of vector shape (if Shape)"},
-        "icon_name": {"type": "string", "description": "Lucide icon name in kebab-case (e.g. 'trending-up', 'trending-down', 'dollar-sign', 'coins', 'shield-alert', 'shield-check', 'lock', 'database', 'globe', 'zap', 'flame', 'gavel', 'target') (if Shape and shape_type='icon')"},
-        "fill": {"type": "string", "description": "Fill color hex or 'transparent' (if Shape)"},
-        "stroke": {"type": "string", "description": "Stroke border color hex (if Shape)"},
-        "stroke_width": {"type": "number", "description": "Stroke width in pixels (if Shape)"},
-        "radius": {"type": "number", "description": "Radius / size in pixels (if Shape)"},
-        "width": {"type": "number", "description": "Width in pixels for rectangle (if Shape)"},
-        "height": {"type": "number", "description": "Height in pixels for rectangle (if Shape)"},
-        "corner_radius": {"type": "number", "description": "Corner rounding radius in pixels (if Shape)"},
-        "points": {"type": "integer", "description": "Number of points for star/polygon (if Shape)"},
-        "inner_radius": {"type": "number", "description": "Inner radius for star (if Shape)"},
-        "direction": {"type": "string", "enum": ["up", "down", "left", "right", "forward", "backward"], "description": "Direction for arrow/triangle (if Shape: up/down/left/right) or playback direction (if Lottie: forward/backward)"},
-        "angle": {"type": "number", "description": "Rotation angle in degrees (if Shape)"},
-        "preset_path": {"type": "string", "enum": ["route_arch", "horizontal_line", "pointer_curve", "corner_brackets", "wave_pulse", "circle_reticle"], "description": "High-level SVG path preset (if Shape and shape_type='path')"},
-        "path_d": {"type": "string", "description": "Custom SVG path d string in 1920x1080 canvas (if Shape and shape_type='path')"},
-        "view_box": {"type": "string", "description": "SVG viewBox string (default '0 0 1920 1080')"},
-        "draw_animation": {"type": "boolean", "description": "Whether to animate stroke path drawing (if Shape, default true)"},
-        "glow": {"type": "boolean", "description": "Whether to add subtle neon glow (if Shape, default true)"},
-        
-        # Chart properties
-        "chart_type": {"type": "string", "enum": ["bar", "line", "pie", "donut", "progress"], "description": "Type of infographic chart (if Chart)"},
-        "data": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "label": {"type": "string"},
-                    "value": {"type": "number"},
-                    "color": {"type": "string"}
-                },
-                "required": ["label", "value"]
-            },
-            "description": "Array of data points (if Chart)"
-        },
-        "title": {"type": "string", "description": "Title or headline for Chart"},
-        
-        # Lottie properties
-        "lottie_url": {"type": "string", "description": "Remote CDN URL (e.g. LottieFiles) or local path for vector motion graphics (if Lottie)"},
-        "loop": {"type": "boolean", "description": "Whether to loop Lottie animation (default true)"},
-        "playback_rate": {"type": "number", "description": "Speed multiplier for Lottie animation (default 1.0)"},
-        "lottie_direction": {"type": "string", "enum": ["forward", "backward"], "description": "Playback direction for Lottie (default 'forward')"},
-        
-        # Other properties
-        "html_content": {"type": "string", "description": "Raw HTML/SVG markup (if HTML), e.g. custom tables, dossiers, badges, or SVG diagrams"},
-        "volume": {"type": "number", "description": "Audio volume from 0 to 1 (default 0 for Video)"},
-        
-        # Map properties
-        "locations": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "coord": {"type": "array", "items": {"type": "number"}, "description": "[Lat, Lon]"}
-                }
-            },
-            "description": "Locations to map (if Map)"
-        },
-        "map_style": {"type": "string", "enum": ["vintage", "modern_dark", "minimal_light", "nautical_blue"], "description": "Style of map (if Map)"},
-        "image_type": {"type": "string", "enum": ["all", "photo", "illustration", "vector"], "description": "Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons."},
-        "yt_start_offset": {"type": "number", "description": "Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15."},
-        "yt_duration": {"type": "number", "description": "Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30."},
-        "style": {
-            "type": "object", 
-            "description": "CSS style attributes (e.g. width, height, top, left, borderRadius, objectFit, mixBlendMode, fontSize) to position and design this layer."
-        }
-    },
-    "required": ["type"]
-}
+# Schema definitions for declarative AST Nodes & Script generation
+ANIMATION_SCHEMA = AnimationNode.model_json_schema()
+LAYER_CONTENT_SCHEMA = LayerContent.model_json_schema()
+AST_LAYER_SCHEMA = ASTLayerNode.model_json_schema()
+SUB_VISUAL_SCHEMA = SubVisualAST.model_json_schema()
+SCRIPT_INTRO_JSON_SCHEMA = ScriptIntroResponse.model_json_schema()
+SCRIPT_SCENE_JSON_SCHEMA = ScriptSceneResponse.model_json_schema()
+SCRIPT_CONCLUSION_JSON_SCHEMA = ScriptConclusionResponse.model_json_schema()
+VISUALS_ARRAY_SCHEMA = VisualsArrayResponse.model_json_schema()
+DESIGN_SYSTEM_SCHEMA = DesignSystemResponse.model_json_schema()
 
-AST_LAYER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "type": {"type": "string", "const": "Layer"},
-        "z_index": {"type": "integer"},
-        "content": LAYER_CONTENT_SCHEMA,
-        "animations": {
-            "type": "array",
-            "items": ANIMATION_SCHEMA
-        },
-        "motion_blur": {"type": "boolean", "description": "Whether to apply physical camera shutter motion blur to moving elements"},
-        "shutter_angle": {"type": "number", "description": "Camera shutter angle in degrees for motion blur (default 180)"},
-        "camera_shake": {"type": "string", "enum": ["none", "handheld", "shockwave", "glitch"], "description": "Procedural noise camera motion effect"},
-        "filters": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "CSS filters like brightness(0.6) or blur(2px)"
-        }
-    },
-    "required": ["type", "z_index", "content"]
-}
-
-SUB_VISUAL_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "duration": {"type": "number", "description": "Precise duration in seconds"},
-        "composition": {
-            "type": "object",
-            "properties": {
-                "type": {"type": "string", "const": "Sequence"},
-                "children": {
-                    "type": "array",
-                    "items": AST_LAYER_SCHEMA
-                }
-            },
-            "required": ["type", "children"]
-        }
-    },
-    "required": ["duration", "composition"]
-}
-
-# Schema validations for JSON parsing
-SCRIPT_INTRO_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "hook": {"type": "string"}
-    },
-    "required": ["hook"]
-}
-
-SCRIPT_SCENE_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "scene_number": {"type": "integer"},
-        "title": {"type": "string"},
-        "narration": {"type": "string"}
-    },
-    "required": ["scene_number", "title", "narration"]
-}
-
-SCRIPT_CONCLUSION_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "summary": {"type": "string"},
-        "cta": {"type": "string"}
-    },
-    "required": ["summary", "cta"]
-}
-
-VISUALS_ARRAY_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "sub_visuals": {
-            "type": "array",
-            "items": SUB_VISUAL_SCHEMA
-        }
-    },
-    "required": ["sub_visuals"]
-}
-
-# Visual types removed from the app (renderers deleted). Legacy projects can
-# still hold sub-visuals of these types; the pipeline swaps them for neutral
-# scene entries so they render instead of a blank frame.
-DESIGN_SYSTEM_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "theme_name": {"type": "string"},
-        "color_palette": {
-            "type": "object",
-            "properties": {
-                "background": {"type": "string"},
-                "primary": {"type": "string"},
-                "secondary": {"type": "string"},
-                "accent": {"type": "string"},
-                "text": {"type": "string"}
-            },
-            "required": ["background", "primary", "secondary", "accent", "text"]
-        },
-        "typography": {
-            "type": "object",
-            "properties": {
-                "heading_font": {"type": "string"},
-                "body_font": {"type": "string"}
-            },
-            "required": ["heading_font", "body_font"]
-        },
-        "css_guidelines": {"type": "string"}
-    },
-    "required": ["theme_name", "color_palette", "typography", "css_guidelines"]
-}
-
-# Sane fallbacks used to repair partial AI design-system responses. OpenAI-
-# compatible endpoints only force "some JSON object" (unlike NVIDIA guided_json
-# which enforces the schema), so models frequently omit optional-looking keys.
+# Sane fallbacks used to repair partial AI design-system responses.
+# When OpenAI-compatible endpoints omit optional-looking keys, we repair them with defaults.
 # Language-to-Noto-font mapping used across the pipeline whenever a complex script
 # is detected. Add new script-language pairs here as they are supported.
 _NOTO_FONT_MAP = {
@@ -577,36 +384,10 @@ DESIGN GUIDELINES:
     logger.warning("Failed to generate design system, returning default.")
     return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
 
-OUTLINE_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "title": {"type": "string"},
-        "chapters": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "scene_number": {"type": "integer"},
-                    "chapter_title": {"type": "string"},
-                    "scene_context": {"type": "string"}
-                },
-                "required": ["scene_number", "chapter_title", "scene_context"]
-            }
-        }
-    },
-    "required": ["title", "chapters"]
-}
-
-BASE_SCRIPT_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "introduction": SCRIPT_INTRO_JSON_SCHEMA,
-        "conclusion": SCRIPT_CONCLUSION_JSON_SCHEMA
-    },
-    "required": ["introduction", "conclusion"]
-}
-
+OUTLINE_JSON_SCHEMA = OutlineResponse.model_json_schema()
+BASE_SCRIPT_JSON_SCHEMA = BaseScriptResponse.model_json_schema()
 SINGLE_SCENE_JSON_SCHEMA = SCRIPT_SCENE_JSON_SCHEMA
+STORYBOARD_PLAN_SCHEMA = StoryboardPlanResponse.model_json_schema()
 
 def _safe_str(val):
     """Convert a value to string if it isn't one already, handling nested dicts and lists."""
@@ -1060,28 +841,18 @@ def _resolve_llm_config(provider_override=None):
     """
     from backend.database.db import get_setting
 
-    llm_provider = provider_override or (get_setting("llm_provider") or "openai")
-
-    if llm_provider == "nvidia":
-        api_key = get_setting("nvidia_api_key")
-        base_url = get_setting("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
-        model = get_setting("nvidia_model") or "meta/llama-3.1-8b-instruct"
-        temperature = float(get_setting("nvidia_temperature") or 0.7)
-        max_tokens = int(get_setting("nvidia_max_tokens") or 4096)
-        top_p = float(get_setting("nvidia_top_p") or 1.0)
-    else:
-        api_key = get_setting("openai_api_key")
-        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-        model = get_setting("openai_model") or "gpt-4o"
-        temperature = float(get_setting("openai_temperature") or 0.7)
-        max_tokens = int(get_setting("openai_max_tokens") or 4096)
-        top_p = float(get_setting("openai_top_p") or 1.0)
+    api_key = get_setting("openai_api_key")
+    base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
+    model = get_setting("openai_model") or "gpt-4o"
+    temperature = float(get_setting("openai_temperature") or 0.7)
+    max_tokens = int(get_setting("openai_max_tokens") or 4096)
+    top_p = float(get_setting("openai_top_p") or 1.0)
 
     if not api_key:
-        raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
+        raise ValueError("OpenAI-compatible API key is missing. Please configure it in the settings panel.")
 
     return {
-        "provider": llm_provider,
+        "provider": "openai",
         "api_key": api_key,
         "base_url": base_url,
         "model": model,
@@ -1223,11 +994,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
         "stream": True
     }
 
-    if schema is not None:
-        if llm_provider == "nvidia":
-            kwargs["extra_body"] = {"guided_json": schema}
-        else:
-            kwargs["response_format"] = {"type": "json_object"}
+    json_schema_dict = get_model_json_schema(schema)
+    if json_schema_dict is not None:
+        kwargs["response_format"] = {"type": "json_object"}
 
     if cancel_event.is_set():
         _emit_llm("error", "cancelled")
@@ -1330,6 +1099,8 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
                 return raw_content
 
             parsed_json = clean_json_response(raw_content)
+            if schema is not None:
+                parsed_json = parse_and_validate_model(schema, parsed_json)
 
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
@@ -1417,10 +1188,9 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     progress_cb(5.0, "Preparing to generate script...")
 
     # Check API key before starting
-    llm_provider = get_setting("llm_provider") or "openai"
-    api_key = get_setting("nvidia_api_key") if llm_provider == "nvidia" else get_setting("openai_api_key")
+    api_key = get_setting("openai_api_key")
     if not api_key:
-        raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
+        raise ValueError("OpenAI-compatible API key is missing. Please configure it in the settings panel.")
 
     if video_format == "portrait":
         if duration_mode == "short": # 60s
@@ -2325,7 +2095,6 @@ ERROR PREVENTION:
             if 0 <= scene_idx < len(script["scenes"]):
                 script_entry_svs = script["scenes"][scene_idx].get("sub_visuals", [])
 
-        from backend.pipeline.assets import _has_meaningful_sub_visuals
         existing_sub_visuals = entry.get("sub_visuals", [])
         if _has_meaningful_sub_visuals(script_entry_svs):
             existing_sub_visuals = script_entry_svs

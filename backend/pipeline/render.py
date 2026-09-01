@@ -85,7 +85,7 @@ def scene_frame_offsets(scenes):
 
 
 def compute_frame_hash(props_dict, render_settings):
-    """Hash of frame-relevant properties only (scenes, transcription, resolution, fps).
+    """Hash of frame-relevant properties only (scenes, transcription, overlays, resolution, fps).
     Audio/encode settings don't affect pixel output, so they're excluded."""
     frame_props = {
         "scenes": props_dict["scenes"],
@@ -96,6 +96,7 @@ def compute_frame_hash(props_dict, render_settings):
         "videoFormat": props_dict.get("videoFormat"),
         "fps": props_dict.get("fps"),
         "resolution": render_settings.get("resolution"),
+        "overlays": props_dict.get("overlays", []),
     }
 
     # Hash file contents/mtime rather than just string paths to detect in-place overwrites
@@ -106,6 +107,15 @@ def compute_frame_hash(props_dict, render_settings):
                 stat = os.stat(path_str)
                 frame_props[f"visual_{i}_{j}_mtime"] = stat.st_mtime
                 frame_props[f"visual_{i}_{j}_size"] = stat.st_size
+
+    for k, ov in enumerate(frame_props.get("overlays", [])):
+        logo = ov.get("logo_url") if isinstance(ov, dict) else None
+        if logo and isinstance(logo, str):
+            clean_p = logo.replace("file:///", "").replace("file://", "")
+            if os.path.exists(clean_p):
+                stat = os.stat(clean_p)
+                frame_props[f"overlay_{k}_mtime"] = stat.st_mtime
+                frame_props[f"overlay_{k}_size"] = stat.st_size
 
     data_str = json.dumps(frame_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
@@ -344,9 +354,10 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     with open(transcribe_path, "r", encoding="utf-8") as f:
         transcript = json.load(f)
 
-    # Sync live sub_visuals from script.json if available
+    # Sync live sub_visuals and global overlays from script.json if available
     from backend.pipeline.assets import _has_meaningful_sub_visuals
     script_path = project_dir / "script.json"
+    overlays = []
     if script_path.exists():
         try:
             with open(script_path, "r", encoding="utf-8") as f:
@@ -373,8 +384,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                             if subs:
                                 sc["sub_visuals"] = subs
                     scene_counter += 1
+
+            raw_overlays = script_data.get("overlays", [])
+            if isinstance(raw_overlays, list):
+                overlays = raw_overlays
         except Exception as e:
-            logger.warning(f"Could not merge script.json into render scenes: {e}")
+            logger.warning(f"Could not merge script.json into render scenes/overlays: {e}")
 
     # Strip internal pipeline metadata (_content_hash, _voiceover_*) that doesn't affect
     # rendering output. This prevents metadata changes (e.g. first save after hash system
@@ -400,6 +415,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         
         sc["sub_visuals"] = sub_visuals
 
+    # Clean local media paths in global overlays (e.g. watermark logo_url)
+    cleaned_overlays = []
+    for item in overlays:
+        if isinstance(item, dict):
+            item_copy = dict(item)
+            if item_copy.get("logo_url"):
+                item_copy["logo_url"] = clean_media_path(item_copy["logo_url"])
+            cleaned_overlays.append(item_copy)
+
     bg_music_url = ""
     bg_path_str = project_dict.get("bg_music_path")
     if bg_path_str:
@@ -423,6 +447,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "muteMusic": project_settings.get("render_mute_music", False),
         "muteVideoAudio": project_settings.get("render_mute_video_audio", False),
         "hideSubtitles": project_settings.get("render_hide_subtitles", False),
+        "hideOverlays": project_settings.get("render_hide_overlays", False),
     }
 
     # Fetch rendering settings — project_settings override global defaults
@@ -449,7 +474,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "language": project_dict.get("language", "hi"),
         "videoFormat": project_dict.get("video_format", "landscape"),
         "fps": fps,
-        "subtitleSettings": project_settings
+        "subtitleSettings": project_settings,
+        "overlays": cleaned_overlays,
     }
 
     # Apply track visibility overrides to render props
@@ -469,6 +495,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         else:
             props["subtitleSettings"] = {"hide_subtitles": True}
         logger.info("Smart Resume: Subtitles hidden by track override.")
+    if render_track_overrides["hideOverlays"]:
+        props["overlays"] = []
+        logger.info("Smart Resume: Overlays hidden by track override.")
 
     # Write props to a JSON file
     props_path = project_dir / "render_props.json"

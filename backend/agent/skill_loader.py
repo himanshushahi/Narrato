@@ -5,11 +5,14 @@ from pathlib import Path
 from backend.core.config import get_workspace_dir, BUNDLE_DIR
 from backend.core.logger import logger
 
+from backend.agent.schemas import SkillMetadata
+
 class Skill:
-    def __init__(self, name: str, version: str, when_to_use: str, content: str, file_path: str):
+    def __init__(self, name: str, version: str, when_to_use: str, content: str, file_path: str, description: str = ""):
         self.name = name
         self.version = version
         self.when_to_use = when_to_use
+        self.description = description
         self.content = content
         self.file_path = file_path
         self.content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
@@ -82,17 +85,24 @@ class SkillLoader:
                 if len(parts) >= 3:
                     frontmatter = parts[1]
                     body = parts[2].strip()
-                    meta = yaml.safe_load(frontmatter) or {}
+                    raw_meta = yaml.safe_load(frontmatter) or {}
                     
-                    name = meta.get("name", file_path.parent.name)
-                    version = str(meta.get("version", "1.0"))
-                    when_to_use = meta.get("when_to_use", "")
+                    if not raw_meta.get("name"):
+                        raw_meta["name"] = file_path.parent.name
                     
-                    skill = Skill(name, version, when_to_use, body, str(file_path))
-                    self._skills_cache[name] = skill
-                    if file_path.parent.name != name:
+                    meta = SkillMetadata.model_validate(raw_meta)
+                    skill = Skill(
+                        name=meta.name,
+                        version=meta.version,
+                        when_to_use=meta.when_to_use or "",
+                        content=body,
+                        file_path=str(file_path),
+                        description=meta.description or ""
+                    )
+                    self._skills_cache[meta.name] = skill
+                    if file_path.parent.name != meta.name:
                         self._skills_cache[file_path.parent.name] = skill
-                    logger.debug(f"Loaded skill: {name} (v{version})")
+                    logger.debug(f"Loaded skill: {meta.name} (v{meta.version})")
                     return
             
             # Fallback if no valid frontmatter

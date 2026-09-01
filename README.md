@@ -97,7 +97,7 @@ All prompt intelligence is decoupled from code into **17 hot-reloadable Markdown
 | **Backend & Agent** | Python, `AgentRunner` tool loop, SQLite (WAL mode), `SkillLoader` |
 | **TTS & Voice** | **coqui-tts 0.27.5** (XTTS v2), **edge-tts 7.2.8**, torch 2.12.0 |
 | **Speech-to-Text** | **faster-whisper 1.2.1** (ctranslate2) |
-| **LLM & Search** | OpenAI / NVIDIA NIM / HuggingFace APIs + LangSearch web search |
+| **LLM & Search** | OpenAI-Compatible LLM APIs (OpenAI, OpenRouter, Groq, Ollama, DeepSeek) + LangSearch web search |
 | **Frontend** | **React 19**, **TypeScript 5.7**, **Vite 6**, **Tailwind CSS 4**, **Zustand 5**, framer-motion |
 | **Video Engine** | **Remotion 4.0.469**, Declarative AST Compositor, d3-geo, highlight.js |
 | **Packaging** | **PyInstaller 6.x** (`narrato.spec`) + **NSIS** (`installer/installer.nsi`) |
@@ -245,13 +245,13 @@ powershell ./build.ps1 -Gpu
 
 The output installer is generated at `installer/Narrato_Setup.exe`.
 
----
+------
 
 ## Settings Overview
 
 | Setting | Options / Notes |
 |---|---|
-| **LLM Provider** | OpenAI / NVIDIA NIM / HuggingFace (model, temperature, tokens, base URL) |
+| **LLM Provider** | OpenAI-Compatible Endpoint (model, temperature, tokens, base URL) |
 | **Web Search** | LangSearch (master toggle + API key) — feeds real-time web facts to scriptwriter agent |
 | **Whisper** | Faster-Whisper models (including `collabora/faster-whisper-small-hindi`), device CPU/CUDA |
 | **TTS Engine** | Edge TTS (voices, speed, pitch) or XTTS v2 (voice profiles, reference clip, ~1.8 GB model) |
@@ -272,4 +272,4 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 
 ## License & Privacy
 
-**Local-first by design**: Voice cloning, transcription, Remotion video composition, frame rendering, and SQLite databases run 100% locally on your machine. API keys for external LLMs (OpenAI / NVIDIA NIM) and stock media providers are encrypted and stored in local SQLite / `prefs.json` and never leave your machine.
+**Local-first by design**: Voice cloning, transcription, Remotion video composition, frame rendering, and SQLite databases run 100% locally on your machine. API keys for external LLMs (OpenAI-compatible providers) and stock media providers are encrypted and stored in local SQLite / `prefs.json` and never leave your machine.

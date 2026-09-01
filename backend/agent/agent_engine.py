@@ -1,10 +1,11 @@
 import json
 import re
-from typing import Dict, Any, Callable
+from typing import Dict, Any, Callable, Union
 from backend.core.logger import logger
 from backend.agent.tools import get_tools_schema, execute_tool
 from backend.agent.validators import validate_sub_visuals
 from backend.pipeline.ai import _call_llm_json, clean_json_response
+from backend.agent.schemas import get_model_json_schema, parse_and_validate_model, VisualsArrayResponse, SubVisualAST
 
 # Any fenced block (```tool / ```json / plain ```) that may hold a tool call.
 FENCED_BLOCK_RE = re.compile(r"```(?:json|tool)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -229,9 +230,9 @@ class AgentRunner:
         )
         return "\n".join(lines)
 
-    def run_with_tools(self, system_prompt: str, user_prompt: str, schema: dict,
+    def run_with_tools(self, system_prompt: str, user_prompt: str, schema: Any = None,
                        base_activity_label: str = "Agent",
-                       allowed_tools=None, max_turns: int = None) -> dict:
+                       allowed_tools=None, max_turns: int = None) -> Any:
         """
         Loose ReAct loop: the model may emit ```tool``` blocks that get executed
         via the tool registry, with results fed back for the next turn. The final
@@ -259,7 +260,7 @@ class AgentRunner:
             if not isinstance(raw, str):
                 # Defensive: if a provider ever returns a parsed value here,
                 # accept it as the final answer.
-                return raw
+                return parse_and_validate_model(schema, raw)
 
             tool_blocks = _extract_tool_blocks(raw)
             if tool_blocks:
@@ -280,43 +281,24 @@ class AgentRunner:
             # No tool block: try to parse the loose response as the final JSON.
             try:
                 parsed = clean_json_response(raw)
-                if schema is not None and isinstance(schema, dict) and "required" in schema:
-                    required_keys = schema["required"]
-                    if isinstance(parsed, dict):
-                        # Special normalization for visuals schema
-                        if "sub_visuals" in required_keys and "sub_visuals" not in parsed:
-                            if "visuals" in parsed and isinstance(parsed["visuals"], list):
-                                parsed["sub_visuals"] = parsed["visuals"]
-                            elif "subvisuals" in parsed and isinstance(parsed["subvisuals"], list):
-                                parsed["sub_visuals"] = parsed["subvisuals"]
-                            elif "composition" in parsed:
-                                parsed = {"sub_visuals": [parsed]}
-                            elif "data" in parsed and isinstance(parsed["data"], dict) and "sub_visuals" in parsed["data"]:
-                                parsed = parsed["data"]
-
-                        if all(k in parsed for k in required_keys):
-                            return parsed
-                        else:
-                            missing = [k for k in required_keys if k not in parsed]
-                            raise ValueError(f"JSON missing required schema fields: {missing}")
-                    elif isinstance(parsed, list) and "sub_visuals" in required_keys:
-                        return {"sub_visuals": parsed}
-                    else:
-                        raise ValueError("Parsed JSON does not match expected schema object structure")
-                else:
-                    return parsed
-            except ValueError:
+                if schema is not None:
+                    # Validate and coerce via Pydantic
+                    parsed = parse_and_validate_model(schema, parsed)
+                return parsed
+            except Exception:
                 if turn == turns_budget - 1:
                     # Last turn: enforce the schema with a strict call.
                     self._emit_progress(f"{base_activity_label}: Finalizing with strict schema...")
-                    return _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (finalizing)")
+                    strict_res = _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (finalizing)")
+                    return parse_and_validate_model(schema, strict_res)
                 current_user_prompt += (
                     "\n\n[System: your response was not valid or complete JSON matching the requested schema. If you need information, "
                     "emit a tool block. Otherwise output ONLY valid JSON matching the requested schema.]"
                 )
 
         # Loop exhausted without a parseable answer — final strict attempt.
-        return _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (strict fallback)")
+        strict_fallback = _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (strict fallback)")
+        return parse_and_validate_model(schema, strict_fallback)
 
     def run_with_tools_safe(self, system_prompt: str, user_prompt: str, schema: dict,
                             allowed_tools=None, max_turns: int = None) -> dict:

@@ -131,7 +131,7 @@ export const ShapeRenderer: React.FC<ShapeProps> = ({
       {/* 1. Circle */}
       {shape_type === 'circle' && (
         <Circle
-          radius={radius}
+          radius={Math.max(2, typeof radius === 'number' && !isNaN(radius) && radius > 0 ? radius : 50)}
           fill={fill}
           stroke={stroke}
           strokeWidth={stroke_width}
@@ -140,11 +140,11 @@ export const ShapeRenderer: React.FC<ShapeProps> = ({
 
       {/* 2. Rectangle / Bounding Box (Supports % width/height or numeric) */}
       {shape_type === 'rectangle' && (
-        typeof width === 'number' && typeof height === 'number' ? (
+        typeof width === 'number' && typeof height === 'number' && !isNaN(width) && !isNaN(height) && width > 0 && height > 0 ? (
           <Rect
             width={width}
             height={height}
-            cornerRadius={corner_radius}
+            cornerRadius={Math.max(0, typeof corner_radius === 'number' && !isNaN(corner_radius) ? corner_radius : 16)}
             fill={fill}
             stroke={stroke}
             strokeWidth={stroke_width}
@@ -158,12 +158,12 @@ export const ShapeRenderer: React.FC<ShapeProps> = ({
             }}
           >
             <rect
-              x={stroke_width / 2}
-              y={stroke_width / 2}
-              width={`calc(100% - ${stroke_width}px)`}
-              height={`calc(100% - ${stroke_width}px)`}
-              rx={corner_radius}
-              ry={corner_radius}
+              x={(stroke_width || 2) / 2}
+              y={(stroke_width || 2) / 2}
+              width={`calc(100% - ${stroke_width || 2}px)`}
+              height={`calc(100% - ${stroke_width || 2}px)`}
+              rx={corner_radius ?? 16}
+              ry={corner_radius ?? 16}
               fill={fill}
               stroke={stroke}
               strokeWidth={stroke_width}
@@ -173,49 +173,72 @@ export const ShapeRenderer: React.FC<ShapeProps> = ({
       )}
 
       {/* 3. Star */}
-      {shape_type === 'star' && (
-        <Star
-          points={points}
-          outerRadius={radius}
-          innerRadius={inner_radius}
-          fill={fill}
-          stroke={stroke}
-          strokeWidth={stroke_width}
-        />
-      )}
+      {shape_type === 'star' && (() => {
+        const safeOuter = Math.max(10, typeof radius === 'number' && !isNaN(radius) && radius > 0 ? radius : 50);
+        const safeInner = Math.max(4, typeof inner_radius === 'number' && !isNaN(inner_radius) && inner_radius > 0 ? inner_radius : safeOuter * 0.5);
+        const safePoints = Math.max(3, typeof points === 'number' && !isNaN(points) && points >= 3 ? Math.floor(points) : 5);
+        return (
+          <Star
+            points={safePoints}
+            outerRadius={safeOuter}
+            innerRadius={safeInner}
+            fill={fill}
+            stroke={stroke}
+            strokeWidth={stroke_width}
+          />
+        );
+      })()}
 
       {/* 4. Triangle */}
-      {shape_type === 'triangle' && (
-        <Triangle
-          length={radius * 2}
-          direction={direction === 'down' ? 'down' : direction === 'left' ? 'left' : direction === 'right' ? 'right' : 'up'}
-          fill={fill}
-          stroke={stroke}
-          strokeWidth={stroke_width}
-        />
-      )}
+      {shape_type === 'triangle' && (() => {
+        const safeLength = Math.max(10, (typeof radius === 'number' && !isNaN(radius) && radius > 0 ? radius : 50) * 2);
+        return (
+          <Triangle
+            length={safeLength}
+            direction={direction === 'down' ? 'down' : direction === 'left' ? 'left' : direction === 'right' ? 'right' : 'up'}
+            fill={fill}
+            stroke={stroke}
+            strokeWidth={stroke_width}
+          />
+        );
+      })()}
 
-      {/* 5. Arrow */}
-      {shape_type === 'arrow' && (
-        <Arrow
-          length={radius * 2.5}
-          direction={direction === 'up' ? 'up' : direction === 'down' ? 'down' : direction === 'left' ? 'left' : 'right'}
-          fill={fill}
-          stroke={stroke}
-          strokeWidth={stroke_width}
-        />
-      )}
+      {/* 5. Arrow (Proportionally scales headLength, headWidth, shaftWidth so makeArrow never throws) */}
+      {shape_type === 'arrow' && (() => {
+        const safeRadius = typeof radius === 'number' && !isNaN(radius) && radius > 0 ? radius : 50;
+        const arrowLength = Math.max(20, safeRadius * 2.5);
+        const headLength = Math.max(6, Math.min(arrowLength * 0.4, 120));
+        const headWidth = Math.max(12, Math.min(arrowLength * 0.65, 185));
+        const shaftWidth = Math.max(4, Math.min(headWidth * 0.45, arrowLength * 0.28, 80));
+
+        return (
+          <Arrow
+            length={arrowLength}
+            headLength={headLength}
+            headWidth={headWidth}
+            shaftWidth={shaftWidth}
+            direction={direction === 'up' ? 'up' : direction === 'down' ? 'down' : direction === 'left' ? 'left' : 'right'}
+            fill={fill}
+            stroke={stroke}
+            strokeWidth={stroke_width}
+          />
+        );
+      })()}
 
       {/* 6. Polygon */}
-      {shape_type === 'polygon' && (
-        <Polygon
-          points={points}
-          radius={radius}
-          fill={fill}
-          stroke={stroke}
-          strokeWidth={stroke_width}
-        />
-      )}
+      {shape_type === 'polygon' && (() => {
+        const safeRadius = Math.max(10, typeof radius === 'number' && !isNaN(radius) && radius > 0 ? radius : 50);
+        const safePoints = Math.max(3, typeof points === 'number' && !isNaN(points) && points >= 3 ? Math.floor(points) : 5);
+        return (
+          <Polygon
+            points={safePoints}
+            radius={safeRadius}
+            fill={fill}
+            stroke={stroke}
+            strokeWidth={stroke_width}
+          />
+        );
+      })()}
 
       {/* 7. Frame-Accurate SVG Path Drawing via @remotion/paths */}
       {shape_type === 'path' && (

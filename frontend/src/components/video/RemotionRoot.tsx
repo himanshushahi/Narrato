@@ -22,7 +22,8 @@ export const RemotionRoot: React.FC = () => {
           transcription: { language: 'hi', segments: [] },
           style: 'nitish_rajput',
           language: 'hi',
-          videoFormat: 'landscape'
+          videoFormat: 'landscape',
+          overlays: []
         } as CompositionProps}
         calculateMetadata={({ props }) => {
           if ((props as any).__file_server_port__) {

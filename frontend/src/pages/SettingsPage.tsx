@@ -255,10 +255,7 @@ const SettingsPage: React.FC = () => {
     updateYtdlp();
   };
 
-  const isConnected = formData.llm_provider === 'nvidia' 
-    ? !!formData.nvidia_api_key?.trim() 
-    : !!formData.openai_api_key?.trim();
-  const isNvidia = formData.llm_provider === 'nvidia';
+  const isConnected = !!formData.openai_api_key?.trim();
 
   const hardwareTabs: Tab[] = [
     { id: 'cpu', label: 'CPU Engine' },
@@ -352,30 +349,19 @@ const SettingsPage: React.FC = () => {
           <div>
             <AIProviderCard
               title="AI Language Model Provider"
-              provider={formData.llm_provider === 'nvidia' ? 'Nvidia NIM' : 'OpenAI Compatible Endpoint'}
+              provider="OpenAI Compatible Endpoint"
               isConnected={isConnected}
             >
               <div className="space-y-6">
-                <div className="flex justify-start">
-                  <AnimatedTabs
-                    tabs={[
-                      { id: 'openai', label: 'OpenAI Compatible' },
-                      { id: 'nvidia', label: 'Nvidia NIM' }
-                    ]}
-                    activeTab={formData.llm_provider || 'openai'}
-                    onChange={(tabId) => handleSelectChange('llm_provider', tabId)}
-                  />
-                </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="md:col-span-3">
                     <CustomInput
                       label="API Authorization Key"
                       type="password"
-                      name={isNvidia ? "nvidia_api_key" : "openai_api_key"}
-                      value={isNvidia ? formData.nvidia_api_key || '' : formData.openai_api_key || ''}
+                      name="openai_api_key"
+                      value={formData.openai_api_key || ''}
                       onChange={handleInputChange}
-                      placeholder={isNvidia ? 'nvapi-...' : 'sk-...'}
+                      placeholder="sk-... or provider API key (OpenAI, NVIDIA NIM, OpenRouter, Groq, etc.)"
                       icon={<VscKey />}
                     />
                   </div>
@@ -383,10 +369,10 @@ const SettingsPage: React.FC = () => {
                     <CustomInput
                       label="Base URL"
                       type="text"
-                      name={isNvidia ? "nvidia_base_url" : "openai_base_url"}
-                      value={isNvidia ? formData.nvidia_base_url || '' : formData.openai_base_url || ''}
+                      name="openai_base_url"
+                      value={formData.openai_base_url || ''}
                       onChange={handleInputChange}
-                      placeholder={isNvidia ? 'https://integrate.api.nvidia.com/v1' : 'https://api.openai.com/v1'}
+                      placeholder="https://api.openai.com/v1 (or https://integrate.api.nvidia.com/v1, OpenRouter, Ollama, etc.)"
                       icon={<VscLink />}
                     />
                   </div>
@@ -394,10 +380,10 @@ const SettingsPage: React.FC = () => {
                     <CustomInput
                       label="Model Name"
                       type="text"
-                      name={isNvidia ? "nvidia_model" : "openai_model"}
-                      value={isNvidia ? formData.nvidia_model || '' : formData.openai_model || ''}
+                      name="openai_model"
+                      value={formData.openai_model || ''}
                       onChange={handleInputChange}
-                      placeholder={isNvidia ? 'meta/llama-3.1-8b-instruct' : 'gpt-4o'}
+                      placeholder="gpt-4o, meta/llama-3.1-8b-instruct, etc."
                       icon={<VscSymbolClass />}
                     />
                   </div>
@@ -408,29 +394,29 @@ const SettingsPage: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <CustomRange
                       label="Temperature"
-                      valueDisplay={parseFloat(isNvidia ? formData.nvidia_temperature || '0.7' : formData.openai_temperature || '0.7').toFixed(2)}
+                      valueDisplay={parseFloat(formData.openai_temperature || '0.7').toFixed(2)}
                       min="0"
                       max="2"
                       step="0.05"
-                      name={isNvidia ? "nvidia_temperature" : "openai_temperature"}
-                      value={isNvidia ? formData.nvidia_temperature : formData.openai_temperature}
+                      name="openai_temperature"
+                      value={formData.openai_temperature}
                       onChange={handleInputChange}
                     />
                     <CustomRange
                       label="Top P"
-                      valueDisplay={parseFloat(isNvidia ? formData.nvidia_top_p || '1.0' : formData.openai_top_p || '1.0').toFixed(2)}
+                      valueDisplay={parseFloat(formData.openai_top_p || '1.0').toFixed(2)}
                       min="0"
                       max="1"
                       step="0.05"
-                      name={isNvidia ? "nvidia_top_p" : "openai_top_p"}
-                      value={isNvidia ? formData.nvidia_top_p : formData.openai_top_p}
+                      name="openai_top_p"
+                      value={formData.openai_top_p}
                       onChange={handleInputChange}
                     />
                     <CustomInput
                       label="Max Tokens"
                       type="number"
-                      name={isNvidia ? "nvidia_max_tokens" : "openai_max_tokens"}
-                      value={isNvidia ? formData.nvidia_max_tokens : formData.openai_max_tokens}
+                      name="openai_max_tokens"
+                      value={formData.openai_max_tokens}
                       onChange={handleInputChange}
                     />
                   </div>

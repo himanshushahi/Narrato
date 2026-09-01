@@ -22,6 +22,10 @@ from backend.pipeline.ai import (
     SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, _call_llm_json, _get_web_context_for_topic,
     get_shared_visual_rules
 )
+from backend.agent.schemas import (
+    ScriptIntroResponse, ScriptConclusionResponse, ScriptSceneResponse,
+    SubVisualAST, VisualsArrayResponse
+)
 from backend.core.power import power_manager, auto_instrument_bridge
 
 ui_queue = queue.Queue()
@@ -1034,16 +1038,16 @@ class ApiBridge:
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
             prompt_struct = "Expected: { \"hook\": \"text\" }"
-            schema = SCRIPT_INTRO_JSON_SCHEMA
+            schema = ScriptIntroResponse
         elif section_type == "conclusion":
             target_content = full_script.get("conclusion", {})
             prompt_struct = "Expected: { \"summary\": \"text\", \"cta\": \"text\" }"
-            schema = SCRIPT_CONCLUSION_JSON_SCHEMA
+            schema = ScriptConclusionResponse
         else:
             scenes = full_script.get("scenes", [])
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
             prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }"
-            schema = SCRIPT_SCENE_JSON_SCHEMA
+            schema = ScriptSceneResponse
 
         content_is_empty = False
         if section_type == "introduction":
@@ -1158,7 +1162,7 @@ class ApiBridge:
             f"Generate the rewritten JSON sub_visuals array now. The sum of sub-visual durations MUST equal {total_duration}. Structure matches: {prompt_struct}."
         )
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
-        result = _call_llm_safe(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
+        result = _call_llm_safe(system_prompt, user_prompt, VisualsArrayResponse, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
         if result.get("success") and "data" in result:
             data = result["data"]
             if isinstance(data, list):
@@ -1262,7 +1266,7 @@ class ApiBridge:
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
-        return _call_llm_safe(system_prompt, user_prompt, SUB_VISUAL_SCHEMA, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
+        return _call_llm_safe(system_prompt, user_prompt, SubVisualAST, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
 
     def add_scene_with_ai(self, full_script: dict, user_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: add_scene_with_ai — user_prompt: '{user_prompt[:80]}...'")
@@ -1331,7 +1335,7 @@ class ApiBridge:
         if _web_ctx:
             user_content += f"\n\n---\nIncorporate relevant facts from this web search into your new scene:\n{_web_ctx}"
         from backend.agent.agent_engine import BRIDGE_ADD_SCENE_TOOLS
-        result = _call_llm_safe(system_prompt, user_content, SCRIPT_SCENE_JSON_SCHEMA, use_tools=True, allowed_tools=BRIDGE_ADD_SCENE_TOOLS)
+        result = _call_llm_safe(system_prompt, user_content, ScriptSceneResponse, use_tools=True, allowed_tools=BRIDGE_ADD_SCENE_TOOLS)
         if result.get("success") and "data" in result:
             result["data"]["sub_visuals"] = []
         return result

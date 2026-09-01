@@ -16,19 +16,12 @@ interface XttsProfile {
 }
 
 export interface Settings {
-  llm_provider: string;
   openai_api_key: string;
   openai_base_url: string;
   openai_model: string;
   openai_temperature: string;
   openai_max_tokens: string;
   openai_top_p: string;
-  nvidia_api_key: string;
-  nvidia_base_url: string;
-  nvidia_model: string;
-  nvidia_temperature: string;
-  nvidia_max_tokens: string;
-  nvidia_top_p: string;
   whisper_model: string;
   whisper_device: string;
   tts_engine: string;
@@ -145,19 +138,12 @@ async function safeApiCall<T>(fnName: string, ...args: any[]): Promise<T | null>
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   settings: {
-    llm_provider: "openai",
     openai_api_key: "",
     openai_base_url: "https://api.openai.com/v1",
     openai_model: "gpt-4o",
     openai_temperature: "0.7",
     openai_max_tokens: "4096",
     openai_top_p: "1.0",
-    nvidia_api_key: "",
-    nvidia_base_url: "https://integrate.api.nvidia.com/v1",
-    nvidia_model: "meta/llama-3.1-8b-instruct",
-    nvidia_temperature: "0.7",
-    nvidia_max_tokens: "4096",
-    nvidia_top_p: "1.0",
     whisper_model: "turbo",
     whisper_device: "cpu",
     tts_engine: "edge",

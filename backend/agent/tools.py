@@ -7,8 +7,45 @@ from typing import Dict, Any, List
 from backend.pipeline.web_search import search_and_format
 from backend.agent.skill_loader import skill_loader
 from backend.core.logger import logger
+from backend.agent.schemas import (
+    WebSearchToolArgs, GetSkillToolArgs, SearchMediaToolArgs,
+    SearchWikipediaImageToolArgs, SearchPixabayPhotoToolArgs, SearchYouTubeVideoToolArgs,
+    ReadProjectFileToolArgs, ProjectStatusReportToolArgs, ListProjectFilesToolArgs,
+    UpdateDesignSettingsToolArgs, UpdateSubtitlesToolArgs, UpdateVisualSettingsToolArgs,
+    UpdateSceneDurationToolArgs, ReorderScenesToolArgs, DeleteSceneToolArgs,
+    AddSceneWithAiToolArgs, RegenerateScriptSectionToolArgs, RegenerateSceneVisualsToolArgs,
+    SetTtsSettingsToolArgs, InvalidateSceneToolArgs, UpdateSubVisualToolArgs,
+)
 
 logger = logging.getLogger(__name__)
+
+TOOL_ARGUMENT_MODELS = {
+    "web_search": WebSearchToolArgs,
+    "get_skill": GetSkillToolArgs,
+    "search_pexels_photo": SearchMediaToolArgs,
+    "search_pexels_video": SearchMediaToolArgs,
+    "search_wikipedia_image": SearchWikipediaImageToolArgs,
+    "search_pixabay_photo": SearchPixabayPhotoToolArgs,
+    "search_pixabay_video": SearchMediaToolArgs,
+    "search_youtube_video": SearchYouTubeVideoToolArgs,
+    "read_project_file": ReadProjectFileToolArgs,
+    "project_status_report": ProjectStatusReportToolArgs,
+    "list_project_files": ListProjectFilesToolArgs,
+    "update_design_settings": UpdateDesignSettingsToolArgs,
+    "update_subtitles": UpdateSubtitlesToolArgs,
+    "update_subtitle_settings": UpdateVisualSettingsToolArgs,
+    "update_numbering_settings": UpdateVisualSettingsToolArgs,
+    "update_chapter_branding": UpdateVisualSettingsToolArgs,
+    "update_sub_visual": UpdateSubVisualToolArgs,
+    "update_scene_duration": UpdateSceneDurationToolArgs,
+    "reorder_scenes": ReorderScenesToolArgs,
+    "delete_scene": DeleteSceneToolArgs,
+    "add_scene_with_ai": AddSceneWithAiToolArgs,
+    "regenerate_script_section": RegenerateScriptSectionToolArgs,
+    "regenerate_scene_visuals": RegenerateSceneVisualsToolArgs,
+    "set_tts_settings": SetTtsSettingsToolArgs,
+    "invalidate_scene": InvalidateSceneToolArgs,
+}
 
 
 def _project_dir(project_id: str) -> Path:
@@ -667,6 +704,15 @@ def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
 def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
     """Tool dispatcher. Kept private — public entry point is execute_tool."""
     try:
+        # Validate and coerce arguments through Pydantic model if registered
+        arg_model = TOOL_ARGUMENT_MODELS.get(tool_name)
+        if arg_model is not None and isinstance(arguments, dict):
+            try:
+                validated_model = arg_model.model_validate(arguments)
+                arguments = validated_model.model_dump(exclude_none=True)
+            except Exception as val_err:
+                logger.warning(f"Pydantic argument validation for {tool_name}: {val_err}")
+
         # --- Research / lookup tools ---
         if tool_name == "web_search":
             query = arguments.get("query")

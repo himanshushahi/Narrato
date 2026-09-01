@@ -7,6 +7,7 @@ import { ShapeRenderer } from './ShapeRenderer';
 import { KineticText } from './KineticText';
 import { LottieRenderer } from './LottieRenderer';
 import { CameraShakeType } from './CameraNoise';
+import { ASTErrorBoundary } from './ASTErrorBoundary';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
 
 interface ASTLayerContent {
@@ -357,21 +358,24 @@ export const ASTRenderer: React.FC<{
 
         const { motion_blur, shutter_angle, camera_shake } = layer;
 
-        if ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none')) {
-          return (
-            <ASTAnimator
-              key={idx}
-              animations={animations}
-              motion_blur={motion_blur}
-              shutter_angle={shutter_angle}
-              camera_shake={camera_shake}
-            >
-              {inner}
-            </ASTAnimator>
-          );
-        }
+        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none')) ? (
+          <ASTAnimator
+            animations={animations}
+            motion_blur={motion_blur}
+            shutter_angle={shutter_angle}
+            camera_shake={camera_shake}
+          >
+            {inner}
+          </ASTAnimator>
+        ) : (
+          <AbsoluteFill>{inner}</AbsoluteFill>
+        );
 
-        return <AbsoluteFill key={idx}>{inner}</AbsoluteFill>;
+        return (
+          <ASTErrorBoundary key={idx} layerType={content?.type}>
+            {renderedLayer}
+          </ASTErrorBoundary>
+        );
       })}
     </AbsoluteFill>
   );

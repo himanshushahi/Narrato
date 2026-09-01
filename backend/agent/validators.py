@@ -1,5 +1,6 @@
 import logging
 from typing import List, Dict, Any, Tuple
+from backend.agent.schemas import SubVisualAST
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,12 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             entry["visual_path"] = v["visual_path"]
         if "visual_url" in v:
             entry["visual_url"] = v["visual_url"]
-        normalized.append(entry)
+        
+        try:
+            validated = SubVisualAST.model_validate(entry)
+            normalized.append(validated.model_dump(exclude_none=True))
+        except Exception:
+            normalized.append(entry)
 
     if not normalized:
         return False, _dummy_visual(target_duration), "No valid sub_visuals found."
