@@ -84,6 +84,88 @@ def scene_frame_offsets(scenes):
         offset += scene_frames
 
 
+def compute_granular_frame_hashes(props_dict, render_settings):
+    """
+    Computes global frame environment hash and per-scene frame hashes for granular cache invalidation.
+    Returns:
+      global_env_hash: str
+      scene_records: list of dicts with {
+        'index': i,
+        'start_frame': start_frame,
+        'end_frame': end_frame,
+        'duration_frames': scene_frames,
+        'scene_hash': hash_str
+      }
+    """
+    global_env = {
+        "subtitleSettings": props_dict.get("subtitleSettings", {}),
+        "style": props_dict.get("style"),
+        "language": props_dict.get("language"),
+        "videoFormat": props_dict.get("videoFormat"),
+        "fps": props_dict.get("fps"),
+        "imageFormat": "jpeg",
+        "resolution": render_settings.get("resolution"),
+        "overlays": props_dict.get("overlays", []),
+    }
+    for k, ov in enumerate(global_env.get("overlays", [])):
+        logo = ov.get("logo_url") if isinstance(ov, dict) else None
+        if logo and isinstance(logo, str):
+            clean_p = logo.replace("file:///", "").replace("file://", "")
+            if os.path.exists(clean_p):
+                stat = os.stat(clean_p)
+                global_env[f"overlay_{k}_mtime"] = stat.st_mtime
+                global_env[f"overlay_{k}_size"] = stat.st_size
+
+    global_env_hash = hashlib.sha256(json.dumps(global_env, sort_keys=True).encode('utf-8')).hexdigest()
+
+    scenes = props_dict.get("scenes", [])
+    transcription = props_dict.get("transcription", {})
+    segments = transcription.get("segments", []) if isinstance(transcription, dict) else []
+
+    fps = props_dict.get("fps") or 30
+    scene_records = []
+
+    for sc, scene_start_frame, scene_frames in scene_frame_offsets(scenes):
+        idx = len(scene_records)
+        scene_start_sec = scene_start_frame / float(fps)
+        scene_end_sec = (scene_start_frame + scene_frames) / float(fps)
+
+        # Collect subtitle segments falling into this scene
+        scene_segments = []
+        for seg in segments:
+            seg_start = seg.get("start", 0)
+            seg_end = seg.get("end", 0)
+            if seg_start < scene_end_sec and seg_end > scene_start_sec:
+                scene_segments.append(seg)
+
+        scene_props = {
+            "scene": sc,
+            "segments": scene_segments,
+            "scene_frames": scene_frames,
+        }
+
+        # Include mtimes of referenced sub-visuals
+        for j, sv in enumerate(sc.get("sub_visuals", [])):
+            path_str = sv.get("visual_path")
+            if path_str and isinstance(path_str, str):
+                clean_p = path_str.replace("file:///", "").replace("file://", "")
+                if os.path.exists(clean_p):
+                    stat = os.stat(clean_p)
+                    scene_props[f"sv_{j}_mtime"] = stat.st_mtime
+                    scene_props[f"sv_{j}_size"] = stat.st_size
+
+        scene_hash = hashlib.sha256(json.dumps(scene_props, sort_keys=True).encode('utf-8')).hexdigest()
+        scene_records.append({
+            "index": idx,
+            "start_frame": scene_start_frame,
+            "end_frame": scene_start_frame + scene_frames - 1,
+            "duration_frames": scene_frames,
+            "scene_hash": scene_hash,
+        })
+
+    return global_env_hash, scene_records
+
+
 def compute_frame_hash(props_dict, render_settings):
     """Hash of frame-relevant properties only (scenes, transcription, overlays, resolution, fps).
     Audio/encode settings don't affect pixel output, so they're excluded."""
@@ -95,6 +177,7 @@ def compute_frame_hash(props_dict, render_settings):
         "language": props_dict.get("language"),
         "videoFormat": props_dict.get("videoFormat"),
         "fps": props_dict.get("fps"),
+        "imageFormat": "jpeg",
         "resolution": render_settings.get("resolution"),
         "overlays": props_dict.get("overlays", []),
     }
@@ -103,10 +186,12 @@ def compute_frame_hash(props_dict, render_settings):
     for i, sc in enumerate(frame_props["scenes"]):
         for j, sv in enumerate(sc.get("sub_visuals", [])):
             path_str = sv.get("visual_path")
-            if path_str and os.path.exists(path_str):
-                stat = os.stat(path_str)
-                frame_props[f"visual_{i}_{j}_mtime"] = stat.st_mtime
-                frame_props[f"visual_{i}_{j}_size"] = stat.st_size
+            if path_str and isinstance(path_str, str):
+                clean_p = path_str.replace("file:///", "").replace("file://", "")
+                if os.path.exists(clean_p):
+                    stat = os.stat(clean_p)
+                    frame_props[f"visual_{i}_{j}_mtime"] = stat.st_mtime
+                    frame_props[f"visual_{i}_{j}_size"] = stat.st_size
 
     for k, ov in enumerate(frame_props.get("overlays", [])):
         logo = ov.get("logo_url") if isinstance(ov, dict) else None
@@ -202,23 +287,38 @@ def compute_mux_hash(frame_hash, audio_hash, render_settings):
     data_str = json.dumps(mux_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
-def get_missing_frame_ranges(frames_dir, total_frames):
+def get_missing_frame_ranges(frames_dir, total_frames, target_ext="jpeg"):
     """Finds all missing frame ranges from 0 to total_frames - 1."""
     if not frames_dir.exists():
         return f"0-{total_frames - 1}"
     
     existing_frames = set()
-    for f in frames_dir.glob("element-*.webp"):
-        if f.stat().st_size > 0:
-            match = re.search(r"element-(\d+)\.webp", f.name)
-            if match:
-                existing_frames.add(int(match.group(1)))
-        else:
+    valid_exts = {target_ext, "jpg" if target_ext == "jpeg" else target_ext}
+
+    for f in list(frames_dir.glob("element-*.*")):
+        if f.stat().st_size == 0:
             # Clean up corrupted 0-byte frames so FFmpeg doesn't choke on them later
             try:
                 f.unlink()
             except OSError:
                 pass
+            continue
+
+        match = re.search(r"element-(\d+)\.([a-zA-Z0-9]+)$", f.name)
+        if not match:
+            continue
+
+        frame_num = int(match.group(1))
+        ext = match.group(2).lower()
+
+        # If leftover frame beyond total_frames or wrong format, remove it
+        if frame_num >= total_frames or ext not in valid_exts:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        else:
+            existing_frames.add(frame_num)
             
     missing_ranges = []
     start = None
@@ -548,28 +648,83 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     # ── Ensure cache root exists ───────────────────────────────────────────
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Frame cache check ─────────────────────────────────────────────────
-    if frame_hash_file.exists():
-        existing = frame_hash_file.read_text().strip()
-        if existing == frame_hash:
-            if frames_dir.exists():
-                existing_count = len(list(frames_dir.glob("element-*.webp")))
-                logger.info(f"Frame hash matches. {existing_count} cached frames found. Will resume from missing ranges.")
+    # ── Granular Scene-Level Frame Cache Check ────────────────────────────
+    scene_cache_file = cache_dir / "scene_hashes.json"
+    global_env_hash, current_scene_records = compute_granular_frame_hashes(props, render_settings)
+
+    if scene_cache_file.exists() and frames_dir.exists():
+        try:
+            with open(scene_cache_file, "r", encoding="utf-8") as f:
+                cached_data = json.load(f)
+            cached_global_hash = cached_data.get("global_env_hash")
+            cached_scenes = cached_data.get("scenes", [])
+
+            if cached_global_hash == global_env_hash:
+                # Global environment matches! We can do granular scene-level invalidation
+                cached_scene_map = {s["index"]: s for s in cached_scenes if isinstance(s, dict) and "index" in s}
+                invalidated_scene_count = 0
+                reused_scene_count = 0
+
+                for curr_s in current_scene_records:
+                    s_idx = curr_s["index"]
+                    prev_s = cached_scene_map.get(s_idx)
+                    # If scene hash changed or start/end frame boundary shifted:
+                    if (not prev_s or 
+                        prev_s.get("scene_hash") != curr_s["scene_hash"] or 
+                        prev_s.get("start_frame") != curr_s["start_frame"] or 
+                        prev_s.get("end_frame") != curr_s["end_frame"]):
+                        
+                        invalidated_scene_count += 1
+                        ranges_to_delete = []
+                        if prev_s:
+                            ranges_to_delete.append((prev_s.get("start_frame", 0), prev_s.get("end_frame", 0)))
+                        ranges_to_delete.append((curr_s["start_frame"], curr_s["end_frame"]))
+
+                        for r_start, r_end in ranges_to_delete:
+                            for f_num in range(r_start, r_end + 1):
+                                for p in (f"element-{f_num}.jpeg", f"element-{f_num}.jpg", f"element-{f_num}.webp",
+                                          f"element-{f_num:04d}.jpeg", f"element-{f_num:05d}.jpeg", f"element-{f_num:06d}.jpeg",
+                                          f"element-{f_num:04d}.webp", f"element-{f_num:05d}.webp"):
+                                    f_path = frames_dir / p
+                                    if f_path.exists():
+                                        try: f_path.unlink()
+                                        except OSError: pass
+                        logger.info(f"Smart Resume: Invalidated cached frames for modified Scene {s_idx} (frames {curr_s['start_frame']}-{curr_s['end_frame']}).")
+                    else:
+                        reused_scene_count += 1
+                        logger.info(f"Smart Resume: Reusing cached frames for unchanged Scene {s_idx} (frames {curr_s['start_frame']}-{curr_s['end_frame']}).")
+
+                # Remove any leftover frames from scenes that were deleted
+                if len(cached_scenes) > len(current_scene_records):
+                    for old_s in cached_scenes[len(current_scene_records):]:
+                        for f_num in range(old_s.get("start_frame", 0), old_s.get("end_frame", 0) + 1):
+                            for p in (f"element-{f_num}.jpeg", f"element-{f_num}.jpg", f"element-{f_num}.webp",
+                                      f"element-{f_num:04d}.jpeg", f"element-{f_num:05d}.jpeg", f"element-{f_num:06d}.jpeg"):
+                                f_path = frames_dir / p
+                                if f_path.exists():
+                                    try: f_path.unlink()
+                                    except OSError: pass
+
+                existing_count = sum(len(list(frames_dir.glob(p))) for p in ("element-*.jpeg", "element-*.jpg", "element-*.webp"))
+                logger.info(f"Smart Resume granular cache: {reused_scene_count} scenes reused, {invalidated_scene_count} scenes marked for re-render. {existing_count} cached frames on disk.")
             else:
-                logger.info("Frame hash matches but frames/ missing. Re-creating.")
-                frames_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            existing_count = len(list(frames_dir.glob("element-*.webp"))) if frames_dir.exists() else 0
-            logger.info(f"Frame hash CHANGED (old:{existing[:12]}… != new:{frame_hash[:12]}…). "
-                        f"Invalidating {existing_count} cached frames.")
-            if frames_dir.exists():
+                logger.info("Smart Resume: Global render environment changed (overlays/resolution/styles). Invalidating all frame caches.")
                 shutil.rmtree(frames_dir, ignore_errors=True)
+                frames_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Error evaluating granular scene cache: {e}. Falling back to full frame cache check.")
+            shutil.rmtree(frames_dir, ignore_errors=True)
             frames_dir.mkdir(parents=True, exist_ok=True)
-            frame_hash_file.write_text(frame_hash)
+    elif frame_hash_file.exists() and frame_hash_file.read_text().strip() == frame_hash:
+        existing_count = sum(len(list(frames_dir.glob(p))) for p in ("element-*.jpeg", "element-*.jpg", "element-*.webp"))
+        logger.info(f"Frame hash matches. {existing_count} cached frames found. Will resume from missing ranges.")
     else:
-        logger.info("No frame cache found. Creating new frame cache.")
+        logger.info("No valid granular frame cache found. Creating new frame cache.")
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir, ignore_errors=True)
         frames_dir.mkdir(parents=True, exist_ok=True)
-        frame_hash_file.write_text(frame_hash)
+
+    frame_hash_file.write_text(frame_hash)
 
     # ── Audio cache check ─────────────────────────────────────────────────
     audio_cache_valid = False
@@ -617,16 +772,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     abs_bundle_dir = str(bundle_dir.resolve()).replace('\\', '/')
     abs_props_path = str(props_path.resolve()).replace('\\', '/')
     
-    if render_concurrency == "logical":
+
+
+
+    if render_concurrency in ["logical", "100%"]:
         concurrency_arg = "100%"
-        # Long videos (>= 6 min at 30fps) spawn one Chrome tab per logical core,
-        # each holding its own DOM/GPU buffers. Cap to half to avoid the RAM/GPU
-        # exhaustion that manifests as system freezes or screen blackouts.
-        if total_frames > 10800:
-            concurrency_arg = "50%"
-            logger.info(f"Long video ({total_frames} frames): capping render concurrency to 50% to prevent system hang.")
-    elif render_concurrency == "physical":
+    elif render_concurrency in ["physical", "50%"]:
         concurrency_arg = "50%"
+    elif render_concurrency in ["25%", "75%"]:
+        concurrency_arg = render_concurrency
     else:
         concurrency_arg = render_concurrency
     
@@ -817,6 +971,16 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         logger.info("All frames already rendered. Skipping frame render phase.")
         progress_cb(80.0, "All frames already rendered.")
 
+    # ── Persist Granular Scene Hashes ──────────────────────────────────────
+    try:
+        with open(scene_cache_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "global_env_hash": global_env_hash,
+                "scenes": current_scene_records
+            }, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to persist scene_hashes.json: {e}")
+
     # ── Log Smart Resume render scope ──────────────────────────────────────
     frames_actually_rendered = bool(missing_ranges_str)
     summary_parts = []
@@ -975,35 +1139,43 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     progress_cb(90.0, "Muxing final video...")
     ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
     
-    # Normalize frame filenames to consistent padding.
+    # Ensure all frames are within total_frames and remove any lingering leftover frames
+    for f in list(frames_dir.glob("element-*.*")):
+        m = re.search(r"element-(\d+)\.", f.name)
+        if m and int(m.group(1)) >= total_frames:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
+    # Normalize frame filenames to consistent padding and auto-detect image extension.
     # Remotion's renderFrames may produce unpadded names for single-frame ranges
-    # (e.g. element-474.webp) mixed with padded names for multi-frame ranges.
-    # Without normalization, FFmpeg's %0Nd pattern misses unpadded files and
-    # produces a truncated video — only N frames are encoded instead of all.
-    frame_files_list = list(frames_dir.glob("element-*.webp"))
+    # (e.g. element-474.jpeg) mixed with padded names for multi-frame ranges.
+    # Without normalization, FFmpeg's %0Nd pattern misses unpadded files.
+    frame_files_list = list(frames_dir.glob("element-*.jpeg")) or list(frames_dir.glob("element-*.jpg")) or list(frames_dir.glob("element-*.webp"))
     if not frame_files_list:
         raise RuntimeError(f"No frames found in {frames_dir}")
 
+    # Determine the file extension of the rendered frames
+    frame_ext = frame_files_list[0].suffix.lstrip(".")
+
     max_frame = 0
     for f in frame_files_list:
-        m = re.search(r"element-(\d+)\.webp", f.name)
+        m = re.search(r"element-(\d+)\.(?:jpeg|jpg|webp)", f.name)
         if m:
             max_frame = max(max_frame, int(m.group(1)))
 
     normalized_padding = max(len(str(max_frame)), 4)
     for f in frame_files_list:
-        m = re.search(r"element-(\d+)\.webp", f.name)
+        m = re.search(r"element-(\d+)\.(?:jpeg|jpg|webp)", f.name)
         if m:
             frame_num = int(m.group(1))
-            expected_name = f"element-{frame_num:0{normalized_padding}d}.webp"
+            expected_name = f"element-{frame_num:0{normalized_padding}d}.{frame_ext}"
             if f.name != expected_name:
                 dest = f.parent / expected_name
-                if not dest.exists():
-                    f.rename(dest)
-                else:
-                    f.unlink()
+                f.replace(dest)
 
-    frame_input_pattern = f"element-%0{normalized_padding}d.webp"
+    frame_input_pattern = f"element-%0{normalized_padding}d.{frame_ext}"
 
     ffmpeg_cmd = [
         ffmpeg_bin, "-y",

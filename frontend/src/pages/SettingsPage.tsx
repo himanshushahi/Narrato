@@ -284,12 +284,10 @@ const SettingsPage: React.FC = () => {
   ];
 
   const renderConcurrencyOptions: SelectOption[] = [
-    { value: '1', label: '1 Core (Slow & Stable)' },
-    { value: '2', label: '2 Cores' },
-    { value: '4', label: '4 Cores' },
-    { value: '8', label: '8 Cores' },
-    { value: 'logical', label: 'Max Logical Cores (Fastest)' },
-    { value: 'physical', label: 'Max Physical Cores (Recommended)' }
+    { value: '25%', label: '25% (Light / 1-2 Cores)' },
+    { value: '50%', label: '50% (Balanced / Half Cores)' },
+    { value: '75%', label: '75% (Fast - Recommended)' },
+    { value: '100%', label: '100% (Max / Fastest)' },
   ];
 
   const renderFpsOptions: SelectOption[] = [
@@ -1131,7 +1129,7 @@ const SettingsPage: React.FC = () => {
                   <CustomSelect
                     label="CPU Concurrency"
                     options={renderConcurrencyOptions}
-                    value={formData.render_concurrency || 'logical'}
+                    value={formData.render_concurrency === 'logical' ? '100%' : (formData.render_concurrency === 'physical' ? '50%' : (formData.render_concurrency || '75%'))}
                     onChange={(val) => handleSelectChange('render_concurrency', val)}
                   />
                   <CustomSelect

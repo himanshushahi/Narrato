@@ -146,7 +146,7 @@ def init_db():
             "web_search_provider": "langsearch",  # Search provider
             "web_search_api_key": "",        # LangSearch API key
             "render_resolution": "1080p",
-            "render_concurrency": "logical",
+            "render_concurrency": "75%",
             "render_fps": "30",
             "render_crf": "23",
             "render_codec": "h264",

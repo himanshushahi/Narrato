@@ -81,24 +81,11 @@ export interface SceneTiming {
 // ~1-3 scenes instead of all 250 visuals, which prevents the OOM/GPU timeout
 // hang on 10-15 minute videos.
 
-const BLACK_PLACEHOLDER_STYLE: React.CSSProperties = {
-  width: '100%',
-  height: '100%',
-  backgroundColor: '#0c0a09',
-};
-
-const isFrameInRanges = (frame: number, ranges: Array<{ start: number; end: number }>): boolean =>
-  ranges.some((r) => frame >= r.start && frame < r.end);
-
 const SceneGate: React.FC<{
   from: number;
   durationInFrames: number;
   children: React.ReactNode;
 }> = ({ from, durationInFrames, children }) => {
-  // useCurrentFrame at composition-root level = the global frame. The
-  // Sequence is only mounted while the playhead is near, so the gate is a
-  // real decision here (unlike rendering it inside the Sequence, where
-  // Remotion already drops inactive trees and the check is tautological).
   const frame = useCurrentFrame();
   // Buffer: mount -90f before start, keep +120f past end
   const isNear = frame >= from - 90 && frame <= from + durationInFrames + 120;
@@ -106,19 +93,17 @@ const SceneGate: React.FC<{
     <Sequence from={from} durationInFrames={durationInFrames}>
       {children}
     </Sequence>
-  ) : (
-    <div style={BLACK_PLACEHOLDER_STYLE} />
-  );
+  ) : null;
 };
 
 const SubVisualTransitionWrapper: React.FC<{
   transition?: string;
   durationInFrames: number;
   children: React.ReactNode;
-}> = ({ transition = 'fade', durationInFrames, children }) => {
+}> = ({ transition = 'cut', durationInFrames, children }) => {
   const frame = useCurrentFrame();
 
-  if (!transition || transition === 'none') {
+  if (!transition || transition === 'none' || transition === 'cut') {
     return <>{children}</>;
   }
 
@@ -230,10 +215,11 @@ const SubGate: React.FC<{
         {children}
       </SubVisualTransitionWrapper>
     </Sequence>
-  ) : (
-    <div style={BLACK_PLACEHOLDER_STYLE} />
-  );
+  ) : null;
 };
+
+const isFrameInRanges = (frame: number, ranges: Array<{ start: number; end: number }>): boolean =>
+  ranges.some((r) => frame >= r.start && frame < r.end);
 
 // ── Frame-accurate volume modulation for audio elements ─────────────────────
 const FrameVolumeAudio: React.FC<{

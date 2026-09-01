@@ -132,7 +132,7 @@ function parseFilters(filters?: string[]): { filterStyle?: string; blendStyle: R
   };
 }
 
-import { delayRender, continueRender, useCurrentFrame, interpolate } from 'remotion';
+import { useCurrentFrame, interpolate } from 'remotion';
 
 /**
  * Procedural ambient canvas rendered when stock media has no local path yet or is still downloading.
@@ -178,37 +178,13 @@ const ProceduralCanvasFallback: React.FC<{ query?: string; type: string; style?:
   );
 };
 
-const AsyncMediaNode: React.FC<{ type: 'Image' | 'Video'; localPath: string; style?: React.CSSProperties; volume?: number }> = ({ type, localPath, style, volume }) => {
-  const [url, setUrl] = React.useState<string>('');
-  const [handle] = React.useState(() => delayRender("Fetching Media URL"));
-
-  React.useEffect(() => {
-    let active = true;
-    const fetchUrl = async () => {
-      // If rendering headlessly, the port is already injected synchronously via props.
-      if (!window.__file_server_port__ && window.pywebview?.api?.get_file_server_port) {
-        try {
-          window.__file_server_port__ = await window.pywebview.api.get_file_server_port();
-        } catch (e) {}
-      } else if (!window.__file_server_port__ && typeof window.pywebview !== 'undefined') {
-        await new Promise(r => setTimeout(r, 500));
-        if (window.pywebview?.api?.get_file_server_port) {
-          try {
-            window.__file_server_port__ = await window.pywebview.api.get_file_server_port();
-          } catch (e) {}
-        }
-      }
-      
-      if (active) {
-        setUrl(getMediaUrlSync(localPath));
-        continueRender(handle);
-      }
-    };
-    
-    fetchUrl();
-    return () => { active = false; };
-  }, [localPath, handle]);
-
+const MediaNode: React.FC<{
+  type: 'Image' | 'Video';
+  localPath: string;
+  style?: React.CSSProperties;
+  volume?: number;
+}> = ({ type, localPath, style, volume }) => {
+  const url = getMediaUrlSync(localPath);
   if (!url) return null;
 
   const defaultStyle: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'cover' };
@@ -217,7 +193,15 @@ const AsyncMediaNode: React.FC<{ type: 'Image' | 'Video'; localPath: string; sty
   if (type === 'Image') {
     return <Img src={url} style={mergedStyle} />;
   }
-  return <Video src={url} style={mergedStyle} muted={volume === 0 || volume === undefined} volume={volume ?? 0} />;
+  return (
+    <Video
+      src={url}
+      style={mergedStyle}
+      muted={volume === 0 || volume === undefined}
+      volume={volume ?? 0}
+      loop
+    />
+  );
 };
 
 export const ASTRenderer: React.FC<{
@@ -247,7 +231,7 @@ export const ASTRenderer: React.FC<{
           const mediaStyle = hasCustomLayout
             ? { objectFit: innerStyle.objectFit || 'cover' as const }
             : innerStyle;
-          node = <AsyncMediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} />;
+          node = <MediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} />;
         } else if (content.type === 'Image' || content.type === 'Video') {
           // Procedural fallback when local media is missing/downloading
           node = <ProceduralCanvasFallback query={(content as any).query} type={content.type} style={innerStyle} />;

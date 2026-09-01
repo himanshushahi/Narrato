@@ -163,7 +163,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     web_search_provider: "langsearch",
     web_search_api_key: "",
     render_resolution: "1080p",
-    render_concurrency: "logical",
+    render_concurrency: "75%",
     render_fps: "30",
     render_crf: "23",
     render_codec: "h264",

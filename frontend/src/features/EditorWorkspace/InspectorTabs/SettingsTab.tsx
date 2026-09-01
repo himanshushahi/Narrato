@@ -41,13 +41,20 @@ const CRF_OPTIONS = [
 ];
 
 const CONCURRENCY_OPTIONS = [
-  { value: '1', label: '1 Core (Stable)' },
-  { value: '2', label: '2 Cores' },
-  { value: '4', label: '4 Cores' },
-  { value: '8', label: '8 Cores' },
-  { value: 'logical', label: 'Max Logical (Fastest)' },
-  { value: 'physical', label: 'Max Physical (Recommended)' },
+  { value: '25%', label: '25% (Light / 1-2 Cores)' },
+  { value: '50%', label: '50% (Balanced / Half Cores)' },
+  { value: '75%', label: '75% (Fast - Recommended)' },
+  { value: '100%', label: '100% (Max / Fastest)' },
 ];
+
+const normalizeConcurrency = (val?: string): string => {
+  if (!val) return '75%';
+  if (val === 'logical' || val === '100%') return '100%';
+  if (val === 'physical' || val === '50%') return '50%';
+  if (val === '75%') return '75%';
+  if (val === '25%') return '25%';
+  return val.endsWith('%') ? val : '75%';
+};
 
 const HARDWARE_OPTIONS = [
   { value: 'cpu', label: 'CPU (Software)' },
@@ -338,13 +345,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
           <OverrideRow
             label="Concurrency"
-            globalValue={globalSettings.render_concurrency || 'logical'}
-            projectValue={projectVal('render_concurrency')}
+            globalValue={normalizeConcurrency(globalSettings.render_concurrency)}
+            projectValue={projectVal('render_concurrency') ? normalizeConcurrency(projectVal('render_concurrency')) : ''}
             onReset={() => resetKey('render_concurrency')}
           >
             <CustomSelect
               options={CONCURRENCY_OPTIONS}
-              value={projectVal('render_concurrency') || globalSettings.render_concurrency || 'logical'}
+              value={normalizeConcurrency(projectVal('render_concurrency') || globalSettings.render_concurrency)}
               onChange={(v) => updateKey('render_concurrency', v)}
             />
           </OverrideRow>
