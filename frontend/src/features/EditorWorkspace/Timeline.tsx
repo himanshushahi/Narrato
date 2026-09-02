@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
@@ -237,28 +237,28 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     setTimelineZoom(optimalZoom);
   }, [totalDuration, setTimelineZoom]);
 
-  // ── Can Split Check ───────────────────────────────────────────────────────
-  const currentFrame = usePlaybackStore((s) => s.currentFrame);
-  const activeSceneAndSub = useMemo(() => {
-    const sceneIdx = localTimings.findIndex(t => currentFrame >= t.start && currentFrame < t.end);
+  // ── Split at Playhead Helper ─────────────────────────────────────────────
+  const getCanSplitAtFrame = useCallback((frame: number) => {
+    const timings = localTimingsRef.current;
+    const sceneIdx = timings.findIndex(t => frame >= t.start && frame < t.end);
     if (sceneIdx === -1) return null;
-    const timing = localTimings[sceneIdx];
+    const timing = timings[sceneIdx];
     if (!timing || !timing.subs) return null;
-    const subIdx = timing.subs.findIndex(x => currentFrame >= x.start && currentFrame < x.end);
+    const subIdx = timing.subs.findIndex(x => frame >= x.start && frame < x.end);
     if (subIdx === -1) return null;
     const sub = timing.subs[subIdx];
-    // Check if at least 0.5s from start and end
-    const frameOffsetStart = currentFrame - sub.start;
-    const frameOffsetEnd = sub.end - currentFrame;
+    const frameOffsetStart = frame - sub.start;
+    const frameOffsetEnd = sub.end - frame;
     const canSplit = frameOffsetStart >= 0.5 * FPS && frameOffsetEnd >= 0.5 * FPS;
     return { sceneIdx, subIdx, sub, canSplit };
-  }, [currentFrame, localTimings]);
+  }, []);
 
-  // ── Split at Playhead Handler ─────────────────────────────────────────────
   const handleSplitAtPlayhead = useCallback(() => {
-    if (!activeSceneAndSub?.canSplit || !onSplitSubVisualAtFrame) return;
-    onSplitSubVisualAtFrame(activeSceneAndSub.sceneIdx, activeSceneAndSub.subIdx, currentFrame);
-  }, [activeSceneAndSub, currentFrame, onSplitSubVisualAtFrame]);
+    const frame = usePlaybackStore.getState().currentFrame;
+    const splitInfo = getCanSplitAtFrame(frame);
+    if (!splitInfo?.canSplit || !onSplitSubVisualAtFrame) return;
+    onSplitSubVisualAtFrame(splitInfo.sceneIdx, splitInfo.subIdx, frame);
+  }, [getCanSplitAtFrame, onSplitSubVisualAtFrame]);
 
   // Keyboard shortcut 'C' to split cut
   useEffect(() => {
@@ -269,7 +269,9 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
         return;
       }
       if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (activeSceneAndSub?.canSplit) {
+        const frame = usePlaybackStore.getState().currentFrame;
+        const splitInfo = getCanSplitAtFrame(frame);
+        if (splitInfo?.canSplit) {
           e.preventDefault();
           handleSplitAtPlayhead();
         }
@@ -277,7 +279,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [readOnly, activeSceneAndSub, handleSplitAtPlayhead]);
+  }, [readOnly, getCanSplitAtFrame, handleSplitAtPlayhead]);
 
   // ── Sub-Visual Resizing ───────────────────────────────────────────────────
   const startSubVisualResize = useCallback((e: React.MouseEvent, sceneIdx: number, subIdx: number) => {
@@ -602,7 +604,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
             setTimelineZoom={setTimelineZoom}
             onFitTimeline={handleFitTimeline}
             onSplitAtPlayhead={handleSplitAtPlayhead}
-            canSplit={!!activeSceneAndSub?.canSplit}
+            localTimings={localTimings}
           />
         )}
       </div>
@@ -795,23 +797,29 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
           </div>
 
           {/* Split at Playhead */}
-          <button
-            type="button"
-            disabled={!activeSceneAndSub?.canSplit}
-            onClick={() => {
-              handleSplitAtPlayhead();
-              setContextMenu(null);
-            }}
-            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-none text-left transition-colors cursor-pointer ${
-              activeSceneAndSub?.canSplit ? 'hover:bg-zinc-800 text-zinc-200' : 'opacity-40 cursor-not-allowed text-zinc-500'
-            }`}
-          >
-            <Scissors className="w-3.5 h-3.5 text-amber-400" />
-            <div className="flex-1">
-              <div>Split Cut at Playhead</div>
-              <div className="text-[8px] text-zinc-500">Shortcut: C</div>
-            </div>
-          </button>
+          {(() => {
+            const splitInfo = contextMenu ? getCanSplitAtFrame(usePlaybackStore.getState().currentFrame) : null;
+            const canSplit = !!splitInfo?.canSplit;
+            return (
+              <button
+                type="button"
+                disabled={!canSplit}
+                onClick={() => {
+                  handleSplitAtPlayhead();
+                  setContextMenu(null);
+                }}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-none text-left transition-colors cursor-pointer ${
+                  canSplit ? 'hover:bg-zinc-800 text-zinc-200' : 'opacity-40 cursor-not-allowed text-zinc-500'
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5 text-amber-400" />
+                <div className="flex-1">
+                  <div>Split Cut at Playhead</div>
+                  <div className="text-[8px] text-zinc-500">Shortcut: C</div>
+                </div>
+              </button>
+            );
+          })()}
 
           {/* Duplicate Cut */}
           {onDuplicateSubVisual && (

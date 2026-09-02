@@ -33,8 +33,15 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(width * dpr);
-    canvas.height = Math.floor(height * dpr);
+    const targetW = Math.max(1, Math.floor(width * dpr));
+    const targetH = Math.max(1, Math.floor(height * dpr));
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+
+    ctx.save();
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
@@ -77,6 +84,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = React.memo(({
       // Draw sharp square bars (mirrored around center)
       ctx.fillRect(x, y, barWidth, barH * 2);
     }
+    ctx.restore();
   }, [peaks, totalAudioDuration, startTime, duration, width, height, color, isMuted, isCut]);
 
   return (

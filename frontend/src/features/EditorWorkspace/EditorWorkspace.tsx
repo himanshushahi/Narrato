@@ -480,22 +480,6 @@ const EditorWorkspace: React.FC = () => {
   }, []);
 
   // === Computed values ===
-  const activeTimingsToUse = activeTimings.length > 0 ? activeTimings : sceneTimings;
-  // Derive the active scene/sub indices INSIDE the store selector so this
-  // component re-renders only when the active item actually changes
-  // (scene boundaries), not on every playhead frame.
-  const activeSceneIdx = usePlaybackStore((s) => {
-    const timings = activeTimingsToUse;
-    return timings.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end);
-  });
-  const activeSubIdx = usePlaybackStore((s) => {
-    if (activeSceneIdx < 0) return -1;
-    const timings = activeTimingsToUse;
-    const subs = timings[activeSceneIdx]?.subs;
-    return subs && subs.length > 0
-      ? subs.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end)
-      : -1;
-  });
   const hasScriptData = !!scriptData;
   const isLoading = !selectedProject || !projectReady;
 
@@ -1006,8 +990,6 @@ const EditorWorkspace: React.FC = () => {
           manifestData={manifestData}
           transcriptionData={transcriptionData}
           sceneTimings={activeTimings}
-          activeSceneIdx={activeSceneIdx}
-          activeSubIdx={activeSubIdx}
           localProjectSettings={localProjectSettings}
           projectId={id || ''}
 

@@ -1,13 +1,16 @@
 import React from 'react';
 import { VscZoomIn, VscZoomOut } from 'react-icons/vsc';
 import { Scissors, Maximize2 } from 'lucide-react';
-import { ZOOM_MIN, ZOOM_MAX } from '../timelineConstants';
+import { ZOOM_MIN, ZOOM_MAX, FPS } from '../timelineConstants';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
+import { usePlaybackStore } from '../../../store/usePlaybackStore';
 
 interface TimelineZoomControlsProps {
   timelineZoom: number;
   setTimelineZoom: (zoom: number) => void;
   onFitTimeline?: () => void;
   onSplitAtPlayhead?: () => void;
+  localTimings?: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
   canSplit?: boolean;
 }
 
@@ -16,8 +19,30 @@ export const TimelineZoomControls: React.FC<TimelineZoomControlsProps> = React.m
   setTimelineZoom,
   onFitTimeline,
   onSplitAtPlayhead,
-  canSplit = false,
+  localTimings,
+  canSplit: canSplitProp,
 }) => {
+  const storeCanSplit = useStoreWithEqualityFn(
+    usePlaybackStore,
+    (s) => {
+      if (!localTimings || localTimings.length === 0) return false;
+      const frame = s.currentFrame;
+      const sceneIdx = localTimings.findIndex(t => frame >= t.start && frame < t.end);
+      if (sceneIdx === -1) return false;
+      const timing = localTimings[sceneIdx];
+      if (!timing || !timing.subs) return false;
+      const subIdx = timing.subs.findIndex(x => frame >= x.start && frame < x.end);
+      if (subIdx === -1) return false;
+      const sub = timing.subs[subIdx];
+      const frameOffsetStart = frame - sub.start;
+      const frameOffsetEnd = sub.end - frame;
+      return frameOffsetStart >= 0.5 * FPS && frameOffsetEnd >= 0.5 * FPS;
+    },
+    Object.is
+  );
+
+  const canSplit = localTimings !== undefined ? storeCanSplit : (canSplitProp ?? false);
+
   const handleZoomIn = () => setTimelineZoom(Math.min(ZOOM_MAX, Math.round(timelineZoom * 1.4)));
   const handleZoomOut = () => setTimelineZoom(Math.max(ZOOM_MIN, Math.round(timelineZoom / 1.4)));
 

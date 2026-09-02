@@ -27,6 +27,105 @@ interface VideoPreviewProps {
 
 // Player re-renders only when its props actually change (scenes, media URLs,
 // toggles) — NOT on every playhead tick. This keeps Remotion's <Player>
+import { useStoreWithEqualityFn } from 'zustand/traditional';
+
+// ── Sub-components that subscribe to playback frame without re-rendering VideoPreview ──
+
+const formatTimestamp = (frame: number) => {
+  const totalSeconds = Math.floor(frame / 30);
+  const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+  const s = (totalSeconds % 60).toString().padStart(2, '0');
+  const f = (frame % 30).toString().padStart(2, '0');
+  return `${m}:${s}:${f}`;
+};
+
+const PreviewActiveSceneBadge: React.FC<{ liveScenes: any[] }> = React.memo(({ liveScenes }) => {
+  const activeSceneLabel = useStoreWithEqualityFn(
+    usePlaybackStore,
+    (s) => {
+      let offset = 0;
+      for (let i = 0; i < (liveScenes || []).length; i++) {
+        const scene = liveScenes[i];
+        const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+        if (s.currentFrame >= offset && s.currentFrame < offset + durationFrames) {
+          return scene.title || `${scene.section_type === 'introduction' ? 'Introduction' : scene.section_type === 'conclusion' ? 'Conclusion' : `Scene ${i}`}`;
+        }
+        offset += durationFrames;
+      }
+      return '';
+    },
+    Object.is
+  );
+
+  if (!activeSceneLabel) return null;
+
+  return (
+    <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-600/15 text-blue-400 px-2.5 py-0.5 rounded border border-blue-600/25">
+      {activeSceneLabel}
+    </span>
+  );
+});
+PreviewActiveSceneBadge.displayName = 'PreviewActiveSceneBadge';
+
+const PreviewSeekBar: React.FC<{
+  totalFrames: number;
+  onSeek: (frame: number) => void;
+}> = React.memo(({ totalFrames, onSeek }) => {
+  const currentFrame = usePlaybackStore((s) => s.currentFrame);
+  const percent = totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0;
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (totalFrames <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const frame = Math.round((x / rect.width) * totalFrames);
+    onSeek(frame);
+  };
+
+  return (
+    <div className="px-4 py-2 w-full">
+      <div
+        className="relative h-2 cursor-pointer group"
+        onClick={handleClick}
+      >
+        {/* Track background */}
+        <div className="absolute inset-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-zinc-800/60 overflow-hidden">
+          {/* Filled progress */}
+          <div
+            className="h-full bg-linear-to-r from-blue-600 to-cyan-500 rounded-full"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        {/* Hover target: larger invisible hit area */}
+        <div className="absolute inset-0 -top-2 -bottom-2" />
+        {/* Seek handle dot — visible on hover */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white shadow-md shadow-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+          style={{
+            left: `${percent}%`,
+          }}
+        />
+      </div>
+    </div>
+  );
+});
+PreviewSeekBar.displayName = 'PreviewSeekBar';
+
+const PreviewTimecode: React.FC = React.memo(() => {
+  const currentFrame = usePlaybackStore((s) => s.currentFrame);
+  return (
+    <div className="flex items-baseline gap-[2px] px-2.5 py-1 rounded bg-zinc-900/80 border border-zinc-800/50 font-mono">
+      <span className="text-sm font-bold text-white tabular-nums tracking-wider">
+        {formatTimestamp(currentFrame)}
+      </span>
+      <span className="text-[10px] text-zinc-500 ml-2">30fps</span>
+    </div>
+  );
+});
+PreviewTimecode.displayName = 'PreviewTimecode';
+
+// Player re-renders only when its props actually change (scenes, media URLs,
+// toggles) — NOT on every playhead tick. This keeps Remotion's <Player>
 // untouched while the seek bar/timecode update 5x/sec.
 const MemoizedRemotionPlayer = React.memo(RemotionVideoPlayer);
 
@@ -40,7 +139,6 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const previewQuality = useEditorStore((s) => s.previewQuality);
   const setPreviewQuality = useEditorStore((s) => s.setPreviewQuality);
-  const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const [zoom, setZoom] = React.useState<'fit' | '100' | '150'>('fit');
   const [showOverlay, setShowOverlay] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
@@ -109,27 +207,6 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     }
   };
 
-  const formatTimestamp = (frame: number) => {
-    const totalSeconds = Math.floor(frame / 30);
-    const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-    const s = (totalSeconds % 60).toString().padStart(2, '0');
-    const f = (frame % 30).toString().padStart(2, '0');
-    return `${m}:${s}:${f}`;
-  };
-
-  // Find active scene label
-  let activeSceneLabel = '';
-  let offset = 0;
-  for (let i = 0; i < (liveScenes || []).length; i++) {
-    const scene = liveScenes[i];
-    const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
-    if (currentFrame >= offset && currentFrame < offset + durationFrames) {
-      activeSceneLabel = scene.title || `${scene.section_type === 'introduction' ? 'Introduction' : scene.section_type === 'conclusion' ? 'Conclusion' : `Scene ${i}`}`;
-      break;
-    }
-    offset += durationFrames;
-  }
-
   const zoomScale = zoom === 'fit' ? 0.9 : zoom === '100' ? 0.8 : 1.35;
 
   // Stable object identity so the memoized Player skips re-renders.
@@ -145,13 +222,11 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     return Math.max(150, Math.ceil(totalDuration * 30));
   }, [liveScenes]);
 
-  const handleSeekBar = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!playerRef.current || totalFrames <= 0) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const frame = Math.round((x / rect.width) * totalFrames);
-    playerRef.current.seekTo(frame);
-  };
+  const handleSeekFromBar = React.useCallback((frame: number) => {
+    if (playerRef.current) {
+      playerRef.current.seekTo(frame);
+    }
+  }, [playerRef]);
 
   return (
     <div
@@ -172,11 +247,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
 
         {/* Right — scene badge + settings */}
         <div className="flex items-center gap-3">
-          {activeSceneLabel && (
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-600/15 text-blue-400 px-2.5 py-0.5 rounded border border-blue-600/25">
-              {activeSceneLabel}
-            </span>
-          )}
+          <PreviewActiveSceneBadge liveScenes={liveScenes} />
         </div>
       </div>
 
@@ -247,30 +318,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
         animate={{ opacity: showOverlay ? 1 : 0 }}
         transition={{ duration: 0.15 }}
       >
-        <div className="px-4 py-2 w-full">
-          <div
-            className="relative h-2 cursor-pointer group"
-            onClick={handleSeekBar}
-          >
-            {/* Track background */}
-            <div className="absolute inset-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-zinc-800/60 overflow-hidden">
-              {/* Filled progress */}
-              <div
-                className="h-full bg-linear-to-r from-blue-600 to-cyan-500 rounded-full transition-[width] duration-75"
-                style={{ width: `${totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0}%` }}
-              />
-            </div>
-            {/* Hover target: larger invisible hit area */}
-            <div className="absolute inset-0 -top-2 -bottom-2" />
-            {/* Seek handle dot — visible on hover */}
-            <div
-              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white shadow-md shadow-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-              style={{
-                left: `${totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0}%`,
-              }}
-            />
-          </div>
-        </div>
+        <PreviewSeekBar totalFrames={totalFrames} onSeek={handleSeekFromBar} />
       </motion.div>
 
       {/* ███ Bottom controls bar ███ */}
@@ -291,12 +339,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
           </button>
 
           {/* Timecode — like professional editors */}
-          <div className="flex items-baseline gap-[2px] px-2.5 py-1 rounded bg-zinc-900/80 border border-zinc-800/50 font-mono">
-            <span className="text-sm font-bold text-white tabular-nums tracking-wider">
-              {formatTimestamp(currentFrame)}
-            </span>
-            <span className="text-[10px] text-zinc-500 ml-2">30fps</span>
-          </div>
+          <PreviewTimecode />
         </div>
 
         {/* Right: Zoom controls + Fullscreen */}

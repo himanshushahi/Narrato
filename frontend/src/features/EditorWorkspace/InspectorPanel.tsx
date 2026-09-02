@@ -12,6 +12,8 @@ import { VoiceTab } from './InspectorTabs/VoiceTab';
 import { OverlaysTab } from './InspectorTabs/OverlaysTab';
 import { ExportTab } from './InspectorTabs/ExportTab';
 import { SettingsTab } from './InspectorTabs/SettingsTab';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
+import { usePlaybackStore } from '../../store/usePlaybackStore';
 import { Task } from '../../store/useProjectStore';
 
 interface InspectorPanelProps {
@@ -19,8 +21,6 @@ interface InspectorPanelProps {
   manifestData: any[];
   transcriptionData: any;
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
-  activeSceneIdx: number;
-  activeSubIdx: number;
   localProjectSettings: any;
   projectId: string;
 
@@ -81,7 +81,7 @@ const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   scriptData, manifestData, transcriptionData, sceneTimings,
-  activeSceneIdx, activeSubIdx, localProjectSettings, projectId,
+  localProjectSettings, projectId,
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
   onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData, onSaveOverlays,
@@ -94,6 +94,24 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
   const inspectorTab = useEditorStore((s) => s.inspectorTab);
   const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+
+  // Subscribe to active scene/sub index with equality check so InspectorPanel
+  // only updates when scene/sub boundaries actually change.
+  const [activeSceneIdx, activeSubIdx] = useStoreWithEqualityFn(
+    usePlaybackStore,
+    (s) => {
+      const sceneIdx = sceneTimings.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end);
+      let subIdx = -1;
+      if (sceneIdx !== -1) {
+        const subs = sceneTimings[sceneIdx]?.subs;
+        if (subs && subs.length > 0) {
+          subIdx = subs.findIndex(x => s.currentFrame >= x.start && s.currentFrame < x.end);
+        }
+      }
+      return [sceneIdx, subIdx] as const;
+    },
+    (a, b) => a[0] === b[0] && a[1] === b[1]
+  );
 
   const renderTabContent = () => {
     switch (inspectorTab) {
