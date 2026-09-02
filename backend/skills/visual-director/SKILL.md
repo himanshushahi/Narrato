@@ -36,7 +36,11 @@ Image | Video | Text | Chart | Shape | Map | HTML | Lottie
   * Use `animation_mode: "typewriter"` for investigative notes or quotes.
   * Use `animation_mode: "marker_highlight"` with `highlight_words: ["keyword"]` for emphasis.
   * For complex scripts (Hindi, Tamil, Bengali, Arabic, etc.), ALWAYS specify a Noto font (e.g. `Noto Sans Devanagari`).
-- **Image**: High-resolution stock photos, textures, overlays, portraits, evidence photos. Use `source: "wikipedia"` for real people/entities (query = exact name). Use `source: "pixabay"` with `image_type: "illustration"` or `"vector"` for transparent PNG cutouts.
+- **Image**: High-resolution stock photos, textures, overlays, portraits, evidence photos, and **official company/brand logos**.
+  * **Company / Brand Logos**: When a company, tech giant, bank, or brand is discussed (e.g. Apple, Google, Tesla, OpenAI, Nvidia, SEBI, RBI), use `source: "wikipedia"` with the **exact entity name** (e.g. `"Apple Inc."`, `"Tesla, Inc."`, `"OpenAI"`). The pipeline automatically fetches the official transparent vector SVG/PNG logo from Wikimedia Commons!
+  * **Crypto / Concept Logos**: Use `source: "pixabay"` with `image_type: "vector"` (e.g. `"query": "bitcoin logo"`).
+  * **Real People Portraits**: Use `source: "wikipedia"` (query = exact person name).
+  * **Transparent Cutouts**: Use `source: "pixabay"` with `image_type: "illustration"` or `"vector"`.
 - **Video**: Cinematic B-roll, timelapses, dramatic motion backgrounds. Set `"volume": 0` by default.
 - **Map**: Geography, routes, territories (`map_style: "modern_dark" | "vintage" | "minimal_light" | "nautical_blue"`).
 - **HTML**: Universal dynamic canvas for bespoke documentary evidence, leaked memos, comparison cards, metric callouts, and custom SVG diagrams.

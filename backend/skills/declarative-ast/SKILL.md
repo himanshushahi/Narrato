@@ -105,8 +105,11 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 * `highlight_color` (optional): Accent color (e.g. `"#facc15"`)
 * **CTL/Indic Fonts**: For Hindi, Tamil, Bengali, Arabic, etc., ALWAYS use Noto fonts (e.g. `Noto Sans Devanagari`).
 
-### 5. `Image` (Photos, Evidence & Vector Cutouts)
-* `sources`: `pexels` (photos/backgrounds), `pixabay` (photos, and with `image_type="illustration"` or `"vector"` transparent PNG cutouts), `wikipedia` (real-world entities/figures).
+### 5. `Image` (Photos, Evidence, Cutouts & Official Brand/Company Logos)
+* `sources`: 
+  * `wikipedia` (**OFFICIAL COMPANY & INSTITUTION LOGOS / PORTRAITS**): When the narration discusses a real company, tech giant, bank, regulatory agency, or brand (e.g. Apple, Google, Tesla, OpenAI, Microsoft, Meta, Nvidia, SEBI, Reserve Bank of India, State Bank of India), set `source: "wikipedia"` with the **exact official entity name** (e.g. `"Apple Inc."`, `"Tesla, Inc."`, `"OpenAI"`, `"Nvidia"`, `"Reserve Bank of India"`). The pipeline automatically queries Wikimedia Commons and downloads the official high-resolution transparent vector SVG / PNG logo!
+  * `pixabay` (**TRANSPARENT VECTOR CUTOUTS & CRYPTO ICONS**): For generic brand concepts, crypto emblems (e.g. `"bitcoin logo"`, `"ethereum logo"`), or vector cutouts, set `source: "pixabay"` with `image_type: "vector"` or `image_type: "illustration"`.
+  * `pexels` (**CINEMATIC PHOTOGRAPHY & TEXTURES**): For atmospheric background photos, archival textures, and contextual photography.
 
 ### 6. `Video` (Dynamic B-Roll & Ambient Motion)
 * `sources`: `pexels` (stock video) or `youtube` (timelapses/clips). Always `"volume": 0`.
@@ -678,6 +681,96 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "fontSize": "38px",
             "textAlign": "center",
             "textShadow": "0 8px 24px rgba(0,0,0,0.9)"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 9: Corporate / Brand Logo Spotlight & Market Profile
+```json
+{
+  "duration": 4.0,
+  "transition": "zoom_in",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "Video",
+          "query": "corporate headquarters glass skyscraper aerial",
+          "source": "pexels",
+          "volume": 0,
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.3)", "contrast(1.2)"],
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 4.0, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "Image",
+          "query": "Apple Inc.",
+          "source": "wikipedia",
+          "style": {
+            "position": "absolute",
+            "left": "10%",
+            "top": "22%",
+            "width": "35%",
+            "height": "52%",
+            "objectFit": "contain",
+            "filter": "drop-shadow(0 15px 35px rgba(0,0,0,0.8))"
+          }
+        },
+        "animations": [
+          { "property": "scale", "from": 0.8, "to": 1.0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "z_index": 18,
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(20px);border-radius:20px;border:1px solid rgba(255,255,255,0.15);box-shadow:0 25px 60px rgba(0,0,0,0.7);padding:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;'><div style='font-size:13px;font-weight:800;color:#38bdf8;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;'>NASDAQ: AAPL</div><div style='font-size:36px;font-weight:900;color:#f8fafc;margin-bottom:4px;'>$3.2 TRILLION</div><div style='font-size:14px;color:#94a3b8;'>Market Capitalization • World's Largest Tech Firm</div></div>",
+          "style": {
+            "position": "absolute",
+            "left": "48%",
+            "top": "22%",
+            "width": "42%",
+            "height": "52%"
+          }
+        },
+        "animations": [
+          { "property": "translateX", "from": 30, "to": 0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "z_index": 30,
+        "content": {
+          "type": "Text",
+          "text": "DOMINATING GLOBAL HARDWARE ECOSYSTEMS",
+          "font": "Inter",
+          "weight": "900",
+          "color": "#ffffff",
+          "animation_mode": "words_stagger",
+          "style": {
+            "position": "absolute",
+            "top": "8%",
+            "left": "8%",
+            "width": "84%",
+            "fontSize": "34px",
+            "textAlign": "center",
+            "textShadow": "0 6px 20px rgba(0,0,0,0.9)"
           }
         }
       }

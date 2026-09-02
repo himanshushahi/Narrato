@@ -59,7 +59,11 @@ When planning sub-visual beats, architect spatial variety across the scene. Mix 
 * **When to Use**: Introducing key figures, CEOs, or geographic routes, oceanic cable networks, and global trade expansion.
 * **Visual Direction**: High-contrast entity portrait with Ken Burns drift OR dark vector map with city pins and glowing animated SVG trajectory path (`preset_path: "route_arch"`).
 
-### 9. Cinematic Ambient Motion Beat (`Video` / `Image` with grading)
+### 9. Corporate / Brand Spotlight Beat (`Image` Logo from Wikipedia + `HTML` Market Ticker)
+* **When to Use**: Introducing or analyzing a major corporation, tech giant, bank, regulatory agency, or brand (e.g. Apple, Google, Tesla, OpenAI, Nvidia, SEBI, RBI).
+* **Visual Direction**: Darkened corporate B-roll background + official transparent vector logo inset (`source: "wikipedia"`) with physics spring entrance + glassmorphic market capitalization / ticker data card + kinetic headline.
+
+### 10. Cinematic Ambient Motion Beat (`Video` / `Image` with grading)
 * **When to Use**: Emotional pauses, contemplative narration shifts, or establishing sweeping geographical mood.
 * **Visual Direction**: High-production cinematic footage with high contrast / darkening vignette and subtle continuous Ken Burns drift (`camera_shake="handheld"`).
 
