@@ -7,6 +7,53 @@ import json from 'highlight.js/lib/languages/json';
 import 'highlight.js/styles/atom-one-dark.css';
 import { DynamicIcon } from '../../../components/video/DynamicIcon';
 import { IconPickerModal } from './IconPickerModal';
+import { AstAnimationBuilder } from './AstAnimationBuilder';
+import { AstLayoutControls } from './AstLayoutControls';
+import { AstFilterControls } from './AstFilterControls';
+import { AstChartDataEditor } from './AstChartDataEditor';
+import { AstMapLocationsEditor } from './AstMapLocationsEditor';
+import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
+
+const SUPPORTED_FONTS = [
+  {
+    group: 'Clean & Modern Sans', fonts: [
+      { value: 'Inter', label: 'Inter (Modern Sans)' },
+      { value: 'Montserrat', label: 'Montserrat (Clean Sans)' },
+      { value: 'Outfit', label: 'Outfit (Modern Tech)' },
+      { value: 'Poppins', label: 'Poppins (Geometric)' },
+      { value: 'Roboto', label: 'Roboto (Universal)' },
+    ]
+  },
+  {
+    group: 'Bold Headlines & Titles', fonts: [
+      { value: 'Oswald', label: 'Oswald (Bold Condensed)' },
+      { value: 'Anton', label: 'Anton (Impact Headline)' },
+      { value: 'Bebas Neue', label: 'Bebas Neue (Tall Headline)' },
+      { value: 'Space Grotesk', label: 'Space Grotesk (Cyberpunk)' },
+    ]
+  },
+  {
+    group: 'Editorial & Classic Serif', fonts: [
+      { value: 'Playfair Display', label: 'Playfair Display (Editorial Serif)' },
+      { value: 'Merriweather', label: 'Merriweather (Documentary Serif)' },
+      { value: 'Cinzel', label: 'Cinzel (Cinematic Classic)' },
+    ]
+  },
+  {
+    group: 'Monospace & Tech HUD', fonts: [
+      { value: 'Fira Code', label: 'Fira Code (Code / HUD)' },
+      { value: 'JetBrains Mono', label: 'JetBrains Mono (Data)' },
+    ]
+  },
+  {
+    group: 'Hindi / Indic / CTL', fonts: [
+      { value: 'Noto Sans Devanagari', label: 'Noto Sans Devanagari (Hindi)' },
+      { value: 'Hind', label: 'Hind (Hindi Sans)' },
+      { value: 'Mukta', label: 'Mukta (Hindi Clean)' },
+      { value: 'Kalam', label: 'Kalam (Handwritten Hindi)' },
+    ]
+  },
+];
 
 hljs.registerLanguage('json', json);
 
@@ -89,6 +136,7 @@ export const AstGraphicalEditor = ({
 
   const [previewingIdx, setPreviewingIdx] = useState<number | null>(null);
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
+  const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'filters' | 'motion'>>({});
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
 
   useEffect(() => {
@@ -189,12 +237,12 @@ export const AstGraphicalEditor = ({
             {/* Header: Layer Title, Z-Index, and Action Buttons */}
             <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/5">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs font-bold text-amber-400 shrink-0">Layer {idx + 1}</span>
-                <div className="flex items-center gap-1.5 bg-black/40 px-2 py-0.5 rounded-md border border-white/10 focus-within:border-amber-500/50">
-                  <span className="text-[10px] font-semibold text-stone-400 uppercase">Z:</span>
+                <span className="text-xs font-bold text-amber-400 shrink-0 whitespace-nowrap">Layer {idx + 1}</span>
+                <div className="flex items-center gap-1.5 bg-black/40 px-2 py-0.5 rounded-md border border-white/10 focus-within:border-amber-500/50 shrink-0">
+                  <span className="text-[10px] font-semibold text-stone-400 uppercase whitespace-nowrap">Z:</span>
                   <input
                     type="number"
-                    className="bg-transparent w-10 text-xs text-stone-200 focus:outline-none text-center font-mono"
+                    className="bg-transparent w-9 text-xs text-stone-200 focus:outline-none text-center font-mono"
                     value={layer.z_index ?? 0}
                     onChange={e => updateLayer(idx, 'z_index', parseInt(e.target.value) || 0)}
                   />
@@ -204,7 +252,7 @@ export const AstGraphicalEditor = ({
                 <button
                   type="button"
                   onClick={() => handleDuplicateLayer(idx)}
-                  className="p-1.5 text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer"
+                  className="p-1.5 text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer shrink-0"
                   title="Duplicate Layer"
                 >
                   <BiCopy size={13} />
@@ -212,7 +260,7 @@ export const AstGraphicalEditor = ({
                 <button
                   type="button"
                   onClick={() => handleDeleteLayer(idx)}
-                  className="p-1.5 text-red-400/80 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-md transition-colors cursor-pointer"
+                  className="p-1.5 text-red-400/80 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-md transition-colors cursor-pointer shrink-0"
                   title="Delete Layer"
                 >
                   <BiTrashAlt size={13} />
@@ -222,7 +270,7 @@ export const AstGraphicalEditor = ({
 
             {/* Content Type Selector */}
             <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Type</label>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block whitespace-nowrap">Type</label>
               <select
                 className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
                 value={cType}
@@ -256,13 +304,13 @@ export const AstGraphicalEditor = ({
                 {/* Search Query + Action Buttons */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Query / Search</label>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 shrink-0 whitespace-nowrap">Query / Search</label>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         disabled={previewingIdx === idx || content.source === 'upload'}
                         onClick={() => handlePreviewQuery(idx, content.query || '')}
-                        className="px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                        className="px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
                         title="Search stock preview"
                       >
                         {previewingIdx === idx ? <div className="w-2.5 h-2.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" /> : <BsSearch size={10} />}
@@ -278,7 +326,7 @@ export const AstGraphicalEditor = ({
                               updateContentFields(idx, { local_path: p, source: 'upload' });
                             }
                           }}
-                          className="px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                          className="px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
                           title="Upload media file"
                         >
                           {uploadingSubVisual !== null ? <div className="w-2.5 h-2.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" /> : <BsUpload size={10} />}
@@ -392,31 +440,35 @@ export const AstGraphicalEditor = ({
 
             {/* Dynamic Content Fields for Text */}
             {cType === 'Text' && (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Text Content</label>
                   <textarea
-                    className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-2 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 min-h-[48px] resize-none leading-relaxed"
+                    className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-2 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 min-h-[54px] resize-none leading-relaxed"
                     value={content.text || ''}
                     onChange={e => updateContent(idx, 'text', e.target.value)}
-                    placeholder="Enter text..."
+                    placeholder="Enter headline or text message..."
                   />
                 </div>
 
+                {/* Animation Mode & Highlight Color */}
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Animation Mode</label>
                     <select
-                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
                       value={content.animation_mode || 'static'}
                       onChange={e => updateContent(idx, 'animation_mode', e.target.value)}
                     >
-                      <option value="static">Static Block</option>
+                      <option value="static">Static Text</option>
                       <option value="words_stagger">Words Stagger (Pop-in)</option>
+                      <option value="character_stagger">Letter Stagger (Cinematic Blur)</option>
                       <option value="typewriter">Typewriter (Caret)</option>
                       <option value="marker_highlight">Marker Highlight</option>
+                      <option value="counter">Number Counter (Ticker)</option>
                     </select>
                   </div>
+
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Highlight Color</label>
                     <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50 min-w-0">
@@ -453,21 +505,37 @@ export const AstGraphicalEditor = ({
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="space-y-1 min-w-0">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Font</label>
-                    <input
-                      type="text"
-                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 placeholder-stone-600 font-mono truncate"
-                      value={content.font || ''}
-                      onChange={e => updateContent(idx, 'font', e.target.value)}
-                      placeholder="Inter"
-                    />
+                {/* Font Family Dropdown */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Font Family</label>
+                    {content.font && !SUPPORTED_FONTS.some(g => g.fonts.some(f => f.value === content.font)) && (
+                      <span className="text-[9px] text-amber-400 font-mono">Custom Font</span>
+                    )}
                   </div>
+                  <select
+                    className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
+                    value={content.font || 'Inter'}
+                    onChange={e => updateContent(idx, 'font', e.target.value)}
+                  >
+                    {SUPPORTED_FONTS.map((group, gIdx) => (
+                      <optgroup key={gIdx} label={group.group} className="bg-zinc-900 text-stone-300 font-bold">
+                        {group.fonts.map((f, fIdx) => (
+                          <option key={fIdx} value={f.value} className="bg-zinc-950 text-stone-200 font-normal">
+                            {f.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Typography Attributes: Weight, Color & Alignment */}
+                <div className="grid grid-cols-3 gap-2">
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Weight</label>
                     <select
-                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-1.5 py-1 focus:outline-none cursor-pointer"
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-1.5 py-1 focus:outline-none cursor-pointer font-medium"
                       value={content.weight || '700'}
                       onChange={e => updateContent(idx, 'weight', e.target.value)}
                     >
@@ -479,8 +547,9 @@ export const AstGraphicalEditor = ({
                       <option value="900">900 (Black)</option>
                     </select>
                   </div>
+
                   <div className="space-y-1 min-w-0">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Color</label>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Text Color</label>
                     <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-md px-1.5 py-1 focus-within:border-amber-500/50 min-w-0">
                       <input
                         type="color"
@@ -493,9 +562,22 @@ export const AstGraphicalEditor = ({
                         className="w-full bg-transparent text-[11px] text-stone-200 focus:outline-none font-mono min-w-0"
                         value={content.color || ''}
                         onChange={e => updateContent(idx, 'color', e.target.value)}
-                        placeholder="#fff"
+                        placeholder="#ffffff"
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Align</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-1.5 py-1 focus:outline-none cursor-pointer font-medium"
+                      value={content.style?.textAlign || 'center'}
+                      onChange={e => updateContentFields(idx, { style: { ...(content.style || {}), textAlign: e.target.value } })}
+                    >
+                      <option value="center">Center</option>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -503,12 +585,12 @@ export const AstGraphicalEditor = ({
 
             {/* Dynamic Content Fields for Chart */}
             {cType === 'Chart' && (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Chart Type</label>
                     <select
-                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
                       value={content.chart_type || 'bar'}
                       onChange={e => updateContent(idx, 'chart_type', e.target.value)}
                     >
@@ -530,8 +612,13 @@ export const AstGraphicalEditor = ({
                     />
                   </div>
                 </div>
+
+                {/* Visual Chart Data Points Table */}
                 <div className="w-full">
-                  <MiniJsonEditor label="Data Array [{label, value, color}]" value={content.data || []} onChange={val => updateContent(idx, 'data', val)} />
+                  <AstChartDataEditor
+                    data={content.data || []}
+                    onChange={val => updateContent(idx, 'data', val)}
+                  />
                 </div>
               </div>
             )}
@@ -766,99 +853,194 @@ export const AstGraphicalEditor = ({
 
             {/* Dynamic Content Fields for HTML */}
             {cType === 'HTML' && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">HTML / SVG Code</label>
-                <textarea
-                  className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-2 text-xs text-stone-200 font-mono focus:outline-none focus:border-amber-500/50 min-h-[100px] leading-normal"
+              <div className="w-full">
+                <AstHtmlCodeEditor
                   value={content.html_content || ''}
-                  onChange={e => updateContent(idx, 'html_content', e.target.value)}
-                  placeholder="<style>...</style><svg>...</svg>"
+                  onChange={val => updateContent(idx, 'html_content', val)}
                 />
               </div>
             )}
 
             {/* Dynamic Content Fields for Map */}
             {cType === 'Map' && (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Map Style</label>
                   <select
-                    className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                    className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
                     value={content.map_style || 'modern_dark'}
                     onChange={e => updateContent(idx, 'map_style', e.target.value)}
                   >
-                    <option value="modern_dark">Modern Dark</option>
-                    <option value="vintage">Vintage</option>
-                    <option value="minimal_light">Minimal Light</option>
-                    <option value="nautical_blue">Nautical Blue</option>
+                    <option value="modern_dark">Modern Dark (Cyan & Slate)</option>
+                    <option value="vintage">Vintage (Warm Amber)</option>
+                    <option value="minimal_light">Minimal Light (Clean White)</option>
+                    <option value="nautical_blue">Nautical Blue (Ocean & Gold)</option>
                   </select>
                 </div>
                 <div className="w-full">
-                  <MiniJsonEditor label="Locations (JSON Array)" value={content.locations || []} onChange={val => updateContent(idx, 'locations', val)} />
+                  <AstMapLocationsEditor
+                    locations={content.locations || []}
+                    onChange={val => updateContent(idx, 'locations', val)}
+                  />
                 </div>
               </div>
             )}
 
-            {/* Collapsible Advanced: Styling, Animations, Motion Blur & Camera Noise */}
-            <div className="pt-2 border-t border-white/5">
+            {/* Collapsible Advanced: Styling, Animations, Motion Blur, Floating & Camera Noise */}
+            <div className="pt-2.5 border-t border-white/5">
               <button
                 type="button"
                 onClick={() => toggleAdvanced(idx)}
-                className="w-full flex items-center justify-between py-1 text-[10px] font-bold uppercase tracking-wider text-stone-400 hover:text-stone-200 transition-colors cursor-pointer"
+                className="w-full flex items-center justify-between py-1 text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
               >
                 <span className="flex items-center gap-1.5">
                   <BsSliders size={11} className="text-amber-400" />
-                  Advanced (Motion Blur, Camera FX, Styles)
+                  Advanced (Layout, Animations, Filters & Motion FX)
                 </span>
                 {isAdvancedOpen ? <BsChevronDown size={11} /> : <BsChevronRight size={11} />}
               </button>
 
               {isAdvancedOpen && (
-                <div className="space-y-3 pt-2.5">
-                  {/* Motion Modifiers */}
-                  <div className="p-2.5 bg-black/30 border border-white/5 rounded-lg space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-amber-300 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={!!layer.motion_blur}
-                          onChange={e => updateLayer(idx, 'motion_blur', e.target.checked)}
-                          className="rounded accent-amber-500 cursor-pointer"
-                        />
-                        Physical Motion Blur
-                      </label>
-                      {layer.motion_blur && (
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] text-stone-400 uppercase">Shutter:</span>
-                          <input
-                            type="number"
-                            value={layer.shutter_angle ?? 180}
-                            onChange={e => updateLayer(idx, 'shutter_angle', parseInt(e.target.value) || 180)}
-                            className="w-12 bg-black/40 border border-white/10 text-[10px] font-mono text-stone-200 px-1 py-0.5 rounded text-center"
-                          />
-                          <span className="text-[9px] text-stone-400">°</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 shrink-0">Camera Shake:</label>
-                      <select
-                        className="bg-black/40 border border-white/10 text-xs text-stone-200 rounded px-2 py-1 focus:outline-none cursor-pointer"
-                        value={layer.camera_shake || 'none'}
-                        onChange={e => updateLayer(idx, 'camera_shake', e.target.value)}
-                      >
-                        <option value="none">None</option>
-                        <option value="handheld">Organic Handheld</option>
-                        <option value="shockwave">Earthquake / Shockwave</option>
-                        <option value="glitch">Glitch Jitter</option>
-                      </select>
-                    </div>
+                <div className="space-y-3.5 pt-3">
+                  {/* 4-Tab Segmented Bar */}
+                  <div className="grid grid-cols-4 gap-1 p-1 bg-black/60 border border-white/10 rounded-lg">
+                    {[
+                      { id: 'layout', label: 'Layout', icon: '🪟' },
+                      { id: 'animations', label: 'Animations', icon: '🚀' },
+                      { id: 'filters', label: 'Filters', icon: '🎨' },
+                      { id: 'motion', label: 'Motion FX', icon: '🎥' },
+                    ].map(tab => {
+                      const active = (advancedTab[idx] || 'layout') === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setAdvancedTab(prev => ({ ...prev, [idx]: tab.id as any }))}
+                          className={`py-1 text-[10px] font-bold rounded-md flex items-center justify-center gap-1 transition-colors cursor-pointer truncate ${
+                            active
+                              ? 'bg-amber-500 text-black shadow-sm font-extrabold'
+                              : 'text-stone-400 hover:text-stone-200 hover:bg-white/5'
+                          }`}
+                        >
+                          <span>{tab.icon}</span>
+                          <span className="truncate">{tab.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
 
-                  <MiniJsonEditor label="Style (CSS Object)" value={content.style || {}} onChange={val => updateContent(idx, 'style', val)} />
-                  <MiniJsonEditor label="Animations Array" value={layer.animations || []} onChange={val => updateLayer(idx, 'animations', val)} />
-                  <MiniJsonEditor label="Filters Array" value={layer.filters || []} onChange={val => updateLayer(idx, 'filters', val)} />
+                  {/* Tab 1: Layout & Cards */}
+                  {(!advancedTab[idx] || advancedTab[idx] === 'layout') && (
+                    <AstLayoutControls
+                      style={content.style || {}}
+                      onChange={val => updateContent(idx, 'style', val)}
+                    />
+                  )}
+
+                  {/* Tab 2: Animations */}
+                  {advancedTab[idx] === 'animations' && (
+                    <AstAnimationBuilder
+                      animations={layer.animations || []}
+                      onChange={val => updateLayer(idx, 'animations', val)}
+                    />
+                  )}
+
+                  {/* Tab 3: Filters */}
+                  {advancedTab[idx] === 'filters' && (
+                    <AstFilterControls
+                      filters={layer.filters || []}
+                      onChange={val => updateLayer(idx, 'filters', val)}
+                    />
+                  )}
+
+                  {/* Tab 4: Motion & Camera FX */}
+                  {advancedTab[idx] === 'motion' && (
+                    <div className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-3.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                        Motion Physics & Camera Dynamics
+                      </div>
+
+                      {/* Harmonic Floating & Motion Blur Toggles */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer p-2 bg-black/50 border border-white/5 rounded-lg hover:border-amber-500/30 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!layer.floating}
+                            onChange={e => updateLayer(idx, 'floating', e.target.checked)}
+                            className="rounded accent-amber-500 cursor-pointer"
+                          />
+                          <span>🌊 Harmonic Floating</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer p-2 bg-black/50 border border-white/5 rounded-lg hover:border-amber-500/30 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!layer.motion_blur}
+                            onChange={e => updateLayer(idx, 'motion_blur', e.target.checked)}
+                            className="rounded accent-amber-500 cursor-pointer"
+                          />
+                          <span>💨 Motion Blur</span>
+                        </label>
+                      </div>
+
+                      {/* Shutter Angle Slider when motion blur is enabled */}
+                      {layer.motion_blur && (
+                        <div className="space-y-1 p-2.5 bg-black/50 border border-white/5 rounded-lg">
+                          <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                            <span>Shutter Angle (Motion Blur Spread)</span>
+                            <span className="text-amber-400 font-mono">{layer.shutter_angle ?? 180}°</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="45"
+                            max="360"
+                            step="45"
+                            value={layer.shutter_angle ?? 180}
+                            onChange={e => updateLayer(idx, 'shutter_angle', parseInt(e.target.value, 10))}
+                            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+                          />
+                          <div className="flex justify-between text-[8px] text-stone-500 font-mono">
+                            <span>90° (Crisp)</span>
+                            <span>180° (Cinematic 24fps)</span>
+                            <span>360° (Dreamy)</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Camera Shake */}
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Camera Shake / Jitter</label>
+                        <select
+                          className="w-full bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
+                          value={layer.camera_shake || 'none'}
+                          onChange={e => updateLayer(idx, 'camera_shake', e.target.value)}
+                        >
+                          <option value="none">None (Rock Solid)</option>
+                          <option value="handheld">Handheld Organic Drift</option>
+                          <option value="shockwave">Earthquake Shockwave</option>
+                          <option value="glitch">Glitch Jitter</option>
+                        </select>
+                      </div>
+
+                      {/* Transform Origin Anchor Selection */}
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Transform Origin (Anchor Point)</label>
+                        <select
+                          className="w-full bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
+                          value={layer.transform_origin || 'center center'}
+                          onChange={e => updateLayer(idx, 'transform_origin', e.target.value)}
+                        >
+                          <option value="center center">Center Center (Default)</option>
+                          <option value="top left">Top Left</option>
+                          <option value="top center">Top Center</option>
+                          <option value="top right">Top Right</option>
+                          <option value="bottom left">Bottom Left</option>
+                          <option value="bottom center">Bottom Center</option>
+                          <option value="bottom right">Bottom Right</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -881,7 +1063,15 @@ export const AstGraphicalEditor = ({
         onClose={() => setIconPickerIdx(null)}
         onSelectIcon={(iconName) => {
           if (iconPickerIdx !== null) {
-            updateContent(iconPickerIdx, 'icon_name', iconName);
+            const currentContent = composition.children?.[iconPickerIdx]?.content || {};
+            updateContentFields(iconPickerIdx, {
+              type: 'Shape',
+              shape_type: 'icon',
+              icon_name: iconName,
+              stroke: currentContent.stroke || currentContent.fill || '#00d4ff',
+              stroke_width: currentContent.stroke_width ?? 2,
+              radius: currentContent.radius ?? 50,
+            });
           }
         }}
         currentIcon={iconPickerIdx !== null ? (composition.children?.[iconPickerIdx]?.content?.icon_name || 'trending-up') : undefined}

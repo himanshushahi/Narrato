@@ -153,22 +153,67 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
             <div key={idx}
               data-active-sub={isActive ? 'true' : undefined}
               onClick={() => { if (timing && onSeek) onSeek(timing.start); }}
-              className={`p-4 rounded-xl border space-y-4 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}>
-              <div className="absolute top-2 right-2 flex gap-1">
+              className={`p-3.5 rounded-xl border space-y-3 relative cursor-pointer transition-all duration-300 group ${isActive ? 'border-amber-500/40 bg-amber-900/5 shadow-[0_0_20px_rgba(245,158,11,0.05)]' : 'border-white/5 bg-black/20 hover:border-white/10 hover:bg-black/30'}`}
+            >
+              {/* Card Header: Cut Index, Timing & Action Buttons */}
+              <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-white/5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className={`text-xs font-bold tracking-wide shrink-0 ${isActive ? 'text-amber-400' : 'text-stone-400 group-hover:text-stone-300'}`}>
+                    Cut {idx + 1}
+                  </div>
+                  {timing && (
+                    <div className="text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded-full text-stone-400 border border-white/5 shrink-0">
+                      {formatTime(timing.start)} - {formatTime(timing.end)}
+                    </div>
+                  )}
+                  {isActive && (
+                    <span className="flex h-2 w-2 relative shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                  )}
+                </div>
 
-                {onRewriteSubVisual && (
-                  <button type="button" onClick={(e) => { e.stopPropagation(); if (aiPromptIdx === idx) { setAiPromptIdx(null); setAiPromptText(''); } else { setAiPromptIdx(idx); setAiPromptText(''); } }} className="text-amber-500/80 hover:text-amber-400 text-xs px-2 py-1 bg-amber-500/10 rounded-md cursor-pointer transition-colors" title="AI Magic Rewrite"><BsStars size={14} /></button>
-                )}
-                <button type="button" onClick={(e) => { e.stopPropagation(); handleRemove(idx); }} className="text-red-500/70 hover:text-red-400 text-xs px-2 py-1 bg-red-500/10 rounded-md cursor-pointer transition-colors opacity-0 group-hover:opacity-100"><BiTrashAlt size={14} /></button>
+                <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                  {onRewriteSubVisual && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (aiPromptIdx === idx) {
+                          setAiPromptIdx(null);
+                          setAiPromptText('');
+                        } else {
+                          setAiPromptIdx(idx);
+                          setAiPromptText('');
+                        }
+                      }}
+                      className={`px-2 py-1 rounded-md text-xs flex items-center gap-1 transition-colors cursor-pointer ${aiPromptIdx === idx ? 'bg-amber-500 text-black font-bold' : 'text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30'}`}
+                      title="AI Magic Rewrite"
+                    >
+                      <BsStars size={12} />
+                      <span className="text-[10px] font-bold">AI Rewrite</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleRemove(idx); }}
+                    className="p-1.5 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-md transition-colors cursor-pointer"
+                    title="Delete Cut"
+                  >
+                    <BiTrashAlt size={13} />
+                  </button>
+                </div>
               </div>
 
+              {/* AI Rewrite Prompt Input Box */}
               {aiPromptIdx === idx && onRewriteSubVisual && (
-                <div className="bg-amber-950/40 p-2.5 rounded border border-amber-900/50 mt-8 mb-2 relative" onClick={e => e.stopPropagation()}>
+                <div className="bg-amber-950/40 p-2.5 rounded-lg border border-amber-900/50 relative" onClick={e => e.stopPropagation()}>
                   <div className="flex gap-2">
                     <CustomInput
                       autoFocus
                       type="text"
-                      placeholder={`e.g. Change this to a stunning network diagram...`}
+                      placeholder={`e.g. Change this to a stunning 3D globe animation...`}
                       className="flex-1 bg-black/50 border border-amber-900/50 rounded px-3 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
                       value={aiPromptText}
                       onChange={e => setAiPromptText(e.target.value)}
@@ -194,7 +239,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                           setAiPromptText('');
                         });
                       }}
-                      className="bg-amber-600 hover:bg-amber-500 text-white px-3 rounded flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="bg-amber-600 hover:bg-amber-500 text-white px-3 rounded flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                     >
                       {isRewriting ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <BsSendFill size={12} />}
                     </button>
@@ -202,65 +247,80 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                 </div>
               )}
 
-              <div className={`flex items-center gap-2 mb-2 ${aiPromptIdx === idx ? 'mt-2' : ''}`}>
-                <div className={`text-xs font-bold tracking-wide ${isActive ? 'text-amber-400' : 'text-stone-400 group-hover:text-stone-300'}`}>Layer {idx + 1}</div>
-                {timing && (
-                  <div className="text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded-full text-stone-500 border border-white/5">
-                    {formatTime(timing.start)} - {formatTime(timing.end)}
-                  </div>
-                )}
-                {isActive && <span className="flex h-2 w-2 relative ml-1"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>}
+              {/* Cut Toolbar: Transition Selector & Audio Toggles */}
+              <div className="p-2.5 bg-black/35 border border-white/5 rounded-lg space-y-2" onClick={e => e.stopPropagation()}>
+                {/* Transition Selector: Fills available horizontal width */}
+                <div className="flex items-center gap-2 w-full">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 shrink-0">
+                    ⚡ Transition:
+                  </span>
+                  <select
+                    className="flex-1 w-full bg-black/60 border border-white/10 hover:border-amber-500/40 text-[11px] font-semibold text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                    value={sv.transition || 'cut'}
+                    onChange={e => handleUpdate(idx, 'transition', e.target.value)}
+                  >
+                    <option value="cut">Cut (Instant)</option>
+                    <option value="slide_left">Slide Left</option>
+                    <option value="slide_right">Slide Right</option>
+                    <option value="slide_up">Slide Up</option>
+                    <option value="slide_down">Slide Down</option>
+                    <option value="zoom_in">Zoom In (Punch)</option>
+                    <option value="zoom_out">Zoom Out</option>
+                    <option value="whip_pan">Whip Pan (Motion Blur)</option>
+                    <option value="glitch">Glitch Jitter</option>
+                    <option value="crossfade">Crossfade</option>
+                    <option value="fade">Fade</option>
+                  </select>
+                </div>
+
+                {/* Audio Cut toggles: 50% / 50% Equal Horizontal Split */}
+                <div className="grid grid-cols-2 gap-2 w-full">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdate(idx, 'mute_voiceover', !sv.mute_voiceover)}
+                    className={`w-full py-1.5 px-2 rounded-md border text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5 ${sv.mute_voiceover ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-stone-300 hover:border-emerald-500/40 hover:text-emerald-400 hover:bg-emerald-500/10'}`}
+                    title="Mute / Unmute narrator voiceover during this cut"
+                  >
+                    {sv.mute_voiceover ? '✕ Voice Muted' : '🎙️ Voice On'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdate(idx, 'mute_bg_music', !sv.mute_bg_music)}
+                    className={`w-full py-1.5 px-2 rounded-md border text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5 ${sv.mute_bg_music ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-stone-300 hover:border-blue-500/40 hover:text-blue-400 hover:bg-blue-500/10'}`}
+                    title="Mute / Unmute background music during this cut"
+                  >
+                    {sv.mute_bg_music ? '✕ Music Off' : '🎵 Music On'}
+                  </button>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-4" onClick={e => e.stopPropagation()}>
-                <div className="col-span-2 flex flex-col gap-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold uppercase tracking-wider text-stone-400">Composition (AST)</label>
-                    <button 
-                      type="button" 
-                      onClick={(e) => { e.stopPropagation(); setViewMode(prev => ({ ...prev, [idx]: prev[idx] === 'json' ? 'gui' : 'json' })) }} 
-                      className="text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-white/10 text-stone-300 px-2 py-1 rounded transition-colors"
-                    >
-                       View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}
-                    </button>
-                  </div>
-                  {viewMode[idx] === 'json' ? (
-                    <AstJsonEditor
-                      initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
-                      onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
-                    />
-                  ) : (
-                    <AstGraphicalEditor
-                      initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
-                      onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
-                      onUploadSubVisual={onUploadSubVisual ? (visualType) => onUploadSubVisual(idx, visualType) : undefined}
-                      onPreviewSubVisual={onPreviewSubVisual ? (query) => onPreviewSubVisual(idx, query) : undefined}
-                      uploadingSubVisual={uploadingSubVisual}
-                    />
-                  )}
-                </div>
 
-                {/* Audio cut toggles — available for every sub-visual type: silence
-                  the narrator voiceover / bg music for this exact interval. */}
-                <div className="col-span-2 flex items-center gap-2 mt-2">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleUpdate(idx, 'mute_voiceover', !sv.mute_voiceover); }}
-                    className={`flex-1 px-2 py-1.5 rounded-md border text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${sv.mute_voiceover ? 'bg-red-500/15 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-stone-400 hover:border-emerald-500/40 hover:text-emerald-400'}`}
-                    title="Cut the narrator voiceover during this sub-visual's interval"
+              {/* Composition Section */}
+              <div className="space-y-2 pt-1" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-stone-400">Composition (AST)</label>
+                  <button 
+                    type="button" 
+                    onClick={(e) => { e.stopPropagation(); setViewMode(prev => ({ ...prev, [idx]: prev[idx] === 'json' ? 'gui' : 'json' })) }} 
+                    className="text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-white/10 border border-white/10 text-stone-300 px-2 py-1 rounded transition-colors cursor-pointer"
                   >
-                    {sv.mute_voiceover ? '✕ Cut Voiceover' : '🎙️ Voiceover On'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleUpdate(idx, 'mute_bg_music', !sv.mute_bg_music); }}
-                    className={`flex-1 px-2 py-1.5 rounded-md border text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${sv.mute_bg_music ? 'bg-red-500/15 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-stone-400 hover:border-blue-500/40 hover:text-blue-400'}`}
-                    title="Cut the background music during this sub-visual's interval"
-                  >
-                    {sv.mute_bg_music ? '✕ Cut Music' : '🎵 Music On'}
+                     View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}
                   </button>
                 </div>
 
-
+                {viewMode[idx] === 'json' ? (
+                  <AstJsonEditor
+                    initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
+                    onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
+                  />
+                ) : (
+                  <AstGraphicalEditor
+                    initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
+                    onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
+                    onUploadSubVisual={onUploadSubVisual ? (visualType) => onUploadSubVisual(idx, visualType) : undefined}
+                    onPreviewSubVisual={onPreviewSubVisual ? (query) => onPreviewSubVisual(idx, query) : undefined}
+                    uploadingSubVisual={uploadingSubVisual}
+                  />
+                )}
               </div>
             </div>
           </Fragment>

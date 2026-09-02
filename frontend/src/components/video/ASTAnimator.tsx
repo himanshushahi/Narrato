@@ -4,7 +4,7 @@ import { CameraMotionBlur } from '@remotion/motion-blur';
 import { getCameraNoise, CameraShakeType } from './CameraNoise';
 
 export interface ASTAnimation {
-  property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'rotate' | 'rotateX' | 'rotateY';
+  property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
   from: number;
   to: number;
   duration: number; // in seconds
@@ -18,6 +18,7 @@ export interface ASTAnimatorProps {
   shutter_angle?: number;
   camera_shake?: CameraShakeType;
   transform_origin?: string;
+  floating?: boolean;
   children: React.ReactNode;
 }
 
@@ -25,6 +26,7 @@ interface AnimatedLayerProps {
   animations?: ASTAnimation[];
   camera_shake?: CameraShakeType;
   transform_origin?: string;
+  floating?: boolean;
   children: React.ReactNode;
 }
 
@@ -32,6 +34,7 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   animations = [],
   camera_shake = 'none',
   transform_origin = 'center center',
+  floating = false,
   children,
 }) => {
   const frame = useCurrentFrame();
@@ -77,7 +80,7 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
       }
 
       if (anim.property === 'opacity') {
-        s.opacity = val;
+        s.opacity = Math.max(0, Math.min(1, val));
       } else if (anim.property === 'scale') {
         s.transform += ` scale(${val})`;
       } else if (anim.property === 'translateX') {
@@ -90,7 +93,18 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
         s.transform += ` rotateX(${val}deg)`;
       } else if (anim.property === 'rotateY') {
         s.transform += ` rotateY(${val}deg)`;
+      } else if (anim.property === 'blur') {
+        s.filter = `${s.filter || ''} blur(${Math.max(0, val)}px)`.trim();
+      } else if (anim.property === 'brightness') {
+        s.filter = `${s.filter || ''} brightness(${Math.max(0, val)})`.trim();
       }
+    }
+
+    // Optional organic harmonic floating drift
+    if (floating) {
+      const floatY = Math.sin(frame * 0.05) * 4;
+      const floatX = Math.cos(frame * 0.035) * 2.5;
+      s.transform += ` translate3d(${floatX}px, ${floatY}px, 0)`;
     }
 
     // 2. Apply procedural camera noise offset if active
@@ -102,7 +116,7 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     }
     
     return s;
-  }, [animations, cameraOffset, frame, fps, transform_origin]);
+  }, [animations, cameraOffset, floating, frame, fps, transform_origin]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
