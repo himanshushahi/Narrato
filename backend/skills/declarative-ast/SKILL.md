@@ -43,21 +43,25 @@ Great motion graphics are defined by **depth, hierarchy, and contrast**. Every s
 
 ---
 
-## 3. Motion Grammar: Physics & Timing Rules
+## 3. Motion Grammar: Physics, Parallax Depth & Timing Rules
 
-Every layer should move with purpose according to its role:
+Every layer should move with purpose according to its role, creating a tactile **3D multi-plane parallax camera space**:
 
-1. **Backgrounds (Camera Drift)**:
-   * Use linear or ease-out scale/translate over the full cut duration:
-     `"animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 5.0, "easing": "linear" }]`
-2. **Midground Graphics (Physics Spring Entrance)**:
+1. **Faux-3D Parallax Depth Standard**:
+   * **Opposing / Multi-Speed Camera Drift**: When the midground graphic subject (Z: 15) enters with a fast spring translation (`translateY: 50 -> 0`, `easing: "spring"`), the background canvas (Z: 0) MUST have a slow, continuous linear scale drift (`scale: 1.0 -> 1.06`, `duration: total_cut_duration`).
+   * This speed differential between background and midground creates a cinematic parallax effect identical to high-end After Effects camera rigs.
+2. **Backgrounds (Atmospheric Drift)**:
+   * Always apply subtle continuous movement over the full cut duration so the canvas never looks dead or frozen:
+     `"animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 4.5, "easing": "linear" }]`
+3. **Midground Graphics (Physics Spring Entrance & Floating)**:
    * Cards, charts, shapes, and HTML UI elements must enter via spring physics in the first 0.5s–0.8s:
      `"animations": [{ "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "easing": "spring" }, { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "easing": "ease-out" }]`
-3. **Foreground Typography (Selective Kinetic Accenting)**:
+   * On high-velocity spring entrances, set `motion_blur: true` on the layer to enable physical optical shutter blur!
+4. **Foreground Typography (Selective Kinetic Accenting)**:
    * Use `animation_mode: "marker_highlight"` with `highlight_words` on high-impact keywords.
    * Use `animation_mode: "words_stagger"` for impactful statements.
    * Use `animation_mode: "typewriter"` for quotes or confidential notes.
-4. **Atmospheric / Breather Beats**:
+5. **Atmospheric / Breather Beats**:
    * When narration is contemplative or cinematic, a styled single/dual-layer cut (high-contrast B-roll + subtle vignette + subtle lower-third) is appropriate. Avoid unstyled naked stock media.
 
 ---
@@ -773,6 +777,164 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "textShadow": "0 6px 20px rgba(0,0,0,0.9)"
           }
         }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 10: Vintage Newspaper Headline Cutout (Vox / Magnates Media Style)
+```json
+{
+  "duration": 4.2,
+  "transition": "zoom_in",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "Video",
+          "query": "printing press newspaper printing machine motion",
+          "source": "pexels",
+          "volume": 0,
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.25)", "contrast(1.2)", "grayscale(0.5)"],
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 4.2, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:#f4ebd0;border:1px solid #d4c5a9;box-shadow:0 30px 70px rgba(0,0,0,0.8), 0 0 0 8px rgba(0,0,0,0.3);padding:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;transform:rotate(-1.5deg);'><div style='border-bottom:2px solid #1c1917;padding-bottom:6px;display:flex;justify-content:space-between;align-items:center;'><span style='font-family:Georgia,serif;font-size:14px;font-weight:900;letter-spacing:2px;color:#1c1917;'>THE FINANCIAL CHRONICLE</span><span style='font-size:11px;font-weight:700;color:#78716c;'>SPECIAL EDITION</span></div><div style='font-family:Georgia,serif;font-size:32px;font-weight:900;color:#0c0a09;line-height:1.15;letter-spacing:-0.5px;margin:12px 0;'><mark style='background:#facc15;color:#000;padding:2px 6px;'>SECRET ACCOUNTS UNCOVERED</mark> IN OFFSHORE PROBE</div><div style='font-family:Georgia,serif;font-size:13px;color:#44403c;line-height:1.4;'>Federal investigators confirm multiple shell corporations were used to move $400M across international borders undetected.</div></div>",
+          "style": {
+            "position": "absolute",
+            "left": "15%",
+            "top": "18%",
+            "width": "70%",
+            "height": "56%"
+          }
+        },
+        "animations": [
+          { "property": "translateY", "from": 60, "to": 0, "duration": 0.6, "easing": "spring" },
+          { "property": "scale", "from": 0.9, "to": 1.0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.35, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "z_index": 30,
+        "content": {
+          "type": "Text",
+          "text": "THE EVIDENCE WENT PUBLIC",
+          "font": "Inter",
+          "weight": "900",
+          "color": "#ffffff",
+          "animation_mode": "words_stagger",
+          "style": {
+            "position": "absolute",
+            "bottom": "18%",
+            "left": "10%",
+            "width": "80%",
+            "fontSize": "36px",
+            "textAlign": "center",
+            "textShadow": "0 8px 24px rgba(0,0,0,0.9)"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 11: Confidential Leaked Audit Dossier with Redaction Bar
+```json
+{
+  "duration": 4.0,
+  "transition": "zoom_in",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "Video",
+          "query": "dark surveillance office monitors",
+          "source": "pexels",
+          "volume": 0,
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.25)", "contrast(1.2)"],
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.05, "duration": 4.0, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:#1e293b;border:1px solid rgba(255,255,255,0.15);border-radius:16px;box-shadow:0 30px 70px rgba(0,0,0,0.8);padding:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;'><div style='display:flex;justify-content:space-between;align-items:center;'><span style='background:#ef4444;color:#fff;font-size:11px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px;'>CLASSIFIED // TOP SECRET</span><span style='color:#94a3b8;font-size:12px;font-family:monospace;'>DOC-ID: #8849-B</span></div><div style='color:#f8fafc;font-size:18px;line-height:1.6;font-family:monospace;'>\"The internal audit discovered <span style='background:#000;color:#000;padding:2px 14px;border-radius:2px;'>REDACTED</span> transactions unauthorized by the board of directors.\"</div><div style='border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;display:flex;justify-content:space-between;color:#64748b;font-size:11px;'><span>INTERNAL AUDIT DIVISION</span><span>VERIFIED COMPLIANCE</span></div></div>",
+          "style": {
+            "position": "absolute",
+            "left": "15%",
+            "top": "22%",
+            "width": "70%",
+            "height": "52%"
+          }
+        },
+        "animations": [
+          { "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "easing": "ease-out" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 12: Encrypted Chat & Messenger Leak
+```json
+{
+  "duration": 4.2,
+  "transition": "slide_up",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "z_index": 0,
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:linear-gradient(135deg, #090d16 0%, #0f172a 100%);'></div>"
+        }
+      },
+      {
+        "type": "Layer",
+        "z_index": 15,
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;display:flex;flex-direction:column;gap:14px;justify-content:center;padding:16px;box-sizing:border-box;'><div style='align-self:flex-start;max-width:70%;background:#1e293b;border:1px solid rgba(255,255,255,0.1);padding:14px 18px;border-radius:18px 18px 18px 4px;color:#f8fafc;font-size:16px;box-shadow:0 10px 25px rgba(0,0,0,0.5);'><span style='font-size:11px;font-weight:700;color:#38bdf8;display:block;margin-bottom:4px;'>Executive VP • 11:42 PM</span>Has the transfer been executed before the market opens?</div><div style='align-self:flex-end;max-width:70%;background:#0284c7;color:#fff;padding:14px 18px;border-radius:18px 18px 4px 18px;font-size:16px;box-shadow:0 10px 25px rgba(2,132,199,0.3);'><span style='font-size:11px;font-weight:700;color:#e0f2fe;display:block;margin-bottom:4px;'>Chief Financial Officer • 11:44 PM</span>Done. No traces left in the primary ledger.</div></div>",
+          "style": {
+            "position": "absolute",
+            "left": "15%",
+            "top": "20%",
+            "width": "70%",
+            "height": "56%"
+          }
+        },
+        "animations": [
+          { "property": "translateY", "from": 40, "to": 0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "easing": "ease-out" }
+        ]
       }
     ]
   }

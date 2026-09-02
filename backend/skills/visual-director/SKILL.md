@@ -10,17 +10,21 @@ Every sub-visual should feel like an intentional, high-production composite with
 
 === QUANTITY & TIMING ===
 - Break narration into logical visual beats — one sub-visual per beat.
-- Each sub-visual: 2–15 seconds. The sum of all sub-visual durations MUST exactly equal the Total Scene Duration.
+- **Hook Velocity (Intro Scene, first 0–10s)**: High-speed cuts (**2.0s – 2.8s per sub-visual beat**) with intense kinetic typography and shockwave/glitch reveals.
+- **Deep Dive (Middle Scenes)**: Balanced rhythm (**3.2s – 4.5s per sub-visual beat**) for data charts and leaked document analysis.
+- The sum of all sub-visual durations MUST exactly equal the Total Scene Duration.
 - Vary transitions across cuts: `subtle_slide`, `fade`, `slide_left`, `slide_right`, `slide_up`, `slide_down`, `zoom_in`, `zoom_out`, `glitch`, `none`.
 
-=== 3-LAYER DEPTH STANDARD ===
+=== 3-LAYER FAUX-3D PARALLAX DEPTH STANDARD ===
 1. **Z-Index 0–9 (Atmospheric Canvas / Background)**: Full-screen base layer — choose the BEST type for the narrative moment:
-   - **Video**: Darkened B-roll footage + camera drift (atmospheric/cinematic beats).
+   - **Video**: Darkened B-roll footage + slow continuous camera drift (`scale: 1.0 -> 1.06`, `linear`).
    - **Image**: Darkened high-contrast photograph + camera drift (entity spotlights, evidence, historical).
    - **Map**: Vector globe with animated route (geography-central narration).
    - **HTML**: CSS gradient/grid canvas (tech/data/infographic beats without distracting footage).
    ⚠️ VARIETY: Do NOT use the same base type for consecutive cuts. Alternate between Video, Image, HTML Gradients, and Maps.
-2. **Z-Index 10–29 (Graphic Subject / Midground)**: Data charts (`Chart`), glassmorphic cards, vector shapes, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
+2. **Z-Index 10–29 (Graphic Subject / Midground)**: Data charts (`Chart`), glassmorphic cards, vector shapes, vintage newspaper cutouts, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
+   * 💡 Speed Differential: Fast spring entrance on midground + slow linear drift on background creates a cinematic 3D parallax effect!
+   * 💡 Set `motion_blur: true` on fast midground entrances for physical camera shutter blur.
    * 💡 Charts MUST sit in Z-Index 10–29 inside glass cards or over HTML gradients. Never render a bare full-screen chart at z-index 0.
 3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (staying above `bottom: 18%` safe area).
 
@@ -43,17 +47,22 @@ Image | Video | Text | Chart | Shape | Map | HTML | Lottie
   * **Transparent Cutouts**: Use `source: "pixabay"` with `image_type: "illustration"` or `"vector"`.
 - **Video**: Cinematic B-roll, timelapses, dramatic motion backgrounds. Set `"volume": 0` by default.
 - **Map**: Geography, routes, territories (`map_style: "modern_dark" | "vintage" | "minimal_light" | "nautical_blue"`).
-- **HTML**: Universal dynamic canvas for bespoke documentary evidence, leaked memos, comparison cards, metric callouts, and custom SVG diagrams.
+- **HTML**: Universal dynamic canvas for bespoke documentary evidence, vintage newspaper clippings, leaked audit memos, encrypted chat dialogues, comparison cards, metric tickers, and custom SVG diagrams.
 
 === UNIVERSAL MOTION MODIFIERS ===
 - **Motion Blur**: Set `motion_blur: true` on fast-moving cards or spring entrances to enable physical camera shutter blur.
 - **Camera Shake**: Set `camera_shake: "handheld"` on ambient footage layers for organic documentary breathing, `camera_shake: "shockwave"` for high-impact market crash / explosion reveals, or `camera_shake: "glitch"` for fast digital tech jitter.
 
-=== COMPOSITION VARIETY & SCENE RULES ===
+=== COMPOSITION VARIETY & PRE-OUTPUT CHECKLIST ===
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
 - NEVER use the same layout or primitive twice in a row.
-- Alternate between: split-screen data HUDs, document dossiers (HTML), macro metrics, route maps, technical HUDs (Shape), vector animations (Lottie), and cinematic atmosphere beats.
+- Alternate between: split-screen data HUDs, vintage newspaper clippings (HTML), leaked dossiers (HTML), macro metrics, route maps (Map), corporate spotlights (Wikipedia Image logo + ticker), vector animations (Lottie), and cinematic atmosphere beats.
 - Always use `style` on layers — use responsive percentage coordinates (`left`, `top`, `width`, `height`).
 - Always apply the project's generated design system tokens (`primary`, `accent`, `surface`, `glow`, `heading_font`).
+- **Pre-Output Quality Checklist**:
+  1. *Depth*: Does the cut have 3 distinct Z-index planes (0–9 canvas, 10–29 subject, 30–39 accent)?
+  2. *Anchor*: Does the scene include at least one of the 3 Documentary Anchors (Map, Data Chart, or Document/Timeline)?
+  3. *Safe Areas*: Do all lower-third texts and card bottoms stay above `bottom: 18%` (landscape) or `bottom: 28%` (portrait)?
+  4. *Pacing*: Are intro cuts fast (2.0s–2.8s) and middle cuts rhythmic (3.2s–4.5s)?
 
 
