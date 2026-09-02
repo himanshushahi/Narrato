@@ -77,7 +77,7 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 
 ### 2. `Shape` (Vector Shapes, Paths, Icons & Callouts)
 * `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`
-* `icon_name` (for `shape_type="icon"`): Lucide icon name in kebab-case (e.g. `"trending-up"`, `"shield-alert"`, `"dollar-sign"`, `"coins"`, `"database"`, `"globe"`, `"zap"`, `"flame"`, `"gavel"`, `"target"`, `"sparkles"`)
+* `icon_name` (for `shape_type="icon"`): Any valid Lucide icon name in kebab-case from the full 1,500+ Lucide library (e.g. `"trending-up"`, `"shield-alert"`, `"dollar-sign"`, `"coins"`, `"database"`, `"globe"`, `"zap"`, `"flame"`, `"gavel"`, `"target"`, `"brain"`, `"rocket"`, `"atom"`, `"dna"`, `"stethoscope"`, `"car"`, `"lightbulb"`, `"crown"`, `"sparkles"`, etc.)
 * `fill`: Hex color (e.g. `"rgba(0, 212, 255, 0.1)"`) or `"transparent"`
 * `stroke`: Border/line color (e.g. `"#00d4ff"`)
 * `stroke_width`: Border width in pixels (default `2`, for paths `3`–`5`)
