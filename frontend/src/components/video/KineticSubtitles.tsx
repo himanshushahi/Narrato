@@ -220,7 +220,7 @@ export const KineticSubtitles: React.FC<Props> = ({
     justifyContent: 'center',
     zIndex: 8,
     pointerEvents: 'none',
-    transition: 'top 0.3s ease-out'
+    transition: 'none'
   } : {
     position: 'absolute',
     bottom: subtitleSettings.bottomOffset !== undefined ? subtitleSettings.bottomOffset : 120,
@@ -231,7 +231,7 @@ export const KineticSubtitles: React.FC<Props> = ({
     justifyContent: 'center',
     zIndex: 8,
     pointerEvents: 'none',
-    transition: 'bottom 0.3s ease-out'
+    transition: 'none'
   };
 
   if (words.length === 0) {
@@ -375,7 +375,7 @@ export const KineticSubtitles: React.FC<Props> = ({
                   textTransform: subtitleSettings.textTransform || 'uppercase',
                   textShadow: textShadow,
                   transform: `translateY(${translateY}px) scale(${scale})`,
-                  transition: 'color 0.08s ease-out, transform 0.1s ease-out',
+                  transition: 'none',
                   display: 'inline-block',
                   position: 'relative',
                   zIndex: 1

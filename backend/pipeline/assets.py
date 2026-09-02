@@ -579,6 +579,66 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15, cance
 WIKIMEDIA_USER_AGENT = "RemotionCanvas/1.0 (video generator; mailto:dev@remotioncanvas.local)"
 
 
+def normalize_video_asset(video_path):
+    """
+    Normalizes a video file with FFmpeg to make it 100% seekable and flicker-free in Chromium/Remotion:
+      1. Forces keyframes (GOP) every 15 frames (-g 15 -keyint_min 15) so Chromium seeks in <2ms.
+      2. Normalizes framerate to constant 30 FPS (-r 30).
+      3. Faststart flag (-movflags +faststart) so moov headers are at the file beginning.
+      4. Standard pixel format (-pix_fmt yuv420p).
+    """
+    if not video_path:
+        return ""
+    p = Path(video_path)
+    if not p.exists() or p.suffix.lower() not in [".mp4", ".mov", ".webm", ".avi", ".mkv"]:
+        return str(video_path)
+
+    ffmpeg_exe = get_ffmpeg_path()
+    if not ffmpeg_exe or not Path(ffmpeg_exe).exists():
+        return str(video_path)
+
+    temp_normalized = p.with_name(f"{p.stem}_norm.mp4")
+    startupinfo = get_startupinfo()
+
+    cmd = [
+        str(ffmpeg_exe),
+        "-y",
+        "-i", str(p),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "18",
+        "-g", "15",
+        "-keyint_min", "15",
+        "-r", "30",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-c:a", "aac",
+        str(temp_normalized)
+    ]
+
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, startupinfo=startupinfo, timeout=120)
+        if res.returncode == 0 and temp_normalized.exists() and temp_normalized.stat().st_size > 0:
+            target_path = p.with_suffix(".mp4")
+            if p.exists() and p != target_path:
+                try: p.unlink()
+                except: pass
+            temp_normalized.replace(target_path)
+            logger.info(f"Successfully normalized video asset: {target_path.name}")
+            return str(target_path)
+        else:
+            if temp_normalized.exists():
+                try: temp_normalized.unlink()
+                except: pass
+    except Exception as e:
+        logger.warning(f"Exception during video normalization for {video_path}: {e}")
+        if temp_normalized.exists():
+            try: temp_normalized.unlink()
+            except: pass
+
+    return str(video_path)
+
+
 def download_asset(url, dest_path, cancel_event=None):
     """Downloads a binary asset from a URL and saves it.
 
@@ -746,6 +806,8 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
         dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}{ext}"
         if download_asset(asset_url, dest_file, cancel_event=cancel_event):
             _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=dest_file)
+            if content_type == "Video":
+                dest_file = Path(normalize_video_asset(dest_file))
             content["local_path"] = str(dest_file)
             logger.info(f"Saved AST asset to {dest_file}")
             

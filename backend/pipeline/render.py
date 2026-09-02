@@ -11,6 +11,7 @@ from pathlib import Path
 from backend.database.db import get_setting, update_project
 from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir, get_startupinfo, is_production
 from backend.core.logger import logger
+from backend.pipeline.assets import normalize_video_asset
 
 def clean_media_path(path_str):
     """Formats an absolute Windows path into a local file:/// URL."""
@@ -501,7 +502,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         sc.pop("_voiceover_speed", None)
         sc.pop("_voiceover_pitch", None)
 
-    # Convert local absolute paths in scenes/audios into Bottle media serving URLs
+    # Convert local absolute paths in scenes/audios into Bottle media serving URLs & normalize video assets
     for sc in scenes:
         sc["audio_url"] = clean_media_path(sc["audio_path"])
         
@@ -509,9 +510,18 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         
         for sv in sub_visuals:
             if sv.get("visual_path"):
+                sv["visual_path"] = normalize_video_asset(sv["visual_path"])
                 sv["visual_url"] = clean_media_path(sv["visual_path"])
             else:
                 sv["visual_url"] = ""
+
+            # Normalize AST composition layers
+            comp = sv.get("composition", {})
+            if isinstance(comp, dict) and comp.get("type") == "Sequence":
+                for layer in comp.get("children", []):
+                    content = layer.get("content", {})
+                    if content.get("type") == "Video" and content.get("local_path"):
+                        content["local_path"] = normalize_video_asset(content["local_path"])
         
         sc["sub_visuals"] = sub_visuals
 

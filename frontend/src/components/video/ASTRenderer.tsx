@@ -195,6 +195,7 @@ const MediaNode: React.FC<{
   if (type === 'Image') {
     return <Img src={url} style={mergedStyle} />;
   }
+
   return (
     <Video
       src={url}
@@ -202,6 +203,7 @@ const MediaNode: React.FC<{
       muted={volume === 0 || volume === undefined}
       volume={volume ?? 0}
       loop={loop}
+      pauseWhenBuffering
     />
   );
 };

@@ -87,10 +87,15 @@ const SceneGate: React.FC<{
   children: React.ReactNode;
 }> = ({ from, durationInFrames, children }) => {
   const frame = useCurrentFrame();
-  // Buffer: mount -90f before start, keep +120f past end
-  const isNear = frame >= from - 90 && frame <= from + durationInFrames + 120;
+  // During headless export, Chromium tabs render arbitrary frames in parallel.
+  // The buffer-based virtualization can race with React mount/paint, producing
+  // blank frames. Disable virtualization during rendering – Remotion's own
+  // <Sequence> already hides content outside its frame range.
+  const isRendering = getRemotionEnvironment().isRendering;
+  // Buffer: mount -90f before start, keep +120f past end (preview only)
+  const isNear = isRendering || (frame >= from - 90 && frame <= from + durationInFrames + 120);
   return isNear ? (
-    <Sequence from={from} durationInFrames={durationInFrames}>
+    <Sequence from={from} durationInFrames={durationInFrames} premountFor={30}>
       {children}
     </Sequence>
   ) : null;
@@ -109,67 +114,74 @@ const SubVisualTransitionWrapper: React.FC<{
 
   // 12-15 frame entrance animation, capped at half the cut duration
   const transFrames = Math.min(14, Math.max(4, Math.floor(durationInFrames / 2)));
+  // Clamp config shared by every interpolation – prevents black flash during
+  // headless export where sub-visuals are non-overlapping and the previous
+  // sub-visual is already unmounted when this one starts at opacity 0.
+  const clampBoth = { extrapolateLeft: 'clamp' as const, extrapolateRight: 'clamp' as const };
+  // Minimum opacity ensures the content is never fully invisible on frame 0,
+  // which avoids exposing the black background between non-overlapping sequences.
+  const MIN_OPACITY = 0.35;
   let style: React.CSSProperties = { width: '100%', height: '100%' };
 
   switch (transition) {
     case 'slide_left': {
       const x = interpolate(frame, [0, transFrames], [100, 0], {
-        extrapolateRight: 'clamp',
+        ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `translateX(${x}%)`, opacity };
       break;
     }
     case 'slide_right': {
       const x = interpolate(frame, [0, transFrames], [-100, 0], {
-        extrapolateRight: 'clamp',
+        ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `translateX(${x}%)`, opacity };
       break;
     }
     case 'slide_up': {
       const y = interpolate(frame, [0, transFrames], [100, 0], {
-        extrapolateRight: 'clamp',
+        ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `translateY(${y}%)`, opacity };
       break;
     }
     case 'slide_down': {
       const y = interpolate(frame, [0, transFrames], [-100, 0], {
-        extrapolateRight: 'clamp',
+        ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `translateY(${y}%)`, opacity };
       break;
     }
     case 'zoom_in': {
       const scale = interpolate(frame, [0, transFrames], [1.18, 1], {
-        extrapolateRight: 'clamp',
+        ...clampBoth,
         easing: Easing.out(Easing.cubic),
       });
-      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `scale(${scale})`, opacity };
       break;
     }
     case 'zoom_out': {
       const scale = interpolate(frame, [0, transFrames], [0.85, 1], {
-        extrapolateRight: 'clamp',
+        ...clampBoth,
         easing: Easing.out(Easing.cubic),
       });
-      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [0, 1], { extrapolateRight: 'clamp' });
+      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `scale(${scale})`, opacity };
       break;
     }
     case 'glitch': {
       const isGlitching = frame < Math.min(8, transFrames);
       const glitchX = isGlitching ? (frame % 2 === 0 ? (frame % 4 === 0 ? 15 : -15) : 0) : 0;
-      const opacity = interpolate(frame, [0, 4], [0.4, 1], { extrapolateRight: 'clamp' });
+      const opacity = interpolate(frame, [0, 4], [0.4, 1], clampBoth);
       style = {
         ...style,
         transform: glitchX ? `translateX(${glitchX}px)` : undefined,
@@ -179,8 +191,8 @@ const SubVisualTransitionWrapper: React.FC<{
       break;
     }
     case 'crossfade': {
-      const opacity = interpolate(frame, [0, transFrames], [0, 1], {
-        extrapolateRight: 'clamp',
+      const opacity = interpolate(frame, [0, transFrames], [MIN_OPACITY, 1], {
+        ...clampBoth,
         easing: Easing.inOut(Easing.quad),
       });
       style = { ...style, opacity };
@@ -188,9 +200,7 @@ const SubVisualTransitionWrapper: React.FC<{
     }
     case 'fade':
     default: {
-      const opacity = interpolate(frame, [0, transFrames], [0, 1], {
-        extrapolateRight: 'clamp',
-      });
+      const opacity = interpolate(frame, [0, transFrames], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, opacity };
       break;
     }
@@ -207,10 +217,11 @@ const SubGate: React.FC<{
 }> = ({ subFrom, subDuration, transition, children }) => {
   // frame is scene-relative here (SubGate lives inside SceneGate's Sequence).
   const frame = useCurrentFrame();
-  // Buffer: mount -60f before start, keep +90f past end
-  const isNear = frame >= subFrom - 60 && frame <= subFrom + subDuration + 60;
+  const isRendering = getRemotionEnvironment().isRendering;
+  // Buffer: mount -60f before start, keep +90f past end (preview only)
+  const isNear = isRendering || (frame >= subFrom - 60 && frame <= subFrom + subDuration + 60);
   return isNear ? (
-    <Sequence from={subFrom} durationInFrames={subDuration}>
+    <Sequence from={subFrom} durationInFrames={subDuration} premountFor={30}>
       <SubVisualTransitionWrapper transition={transition} durationInFrames={subDuration}>
         {children}
       </SubVisualTransitionWrapper>

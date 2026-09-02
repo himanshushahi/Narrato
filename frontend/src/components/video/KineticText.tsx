@@ -182,7 +182,7 @@ export const KineticText: React.FC<KineticTextProps> = ({
                   }}
                 />
               )}
-              <span style={{ color: isHighlighted && sweepProgress > 50 ? '#0f172a' : color, transition: 'color 0.1s' }}>
+              <span style={{ color: isHighlighted && sweepProgress > 50 ? '#0f172a' : color }}>
                 {word}
               </span>
             </span>
