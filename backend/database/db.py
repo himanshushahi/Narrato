@@ -157,7 +157,9 @@ def init_db():
             "render_crf": "23",
             "render_codec": "h264",
             "render_hardware": "cpu",
-            "render_timeout": "600000"
+            "render_timeout": "600000",
+            "render_motion_blur": "balanced",
+            "render_glass_cap": "16"
         }
         for k, v in default_settings.items():
             cursor.execute(

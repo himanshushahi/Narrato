@@ -7,6 +7,7 @@ import { GlobalOverlaysRenderer, GlobalOverlayItem } from './GlobalOverlaysRende
 import { ASTRenderer } from './ASTRenderer';
 import { calculateSubVisualTimings } from '../../utils/duration';
 import { getCanvasScaleFactor } from './compositionScale';
+import { QualityMode, QualityPolicy } from './renderQuality';
 
 interface SubVisual {
   composition?: any;
@@ -80,6 +81,10 @@ export interface Props {
   subtitleSettings?: any;
   designSystem?: any;
   overlays?: GlobalOverlayItem[];
+  /** 'preview' = cheap samples + capped glass; 'export' = full quality. Auto-detected when omitted. */
+  qualityMode?: QualityMode;
+  /** Visual-effects policy from Settings (defaults to balanced). */
+  quality?: QualityPolicy | unknown;
   __file_server_port__?: number;
 }
 
@@ -320,6 +325,8 @@ export const NitishRajputComposition: React.FC<Props> = ({
   subtitleSettings = {},
   designSystem,
   overlays = [],
+  qualityMode,
+  quality,
   __file_server_port__
 }) => {
   if (__file_server_port__ && typeof window !== 'undefined') {
@@ -379,10 +386,10 @@ export const NitishRajputComposition: React.FC<Props> = ({
   // Helper to render a single sub-visual's content
   const renderSubVisual = useCallback((subVis: SubVisual) => {
     if (subVis.composition) {
-      return <ASTRenderer composition={subVis.composition} />;
+      return <ASTRenderer composition={subVis.composition} qualityMode={qualityMode} quality={quality} />;
     }
     return null;
-  }, []);
+  }, [qualityMode, quality]);
 
   // ── Time-window virtualization ──────────────────────────────────────────────
   // Pre-calculate and memoize the timeline tree once; per-frame virtualization
@@ -436,6 +443,8 @@ export const NitishRajputComposition: React.FC<Props> = ({
         <GlobalOverlaysRenderer
           overlays={overlays}
           totalDurationInFrames={totalDurationInFrames}
+          qualityMode={qualityMode}
+          quality={quality}
         />
       )}
 

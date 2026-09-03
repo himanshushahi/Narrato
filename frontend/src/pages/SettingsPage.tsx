@@ -317,6 +317,12 @@ const SettingsPage: React.FC = () => {
     { value: '3600000', label: '60 min' },
   ];
 
+  const motionBlurOptions: SelectOption[] = [
+    { value: 'off', label: 'Off (Fastest — no shutter blur)' },
+    { value: 'balanced', label: 'Balanced (Recommended — near-identical look)' },
+    { value: 'full', label: 'Full (Original 5-sample blur — slowest)' },
+  ];
+
 
 
   return (
@@ -1150,6 +1156,32 @@ const SettingsPage: React.FC = () => {
                     value={formData.render_timeout || '600000'}
                     onChange={(val) => handleSelectChange('render_timeout', val)}
                   />
+                </div>
+
+                <div className="bg-black/15 p-4 rounded-md border border-stone-850 space-y-6">
+                  <h3 className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">Visual Effects Quality</h3>
+                  <p className="text-xs text-stone-400 -mt-3">
+                    Motion shutter blur and frosted-glass blur are the two most expensive effects.
+                    Balanced keeps the look while rendering much faster. Applies to preview and export.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <CustomSelect
+                      label="Motion Shutter Blur"
+                      options={motionBlurOptions}
+                      value={(formData as any).render_motion_blur || 'balanced'}
+                      onChange={(val) => handleSelectChange('render_motion_blur', val)}
+                    />
+                    <CustomRange
+                      label="Max Glass Blur (frosted cards & overlays)"
+                      valueDisplay={(formData as any).render_glass_cap === '0' ? 'Off' : `${(formData as any).render_glass_cap || '16'}px`}
+                      min="0"
+                      max="24"
+                      step="2"
+                      name="render_glass_cap"
+                      value={(formData as any).render_glass_cap || '16'}
+                      onChange={handleInputChange}
+                    />
+                  </div>
                 </div>
               </div>
             </GlassCard>

@@ -1,7 +1,15 @@
 import React, { useMemo } from 'react';
-import { interpolate, spring, useCurrentFrame, useVideoConfig, Easing } from 'remotion';
+import { interpolate, spring, useCurrentFrame, useVideoConfig, Easing, getRemotionEnvironment } from 'remotion';
 import { CameraMotionBlur } from '@remotion/motion-blur';
 import { getCameraNoise, CameraShakeType } from './CameraNoise';
+import {
+  QualityMode,
+  QualityPolicy,
+  parseQuality,
+  getMotionBlurSamples,
+  shouldBypassSettledBlur,
+  MOTION_BLUR_SETTLE_GRACE_FRAMES,
+} from './renderQuality';
 
 export interface ASTAnimation {
   property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
@@ -19,6 +27,10 @@ export interface ASTAnimatorProps {
   camera_shake?: CameraShakeType;
   transform_origin?: string;
   floating?: boolean;
+  /** 'preview' (Player) uses fewer samples; defaults to auto-detect. */
+  qualityMode?: QualityMode;
+  /** User policy from Settings → Rendering Engine (defaults to balanced). */
+  quality?: QualityPolicy | unknown;
   children: React.ReactNode;
 }
 
@@ -131,30 +143,80 @@ export const ASTAnimator: React.FC<ASTAnimatorProps> = ({
   shutter_angle = 180,
   camera_shake = 'none',
   transform_origin,
+  floating = false,
+  qualityMode,
+  quality: qualityInput,
   children,
 }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const policy = parseQuality(qualityInput);
   const content = (
     <AnimatedLayer
       animations={animations}
       camera_shake={camera_shake}
       transform_origin={transform_origin}
+      floating={floating}
     >
       {children}
     </AnimatedLayer>
   );
 
-  if (motion_blur) {
-    const safeShutterAngle = typeof shutter_angle === 'number' && Number.isFinite(shutter_angle)
-      ? Math.max(0, Math.min(360, shutter_angle))
-      : 180;
-
-    return (
-      <CameraMotionBlur shutterAngle={safeShutterAngle} samples={5}>
-        {content}
-      </CameraMotionBlur>
-    );
+  if (!motion_blur) {
+    return content;
   }
 
-  return content;
+  const mode: QualityMode =
+    qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
+
+  // 'off' in Settings (or 0 samples) disables the wrapper entirely.
+  const samples = getMotionBlurSamples(mode, policy);
+  if (samples <= 0) {
+    return content;
+  }
+
+  // Static layers gain nothing from shutter blur but still pay N samples per
+  // frame — bypass the wrapper entirely (common when AI sets motion_blur on
+  // a layer without animations).
+  const hasMotion =
+    (animations && animations.length > 0) ||
+    floating ||
+    (camera_shake && camera_shake !== 'none');
+  if (!hasMotion) {
+    return content;
+  }
+
+  // Bypass blur outside the active animation window (balanced mode only):
+  // once the entrance has settled, shutter samples render (near-)identical
+  // pixels at 2-5x cost. Floating / camera-shake layers move forever, so
+  // they always keep blur. 'full' mode never bypasses (max fidelity).
+  const alwaysMoving = floating || (camera_shake && camera_shake !== 'none');
+  if (shouldBypassSettledBlur(policy) && !alwaysMoving && animations && animations.length > 0) {
+    let windowEnd = 0;
+    let windowStart = Number.POSITIVE_INFINITY;
+    for (const anim of animations) {
+      if (typeof anim.duration !== 'number') continue;
+      const delayFrames = Math.max(0, Math.round((anim.delay || 0) * fps));
+      const durationFrames = Math.max(1, Math.round(anim.duration * fps));
+      windowStart = Math.min(windowStart, delayFrames);
+      windowEnd = Math.max(windowEnd, delayFrames + durationFrames);
+    }
+    if (
+      Number.isFinite(windowStart) &&
+      (frame < windowStart - 2 || frame > windowEnd + MOTION_BLUR_SETTLE_GRACE_FRAMES)
+    ) {
+      return content;
+    }
+  }
+
+  const safeShutterAngle = typeof shutter_angle === 'number' && Number.isFinite(shutter_angle)
+    ? Math.max(0, Math.min(360, shutter_angle))
+    : 180;
+
+  return (
+    <CameraMotionBlur shutterAngle={safeShutterAngle} samples={samples}>
+      {content}
+    </CameraMotionBlur>
+  );
 };
 

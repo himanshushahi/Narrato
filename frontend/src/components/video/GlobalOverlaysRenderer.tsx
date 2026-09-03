@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { Sequence, useCurrentFrame, useVideoConfig, spring, Img } from 'remotion';
+import { Sequence, useCurrentFrame, useVideoConfig, spring, Img, getRemotionEnvironment } from 'remotion';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
+import { QualityMode, QualityPolicy, parseQuality, getGlassBlurCap } from './renderQuality';
 
 export interface GlobalOverlayItem {
   id: string;
@@ -55,6 +56,8 @@ export interface GlobalOverlayItem {
 export interface GlobalOverlaysProps {
   overlays?: GlobalOverlayItem[];
   totalDurationInFrames?: number;
+  qualityMode?: QualityMode;
+  quality?: QualityPolicy | unknown;
 }
 
 // ── Position Style Generator with Fine-Tune Nudging ───────────────────────────
@@ -83,7 +86,7 @@ const getPositionStyle = (position?: string, nudge_x: number = 0, nudge_y: numbe
 
 // ── Individual Overlay Primitives ───────────────────────────────────────────
 
-const WatermarkComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) => {
+const WatermarkComponent: React.FC<{ item: GlobalOverlayItem; qualityMode: QualityMode; quality: QualityPolicy }> = ({ item, qualityMode, quality }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -98,7 +101,11 @@ const WatermarkComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) => 
   const borderRadius = item.border_radius !== undefined ? item.border_radius : '9999px';
   const borderWidth = item.border_width !== undefined ? item.border_width : 1;
   const borderColor = item.border_color || 'rgba(255, 255, 255, 0.15)';
-  const blurValue = item.glass_blur !== false ? '16px' : '0px';
+  // Glass blur capped by the Settings policy; undefined when disabled so
+  // Chromium skips the backdrop readback entirely.
+  const glassCap = getGlassBlurCap(qualityMode, quality);
+  const overlayCap = Math.min(16, glassCap);
+  const blurValue = item.glass_blur !== false && overlayCap > 0 ? `${overlayCap}px` : '0px';
 
   return (
     <div
@@ -216,7 +223,7 @@ const ProgressBarComponent: React.FC<{ item: GlobalOverlayItem; totalFrames: num
   );
 };
 
-const ChapterPillComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) => {
+const ChapterPillComponent: React.FC<{ item: GlobalOverlayItem; qualityMode: QualityMode; quality: QualityPolicy }> = ({ item, qualityMode, quality }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -229,6 +236,11 @@ const ChapterPillComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) =
   const borderRadius = item.border_radius !== undefined ? item.border_radius : '8px';
   const borderColor = item.border_color || 'rgba(255, 255, 255, 0.15)';
   const borderWidth = item.border_width !== undefined ? item.border_width : 1;
+  const glassCap = getGlassBlurCap(qualityMode, quality);
+  const overlayCap = Math.min(16, glassCap);
+  const pillBlur = item.glass_blur !== false && overlayCap > 0
+    ? `blur(${overlayCap}px)`
+    : undefined;
 
   return (
     <div
@@ -237,7 +249,7 @@ const ChapterPillComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) =
         alignItems: 'center',
         gap: '8px',
         backgroundColor: item.bg_color || 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: item.glass_blur !== false ? 'blur(16px)' : undefined,
+        backdropFilter: pillBlur,
         border: `${borderWidth}px solid ${borderColor}`,
         borderRadius: borderRadius,
         padding: item.padding || '6px 14px',
@@ -302,8 +314,13 @@ const CustomTextComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) =>
 export const GlobalOverlaysRenderer: React.FC<GlobalOverlaysProps> = ({
   overlays = [],
   totalDurationInFrames = 300,
+  qualityMode,
+  quality: qualityInput,
 }) => {
   const { fps } = useVideoConfig();
+  const quality = parseQuality(qualityInput);
+  const mode: QualityMode =
+    qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
 
   const activeOverlays = useMemo(() => {
     return (overlays || []).filter((item) => item.enabled !== false);
@@ -327,11 +344,11 @@ export const GlobalOverlaysRenderer: React.FC<GlobalOverlaysProps> = ({
         return (
           <Sequence key={item.id} from={fromFrame} durationInFrames={durationFrames}>
             <div style={positionStyle}>
-              {item.type === 'watermark' && <WatermarkComponent item={item} />}
+              {item.type === 'watermark' && <WatermarkComponent item={item} qualityMode={mode} quality={quality} />}
               {item.type === 'progress_bar' && (
                 <ProgressBarComponent item={item} totalFrames={totalDurationInFrames} />
               )}
-              {item.type === 'chapter_pill' && <ChapterPillComponent item={item} />}
+              {item.type === 'chapter_pill' && <ChapterPillComponent item={item} qualityMode={mode} quality={quality} />}
               {item.type === 'custom_text' && <CustomTextComponent item={item} />}
             </div>
           </Sequence>

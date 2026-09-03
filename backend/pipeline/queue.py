@@ -316,7 +316,7 @@ class QueueManager:
         elif step == 'render':
             logger.info(f"Smart Resume: Starting render step — cache hashes will determine incremental scope.")
             from backend.pipeline.render import render_pipeline
-            render_pipeline(proj, proj_dir, progress_cb, cancel_event)
+            render_pipeline(proj, proj_dir, progress_cb, cancel_event, force=not is_resume)
             
         else:
             raise ValueError(f"Unknown pipeline step: {step}")

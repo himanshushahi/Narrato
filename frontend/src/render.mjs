@@ -244,6 +244,9 @@ async function main() {
   // frontend `getMediaUrlSync` utility knows where to request local files from 
   // during headless Remotion rendering instead of falling back to the Vite dev server.
   inputProps.__file_server_port__ = assetServer.address().port;
+  // Headless export: full-quality motion blur (3 samples) + higher glass cap.
+  // Preview Player sends qualityMode='preview' for cheap interactive scrubbing.
+  if (!inputProps.qualityMode) inputProps.qualityMode = 'export';
 
   const bundleLocation = resolve(bundleDir);
   console.log(`Using pre-bundled project at: ${bundleLocation}`);

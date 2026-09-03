@@ -2,6 +2,8 @@ import { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'rea
 import { Player, PlayerRef } from '@remotion/player';
 import { NitishRajputComposition, Scene, Transcription, MusicClip } from './NitishRajputComposition';
 import { GlobalOverlayItem } from './GlobalOverlaysRenderer';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { parseQuality } from './renderQuality';
 
 interface Props {
   audioUrl: string;
@@ -137,7 +139,20 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   const compWidth = Math.round(baseWidth * compositionScale);
   const compHeight = Math.round(baseHeight * compositionScale);
 
+  // Preview quality: per-project overrides (subtitleSettings carries
+  // localProjectSettings) win over global Settings — same precedence as
+  // backend render.py (project_settings.get(...) or get_setting(...)).
+  const renderMotionBlur = useSettingsStore((s) => (s.settings as any).render_motion_blur);
+  const renderGlassCap = useSettingsStore((s) => (s.settings as any).render_glass_cap);
+
   const inputProps = useMemo(() => {
+    const proj = (subtitleSettings ?? {}) as any;
+    // NOTE: unset project keys arrive as '' — use || (not ??) so they fall
+    // through to global Settings instead of parsing '' as glassCap 0.
+    const quality = parseQuality({
+      motionBlur: proj.render_motion_blur || renderMotionBlur,
+      glassCap: proj.render_glass_cap || renderGlassCap,
+    });
     return {
       audioUrl,
       bgMusicUrl,
@@ -153,8 +168,12 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       subtitleSettings,
       designSystem,
       overlays,
+      // Preview path: policy from Settings; cheap samples + capped glass in
+      // balanced mode so scrubbing glass-heavy scenes stays interactive.
+      qualityMode: 'preview' as const,
+      quality,
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, musicClips, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, musicClips, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays, renderMotionBlur, renderGlassCap]);
 
   if (!scenes || scenes.length === 0) {
     return (

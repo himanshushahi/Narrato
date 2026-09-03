@@ -45,6 +45,8 @@ export interface Settings {
   render_codec: string;
   render_hardware: string;
   render_timeout: string;
+  render_motion_blur: string;
+  render_glass_cap: string;
   subtitle_presets?: SubtitlePreset[];
   default_subtitle_preset_id?: string;
   branding_presets?: SubtitlePreset[];
@@ -169,6 +171,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     render_codec: "h264",
     render_hardware: "cpu",
     render_timeout: "600000",
+    render_motion_blur: "balanced",
+    render_glass_cap: "16",
     voiceover_volume: "1.0",
 
   },

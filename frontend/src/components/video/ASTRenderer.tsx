@@ -70,6 +70,7 @@ export interface ASTLayer {
   shutter_angle?: number;
   camera_shake?: CameraShakeType;
   transform_origin?: string;
+  floating?: boolean;
   filters?: string[];
 }
 
@@ -133,7 +134,8 @@ function parseFilters(filters?: string[]): { filterStyle?: string; blendStyle: R
   };
 }
 
-import { useCurrentFrame, interpolate } from 'remotion';
+import { useCurrentFrame, interpolate, getRemotionEnvironment } from 'remotion';
+import { QualityMode, QualityPolicy, parseQuality, getGlassBlurCap, optimizeBackdropFilter } from './renderQuality';
 
 /**
  * Procedural ambient canvas rendered when stock media has no local path yet or is still downloading.
@@ -142,9 +144,12 @@ import { useCurrentFrame, interpolate } from 'remotion';
 const ProceduralCanvasFallback: React.FC<{ query?: string; type: string; style?: React.CSSProperties }> = ({ query: _query, type: _type, style }) => {
   const frame = useCurrentFrame();
 
-  const pulse = interpolate(frame % 150, [0, 75, 150], [0.18, 0.35, 0.18], { extrapolateRight: 'clamp' });
-  const driftX = interpolate(frame % 360, [0, 360], [0, 50], { extrapolateRight: 'clamp' });
-  const driftY = interpolate(frame % 360, [0, 360], [0, 30], { extrapolateRight: 'clamp' });
+  // Quantize to every 2nd frame: halves style-string churn / repaints with no
+  // visible difference on a slow ambient gradient.
+  const qFrame = Math.floor(frame / 2) * 2;
+  const pulse = interpolate(qFrame % 150, [0, 75, 150], [0.18, 0.35, 0.18], { extrapolateRight: 'clamp' });
+  const driftX = interpolate(qFrame % 360, [0, 360], [0, 50], { extrapolateRight: 'clamp' });
+  const driftY = interpolate(qFrame % 360, [0, 360], [0, 30], { extrapolateRight: 'clamp' });
 
   return (
     <div
@@ -209,10 +214,16 @@ const MediaNode: React.FC<{
 
 export const ASTRenderer: React.FC<{
   composition: { type: 'Sequence'; children: ASTLayer[] };
-}> = ({ composition }) => {
+  qualityMode?: QualityMode;
+  quality?: QualityPolicy | unknown;
+}> = ({ composition, qualityMode, quality: qualityInput }) => {
   if (!composition || composition.type !== 'Sequence' || !composition.children) {
     return null;
   }
+  const policy = parseQuality(qualityInput);
+  const mode: QualityMode =
+    qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
+  const glassCap = getGlassBlurCap(mode, policy);
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#0c0a09' }}>
@@ -333,25 +344,49 @@ export const ASTRenderer: React.FC<{
               zIndex: z_index,
             };
 
+        // Clamp expensive backdrop-blur radii to the Settings cap and isolate
+        // the layer so Chromium's backdrop readback stays local.
+        const optimizedBackdrop =
+          typeof layoutStyle.backdropFilter === 'string'
+            ? optimizeBackdropFilter(layoutStyle.backdropFilter, glassCap)
+            : layoutStyle.backdropFilter;
+        const optimizedWebkitBackdrop =
+          typeof (layoutStyle as any).WebkitBackdropFilter === 'string'
+            ? optimizeBackdropFilter((layoutStyle as any).WebkitBackdropFilter as string, glassCap)
+            : (layoutStyle as any).WebkitBackdropFilter;
+        const hasGlass = !!optimizedBackdrop || !!optimizedWebkitBackdrop;
+
         const inner = (
           <div style={{
             ...containerBaseStyle,
+            ...(optimizedBackdrop !== (layoutStyle as any).backdropFilter
+              ? { backdropFilter: optimizedBackdrop }
+              : null),
+            ...(optimizedWebkitBackdrop !== (layoutStyle as any).WebkitBackdropFilter
+              ? { WebkitBackdropFilter: optimizedWebkitBackdrop }
+              : null),
             filter: filterStyle,
+            // Isolation + own compositor layer confines the backdrop-blur
+            // readback instead of re-rasterizing overlapping siblings.
+            ...(hasGlass ? { isolation: 'isolate' as const, transform: 'translateZ(0)' } : null),
             ...blendStyle,
           }}>
             {node}
           </div>
         );
 
-        const { motion_blur, shutter_angle, camera_shake, transform_origin } = layer;
+        const { motion_blur, shutter_angle, camera_shake, transform_origin, floating } = layer as any;
 
-        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin) ? (
+        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin || !!floating) ? (
           <ASTAnimator
             animations={animations}
             motion_blur={motion_blur}
             shutter_angle={shutter_angle}
             camera_shake={camera_shake}
             transform_origin={transform_origin}
+            floating={floating}
+            qualityMode={mode}
+            quality={policy}
           >
             {inner}
           </ASTAnimator>

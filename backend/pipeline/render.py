@@ -117,6 +117,9 @@ def compute_granular_frame_hashes(props_dict, render_settings):
         "imageFormat": "jpeg",
         "resolution": render_settings.get("resolution"),
         "overlays": props_dict.get("overlays", []),
+        # Effects quality changes pixels (blur samples, glass radius) → must
+        # invalidate granular frame reuse when the user edits Settings.
+        "quality": props_dict.get("quality", {}),
     }
     for k, ov in enumerate(global_env.get("overlays", [])):
         logo = ov.get("logo_url") if isinstance(ov, dict) else None
@@ -191,6 +194,7 @@ def compute_frame_hash(props_dict, render_settings):
         "imageFormat": "jpeg",
         "resolution": render_settings.get("resolution"),
         "overlays": props_dict.get("overlays", []),
+        "quality": props_dict.get("quality", {}),
     }
 
     # Hash file contents/mtime rather than just string paths to detect in-place overwrites
@@ -594,6 +598,8 @@ def prepare_render_props_and_settings(project_dict, project_dir):
     render_codec = project_settings.get("render_codec") or get_setting("render_codec") or "h264"
     render_hardware = project_settings.get("render_hardware") or get_setting("render_hardware") or "cpu"
     render_timeout = project_settings.get("render_timeout") or get_setting("render_timeout") or "600000"
+    render_motion_blur = project_settings.get("render_motion_blur") or get_setting("render_motion_blur") or "balanced"
+    render_glass_cap = project_settings.get("render_glass_cap") or get_setting("render_glass_cap") or "16"
 
     fps = int(render_fps)
     timeout_ms = int(render_timeout)
@@ -616,6 +622,17 @@ def prepare_render_props_and_settings(project_dict, project_dir):
     bg_vol_val = _safe_float(project_dict.get("bg_music_volume"), default=0.15)
     voice_vol_val = _safe_float(project_settings.get("voiceover_volume"), default=1.0)
 
+    # ── Visual-effects quality policy (Settings → Rendering Engine) ──────
+    # Validated here so a corrupt DB value can never break the renderer.
+    motion_blur_mode = str(render_motion_blur).lower() if render_motion_blur else "balanced"
+    if motion_blur_mode not in ("off", "balanced", "full"):
+        motion_blur_mode = "balanced"
+    try:
+        glass_cap_px = max(0, min(24, int(float(render_glass_cap))))
+    except (ValueError, TypeError):
+        glass_cap_px = 16
+    quality_policy = {"motionBlur": motion_blur_mode, "glassCap": glass_cap_px}
+
     props = {
         "audioUrl": clean_media_path(str(audio_path)),
         "bgMusicUrl": bg_music_url,
@@ -631,6 +648,7 @@ def prepare_render_props_and_settings(project_dict, project_dir):
         "fps": fps,
         "subtitleSettings": project_settings,
         "overlays": cleaned_overlays,
+        "quality": quality_policy,
     }
 
     # Apply track visibility overrides to render props
@@ -749,8 +767,13 @@ def is_render_stale(project_dict, project_dir) -> bool:
         return True
 
 
-def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
-    """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering."""
+def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=False):
+    """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering.
+
+    force=True (explicit stage re-run via start_processing_pipeline) invalidates
+    the frame/audio caches so every frame is re-rendered instead of skipped.
+    force=False (smart resume via resume_processing_pipeline) keeps granular reuse.
+    """
     logger.info(f"Preparing Remotion compilation properties for project: {project_dict['name']}")
     progress_cb(5.0, "Preparing compilation properties...")
 
@@ -808,11 +831,26 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     # ── Ensure cache root exists ───────────────────────────────────────────
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Forced re-run: invalidate caches so frames are NOT skipped ──────────
+    # Without this, an explicit stage re-run (is_resume=False) still hits the
+    # Smart Resume fast path: hashes match → missing_ranges="" → "All frames
+    # already rendered. Skipping frame render phase."
+    if force:
+        logger.info("Force re-run requested: invalidating cached frames and audio so all frames re-render.")
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        if cached_audio_path.exists():
+            try:
+                cached_audio_path.unlink()
+            except OSError:
+                pass
+
     # ── Granular Scene-Level Frame Cache Check ────────────────────────────
     scene_cache_file = cache_dir / "scene_hashes.json"
     global_env_hash, current_scene_records = compute_granular_frame_hashes(props, render_settings)
 
-    if scene_cache_file.exists() and frames_dir.exists():
+    if not force and scene_cache_file.exists() and frames_dir.exists():
         try:
             with open(scene_cache_file, "r", encoding="utf-8") as f:
                 cached_data = json.load(f)
@@ -875,7 +913,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             logger.warning(f"Error evaluating granular scene cache: {e}. Falling back to full frame cache check.")
             shutil.rmtree(frames_dir, ignore_errors=True)
             frames_dir.mkdir(parents=True, exist_ok=True)
-    elif frame_hash_file.exists() and frame_hash_file.read_text().strip() == frame_hash:
+    elif not force and frame_hash_file.exists() and frame_hash_file.read_text().strip() == frame_hash:
         existing_count = sum(len(list(frames_dir.glob(p))) for p in ("element-*.jpeg", "element-*.jpg", "element-*.webp"))
         logger.info(f"Frame hash matches. {existing_count} cached frames found. Will resume from missing ranges.")
     else:

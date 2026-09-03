@@ -69,6 +69,27 @@ const TIMEOUT_OPTIONS = [
   { value: '3600000', label: '60 min' },
 ];
 
+const MOTION_BLUR_OPTIONS = [
+  { value: 'off', label: 'Off (Fastest)' },
+  { value: 'balanced', label: 'Balanced (Recommended)' },
+  { value: 'full', label: 'Full (Slowest)' },
+];
+
+const GLASS_CAP_OPTIONS = [
+  { value: '0', label: 'Off (no frosted glass)' },
+  { value: '4', label: '4px (Subtle)' },
+  { value: '8', label: '8px' },
+  { value: '12', label: '12px' },
+  { value: '16', label: '16px (Default)' },
+  { value: '20', label: '20px' },
+  { value: '24', label: '24px (Max frost)' },
+];
+
+const formatGlassCap = (val?: string): string => {
+  if (val === '0') return 'Off';
+  return `${val || '16'}px`;
+};
+
 
 
 const OverrideRow: React.FC<{
@@ -163,6 +184,8 @@ const SECTION_DEFS: SectionDef[] = [
       { id: 'render_concurrency', label: 'Concurrency', keywords: ['concurrency', 'core', 'cpu', 'threads', 'parallel'] },
       { id: 'render_hardware', label: 'Processing Hardware', keywords: ['gpu', 'cpu', 'cuda', 'hardware', 'nvenc'] },
       { id: 'render_timeout', label: 'Render Timeout', keywords: ['timeout', 'time', 'limit', 'max'] },
+      { id: 'render_motion_blur', label: 'Motion Shutter Blur', keywords: ['motion', 'blur', 'shutter', 'speed', 'effects', 'quality'] },
+      { id: 'render_glass_cap', label: 'Max Glass Blur', keywords: ['glass', 'blur', 'frost', 'frosted', 'backdrop', 'effects', 'quality'] },
     ],
   },
 ];
@@ -379,6 +402,32 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               options={TIMEOUT_OPTIONS}
               value={projectVal('render_timeout') || globalSettings.render_timeout || '600000'}
               onChange={(v) => updateKey('render_timeout', v)}
+            />
+          </OverrideRow>
+
+          <OverrideRow
+            label="Motion Shutter Blur"
+            globalValue={(globalSettings as any).render_motion_blur || 'balanced'}
+            projectValue={projectVal('render_motion_blur')}
+            onReset={() => resetKey('render_motion_blur')}
+          >
+            <CustomSelect
+              options={MOTION_BLUR_OPTIONS}
+              value={projectVal('render_motion_blur') || (globalSettings as any).render_motion_blur || 'balanced'}
+              onChange={(v) => updateKey('render_motion_blur', v)}
+            />
+          </OverrideRow>
+
+          <OverrideRow
+            label="Max Glass Blur"
+            globalValue={formatGlassCap((globalSettings as any).render_glass_cap)}
+            projectValue={projectVal('render_glass_cap') ? formatGlassCap(projectVal('render_glass_cap')) : ''}
+            onReset={() => resetKey('render_glass_cap')}
+          >
+            <CustomSelect
+              options={GLASS_CAP_OPTIONS}
+              value={projectVal('render_glass_cap') || (globalSettings as any).render_glass_cap || '16'}
+              onChange={(v) => updateKey('render_glass_cap', v)}
             />
           </OverrideRow>
         </CollapsibleSection>
