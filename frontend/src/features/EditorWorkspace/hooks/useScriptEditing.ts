@@ -16,8 +16,6 @@ interface UseScriptEditingReturn {
   sceneToDelete: number | null;
   localProjectSettings: any;
   isSavingSubtitles: boolean;
-  scriptChangedAlert: boolean;
-  setScriptChangedAlert: (alert: boolean) => void;
   previewAssets: Record<string, { visual_path: string; visual_url: string }>;
   uploadingSubVisual: string | null;
   handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string) => Promise<string | undefined>;
@@ -57,7 +55,6 @@ export function useScriptEditing(
   const [localProjectSettings, setLocalProjectSettings] = useState<any>({});
   const [isSavingSubtitles, setIsSavingSubtitles] = useState(false);
   const [rewritingSection, setRewritingSection] = useState<string | null>(null);
-  const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const [previewAssets, setPreviewAssets] = useState<Record<string, { visual_path: string; visual_url: string }>>({});
   const [uploadingSubVisual, setUploadingSubVisual] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -323,8 +320,7 @@ export function useScriptEditing(
       const isNewSceneSave = index !== undefined && !originalScriptData;
       const contentChanged = narrationChanged || isNewSceneSave;
       if (contentChanged) {
-        addToast("Narration text updated! We recommend resuming/syncing the pipeline to regenerate voiceover and subtitles.", 'warning', 6000);
-        setScriptChangedAlert(true);
+        addToast("Narration text updated!", 'success');
       } else {
         addToast("Project saved successfully!", 'success');
       }
@@ -406,8 +402,7 @@ export function useScriptEditing(
           setEditingCard(null);
           setRewritePrompt('');
           setRewritingSection(null);
-          setScriptChangedAlert(true);
-          addToast("LLM rewrite completed and saved! Click 'Sync Audio & Subtitles' or 'Resume Pipeline' to rebuild voiceover.", 'success');
+          addToast("LLM rewrite completed and saved!", 'success');
         }
       } else {
         setRewritingSection(null);
@@ -618,7 +613,6 @@ export function useScriptEditing(
 
     await callApi<any>('save_project_with_cleanup', projectId, newScriptData, newManifestData);
     setEditingCard({ key: `scene_${insertPosition}`, mode: 'script' });
-    setScriptChangedAlert(true);
   }, [projectId, scriptData, selectedProject, manifestData, setScriptData, setManifestData]);
 
   const confirmDeleteScene = useCallback(async () => {
@@ -632,8 +626,7 @@ export function useScriptEditing(
     const result = await callApi<any>('delete_scene', projectId, idx);
     if (result?.success) {
       await loadFiles(projectId);
-      addToast("Scene deleted successfully! Please resume pipeline to sync audio.", 'success');
-      setScriptChangedAlert(true);
+      addToast("Scene deleted successfully!", 'success');
     } else {
       addToast("Failed to delete scene: " + (result?.error || "Unknown error"), 'error');
     }
@@ -684,7 +677,6 @@ export function useScriptEditing(
     rewritingSection,
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
-    scriptChangedAlert, setScriptChangedAlert,
     previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,

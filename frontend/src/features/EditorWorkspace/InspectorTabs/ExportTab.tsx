@@ -3,13 +3,12 @@ import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import {
-  VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscWarning, VscFlame, VscClose,
-  VscMute, VscEyeClosed, VscTerminal, VscBook, VscFile, VscSparkle, VscGlobe, VscTrash,
+  VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscFlame, VscClose,
+  VscTerminal, VscBook, VscFile, VscSparkle, VscGlobe, VscTrash,
   VscChevronDown, VscChevronRight
 } from 'react-icons/vsc';
 import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
 import { Task, useProjectStore } from '../../../store/useProjectStore';
-import { useEditorStore } from '../../../store/useEditorStore';
 import { useUIStore, AgentActivity } from '../../../store/useUIStore';
 
 const AGENT_KIND_META: Record<AgentActivity['kind'], { label: string; icon: React.ReactNode; cls: string }> = {
@@ -64,7 +63,6 @@ interface ExportTabProps {
   targetStage: string;
   activeTaskStep: Task | null;
   projectId: string;
-  scriptChangedAlert: boolean;
   hasScriptData: boolean;
   onSetTargetStage: (stage: string) => void;
   onTriggerFullPipeline: () => void;
@@ -75,7 +73,7 @@ interface ExportTabProps {
 
 export const ExportTab: React.FC<ExportTabProps> = ({
   tasks, isRunning, targetStage, activeTaskStep,
-  scriptChangedAlert, hasScriptData,
+  hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline
 }) => {
   const [confirmStageId, setConfirmStageId] = useState<string | null>(null);
@@ -110,28 +108,6 @@ export const ExportTab: React.FC<ExportTabProps> = ({
   }, []);
 
   const videoUrl = selectedProject?.video_path ? getMediaUrlSync(selectedProject.video_path) : null;
-
-  // Track override awareness for warnings
-  const trackMuted = useEditorStore((s) => s.trackMuted);
-  const trackHidden = useEditorStore((s) => s.trackHidden);
-  const audioChangedAlert = useEditorStore((s) => s.audioChangedAlert);
-
-  const trackWarnings = useMemo(() => {
-    const warnings: { icon: React.ReactNode; text: string; cls: string }[] = [];
-    if (trackMuted['voice'] || trackHidden['voice']) {
-      warnings.push({ icon: <VscMute />, text: 'Voiceover muted — no narration in export', cls: 'bg-amber-600/10 border-amber-600/25 text-amber-300' });
-    }
-    if (trackMuted['music'] || trackHidden['music']) {
-      warnings.push({ icon: <VscMute />, text: 'Music muted — no BG music in export', cls: 'bg-amber-600/10 border-amber-600/25 text-amber-300' });
-    }
-    if (trackMuted['videoaudio'] || trackHidden['videoaudio']) {
-      warnings.push({ icon: <VscMute />, text: 'Video audio muted — no audio from video clips in export', cls: 'bg-amber-600/10 border-amber-600/25 text-amber-300' });
-    }
-    if (trackHidden['subs']) {
-      warnings.push({ icon: <VscEyeClosed />, text: 'Subtitles hidden — no subtitles in export', cls: 'bg-amber-600/10 border-amber-600/25 text-amber-300' });
-    }
-    return warnings;
-  }, [trackMuted, trackHidden]);
 
   // Detect render scope from active task message and latch it so it doesn't flicker
   const [renderScopeLabel, setRenderScopeLabel] = useState<{ label: string; cls: string } | null>(null);
@@ -306,34 +282,6 @@ export const ExportTab: React.FC<ExportTabProps> = ({
           <div className="space-y-1">
             {PIPELINE_STAGES.map((stage, idx) => renderStage(stage, idx))}
           </div>
-
-          {/* Script changed alert */}
-          {scriptChangedAlert && (
-            <div className="bg-amber-600/10 border border-amber-600/25 p-2.5 rounded-lg text-[9px] text-amber-300 flex items-start gap-2 animate-pulse">
-              <VscWarning className="text-xs shrink-0 mt-0.5" />
-              <span><strong>Script changed!</strong> Resume pipeline to sync voiceover.</span>
-            </div>
-          )}
-
-          {/* Audio changed alert */}
-          {audioChangedAlert && (
-            <div className="bg-amber-600/10 border border-amber-600/25 p-2.5 rounded-lg text-[9px] text-amber-300 flex items-start gap-2 animate-pulse">
-              <VscWarning className="text-xs shrink-0 mt-0.5" />
-              <span><strong>Audio changed!</strong> Resume pipeline to sync changes.</span>
-            </div>
-          )}
-
-          {/* Track override warnings */}
-          {!isRunning && trackWarnings.length > 0 && (
-            <div className="space-y-1.5">
-              {trackWarnings.map((w, i) => (
-                <div key={i} className={`${w.cls} border p-2 rounded-lg text-[9px] flex items-center gap-2`}>
-                  <span className="text-[10px] shrink-0">{w.icon}</span>
-                  <span>{w.text}</span>
-                </div>
-              ))}
-            </div>
-          )}
 
           {/* Smart Resume scope indicator during rendering */}
           {renderScopeLabel && (

@@ -51,7 +51,6 @@ interface InspectorPanelProps {
   isPipelineRunning: boolean;
   targetStage: string;
   activeTaskStep: Task | null;
-  scriptChangedAlert: boolean;
   hasScriptData: boolean;
   onSetTargetStage: (stage: string) => void;
   onTriggerFullPipeline: () => void;
@@ -86,7 +85,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete, onSetScriptData, onSaveOverlays,
   onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
-  tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
+  tasks, queue, isPipelineRunning, targetStage, activeTaskStep, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
   onSeek,
@@ -183,7 +182,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             targetStage={targetStage}
             activeTaskStep={activeTaskStep}
             projectId={projectId}
-            scriptChangedAlert={scriptChangedAlert}
             hasScriptData={hasScriptData}
             onSetTargetStage={onSetTargetStage}
             onTriggerFullPipeline={onTriggerFullPipeline}
