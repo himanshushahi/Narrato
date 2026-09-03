@@ -45,6 +45,18 @@ class QueueManager:
         Steps: 'generate_script', 'generate_voiceover', 'transcribe', 
                'generate_visuals', 'fetch_assets', 'render'
         """
+        # ── Deduplication guard ────────────────────────────────────────────
+        # Reject if this project is already actively processing or waiting
+        # in the queue.  This prevents double-renders caused by the frontend
+        # firing both start_processing_pipeline and resume_processing_pipeline
+        # before the queue-status broadcast propagates back to the UI.
+        if self._active_project_id == project_id:
+            logger.warning(f"Project {project_id} is already actively processing — ignoring duplicate queue request.")
+            return True  # Return True so the frontend doesn't show an error
+        if any(q[0] == project_id for q in self._queue):
+            logger.warning(f"Project {project_id} is already queued — ignoring duplicate queue request.")
+            return True
+
         # Always create a new cancel event when queuing so active workers retaining the old event stay cancelled
         self._cancel_events[project_id] = threading.Event()
 
@@ -88,9 +100,8 @@ class QueueManager:
                             from backend.pipeline.assets import is_assets_stale
                             is_stale = is_assets_stale(proj, proj_dir)
                         elif step == 'render':
-                            # Nothing upstream changed — only stale if output video is missing
-                            video_path = proj.get('video_path')
-                            is_stale = not (video_path and os.path.exists(video_path))
+                            from backend.pipeline.render import is_render_stale
+                            is_stale = is_render_stale(proj, proj_dir)
                     except Exception as e:
                         logger.error(f"Error checking staleness for {step}: {e}")
                         is_stale = True
@@ -100,9 +111,8 @@ class QueueManager:
                     remaining_steps.append(step)
                     
             if not remaining_steps and 'render' in pipeline_steps:
-                # Only force render if output video is missing (upstream is unchanged)
-                video_path = proj.get('video_path')
-                if not (video_path and os.path.exists(video_path)):
+                from backend.pipeline.render import is_render_stale
+                if is_render_stale(proj, proj_dir):
                     remaining_steps = ['render']
                 
             steps_to_queue = remaining_steps

@@ -96,7 +96,7 @@ Each pipeline stage defines a deterministic staleness checking function that val
 | **3. `transcribe`** | `is_transcribe_stale()` | [`backend/pipeline/transcribe.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/transcribe.py) | `_transcribe_hash` (`whisper.hash.txt`) | `subtitles/transcription.json` missing, or Whisper model size/device/language changed in settings. |
 | **4. `generate_visuals`** | `is_visuals_stale()` | [`backend/pipeline/assets.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `sub_visuals` array completeness in `script.json` | Any scene in `script.json` lacks valid `sub_visuals` entries. |
 | **5. `fetch_assets`** | `is_assets_stale()` | [`backend/pipeline/assets.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | Stripped AST structure match (`strip_local_paths`) + local file existence | Any referenced image/video file missing on disk, or visual layer types/cues modified in `script.json`. |
-| **6. `render`** | Multi-Domain Hashes | [`backend/pipeline/render.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/render.py) | `frame.hash.txt`, `audio.hash.txt`, `mux.hash.txt` | Target MP4 missing, AST layer style/animation changed, track volume/mute overridden, or resolution changed. |
+| **6. `render`** | `is_render_stale()` / Multi-Domain Hashes | [`backend/pipeline/render.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/render.py) | `frame.hash.txt`, `audio.hash.txt`, `mux.hash.txt` | Target MP4 missing, AST layer style/animation changed, background music tracks/volumes/trims/cuts modified, track volume/mute overridden, or resolution changed. |
 
 ---
 
