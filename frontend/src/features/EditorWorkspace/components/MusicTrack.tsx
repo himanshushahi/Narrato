@@ -72,7 +72,7 @@ const MusicClipBlock: React.FC<{
 
   return (
     <div
-      className={`absolute top-1.5 h-8 rounded-none border-2 cursor-pointer transition-colors shadow-sm select-none group/clip overflow-hidden ${
+      className={`absolute top-1.5 h-8 rounded-none border-2 cursor-grab active:cursor-grabbing transition-colors shadow-sm select-none group/clip overflow-hidden ${
         isSelected
           ? 'ring-2 ring-indigo-400 bg-indigo-950/60 border-indigo-400 z-20 shadow-indigo-500/20'
           : isMuted
@@ -510,7 +510,7 @@ export const MusicTrack: React.FC<MusicTrackProps> = React.memo(({
           return (
             <div
               key={`music-cut-${idx}-${sIdx}`}
-              className="absolute top-1.5 h-8 rounded-none border-2 border-red-500/70 cursor-pointer transition-all shadow-sm bg-red-950/70 hover:bg-red-900/60 z-20"
+              className="absolute top-1.5 h-8 rounded-none border-2 border-red-500/70 cursor-pointer transition-colors shadow-sm bg-red-950/70 hover:bg-red-900/60 z-20"
               style={{
                 left: subX,
                 width: subW,
@@ -542,11 +542,8 @@ export const MusicTrack: React.FC<MusicTrackProps> = React.memo(({
           style={{ top: activeContextMenu.y, left: activeContextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-indigo-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
-            <span className="truncate max-w-[140px]">{targetClip.name || 'Music Clip'}</span>
-            <button onClick={() => setActiveContextMenu(null)} className="text-zinc-500 hover:text-white p-0.5 cursor-pointer">
-              ✕
-            </button>
+          <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-indigo-400 border-b border-zinc-800 mb-1">
+            <span className="truncate max-w-[140px] block">{targetClip.name || 'Music Clip'}</span>
           </div>
 
           {/* Split at Playhead */}

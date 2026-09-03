@@ -211,7 +211,7 @@ export const OverlaysTrack: React.FC<OverlaysTrackProps> = React.memo(({
             return (
               <div
                 key={item.id || `overlay-${targetIdx}`}
-                className={`absolute top-2 h-7 rounded-none border-2 cursor-pointer transition-all shadow-sm group/overlay flex items-center justify-between px-2 overflow-hidden select-none ${
+                className={`absolute top-2 h-7 rounded-none border-2 cursor-grab active:cursor-grabbing transition-colors shadow-sm group/overlay flex items-center justify-between px-2 overflow-hidden select-none ${
                   !isEnabled
                     ? 'bg-zinc-800/20 border-zinc-700/40 text-zinc-500 opacity-60'
                     : `bg-gradient-to-r ${styleTheme.bg} ${styleTheme.border} ${styleTheme.text}`
@@ -270,7 +270,7 @@ export const OverlaysTrack: React.FC<OverlaysTrackProps> = React.memo(({
                       e.stopPropagation();
                       onToggleOverlayEnabled(overlayTarget);
                     }}
-                    className={`shrink-0 p-0.5 rounded-none opacity-0 group-hover/overlay:opacity-100 transition-opacity hover:bg-black/40 z-30 ${
+                    className={`shrink-0 p-0.5 rounded-none opacity-0 group-hover/overlay:opacity-100 transition-opacity hover:bg-black/40 z-30 cursor-pointer ${
                       isEnabled ? 'text-white/90 hover:text-white' : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                     title={isEnabled ? "Disable overlay" : "Enable overlay"}

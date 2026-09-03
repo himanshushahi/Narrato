@@ -62,7 +62,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = React.memo(({
             return (
               <div
                 key={`sub-${idx}`}
-                className="absolute top-2 h-7 rounded-none bg-gradient-to-b from-purple-600/30 to-purple-700/20 border-2 border-purple-500/50 hover:from-purple-500/40 hover:to-purple-600/30 hover:border-purple-400/80 cursor-pointer overflow-hidden transition-all shadow-sm"
+                className="absolute top-2 h-7 rounded-none bg-gradient-to-b from-purple-600/30 to-purple-700/20 border-2 border-purple-500/50 hover:from-purple-500/40 hover:to-purple-600/30 hover:border-purple-400/80 cursor-pointer overflow-hidden transition-colors shadow-sm"
                 style={{ left: x + HEADER_WIDTH, width: w }}
                 onClick={(e) => { e.stopPropagation(); onSeek(Math.floor(startSec * FPS)); }}
                 title={`Subtitle: "${segment.text.trim()}"\nDuration: ${(endSec - startSec).toFixed(2)}s`}

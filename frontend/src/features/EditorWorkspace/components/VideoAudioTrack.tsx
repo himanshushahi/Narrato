@@ -79,7 +79,7 @@ export const VideoAudioTrack: React.FC<VideoAudioTrackProps> = React.memo(({
           return (
             <div
               key={`video-audio-${idx}-${sIdx}`}
-              className={`absolute top-2 h-7 rounded-none border-2 cursor-pointer transition-all shadow-sm flex items-center justify-between px-2 overflow-hidden ${
+              className={`absolute top-2 h-7 rounded-none border-2 cursor-pointer transition-colors shadow-sm flex items-center justify-between px-2 overflow-hidden ${
                 isTrackMuted
                   ? 'bg-zinc-900 border-zinc-700 opacity-50'
                   : 'bg-zinc-900/90 border-amber-500/50 hover:bg-zinc-850 hover:border-amber-400/80 text-amber-300'

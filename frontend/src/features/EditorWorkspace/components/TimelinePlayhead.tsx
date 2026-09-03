@@ -11,10 +11,15 @@ export const TimelinePlayhead: React.FC<TimelinePlayheadProps> = React.memo(({ t
   // Only the playhead subscribes to per-frame updates — the rest of the
   // timeline no longer re-renders on every tick.
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
-  const playheadX = (currentFrame / FPS) * timelineZoom + HEADER_WIDTH;
+  // Compositor-only movement: translateX never triggers layout, unlike left.
+  // The static left offset keeps it aligned with the track headers.
+  const playheadOffsetX = (currentFrame / FPS) * timelineZoom;
 
   return (
-    <div className="absolute top-0 bottom-0 z-50 pointer-events-none" style={{ left: playheadX }}>
+    <div
+      className="absolute top-0 bottom-0 z-50 pointer-events-none"
+      style={{ left: HEADER_WIDTH, transform: `translateX(${playheadOffsetX}px)`, willChange: 'transform' }}
+    >
       {/* Invisible wider grab area for easy drag */}
       <div
         className="absolute inset-y-0 -translate-x-1/2 w-4 cursor-ew-resize pointer-events-auto"

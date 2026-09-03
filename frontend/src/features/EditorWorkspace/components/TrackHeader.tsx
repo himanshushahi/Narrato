@@ -45,7 +45,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
 }) => {
   return (
     <div
-      className={`sticky left-0 top-0 h-full bg-zinc-950/95 border-r border-zinc-800/80 flex items-center justify-between px-2.5 z-[60] backdrop-blur-md transition-colors select-none ${
+      className={`sticky left-0 top-0 h-full bg-zinc-950/95 border-r border-zinc-800/80 flex items-center justify-between px-2.5 z-[60] transition-colors select-none cursor-grab active:cursor-grabbing ${
         isDragOver ? 'bg-cyan-950/60 ring-2 ring-inset ring-cyan-400' : ''
       }`}
       style={{ width: HEADER_WIDTH, boxShadow: '4px 0 15px rgba(0,0,0,0.5)' }}

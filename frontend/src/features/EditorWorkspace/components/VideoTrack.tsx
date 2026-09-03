@@ -130,32 +130,45 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
   const colorIdx = idx % SCENE_COLORS.length;
   const subVisuals = scene?.sub_visuals || [];
   const isIntroOrConclusion = scene?.section_type === 'introduction' || scene?.section_type === 'conclusion';
+  const subsCount = timing.subs?.length ?? 0;
+
+  // Static per-sub data (primitive badges, thumbnail URLs) depends only on
+  // scene content — hoisted out of the geometry memo so zoom ticks (which
+  // only change x/w) don't redo string/URL work for every cut.
+  const staticSubs = useMemo(() => {
+    return Array.from({ length: subsCount }, (_, subIdx) => {
+      const raw = subVisuals[subIdx] || {};
+      return {
+        raw,
+        astTypes: extractAstPrimitives(raw),
+        thumbnailUrl: extractMediaThumbnail(raw),
+        transition: raw.transition || 'fade',
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, subsCount]);
 
   const subBlocks: SubVisualBlockData[] = useMemo(() => {
     if (!timing.subs) return [];
     return timing.subs.map((sub, subIdx) => {
       const subX = ((sub.start - timing.start) / FPS) * timelineZoom;
       const subW = Math.max(4, ((sub.end - sub.start) / FPS) * timelineZoom);
-      const raw = subVisuals[subIdx] || {};
-      const isSubActive = activeSubIdx === subIdx;
-      const astTypes = extractAstPrimitives(raw);
-      const thumbnailUrl = extractMediaThumbnail(raw);
-      const transition = raw.transition || 'fade';
+      const st = staticSubs[subIdx] || { raw: {}, astTypes: [], thumbnailUrl: null, transition: 'fade' };
 
       return {
         subX,
         subW,
-        isSubActive,
+        isSubActive: activeSubIdx === subIdx,
         subIdx,
         subStart: sub.start,
         subEnd: sub.end,
-        raw,
-        astTypes,
-        thumbnailUrl,
-        transition,
+        raw: st.raw,
+        astTypes: st.astTypes,
+        thumbnailUrl: st.thumbnailUrl,
+        transition: st.transition,
       };
     });
-  }, [timing, timelineZoom, activeSubIdx, subVisuals, idx]);
+  }, [timing, timelineZoom, activeSubIdx, staticSubs, idx]);
 
   return (
     <div

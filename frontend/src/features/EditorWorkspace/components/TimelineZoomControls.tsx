@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { VscZoomIn, VscZoomOut } from 'react-icons/vsc';
 import { Scissors, Maximize2 } from 'lucide-react';
 import { ZOOM_MIN, ZOOM_MAX, FPS } from '../timelineConstants';
@@ -42,6 +42,30 @@ export const TimelineZoomControls: React.FC<TimelineZoomControlsProps> = React.m
   );
 
   const canSplit = localTimings !== undefined ? storeCanSplit : (canSplitProp ?? false);
+
+  // Zoom slider fires per mousemove (often several per frame). Coalesce to
+  // one store update per frame — NOT a debounce: every value is applied,
+  // same-frame, final value exact, so zoom never desyncs from the slider.
+  const zoomRaf = useRef(0);
+  const pendingZoom = useRef<number | null>(null);
+  const scheduleZoom = (z: number) => {
+    pendingZoom.current = z;
+    if (zoomRaf.current) return;
+    zoomRaf.current = requestAnimationFrame(() => {
+      zoomRaf.current = 0;
+      const v = pendingZoom.current;
+      pendingZoom.current = null;
+      if (v !== null) setTimelineZoom(v);
+    });
+  };
+  useEffect(() => () => {
+    cancelAnimationFrame(zoomRaf.current);
+    zoomRaf.current = 0;
+    if (pendingZoom.current !== null) {
+      setTimelineZoom(pendingZoom.current);
+      pendingZoom.current = null;
+    }
+  }, [setTimelineZoom]);
 
   const handleZoomIn = () => setTimelineZoom(Math.min(ZOOM_MAX, Math.round(timelineZoom * 1.4)));
   const handleZoomOut = () => setTimelineZoom(Math.max(ZOOM_MIN, Math.round(timelineZoom / 1.4)));
@@ -96,7 +120,7 @@ export const TimelineZoomControls: React.FC<TimelineZoomControlsProps> = React.m
           min={ZOOM_MIN}
           max={ZOOM_MAX}
           value={timelineZoom}
-          onChange={(e) => setTimelineZoom(Number(e.target.value))}
+          onChange={(e) => scheduleZoom(Number(e.target.value))}
           className="w-16 h-1 accent-cyan-400 bg-zinc-800 rounded cursor-pointer"
           title="Timeline zoom"
         />

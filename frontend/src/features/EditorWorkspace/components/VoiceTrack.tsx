@@ -85,7 +85,7 @@ export const VoiceTrack: React.FC<VoiceTrackProps> = React.memo(({
             return (
               <div
                 key={`voice-sub-${idx}-${sIdx}`}
-                className={`absolute top-2 h-7 rounded-none border-2 cursor-pointer transition-all shadow-sm overflow-hidden ${
+                className={`absolute top-2 h-7 rounded-none border-2 cursor-pointer transition-colors shadow-sm overflow-hidden ${
                   isCut || isTrackMuted
                     ? 'bg-red-950/40 border-red-500/50 hover:bg-red-900/40'
                     : 'bg-zinc-900/90 border-emerald-500/50 hover:bg-zinc-850 hover:border-emerald-400/80'
@@ -140,7 +140,7 @@ export const VoiceTrack: React.FC<VoiceTrackProps> = React.memo(({
         return (
           <div
             key={idx}
-            className={`absolute top-2 h-7 rounded-none border-2 cursor-pointer transition-all shadow-sm overflow-hidden ${
+            className={`absolute top-2 h-7 rounded-none border-2 cursor-pointer transition-colors shadow-sm overflow-hidden ${
               isTrackMuted ? 'bg-zinc-900 border-zinc-700 opacity-50' : 'bg-zinc-900 border-emerald-500/50 hover:border-emerald-400'
             }`}
             style={{ left: x + HEADER_WIDTH, width: w }}

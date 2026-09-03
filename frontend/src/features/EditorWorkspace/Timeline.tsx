@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
@@ -112,10 +112,10 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
 
   const handleTrackDragOver = useCallback((e: React.DragEvent, index: number) => {
     e.preventDefault();
-    if (dragOverTrackIdx !== index) {
-      setDragOverTrackIdx(index);
-    }
-  }, [dragOverTrackIdx]);
+    // Functional set: same value bails out with no re-render, and the
+    // callback stays referentially stable (no per-hover track re-renders).
+    setDragOverTrackIdx((prev) => (prev === index ? prev : index));
+  }, []);
 
   const handleTrackDrop = useCallback((e: React.DragEvent, dropIndex: number) => {
     e.preventDefault();
@@ -143,17 +143,32 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   const localTimingsRef = useRef(localTimings);
   localTimingsRef.current = localTimings;
 
-  const [, setTimingsVersion] = useState(0);
   useEffect(() => {
-    setTimingsVersion(v => v + 1);
     setLocalTimings(sceneTimings);
   }, [sceneTimings]);
 
+  // Notify the parent (InspectorPanel via activeTimings) of drag updates.
+  // rAF-coalesced, NOT debounced: multiple mousemoves within one frame
+  // collapse into a single parent update with the latest timings, so the
+  // timeline stays frame-accurate in sync without re-rendering the whole
+  // workspace on every mousemove event.
+  const onTimingsDragUpdateRef = useRef(onTimingsDragUpdate);
+  onTimingsDragUpdateRef.current = onTimingsDragUpdate;
+  const timingsRafRef = useRef(0);
   useEffect(() => {
-    if (onTimingsDragUpdate) {
-      onTimingsDragUpdate(localTimings);
-    }
-  }, [localTimings, onTimingsDragUpdate]);
+    if (!onTimingsDragUpdateRef.current) return;
+    cancelAnimationFrame(timingsRafRef.current);
+    timingsRafRef.current = requestAnimationFrame(() => {
+      onTimingsDragUpdateRef.current?.(localTimingsRef.current);
+    });
+    return () => cancelAnimationFrame(timingsRafRef.current);
+  }, [localTimings]);
+  // Strict-sync flush: if the timeline unmounts with a coalesced update
+  // still pending (mid-drag unmount), deliver the latest timings.
+  useEffect(() => () => {
+    cancelAnimationFrame(timingsRafRef.current);
+    onTimingsDragUpdateRef.current?.(localTimingsRef.current);
+  }, []);
 
   type DragState = {
     type: 'resize_sub_visual' | 'resize_scene_boundary' | 'resize_scene_absolute';
@@ -207,33 +222,41 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   }, []);
 
   // ── Snapping Helper ────────────────────────────────────────────────────────
+  // Snap points live in a ref so the snapping callbacks stay referentially
+  // stable across localTimings updates (no per-mousemove identity churn down
+  // to the playhead and click handlers). Values are still frame-accurate:
+  // the ref is refreshed every render, and drag math always reads latest.
   const snapThresholdPixels = 8;
+  const snapPoints = useMemo(() => {
+    const pts: number[] = [];
+    for (const scene of localTimings) {
+      pts.push(scene.start, scene.end);
+      if (scene.subs) {
+        for (const sub of scene.subs) pts.push(sub.start, sub.end);
+      }
+    }
+    return pts;
+  }, [localTimings]);
+  const snapPointsRef = useRef<number[]>(snapPoints);
+  snapPointsRef.current = snapPoints;
+
   const findSnappedFrame = useCallback((rawFrame: number): number => {
-    const rawX = (rawFrame / FPS) * timelineZoom;
+    const zoom = timelineZoomRef.current;
+    const rawX = (rawFrame / FPS) * zoom;
     let closestFrame = rawFrame;
     let minDiff = Infinity;
 
-    // Check scene boundaries & sub-visual cut boundaries
-    for (const scene of localTimings) {
-      const snapPoints = [scene.start, scene.end];
-      if (scene.subs) {
-        for (const sub of scene.subs) {
-          snapPoints.push(sub.start, sub.end);
-        }
-      }
-
-      for (const pt of snapPoints) {
-        const ptX = (pt / FPS) * timelineZoom;
-        const diff = Math.abs(rawX - ptX);
-        if (diff <= snapThresholdPixels && diff < minDiff) {
-          minDiff = diff;
-          closestFrame = pt;
-        }
+    for (const pt of snapPointsRef.current) {
+      const ptX = (pt / FPS) * zoom;
+      const diff = Math.abs(rawX - ptX);
+      if (diff <= snapThresholdPixels && diff < minDiff) {
+        minDiff = diff;
+        closestFrame = pt;
       }
     }
 
     return closestFrame;
-  }, [localTimings, timelineZoom]);
+  }, []);
 
   // ── Fit Timeline to Container ─────────────────────────────────────────────
   const handleFitTimeline = useCallback(() => {
@@ -289,9 +312,13 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   }, [readOnly, getCanSplitAtFrame, handleSplitAtPlayhead]);
 
   // ── Sub-Visual Resizing ───────────────────────────────────────────────────
+  // NOTE: these capture the drag-start snapshot from localTimingsRef (not the
+  // render closure), so their identities stay stable across mousemove ticks.
+  // That lets memoized SceneBlocks for untouched scenes skip re-rendering
+  // while a drag is in progress — sync is unaffected, drag math reads latest.
   const startSubVisualResize = useCallback((e: React.MouseEvent, sceneIdx: number, subIdx: number) => {
     e.stopPropagation();
-    const timing = localTimings[sceneIdx];
+    const timing = localTimingsRef.current[sceneIdx];
     if (!timing) return;
     const sceneDuration = timing.end - timing.start;
     if (sceneDuration <= 0) return;
@@ -312,21 +339,22 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     setDragState(dragRef.current);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [localTimings]);
+  }, []);
 
   const startSceneBoundaryResize = useCallback((e: React.MouseEvent, sceneIdx: number) => {
     e.stopPropagation();
-    if (sceneIdx >= localTimings.length - 1) return;
+    const timings = localTimingsRef.current;
+    if (sceneIdx >= timings.length - 1) return;
 
-    const leftFrames = localTimings[sceneIdx].end - localTimings[sceneIdx].start;
-    const rightFrames = localTimings[sceneIdx + 1].end - localTimings[sceneIdx + 1].start;
+    const leftFrames = timings[sceneIdx].end - timings[sceneIdx].start;
+    const rightFrames = timings[sceneIdx + 1].end - timings[sceneIdx + 1].start;
 
     dragRef.current = {
       type: 'resize_scene_boundary',
       sceneIdx,
       initialMouseX: e.clientX,
-      initialStart: localTimings[sceneIdx].start,
-      initialEnd: localTimings[sceneIdx].end,
+      initialStart: timings[sceneIdx].start,
+      initialEnd: timings[sceneIdx].end,
       initialLeftFrames: leftFrames,
       initialRightFrames: rightFrames,
       mouseX: e.clientX,
@@ -335,19 +363,19 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     setDragState(dragRef.current);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [localTimings]);
+  }, []);
 
   const startSceneAbsoluteResize = useCallback((e: React.MouseEvent, sceneIdx: number) => {
     e.stopPropagation();
 
-    const totalFrames = localTimings[sceneIdx].end - localTimings[sceneIdx].start;
+    const totalFrames = localTimingsRef.current[sceneIdx].end - localTimingsRef.current[sceneIdx].start;
 
     dragRef.current = {
       type: 'resize_scene_absolute',
       sceneIdx,
       initialMouseX: e.clientX,
-      initialStart: localTimings[sceneIdx].start,
-      initialEnd: localTimings[sceneIdx].end,
+      initialStart: localTimingsRef.current[sceneIdx].start,
+      initialEnd: localTimingsRef.current[sceneIdx].end,
       initialTotalFrames: totalFrames,
       mouseX: e.clientX,
       committed: false,
@@ -355,7 +383,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     setDragState(dragRef.current);
     document.body.style.cursor = 'ew-resize';
     document.body.style.userSelect = 'none';
-  }, [localTimings]);
+  }, []);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -535,12 +563,13 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   const handleTimelineClick = useCallback((e: React.MouseEvent) => {
     if (dragRef.current || isDraggingPlayheadRef.current) return;
     if (!scrollRef.current) return;
+    const zoom = timelineZoomRef.current;
     const rect = scrollRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left + scrollRef.current.scrollLeft - HEADER_WIDTH;
-    const rawFrame = Math.max(0, Math.floor((x / timelineZoom) * FPS));
+    const rawFrame = Math.max(0, Math.floor((x / zoom) * FPS));
     const snappedFrame = findSnappedFrame(rawFrame);
     onSeek(snappedFrame);
-  }, [onSeek, timelineZoom, findSnappedFrame]);
+  }, [onSeek, findSnappedFrame]);
 
   // ── Playhead Scrubbing with Snapping ──────────────────────────────────────
   const startPlayheadDrag = useCallback((e: React.MouseEvent) => {
@@ -550,9 +579,10 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
 
     const getFrameFromMouse = (clientX: number) => {
       if (!scrollRef.current) return usePlaybackStore.getState().currentFrame;
+      const zoom = timelineZoomRef.current;
       const rect = scrollRef.current.getBoundingClientRect();
       const x = clientX - rect.left + scrollRef.current.scrollLeft - HEADER_WIDTH;
-      const raw = Math.max(0, Math.floor((x / timelineZoom) * FPS));
+      const raw = Math.max(0, Math.floor((x / zoom) * FPS));
       return findSnappedFrame(raw);
     };
 
@@ -575,7 +605,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     document.addEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = 'grabbing';
     document.body.style.userSelect = 'none';
-  }, [onSeek, timelineZoom, findSnappedFrame]);
+  }, [onSeek, findSnappedFrame]);
 
   const isDraggingScene = dragState?.type === 'resize_sub_visual' || dragState?.type === 'resize_scene_boundary' || dragState?.type === 'resize_scene_absolute';
 
@@ -619,13 +649,13 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
       {/* Timeline Main Scrollable View */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-x-auto overflow-y-auto timeline-scrollbar min-h-0 relative"
+        className="flex-1 overflow-x-auto overflow-y-auto timeline-scrollbar min-h-0 relative cursor-pointer"
         onClick={handleTimelineClick}
       >
         <div style={{ width: totalW, minHeight: '100%', height: 'max-content', position: 'relative' }}>
           {/* Time Ruler */}
-          <div className="h-6 relative border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-sm sticky top-0 z-50">
-            <div className="sticky left-0 top-0 bottom-0 bg-zinc-950/90 border-r border-zinc-800/60 z-[60] backdrop-blur-md float-left h-full" style={{ width: HEADER_WIDTH }} />
+          <div className="h-6 relative border-b border-zinc-800/60 bg-zinc-950/80 sticky top-0 z-50">
+            <div className="sticky left-0 top-0 bottom-0 bg-zinc-950/90 border-r border-zinc-800/60 z-[60] float-left h-full" style={{ width: HEADER_WIDTH }} />
             <TimelineRuler totalDuration={totalDuration} timelineZoom={timelineZoom} />
           </div>
 
