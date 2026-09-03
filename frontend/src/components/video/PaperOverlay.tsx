@@ -6,7 +6,7 @@ const PAPER_TEXTURE_DATA_URI = `url("data:image/svg+xml;utf8,${encodeURIComponen
   '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.08 0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>'
 )}")`;
 
-export const PaperOverlay: React.FC = () => {
+export const PaperOverlay: React.FC = React.memo(() => {
   const frame = useCurrentFrame();
   const { width: configWidth, height: configHeight } = useVideoConfig();
   // Visuals are authored in 1080p logical pixels; fast preview uses a reduced
@@ -53,7 +53,8 @@ export const PaperOverlay: React.FC = () => {
       pointerEvents: 'none',
       width: '100%',
       height: '100%',
-      zIndex: 10
+      zIndex: 10,
+      transform: 'translateZ(0)',
     }}>
       {/* 2. Low-opacity paper texture blending overlay (GPU-accelerated seamless tile) */}
       <div style={{
@@ -62,8 +63,10 @@ export const PaperOverlay: React.FC = () => {
         backgroundImage: PAPER_TEXTURE_DATA_URI,
         backgroundRepeat: 'repeat',
         backgroundSize: '200px 200px',
+        opacity: 0.8,
         mixBlendMode: 'overlay',
-        zIndex: 3
+        zIndex: 3,
+        pointerEvents: 'none',
       }} />
 
       {/* 3. Vintage sepia tint overlay (creates a warm archival look) */}
@@ -73,13 +76,16 @@ export const PaperOverlay: React.FC = () => {
         backgroundColor: '#78350f',
         opacity: 0.02,
         mixBlendMode: 'color-burn',
-        zIndex: 4
+        zIndex: 4,
+        pointerEvents: 'none',
       }} />
 
       {/* 4. Film Dust and hair scratches layers */}
-      <div style={{ position: 'absolute', inset: 0, zIndex: 5 }}>
+      <div style={{ position: 'absolute', inset: 0, zIndex: 5, pointerEvents: 'none' }}>
         {renderDustParticles()}
       </div>
     </div>
   );
-};
+});
+
+PaperOverlay.displayName = 'PaperOverlay';

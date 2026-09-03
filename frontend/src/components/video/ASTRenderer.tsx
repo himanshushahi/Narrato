@@ -203,7 +203,6 @@ const MediaNode: React.FC<{
       muted={volume === 0 || volume === undefined}
       volume={volume ?? 0}
       loop={loop}
-      pauseWhenBuffering
     />
   );
 };
