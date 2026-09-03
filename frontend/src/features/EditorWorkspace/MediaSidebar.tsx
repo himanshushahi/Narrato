@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLayers, VscPackage, VscMusic,
@@ -93,6 +93,39 @@ const SelectedMusicClipCard: React.FC<{
 }) => {
   const { duration: audioDuration } = useAudioWaveform(selectedClip?.audio_url);
 
+  // Local draft: sliders/toggles update instantly (no backend roundtrip per
+  // tick); the merged patch is committed through a trailing debounce. The
+  // draft auto-clears once the parent prop catches up with it.
+  const [draft, setDraft] = useState<{ id: string; patch: Partial<MusicClip> } | null>(null);
+  let activeDraft = draft;
+  if (draft) {
+    if (draft.id !== selectedClip.id) {
+      activeDraft = null;
+    } else {
+      const caughtUp = Object.entries(draft.patch).every(([k, v]) => (selectedClip as any)[k] === v);
+      if (caughtUp) activeDraft = null;
+    }
+  }
+  if (activeDraft !== draft) setDraft(activeDraft);
+  const shown = activeDraft ? { ...selectedClip, ...activeDraft.patch } as MusicClip : selectedClip;
+
+  const patchRef = useRef(onPatchSelectedClip);
+  patchRef.current = onPatchSelectedClip;
+  const selectedClipRef = useRef(selectedClip);
+  selectedClipRef.current = selectedClip;
+  const commitPatch = useCallback((patch: Partial<MusicClip>) => patchRef.current(patch), []);
+  const schedulePatch = useDebouncedCommit<MusicClip>(commitPatch);
+
+  const updateDraft = useCallback((patch: Partial<MusicClip>) => {
+    const baseId = selectedClipRef.current?.id;
+    if (!baseId) return;
+    setDraft((prev) => {
+      if (prev && prev.id === baseId) return { id: prev.id, patch: { ...prev.patch, ...patch } };
+      return { id: baseId, patch: { ...patch } };
+    });
+    schedulePatch(patch);
+  }, [schedulePatch]);
+
   return (
     <div className="bg-zinc-900/50 border border-blue-500/30 rounded-lg p-3 space-y-3">
       <div className="flex items-center justify-between border-b border-zinc-800/60 pb-2">
@@ -139,7 +172,7 @@ const SelectedMusicClipCard: React.FC<{
       {/* Audio Preview Player */}
       {selectedClip.audio_url && (
         <div className="pt-0.5">
-          <CustomAudioPlayer src={selectedClip.audio_url} volume={selectedClip.volume ?? localVolume} />
+          <CustomAudioPlayer src={selectedClip.audio_url} volume={shown.volume ?? localVolume} />
         </div>
       )}
 
@@ -162,14 +195,14 @@ const SelectedMusicClipCard: React.FC<{
       <div className="space-y-1">
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-zinc-400 font-medium">Clip Volume</span>
-          <span className="font-mono text-blue-300 font-bold">{Math.round((selectedClip.volume ?? 0.2) * 100)}%</span>
+          <span className="font-mono text-blue-300 font-bold">{Math.round((shown.volume ?? 0.2) * 100)}%</span>
         </div>
         <CustomRange
           min={0}
           max={1.5}
           step={0.02}
-          value={selectedClip.volume ?? 0.2}
-          onChange={(e) => onPatchSelectedClip({ volume: parseFloat(e.target.value) })}
+          value={shown.volume ?? 0.2}
+          onChange={(e) => updateDraft({ volume: parseFloat(e.target.value) })}
         />
       </div>
 
@@ -177,14 +210,14 @@ const SelectedMusicClipCard: React.FC<{
       <div className="space-y-1">
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-zinc-400 font-medium">Fade In Duration</span>
-          <span className="font-mono text-blue-300 font-bold">{(selectedClip.fade_in_seconds || 0).toFixed(1)}s</span>
+          <span className="font-mono text-blue-300 font-bold">{(shown.fade_in_seconds || 0).toFixed(1)}s</span>
         </div>
         <CustomRange
           min={0}
           max={5.0}
           step={0.1}
-          value={selectedClip.fade_in_seconds || 0}
-          onChange={(e) => onPatchSelectedClip({ fade_in_seconds: parseFloat(e.target.value) })}
+          value={shown.fade_in_seconds || 0}
+          onChange={(e) => updateDraft({ fade_in_seconds: parseFloat(e.target.value) })}
         />
       </div>
 
@@ -192,14 +225,14 @@ const SelectedMusicClipCard: React.FC<{
       <div className="space-y-1">
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-zinc-400 font-medium">Fade Out Duration</span>
-          <span className="font-mono text-blue-300 font-bold">{(selectedClip.fade_out_seconds || 0).toFixed(1)}s</span>
+          <span className="font-mono text-blue-300 font-bold">{(shown.fade_out_seconds || 0).toFixed(1)}s</span>
         </div>
         <CustomRange
           min={0}
           max={5.0}
           step={0.1}
-          value={selectedClip.fade_out_seconds || 0}
-          onChange={(e) => onPatchSelectedClip({ fade_out_seconds: parseFloat(e.target.value) })}
+          value={shown.fade_out_seconds || 0}
+          onChange={(e) => updateDraft({ fade_out_seconds: parseFloat(e.target.value) })}
         />
       </div>
 
@@ -207,14 +240,14 @@ const SelectedMusicClipCard: React.FC<{
       <div className="space-y-1">
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-zinc-400 font-medium">Audio In-Point (Trim Start)</span>
-          <span className="font-mono text-blue-300 font-bold">{(selectedClip.source_start_seconds || 0).toFixed(1)}s</span>
+          <span className="font-mono text-blue-300 font-bold">{(shown.source_start_seconds || 0).toFixed(1)}s</span>
         </div>
         <CustomRange
           min={0}
           max={60}
           step={0.5}
-          value={selectedClip.source_start_seconds || 0}
-          onChange={(e) => onPatchSelectedClip({ source_start_seconds: parseFloat(e.target.value) })}
+          value={shown.source_start_seconds || 0}
+          onChange={(e) => updateDraft({ source_start_seconds: parseFloat(e.target.value) })}
         />
       </div>
 
@@ -227,7 +260,7 @@ const SelectedMusicClipCard: React.FC<{
           </div>
           <CustomToggle
             label="Loop"
-            checked={selectedClip.loop !== false}
+            checked={shown.loop !== false}
             onChange={(e) => {
               const newLoop = e.target.checked;
               const patch: Partial<MusicClip> = { loop: newLoop };
@@ -240,7 +273,7 @@ const SelectedMusicClipCard: React.FC<{
                   }
                 }
               }
-              onPatchSelectedClip(patch);
+              updateDraft(patch);
             }}
           />
         </div>
@@ -252,14 +285,134 @@ const SelectedMusicClipCard: React.FC<{
           </div>
           <CustomToggle
             label="Muted"
-            checked={!!selectedClip.is_muted}
-            onChange={(e) => onPatchSelectedClip({ is_muted: e.target.checked })}
+            checked={!!shown.is_muted}
+            onChange={(e) => updateDraft({ is_muted: e.target.checked })}
           />
         </div>
       </div>
     </div>
   );
 };
+
+/* ============================================================
+   Re-render performance helpers
+   ============================================================ */
+
+/**
+ * Batches rapid slider/input patches into a single trailing commit.
+ * Sliders stay locally controlled (buttery thumb) while the expensive
+ * backend persist + full-workspace re-render fires at most once per delay
+ * window. Flushes any pending patch on unmount so no edit is lost.
+ */
+const COMMIT_DEBOUNCE_MS = 450;
+
+function useDebouncedCommit<T extends object>(
+  commit: (patch: Partial<T>) => void,
+  delay: number = COMMIT_DEBOUNCE_MS,
+) {
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<Partial<T> | null>(null);
+
+  const flush = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const p = pendingRef.current;
+    pendingRef.current = null;
+    if (p) commitRef.current(p);
+  }, []);
+
+  const schedule = useCallback((patch: Partial<T>) => {
+    pendingRef.current = { ...pendingRef.current, ...patch };
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(flush, delay);
+  }, [delay, flush]);
+
+  // Flush on unmount (e.g. tab switch mid-drag) so edits aren't lost.
+  useEffect(() => () => { flush(); }, [flush]);
+
+  return schedule;
+}
+
+/** Master music volume slider: locally controlled thumb, debounced persist. */
+const MasterVolumeControl: React.FC<{
+  value: number;
+  onCommit: (v: number) => void;
+}> = React.memo(({ value, onCommit }) => {
+  const [draft, setDraft] = useState<number | null>(null);
+  // Drop the draft once the parent prop catches up with it.
+  let activeDraft = draft;
+  if (draft !== null && draft === value) activeDraft = null;
+  if (activeDraft !== draft) setDraft(activeDraft);
+  const shown = activeDraft ?? value;
+
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  const commit = useCallback((patch: Partial<{ volume: number }>) => {
+    if (patch.volume !== undefined) commitRef.current(patch.volume);
+  }, []);
+  const schedule = useDebouncedCommit<{ volume: number }>(commit);
+
+  return (
+    <div className="space-y-1 pt-1">
+      <div className="flex items-center justify-between text-[10px]">
+        <span className="text-zinc-400 font-medium">Master Music Volume</span>
+        <span className="font-mono text-blue-300 font-bold">{Math.round(shown * 100)}%</span>
+      </div>
+      <CustomRange
+        min={0}
+        max={1}
+        step={0.01}
+        value={shown}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          setDraft(v);
+          schedule({ volume: v });
+        }}
+      />
+    </div>
+  );
+});
+MasterVolumeControl.displayName = 'MasterVolumeControl';
+
+/** Single row in the "Timeline Music Clips" overview — memoized. */
+const MusicClipRow: React.FC<{
+  clip: MusicClip;
+  index: number;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  onSeekClip: (startFrame: number) => void;
+}> = React.memo(({ clip, index, isSelected, onSelect, onDelete, onSeekClip }) => (
+  <div
+    onClick={() => { onSelect(clip.id); onSeekClip(clip.start_frame || 0); }}
+    className={`flex items-center justify-between p-2 rounded border text-[11px] cursor-pointer transition-colors ${
+      isSelected
+        ? 'bg-blue-950/40 border-blue-500/50 text-blue-200'
+        : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
+    }`}
+  >
+    <div className="flex items-center gap-2 overflow-hidden">
+      <span className="font-mono text-[9px] text-blue-400 font-bold shrink-0">#{index + 1}</span>
+      <span className="truncate max-w-[130px]">{clip.name || 'Clip'}</span>
+    </div>
+    <div className="flex items-center gap-1.5 shrink-0 font-mono text-[9px] text-zinc-400">
+      <span>{((clip.duration_frames || 30) / 30).toFixed(1)}s</span>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onDelete(clip.id); }}
+        className="text-zinc-500 hover:text-red-400 p-1 cursor-pointer"
+        title="Delete"
+      >
+        <VscTrash className="w-3 h-3" />
+      </button>
+    </div>
+  </div>
+));
+MusicClipRow.displayName = 'MusicClipRow';
 
 export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   scriptData, manifestData, sceneTimings, onSeek,
@@ -283,6 +436,29 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
 
   // ---- Scenes tab state ----
   const [sceneSearch, setSceneSearch] = useState('');
+
+  // Stable sceneTimings ref so seek callbacks don't churn when the parent
+  // re-renders (keeps memoized list items skipped).
+  const sceneTimingsRef = useRef(sceneTimings);
+  sceneTimingsRef.current = sceneTimings;
+  const onSeekRef = useRef(onSeek);
+  onSeekRef.current = onSeek;
+
+  /** Stable per-scene seek handler (index into sceneTimings). */
+  const handleSceneSelect = useCallback((sceneIndex: number) => {
+    onSeekRef.current?.(sceneTimingsRef.current[sceneIndex]?.start || 0);
+  }, []);
+
+  /** Stable asset seek handler passed by reference to memoized rows. */
+  const handleAssetClick = useCallback((asset: AssetEntry) => {
+    if (asset.timing) {
+      onSeekRef.current?.(asset.timing.start);
+    }
+  }, []);
+
+  const handleTabChange = useCallback((id: string) => {
+    setLeftPanelTab(id as LeftPanelTab);
+  }, [setLeftPanelTab]);
 
   /** Filtered scene items for the scenes tab */
   const filteredScenes = useMemo(() => {
@@ -412,10 +588,65 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
     }
   }, [projectId, fetchProjectDetail]);
 
-  const handleVolumeSave = useCallback(async () => {
-    if (!projectId) return;
-    await updateProject(projectId, { bg_music_volume: localVolume });
-  }, [projectId, localVolume, updateProject]);
+  /** Master volume commit with explicit value (debounced slider calls this). */
+  const handleMasterVolumeCommit = useCallback((v: number) => {
+    setLocalVolume(v);
+    if (onBgMusicVolumeChange) {
+      onBgMusicVolumeChange(v);
+    } else if (projectId) {
+      updateProject(projectId, { bg_music_volume: v });
+    }
+  }, [onBgMusicVolumeChange, projectId, updateProject]);
+
+  // ---- Derived music-clip list (hoisted so row callbacks stay stable) ----
+  const totalTimelineFrames = sceneTimings.length > 0 ? sceneTimings[sceneTimings.length - 1].end : 300;
+  const hasMusicClips = !!musicClips && musicClips.length > 0;
+  const isClipsExplicitlyConfigured = selectedProject?.music_clips !== undefined && selectedProject?.music_clips !== null;
+  const hasLegacyMusic = !isClipsExplicitlyConfigured && !!bgMusicPath;
+
+  const effectiveMusicClips: MusicClip[] = useMemo(() => {
+    if (hasMusicClips) return musicClips;
+    if (hasLegacyMusic) {
+      return [{
+        id: 'default_bgm',
+        name: bgMusicFilename || 'Background Music',
+        audio_path: bgMusicPath,
+        audio_url: bgMusicUrl,
+        start_frame: 0,
+        duration_frames: Math.max(30, totalTimelineFrames),
+        source_start_seconds: 0,
+        volume: localVolume,
+        loop: true,
+        fade_in_seconds: 0.5,
+        fade_out_seconds: 1.0,
+        is_muted: false,
+      }];
+    }
+    return [];
+  }, [hasMusicClips, musicClips, hasLegacyMusic, bgMusicPath, bgMusicUrl, bgMusicFilename, localVolume, totalTimelineFrames]);
+
+  const selectedClip = effectiveMusicClips.find((c) => c.id === selectedMusicClipId) || effectiveMusicClips[0];
+
+  const effectiveClipsRef = useRef(effectiveMusicClips);
+  effectiveClipsRef.current = effectiveMusicClips;
+  const onUpdateMusicClipsRef = useRef(onUpdateMusicClips);
+  onUpdateMusicClipsRef.current = onUpdateMusicClips;
+
+  const handleSelectClipId = useCallback((id: string) => {
+    setSelectedMusicClipId(id);
+  }, [setSelectedMusicClipId]);
+
+  const handleDeleteMusicClip = useCallback((id: string) => {
+    const updated = effectiveClipsRef.current.filter((c) => c.id !== id);
+    onUpdateMusicClipsRef.current?.(updated);
+    if (useEditorStore.getState().selectedMusicClipId === id) {
+      setSelectedMusicClipId(updated[0]?.id || null);
+    }
+  }, [setSelectedMusicClipId]);
+
+  const handleSeekClip = useCallback((startFrame: number) => {
+    onSeekRef.current?.(startFrame || 0);
+  }, []);
 
   // Filter & sort assets
   const filteredAssets = useMemo(() => {
@@ -457,6 +688,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
       { id: 'music' as LeftPanelTab, label: 'Music', icon: <VscMusic /> },
     ];
   }, [assets.length]);
+
+  // Stable tabs array for the memoized tab bar (avoids re-render per parent render).
+  const scrollTabs = useMemo(
+    () => tabConfig.map((t) => ({ id: t.id, label: t.label, icon: t.icon })),
+    [tabConfig],
+  );
 
   // ---- Tab renderers ----
 
@@ -507,11 +744,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
             filteredScenes!.map((item) => (
               <SceneListItem
                 key={`${item.type}-${item.sceneIndex}`}
+                index={item.sceneIndex}
                 number={item.number}
                 title={item.title}
                 subtitle={item.subtitle}
                 timing={sceneTimings[item.sceneIndex]}
-                onClick={() => onSeek?.(sceneTimings[item.sceneIndex]?.start || 0)}
+                onSelect={handleSceneSelect}
               />
             ))
           )
@@ -520,11 +758,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
             {/* Introduction */}
             {hasIntro && (
               <SceneListItem
+                index={0}
                 number="0"
                 title="Introduction"
                 subtitle="Hook"
                 timing={sceneTimings[0]}
-                onClick={() => onSeek?.(sceneTimings[0]?.start || 0)}
+                onSelect={handleSceneSelect}
               />
             )}
 
@@ -543,11 +782,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
                 return (
                   <SceneListItem
                     key={idx}
+                    index={globalIdx}
                     number={String(idx + 1)}
                     title={scene.title || `Scene ${idx + 1}`}
                     subtitle={scene.narration ? scene.narration.slice(0, 60) + (scene.narration.length > 60 ? '...' : '') : 'No narration'}
                     timing={timing}
-                    onClick={() => onSeek?.(timing?.start || 0)}
+                    onSelect={handleSceneSelect}
                   />
                 );
               })
@@ -556,11 +796,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
             {/* Conclusion */}
             {hasConclusion && (
               <SceneListItem
+                index={sceneTimings.length - 1}
                 number={String(scenes.length + 1)}
                 title="Conclusion"
                 subtitle="Summary & CTA"
                 timing={sceneTimings[sceneTimings.length - 1]}
-                onClick={() => onSeek?.(sceneTimings[sceneTimings.length - 1]?.start || 0)}
+                onSelect={handleSceneSelect}
               />
             )}
 
@@ -571,12 +812,6 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   );
 
   // ---- Assets Tab ----
-
-  const handleAssetClick = (asset: AssetEntry) => {
-    if (asset.timing && onSeek) {
-      onSeek(asset.timing.start);
-    }
-  };
 
   const renderAssetsTab = () => (
     <div className="flex flex-col h-full">
@@ -764,7 +999,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
                 key={asset.key}
                 asset={asset}
                 isFetching={isFetchingAssets}
-                onClick={() => handleAssetClick(asset)}
+                onSelect={handleAssetClick}
               />
             ))}
           </div>
@@ -775,7 +1010,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
                 key={asset.key}
                 asset={asset}
                 isFetching={isFetchingAssets}
-                onClick={() => handleAssetClick(asset)}
+                onSelect={handleAssetClick}
               />
             ))}
           </div>
@@ -785,11 +1020,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   );
 
   const renderMusicTab = () => {
-    const hasClips = musicClips && musicClips.length > 0;
-    const isClipsExplicitlyConfigured = selectedProject?.music_clips !== undefined && selectedProject?.music_clips !== null;
-    const hasLegacy = !isClipsExplicitlyConfigured && !!bgMusicPath;
-
-    if (!hasClips && !hasLegacy) {
+    if (effectiveMusicClips.length === 0) {
       return (
         <div className="flex flex-col h-full p-4 text-center">
           <div className="flex-1 flex flex-col items-center justify-center">
@@ -817,37 +1048,10 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
       );
     }
 
-    const totalTimelineFrames = sceneTimings.length > 0 ? sceneTimings[sceneTimings.length - 1].end : 300;
-
-    const effectiveMusicClips: MusicClip[] = hasClips ? musicClips : (hasLegacy ? [{
-      id: 'default_bgm',
-      name: bgMusicFilename || 'Background Music',
-      audio_path: bgMusicPath,
-      audio_url: bgMusicUrl,
-      start_frame: 0,
-      duration_frames: Math.max(30, totalTimelineFrames),
-      source_start_seconds: 0,
-      volume: localVolume,
-      loop: true,
-      fade_in_seconds: 0.5,
-      fade_out_seconds: 1.0,
-      is_muted: false,
-    }] : []);
-
-    const selectedClip = effectiveMusicClips.find(c => c.id === selectedMusicClipId) || effectiveMusicClips[0];
-
     const handlePatchSelectedClip = (patch: Partial<MusicClip>) => {
       if (!selectedClip) return;
       const updated = effectiveMusicClips.map((c) => (c.id === selectedClip.id ? { ...c, ...patch } : c));
       onUpdateMusicClips?.(updated);
-    };
-
-    const handleDeleteClip = (id: string) => {
-      const updated = effectiveMusicClips.filter((c) => c.id !== id);
-      onUpdateMusicClips?.(updated);
-      if (selectedMusicClipId === id) {
-        setSelectedMusicClipId(updated[0]?.id || null);
-      }
     };
 
     const handleSplitAtPlayhead = () => {
@@ -927,21 +1131,9 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
           </div>
 
           <div className="space-y-1 pt-1">
-            <div className="flex items-center justify-between text-[10px]">
-              <span className="text-zinc-400 font-medium">Master Music Volume</span>
-              <span className="font-mono text-blue-300 font-bold">{Math.round((bgMusicVolume ?? localVolume) * 100)}%</span>
-            </div>
-            <CustomRange
-              min={0}
-              max={1}
-              step={0.01}
+            <MasterVolumeControl
               value={bgMusicVolume ?? localVolume}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                setLocalVolume(val);
-                if (onBgMusicVolumeChange) onBgMusicVolumeChange(val);
-                else handleVolumeSave();
-              }}
+              onCommit={handleMasterVolumeCommit}
             />
           </div>
         </div>
@@ -953,10 +1145,10 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
             effectiveMusicClips={effectiveMusicClips}
             localVolume={localVolume}
             onPatchSelectedClip={handlePatchSelectedClip}
-            onDeleteClip={handleDeleteClip}
+            onDeleteClip={handleDeleteMusicClip}
             onSplitAtPlayhead={handleSplitAtPlayhead}
             onDuplicateClip={handleDuplicateClip}
-            onSelectClipId={(val) => setSelectedMusicClipId(val)}
+            onSelectClipId={handleSelectClipId}
           />
         )}
 
@@ -967,42 +1159,17 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
               Timeline Music Clips ({effectiveMusicClips.length})
             </div>
             <div className="space-y-1">
-              {effectiveMusicClips.map((c, i) => {
-                const isSelected = selectedClip?.id === c.id;
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => {
-                      setSelectedMusicClipId(c.id);
-                      onSeek?.(c.start_frame || 0);
-                    }}
-                    className={`flex items-center justify-between p-2 rounded border text-[11px] cursor-pointer transition-colors ${
-                      isSelected
-                        ? 'bg-blue-950/40 border-blue-500/50 text-blue-200'
-                        : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <span className="font-mono text-[9px] text-blue-400 font-bold shrink-0">#{i + 1}</span>
-                      <span className="truncate max-w-[130px]">{c.name || 'Clip'}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 font-mono text-[9px] text-zinc-400">
-                      <span>{((c.duration_frames || 30) / 30).toFixed(1)}s</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteClip(c.id);
-                        }}
-                        className="text-zinc-500 hover:text-red-400 p-1 cursor-pointer"
-                        title="Delete"
-                      >
-                        <VscTrash className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+              {effectiveMusicClips.map((c, i) => (
+                <MusicClipRow
+                  key={c.id}
+                  clip={c}
+                  index={i}
+                  isSelected={selectedClip?.id === c.id}
+                  onSelect={handleSelectClipId}
+                  onDelete={handleDeleteMusicClip}
+                  onSeekClip={handleSeekClip}
+                />
+              ))}
             </div>
           </div>
         )}
@@ -1022,9 +1189,9 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
     <div className="h-full bg-zinc-950/80 border-r border-zinc-800/60 flex flex-col overflow-x-hidden" style={{ width: leftPanelWidth }}>
       {/* Tab bar — scrollable with hover-reveal buttons */}
       <ScrollableTabBar
-        tabs={tabConfig.map(t => ({ id: t.id, label: t.label, icon: t.icon }))}
+        tabs={scrollTabs}
         activeTab={leftPanelTab}
-        onChange={(id) => setLeftPanelTab(id as LeftPanelTab)}
+        onChange={handleTabChange}
       />
 
       {/* Tab content */}
@@ -1311,14 +1478,14 @@ const assetContainerStyle = (isGrid: boolean) => ({
 const AssetListItem: React.FC<{
   asset: AssetEntry;
   isFetching: boolean;
-  onClick: () => void;
-}> = React.memo(({ asset, isFetching, onClick }) => {
+  onSelect: (asset: AssetEntry) => void;
+}> = React.memo(({ asset, isFetching, onSelect }) => {
   const badge = fileTypeBadge(asset.extension || '', asset.category);
   const isInteractive = asset.category === 'html' || asset.category === 'map';
 
   return (
     <div
-      onClick={onClick}
+      onClick={() => onSelect(asset)}
       className={getAssetContainerClasses(asset.fileExists, asset.isProgrammatic, false)}
       style={assetContainerStyle(false)}
       title="Click to seek in video player"
@@ -1395,13 +1562,13 @@ const AssetListItem: React.FC<{
 const AssetGridItem: React.FC<{
   asset: AssetEntry;
   isFetching: boolean;
-  onClick: () => void;
-}> = React.memo(({ asset, isFetching, onClick }) => {
+  onSelect: (asset: AssetEntry) => void;
+}> = React.memo(({ asset, isFetching, onSelect }) => {
   const badge = fileTypeBadge(asset.extension || '', asset.category);
 
   return (
     <div
-      onClick={onClick}
+      onClick={() => onSelect(asset)}
       className={getAssetContainerClasses(asset.fileExists, asset.isProgrammatic, true)}
       style={assetContainerStyle(true)}
       title="Click to seek in video player"
@@ -1450,16 +1617,17 @@ const AssetGridItem: React.FC<{
    ============================================================ */
 
 interface SceneListItemProps {
+  index: number;
   number: string;
   title: string;
   subtitle: string;
   timing?: { start: number; end: number };
-  onClick: () => void;
+  onSelect: (sceneIndex: number) => void;
 }
 
-const SceneListItem: React.FC<SceneListItemProps> = React.memo(({ number, title, subtitle, timing, onClick }) => (
+const SceneListItem: React.FC<SceneListItemProps> = React.memo(({ index, number, title, subtitle, timing, onSelect }) => (
   <div
-    onClick={onClick}
+    onClick={() => onSelect(index)}
     className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-800/30 border border-transparent hover:border-zinc-700/50 cursor-pointer transition-all group"
   >
     <div className="w-6 h-6 rounded-md bg-blue-600/20 border border-blue-600/25 flex items-center justify-center shrink-0">

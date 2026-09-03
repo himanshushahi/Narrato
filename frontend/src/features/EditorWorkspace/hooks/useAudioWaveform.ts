@@ -39,7 +39,9 @@ export function useAudioWaveform(audioUrl?: string) {
     }
 
     if (waveformCache.has(cleanKey)) {
-      setData(waveformCache.get(cleanKey)!);
+      const cached = waveformCache.get(cleanKey)!;
+      setData(cached);
+      setIsLoading(false);
       return;
     }
 
