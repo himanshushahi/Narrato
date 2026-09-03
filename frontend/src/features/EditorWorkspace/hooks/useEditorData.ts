@@ -4,6 +4,7 @@ import { callApi } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 import { estimateTextDuration, calculateSubVisualTimings } from '../../../utils/duration';
+import { MusicClip } from '../../../components/video/NitishRajputComposition';
 
 interface UseEditorDataReturn {
   scriptData: any;
@@ -18,6 +19,8 @@ interface UseEditorDataReturn {
   reloadKey: number;
   liveScenes: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
+  musicClips: MusicClip[];
+  updateMusicClips: (clips: MusicClip[]) => Promise<boolean>;
   loadFiles: (projId: string) => Promise<void>;
   getAudioSourceUrl: (projectId: string) => string;
   getBGMUrl: () => string;
@@ -234,6 +237,68 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     });
   }, [liveScenes]);
 
+  const selectedProject = useProjectStore((s) => s.selectedProject);
+  const updateProject = useProjectStore((s) => s.updateProject);
+
+  const musicClips = useMemo<MusicClip[]>(() => {
+    if (!selectedProject) return [];
+    const totalFrames = sceneTimings.length > 0 ? sceneTimings[sceneTimings.length - 1].end : 300;
+
+    let clips: MusicClip[] | null = null;
+    if (selectedProject.music_clips !== undefined && selectedProject.music_clips !== null) {
+      try {
+        clips = typeof selectedProject.music_clips === 'string'
+          ? JSON.parse(selectedProject.music_clips)
+          : selectedProject.music_clips;
+      } catch (e) {
+        clips = null;
+      }
+    }
+
+    // Fallback: ONLY if music_clips was never configured on this project (null/undefined)
+    if (clips === null) {
+      if (selectedProject.bg_music_path) {
+        clips = [
+          {
+            id: 'default_bgm',
+            name: selectedProject.bg_music_path.split(/[/\\]/).pop() || 'Background Music',
+            audio_path: selectedProject.bg_music_path,
+            start_frame: 0,
+            duration_frames: totalFrames,
+            source_start_seconds: 0,
+            volume: selectedProject.bg_music_volume ?? 0.15,
+            loop: true,
+            fade_in_seconds: 0.5,
+            fade_out_seconds: 1.0,
+            is_muted: false,
+          }
+        ];
+      } else {
+        clips = [];
+      }
+    }
+
+    return (clips || []).map((c: MusicClip) => ({
+      ...c,
+      audio_url: c.audio_path ? `${getMediaUrlSync(c.audio_path)}&t=${reloadKey}` : '',
+    }));
+  }, [selectedProject?.music_clips, selectedProject?.bg_music_path, selectedProject?.bg_music_volume, reloadKey, sceneTimings]);
+
+  const updateMusicClips = useCallback(async (newClips: MusicClip[]) => {
+    if (!projectId) return false;
+    const cleanClips = (newClips || []).map(c => {
+      const { audio_url, ...rest } = c;
+      return rest;
+    });
+    const success = await updateProject(projectId, {
+      music_clips: cleanClips
+    });
+    if (success) {
+      setReloadKey(k => k + 1);
+    }
+    return success;
+  }, [projectId, updateProject]);
+
   const getAudioSourceUrl = useCallback(() => {
     const project = useProjectStore.getState().selectedProject;
     if (project?.audio_path) {
@@ -257,6 +322,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     transcriptionData, setTranscriptionData,
     loadingScript, reloadKey,
     liveScenes, sceneTimings,
+    musicClips, updateMusicClips,
     loadFiles,
     getAudioSourceUrl, getBGMUrl
   };

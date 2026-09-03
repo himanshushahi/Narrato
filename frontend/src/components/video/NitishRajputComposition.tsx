@@ -50,10 +50,27 @@ export interface Transcription {
   segments: TranscriptionSegment[];
 }
 
+export interface MusicClip {
+  id: string;
+  name: string;
+  audio_path: string;
+  audio_url?: string;
+  start_frame: number;
+  duration_frames: number;
+  source_start_seconds?: number;
+  source_duration_seconds?: number;
+  volume?: number;
+  loop?: boolean;
+  fade_in_seconds?: number;
+  fade_out_seconds?: number;
+  is_muted?: boolean;
+}
+
 export interface Props {
   audioUrl: string;
   bgMusicUrl?: string;
   bgMusicVolume?: number;
+  musicClips?: MusicClip[];
   voiceoverVolume?: number;
   muteVideoAudio?: boolean;
   scenes: Scene[];
@@ -245,10 +262,56 @@ const FrameVolumeAudio: React.FC<{
   return <Audio src={src} volume={volume} loop={loop} />;
 };
 
+const DynamicFadeAudio: React.FC<{
+  src: string;
+  clipDurationFrames: number;
+  baseVolume?: number;
+  startFromFrame?: number;
+  fadeInFrames?: number;
+  fadeOutFrames?: number;
+  loop?: boolean;
+  globalMuteRanges?: Array<{ start: number; end: number }>;
+  clipGlobalStart?: number;
+}> = ({
+  src,
+  clipDurationFrames,
+  baseVolume = 0.2,
+  startFromFrame = 0,
+  fadeInFrames = 0,
+  fadeOutFrames = 0,
+  loop = true,
+  globalMuteRanges = [],
+  clipGlobalStart = 0,
+}) => {
+  const frame = useCurrentFrame();
+  const globalFrame = clipGlobalStart + frame;
+  const isMuted = isFrameInRanges(globalFrame, globalMuteRanges);
+
+  let volFactor = 1.0;
+  if (fadeInFrames > 0 && frame < fadeInFrames) {
+    volFactor = Math.min(volFactor, Math.max(0, frame / fadeInFrames));
+  }
+  if (fadeOutFrames > 0 && frame > clipDurationFrames - fadeOutFrames) {
+    const remaining = clipDurationFrames - frame;
+    volFactor = Math.min(volFactor, Math.max(0, remaining / fadeOutFrames));
+  }
+
+  const volume = isMuted ? 0 : Math.max(0, baseVolume * volFactor);
+  return (
+    <Audio
+      src={src}
+      volume={volume}
+      startFrom={startFromFrame}
+      loop={loop}
+    />
+  );
+};
+
 export const NitishRajputComposition: React.FC<Props> = ({
   audioUrl,
   bgMusicUrl,
   bgMusicVolume = 0.2,
+  musicClips = [],
   voiceoverVolume = 1.0,
 
   scenes,
@@ -408,9 +471,35 @@ export const NitishRajputComposition: React.FC<Props> = ({
           {audioUrl && (
             <FrameVolumeAudio src={audioUrl} muteRanges={voiceMuteRanges} baseVolume={voiceoverVolume} />
           )}
-          {bgMusicUrl && (
+          {musicClips && musicClips.length > 0 ? (
+            musicClips.map((clip) => {
+              if (!clip.audio_url || clip.is_muted) return null;
+              const startFrame = Math.max(0, Math.round(clip.start_frame || 0));
+              const durationFrames = Math.max(1, Math.round(clip.duration_frames || 30));
+              const fadeInFrames = Math.round((clip.fade_in_seconds || 0) * 30);
+              const fadeOutFrames = Math.round((clip.fade_out_seconds || 0) * 30);
+              const startFromFrame = Math.round((clip.source_start_seconds || 0) * 30);
+              const clipVolume = Math.max(0, (clip.volume ?? 0.2) * (bgMusicVolume !== undefined ? bgMusicVolume / 0.15 : 1));
+
+              return (
+                <Sequence key={clip.id} from={startFrame} durationInFrames={durationFrames} premountFor={30}>
+                  <DynamicFadeAudio
+                    src={clip.audio_url}
+                    clipDurationFrames={durationFrames}
+                    baseVolume={clipVolume}
+                    startFromFrame={startFromFrame}
+                    fadeInFrames={fadeInFrames}
+                    fadeOutFrames={fadeOutFrames}
+                    loop={clip.loop !== false}
+                    globalMuteRanges={bgMuteRanges}
+                    clipGlobalStart={startFrame}
+                  />
+                </Sequence>
+              );
+            })
+          ) : bgMusicUrl ? (
             <FrameVolumeAudio src={bgMusicUrl} muteRanges={bgMuteRanges} baseVolume={bgMusicVolume} loop />
-          )}
+          ) : null}
         </>
       )}
 

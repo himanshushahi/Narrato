@@ -1,12 +1,13 @@
 import { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Player, PlayerRef } from '@remotion/player';
-import { NitishRajputComposition, Scene, Transcription } from './NitishRajputComposition';
+import { NitishRajputComposition, Scene, Transcription, MusicClip } from './NitishRajputComposition';
 import { GlobalOverlayItem } from './GlobalOverlaysRenderer';
 
 interface Props {
   audioUrl: string;
   bgMusicUrl?: string;
   bgMusicVolume?: number;
+  musicClips?: MusicClip[];
   voiceoverVolume?: number;
   muteVideoAudio?: boolean;
   scenes: Scene[];
@@ -31,10 +32,13 @@ export interface RemotionVideoPlayerRef {
   getCurrentFrame: () => number;
 }
 
+const BROWSER_MEDIA_BEHAVIOR = { mode: 'prevent-media-session' as const };
+
 const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   audioUrl,
   bgMusicUrl,
   bgMusicVolume = 0.15,
+  musicClips = [],
   voiceoverVolume = 1.0,
   muteVideoAudio = false,
   scenes = [],
@@ -138,6 +142,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       audioUrl,
       bgMusicUrl,
       bgMusicVolume,
+      musicClips,
       voiceoverVolume,
       muteVideoAudio,
       scenes,
@@ -149,7 +154,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       designSystem,
       overlays,
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, musicClips, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays]);
 
   if (!scenes || scenes.length === 0) {
     return (
@@ -180,6 +185,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         controls={false}
         loop={false}
         spaceKeyToPlayOrPause={false}
+        browserMediaControlsBehavior={BROWSER_MEDIA_BEHAVIOR}
         renderLoading={() => (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>

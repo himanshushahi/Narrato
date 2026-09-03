@@ -1,33 +1,52 @@
 import { useState, useEffect } from 'react';
 
-// Global cache so waveforms are decoded only ONCE per session/URL
+// Global cache so waveforms are decoded only ONCE per session/URL (capped at 50 to prevent leaks)
+const MAX_CACHE_SIZE = 50;
 const waveformCache = new Map<string, { peaks: Float32Array; duration: number }>();
 const pendingFetches = new Map<string, Promise<{ peaks: Float32Array; duration: number } | null>>();
 
+export function getCleanAudioKey(url?: string): string {
+  if (!url) return '';
+  return url.replace(/([?&])t=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+}
+
+export function clearWaveformCache(url?: string) {
+  if (url) {
+    const key = getCleanAudioKey(url);
+    waveformCache.delete(key);
+    pendingFetches.delete(key);
+  } else {
+    waveformCache.clear();
+    pendingFetches.clear();
+  }
+}
+
 export function useAudioWaveform(audioUrl?: string) {
+  const cleanKey = getCleanAudioKey(audioUrl);
+
   const [data, setData] = useState<{ peaks: Float32Array; duration: number } | null>(() => {
-    if (audioUrl && waveformCache.has(audioUrl)) {
-      return waveformCache.get(audioUrl)!;
+    if (cleanKey && waveformCache.has(cleanKey)) {
+      return waveformCache.get(cleanKey)!;
     }
     return null;
   });
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!audioUrl) {
+    if (!audioUrl || !cleanKey) {
       setData(null);
       return;
     }
 
-    if (waveformCache.has(audioUrl)) {
-      setData(waveformCache.get(audioUrl)!);
+    if (waveformCache.has(cleanKey)) {
+      setData(waveformCache.get(cleanKey)!);
       return;
     }
 
     let isMounted = true;
     setIsLoading(true);
 
-    let fetchPromise = pendingFetches.get(audioUrl);
+    let fetchPromise = pendingFetches.get(cleanKey);
     if (!fetchPromise) {
       fetchPromise = (async () => {
         try {
@@ -60,16 +79,20 @@ export function useAudioWaveform(audioUrl?: string) {
           }
 
           const result = { peaks, duration };
-          waveformCache.set(audioUrl, result);
+          if (waveformCache.size >= MAX_CACHE_SIZE) {
+            const firstKey = waveformCache.keys().next().value;
+            if (firstKey) waveformCache.delete(firstKey);
+          }
+          waveformCache.set(cleanKey, result);
           return result;
         } catch (e) {
           console.warn('Failed to extract audio waveform:', e);
           return null;
         } finally {
-          pendingFetches.delete(audioUrl);
+          pendingFetches.delete(cleanKey);
         }
       })();
-      pendingFetches.set(audioUrl, fetchPromise);
+      pendingFetches.set(cleanKey, fetchPromise);
     }
 
     fetchPromise.then((result) => {
@@ -77,12 +100,16 @@ export function useAudioWaveform(audioUrl?: string) {
         setData(result);
         setIsLoading(false);
       }
+    }).catch(() => {
+      if (isMounted) {
+        setIsLoading(false);
+      }
     });
 
     return () => {
       isMounted = false;
     };
-  }, [audioUrl]);
+  }, [audioUrl, cleanKey]);
 
   return { peaks: data?.peaks, duration: data?.duration, isLoading };
 }

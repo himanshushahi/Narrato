@@ -65,6 +65,8 @@ const EditorWorkspace: React.FC = () => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+  const updateProject = useProjectStore((s) => s.updateProject);
+
   // === Hooks ===
   const {
     scriptData, setScriptData,
@@ -72,8 +74,30 @@ const EditorWorkspace: React.FC = () => {
     manifestData, setManifestData,
     transcriptionData, setTranscriptionData,
     liveScenes, sceneTimings, reloadKey,
+    musicClips, updateMusicClips,
     loadFiles
   } = useEditorData(id);
+
+  const handleUploadMusicClip = useCallback(async (startFrame?: number) => {
+    if (!id) return;
+    try {
+      const res = await callApi<{ success: boolean; clip?: any; clips?: any[]; error?: string }>('upload_music_clip', id, startFrame);
+      if (res && res.success) {
+        await loadFiles(id);
+        if (res.clip?.id) {
+          useEditorStore.getState().setSelectedMusicClipId(res.clip.id);
+          useEditorStore.getState().setLeftPanelTab('music');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to upload music clip:', e);
+    }
+  }, [id, loadFiles]);
+
+  const handleBgMusicVolumeChange = useCallback(async (vol: number) => {
+    if (!id) return;
+    await updateProject(id, { bg_music_volume: vol });
+  }, [id, updateProject]);
 
   const [activeTimings, setActiveTimings] = useState(sceneTimings);
   useEffect(() => {
@@ -81,8 +105,8 @@ const EditorWorkspace: React.FC = () => {
   }, [sceneTimings]);
 
   const {
-    tasks, queue, isRunning, targetStage, activeTaskStep, scriptChangedAlert,
-    setTargetStage, setScriptChangedAlert, triggerFullPipeline,
+    tasks, queue, isRunning, targetStage, activeTaskStep,
+    setTargetStage, triggerFullPipeline,
     handleResumePipeline, handleResumeFromStage, cancelPipeline
   } = usePipeline(id, loadFiles);
 
@@ -90,8 +114,6 @@ const EditorWorkspace: React.FC = () => {
     editingCard, setEditingCard, rewritePrompt, setRewritePrompt,
     rewritingSection,
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
-    scriptChangedAlert: scriptEditingAlert,
-    setScriptChangedAlert: setScriptEditingAlert,
     previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
@@ -432,27 +454,6 @@ const EditorWorkspace: React.FC = () => {
   const handleSelectOverlay = useCallback((_overlayId: string) => {
     setInspectorTab('overlays');
   }, [setInspectorTab]);
-
-  // Sync scriptEditing's alert to the pipeline hook so handleResumePipeline can use it.
-  // Use a ref to only propagate CHANGES — prevents a race where handleResumePipeline
-  // clears the pipeline's alert but this effect re-sets it from the still-true source.
-  const prevScriptEditingRef = useRef(scriptEditingAlert);
-  useEffect(() => {
-    if (scriptEditingAlert !== prevScriptEditingRef.current) {
-      setScriptChangedAlert(scriptEditingAlert);
-      prevScriptEditingRef.current = scriptEditingAlert;
-    }
-  }, [scriptEditingAlert, setScriptChangedAlert]);
-
-  // Clear both alerts when the pipeline finishes — narration is now synced
-  const prevRunningRef = useRef(isRunning);
-  useEffect(() => {
-    if (prevRunningRef.current && !isRunning) {
-      setScriptChangedAlert(false);
-      setScriptEditingAlert(false);
-    }
-    prevRunningRef.current = isRunning;
-  }, [isRunning, setScriptChangedAlert, setScriptEditingAlert]);
 
   // Auto-switch to Script tab when script generation finishes
   const prevScriptGenStatusRef = useRef(tasks['generate_script']?.status);
@@ -956,6 +957,11 @@ const EditorWorkspace: React.FC = () => {
           isPipelineRunning={isRunning}
           activeTaskStep={activeTaskStep}
           reloadTrigger={reloadKey}
+          musicClips={musicClips}
+          onUpdateMusicClips={updateMusicClips}
+          onUploadMusicClip={handleUploadMusicClip}
+          bgMusicVolume={safeProject.bg_music_volume}
+          onBgMusicVolumeChange={handleBgMusicVolumeChange}
         />
         <ResizeHandle direction="vertical" target="leftPanel" side="right" min={300} />
       </div>
@@ -969,6 +975,7 @@ const EditorWorkspace: React.FC = () => {
           audioUrl={audioUrl}
           bgMusicUrl={bgMusicUrl}
           bgMusicVolume={safeProject.bg_music_volume}
+          musicClips={musicClips}
           voiceoverVolume={parseFloat(localProjectSettings?.voiceover_volume || '1.0')}
           styleType={safeProject.style}
           language={safeProject.language}
@@ -1018,7 +1025,6 @@ const EditorWorkspace: React.FC = () => {
           isPipelineRunning={isRunning}
           targetStage={targetStage}
           activeTaskStep={activeTaskStep}
-          scriptChangedAlert={scriptChangedAlert}
           hasScriptData={hasScriptData}
           onSetTargetStage={setTargetStage}
           onTriggerFullPipeline={triggerFullPipeline}
@@ -1046,6 +1052,9 @@ const EditorWorkspace: React.FC = () => {
           transcriptionData={transcriptionData}
           audioUrl={audioUrl}
           bgMusicUrl={bgMusicUrl}
+          musicClips={musicClips}
+          onUpdateMusicClips={updateMusicClips}
+          onUploadMusicClip={handleUploadMusicClip}
           onSeek={handleSeek}
           onDeleteScene={handleDeleteSceneTimeline}
           onResizeSubVisual={handleResizeSubVisual}

@@ -14,6 +14,7 @@ import { MusicTrack } from './components/MusicTrack';
 import { SubtitleTrack } from './components/SubtitleTrack';
 import { VideoAudioTrack } from './components/VideoAudioTrack';
 import { GlobalOverlayItem } from '../../components/video/GlobalOverlaysRenderer';
+import { MusicClip } from '../../components/video/NitishRajputComposition';
 import {
   Scissors, Copy, Trash2, VolumeX, Volume2, Music, Edit3,
   Layers, ChevronRight, Check, AlertTriangle
@@ -26,6 +27,9 @@ interface TimelineProps {
   transcriptionData?: any;
   audioUrl?: string;
   bgMusicUrl?: string;
+  musicClips?: MusicClip[];
+  onUpdateMusicClips?: (clips: MusicClip[]) => Promise<boolean | void>;
+  onUploadMusicClip?: (startFrame?: number) => Promise<void>;
   onSeek: (frame: number) => void;
   onDeleteScene?: (index: number) => void;
   onResizeSubVisual?: (sceneIndex: number, newRatios: number[]) => void;
@@ -65,6 +69,9 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   transcriptionData,
   audioUrl,
   bgMusicUrl,
+  musicClips = [],
+  onUpdateMusicClips,
+  onUploadMusicClip,
   onSeek,
   onDeleteScene,
   onResizeSubVisual,
@@ -735,6 +742,9 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
                     onSeek={onSeek}
                     onToggleSubVisualAudioFlag={onToggleSubVisualAudioFlag}
                     bgMusicUrl={bgMusicUrl}
+                    musicClips={musicClips}
+                    onUpdateMusicClips={onUpdateMusicClips}
+                    onUploadMusicClip={onUploadMusicClip}
                   />
                 );
 

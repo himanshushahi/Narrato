@@ -52,6 +52,7 @@ def init_db():
                 tts_speed REAL DEFAULT 1.0,
                 bg_music_path TEXT,
                 bg_music_volume REAL DEFAULT 0.15,
+                music_clips TEXT,
                 project_settings TEXT,
                 export_folder TEXT
             )
@@ -60,6 +61,11 @@ def init_db():
         # Add project_settings and export_folder to existing databases
         try:
             cursor.execute("ALTER TABLE projects ADD COLUMN video_format TEXT DEFAULT 'landscape'")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE projects ADD COLUMN music_clips TEXT")
         except sqlite3.OperationalError:
             pass # Column already exists
             
@@ -242,12 +248,18 @@ def get_all_projects():
 
 def update_project(project_id, **kwargs):
     kwargs['updated_at'] = datetime.utcnow().isoformat()
-    columns = ", ".join([f"{k} = ?" for k in kwargs.keys()])
-    values = list(kwargs.values())
+    sanitized = {}
+    for k, v in kwargs.items():
+        if isinstance(v, (dict, list)):
+            sanitized[k] = json.dumps(v, ensure_ascii=False)
+        else:
+            sanitized[k] = v
+    columns = ", ".join([f"{k} = ?" for k in sanitized.keys()])
+    values = list(sanitized.values())
     values.append(project_id)
     with get_db_connection() as conn:
         conn.execute(f"UPDATE projects SET {columns} WHERE id = ?", values)
-    logger.debug(f"Updated project {project_id}: {kwargs}")
+    logger.debug(f"Updated project {project_id}: {sanitized}")
 
 def delete_project(project_id):
     with get_db_connection() as conn:

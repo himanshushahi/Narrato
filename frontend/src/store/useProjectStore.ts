@@ -22,6 +22,7 @@ export interface Project {
   tts_voice?: string;
   bg_music_path?: string;
   bg_music_volume?: number;
+  music_clips?: string | any[];
   project_settings?: string;
   export_folder: string;
 }

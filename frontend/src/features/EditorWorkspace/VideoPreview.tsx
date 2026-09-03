@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { VscPlay, VscDebugPause, VscScreenFull, VscScreenNormal, VscLoading } from 'react-icons/vsc';
 import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../../components/video/RemotionVideoPlayer';
+import { MusicClip } from '../../components/video/NitishRajputComposition';
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
 
@@ -12,6 +13,7 @@ interface VideoPreviewProps {
   audioUrl: string;
   bgMusicUrl: string;
   bgMusicVolume?: number;
+  musicClips?: MusicClip[];
   voiceoverVolume?: number;
   styleType?: string;
   language?: string;
@@ -131,7 +133,7 @@ const MemoizedRemotionPlayer = React.memo(RemotionVideoPlayer);
 
 export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   playerRef, liveScenes, transcriptionData,
-  audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
+  audioUrl, bgMusicUrl, bgMusicVolume, musicClips = [], voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
   designSystem, overlays = [],
   onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef
 }) => {
@@ -291,6 +293,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   audioUrl={audioUrl}
                   bgMusicUrl={bgMusicUrl}
                   bgMusicVolume={trackMuted['music'] || trackHidden['music'] ? 0 : bgMusicVolume}
+                  musicClips={trackMuted['music'] || trackHidden['music'] ? [] : musicClips}
                   voiceoverVolume={trackMuted['voice'] || trackHidden['voice'] ? 0 : voiceoverVolume}
                   muteVideoAudio={!!(trackMuted['videoaudio'] || trackHidden['videoaudio'])}
                   scenes={liveScenes}

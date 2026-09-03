@@ -26,6 +26,16 @@ def _round_half_up(x):
     return int(math.floor(x + 0.5))
 
 
+def _safe_float(val, default=0.0) -> float:
+    """Safely convert value to float, handling None and invalid strings."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 def compute_sub_visual_timings_frames(sub_visuals, scene_frames):
     """Replicate the frontend's calculateSubVisualTimings (utils/duration.ts)
     in frames so audio cut ranges and video-audio placement match the preview.
@@ -171,8 +181,8 @@ def compute_frame_hash(props_dict, render_settings):
     """Hash of frame-relevant properties only (scenes, transcription, overlays, resolution, fps).
     Audio/encode settings don't affect pixel output, so they're excluded."""
     frame_props = {
-        "scenes": props_dict["scenes"],
-        "transcription": props_dict["transcription"],
+        "scenes": props_dict.get("scenes", []),
+        "transcription": props_dict.get("transcription", {}),
         "subtitleSettings": props_dict.get("subtitleSettings", {}),
         "style": props_dict.get("style"),
         "language": props_dict.get("language"),
@@ -184,7 +194,7 @@ def compute_frame_hash(props_dict, render_settings):
     }
 
     # Hash file contents/mtime rather than just string paths to detect in-place overwrites
-    for i, sc in enumerate(frame_props["scenes"]):
+    for i, sc in enumerate(frame_props.get("scenes") or []):
         for j, sv in enumerate(sc.get("sub_visuals", [])):
             path_str = sv.get("visual_path")
             if path_str and isinstance(path_str, str):
@@ -236,6 +246,7 @@ def compute_audio_hash(props_dict, render_settings):
                     "duration": (t_end - t_start) / 30.0,
                 })
     audio_props["videoAudioSources"] = video_audio_sources
+    audio_props["musicClips"] = props_dict.get("musicClips", [])
 
     # Per-sub-visual audio cut flags (mute_voiceover / mute_bg_music) — toggling
     # them must invalidate the cached audio mix.
@@ -264,6 +275,14 @@ def compute_audio_hash(props_dict, render_settings):
                 stat = os.stat(path_str)
                 audio_props[f"{key}_mtime"] = stat.st_mtime
                 audio_props[f"{key}_size"] = stat.st_size
+
+    for mc in audio_props.get("musicClips", []):
+        mpath = mc.get("audio_path")
+        if mpath and os.path.exists(mpath):
+            stat = os.stat(mpath)
+            mc_id = mc.get('id', 'clip')
+            audio_props[f"mc_{mc_id}_mtime"] = stat.st_mtime
+            audio_props[f"mc_{mc_id}_size"] = stat.st_size
 
     for vas in video_audio_sources:
         path_str = vas["path"]
@@ -433,11 +452,12 @@ def _stream_process_output(process, cancel_event, line_callback, label="Process"
 
     return process.returncode, tail
 
-def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
-    """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering."""
-    manifest_path = Path(project_dict['assets_manifest_path'])
-    transcribe_path = Path(project_dict['transcription_path'])
-    audio_path = Path(project_dict['audio_path'])
+def prepare_render_props_and_settings(project_dict, project_dir):
+    """Prepares and returns normalized props, render_settings, and associated data for render & staleness checks."""
+    project_dir = Path(project_dir)
+    manifest_path = Path(project_dict.get('assets_manifest_path') or (project_dir / "assets_manifest.json"))
+    transcribe_path = Path(project_dict.get('transcription_path') or (project_dir / "subtitles" / "transcription.json"))
+    audio_path = Path(project_dict.get('audio_path') or (project_dir / "voiceover" / "voiceover.wav"))
 
     if not manifest_path.exists():
         raise FileNotFoundError(f"Segment manifest not found: {manifest_path}")
@@ -446,12 +466,16 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     if not audio_path.exists():
         raise FileNotFoundError(f"Narration track not found: {audio_path}")
 
-    logger.info(f"Preparing Remotion compilation properties for project: {project_dict['name']}")
-    progress_cb(5.0, "Preparing compilation properties...")
-
     # 1. Load manifests
     with open(manifest_path, "r", encoding="utf-8") as f:
-        scenes = json.load(f)
+        raw_manifest = json.load(f)
+    if isinstance(raw_manifest, dict):
+        scenes = raw_manifest.get("scenes") or raw_manifest.get("assets") or []
+    elif isinstance(raw_manifest, list):
+        scenes = raw_manifest
+    else:
+        scenes = []
+
     with open(transcribe_path, "r", encoding="utf-8") as f:
         transcript = json.load(f)
 
@@ -466,6 +490,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             script_scenes = script_data.get("scenes", []) if isinstance(script_data.get("scenes"), list) else []
             scene_counter = 0
             for sc in scenes:
+                if not isinstance(sc, dict):
+                    continue
                 sec_type = sc.get("section_type")
                 if sec_type == "introduction" and script_data.get("introduction"):
                     subs = script_data["introduction"].get("sub_visuals")
@@ -493,18 +519,20 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             logger.warning(f"Could not merge script.json into render scenes/overlays: {e}")
 
     # Strip internal pipeline metadata (_content_hash, _voiceover_*) that doesn't affect
-    # rendering output. This prevents metadata changes (e.g. first save after hash system
-    # was introduced, or TTS engine/voice changes) from invalidating the render cache.
+    # rendering output. This prevents metadata changes from invalidating the render cache.
     for sc in scenes:
-        sc.pop("_content_hash", None)
-        sc.pop("_voiceover_engine", None)
-        sc.pop("_voiceover_voice", None)
-        sc.pop("_voiceover_speed", None)
-        sc.pop("_voiceover_pitch", None)
+        if isinstance(sc, dict):
+            sc.pop("_content_hash", None)
+            sc.pop("_voiceover_engine", None)
+            sc.pop("_voiceover_voice", None)
+            sc.pop("_voiceover_speed", None)
+            sc.pop("_voiceover_pitch", None)
 
     # Convert local absolute paths in scenes/audios into Bottle media serving URLs & normalize video assets
     for sc in scenes:
-        sc["audio_url"] = clean_media_path(sc["audio_path"])
+        if isinstance(sc, dict):
+            if sc.get("audio_path"):
+                sc["audio_url"] = clean_media_path(sc["audio_path"])
         
         sub_visuals = sc.get("sub_visuals", [])
         
@@ -550,8 +578,6 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             logger.error(f"Failed to parse project_settings: {e}")
 
     # ── Track visibility overrides ─────────────────────────────────────────
-    # When the user hides/mutes tracks in the timeline UI, these overrides
-    # make the final rendered video reflect those choices.
     render_track_overrides = {
         "muteVoice": project_settings.get("render_mute_voice", False),
         "muteMusic": project_settings.get("render_mute_music", False),
@@ -572,11 +598,30 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     fps = int(render_fps)
     timeout_ms = int(render_timeout)
 
+    raw_music_clips = project_dict.get("music_clips")
+    parsed_music_clips = []
+    if raw_music_clips:
+        try:
+            parsed_music_clips = json.loads(raw_music_clips) if isinstance(raw_music_clips, str) else raw_music_clips
+        except Exception:
+            parsed_music_clips = []
+
+    cleaned_music_clips = []
+    for mc in parsed_music_clips:
+        if isinstance(mc, dict) and mc.get("audio_path"):
+            mc_copy = dict(mc)
+            mc_copy["audio_url"] = clean_media_path(mc_copy["audio_path"])
+            cleaned_music_clips.append(mc_copy)
+
+    bg_vol_val = _safe_float(project_dict.get("bg_music_volume"), default=0.15)
+    voice_vol_val = _safe_float(project_settings.get("voiceover_volume"), default=1.0)
+
     props = {
         "audioUrl": clean_media_path(str(audio_path)),
         "bgMusicUrl": bg_music_url,
-        "bgMusicVolume": float(project_dict.get("bg_music_volume") or 0.15),
-        "voiceoverVolume": float(project_settings.get("voiceover_volume") or 1.0),
+        "bgMusicVolume": bg_vol_val,
+        "musicClips": cleaned_music_clips,
+        "voiceoverVolume": voice_vol_val,
         "muteVideoAudio": False,
         "scenes": scenes,
         "transcription": transcript,
@@ -595,6 +640,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     if render_track_overrides["muteMusic"]:
         props["bgMusicVolume"] = 0.0
         props["bgMusicUrl"] = ""
+        props["musicClips"] = []
         logger.info("Smart Resume: Background music muted by track override.")
     if render_track_overrides["muteVideoAudio"]:
         props["muteVideoAudio"] = True
@@ -609,21 +655,125 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         props["overlays"] = []
         logger.info("Smart Resume: Overlays hidden by track override.")
 
-    # Write props to a JSON file
-    props_path = project_dir / "render_props.json"
-    with open(props_path, "w", encoding="utf-8") as f:
-        json.dump(props, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"Wrote render props to {props_path}")
-
     render_settings = {
         "resolution": render_resolution,
         "concurrency": render_concurrency,
         "fps": fps,
         "crf": render_crf,
         "codec": render_codec,
-        "hardware": render_hardware
+        "hardware": render_hardware,
+        "timeout": timeout_ms,
     }
+
+    return (props, render_settings, scenes, transcript, audio_path, render_track_overrides, project_settings, cleaned_music_clips)
+
+
+def is_render_stale(project_dict, project_dir) -> bool:
+    """
+    Evaluates whether the render stage is stale under the Smart Resume caching architecture.
+    Returns True if:
+    - Target MP4 is missing on disk or empty
+    - Any render cache files (frame.hash.txt, audio.hash.txt, mux.hash.txt, audio.wav, frames dir) are missing
+    - audio_hash differs (bg_music path, volumes, music clips, fades, or cuts changed)
+    - frame_hash differs (visual layers, subtitles, or resolutions changed)
+    - mux_hash differs (CRF, codec, hardware changed)
+    """
+    try:
+        if not project_dict:
+            return True
+        project_dir = Path(project_dir)
+        
+        # 1. Check final video output
+        if project_dict.get('export_folder'):
+            exports_dir = Path(project_dict['export_folder'])
+        else:
+            from backend.core.config import get_exports_dir
+            exports_dir = get_exports_dir()
+        
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', project_dict.get('name', 'project'))
+        output_mp4_path = exports_dir / f"{safe_name}.mp4"
+        custom_video_path = project_dict.get('video_path')
+        if custom_video_path and Path(custom_video_path).exists() and Path(custom_video_path).stat().st_size > 0:
+            target_mp4 = Path(custom_video_path)
+        else:
+            target_mp4 = output_mp4_path
+
+        if not target_mp4.exists() or target_mp4.stat().st_size == 0:
+            return True
+
+        cache_dir = project_dir / "render_cache"
+        frame_hash_file = cache_dir / "frame.hash.txt"
+        audio_hash_file = cache_dir / "audio.hash.txt"
+        mux_hash_file = cache_dir / "mux.hash.txt"
+        cached_audio_path = cache_dir / "audio.wav"
+        frames_dir = cache_dir / "frames"
+
+        if not (frame_hash_file.exists() and audio_hash_file.exists() and mux_hash_file.exists() and cached_audio_path.exists() and frames_dir.exists()):
+            return True
+
+        if not any(frames_dir.glob("element-*.*")):
+            logger.info("Smart Resume: Render is stale because cached frames directory contains no frames.")
+            return True
+
+        # Check required upstream files
+        manifest_path = Path(project_dict.get('assets_manifest_path') or (project_dir / "assets_manifest.json"))
+        transcribe_path = Path(project_dict.get('transcription_path') or (project_dir / "subtitles" / "transcription.json"))
+        audio_path = Path(project_dict.get('audio_path') or (project_dir / "voiceover" / "voiceover.wav"))
+
+        if not (manifest_path.exists() and transcribe_path.exists() and audio_path.exists()):
+            return True
+
+        props, render_settings = prepare_render_props_and_settings(project_dict, project_dir)[:2]
+
+        current_audio_hash = compute_audio_hash(props, render_settings)
+        cached_audio_hash = audio_hash_file.read_text().strip()
+        if current_audio_hash != cached_audio_hash:
+            logger.info(f"Smart Resume: Render is stale due to audio changes (audio hash mismatch: {cached_audio_hash[:8]} vs {current_audio_hash[:8]}).")
+            return True
+
+        current_frame_hash = compute_frame_hash(props, render_settings)
+        cached_frame_hash = frame_hash_file.read_text().strip()
+        if current_frame_hash != cached_frame_hash:
+            logger.info(f"Smart Resume: Render is stale due to visual frame changes (frame hash mismatch: {cached_frame_hash[:8]} vs {current_frame_hash[:8]}).")
+            return True
+
+        current_mux_hash = compute_mux_hash(current_frame_hash, current_audio_hash, render_settings)
+        cached_mux_hash = mux_hash_file.read_text().strip()
+        if current_mux_hash != cached_mux_hash:
+            logger.info(f"Smart Resume: Render is stale due to mux/encode settings change.")
+            return True
+
+        return False
+    except Exception as e:
+        logger.error(f"Error evaluating is_render_stale: {e}")
+        return True
+
+
+def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
+    """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering."""
+    logger.info(f"Preparing Remotion compilation properties for project: {project_dict['name']}")
+    progress_cb(5.0, "Preparing compilation properties...")
+
+    project_dir = Path(project_dir)
+    (
+        props, render_settings, scenes, transcript, audio_path,
+        render_track_overrides, project_settings, cleaned_music_clips
+    ) = prepare_render_props_and_settings(project_dict, project_dir)
+
+    fps = render_settings["fps"]
+    timeout_ms = render_settings["timeout"]
+    render_resolution = render_settings["resolution"]
+    render_concurrency = render_settings["concurrency"]
+    render_crf = render_settings["crf"]
+    render_codec = render_settings["codec"]
+    render_hardware = render_settings["hardware"]
+
+    # Write props to a JSON file
+    props_path = project_dir / "render_props.json"
+    with open(props_path, "w", encoding="utf-8") as f:
+        json.dump(props, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Wrote render props to {props_path}")
 
     # Compute three domain-specific hashes
     frame_hash = compute_frame_hash(props, render_settings)
@@ -1017,8 +1167,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         bg_path_str = project_dict.get("bg_music_path")
         bg_path = str(Path(bg_path_str).resolve()) if bg_path_str and Path(bg_path_str).exists() else None
         
-        voice_vol = float(project_settings.get("voiceover_volume") or 1.0)
-        bg_vol = float(project_dict.get("bg_music_volume") or 0.15)
+        voice_vol = float(project_settings.get("voiceover_volume")) if project_settings.get("voiceover_volume") is not None else 1.0
+        bg_vol = float(project_dict.get("bg_music_volume")) if project_dict.get("bg_music_volume") is not None else 0.15
         
         if render_track_overrides.get("muteVoice"):
             voice_vol = 0.0
@@ -1049,6 +1199,17 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                 if sv.get("mute_bg_music"):
                     bg_cuts.append(((scene_start + t_start) / 30.0, (scene_start + t_end) / 30.0))
 
+        # ── Collect music clip inputs ──────────────────────────────────────
+        music_clip_inputs = []
+        if not render_track_overrides.get("muteMusic"):
+            for mc in cleaned_music_clips:
+                mpath = mc.get("audio_path")
+                if mpath and Path(mpath).exists() and not mc.get("is_muted"):
+                    music_clip_inputs.append(mc)
+
+        has_clips_config = project_dict.get("music_clips") is not None
+        has_legacy_bg = (not has_clips_config) and bg_path and bg_vol > 0 and not render_track_overrides.get("muteMusic")
+
         ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
         
         cmd_audio = [ffmpeg_bin, "-y"]
@@ -1058,11 +1219,20 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         cmd_audio.extend(["-i", voice_path])
         input_count = 1
 
-        # Input 1: bg music (if present)
-        has_bg = bg_path and bg_vol > 0
-        if has_bg:
+        # Legacy Input 1: bg music (if present and project has never configured music_clips)
+        if has_legacy_bg:
             cmd_audio.extend(["-stream_loop", "-1", "-i", bg_path])
-            input_count = 2
+            input_count += 1
+
+        # Music clip inputs
+        music_clip_start_idx = input_count
+        for mc in music_clip_inputs:
+            mpath = mc["audio_path"]
+            if mc.get("loop", True):
+                cmd_audio.extend(["-stream_loop", "-1", "-i", mpath])
+            else:
+                cmd_audio.extend(["-i", mpath])
+            input_count += 1
 
         # Probe audio streams for each video track using ffprobe
         video_audio_inputs = []
@@ -1086,13 +1256,10 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         mix_inputs = []
 
         # Chain per-sub-visual cut ranges: volume=0:enable='gte(t,s)*lt(t,e)'.
-        # gte/lt replicate the frontend's `frame >= start && frame < end` semantics;
-        # `between(t,s,e)` is inclusive at both ends and keeps each cut muted one
-        # frame longer than the preview.
         def _apply_cuts(vol: float, cuts: list) -> str:
             if not cuts:
-                return f"volume={vol}"
-            parts = [f"volume={vol}"]
+                return f"volume={vol:.3f}"
+            parts = [f"volume={vol:.3f}"]
             for s, e in cuts:
                 parts.append(f"volume=0:enable='gte(t,{s:.3f})*lt(t,{e:.3f})'")
             return ",".join(parts)
@@ -1102,11 +1269,50 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         filter_parts.append(f"[0:a]{voice_filter}[voice]")
         mix_inputs.append("[voice]")
 
-        # BG music (input index 1 if present)
-        if has_bg:
+        # Legacy BG music (if present)
+        if has_legacy_bg:
             bg_filter = _apply_cuts(bg_vol, bg_cuts)
             filter_parts.append(f"[1:a]{bg_filter}[bg]")
             mix_inputs.append("[bg]")
+
+        # Music clips
+        for idx, mc in enumerate(music_clip_inputs):
+            in_idx = music_clip_start_idx + idx
+            start_sec = max(0.0, _safe_float(mc.get("start_frame"), 0.0) / 30.0)
+            dur_sec = max(0.1, _safe_float(mc.get("duration_frames"), 30.0) / 30.0)
+            src_start = max(0.0, _safe_float(mc.get("source_start_seconds"), 0.0))
+            fade_in = max(0.0, _safe_float(mc.get("fade_in_seconds"), 0.0))
+            fade_out = max(0.0, _safe_float(mc.get("fade_out_seconds"), 0.0))
+            master_vol_mult = (bg_vol / 0.15) if (bg_vol is not None and bg_vol >= 0) else 1.0
+            clip_vol = max(0.0, _safe_float(mc.get("volume"), 0.2) * master_vol_mult)
+
+            mc_filters = []
+            if src_start > 0:
+                mc_filters.append(f"atrim=start={src_start:.3f}:duration={dur_sec:.3f},asetpts=PTS-STARTPTS")
+            else:
+                mc_filters.append(f"atrim=duration={dur_sec:.3f},asetpts=PTS-STARTPTS")
+
+            if fade_in > 0:
+                mc_filters.append(f"afade=t=in:st=0:d={min(fade_in, dur_sec):.3f}")
+            if fade_out > 0:
+                st_out = max(0.0, dur_sec - fade_out)
+                mc_filters.append(f"afade=t=out:st={st_out:.3f}:d={min(fade_out, dur_sec):.3f}")
+
+            # Overlapping bg cuts
+            clip_end_sec = start_sec + dur_sec
+            for s, e in bg_cuts:
+                if max(s, start_sec) < min(e, clip_end_sec):
+                    rel_s = max(0.0, s - start_sec)
+                    rel_e = min(dur_sec, e - start_sec)
+                    mc_filters.append(f"volume=0:enable='gte(t,{rel_s:.3f})*lt(t,{rel_e:.3f})'")
+
+            mc_filters.append(f"volume={clip_vol:.3f}")
+            delay_ms = int(start_sec * 1000)
+            if delay_ms > 0:
+                mc_filters.append(f"adelay={delay_ms}:all=1")
+
+            filter_parts.append(f"[{in_idx}:a]" + ",".join(mc_filters) + f"[bgc{idx}]")
+            mix_inputs.append(f"[bgc{idx}]")
 
         # Video audio tracks
         for i, vat in enumerate(video_audio_inputs):
@@ -1114,7 +1320,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             delay_ms = int(vat["start_time"] * 1000)
             vol = vat["volume"]
             if delay_ms > 0:
-                filter_parts.append(f"[{vidx}:a]volume={vol},adelay={delay_ms}|{delay_ms}[va{i}]")
+                filter_parts.append(f"[{vidx}:a]volume={vol},adelay={delay_ms}:all=1[va{i}]")
             else:
                 filter_parts.append(f"[{vidx}:a]volume={vol}[va{i}]")
             mix_inputs.append(f"[va{i}]")

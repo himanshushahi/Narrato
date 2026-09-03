@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLayers, VscPackage, VscMusic,
@@ -9,12 +9,19 @@ import {
 } from 'react-icons/vsc';
 import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
 import { CustomAudioPlayer } from '../../components/ui/CustomAudioPlayer';
+import { CustomRange } from '../../components/ui/CustomRange';
+import { CustomToggle } from '../../components/ui/CustomToggle';
+import { CustomSelect } from '../../components/ui/CustomSelect';
 import { useEditorStore, LeftPanelTab } from '../../store/useEditorStore';
 import { useProjectStore } from '../../store/useProjectStore';
+import { usePlaybackStore } from '../../store/usePlaybackStore';
+import { MusicClip } from '../../components/video/NitishRajputComposition';
 import { callApi } from '../../utils/call-api';
 import { getMediaUrlSync, getMediaThumbUrl } from '../../utils/mediaUrl';
 import { formatTime } from '../../features/ProjectEditor/constants';
 import { useProjectAssets, AssetEntry, AssetCategory } from './hooks/useProjectAssets';
+import { useAudioWaveform } from './hooks/useAudioWaveform';
+import { Scissors } from 'lucide-react';
 
 interface MediaSidebarProps {
   scriptData: any;
@@ -25,6 +32,11 @@ interface MediaSidebarProps {
   isPipelineRunning?: boolean;
   activeTaskStep?: any;
   reloadTrigger?: number;
+  musicClips?: MusicClip[];
+  onUpdateMusicClips?: (clips: MusicClip[]) => Promise<boolean | void>;
+  onUploadMusicClip?: (startFrame?: number) => Promise<void>;
+  bgMusicVolume?: number;
+  onBgMusicVolumeChange?: (vol: number) => void;
 }
 
 /** Format bytes to a human-readable string */
@@ -60,13 +72,205 @@ const fileTypeBadge = (ext: string, category?: string): { icon: React.ReactNode;
   return { icon: <VscPackage />, label: (ext || 'FILE').replace('.', '').toUpperCase(), color: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20' };
 };
 
+const SelectedMusicClipCard: React.FC<{
+  selectedClip: MusicClip;
+  effectiveMusicClips: MusicClip[];
+  localVolume: number;
+  onPatchSelectedClip: (patch: Partial<MusicClip>) => void;
+  onDeleteClip: (id: string) => void;
+  onSplitAtPlayhead: () => void;
+  onDuplicateClip: () => void;
+  onSelectClipId: (id: string) => void;
+}> = ({
+  selectedClip,
+  effectiveMusicClips,
+  localVolume,
+  onPatchSelectedClip,
+  onDeleteClip,
+  onSplitAtPlayhead,
+  onDuplicateClip,
+  onSelectClipId,
+}) => {
+  const { duration: audioDuration } = useAudioWaveform(selectedClip?.audio_url);
+
+  return (
+    <div className="bg-zinc-900/50 border border-blue-500/30 rounded-lg p-3 space-y-3">
+      <div className="flex items-center justify-between border-b border-zinc-800/60 pb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 rounded bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+            <VscMusic className="text-blue-400 text-xs" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-zinc-100 truncate">{selectedClip.name || 'Selected Music'}</p>
+            <p className="text-[9px] text-zinc-500 font-mono">
+              {formatTime(selectedClip.start_frame || 0)} → {formatTime((selectedClip.start_frame || 0) + (selectedClip.duration_frames || 30))}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onSplitAtPlayhead}
+            className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 text-cyan-300 hover:text-white rounded cursor-pointer"
+            title="Split at playhead"
+          >
+            <Scissors className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onDuplicateClip}
+            className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 text-purple-300 hover:text-white rounded cursor-pointer"
+            title="Duplicate clip"
+          >
+            <VscLayers className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDeleteClip(selectedClip.id)}
+            className="p-1.5 bg-zinc-800/80 hover:bg-red-900/60 text-red-400 hover:text-red-200 rounded cursor-pointer"
+            title="Delete clip"
+          >
+            <VscTrash className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* Audio Preview Player */}
+      {selectedClip.audio_url && (
+        <div className="pt-0.5">
+          <CustomAudioPlayer src={selectedClip.audio_url} volume={selectedClip.volume ?? localVolume} />
+        </div>
+      )}
+
+      {/* Clip Selector if multiple clips */}
+      {effectiveMusicClips.length > 1 && (
+        <div className="space-y-1">
+          <label className="text-[10px] text-zinc-400 font-medium">Select Clip</label>
+          <CustomSelect
+            value={selectedClip.id}
+            onChange={(val) => onSelectClipId(val)}
+            options={effectiveMusicClips.map((c, i) => ({
+              value: c.id,
+              label: `${i + 1}. ${c.name || 'Clip'} (${((c.duration_frames || 30) / 30).toFixed(1)}s)`,
+            }))}
+          />
+        </div>
+      )}
+
+      {/* Clip Volume */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="text-zinc-400 font-medium">Clip Volume</span>
+          <span className="font-mono text-blue-300 font-bold">{Math.round((selectedClip.volume ?? 0.2) * 100)}%</span>
+        </div>
+        <CustomRange
+          min={0}
+          max={1.5}
+          step={0.02}
+          value={selectedClip.volume ?? 0.2}
+          onChange={(e) => onPatchSelectedClip({ volume: parseFloat(e.target.value) })}
+        />
+      </div>
+
+      {/* Fade In */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="text-zinc-400 font-medium">Fade In Duration</span>
+          <span className="font-mono text-blue-300 font-bold">{(selectedClip.fade_in_seconds || 0).toFixed(1)}s</span>
+        </div>
+        <CustomRange
+          min={0}
+          max={5.0}
+          step={0.1}
+          value={selectedClip.fade_in_seconds || 0}
+          onChange={(e) => onPatchSelectedClip({ fade_in_seconds: parseFloat(e.target.value) })}
+        />
+      </div>
+
+      {/* Fade Out */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="text-zinc-400 font-medium">Fade Out Duration</span>
+          <span className="font-mono text-blue-300 font-bold">{(selectedClip.fade_out_seconds || 0).toFixed(1)}s</span>
+        </div>
+        <CustomRange
+          min={0}
+          max={5.0}
+          step={0.1}
+          value={selectedClip.fade_out_seconds || 0}
+          onChange={(e) => onPatchSelectedClip({ fade_out_seconds: parseFloat(e.target.value) })}
+        />
+      </div>
+
+      {/* Audio In-Point Trim */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="text-zinc-400 font-medium">Audio In-Point (Trim Start)</span>
+          <span className="font-mono text-blue-300 font-bold">{(selectedClip.source_start_seconds || 0).toFixed(1)}s</span>
+        </div>
+        <CustomRange
+          min={0}
+          max={60}
+          step={0.5}
+          value={selectedClip.source_start_seconds || 0}
+          onChange={(e) => onPatchSelectedClip({ source_start_seconds: parseFloat(e.target.value) })}
+        />
+      </div>
+
+      {/* Toggles */}
+      <div className="pt-2 border-t border-zinc-800/60 space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[10px] font-semibold text-zinc-200">Seamless Looping</div>
+            <div className="text-[8.5px] text-zinc-500">Repeats audio if clip is longer than source file</div>
+          </div>
+          <CustomToggle
+            label="Loop"
+            checked={selectedClip.loop !== false}
+            onChange={(e) => {
+              const newLoop = e.target.checked;
+              const patch: Partial<MusicClip> = { loop: newLoop };
+              if (!newLoop) {
+                const srcDur = selectedClip.source_duration_seconds || audioDuration;
+                if (srcDur && srcDur > 0) {
+                  const maxFrames = Math.max(15, Math.round((srcDur - (selectedClip.source_start_seconds || 0)) * 30));
+                  if ((selectedClip.duration_frames || 0) > maxFrames) {
+                    patch.duration_frames = maxFrames;
+                  }
+                }
+              }
+              onPatchSelectedClip(patch);
+            }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[10px] font-semibold text-zinc-200">Mute Clip</div>
+            <div className="text-[8.5px] text-zinc-500">Mutes this specific clip</div>
+          </div>
+          <CustomToggle
+            label="Muted"
+            checked={!!selectedClip.is_muted}
+            onChange={(e) => onPatchSelectedClip({ is_muted: e.target.checked })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   scriptData, manifestData, sceneTimings, onSeek,
   projectId, activeTaskStep, reloadTrigger = 0,
+  musicClips = [], onUpdateMusicClips, onUploadMusicClip, bgMusicVolume, onBgMusicVolumeChange
 }) => {
   const leftPanelWidth = useEditorStore((s) => s.leftPanelWidth);
   const leftPanelTab = useEditorStore((s) => s.leftPanelTab);
   const setLeftPanelTab = useEditorStore((s) => s.setLeftPanelTab);
+  const selectedMusicClipId = useEditorStore((s) => s.selectedMusicClipId);
+  const setSelectedMusicClipId = useEditorStore((s) => s.setSelectedMusicClipId);
 
   const scenes = scriptData?.scenes || [];
   const hasIntro = !!scriptData?.introduction;
@@ -181,29 +385,10 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
 
   const bgMusicPath = selectedProject?.bg_music_path || '';
 
-  // Track baseline (committed) bg_music values to detect reverts
-  const baselinePathRef = useRef('');
-  const baselineVolumeRef = useRef(0.15);
-  const baselineInitRef = useRef(false);
-  const audioChangedAlert = useEditorStore((s) => s.audioChangedAlert);
-  const prevAudioAlertRef = useRef(audioChangedAlert);
-  useEffect(() => {
-    if (!baselineInitRef.current && selectedProject?.bg_music_path !== undefined) {
-      baselinePathRef.current = bgMusicPath;
-      baselineVolumeRef.current = localVolume;
-      baselineInitRef.current = true;
-    }
-    if (prevAudioAlertRef.current === true && audioChangedAlert === false) {
-      baselinePathRef.current = bgMusicPath;
-      baselineVolumeRef.current = localVolume;
-    }
-    prevAudioAlertRef.current = audioChangedAlert;
-  }, [audioChangedAlert, bgMusicPath, localVolume, selectedProject?.bg_music_path]);
   const bgMusicUrl = bgMusicPath
     ? `${getMediaUrlSync(bgMusicPath)}&t=${reloadTrigger}`
     : '';
   const bgMusicFilename = bgMusicPath ? bgMusicPath.split(/[/\\]/).pop() || 'Unknown' : '';
-  const bgMusicExt = bgMusicPath ? (bgMusicPath.split('.').pop() || '').toLowerCase() : '';
 
   // Keep localVolume in sync when project data reloads
   useEffect(() => {
@@ -219,11 +404,6 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
       const result = await callApi<{ success: boolean }>('upload_project_bg_music', projectId);
       if (result?.success) {
         await fetchProjectDetail(projectId);
-        const project = useProjectStore.getState().selectedProject;
-        const isReverted =
-          (project?.bg_music_path || '') === baselinePathRef.current &&
-          (project?.bg_music_volume ?? 0.15) === baselineVolumeRef.current;
-        useEditorStore.getState().setAudioChangedAlert(!isReverted);
       }
     } catch (e) {
       console.error('Failed to upload bg music:', e);
@@ -232,20 +412,9 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
     }
   }, [projectId, fetchProjectDetail]);
 
-  const handleRemoveMusic = useCallback(async () => {
-    if (!projectId) return;
-    await updateProject(projectId, { bg_music_path: '' });
-    const isReverted = '' === baselinePathRef.current;
-    useEditorStore.getState().setAudioChangedAlert(!isReverted);
-  }, [projectId, updateProject]);
-
   const handleVolumeSave = useCallback(async () => {
     if (!projectId) return;
     await updateProject(projectId, { bg_music_volume: localVolume });
-    const project = useProjectStore.getState().selectedProject;
-    const currentPath = project?.bg_music_path || '';
-    const isReverted = localVolume === baselineVolumeRef.current && currentPath === baselinePathRef.current;
-    useEditorStore.getState().setAudioChangedAlert(!isReverted);
   }, [projectId, localVolume, updateProject]);
 
   // Filter & sort assets
@@ -616,7 +785,11 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   );
 
   const renderMusicTab = () => {
-    if (!bgMusicPath) {
+    const hasClips = musicClips && musicClips.length > 0;
+    const isClipsExplicitlyConfigured = selectedProject?.music_clips !== undefined && selectedProject?.music_clips !== null;
+    const hasLegacy = !isClipsExplicitlyConfigured && !!bgMusicPath;
+
+    if (!hasClips && !hasLegacy) {
       return (
         <div className="flex flex-col h-full p-4 text-center">
           <div className="flex-1 flex flex-col items-center justify-center">
@@ -625,12 +798,12 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
             </div>
             <p className="text-xs text-zinc-300 font-medium mb-1">No Background Music</p>
             <p className="text-[9px] text-zinc-600 mb-4 max-w-40 leading-relaxed">
-              Upload a soundtrack to enhance your video
+              Upload audio tracks to the background music timeline
             </p>
             <button
-              onClick={handleUploadMusic}
+              onClick={() => onUploadMusicClip ? onUploadMusicClip(0) : handleUploadMusic()}
               disabled={uploading}
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-600/25 rounded-lg text-[10px] font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {uploading ? (
                 <VscLoading className="text-xs animate-spin" />
@@ -644,72 +817,195 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
       );
     }
 
-    const fileBadge = bgMusicExt ? fileTypeBadge('.' + bgMusicExt) : null;
+    const totalTimelineFrames = sceneTimings.length > 0 ? sceneTimings[sceneTimings.length - 1].end : 300;
+
+    const effectiveMusicClips: MusicClip[] = hasClips ? musicClips : (hasLegacy ? [{
+      id: 'default_bgm',
+      name: bgMusicFilename || 'Background Music',
+      audio_path: bgMusicPath,
+      audio_url: bgMusicUrl,
+      start_frame: 0,
+      duration_frames: Math.max(30, totalTimelineFrames),
+      source_start_seconds: 0,
+      volume: localVolume,
+      loop: true,
+      fade_in_seconds: 0.5,
+      fade_out_seconds: 1.0,
+      is_muted: false,
+    }] : []);
+
+    const selectedClip = effectiveMusicClips.find(c => c.id === selectedMusicClipId) || effectiveMusicClips[0];
+
+    const handlePatchSelectedClip = (patch: Partial<MusicClip>) => {
+      if (!selectedClip) return;
+      const updated = effectiveMusicClips.map((c) => (c.id === selectedClip.id ? { ...c, ...patch } : c));
+      onUpdateMusicClips?.(updated);
+    };
+
+    const handleDeleteClip = (id: string) => {
+      const updated = effectiveMusicClips.filter((c) => c.id !== id);
+      onUpdateMusicClips?.(updated);
+      if (selectedMusicClipId === id) {
+        setSelectedMusicClipId(updated[0]?.id || null);
+      }
+    };
+
+    const handleSplitAtPlayhead = () => {
+      if (!selectedClip) return;
+      const playheadFrame = usePlaybackStore.getState().currentFrame;
+      if (playheadFrame <= selectedClip.start_frame + 10 || playheadFrame >= selectedClip.start_frame + selectedClip.duration_frames - 10) {
+        return;
+      }
+
+      const firstDuration = playheadFrame - selectedClip.start_frame;
+      const secondDuration = selectedClip.duration_frames - firstDuration;
+      const srcDur = selectedClip.source_duration_seconds;
+      let secondSrcStart = (selectedClip.source_start_seconds || 0) + (firstDuration / 30);
+      if (srcDur && srcDur > 0) {
+        secondSrcStart = secondSrcStart % srcDur;
+      }
+
+      const clip1: MusicClip = {
+        ...selectedClip,
+        duration_frames: firstDuration,
+        fade_out_seconds: Math.min(selectedClip.fade_out_seconds || 0.5, (firstDuration / 30) / 2),
+      };
+
+      const clip2: MusicClip = {
+        ...selectedClip,
+        id: `mc_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+        start_frame: playheadFrame,
+        duration_frames: secondDuration,
+        source_start_seconds: secondSrcStart,
+        fade_in_seconds: Math.min(selectedClip.fade_in_seconds || 0.5, (secondDuration / 30) / 2),
+      };
+
+      const idx = effectiveMusicClips.findIndex((c) => c.id === selectedClip.id);
+      if (idx === -1) return;
+      const nextClips = [...effectiveMusicClips];
+      nextClips.splice(idx, 1, clip1, clip2);
+      onUpdateMusicClips?.(nextClips);
+      setSelectedMusicClipId(clip2.id);
+    };
+
+    const handleDuplicateClip = () => {
+      if (!selectedClip) return;
+      const newClip: MusicClip = {
+        ...selectedClip,
+        id: `mc_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+        start_frame: selectedClip.start_frame + selectedClip.duration_frames,
+      };
+      onUpdateMusicClips?.([...effectiveMusicClips, newClip]);
+      setSelectedMusicClipId(newClip.id);
+    };
 
     return (
-      <div className="flex flex-col h-full p-3 space-y-2.5">
-        <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-lg p-3 space-y-2.5">
-          <div className="flex items-center gap-2.5">
-            <div className={`w-8 h-8 shrink-0 rounded-md flex items-center justify-center ${fileBadge?.color || 'bg-zinc-800/50'}`}>
-              {fileBadge?.icon || <VscMusic className="text-sm text-zinc-500" />}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold text-zinc-200 truncate">{bgMusicFilename}</p>
-              <p className="text-[9px] text-zinc-500 font-mono mt-0.5">
-                {fileBadge?.label || bgMusicExt.toUpperCase() || 'AUDIO'}
-              </p>
-            </div>
-          </div>
-
-          <div className="border-t border-zinc-800/40 pt-2.5">
-            <CustomAudioPlayer src={bgMusicUrl} volume={localVolume} />
-          </div>
-        </div>
-
-        <div className="bg-zinc-900/30 border border-zinc-800/40 rounded-lg p-3 space-y-2">
+      <div className="flex flex-col h-full overflow-y-auto p-3 space-y-3">
+        {/* Master Background Music Volume Header */}
+        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-lg p-3 space-y-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-medium text-zinc-400">Volume</span>
-            <span className="text-[9px] font-mono text-zinc-500">{Math.round(localVolume * 100)}%</span>
+            <div className="flex items-center gap-2">
+              <VscMusic className="text-blue-400 text-sm" />
+              <span className="text-[11px] font-bold text-zinc-200 uppercase tracking-wide">Background Music</span>
+            </div>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={async () => {
+                const currentF = usePlaybackStore.getState().currentFrame;
+                if (onUploadMusicClip) {
+                  await onUploadMusicClip(currentF);
+                } else {
+                  handleUploadMusic();
+                }
+              }}
+              className="flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold transition-all cursor-pointer shadow disabled:opacity-50"
+            >
+              <VscAdd className="text-xs" />
+              <span>Add Track</span>
+            </button>
           </div>
-          <input
-            type="range"
-            min="0"
-            max="0.5"
-            step="0.01"
-            value={localVolume}
-            onChange={(e) => setLocalVolume(parseFloat(e.target.value))}
-            onMouseUp={handleVolumeSave}
-            onKeyUp={(e) => {
-              if (e.key === 'Enter' || e.key === 'Escape') handleVolumeSave();
-            }}
-            className="w-full h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-blue-500
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500
-              [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-zinc-900
-              [&::-webkit-slider-thumb]:shadow-md"
-          />
+
+          <div className="space-y-1 pt-1">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-zinc-400 font-medium">Master Music Volume</span>
+              <span className="font-mono text-blue-300 font-bold">{Math.round((bgMusicVolume ?? localVolume) * 100)}%</span>
+            </div>
+            <CustomRange
+              min={0}
+              max={1}
+              step={0.01}
+              value={bgMusicVolume ?? localVolume}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setLocalVolume(val);
+                if (onBgMusicVolumeChange) onBgMusicVolumeChange(val);
+                else handleVolumeSave();
+              }}
+            />
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <button
-            onClick={handleUploadMusic}
-            disabled={uploading}
-            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {uploading ? (
-              <VscLoading className="text-xs animate-spin" />
-            ) : (
-              <VscRefresh />
-            )}
-            Replace
-          </button>
-          <button
-            onClick={handleRemoveMusic}
-            className="flex items-center justify-center gap-1.5 flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <VscTrash /> Remove
-          </button>
-        </div>
+        {/* Selected Music Clip Card & Controls */}
+        {selectedClip && (
+          <SelectedMusicClipCard
+            selectedClip={selectedClip}
+            effectiveMusicClips={effectiveMusicClips}
+            localVolume={localVolume}
+            onPatchSelectedClip={handlePatchSelectedClip}
+            onDeleteClip={handleDeleteClip}
+            onSplitAtPlayhead={handleSplitAtPlayhead}
+            onDuplicateClip={handleDuplicateClip}
+            onSelectClipId={(val) => setSelectedMusicClipId(val)}
+          />
+        )}
+
+        {/* All Music Clips Overview */}
+        {effectiveMusicClips.length > 0 && (
+          <div className="space-y-1.5 pt-1">
+            <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+              Timeline Music Clips ({effectiveMusicClips.length})
+            </div>
+            <div className="space-y-1">
+              {effectiveMusicClips.map((c, i) => {
+                const isSelected = selectedClip?.id === c.id;
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => {
+                      setSelectedMusicClipId(c.id);
+                      onSeek?.(c.start_frame || 0);
+                    }}
+                    className={`flex items-center justify-between p-2 rounded border text-[11px] cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-blue-950/40 border-blue-500/50 text-blue-200'
+                        : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <span className="font-mono text-[9px] text-blue-400 font-bold shrink-0">#{i + 1}</span>
+                      <span className="truncate max-w-[130px]">{c.name || 'Clip'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 font-mono text-[9px] text-zinc-400">
+                      <span>{((c.duration_frames || 30) / 30).toFixed(1)}s</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteClip(c.id);
+                        }}
+                        className="text-zinc-500 hover:text-red-400 p-1 cursor-pointer"
+                        title="Delete"
+                      >
+                        <VscTrash className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     );
   };

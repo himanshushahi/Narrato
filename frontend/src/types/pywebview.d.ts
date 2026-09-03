@@ -4,6 +4,9 @@ interface PywebviewApi {
   browse_bg_music_file(): Promise<string>;
   clear_bg_music(): Promise<{ success: boolean; deleted_file?: boolean }>;
   upload_project_bg_music(project_id: string): Promise<{ success: boolean; path: string | null; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
+  upload_music_clip(project_id: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
+  add_music_clip_from_path(project_id: string, file_path: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
+  update_music_clips(project_id: string, clips: any[]): Promise<{ success: boolean; error?: string }>;
   db_get_projects(): Promise<any[]>;
   db_get_project(project_id: string): Promise<any>;
   db_update_project(project_id: string, updates_dict: any): Promise<{ success: boolean; error?: string }>;

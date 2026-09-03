@@ -548,6 +548,197 @@ class ApiBridge:
             logger.error(f"upload_project_bg_music copy error: {e}")
             return {"success": False, "path": None, "error": str(e)}
 
+    def _probe_audio_duration_seconds(self, file_path: str) -> float:
+        try:
+            from backend.core.config import get_startupinfo, get_ffprobe_path
+            ffprobe_bin = get_ffprobe_path()
+            cmd = [
+                ffprobe_bin, "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(file_path)
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=10, startupinfo=get_startupinfo())
+            if res.returncode == 0 and res.stdout.strip():
+                return float(res.stdout.strip())
+        except Exception as e:
+            logger.warning(f"Could not probe audio duration for {file_path}: {e}")
+        return 30.0
+
+    def upload_music_clip(self, project_id: str, start_frame: int = 0) -> dict:
+        logger.info(f"Bridge API: upload_music_clip called for project {project_id} at frame {start_frame}")
+        import webview
+        import uuid
+        window = self._get_window()
+        if not window:
+            return {"success": False, "error": "No window"}
+        try:
+            result = window.create_file_dialog(
+                dialog_type=webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=('Audio Files (*.mp3;*.wav;*.ogg;*.flac;*.m4a)', 'All Files (*.*)')
+            )
+            if not result:
+                return {"success": False, "error": "No file selected"}
+            file_path = result[0]
+        except Exception as e:
+            logger.error(f"upload_music_clip dialog error: {e}")
+            return {"success": False, "error": str(e)}
+
+        import shutil
+        from backend.core.config import get_storage_dir
+
+        proj_dir = get_storage_dir() / project_id
+        audio_dir = proj_dir / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        src = Path(file_path)
+        ext = src.suffix.lower() or ".mp3"
+        clip_id = f"mc_{uuid.uuid4().hex[:8]}"
+        dest = audio_dir / f"{clip_id}{ext}"
+        try:
+            shutil.copy(str(src), str(dest))
+            dur_sec = self._probe_audio_duration_seconds(str(dest))
+            dur_frames = max(30, int(round(dur_sec * 30)))
+            
+            proj = get_project(project_id) or {}
+            raw_clips = proj.get("music_clips")
+            clips = []
+            if raw_clips is not None:
+                try:
+                    clips = json.loads(raw_clips) if isinstance(raw_clips, str) else list(raw_clips)
+                except Exception:
+                    clips = []
+            elif proj.get("bg_music_path") and Path(proj["bg_music_path"]).exists():
+                # Seamlessly convert existing legacy bg_music into the first clip
+                bg_p = Path(proj["bg_music_path"])
+                bg_dur = self._probe_audio_duration_seconds(str(bg_p))
+                bg_vol_val = float(proj.get("bg_music_volume")) if proj.get("bg_music_volume") is not None else 0.15
+                legacy_clip = {
+                    "id": "default_bgm",
+                    "name": bg_p.name,
+                    "audio_path": str(bg_p),
+                    "start_frame": 0,
+                    "duration_frames": max(30, int(round(bg_dur * 30))),
+                    "source_start_seconds": 0.0,
+                    "source_duration_seconds": bg_dur,
+                    "volume": bg_vol_val,
+                    "loop": True,
+                    "fade_in_seconds": 0.5,
+                    "fade_out_seconds": 1.0,
+                    "is_muted": False
+                }
+                clips.append(legacy_clip)
+            
+            new_clip = {
+                "id": clip_id,
+                "name": src.name,
+                "audio_path": str(dest),
+                "start_frame": max(0, int(start_frame or 0)),
+                "duration_frames": dur_frames,
+                "source_start_seconds": 0.0,
+                "source_duration_seconds": dur_sec,
+                "volume": 0.2,
+                "loop": True,
+                "fade_in_seconds": 0.5,
+                "fade_out_seconds": 1.0,
+                "is_muted": False
+            }
+            clips.append(new_clip)
+            update_project(project_id, music_clips=json.dumps(clips))
+            return {
+                "success": True,
+                "clip": new_clip,
+                "clips": clips
+            }
+        except Exception as e:
+            logger.error(f"upload_music_clip error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def add_music_clip_from_path(self, project_id: str, file_path: str, start_frame: int = 0) -> dict:
+        logger.info(f"Bridge API: add_music_clip_from_path called for project {project_id} from {file_path}")
+        import uuid
+        import shutil
+        from backend.core.config import get_storage_dir
+
+        src = Path(file_path)
+        if not src.exists():
+            return {"success": False, "error": f"File does not exist: {file_path}"}
+
+        proj_dir = get_storage_dir() / project_id
+        audio_dir = proj_dir / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        ext = src.suffix.lower() or ".mp3"
+        clip_id = f"mc_{uuid.uuid4().hex[:8]}"
+        dest = audio_dir / f"{clip_id}{ext}"
+        try:
+            if src.resolve() != dest.resolve():
+                shutil.copy(str(src), str(dest))
+            dur_sec = self._probe_audio_duration_seconds(str(dest))
+            dur_frames = max(30, int(round(dur_sec * 30)))
+            
+            proj = get_project(project_id) or {}
+            raw_clips = proj.get("music_clips")
+            clips = []
+            if raw_clips is not None:
+                try:
+                    clips = json.loads(raw_clips) if isinstance(raw_clips, str) else list(raw_clips)
+                except Exception:
+                    clips = []
+            elif proj.get("bg_music_path") and Path(proj["bg_music_path"]).exists() and Path(proj["bg_music_path"]).resolve() != dest.resolve():
+                # Seamlessly convert existing legacy bg_music into the first clip
+                bg_p = Path(proj["bg_music_path"])
+                bg_dur = self._probe_audio_duration_seconds(str(bg_p))
+                bg_vol_val = float(proj.get("bg_music_volume")) if proj.get("bg_music_volume") is not None else 0.15
+                legacy_clip = {
+                    "id": "default_bgm",
+                    "name": bg_p.name,
+                    "audio_path": str(bg_p),
+                    "start_frame": 0,
+                    "duration_frames": max(30, int(round(bg_dur * 30))),
+                    "source_start_seconds": 0.0,
+                    "source_duration_seconds": bg_dur,
+                    "volume": bg_vol_val,
+                    "loop": True,
+                    "fade_in_seconds": 0.5,
+                    "fade_out_seconds": 1.0,
+                    "is_muted": False
+                }
+                clips.append(legacy_clip)
+            
+            new_clip = {
+                "id": clip_id,
+                "name": src.name,
+                "audio_path": str(dest),
+                "start_frame": max(0, int(start_frame or 0)),
+                "duration_frames": dur_frames,
+                "source_start_seconds": 0.0,
+                "source_duration_seconds": dur_sec,
+                "volume": 0.2,
+                "loop": True,
+                "fade_in_seconds": 0.5,
+                "fade_out_seconds": 1.0,
+                "is_muted": False
+            }
+            clips.append(new_clip)
+            update_project(project_id, music_clips=json.dumps(clips))
+            return {
+                "success": True,
+                "clip": new_clip,
+                "clips": clips
+            }
+        except Exception as e:
+            logger.error(f"add_music_clip_from_path error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def update_music_clips(self, project_id: str, clips: list) -> dict:
+        try:
+            clips_json = json.dumps(clips) if not isinstance(clips, str) else clips
+            update_project(project_id, music_clips=clips_json)
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"update_music_clips error: {e}")
+            return {"success": False, "error": str(e)}
+
     def db_get_projects(self) -> list:
         return get_all_projects()
 

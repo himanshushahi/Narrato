@@ -17,6 +17,7 @@ interface EditorStore {
   // Selection
   selectedSceneIndex: number | null;
   selectedSubVisualIndex: number | null;
+  selectedMusicClipId: string | null;
 
   // Command palette
   commandPaletteOpen: boolean;
@@ -35,9 +36,6 @@ interface EditorStore {
   // Preview render resolution (fast = 960x540, full = 1920x1080)
   previewQuality: PreviewQuality;
 
-  // Alerts
-  audioChangedAlert: boolean;
-
   // Actions
   setLeftPanelWidth: (w: number) => void;
   setRightPanelWidth: (w: number) => void;
@@ -46,6 +44,7 @@ interface EditorStore {
   setInspectorTab: (tab: InspectorTab) => void;
   setSelectedSceneIndex: (idx: number | null) => void;
   setSelectedSubVisualIndex: (idx: number | null) => void;
+  setSelectedMusicClipId: (id: string | null) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setIsPlaying: (playing: boolean) => void;
   setTimelineZoom: (zoom: number) => void;
@@ -54,7 +53,6 @@ interface EditorStore {
   setTrackOrder: (order: string[]) => void;
   setPreviewQuality: (q: PreviewQuality) => void;
   getRenderTrackOverrides: () => { render_mute_voice: boolean; render_mute_music: boolean; render_mute_video_audio: boolean; render_hide_subtitles: boolean };
-  setAudioChangedAlert: (val: boolean) => void;
 }
 
 const STORAGE_KEY = 'narrato_editor_layout';
@@ -132,6 +130,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   inspectorTab: persisted.inspectorTab ?? defaults.inspectorTab,
   selectedSceneIndex: null,
   selectedSubVisualIndex: null,
+  selectedMusicClipId: null,
   commandPaletteOpen: false,
   isPlaying: false,
   timelineZoom: persisted.timelineZoom ?? defaults.timelineZoom,
@@ -139,7 +138,6 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   trackHidden: normalizeTrackHidden(persisted.trackHidden ?? defaults.trackHidden),
   trackOrder: normalizeTrackOrder(persisted.trackOrder ?? defaults.trackOrder),
   previewQuality: persisted.previewQuality ?? defaults.previewQuality,
-  audioChangedAlert: false,
 
   // Actions
   setLeftPanelWidth: (w) => set((s) => { const next = { ...s, leftPanelWidth: w }; saveLayout(next); return next; }),
@@ -149,6 +147,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setInspectorTab: (tab) => set((s) => { const next = { ...s, inspectorTab: tab }; saveLayout(next); return next; }),
   setSelectedSceneIndex: (idx) => set({ selectedSceneIndex: idx }),
   setSelectedSubVisualIndex: (idx) => set({ selectedSubVisualIndex: idx }),
+  setSelectedMusicClipId: (id) => set({ selectedMusicClipId: id }),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setTimelineZoom: (zoom) => set((s) => { const next = { ...s, timelineZoom: zoom }; saveLayout(next); return next; }),
@@ -178,5 +177,4 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       render_hide_overlays: !!state.trackHidden['overlays'],
     };
   },
-  setAudioChangedAlert: (val: boolean) => set({ audioChangedAlert: val }),
 }));
