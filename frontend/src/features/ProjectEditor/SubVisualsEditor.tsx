@@ -57,7 +57,7 @@ const AstJsonEditor = ({ initialValue, onChange }: { initialValue: object, onCha
   );
 };
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string) => Promise<string | undefined> | void, uploadingSubVisual?: string | null }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, singleCut = false, cutNumber }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string) => Promise<string | undefined> | void, uploadingSubVisual?: string | null, singleCut?: boolean, cutNumber?: number }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
@@ -121,6 +121,9 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
         <label className="text-stone-400 font-bold uppercase tracking-wider text-xs">Sub-Visuals (Cuts)</label>
       </div>
 
+      {/* Duration ratios only make sense for the full cut list — in single-cut
+          lens mode the tab owns add/remove and the ratios stay untouched. */}
+      {!singleCut && (
       <SubVisualsDurationBar
         subVisuals={subVisuals}
         onChange={(ratios) => {
@@ -134,6 +137,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
         }}
         totalDurationFrames={totalDurationFrames || 0}
       />
+      )}
 
       {subVisuals.map((sv: any, idx: number) => {
         const isActive = activeIdx === idx;
@@ -141,7 +145,8 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
 
         return (
           <Fragment key={idx}>
-            {/* Insert divider between cards */}
+            {/* Insert divider between cards (list mode only) */}
+            {!singleCut && (
             <div className="flex items-center gap-2 group/insert">
               <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
               <button type="button" onClick={(e) => { e.stopPropagation(); handleInsert(idx); }} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-stone-500 hover:text-amber-400 opacity-0 group-hover/insert:opacity-100 transition-all duration-200 px-2 py-1 rounded hover:bg-amber-500/10 cursor-pointer" title="Insert layer here">
@@ -149,6 +154,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               </button>
               <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
             </div>
+            )}
 
             <div key={idx}
               data-active-sub={isActive ? 'true' : undefined}
@@ -159,7 +165,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-white/5">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className={`text-xs font-bold tracking-wide shrink-0 ${isActive ? 'text-amber-400' : 'text-stone-400 group-hover:text-stone-300'}`}>
-                    Cut {idx + 1}
+                    Cut {cutNumber ?? idx + 1}
                   </div>
                   {timing && (
                     <div className="text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded-full text-stone-400 border border-white/5 shrink-0">
@@ -195,6 +201,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                       <span className="text-[10px] font-bold">AI Rewrite</span>
                     </button>
                   )}
+                  {!singleCut && (
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); handleRemove(idx); }}
@@ -203,6 +210,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                   >
                     <BiTrashAlt size={13} />
                   </button>
+                  )}
                 </div>
               </div>
 
@@ -328,9 +336,11 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
       })}
       {subVisuals.length === 0 && <p className="text-xs text-stone-500 italic">No sub-visuals. A default black screen will be shown.</p>}
 
+      {!singleCut && (
       <button type="button" onClick={handleAdd} className="w-full py-3 mt-2 text-xs font-bold uppercase tracking-wider bg-amber-600/10 text-amber-500 hover:bg-amber-600/20 border border-amber-600/30 border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors">
         <BsPlus size={20} /> Add New Sub-Visual
       </button>
+      )}
     </div>
   );
 };

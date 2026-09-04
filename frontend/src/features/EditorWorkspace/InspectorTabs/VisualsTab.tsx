@@ -1,0 +1,558 @@
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  VscLayers, VscAdd, VscTrash, VscSave, VscLoading,
+  VscChevronLeft, VscChevronRight, VscSparkle,
+} from 'react-icons/vsc';
+import { CustomInput } from '../../../components/ui/CustomInput';
+import { useEditorStore } from '../../../store/useEditorStore';
+import { SubVisualsEditor } from '../../ProjectEditor/SubVisualsEditor';
+import { formatTime } from '../../ProjectEditor/constants';
+import { resolveVisualSelection, type ResolvedVisual } from '../visualSelection';
+
+/** Read the edited section's sub-visuals array out of a script document. */
+function readSectionSubs(doc: any, r: ResolvedVisual): any[] {
+  if (!doc) return [];
+  if (r.sectionType === 'introduction') return doc.introduction?.sub_visuals || [];
+  if (r.sectionType === 'conclusion') return doc.conclusion?.sub_visuals || [];
+  return doc.scenes?.[r.sceneNumber]?.sub_visuals || [];
+}
+
+/** Immutably replace the edited section's sub-visuals array in a document. */
+function writeSectionSubs(doc: any, r: ResolvedVisual, fullSubs: any[]): any {
+  const copy = { ...doc };
+  if (r.sectionType === 'introduction') {
+    copy.introduction = { ...copy.introduction, sub_visuals: fullSubs };
+  } else if (r.sectionType === 'conclusion') {
+    copy.conclusion = { ...copy.conclusion, sub_visuals: fullSubs };
+  } else {
+    copy.scenes = [...(copy.scenes || [])];
+    if (copy.scenes[r.sceneNumber]) {
+      copy.scenes[r.sceneNumber] = { ...copy.scenes[r.sceneNumber], sub_visuals: fullSubs };
+    }
+  }
+  return copy;
+}
+
+/** Trailing-edge delay for high-frequency visual edits (color drags, scrubs). */
+const COMMIT_DEBOUNCE_MS = 150;
+
+interface VisualsTabProps {
+  scriptData: any;
+  manifestData: any[];
+  sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
+  activeSceneIdx: number;
+  activeSubIdx: number;
+  editingCard: { key: string; mode: 'script' | 'visuals' } | null;
+  savingCardKey: string | null;
+  rewritingSection: string | null;
+  rewritePrompt: string;
+  setRewritePrompt: (p: string) => void;
+  onSeek: (frame: number) => void;
+  onSaveCard: (cardKey?: string, index?: number, latestData?: any) => void;
+  onCancelEdit: () => void;
+  onStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
+  onSetScriptData: (data: any) => void;
+  /** Registers this tab's pending-edit flusher (for Ctrl+S / TopBar saves). */
+  onRegisterFlush?: (flush: (() => any) | null) => void;
+  onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => void;
+  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<void>;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
+  uploadingSubVisual?: string | null;
+}
+
+/**
+ * Dedicated single-cut visual editor (normal-video-editor properties panel).
+ * Selection (timeline cut click, asset click, script card button) drives the
+ * content; edits flow through the same scriptData + save pipeline the old
+ * inline visuals mode used, so no backend changes were needed.
+ */
+export const VisualsTab = React.memo(function VisualsTab({
+  scriptData, manifestData, sceneTimings, activeSceneIdx, activeSubIdx,
+  editingCard, savingCardKey, rewritingSection, rewritePrompt, setRewritePrompt,
+  onSeek, onSaveCard, onCancelEdit, onStartEdit, onSetScriptData,
+  onRewriteSection, onRewriteSubVisual, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
+  onRegisterFlush,
+}: VisualsTabProps) {
+  const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
+  const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
+  const setSelectedSubVisualIndex = useEditorStore((s) => s.setSelectedSubVisualIndex);
+
+  const sel = selectedSceneIndex !== null && selectedSubVisualIndex !== null
+    ? { sceneIdx: selectedSceneIndex, subIdx: selectedSubVisualIndex }
+    : null;
+
+  const resolved = useMemo(
+    () => resolveVisualSelection(scriptData, manifestData, sceneTimings, sel),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scriptData, manifestData, sceneTimings, selectedSceneIndex, selectedSubVisualIndex],
+  );
+
+  // Begin (or resume after save/cancel) a visuals edit session for the
+  // selected section so save-diffing and AI regeneration work unchanged.
+  const onStartEditRef = useRef(onStartEdit);
+  onStartEditRef.current = onStartEdit;
+  useEffect(() => {
+    if (resolved && (editingCard?.key !== resolved.cardKey || editingCard?.mode !== 'visuals')) {
+      onStartEditRef.current(resolved.cardKey, 'visuals');
+    }
+  }, [resolved?.cardKey, editingCard?.key, editingCard?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Debounced upstream writes ─────────────────────────────────────
+  // Color-picker drags and slider scrubs fire dozens of ticks per second.
+  // Pushing every tick to the top-level store re-renders the whole workspace
+  // (and recomputes liveScenes) inside the drag task, which is what made the
+  // picker lag. The editor UI itself stays instant (AstGraphicalEditor owns
+  // local composition state); only the trailing edge hits the store.
+  // Structural actions (add/delete/switch/save/…) flush first via
+  // commitPending(), so in-flight ticks are never lost.
+  const scriptDataRef = useRef(scriptData);
+  scriptDataRef.current = scriptData;
+  const onSetScriptDataRef = useRef(onSetScriptData);
+  onSetScriptDataRef.current = onSetScriptData;
+  const resolvedRef = useRef(resolved);
+  resolvedRef.current = resolved;
+  const pendingFullRef = useRef<any[] | null>(null);
+  /** Section the pending array belongs to — captured at schedule time so a
+   * cross-section cut switch during the debounce window can't write Scene A's
+   * array into Scene B. */
+  const pendingResolvedRef = useRef<ResolvedVisual | null>(null);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Synchronously push pending edits to the store. Returns the new doc. */
+  const commitPending = useCallback((): any | null => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+    const pending = pendingFullRef.current;
+    const r = pendingResolvedRef.current ?? resolvedRef.current;
+    pendingFullRef.current = null;
+    pendingResolvedRef.current = null;
+    if (!pending || !r) return null;
+    const copy = writeSectionSubs(scriptDataRef.current, r, pending);
+    onSetScriptDataRef.current(copy);
+    return copy;
+  }, []);
+
+  const scheduleWriteBack = useCallback((fullSubs: any[]) => {
+    pendingFullRef.current = fullSubs;
+    // Capture the section now — resolvedRef may point at a different section
+    // by the time the trailing edge fires.
+    pendingResolvedRef.current = resolvedRef.current;
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = setTimeout(() => {
+      commitTimerRef.current = null;
+      const pending = pendingFullRef.current;
+      const r = pendingResolvedRef.current;
+      pendingFullRef.current = null;
+      pendingResolvedRef.current = null;
+      if (!pending || !r) return;
+      onSetScriptDataRef.current(writeSectionSubs(scriptDataRef.current, r, pending));
+    }, COMMIT_DEBOUNCE_MS);
+  }, []);
+
+  /** Discard pending edits without committing (Cancel path). */
+  const discardPending = useCallback(() => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+    pendingFullRef.current = null;
+    pendingResolvedRef.current = null;
+  }, []);
+
+  // Expose the flusher for external saves (Ctrl+S / TopBar) and flush any
+  // in-flight drag edits on unmount (e.g. tab switch) — edits are never lost.
+  const onRegisterFlushRef = useRef(onRegisterFlush);
+  onRegisterFlushRef.current = onRegisterFlush;
+  useEffect(() => {
+    onRegisterFlushRef.current?.(() => commitPending());
+    return () => {
+      commitPending();
+      onRegisterFlushRef.current?.(null);
+    };
+  }, [commitPending]);
+
+  // Self-heal a stale sub-index (e.g. AI rewrite shrank the section, or the
+  // section was emptied elsewhere): clamp into range so downstream readers of
+  // the raw indices never act on a phantom cut. Empty sections stay as-is —
+  // the main UI shows the "no cuts yet" + Add Cut recovery.
+  const subCount = resolved?.subVisuals.length ?? 0;
+  const selSubIdx = sel?.subIdx ?? -1;
+  useEffect(() => {
+    if (resolved && subCount > 0 && (selSubIdx < 0 || selSubIdx >= subCount)) {
+      setSelectedSubVisualIndex(Math.min(Math.max(0, selSubIdx), subCount - 1));
+    }
+  }, [resolved?.cardKey, subCount, selSubIdx]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Section baseline for Revert: snapshot the section's subVisuals when the
+  // section is first resolved so "Revert" can restore this section cleanly,
+  // without clobbering other sections or losing baseline on cut switches.
+  // NOTE: must live above the early returns — hooks cannot run conditionally.
+  const sectionBaselinesRef = useRef<Record<string, any[]>>({});
+  useEffect(() => {
+    if (resolved && !sectionBaselinesRef.current[resolved.cardKey]) {
+      sectionBaselinesRef.current[resolved.cardKey] = JSON.parse(JSON.stringify(resolved.subVisuals));
+    }
+  }, [resolved?.cardKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!scriptData) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="text-center space-y-2">
+          <VscLayers className="text-2xl text-zinc-600 mx-auto" />
+          <p className="text-sm text-zinc-400 font-medium">No script generated</p>
+          <p className="text-[10px] text-zinc-600 max-w-50 mx-auto leading-relaxed">
+            Launch the pipeline from the Export tab to generate content first
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!resolved || !sel) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="text-center space-y-2">
+          <VscLayers className="text-2xl text-zinc-600 mx-auto" />
+          <p className="text-sm text-zinc-400 font-medium">No cut selected</p>
+          <p className="text-[10px] text-zinc-600 max-w-55 mx-auto leading-relaxed">
+            Click any cut in the timeline or any asset in the sidebar to edit its visuals here
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const actualSubIdx = sel.subIdx;
+  // Pending-aware view: while debounced ticks are in flight, render from the
+  // pending array so mid-window re-renders (e.g. playback-driven) can never
+  // show stale data or clobber in-flight edits. Only use pending when it
+  // belongs to the currently resolved section.
+  const pendingForSection = pendingResolvedRef.current?.cardKey === resolved.cardKey
+    ? pendingFullRef.current
+    : null;
+  const displaySubs = pendingForSection ?? resolved.subVisuals;
+  const cutCount = displaySubs.length;
+  const selectedCut = displaySubs[actualSubIdx];
+  const isScene = resolved.sectionType === 'scenes';
+  const handlerSceneIdx = isScene ? resolved.sceneNumber : -1;
+  const saveArg: string = resolved.sectionType === 'introduction' ? 'introduction' : resolved.cardKey;
+  const saveIndex: number | undefined = isScene ? resolved.sceneNumber : undefined;
+  const isSaving = savingCardKey === saveArg;
+  const busy = savingCardKey !== null || rewritingSection !== null;
+  const rewriteKey = resolved.sectionType === 'introduction' ? 'intro'
+    : isScene ? `scene_${resolved.sceneNumber}` : 'conclusion';
+  const isRewritingSection = rewritingSection === rewriteKey;
+
+  /** Single-cut lens: the editor works on [cut], merge the item back. */
+  const handleLensChange = (newSubs: any[]) => {
+    if (newSubs.length !== 1) return;
+    // Accumulate on the pending array when one exists for THIS section:
+    // SubVisualsEditor's own base can lag behind during the debounce window,
+    // and rebuilding from the stale section array would drop in-flight ticks.
+    // Read entirely from refs — the render-closure `resolved` can point at the
+    // previous section if a selection switch re-rendered late.
+    const cur = resolvedRef.current;
+    const base = pendingResolvedRef.current?.cardKey === cur?.cardKey
+      ? (pendingFullRef.current ?? cur?.subVisuals ?? [])
+      : (cur?.subVisuals ?? []);
+    const full = [...base];
+    full[actualSubIdx] = newSubs[0];
+    scheduleWriteBack(full);
+  };
+
+  /** Structural write: fold pending edits in, then apply the change on top. */
+  const writeImmediate = (updater: (subs: any[]) => any[]) => {
+    const flushedCopy = commitPending();
+    const doc = flushedCopy ?? scriptDataRef.current;
+    const r = resolvedRef.current;
+    if (!r) return null;
+    const full = updater(readSectionSubs(doc, r));
+    const copy = writeSectionSubs(doc, r, full);
+    onSetScriptDataRef.current(copy);
+    return full;
+  };
+
+  /** Scale ratios proportionally to sum to 1 and derive durations. */
+  const applyRatios = (subs: any[], ratios: number[]) => {
+    const totalSec = (resolvedRef.current?.totalDurationFrames || 90) / 30;
+    const sum = ratios.reduce((a, b) => a + b, 0);
+    const safe = sum > 0 ? ratios.map((r) => r / sum) : ratios.map(() => 1 / ratios.length);
+    return subs.map((s, i) => ({
+      ...s,
+      duration_ratio: safe[i],
+      duration: Number((safe[i] * totalSec).toFixed(3)),
+    }));
+  };
+
+  const handleAddCut = () => {
+    const full = writeImmediate((subs) => {
+      // Preserve relative timing: scale existing cuts down proportionally and
+      // give the new cut an equal share, instead of snapping all to 1/N.
+      const n = subs.length;
+      const existing = subs.map((s) => {
+        const r = Number(s?.duration_ratio);
+        return Number.isFinite(r) && r > 0 ? r : 1 / Math.max(1, n);
+      });
+      const scale = n / (n + 1);
+      const next = [
+        ...subs,
+        { composition: { type: 'Sequence', children: [] } },
+      ];
+      return applyRatios(next, [...existing.map((r) => r * scale), 1 / (n + 1)]);
+    });
+    if (full) setSelectedSubVisualIndex(full.length - 1);
+  };
+
+  const handleDeleteCut = () => {
+    if (cutCount <= 1) return;
+    const full = writeImmediate((subs) => {
+      // Preserve relative timing of the survivors (renormalize proportionally)
+      // instead of equalizing them.
+      const kept = subs.filter((_: any, i: number) => i !== actualSubIdx);
+      const ratios = kept.map((s) => {
+        const r = Number(s?.duration_ratio);
+        return Number.isFinite(r) && r > 0 ? r : 1;
+      });
+      return applyRatios(kept, ratios);
+    });
+    if (full) setSelectedSubVisualIndex(Math.min(actualSubIdx, full.length - 1));
+  };
+
+  const selectCut = (idx: number) => {
+    commitPending();
+    setSelectedSubVisualIndex(idx);
+  };
+
+  const goCut = (delta: number) => {
+    const next = Math.max(0, Math.min(cutCount - 1, actualSubIdx + delta));
+    selectCut(next);
+  };
+
+  const handleSaveVisuals = () => {
+    // Flush in-flight drag ticks first and hand the exact document to the
+    // save pipeline so Save can never miss the last milliseconds of a drag.
+    const flushed = commitPending();
+    if (resolved) {
+      const doc = flushed ?? scriptDataRef.current;
+      sectionBaselinesRef.current[resolved.cardKey] = JSON.parse(JSON.stringify(readSectionSubs(doc, resolved)));
+    }
+    onSaveCard(saveArg, saveIndex, flushed ?? undefined);
+  };
+
+  const handleCancelVisuals = () => {
+    discardPending();
+    const baseline = resolved ? sectionBaselinesRef.current[resolved.cardKey] : null;
+    if (baseline && resolved) {
+      const copy = writeSectionSubs(scriptDataRef.current, resolved, JSON.parse(JSON.stringify(baseline)));
+      onSetScriptDataRef.current(copy);
+    } else {
+      onCancelEdit();
+    }
+  };
+
+  // AI/upload/preview handlers read the store document upstream — flush
+  // in-flight ticks first and forward the exact document so they operate on
+  // the latest edits (setState is async; the hook closure would otherwise see
+  // the pre-flush document and drop the last ~150ms of a drag).
+  const withFlushRewriteSub = (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
+    const flushed = commitPending();
+    return onRewriteSubVisual(sceneIdx, sectionType, subIdx, prompt, flushed ?? undefined);
+  };
+  const withFlushUpload = (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => {
+    const flushed = commitPending();
+    return onUploadSubVisual!(sceneIdx, sectionType, subIdx, visualType, flushed ?? undefined);
+  };
+  const withFlushRewriteSection = (type: string, index: number) => {
+    const flushed = commitPending();
+    // Explicit 'visuals' intent — don't rely on editingCard.mode, which is
+    // set in a post-render effect and races a fast open → rewrite.
+    return onRewriteSection(type, index, flushed ?? undefined, 'visuals');
+  };
+  const withFlushPreview = (sceneIdx: number, sectionType: string, subIdx: number, query: string) => {
+    commitPending();
+    return onPreviewSubVisual!(sceneIdx, sectionType, subIdx, query);
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
+      {/* ── Selected cut header ─────────────────────────────────────── */}
+      <div className="bg-zinc-900/60 rounded-xl border border-zinc-800/60 overflow-hidden">
+        <div className="px-4 pt-3 pb-2 border-b border-zinc-800/40">
+          <div className="flex items-center gap-2">
+            <VscLayers className="text-[10px] text-zinc-500" />
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300 truncate">
+              {resolved.title}
+            </h3>
+            <span className="text-[8px] text-zinc-600 ml-auto shrink-0">
+              {cutCount === 0 ? 'No cuts' : `Cut ${actualSubIdx + 1} of ${cutCount}`}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 mt-2">
+            <button
+              onClick={() => goCut(-1)}
+              disabled={actualSubIdx <= 0}
+              className="p-1.5 rounded-lg border border-zinc-700/60 bg-zinc-900/50 text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              title="Previous cut"
+            >
+              <VscChevronLeft className="text-xs" />
+            </button>
+            <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar">
+              {displaySubs.map((_: any, i: number) => (
+                <button
+                  key={i}
+                  onClick={() => selectCut(i)}
+                  className={`shrink-0 w-6 h-6 rounded-md text-[9px] font-mono font-bold border transition-colors cursor-pointer ${
+                    i === actualSubIdx
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                      : 'bg-zinc-900/60 text-zinc-500 border-zinc-800 hover:text-zinc-300 hover:border-zinc-600'
+                  }`}
+                  title={`Cut ${i + 1}`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => goCut(1)}
+              disabled={actualSubIdx >= cutCount - 1}
+              className="p-1.5 rounded-lg border border-zinc-700/60 bg-zinc-900/50 text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              title="Next cut"
+            >
+              <VscChevronRight className="text-xs" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-3">
+          {/* Save / cancel */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSaveVisuals}
+              disabled={busy}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-2.5 py-2 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+            >
+              {isSaving ? <><VscLoading className="animate-spin text-[10px]" /> Saving...</> : <><VscSave className="text-[10px]" /> Save Visuals</>}
+            </button>
+            <button
+              onClick={handleCancelVisuals}
+              disabled={busy}
+              title="Discard unsaved visual changes in this section (stays in the Visuals tab)"
+              className="px-4 py-2 text-[10px] font-bold disabled:opacity-50 disabled:cursor-not-allowed text-zinc-400 hover:text-white rounded-lg border border-zinc-700/60 bg-zinc-900/50 hover:bg-zinc-800 transition-all cursor-pointer"
+            >
+              Revert
+            </button>
+          </div>
+
+          {/* Timing row */}
+          <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500">
+            {resolved.subTiming && (
+              <button
+                onClick={() => onSeek(resolved.subTiming!.start)}
+                className="text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
+                title="Seek to this cut"
+              >
+                {formatTime(resolved.subTiming.start)} → {formatTime(resolved.subTiming.end)}
+              </button>
+            )}
+            <span className="ml-auto text-zinc-600">
+              {resolved.totalDurationFrames > 0 ? `${(resolved.totalDurationFrames / 30).toFixed(1)}s scene` : ''}
+            </span>
+          </div>
+
+          {/* Single-cut editor lens */}
+          {selectedCut ? (
+            <SubVisualsEditor
+              key={`${resolved.cardKey}_cut_${actualSubIdx}`}
+              subVisuals={[selectedCut]}
+              onChange={handleLensChange}
+              timings={resolved.subTiming ? [resolved.subTiming] : []}
+              totalDurationFrames={resolved.totalDurationFrames}
+              activeIdx={sel.sceneIdx === activeSceneIdx && activeSubIdx === actualSubIdx ? 0 : -1}
+              onSeek={onSeek}
+              onRewriteSubVisual={(_, prompt) => withFlushRewriteSub(handlerSceneIdx, resolved.sectionType, actualSubIdx, prompt)}
+              onUploadSubVisual={onUploadSubVisual ? (_, visualType) => withFlushUpload(handlerSceneIdx, resolved.sectionType, actualSubIdx, visualType) : undefined}
+              onPreviewSubVisual={onPreviewSubVisual ? (_, query) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query) : undefined}
+              uploadingSubVisual={uploadingSubVisual}
+              singleCut
+              cutNumber={actualSubIdx + 1}
+            />
+          ) : (
+            <div className="text-center py-6 space-y-2 border border-dashed border-zinc-700/60 rounded-xl bg-zinc-900/40">
+              <p className="text-[11px] text-zinc-400 font-medium">
+                {cutCount === 0 ? 'This section has no cuts yet' : 'Selected cut is out of range'}
+              </p>
+              <p className="text-[10px] text-zinc-600 max-w-55 mx-auto leading-relaxed">
+                {cutCount === 0
+                  ? 'Add a cut below to start building visuals for this section'
+                  : 'Pick another cut above — the list changed while editing'}
+              </p>
+            </div>
+          )}
+
+          {/* Cut add/remove */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAddCut}
+              disabled={busy}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] font-bold text-zinc-400 hover:text-amber-400 bg-zinc-800/30 hover:bg-amber-600/[0.07] rounded-xl border border-dashed border-zinc-700/60 hover:border-amber-600/30 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <VscAdd className="text-[10px]" /> Add Cut
+            </button>
+            <button
+              onClick={handleDeleteCut}
+              disabled={busy || cutCount <= 1}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] font-bold text-zinc-500 hover:text-red-400 bg-zinc-800/30 hover:bg-red-950/30 rounded-xl border border-dashed border-zinc-700/60 hover:border-red-900/50 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              title={cutCount <= 1 ? 'A section needs at least one cut' : 'Delete this cut'}
+            >
+              <VscTrash className="text-[10px]" /> Delete Cut
+            </button>
+          </div>
+
+          {/* Section AI regenerate */}
+          <div className="border-t border-zinc-700/30 pt-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <VscSparkle className="text-[9px] text-zinc-500" />
+              <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-500">
+                AI Regenerate Section Visuals
+              </span>
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <CustomInput
+                  type="text"
+                  placeholder="e.g., make all cuts cinematic drone shots..."
+                  value={rewritePrompt}
+                  onChange={(e) => setRewritePrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isRewritingSection && rewritePrompt.trim()) {
+                      e.preventDefault();
+                      withFlushRewriteSection(resolved.sectionType, isScene ? resolved.sceneNumber : 0);
+                    }
+                  }}
+                  disabled={isRewritingSection}
+                  className="w-full bg-zinc-900/80 border border-zinc-700/60 rounded-lg px-3 py-2 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all disabled:opacity-50"
+                />
+              </div>
+              <button
+                onClick={() => withFlushRewriteSection(resolved.sectionType, isScene ? resolved.sceneNumber : 0)}
+                disabled={isRewritingSection || !rewritePrompt.trim()}
+                className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800/80 hover:bg-blue-600/20 hover:text-blue-400 text-zinc-300 border border-zinc-700/60 hover:border-blue-600/30 rounded-lg text-[10px] font-bold transition-all shrink-0 h-9 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {isRewritingSection ? (
+                  <><VscLoading className="animate-spin text-[10px]" /> Rewriting...</>
+                ) : (
+                  <><VscSparkle className="text-[10px]" /> Rewrite</>
+                )}
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+});
+VisualsTab.displayName = 'VisualsTab';
