@@ -28,13 +28,14 @@ Every sub-visual should feel like an intentional, high-production composite with
    * 💡 Charts MUST sit in Z-Index 10–29 inside glass cards or over HTML gradients. Never render a bare full-screen chart at z-index 0.
 3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (staying above `bottom: 18%` safe area).
 
-=== VALID CONTENT TYPES (USE ONLY THESE 8) ===
-Image | Video | Text | Chart | Shape | Map | HTML | Lottie
+=== VALID CONTENT TYPES (USE ONLY THESE 9) ===
+Image | Video | Text | Chart | Shape | Map | HTML | Lottie | Particles
 
 === CONTENT TYPE SELECTION GUIDE ===
 - **Chart**: Statistics, comparisons, growth trends, market share, distributions (`chart_type: "bar" | "line" | "pie" | "donut" | "progress"`).
 - **Shape**: Hardware-accelerated vector shapes, arrows, callout pointers, framing rectangles, animated SVG paths (`preset_path: "route_arch" | "horizontal_line" | "pointer_curve" | "corner_brackets" | "wave_pulse" | "circle_reticle"`), and Lucide vector icons (`shape_type: "icon"`, `icon_name: "trending-up" | "shield-alert" | "dollar-sign" | "coins" | "database" | "globe" | "zap" | "flame" | "gavel" | "target"`).
 - **Lottie**: 60 FPS vector micro-animations, animated icons, warning badges, checkmarks, and dynamic vector accents (`lottie_url: "..."`).
+- **Particles**: Canvas atmosphere overlay — `particle_preset: "confetti" | "embers" | "dust" | "money_rain" | "snow" | "stars"`. Exactly ONE per cut, always topmost (`z_index` 30–39), matched to the beat's emotion (profits → money_rain, scandal → embers, victory → confetti). Never covers key content.
 - **Text**: Dynamic headlines, data callouts, dramatic reveals, kinetic typography.
   * Use `animation_mode: "words_stagger"` for impactful statements.
   * Use `animation_mode: "typewriter"` for investigative notes or quotes.
@@ -52,6 +53,8 @@ Image | Video | Text | Chart | Shape | Map | HTML | Lottie
 === UNIVERSAL MOTION MODIFIERS ===
 - **Motion Blur**: Set `motion_blur: true` on fast-moving cards or spring entrances to enable physical camera shutter blur.
 - **Camera Shake**: Set `camera_shake: "handheld"` on ambient footage layers for organic documentary breathing, `camera_shake: "shockwave"` for high-impact market crash / explosion reveals, or `camera_shake: "glitch"` for fast digital tech jitter.
+- **2026 FX Pack** (layer `filters` array): cinematic CSS looks — `Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur` — plus SVG looks `url(#fx-emboss)`, `url(#fx-sharpen)`, `url(#fx-posterize)`, `url(#fx-duotone-midnight)`, `url(#fx-duotone-inferno)`, `url(#fx-thermal)`. Max ONE SVG look per layer; ~1 FX cut per 3–4 cuts.
+- **Punch-In Emphasis** (sub-visual level, sibling of `transition`): `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]` — 0–2 marks per cut, cuts ≥2s only, on the single most shocking word/stat.
 
 === COMPOSITION VARIETY & PRE-OUTPUT CHECKLIST ===
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.

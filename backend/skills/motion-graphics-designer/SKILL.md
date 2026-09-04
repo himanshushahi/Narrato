@@ -88,6 +88,13 @@ Use `camera_shake` on atmospheric background layers:
 * `"camera_shake": "shockwave"` — High-intensity decaying impact shake (market crashes, scandals, explosions).
 * `"camera_shake": "glitch"` — Tech stutter / signal loss.
 
+### F. Mid-Cut Punch-In Emphasis (Sub-Visual Level)
+Unlike entrance animations, `emphasis` marks fire mid-cut — sudden zoom snap + settle on the beat's key moment (sibling of `transition`, NOT inside layers):
+```json
+"emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }]
+```
+0–2 marks per cut, cuts ≥ 2s only, `scale` 1.02–1.6. Pair with the 2026 FX pack (`filters`: Thermal/Night-Vision/duotones) and a single topmost `Particles` layer for maximum-impact beats.
+
 ---
 
 ## 3. Kinetic Typography Recipes

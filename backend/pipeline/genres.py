@@ -33,7 +33,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Entity Spotlight with darkened full-screen Image and bio card overlay",
             "Data Infographic Showcase with HTML gradient background, glassmorphic chart card, and floating callout"
         ],
-        "primitive_weights": ["HTML", "Image", "Video", "Chart", "Map", "Shape", "Text"],
+        "primitive_weights": ["HTML", "Image", "Video", "Chart", "Map", "Shape", "Text", "Particles"],
         "motion_defaults": {
             "camera_shake": "handheld",
             "motion_blur": True,
@@ -63,7 +63,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Live Code / Terminal Snippet with syntax highlighted callouts and typewriter reveal",
             "Metric Progress Comparison with multi-bar animated statistics"
         ],
-        "primitive_weights": ["Shape", "Lottie", "Chart", "HTML", "Text", "Image"],
+        "primitive_weights": ["Shape", "Lottie", "Chart", "HTML", "Text", "Image", "Particles"],
         "motion_defaults": {
             "camera_shake": "glitch",
             "motion_blur": True,
@@ -93,7 +93,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Leaked Balance Sheet / Audit Memo with highlighted suspicious line items",
             "Macro Economic Metric Callout with 99% rolling number animation"
         ],
-        "primitive_weights": ["Chart", "Shape", "HTML", "Text", "Image", "Video"],
+        "primitive_weights": ["Chart", "Shape", "HTML", "Text", "Image", "Video", "Particles"],
         "motion_defaults": {
             "camera_shake": "shockwave",
             "motion_blur": True,
@@ -123,7 +123,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Side-by-Side Comparison Split Card highlighting stark visual contrasts",
             "Animated Donut / Bar Infographic with bold percentage callouts"
         ],
-        "primitive_weights": ["Text", "Shape", "Image", "Chart", "HTML", "Map"],
+        "primitive_weights": ["Text", "Shape", "Image", "Chart", "HTML", "Map", "Particles"],
         "motion_defaults": {
             "camera_shake": "handheld",
             "motion_blur": True,
@@ -153,7 +153,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Quote Callout Card with interviewee attribution and corporate logo badge",
             "Timeline of Recent Developments with live timestamp tickers"
         ],
-        "primitive_weights": ["HTML", "Image", "Video", "Text", "Shape", "Chart"],
+        "primitive_weights": ["HTML", "Image", "Video", "Text", "Shape", "Chart", "Particles"],
         "motion_defaults": {
             "camera_shake": "none",
             "motion_blur": False,
@@ -183,7 +183,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Forensic Timeline Card with evidence photo and blood-red marker stamp",
             "Impact Shockwave Clue Reveal with decaying earthquake camera shake"
         ],
-        "primitive_weights": ["HTML", "Image", "Shape", "Text", "Video", "Map"],
+        "primitive_weights": ["HTML", "Image", "Shape", "Text", "Video", "Map", "Particles"],
         "motion_defaults": {
             "camera_shake": "shockwave",
             "motion_blur": True,
@@ -213,7 +213,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Reflective Atmospheric Video beat with warm amber color wash",
             "Journal / Diary Note card entering with gentle spring physics"
         ],
-        "primitive_weights": ["Image", "Text", "Video", "HTML", "Shape", "Lottie"],
+        "primitive_weights": ["Image", "Text", "Video", "HTML", "Shape", "Lottie", "Particles"],
         "motion_defaults": {
             "camera_shake": "handheld",
             "motion_blur": True,
@@ -243,7 +243,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "High-Tempo Background Motion video with rapid zoom bursts",
             "Large Metric Badge with instant neon highlight reveal"
         ],
-        "primitive_weights": ["Text", "Lottie", "Shape", "Image", "Video", "HTML"],
+        "primitive_weights": ["Text", "Lottie", "Shape", "Image", "Video", "HTML", "Particles"],
         "motion_defaults": {
             "camera_shake": "glitch",
             "motion_blur": True,
