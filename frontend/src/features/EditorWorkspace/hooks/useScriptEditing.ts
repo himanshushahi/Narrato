@@ -22,8 +22,8 @@ interface UseScriptEditingReturn {
   handleStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   handleCancelEdit: () => void;
   handleSaveCard: (cardKey?: string, index?: number, latestData?: any) => Promise<void>;
-  handleRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<void>;
-  handleRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<void>;
+  handleRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<any | undefined>;
+  handleRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<any | undefined>;
   insertAndSaveNewScene: (newScene: any, insertAfterIdx: number) => Promise<void>;
   confirmDeleteScene: () => Promise<void>;
   setSceneToDelete: (idx: number | null) => void;
@@ -501,10 +501,14 @@ export function useScriptEditing(
         const updated = JSON.parse(JSON.stringify(data));
         const isVisualsRewrite = effectiveMode === 'visuals' && !isNewScene;
         if (isVisualsRewrite) {
-          // Visuals rewrite only returns the sub_visuals array, we merge it into the existing scene/section
-          if (type === 'introduction') updated.introduction.sub_visuals = res.data.sub_visuals || [];
-          else if (type === 'conclusion') updated.conclusion.sub_visuals = res.data.sub_visuals || [];
-          else updated.scenes[index].sub_visuals = res.data.sub_visuals || [];
+          // Preview-only: hand the AI sub_visuals back to the caller (Visuals
+          // tab) WITHOUT touching scriptData or disk. The tab applies them to
+          // local state (visible instantly in player/timeline/editor); the
+          // user then Saves to persist or Reverts to discard.
+          setRewritePrompt('');
+          setRewritingSection(null);
+          addToast("AI visuals applied — review in the player, then Save or Revert.", 'success');
+          return res.data.sub_visuals || [];
         } else {
           // Script rewrite returns the whole section (without sub_visuals by default now)
           // We need to merge existing sub_visuals back in if this wasn't a new scene
@@ -546,34 +550,28 @@ export function useScriptEditing(
 
   const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => {
     const data = latestData ?? scriptDataRef.current;
-    if (!projectId || !data || !selectedProject?.script_path) return;
+    if (!projectId || !data || !selectedProject?.script_path) return undefined;
     try {
       const res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
         'regenerate_sub_visual', projectId, sceneIdx, sectionType, subIdx, data, prompt, selectedProject.language
       );
       if (res?.success && res.data) {
-        // Deep clone to avoid mutating React state via shared nested references
-        const updated = JSON.parse(JSON.stringify(data));
-
-        let targetSection;
-        if (sectionType === 'introduction') targetSection = updated.introduction;
-        else if (sectionType === 'conclusion') targetSection = updated.conclusion;
-        else targetSection = updated.scenes?.[sceneIdx];
-
-        if (targetSection && targetSection.sub_visuals) {
-          targetSection.sub_visuals[subIdx] = res.data;
-          setScriptData(updated);
-          await callApi('save_json_file', selectedProject.script_path, updated);
-          addToast("Sub-Visual updated successfully!", 'success');
-        }
+        // Preview-only: return the AI cut WITHOUT touching scriptData or
+        // disk. The caller applies it to local state (visible instantly in
+        // player/timeline/editor); the user then Saves to persist or Reverts
+        // to discard.
+        addToast("AI visuals applied — review in the player, then Save or Revert.", 'success');
+        return res.data;
       } else {
         addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
+        return undefined;
       }
     } catch (err: any) {
       console.error(err);
       addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
+      return undefined;
     }
-  }, [projectId, selectedProject, setScriptData, addToast]);
+  }, [projectId, selectedProject, addToast]);
 
   const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string, latestData?: any) => {
     const data = latestData ?? scriptDataRef.current;

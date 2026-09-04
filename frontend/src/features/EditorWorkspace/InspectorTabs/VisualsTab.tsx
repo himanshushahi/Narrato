@@ -5,6 +5,7 @@ import {
 } from 'react-icons/vsc';
 import { CustomInput } from '../../../components/ui/CustomInput';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { useUIStore } from '../../../store/useUIStore';
 import { SubVisualsEditor } from '../../ProjectEditor/SubVisualsEditor';
 import { formatTime } from '../../ProjectEditor/constants';
 import { resolveVisualSelection, type ResolvedVisual } from '../visualSelection';
@@ -54,8 +55,8 @@ interface VisualsTabProps {
   onSetScriptData: (data: any) => void;
   /** Registers this tab's pending-edit flusher (for Ctrl+S / TopBar saves). */
   onRegisterFlush?: (flush: (() => any) | null) => void;
-  onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => void;
-  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<void>;
+  onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<any | undefined> | void;
+  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<any | undefined>;
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any) => Promise<string | undefined>;
   onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
@@ -78,6 +79,7 @@ export const VisualsTab = React.memo(function VisualsTab({
   // restores the section baseline and stays in-tab, so this is intentionally
   // unused here beyond API stability.
   void onCancelEdit;
+  const { addToast } = useUIStore();
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const setSelectedSubVisualIndex = useEditorStore((s) => s.setSelectedSubVisualIndex);
@@ -109,10 +111,10 @@ export const VisualsTab = React.memo(function VisualsTab({
    * Scene A's cuts into shifted Scene B. */
   const pendingResolvedRef = useRef<(ResolvedVisual & { scenesLength: number }) | null>(null);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Signature of the last array this tab wrote to the store — distinguishes
+  /** Signature of the last array this tab wrote to the store per card — distinguishes
    * our own store echo from genuinely external changes (AI rewrite, timeline
-   * resize, Script-tab edits) for baseline maintenance. */
-  const lastWrittenJsonRef = useRef<string | null>(null);
+   * resize, Script-tab edits) for baseline maintenance without cross-card clobbering. */
+  const lastWrittenJsonByCardRef = useRef<Record<string, string>>({});
   /** Selection sub-index mirror (ref, not render closure) so lens writes use
    * the fresh section AND fresh cut together on fast switches. */
   const selSubIdxRef = useRef<number>(selectedSubVisualIndex ?? -1);
@@ -154,7 +156,9 @@ export const VisualsTab = React.memo(function VisualsTab({
       setPendingTick(t => t + 1);
       return null;
     }
-    try { lastWrittenJsonRef.current = JSON.stringify(pending); } catch { /* ignore */ }
+    if (r) {
+      try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(pending); } catch { /* ignore */ }
+    }
     const copy = writeSectionSubs(scriptDataRef.current, r, pending);
     onSetScriptDataRef.current(copy);
     setPendingTick(t => t + 1);
@@ -179,7 +183,9 @@ export const VisualsTab = React.memo(function VisualsTab({
       if (!pending || !r) { setPendingTick(t => t + 1); return; }
       const liveScenesLength = scriptDataRef.current?.scenes?.length ?? 0;
       if (r.scenesLength !== liveScenesLength) { setPendingTick(t => t + 1); return; }
-      try { lastWrittenJsonRef.current = JSON.stringify(pending); } catch { /* ignore */ }
+      if (r) {
+        try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(pending); } catch { /* ignore */ }
+      }
       onSetScriptDataRef.current(writeSectionSubs(scriptDataRef.current, r, pending));
       setPendingTick(t => t + 1);
     }, COMMIT_DEBOUNCE_MS);
@@ -258,7 +264,7 @@ export const VisualsTab = React.memo(function VisualsTab({
         curJson = JSON.stringify(current);
         baseJson = JSON.stringify(sectionBaselinesRef.current[key]);
       } catch { return; }
-      if (curJson !== baseJson && curJson !== lastWrittenJsonRef.current) {
+      if (curJson !== baseJson && curJson !== lastWrittenJsonByCardRef.current[key]) {
         sectionBaselinesRef.current[key] = snapshot(current);
       }
     }
@@ -340,7 +346,9 @@ export const VisualsTab = React.memo(function VisualsTab({
     if (!r) return null;
     const full = updater(readSectionSubs(doc, r));
     const copy = writeSectionSubs(doc, r, full);
-    try { lastWrittenJsonRef.current = JSON.stringify(full); } catch { /* ignore */ }
+    if (r) {
+      try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(full); } catch { /* ignore */ }
+    }
     onSetScriptDataRef.current(copy);
     return full;
   };
@@ -415,6 +423,7 @@ export const VisualsTab = React.memo(function VisualsTab({
     if (resolved) {
       const doc = flushed ?? scriptDataRef.current;
       sectionBaselinesRef.current[resolved.cardKey] = snapshot(readSectionSubs(doc, resolved));
+      try { lastWrittenJsonByCardRef.current[resolved.cardKey] = JSON.stringify(sectionBaselinesRef.current[resolved.cardKey]); } catch { /* ignore */ }
     }
     onSaveCard(saveArg, saveIndex, flushed ?? undefined);
   };
@@ -429,28 +438,62 @@ export const VisualsTab = React.memo(function VisualsTab({
     if (baseline && resolved) {
       const restored = snapshot(baseline);
       const copy = writeSectionSubs(scriptDataRef.current, resolved, restored);
-      try { lastWrittenJsonRef.current = JSON.stringify(restored); } catch { /* ignore */ }
+      try { lastWrittenJsonByCardRef.current[resolved.cardKey] = JSON.stringify(restored); } catch { /* ignore */ }
       onSetScriptDataRef.current(copy);
+      if (selSubIdxRef.current >= restored.length) {
+        setSelectedSubVisualIndex(Math.max(0, restored.length - 1));
+      }
+      addToast("Visual changes reverted to baseline.", 'info');
     }
   };
 
-  // AI/upload/preview handlers read the store document upstream — flush
-  // in-flight ticks first and forward the exact document so they operate on
-  // the latest edits (setState is async; the hook closure would otherwise see
-  // the pre-flush document and drop the last ~150ms of a drag).
-  const withFlushRewriteSub = (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
+  // AI rewrites are applied straight to local state (unsaved) — this editor
+  // is preview-first, so the player, timeline, and editor all show the result
+  // instantly. Nothing hits the backend until Save Visuals; Revert restores
+  // the pre-AI baseline. The section identity is captured BEFORE the request
+  // so a section switch mid-generation still lands in the right section.
+  /** Write AI-produced subs for a captured section into the store (unsaved). */
+  const applyAiSubs = (r: ResolvedVisual, fullSubs: any[]) => {
+    commitPending();
+    const snapSubs = snapshot(fullSubs);
+    const doc = writeSectionSubs(scriptDataRef.current, r, snapSubs);
+    // Tag as our own write so the baseline effect ignores the echo — the
+    // pre-AI baseline stays intact, keeping Revert meaningful.
+    try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(snapSubs); } catch { /* ignore */ }
+    onSetScriptDataRef.current(doc);
+  };
+
+  const withFlushRewriteSub = async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
     const flushed = commitPending();
-    return onRewriteSubVisual(sceneIdx, sectionType, subIdx, prompt, flushed ?? undefined);
+    const r = resolvedRef.current;
+    const cut = await onRewriteSubVisual(sceneIdx, sectionType, subIdx, prompt, flushed ?? undefined);
+    if (cut === undefined || !r) return;
+    const base = readSectionSubs(scriptDataRef.current, r);
+    const full = [...base];
+    if (subIdx >= 0 && subIdx < full.length) full[subIdx] = cut;
+    else full.push(cut);
+    applyAiSubs(r, full);
   };
   const withFlushUpload = (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => {
     const flushed = commitPending();
     return onUploadSubVisual!(sceneIdx, sectionType, subIdx, visualType, flushed ?? undefined);
   };
-  const withFlushRewriteSection = (type: string, index: number) => {
+  const withFlushRewriteSection = async (type: string, index: number) => {
     const flushed = commitPending();
+    const r = resolvedRef.current;
     // Explicit 'visuals' intent — don't rely on editingCard.mode, which is
     // set in a post-render effect and races a fast open → rewrite.
-    return onRewriteSection(type, index, flushed ?? undefined, 'visuals');
+    // Preview-only from the backend's view: the hook returns the AI subs
+    // without saving; applied below to local state (unsaved).
+    const aiSubs = await onRewriteSection(type, index, flushed ?? undefined, 'visuals');
+    if (Array.isArray(aiSubs)) {
+      if (!r) return;
+      applyAiSubs(r, aiSubs);
+      // Count may have changed — keep the selection valid on the same card.
+      if (r.cardKey === resolvedRef.current?.cardKey) {
+        setSelectedSubVisualIndex(Math.min(selSubIdxRef.current, Math.max(0, aiSubs.length - 1)));
+      }
+    }
   };
   const withFlushPreview = (sceneIdx: number, sectionType: string, subIdx: number, query: string) => {
     const flushed = commitPending();
