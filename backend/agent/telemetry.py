@@ -51,6 +51,8 @@ def register_activity_callback(callback):
         _callbacks.append(callback)
 
 
+from backend.agent.schemas import ActivityTelemetryEntry
+
 def emit_activity(kind: str, name: str, detail: str = "", status: str = "ok", **extra) -> str:
     """Record one activity entry, broadcast it, and return its id so the caller
     can later resolve it via update_activity().
@@ -58,7 +60,7 @@ def emit_activity(kind: str, name: str, detail: str = "", status: str = "ok", **
     extra: optional structured fields (e.g. args, result, version, scope)
     stored verbatim on the entry for the UI to render.
     """
-    entry = {
+    raw_entry = {
         "id": _next_id(),
         "ts": time.time(),
         "kind": kind,
@@ -67,6 +69,12 @@ def emit_activity(kind: str, name: str, detail: str = "", status: str = "ok", **
         "status": status,
         **extra,
     }
+    try:
+        validated = ActivityTelemetryEntry.model_validate(raw_entry)
+        entry = validated.model_dump(exclude_none=True)
+    except Exception:
+        entry = raw_entry
+
     with _lock:
         _activity.appendleft(entry)
         callbacks = list(_callbacks)
@@ -119,3 +127,6 @@ def clear_agent_activity():
     """Drop all recorded entries (used by tests and the UI clear button)."""
     with _lock:
         _activity.clear()
+
+
+

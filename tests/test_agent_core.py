@@ -1,5 +1,5 @@
 import pytest
-from backend.agent.validators import validate_sub_visuals, normalize_visual_type, normalize_transition
+from backend.agent.validators import validate_sub_visuals, normalize_transition
 from backend.agent.cache import build_cache_key
 from backend.agent.skill_loader import skill_loader
 
@@ -14,14 +14,15 @@ def test_cache_key_schema_flag():
 
 def test_validate_sub_visuals():
     svs = [
-        {"duration": 10.0},
+        {"duration": 10.0, "composition": {"type": "Sequence", "children": []}},
         {"duration": 5.0}
     ]
     is_valid, normalized, err = validate_sub_visuals(svs, 15.0)
     assert is_valid is True
     assert err == ""
-    # Types are normalized onto the enums even when validation passes
-    assert normalized[0]["visual_type"] == "scene"
+    assert normalized[0]["composition"] == {"type": "Sequence", "children": []}
+    assert normalized[0]["duration"] == 10.0
+    assert normalized[1]["duration"] == 5.0
 
 def test_validate_sub_visuals_normalization():
     svs = [
@@ -40,59 +41,217 @@ def test_validate_sub_visuals_empty_gets_dummy():
     assert is_valid is False
     assert len(normalized) == 1
     assert normalized[0]["duration"] == 15.0
-
-def test_normalize_visual_type_fuzzy():
-    assert normalize_visual_type("Custom HTML") == "custom_html"
-    assert normalize_visual_type("ai image") == "ai_image"
-    assert normalize_visual_type("device mockup") == "device_mockup"
-    assert normalize_visual_type("chat") == "thread"
-    assert normalize_visual_type("garbage") == "scene"
+    assert "composition" in normalized[0]
 
 def test_normalize_transition_fuzzy():
     assert normalize_transition("slide-up") == "slide_up"
     assert normalize_transition("zoom in") == "zoom_in"
-    assert normalize_transition("dissolve") == "fade"
+    assert normalize_transition("dissolve") == "dissolve"
+    assert normalize_transition("cut") == "cut"
     assert normalize_transition("made up") == "fade"
 
 def test_skill_loader():
     skills = skill_loader.get_all_skills()
-    assert "visual-type-custom-html" in skills
-    skill = skill_loader.get_skill("visual-type-custom-html")
+    assert "declarative-ast" in skills
+    skill = skill_loader.get_skill("declarative-ast")
     assert skill is not None
-    assert skill.version == "1.0"
+    assert skill.version in ("1.0", "2.0")
 
-def test_skill_loader_new_skills():
-    for name in ("scriptwriter", "subtitle-designer", "custom-html-designer",
-                 "stock-asset-searcher", "editor-qa",
-                 "visual-director-core", "visual-type-image", "visual-type-ai-image"):
+def test_skill_loader_all_registered_skills():
+    expected_skills = (
+        "scriptwriter", "subtitle-designer", "declarative-ast",
+        "stock-asset-searcher", "editor-qa", "visual-director-core",
+        "storyboard-planner", "motion-graphics-designer", "art-director-design-system",
+        "script-outline-director", "script-base-writer", "script-scene-writer",
+        "script-rewriter", "script-scene-adder", "visual-rewriter", "sub-visual-rewriter",
+        "search-query-optimizer"
+    )
+    for name in expected_skills:
         skill = skill_loader.get_skill(name)
-        assert skill is not None, f"Skill {name} missing"
-        assert skill.version == "1.0"
-        assert len(skill.content.strip()) > 50
+        assert skill is not None, f"Skill {name} missing from skill_loader"
+        assert len(skill.content.strip()) > 20, f"Skill {name} has empty content"
 
-def test_visual_type_rules_cover_all_types():
-    for vtype in ("map", "document", "network", "list",
-                  "thread", "device_mockup", "custom_html", "scene", "portrait",
-                  "parallax", "youtube", "image", "ai_image"):
-        skill = skill_loader.get_skill(f"visual-type-{vtype.replace('_', '-')}")
-        assert skill is not None, f"visual-type-{vtype} skill missing"
+def test_skill_render_template_substitution():
+    rendered = skill_loader.render_skill(
+        "art-director-design-system",
+        video_format="portrait",
+        language="hi"
+    )
+    assert "portrait" in rendered
+    assert "hi" in rendered
+    # Ensure JSON braces and formatting were not corrupted
+    assert "color_palette" in rendered
+    assert "Noto Sans Devanagari" in rendered
+
+def test_skill_render_all_prompt_skills():
+    """Verify all pipeline prompt skills correctly substitute dynamic variables without leftover braces."""
+    # 1. script-outline-director
+    outline = skill_loader.render_skill(
+        "script-outline-director",
+        script_rules_block="=== CUSTOM RULES ===\n",
+        target_duration=90,
+        min_scenes=6,
+        max_scenes=8,
+        per_scene_time=12,
+        per_scene_words=54,
+        language="hi",
+    )
+    assert "CUSTOM RULES" in outline
+    assert "90 seconds" in outline
+    assert "6 to 8 chapters" in outline
+    assert "code: 'hi'" in outline
+    assert "{target_duration}" not in outline
+
+    # 2. script-base-writer
+    base = skill_loader.render_skill(
+        "script-base-writer",
+        script_rules_block="=== BASE RULES ===\n",
+        language="hi",
+        sentence_rule="Write tight sentences.",
+    )
+    assert "BASE RULES" in base
+    assert "code: 'hi'" in base
+    assert "Write tight sentences." in base
+    assert "{language}" not in base
+
+    # 3. script-scene-writer
+    scene = skill_loader.render_skill(
+        "script-scene-writer",
+        script_rules_block="=== SCENE RULES ===\n",
+        scene_num=3,
+        chapter_title="The Breakthrough",
+        per_scene_duration=15,
+        per_scene_word_target=65,
+        prev_context="Previous Scene (2): Discovery",
+        language="en",
+        sentence_rule="No filler words.",
+    )
+    assert "Scene 3: The Breakthrough" in scene
+    assert "15 seconds" in scene
+    assert "Previous Scene (2): Discovery" in scene
+    assert "code: 'en'" in scene
+    assert "No filler words." in scene
+    assert "{scene_num}" not in scene
+
+    # 4. script-rewriter
+    rewriter = skill_loader.render_skill(
+        "script-rewriter",
+        language="hi",
+        doc_title="Quantum Physics",
+        intro_hook="What if time was an illusion?",
+        scenes_summary="Scene 1: Entanglement",
+        conclusion_summary="Final insights",
+        language_instructions="Use Hindi.",
+        length_constraint="Aim for 80 words.",
+    )
+    assert "Quantum Physics" in rewriter
+    assert "What if time was an illusion?" in rewriter
+    assert "Use Hindi." in rewriter
+    assert "{doc_title}" not in rewriter
+
+    # 5. script-scene-adder
+    adder = skill_loader.render_skill(
+        "script-scene-adder",
+        language="hi",
+        doc_title="AI Revolution",
+        intro_hook="The machine age begins.",
+        scenes_summary="Scene 1: Neural Nets",
+        conclusion_summary="The future ahead",
+        language_instructions="Use Devanagari.",
+        length_constraint="Aim for 100 words.",
+    )
+    assert "AI Revolution" in adder
+    assert "The machine age begins." in adder
+    assert "Aim for 100 words." in adder
+    assert "{doc_title}" not in adder
+
+    # 6. visual-rewriter
+    vis_rewriter = skill_loader.render_skill(
+        "visual-rewriter",
+        design_system_text="Design: Dark Theme",
+        visual_rules="Rules: Use Charts",
+    )
+    assert "Design: Dark Theme" in vis_rewriter
+    assert "Rules: Use Charts" in vis_rewriter
+    assert "{design_system_text}" not in vis_rewriter
+
+    # 7. sub-visual-rewriter
+    sub_vis = skill_loader.render_skill(
+        "sub-visual-rewriter",
+        design_system_text="Design: Cyberpunk",
+        visual_rules="Rules: Subtitle safe area",
+    )
+    assert "Design: Cyberpunk" in sub_vis
+    assert "Rules: Subtitle safe area" in sub_vis
+    assert "{visual_rules}" not in sub_vis
+
+def test_skill_render_clears_none_values():
+    """Verify that None values in context are cleanly replaced with empty strings."""
+    rendered = skill_loader.render_skill(
+        "script-scene-writer",
+        script_rules_block=None,
+        scene_num=1,
+        chapter_title="Intro Beat",
+        per_scene_duration=10,
+        per_scene_word_target=30,
+        prev_context=None,
+        language="hi",
+        sentence_rule=None,
+    )
+    assert "{script_rules_block}" not in rendered
+    assert "{prev_context}" not in rendered
+    assert "{sentence_rule}" not in rendered
+    assert "Scene 1: Intro Beat" in rendered
+
+def test_skill_render_missing_skill():
+    rendered = skill_loader.render_skill("non-existent-skill-xyz", var="test")
+    assert rendered == ""
+
+def test_skill_hot_reload(tmp_path, monkeypatch):
+    """Test that modifying a skill on disk reloads upon get_skill."""
+    import time
+    from backend.agent.skill_loader import SkillLoader
+    
+    skill_dir = tmp_path / "backend" / "skills" / "test-skill"
+    skill_dir.mkdir(parents=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text("---\nname: test-skill\nversion: '1.0'\n---\nInitial Content", encoding="utf-8")
+    
+    loader = SkillLoader()
+    loader.skills_dirs = [tmp_path / "backend" / "skills"]
+    loader.reload_skills()
+    
+    skill = loader.get_skill("test-skill")
+    assert skill is not None
+    assert "Initial Content" in skill.content
+    
+    # Simulate editing the file on disk
+    time.sleep(0.05)
+    skill_file.write_text("---\nname: test-skill\nversion: '2.0'\n---\nUpdated Dynamic Content", encoding="utf-8")
+    
+    reloaded_skill = loader.get_skill("test-skill")
+    assert reloaded_skill is not None
+    assert "Updated Dynamic Content" in reloaded_skill.content
+    assert reloaded_skill.version == "2.0"
+
+def test_declarative_ast_skill_structure():
+    skill = skill_loader.get_skill("declarative-ast")
+    assert skill is not None
+    assert "Sequence" in skill.content
+    assert "Layer" in skill.content
+    assert "content" in skill.content
 
 def test_visual_rules_built_from_skills():
     from backend.pipeline.ai import get_shared_visual_rules
     rules = get_shared_visual_rules("landscape", "hi")
-    # Skill-driven composition: director rules + schemas + safety net.
-    assert "MAXIMIZE CREATIVITY" in rules
-    assert "AI_IMAGE SCHEMA" in rules
-    assert "IMAGE SCHEMA" in rules
-    assert "ANTI-HALLUCINATION" in rules
+    # Skill-driven composition: AST architecture rules + safety net
+    assert "Declarative AST" in rules
+    assert "Sequence" in rules
+    assert "Layer" in rules
+    assert "SHARED RULES" in rules
     assert "ANIMATION TIMING" in rules
 
-def test_get_visual_type_rules_tool_ai_image(monkeypatch):
-    """The get_visual_type_rules tool must resolve image/ai_image skill names."""
-    from backend.agent.tools import execute_tool
-    result = execute_tool("get_visual_type_rules", {"visual_type": "ai_image"})
-    assert "Error" not in result
-    assert "AI_IMAGE" in result.upper()
+
 
 def test_run_with_tools_rejects_disallowed_tools(monkeypatch):
     """Tools not on the allowlist must be rejected and never executed."""
@@ -179,7 +338,7 @@ def test_visual_settings_tool_schema_present():
 def test_tools_schema_has_new_tools():
     from backend.agent.tools import get_tools_schema
     names = {t["function"]["name"] for t in get_tools_schema()}
-    for tool in ("web_search", "get_skill", "preview_asset",
+    for tool in ("web_search", "get_skill",
                  "project_status_report", "update_scene_duration", "reorder_scenes",
                  "delete_scene", "add_scene_with_ai", "regenerate_script_section",
                  "regenerate_scene_visuals", "set_tts_settings"):
@@ -274,7 +433,7 @@ def test_invalidate_scene_resolves_by_section_type(monkeypatch):
 def test_run_with_tools_restricts_allowed_tools(monkeypatch):
     """Disallowed tools (e.g. delete_scene) must never be executed."""
     import backend.agent.agent_engine as ae
-    from backend.agent.agent_engine import AgentRunner, INTERACTIVE_AGENT_TOOLS
+    from backend.agent.agent_engine import AgentRunner, BRIDGE_VISUAL_TOOLS
 
     calls = {"n": 0}
     executed = []
@@ -293,7 +452,7 @@ def test_run_with_tools_restricts_allowed_tools(monkeypatch):
     monkeypatch.setattr(ae, "execute_tool", fake_execute)
 
     result = AgentRunner().run_with_tools(
-        "system", "prompt", {"type": "object"}, allowed_tools=INTERACTIVE_AGENT_TOOLS)
+        "system", "prompt", {"type": "object"}, allowed_tools=BRIDGE_VISUAL_TOOLS)
     assert result == {"final": True}
     assert executed == []  # delete_scene was rejected, never executed
 
@@ -613,3 +772,516 @@ def test_skill_telemetry_labels_preload_vs_tool():
     assert skills[0]["args"] == {"version": "1.0", "scope": "tool"}
     assert "System Prompt Preload (v1.0)" in skills[1]["detail"]
     assert skills[1]["args"] == {"version": "1.0", "scope": "preload"}
+
+
+# ---------------------------------------------------------------------------
+# AST Subtitle Positioning, Safe Areas & Chapter Badges
+# ---------------------------------------------------------------------------
+
+
+def test_visual_rules_format_aware_safe_areas():
+    """Visual rules must configure format-aware safe areas (15% landscape, 25% portrait)."""
+    from backend.pipeline.ai import _visual_rules_safety_net
+    landscape_rules = _visual_rules_safety_net("landscape", "hi")
+    assert "15%" in landscape_rules
+    assert "18%" in landscape_rules
+    assert "CHAPTER TITLE" in landscape_rules
+    assert "STANDARDIZED Z-INDEX HIERARCHY" in landscape_rules
+
+    portrait_rules = _visual_rules_safety_net("portrait", "hi")
+    assert "25%" in portrait_rules
+    assert "28%" in portrait_rules
+
+
+def test_validate_sub_visuals_preserves_subtitle_position():
+    """validate_sub_visuals must preserve subtitle_position across normalization."""
+    from backend.agent.validators import validate_sub_visuals
+    raw = [
+        {"duration": 2.0, "subtitle_position": "top", "composition": {"type": "Sequence", "children": []}},
+        {"duration": 3.0, "subtitle_position": "hidden", "composition": {"type": "Sequence", "children": []}},
+        {"duration": 5.0, "composition": {"type": "Sequence", "children": []}}
+    ]
+    valid, normalized, err = validate_sub_visuals(raw, 10.0)
+    assert valid is True
+    assert normalized[0].get("subtitle_position") == "top"
+    assert normalized[1].get("subtitle_position") == "hidden"
+    assert "subtitle_position" not in normalized[2]
+
+
+def test_declarative_ast_skill_has_z_index_and_chapter_guidelines():
+    """declarative-ast skill must document standardized Z-indexes and Chapter guidelines."""
+    from backend.agent.skill_loader import skill_loader
+    skill = skill_loader.get_skill("declarative-ast")
+    assert skill is not None
+    assert "Standardized Z-Index Hierarchy" in skill.content
+    assert "Chapter Guidelines" in skill.content
+
+
+# ---------------------------------------------------------------------------
+# Robust JSON Parsing & Reasoning Extraction Tests
+# ---------------------------------------------------------------------------
+
+
+def test_clean_json_response_with_timestamps_and_reasoning():
+    """clean_json_response must ignore timestamp brackets in reasoning text."""
+    from backend.pipeline.ai import clean_json_response
+
+    sample = """We are given a narration with timestamps: hair-thin [0.5s] optical [1.2s] fibers [1.8s] carry [2.2s] data.
+We need to fill this with visuals.
+{
+  "sub_visuals": [
+    {"duration": 13.79, "composition": {"type": "Sequence", "children": []}}
+  ]
+}"""
+    result = clean_json_response(sample)
+    assert isinstance(result, dict)
+    assert "sub_visuals" in result
+    assert result["sub_visuals"][0]["duration"] == 13.79
+
+
+def test_clean_json_response_strips_think_tags():
+    """clean_json_response must strip <think>...</think> blocks."""
+    from backend.pipeline.ai import clean_json_response
+
+    sample = """<think>
+Let's analyze [0.5s] to [2.0s].
+Inner dict: {"dummy": true}
+</think>
+{
+  "sub_visuals": [{"duration": 10.0}]
+}"""
+    result = clean_json_response(sample)
+    assert result["sub_visuals"][0]["duration"] == 10.0
+
+
+def test_clean_json_response_recovers_truncated():
+    """clean_json_response must repair truncated JSON."""
+    from backend.pipeline.ai import clean_json_response
+
+    sample = """Here is the JSON:
+{
+  "sub_visuals": [
+    {"duration": 5.0, "composition": {"type": "Sequence"
+"""
+    result = clean_json_response(sample)
+    assert result["sub_visuals"][0]["duration"] == 5.0
+
+
+def test_asset_conflict_cleanup(tmp_path):
+    """_cleanup_conflicting_asset_files deletes old extension variants and legacy names."""
+    from backend.pipeline.assets import _cleanup_conflicting_asset_files
+
+    assets_dir = tmp_path / "assets"
+    assets_dir.mkdir()
+
+    # Create conflicting files
+    old_vid = assets_dir / "asset_001_02_00.mp4"
+    old_vid.write_text("old video")
+    legacy_vid = assets_dir / "asset_001_02.mp4"
+    legacy_vid.write_text("legacy video")
+    new_img = assets_dir / "asset_001_02_00.png"
+    new_img.write_text("new image")
+
+    _cleanup_conflicting_asset_files(assets_dir, seg_idx=1, sub_idx=2, layer_idx=0, keep_file=new_img)
+
+    assert not old_vid.exists()
+    assert not legacy_vid.exists()
+    assert new_img.exists()
+
+
+def test_cleanup_removed_assets_disk_reconciliation(tmp_path, monkeypatch):
+    """cleanup_removed_assets purges all orphaned media files across all media extensions."""
+    from backend.pipeline.assets import cleanup_removed_assets
+    import backend.database.db as db
+
+    proj_id = "test-proj-cleanup"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: {"id": pid, "assets_manifest_path": str(tmp_path / pid / "assets_manifest.json")})
+
+    proj_dir = tmp_path / proj_id
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    kept_file = assets_dir / "asset_000_00_00.mp4"
+    kept_file.write_text("kept")
+    orphaned_jpg = assets_dir / "asset_001_00_00.jpg"
+    orphaned_jpg.write_text("orphaned jpg")
+    orphaned_webp = assets_dir / "asset_002_00_00.webp"
+    orphaned_webp.write_text("orphaned webp")
+
+    manifest_data = [
+        {
+            "index": 0,
+            "section_type": "scene",
+            "sub_visuals": [
+                {
+                    "composition": {
+                        "type": "Sequence",
+                        "children": [
+                            {"type": "Layer", "content": {"type": "Video", "local_path": str(kept_file)}}
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+
+    res = cleanup_removed_assets(proj_id, manifest_data)
+    assert res["success"] is True
+    assert kept_file.exists()
+    assert not orphaned_jpg.exists()
+    assert not orphaned_webp.exists()
+
+
+def test_cleanup_removed_assets_case_insensitive(tmp_path, monkeypatch):
+    """cleanup_removed_assets correctly preserves files when path casing differs on Windows."""
+    from backend.pipeline.assets import cleanup_removed_assets
+    import os
+
+    proj_id = "test-proj-case"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: {"id": pid, "assets_manifest_path": str(tmp_path / pid / "assets_manifest.json")})
+
+    proj_dir = tmp_path / proj_id
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    kept_file = assets_dir / "asset_000_00_00.mp4"
+    kept_file.write_text("kept")
+
+    # Pass the kept path with altered case
+    altered_case_path = str(kept_file).lower()
+
+    manifest_data = [
+        {
+            "index": 0,
+            "section_type": "scene",
+            "sub_visuals": [
+                {
+                    "composition": {
+                        "type": "Sequence",
+                        "children": [
+                            {"type": "Layer", "content": {"type": "Video", "local_path": altered_case_path}}
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+
+    res = cleanup_removed_assets(proj_id, manifest_data)
+    assert res["success"] is True
+    assert kept_file.exists()
+
+
+def test_is_assets_stale_fallback(tmp_path):
+    """is_assets_stale correctly resolves manifest in voiceover/manifest.json when assets/assets_manifest.json does not exist."""
+    from backend.pipeline.assets import is_assets_stale
+    import json
+
+    proj_dir = tmp_path / "test-stale-proj"
+    proj_dir.mkdir(parents=True)
+    voice_dir = proj_dir / "voiceover"
+    voice_dir.mkdir(parents=True)
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    img_file = assets_dir / "asset_000_00_00.jpg"
+    img_file.write_text("img")
+
+    script = {
+        "introduction": {"sub_visuals": []},
+        "scenes": [
+            {
+                "sub_visuals": [
+                    {
+                        "composition": {
+                            "type": "Sequence",
+                            "children": [{"type": "Layer", "content": {"type": "Image", "local_path": str(img_file)}}]
+                        }
+                    }
+                ]
+            }
+        ],
+        "conclusion": {"sub_visuals": []}
+    }
+    (proj_dir / "script.json").write_text(json.dumps(script), encoding="utf-8")
+
+    manifest = [
+        {
+            "index": 0,
+            "section_type": "scene",
+            "sub_visuals": [
+                {
+                    "composition": {
+                        "type": "Sequence",
+                        "children": [{"type": "Layer", "content": {"type": "Image", "local_path": str(img_file)}}]
+                    }
+                }
+            ]
+        }
+    ]
+    (voice_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    project_dict = {"id": "test-stale-proj"}
+    # Should not be stale because voiceover/manifest.json exists and all files exist
+    assert is_assets_stale(project_dict, proj_dir) is False
+
+
+def test_lottie_and_motion_modifiers_validation():
+    from backend.pipeline.ai import LAYER_CONTENT_SCHEMA, AST_LAYER_SCHEMA
+    assert "Lottie" in LAYER_CONTENT_SCHEMA["properties"]["type"]["enum"]
+    assert "lottie_url" in LAYER_CONTENT_SCHEMA["properties"]
+    assert "motion_blur" in AST_LAYER_SCHEMA["properties"]
+    assert "camera_shake" in AST_LAYER_SCHEMA["properties"]
+    assert "up" in LAYER_CONTENT_SCHEMA["properties"]["direction"]["enum"]
+    assert "forward" in LAYER_CONTENT_SCHEMA["properties"]["direction"]["enum"]
+
+    svs = [
+        {
+            "duration": 5.0,
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "z_index": 10,
+                        "motion_blur": True,
+                        "shutter_angle": 180,
+                        "camera_shake": "handheld",
+                        "content": {
+                            "type": "Lottie",
+                            "lottie_url": "https://assets.lottiefiles.com/demo.json",
+                            "loop": True,
+                            "playback_rate": 1.2
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+    is_valid, normalized, err = validate_sub_visuals(svs, 5.0)
+    assert is_valid is True
+    assert normalized[0]["composition"]["children"][0]["content"]["type"] == "Lottie"
+    assert normalized[0]["composition"]["children"][0]["motion_blur"] is True
+
+
+def test_is_assets_stale_scene_count_mismatch(tmp_path):
+    """is_assets_stale correctly returns True when script scene count exceeds manifest scene count."""
+    from backend.pipeline.assets import is_assets_stale
+    import json
+
+    proj_dir = tmp_path / "test-count-mismatch"
+    proj_dir.mkdir(parents=True)
+    voice_dir = proj_dir / "voiceover"
+    voice_dir.mkdir(parents=True)
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    img_file = assets_dir / "asset_0.jpg"
+    img_file.write_text("img")
+
+    # Script has 2 scenes, but manifest only has 1 scene
+    script = {
+        "scenes": [
+            {"sub_visuals": [{"composition": {"children": [{"content": {"type": "Image", "local_path": str(img_file)}}]}}]},
+            {"sub_visuals": [{"composition": {"children": [{"content": {"type": "Image", "local_path": str(img_file)}}]}}]}
+        ]
+    }
+    (proj_dir / "script.json").write_text(json.dumps(script), encoding="utf-8")
+
+    manifest = [
+        {"section_type": "scene", "sub_visuals": [{"composition": {"children": [{"content": {"type": "Image", "local_path": str(img_file)}}]}}]}
+    ]
+    (voice_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    project_dict = {"id": "test-count-mismatch"}
+    assert is_assets_stale(project_dict, proj_dir) is True
+
+
+def test_is_transcribe_stale_audio_mtime(tmp_path):
+    """is_transcribe_stale correctly returns True when audio file is newer than transcription."""
+    from backend.pipeline.transcribe import is_transcribe_stale, _compute_transcribe_hash, _write_transcribe_hash
+    import time
+    from pathlib import Path
+
+    proj_dir = tmp_path / "test-transcribe-stale"
+    proj_dir.mkdir(parents=True)
+    sub_dir = proj_dir / "subtitles"
+    sub_dir.mkdir(parents=True)
+
+    json_path = sub_dir / "transcription.json"
+    json_path.write_text("{}", encoding="utf-8")
+
+    # Set transcription file mtime to 100 seconds ago
+    old_time = time.time() - 100
+    import os
+    os.utime(json_path, (old_time, old_time))
+
+    # Write matching transcribe hash
+    hash_val = _compute_transcribe_hash("small", "cpu", "en")
+    _write_transcribe_hash(proj_dir, hash_val)
+
+    # Audio file created now (newer than transcription)
+    audio_file = proj_dir / "voiceover.wav"
+    audio_file.write_text("audio")
+
+    project_dict = {"id": "test-transcribe-stale", "language": "en", "audio_path": str(audio_file)}
+    assert is_transcribe_stale(project_dict, proj_dir) is True
+
+
+def test_fetch_assets_preserves_script_sub_visuals(tmp_path):
+    """fetch_assets_pipeline preserves rich sub-visuals in script.json and does not overwrite with empty manifest."""
+    from backend.pipeline.assets import fetch_assets_pipeline
+    import threading
+    import json
+
+    proj_dir = tmp_path / "test-sub-preservation"
+    proj_dir.mkdir(parents=True)
+    voice_dir = proj_dir / "voiceover"
+    voice_dir.mkdir(parents=True)
+
+    # Script has rich sub-visuals
+    rich_subs = [
+        {
+            "duration": 5.0,
+            "composition": {
+                "type": "Sequence",
+                "children": [{"type": "Layer", "content": {"type": "Text", "text": "Hello World"}}]
+            }
+        }
+    ]
+    script = {
+        "scenes": [
+            {"title": "Scene 1", "sub_visuals": rich_subs}
+        ]
+    }
+    (proj_dir / "script.json").write_text(json.dumps(script), encoding="utf-8")
+
+    # Manifest has empty placeholder sub-visuals (e.g. from TTS)
+    empty_subs = [
+        {
+            "duration": 5.0,
+            "composition": {
+                "type": "Sequence",
+                "children": []
+            }
+        }
+    ]
+    manifest = [
+        {"section_type": "scene", "title": "Scene 1", "duration": 5.0, "sub_visuals": empty_subs}
+    ]
+    manifest_file = voice_dir / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+
+    project_dict = {
+        "id": "test-sub-preservation",
+        "name": "Test Preservation",
+        "assets_manifest_path": str(manifest_file),
+        "video_format": "landscape"
+    }
+
+    cancel_event = threading.Event()
+    fetch_assets_pipeline(project_dict, proj_dir, lambda p, m: None, cancel_event)
+
+    # Verify script.json retained its rich sub-visuals
+    updated_script = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    assert len(updated_script["scenes"][0]["sub_visuals"]) == 1
+    assert len(updated_script["scenes"][0]["sub_visuals"][0]["composition"]["children"]) == 1
+    assert updated_script["scenes"][0]["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "Hello World"
+
+
+def test_save_uploaded_overlay_data(tmp_path, monkeypatch):
+    """save_uploaded_overlay_data saves base64 data to project assets directory."""
+    import base64
+    from backend.core.bridge import ApiBridge
+    import backend.core.config
+
+    monkeypatch.setattr(backend.core.config, "get_storage_dir", lambda: tmp_path)
+
+    bridge = ApiBridge()
+    img_data = b"fake_png_data_12345"
+    data_url = f"data:image/png;base64,{base64.b64encode(img_data).decode('utf-8')}"
+
+    result = bridge.save_uploaded_overlay_data("proj_1", data_url, "my_logo.png")
+    assert result["success"] is True
+    assert result["extension"] == ".png"
+    assert (tmp_path / "proj_1" / "assets" / result["filename"]).exists()
+    assert (tmp_path / "proj_1" / "assets" / result["filename"]).read_bytes() == img_data
+
+
+def test_update_scene_duration_syncs_vo_manifest(tmp_path, monkeypatch):
+    """update_scene_duration correctly synchronizes and scales duration in voiceover/manifest.json."""
+    from backend.core.bridge import ApiBridge
+    import backend.core.bridge as bridge_mod
+    import backend.core.config
+    import json
+
+    monkeypatch.setattr(backend.core.config, "get_storage_dir", lambda: tmp_path)
+
+    proj_dir = tmp_path / "proj_vo_sync"
+    proj_dir.mkdir(parents=True)
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+    vo_dir = proj_dir / "voiceover"
+    vo_dir.mkdir(parents=True)
+
+    manifest_file = assets_dir / "manifest.json"
+    manifest_data = [
+        {"section_type": "scene", "duration": 4.0, "sub_visuals": [{"duration": 2.0}, {"duration": 2.0}]}
+    ]
+    manifest_file.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    vo_manifest_file = vo_dir / "manifest.json"
+    vo_data = [
+        {"section_type": "scene", "duration": 4.0, "sub_visuals": [{"duration": 2.0}, {"duration": 2.0}]}
+    ]
+    vo_manifest_file.write_text(json.dumps(vo_data), encoding="utf-8")
+
+    import backend.database.db as db_mod
+    monkeypatch.setattr(db_mod, "get_project", lambda pid: {"id": pid, "assets_manifest_path": str(manifest_file)})
+
+    bridge = ApiBridge()
+    res = bridge.update_scene_duration("proj_vo_sync", 0, 10.0)
+    assert res["success"] is True
+
+    # Check assets manifest
+    updated_assets = json.loads(manifest_file.read_text(encoding="utf-8"))
+    assert updated_assets[0]["duration"] == 10.0
+    assert updated_assets[0]["sub_visuals"][0]["duration"] == 5.0
+
+    # Check voiceover manifest
+    updated_vo = json.loads(vo_manifest_file.read_text(encoding="utf-8"))
+    assert updated_vo[0]["duration"] == 10.0
+    assert updated_vo[0]["sub_visuals"][0]["duration"] == 5.0
+
+
+def test_ast_layer_transform_origin_and_sub_visual_defaults():
+    from backend.agent.schemas import ASTLayerNode, SubVisualAST
+
+    layer = ASTLayerNode(
+        type="Layer",
+        z_index=15,
+        content={"type": "HTML", "html_content": "<div>test</div>"},
+        transform_origin="top left",
+        animations=[{"property": "scale", "from": 1.0, "to": 1.05, "duration": 3.0, "easing": "linear"}]
+    )
+    assert layer.transform_origin == "top left"
+    dumped = layer.model_dump()
+    assert dumped["transform_origin"] == "top left"
+
+    sv = SubVisualAST(
+        duration=4.0,
+        composition={"type": "Sequence", "children": [dumped]}
+    )
+    assert sv.transition == "cut"
+
+
+
+
+
+
+
+
+
+

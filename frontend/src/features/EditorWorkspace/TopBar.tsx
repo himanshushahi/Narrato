@@ -33,6 +33,8 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.R
 interface TopBarProps {
   onSave: () => void;
   isSaving?: boolean;
+  /** Whole-document save locks while any AI rewrite is in flight. */
+  isSaveLocked?: boolean;
   isPipelineRunning: boolean;
   pipelineStatusText?: string;
   hasScriptData?: boolean;
@@ -56,7 +58,7 @@ const SHORTCUTS: { keys: string; desc: string }[] = [
 ];
 
 export const TopBar: React.FC<TopBarProps> = ({
-  onSave, isSaving, isPipelineRunning, pipelineStatusText,
+  onSave, isSaving, isSaveLocked, isPipelineRunning, pipelineStatusText,
   hasScriptData, onTriggerFullPipeline
 }) => {
   const selectedProject = useProjectStore((s) => s.selectedProject);
@@ -140,7 +142,8 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Save button */}
         <button
           onClick={onSave}
-          disabled={isSaving}
+          disabled={isSaving || isSaveLocked}
+          title={isSaveLocked ? 'Save is paused while an AI rewrite is in progress' : undefined}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-600/20 hover:border-blue-600/40 text-[11px] font-bold transition-all disabled:opacity-50 cursor-pointer"
         >
           {isSaving ? (

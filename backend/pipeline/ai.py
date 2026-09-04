@@ -12,6 +12,8 @@ from backend.core.logger import logger
 import urllib.request
 import urllib.parse
 from pathlib import Path
+from backend.agent.skill_loader import skill_loader
+from backend.pipeline.assets import _has_meaningful_sub_visuals
 
 
 def _get_web_context(search_query: str) -> str:
@@ -88,27 +90,27 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
     from backend.database.db import get_setting as _gs
     from backend.pipeline.web_search import clean_search_query
 
-    llm_provider = _gs("llm_provider") or "openai"
-    api_key = _gs("nvidia_api_key") if llm_provider == "nvidia" else _gs("openai_api_key")
+    api_key = _gs("openai_api_key")
     if not api_key:
         return clean_search_query(context_description)
 
-    base_url = (_gs("nvidia_base_url") if llm_provider == "nvidia" else _gs("openai_base_url")) or \
-               ("https://integrate.api.nvidia.com/v1" if llm_provider == "nvidia" else "https://api.openai.com/v1")
-    model = _gs("nvidia_model") if llm_provider == "nvidia" else _gs("openai_model") or \
-            ("meta/llama-3.1-8b-instruct" if llm_provider == "nvidia" else "gpt-4o")
+    base_url = _gs("openai_base_url") or "https://api.openai.com/v1"
+    model = _gs("openai_model") or "gpt-4o"
 
     try:
         from openai import OpenAI
+        from backend.agent.skill_loader import skill_loader
         client = OpenAI(api_key=api_key, base_url=base_url.rstrip('/') if base_url else None)
 
-        system_prompt = (
-            "You generate precise English search queries for video research. "
-            "Given a video topic and section, output ONE specific search query "
-            "(max 12 words) that would find the most current, relevant information. "
-            "CRITICAL: You MUST think step-by-step and wrap your reasoning inside <think>...</think> tags. "
-            "After the closing </think> tag, output ONLY the raw query text — no explanation, no quotes, no punctuation."
-        )
+        system_prompt = skill_loader.render_skill("search-query-optimizer")
+        if not system_prompt:
+            system_prompt = (
+                "You generate precise English search queries for video research. "
+                "Given a video topic and section, output ONE specific search query "
+                "(max 12 words) that would find the most current, relevant information. "
+                "CRITICAL: You MUST think step-by-step and wrap your reasoning inside <think>...</think> tags. "
+                "After the closing </think> tag, output ONLY the raw query text — no explanation, no quotes, no punctuation."
+            )
         user_prompt = f"Section: {stage}\nTopic: {context_description}\nSearch query:"
 
         resp = client.chat.completions.create(
@@ -122,16 +124,28 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
             stream=False,
         )
 
-        query = resp.choices[0].message.content
+        query = resp.choices[0].message.content or ""
         # Strip <think>...</think> blocks from reasoning models (handling unclosed blocks)
         query = re.sub(r'<think>.*?(?:</think>|$)', '', query, flags=re.DOTALL | re.IGNORECASE)
         query = query.strip().strip('"').strip("'")
         
-        # If it still includes a "Thinking Process:" block, try to take the last line as the query
-        if "Thinking Process" in query or "Thinking:" in query:
-            lines = [line.strip() for line in query.split('\n') if line.strip()]
-            if lines:
-                query = lines[-1].strip('*').strip('"').strip("'").removeprefix("Query:").removeprefix("Search query:").strip()
+        # Extract the concise search query from multi-line reasoning output
+        lines = [line.strip() for line in query.split('\n') if line.strip()]
+        if lines:
+            disallowed_starters = ("let's", "we must", "i need", "i will", "the user", "thinking", "note:", "so we need", "first,", "here is", "we should", "this is", "count words", "we have to")
+            valid_candidates = [
+                l.strip('*').strip('"').strip("'")
+                for l in lines
+                if not any(l.strip().lower().startswith(s) for s in disallowed_starters)
+            ]
+            candidate = valid_candidates[-1] if valid_candidates else lines[-1].strip('*').strip('"').strip("'")
+            for prefix in ["Search query:", "Search Query:", "Query:", "Search:", "Here is the query:", "Result:"]:
+                if candidate.lower().startswith(prefix.lower()):
+                    candidate = candidate[len(prefix):].strip().strip('"').strip("'")
+            if candidate and len(candidate.split()) <= 15:
+                query = candidate
+            elif candidate:
+                query = " ".join(candidate.split()[:12])
 
         if query and len(query) > 3:
             logger.info(f"AI generated search query: \"{query}\" for stage '{stage}'")
@@ -142,100 +156,52 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
     # Fallback: just clean the original context description
     return clean_search_query(context_description)
 
-# Schema for individual sub-visual entries
-SUB_VISUAL_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "visual_cue": {"type": "string"},
-        "visual_type": {
-            "type": "string",
-            "enum": ["map", "document", "portrait", "scene", "image", "youtube", "parallax", "network", "list", "custom_html", "thread", "device_mockup", "ai_image"]
-        },
-        "transition": {
-            "type": "string",
-            "enum": ["subtle_slide", "fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "none"]
-        },
-        "visual_meta": {"type": "object"},
-        "duration": {"type": "number", "description": "Precise duration in seconds"}
-    },
-    "required": ["visual_cue", "visual_type", "transition", "duration"]
+# Pydantic model schemas
+from backend.agent.schemas import (
+    ScriptIntroResponse, ScriptConclusionResponse, ScriptSceneResponse,
+    BaseScriptResponse, OutlineResponse, StoryboardPlanResponse,
+    DesignSystemResponse, SubVisualAST, VisualsArrayResponse,
+    AnimationNode, ASTLayerNode, LayerContent, SequenceComposition,
+    get_model_json_schema, parse_and_validate_model
+)
+
+# Schema definitions for declarative AST Nodes & Script generation
+ANIMATION_SCHEMA = AnimationNode.model_json_schema()
+LAYER_CONTENT_SCHEMA = LayerContent.model_json_schema()
+AST_LAYER_SCHEMA = ASTLayerNode.model_json_schema()
+SUB_VISUAL_SCHEMA = SubVisualAST.model_json_schema()
+SCRIPT_INTRO_JSON_SCHEMA = ScriptIntroResponse.model_json_schema()
+SCRIPT_SCENE_JSON_SCHEMA = ScriptSceneResponse.model_json_schema()
+SCRIPT_CONCLUSION_JSON_SCHEMA = ScriptConclusionResponse.model_json_schema()
+VISUALS_ARRAY_SCHEMA = VisualsArrayResponse.model_json_schema()
+DESIGN_SYSTEM_SCHEMA = DesignSystemResponse.model_json_schema()
+
+# Sane fallbacks used to repair partial AI design-system responses.
+# When OpenAI-compatible endpoints omit optional-looking keys, we repair them with defaults.
+# Language-to-Noto-font mapping used across the pipeline whenever a complex script
+# is detected. Add new script-language pairs here as they are supported.
+_NOTO_FONT_MAP = {
+    "hi": "Noto Sans Devanagari",
+    "mr": "Noto Sans Devanagari",
+    "bn": "Noto Sans Bengali",
+    "ta": "Noto Sans Tamil",
+    "te": "Noto Sans Telugu",
+    "ar": "Noto Sans Arabic",
+    "th": "Noto Sans Thai",
+    "gu": "Noto Sans Gujarati",
+    "pa": "Noto Sans Gurmukhi",
+    "ml": "Noto Sans Malayalam",
+    "kn": "Noto Sans Kannada",
 }
 
-# Schema validations for JSON parsing
-SCRIPT_INTRO_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "hook": {"type": "string"}
-    },
-    "required": ["hook"]
-}
+# Latin-only fonts that must NEVER be used as the heading/body font when the
+# project language is a complex script — they will render Devanagari/Arabic/etc.
+# glyphs as empty boxes or tofu.
+_LATIN_ONLY_FONTS = frozenset({
+    "Oswald", "Outfit", "Montserrat", "Raleway", "Anton", "Bebas Neue",
+    "Lobster", "Pacifico", "Abril Fatface",
+})
 
-SCRIPT_SCENE_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "scene_number": {"type": "integer"},
-        "title": {"type": "string"},
-        "narration": {"type": "string"}
-    },
-    "required": ["scene_number", "title", "narration"]
-}
-
-SCRIPT_CONCLUSION_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "summary": {"type": "string"},
-        "cta": {"type": "string"}
-    },
-    "required": ["summary", "cta"]
-}
-
-VISUALS_ARRAY_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "sub_visuals": {
-            "type": "array",
-            "items": SUB_VISUAL_SCHEMA
-        }
-    },
-    "required": ["sub_visuals"]
-}
-
-# Visual types removed from the app (renderers deleted). Legacy projects can
-# still hold sub-visuals of these types; the pipeline swaps them for neutral
-# scene entries so they render instead of a blank frame.
-REMOVED_VISUAL_TYPES = frozenset({"chart", "timeline"})
-
-DESIGN_SYSTEM_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "theme_name": {"type": "string"},
-        "color_palette": {
-            "type": "object",
-            "properties": {
-                "background": {"type": "string"},
-                "primary": {"type": "string"},
-                "secondary": {"type": "string"},
-                "accent": {"type": "string"},
-                "text": {"type": "string"}
-            },
-            "required": ["background", "primary", "secondary", "accent", "text"]
-        },
-        "typography": {
-            "type": "object",
-            "properties": {
-                "heading_font": {"type": "string"},
-                "body_font": {"type": "string"}
-            },
-            "required": ["heading_font", "body_font"]
-        },
-        "css_guidelines": {"type": "string"}
-    },
-    "required": ["theme_name", "color_palette", "typography", "css_guidelines"]
-}
-
-# Sane fallbacks used to repair partial AI design-system responses. OpenAI-
-# compatible endpoints only force "some JSON object" (unlike NVIDIA guided_json
-# which enforces the schema), so models frequently omit optional-looking keys.
 DESIGN_DEFAULTS = {
     "theme_name": "Custom",
     "color_palette": {
@@ -245,17 +211,23 @@ DESIGN_DEFAULTS = {
         "accent": "#f472b6",
         "text": "#f8fafc",
     },
-    "typography": {"heading_font": "Oswald", "body_font": "Inter"},
-    "css_guidelines": "Use bold gradients and high contrast. Apply all rules only via CSS inside custom_html/custom_html_ui.",
+    # Use Inter as the neutral default — it has good Latin coverage and is
+    # clearly named so it won't be mistaken for a complex-script font.
+    # _repair_design_data() will override this for complex-script languages.
+    "typography": {"heading_font": "Inter", "body_font": "Inter"},
+    "css_guidelines": "Use bold gradients, cohesive color accents, and high contrast. Apply styling via layer style and filter properties.",
 }
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
-def _repair_design_data(design_data):
+def _repair_design_data(design_data, language: str = "en"):
     """Fill missing/empty/Non-hex fields of a partial design system with defaults.
 
     Mutates and returns the dict. Values the model DID provide are kept.
+    Language-aware: for complex scripts (Hindi, Tamil, etc.) the typography
+    defaults are overridden with the appropriate Noto font so subtitles and
+    AST text layers never fall back to a Latin-only font.
     """
     for key, default in DESIGN_DEFAULTS.items():
         if design_data.get(key) in (None, ""):
@@ -271,6 +243,22 @@ def _repair_design_data(design_data):
         for key, default in DESIGN_DEFAULTS["typography"].items():
             if fonts.get(key) in (None, ""):
                 fonts[key] = default
+        # For complex-script languages, reject Latin-only fonts that the model
+        # may have chosen and substitute the correct Noto font instead.
+        noto_font = _NOTO_FONT_MAP.get(language)
+        if noto_font:
+            if fonts.get("heading_font") in _LATIN_ONLY_FONTS:
+                logger.info(
+                    f"Replacing Latin-only heading_font '{fonts['heading_font']}' "
+                    f"with '{noto_font}' for language '{language}'."
+                )
+                fonts["heading_font"] = noto_font
+            if fonts.get("body_font") in _LATIN_ONLY_FONTS:
+                logger.info(
+                    f"Replacing Latin-only body_font '{fonts['body_font']}' "
+                    f"with '{noto_font}' for language '{language}'."
+                )
+                fonts["body_font"] = noto_font
     if not isinstance(design_data.get("css_guidelines"), str) or not design_data["css_guidelines"].strip():
         design_data["css_guidelines"] = DESIGN_DEFAULTS["css_guidelines"]
     return design_data
@@ -285,9 +273,7 @@ def format_design_system_prompt(design_data: dict) -> str:
         return ""
     return (
         f"\n=== GLOBAL DESIGN SYSTEM ===\n"
-        f"Strictly adhere to these design rules when generating custom_html or custom_html_ui. "
-        f"These colors and styles MUST ONLY be applied via CSS inside custom_html. "
-        f"Do NOT add them as new fields to the visual_meta JSON object:\n"
+        f"Strictly adhere to these design rules when styling AST Text and Layer elements:\n"
         f"{json.dumps(clean, indent=2)}\n"
     )
 
@@ -298,7 +284,11 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
     topic = project_dict.get('name', 'Unknown')
     language = project_dict.get('language', 'hi')
     video_format = project_dict.get('video_format', 'landscape')
-    
+    video_type = project_dict.get('prompt') or 'documentary'
+
+    from backend.pipeline.genres import normalize_genre_key
+    norm_genre = normalize_genre_key(video_type)
+
     if design_path.exists():
         try:
             with open(design_path, "r", encoding="utf-8") as f:
@@ -309,23 +299,51 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
                 raise ValueError("Previous design generation failed, regenerating")
             if data.get('_language') != language or data.get('_video_format') != video_format:
                 raise ValueError("Language or format changed, invalidating design")
+            
+            # Check genre only if previously set in design.json
+            saved_genre = data.get('_genre')
+            if saved_genre and normalize_genre_key(saved_genre) != norm_genre:
+                raise ValueError(f"Genre changed from {saved_genre} to {video_type}, invalidating design")
+            
+            # If _genre was not previously persisted, backfill it in memory and file
+            if not saved_genre:
+                data['_genre'] = norm_genre
+                try:
+                    with open(design_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2)
+                except Exception:
+                    pass
+
             return data, is_new
         except Exception as e:
             from backend.core.logger import logger
             logger.warning(f"Invalidating existing design.json: {e}")
             
     is_new = True
-    system_prompt = f"""You are an expert Art Director. Create a cohesive Design System for a YouTube video.
-The format is {video_format} (e.g. landscape means 16:9, portrait means 9:16).
+    from backend.agent.skill_loader import skill_loader
+    from backend.pipeline.genres import format_genre_design_prompt
+    genre_guidance = format_genre_design_prompt(video_type)
+
+    system_prompt = skill_loader.render_skill(
+        "art-director-design-system",
+        video_format=video_format,
+        language=language,
+        genre_guidance=genre_guidance,
+    )
+    if not system_prompt:
+        system_prompt = f"""You are an expert Art Director. Create a cohesive Design System for a YouTube video.
+The format is {video_format} (e.g. landscape means 16:9, portrait means 9:16) and the language is {language}.
 Return ONLY valid JSON matching the schema. No markdown backticks.
 
+{genre_guidance}
+
 DESIGN GUIDELINES:
-- color_palette: Must use modern, vibrant, or highly readable hex codes.
-- typography: Use EXACTLY one of these modern Google Fonts: 'Inter', 'Oswald', 'Outfit', or 'Montserrat'. Do not use any others.
-- css_guidelines: Provide brief layout and style rules. These MUST ONLY be applied via CSS inside custom_html/custom_html_ui components. Do NOT add them as new fields to the visual_meta JSON object.
+- color_palette: Must use modern, vibrant, or highly readable hex codes aligned with the genre.
+- css_guidelines: Provide brief layout and aesthetic styling rules (e.g. contrast, accents, card borders, typography scales).
+- fonts: CRITICAL - If Language is a complex script (like Hindi/hi, Tamil/ta, Bengali/bn, Arabic), you MUST specify Noto fonts (e.g. `Noto Sans Devanagari`) to prevent broken rendering. For English, use modern fonts (e.g. Inter, Outfit, Oswald).
 """
     import uuid
-    user_prompt = f"Topic: {topic}\nLanguage: {language}\nVideo Title: {script_data.get('title', 'Untitled')}\nRequest ID: {uuid.uuid4().hex}\n"
+    user_prompt = f"Topic: {topic}\nGenre: {video_type.upper()}\nLanguage: {language}\nVideo Title: {script_data.get('title', 'Untitled')}\nRequest ID: {uuid.uuid4().hex}\n"
     
     from backend.core.logger import logger
     logger.info("Generating global Design System...")
@@ -337,63 +355,183 @@ DESIGN GUIDELINES:
         if isinstance(e, InterruptedError):
             raise e
         logger.warning(f"Design generation failed, falling back to default: {e}")
-        return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+        return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
     
     if isinstance(design_data, dict) and design_data.get('theme_name'):
-        design_data = _repair_design_data(design_data)
+        design_data = _repair_design_data(design_data, language)
         # Validate that all required schema fields are present
         required_keys = {'color_palette', 'typography', 'css_guidelines'}
         if not required_keys.issubset(design_data.keys()):
             logger.warning(f"Design system response missing required keys: {required_keys - design_data.keys()}")
-            return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+            return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
         design_data['_language'] = language
         design_data['_video_format'] = video_format
+        design_data['_genre'] = norm_genre
         return design_data, True
 
     if isinstance(design_data, dict):
         # Model returned JSON but skipped top-level keys (common on OpenAI-
         # compatible endpoints that don't enforce the schema). Repair it
         # instead of discarding the AI's palette/typography work.
-        design_data = _repair_design_data(design_data)
+        design_data = _repair_design_data(design_data, language)
         if design_data.get('theme_name'):
             logger.warning("Design system was missing top-level keys — repaired from defaults.")
             design_data['_language'] = language
             design_data['_video_format'] = video_format
+            design_data['_genre'] = norm_genre
             return design_data, True
 
     logger.warning("Failed to generate design system, returning default.")
-    return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+    return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
 
-OUTLINE_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "title": {"type": "string"},
-        "chapters": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "scene_number": {"type": "integer"},
-                    "chapter_title": {"type": "string"},
-                    "scene_context": {"type": "string"}
-                },
-                "required": ["scene_number", "chapter_title", "scene_context"]
-            }
-        }
-    },
-    "required": ["title", "chapters"]
-}
-
-BASE_SCRIPT_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "introduction": SCRIPT_INTRO_JSON_SCHEMA,
-        "conclusion": SCRIPT_CONCLUSION_JSON_SCHEMA
-    },
-    "required": ["introduction", "conclusion"]
-}
-
+OUTLINE_JSON_SCHEMA = OutlineResponse.model_json_schema()
+BASE_SCRIPT_JSON_SCHEMA = BaseScriptResponse.model_json_schema()
 SINGLE_SCENE_JSON_SCHEMA = SCRIPT_SCENE_JSON_SCHEMA
+STORYBOARD_PLAN_SCHEMA = StoryboardPlanResponse.model_json_schema()
+
+def _safe_str(val):
+    """Convert a value to string if it isn't one already, handling nested dicts and lists."""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        # LLM sometimes returns {"text": "..."} or similar nested structure
+        for key in ("text", "content", "value", "hook", "summary", "cta", "narration", "narr"):
+            if key in val:
+                inner = _safe_str(val[key])
+                if inner:
+                    return inner
+        # Fallback: join all string values
+        parts = [str(v) for v in val.values() if isinstance(v, (str, int, float))]
+        return " ".join(parts) if parts else ""
+    if isinstance(val, list):
+        return " ".join(str(v) for v in val)
+    return str(val) if val is not None else ""
+
+
+def _extract_chapters_from_outline(outline_data, min_scenes: int = 4, max_scenes: int = 8, topic: str = ""):
+    """Robustly extracts and normalizes chapter objects from diverse LLM outline structures."""
+    raw_chapters = None
+    if isinstance(outline_data, list):
+        raw_chapters = outline_data
+    elif isinstance(outline_data, dict):
+        # 1. Direct keys
+        for key in ("chapters", "outline", "scenes", "sections", "items", "chapter_list", "scene_list", "sub_topics"):
+            val = outline_data.get(key)
+            if isinstance(val, list) and len(val) > 0:
+                raw_chapters = val
+                break
+        # 2. Check nested dicts/lists if not found
+        if raw_chapters is None:
+            for val in outline_data.values():
+                if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
+                    raw_chapters = val
+                    break
+                if isinstance(val, dict):
+                    for nested_key in ("chapters", "outline", "scenes", "sections", "items"):
+                        nested_val = val.get(nested_key)
+                        if isinstance(nested_val, list) and len(nested_val) > 0:
+                            raw_chapters = nested_val
+                            break
+                    if raw_chapters is not None:
+                        break
+
+    if not isinstance(raw_chapters, list):
+        raw_chapters = []
+
+    normalized = []
+    for idx, chap in enumerate(raw_chapters):
+        if not isinstance(chap, dict):
+            if isinstance(chap, str) and chap.strip():
+                normalized.append({
+                    "scene_number": idx + 1,
+                    "chapter_title": f"Chapter {idx + 1}",
+                    "scene_context": chap.strip()
+                })
+            continue
+        scene_num = chap.get("scene_number") or chap.get("scene_num") or chap.get("number") or chap.get("id") or (idx + 1)
+        try:
+            scene_num = int(scene_num)
+        except (ValueError, TypeError):
+            scene_num = idx + 1
+
+        chapter_title = (
+            chap.get("chapter_title")
+            or chap.get("title")
+            or chap.get("name")
+            or chap.get("scene_title")
+            or chap.get("heading")
+            or f"Scene {scene_num}"
+        )
+        scene_context = (
+            chap.get("scene_context")
+            or chap.get("context")
+            or chap.get("description")
+            or chap.get("summary")
+            or chap.get("narration")
+            or chap.get("details")
+            or chap.get("text")
+            or ""
+        )
+        normalized.append({
+            "scene_number": scene_num,
+            "chapter_title": _safe_str(chapter_title).strip() or f"Scene {scene_num}",
+            "scene_context": _safe_str(scene_context).strip()
+        })
+
+    # If still 0 chapters, generate fallback chapters based on topic to guarantee progress
+    if not normalized:
+        num_fallback = max(min_scenes, 4)
+        for i in range(num_fallback):
+            normalized.append({
+                "scene_number": i + 1,
+                "chapter_title": f"{topic} - Part {i + 1}" if topic else f"Part {i + 1}",
+                "scene_context": f"Detailed exploration and analysis of {topic} part {i + 1}." if topic else f"Analysis of scene {i + 1}."
+            })
+
+    return normalized
+
+
+def _extract_base_script(base_data, topic: str = ""):
+    """Robustly extracts introduction (hook) and conclusion (summary, cta) from LLM output."""
+    hook = ""
+    summary = ""
+    cta = ""
+
+    if isinstance(base_data, dict):
+        # 1. Intro extraction
+        raw_intro = base_data.get("introduction") or base_data.get("intro") or base_data.get("opening")
+        if isinstance(raw_intro, dict):
+            hook = raw_intro.get("hook") or raw_intro.get("narration") or raw_intro.get("text") or raw_intro.get("content") or ""
+        elif isinstance(raw_intro, str):
+            hook = raw_intro
+        elif "hook" in base_data:
+            hook = base_data["hook"]
+
+        # 2. Conclusion extraction
+        raw_conc = base_data.get("conclusion") or base_data.get("outro") or base_data.get("ending")
+        if isinstance(raw_conc, dict):
+            summary = raw_conc.get("summary") or raw_conc.get("narration") or raw_conc.get("text") or raw_conc.get("conclusion") or raw_conc.get("content") or ""
+            cta = raw_conc.get("cta") or raw_conc.get("call_to_action") or raw_conc.get("action") or ""
+        elif isinstance(raw_conc, str):
+            summary = raw_conc
+            cta = base_data.get("cta") or base_data.get("call_to_action") or ""
+        else:
+            summary = base_data.get("summary") or base_data.get("conclusion") or ""
+            cta = base_data.get("cta") or base_data.get("call_to_action") or ""
+
+    hook = _safe_str(hook).strip()
+    summary = _safe_str(summary).strip()
+    cta = _safe_str(cta).strip()
+
+    if not hook:
+        hook = f"Discover the fascinating reality of {topic}." if topic else "Welcome to this breakdown."
+    if not summary:
+        summary = f"In conclusion, {topic} represents a remarkable technological and historical achievement." if topic else "That concludes our deep dive."
+    if not cta:
+        cta = "Subscribe for more in-depth explainers and share your thoughts in the comments."
+
+    return {"hook": hook}, {"summary": summary, "cta": cta}
+
 
 def fix_unescaped_quotes(s):
     """Escapes raw double quotes inside string values to avoid JSON parse errors.
@@ -544,49 +682,127 @@ def repair_json_string(s):
 
     return repaired
 
-def clean_json_response(raw_response):
-    """Strips markdown backticks and attempts parsing or repairing JSON."""
-    clean_text = raw_response.strip()
-    # Strip <think>...</think> blocks from reasoning models before parsing
-    clean_text = re.sub(r'<think>.*?(?:</think>|$)', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
-    
-    match = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", clean_text, re.DOTALL | re.IGNORECASE)
-    if match:
-        clean_text = match.group(1)
-    else:
-        first_bracket = clean_text.find('[')
-        first_brace = clean_text.find('{')
-        if first_bracket != -1 and (first_brace == -1 or first_bracket < first_brace):
-            clean_text = clean_text[first_bracket:]
-        else:
-            try:
-                from backend.agent.agent_engine import _try_extract_json_objects
-                objs = _try_extract_json_objects(clean_text)
-                if objs:
-                    clean_text = objs[-1]
+def extract_outer_json_candidates(text: str):
+    """Extracts top-level (outermost) balanced {...} and [...] blocks in text."""
+    candidates = []
+    i, n = 0, len(text)
+    while i < n:
+        char = text[i]
+        if char in ('{', '['):
+            closing = '}' if char == '{' else ']'
+            depth = 0
+            start = i
+            in_str = False
+            escape = False
+            j = i
+            matched = False
+            while j < n:
+                ch = text[j]
+                if in_str:
+                    if escape:
+                        escape = False
+                    elif ch == '\\':
+                        escape = True
+                    elif ch == '"':
+                        in_str = False
                 else:
-                    if first_brace != -1:
-                        clean_text = clean_text[first_brace:]
-            except ImportError:
-                if first_brace != -1:
-                    clean_text = clean_text[first_brace:]
+                    if ch == '"':
+                        in_str = True
+                    elif ch == char:
+                        depth += 1
+                    elif ch == closing:
+                        depth -= 1
+                        if depth == 0:
+                            candidates.append(text[start:j + 1])
+                            matched = True
+                            i = j + 1
+                            break
+                j += 1
+            if not matched:
+                i += 1
+        else:
+            i += 1
+    return candidates
 
+def clean_json_response(raw_response):
+    """Strips markdown backticks, reasoning text, and attempts parsing or repairing JSON."""
+    if not isinstance(raw_response, str):
+        return raw_response
+
+    clean_text = raw_response.strip()
+    # 1. Strip <think>...</think> blocks from reasoning models before parsing
+    clean_text = re.sub(r'<think>.*?(?:</think>|$)', '', clean_text, flags=re.DOTALL | re.IGNORECASE).strip()
+
+    # 2. Direct JSON parse if the whole text is valid JSON
     try:
         return json.loads(clean_text)
-    except json.JSONDecodeError:
-        pass
-
-    try:
-        repaired = repair_json_string(clean_text)
-        return json.loads(repaired)
-    except Exception as e:
-        logger.warning(f"Standard JSON repair failed: {e}. Trying ast.literal_eval fallback...")
-
-    try:
-        repaired_val = repair_json_string(clean_text)
-        return ast.literal_eval(repaired_val)
     except Exception:
         pass
+
+    # 3. Check markdown code blocks: ```json ... ``` or ``` ... ```
+    code_blocks = re.findall(r"```(?:json)?\s*([\[\{].*?[\]\}])\s*```", clean_text, re.DOTALL | re.IGNORECASE)
+    for block in reversed(code_blocks):
+        block = block.strip()
+        try:
+            return json.loads(block)
+        except Exception:
+            try:
+                repaired = repair_json_string(block)
+                return json.loads(repaired)
+            except Exception:
+                pass
+
+    # 4. Outer balanced {...} and [...] structures
+    candidates = extract_outer_json_candidates(clean_text)
+    for cand in reversed(candidates):
+        try:
+            return json.loads(cand)
+        except Exception:
+            pass
+
+    # 5. Try repair_json_string on candidates
+    for cand in reversed(candidates):
+        try:
+            repaired = repair_json_string(cand)
+            return json.loads(repaired)
+        except Exception:
+            pass
+
+    # 6. Try ast.literal_eval on candidates
+    def _sanitize_sets(obj):
+        if isinstance(obj, set):
+            return list(obj)
+        elif isinstance(obj, dict):
+            return {k: _sanitize_sets(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [_sanitize_sets(v) for v in obj]
+        return obj
+
+    for cand in reversed(candidates):
+        try:
+            repaired_val = repair_json_string(cand)
+            evaluated = ast.literal_eval(repaired_val)
+            return _sanitize_sets(evaluated)
+        except Exception:
+            pass
+
+    # 7. Truncated tail recovery: scan from each '{' and '[' position
+    start_indices = [m.start() for m in re.finditer(r'[\{\[]', clean_text)]
+    for idx in start_indices:
+        tail_text = clean_text[idx:]
+        try:
+            repaired = repair_json_string(tail_text)
+            parsed = json.loads(repaired)
+            if isinstance(parsed, (dict, list)) and parsed:
+                return parsed
+        except Exception:
+            try:
+                evaluated = ast.literal_eval(repair_json_string(tail_text))
+                parsed = _sanitize_sets(evaluated)
+                if isinstance(parsed, (dict, list)) and parsed:
+                    return parsed
+            except Exception:
+                pass
 
     logger.error(f"Failed all JSON parsing attempts. Raw response length: {len(raw_response)}")
     logger.error(f"Raw response preview (first 500 chars):\n{raw_response[:500]}")
@@ -625,28 +841,18 @@ def _resolve_llm_config(provider_override=None):
     """
     from backend.database.db import get_setting
 
-    llm_provider = provider_override or (get_setting("llm_provider") or "openai")
-
-    if llm_provider == "nvidia":
-        api_key = get_setting("nvidia_api_key")
-        base_url = get_setting("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
-        model = get_setting("nvidia_model") or "meta/llama-3.1-8b-instruct"
-        temperature = float(get_setting("nvidia_temperature") or 0.7)
-        max_tokens = int(get_setting("nvidia_max_tokens") or 4096)
-        top_p = float(get_setting("nvidia_top_p") or 1.0)
-    else:
-        api_key = get_setting("openai_api_key")
-        base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
-        model = get_setting("openai_model") or "gpt-4o"
-        temperature = float(get_setting("openai_temperature") or 0.7)
-        max_tokens = int(get_setting("openai_max_tokens") or 4096)
-        top_p = float(get_setting("openai_top_p") or 1.0)
+    api_key = get_setting("openai_api_key")
+    base_url = get_setting("openai_base_url") or "https://api.openai.com/v1"
+    model = get_setting("openai_model") or "gpt-4o"
+    temperature = float(get_setting("openai_temperature") or 0.7)
+    max_tokens = int(get_setting("openai_max_tokens") or 4096)
+    top_p = float(get_setting("openai_top_p") or 1.0)
 
     if not api_key:
-        raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
+        raise ValueError("OpenAI-compatible API key is missing. Please configure it in the settings panel.")
 
     return {
-        "provider": llm_provider,
+        "provider": "openai",
         "api_key": api_key,
         "base_url": base_url,
         "model": model,
@@ -749,9 +955,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
     # to reasoning and content_len=0. Boost to 16384 so there's headroom for both
     # reasoning AND the actual JSON output.
     model_lower = model.lower()
-    is_reasoning_model = forced_think or any(tag in model_lower for tag in ("deepseek", "r1", "qwq", "reasoning", "think"))
-    if is_reasoning_model and max_tokens <= 8192:
-        logger.info(f"Reasoning model/CoT detected. Boosting max_tokens {max_tokens} -> 16384 to allow room for reasoning + content.")
+    is_reasoning_model = forced_think or "<think>" in system_prompt or any(tag in model_lower for tag in ("deepseek", "r1", "qwq", "reasoning", "think", "auto", "nemotron", "llama"))
+    if (is_reasoning_model or max_tokens <= 4096) and max_tokens < 16384:
+        logger.info(f"Reasoning model/CoT or low token budget detected. Boosting max_tokens {max_tokens} -> 16384 to allow room for reasoning + content.")
         max_tokens = 16384
 
     # Check response cache for deterministic prompts (same params + same prompt).
@@ -788,11 +994,9 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
         "stream": True
     }
 
-    if schema is not None:
-        if llm_provider == "nvidia":
-            kwargs["extra_body"] = {"guided_json": schema}
-        else:
-            kwargs["response_format"] = {"type": "json_object"}
+    json_schema_dict = get_model_json_schema(schema)
+    if json_schema_dict is not None:
+        kwargs["response_format"] = {"type": "json_object"}
 
     if cancel_event.is_set():
         _emit_llm("error", "cancelled")
@@ -889,17 +1093,21 @@ def _call_llm_json(system_prompt, user_prompt, schema, cancel_event, provider_ov
                 # back so ```tool {...}``` blocks can be extracted and executed.
                 if cancel_event.is_set():
                     raise InterruptedError("Cancelled")
-                set_cached_response(cache_k, raw_content)
+                if raw_content and len(raw_content.strip()) > 10:
+                    set_cached_response(cache_k, raw_content)
                 _emit_llm("ok", "tool-loop turn")
                 return raw_content
 
             parsed_json = clean_json_response(raw_content)
+            if schema is not None:
+                parsed_json = parse_and_validate_model(schema, parsed_json)
 
             if cancel_event.is_set():
                 raise InterruptedError("Cancelled")
 
-            # Cache the response
-            set_cached_response(cache_k, parsed_json)
+            # Cache the response only if it is a meaningful non-empty structure
+            if parsed_json and isinstance(parsed_json, dict) and any(v for v in parsed_json.values() if v is not None and v != "" and v != []):
+                set_cached_response(cache_k, parsed_json)
 
             _emit_llm("ok")
             return parsed_json
@@ -971,7 +1179,7 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     from backend.core.logger import logger
 
     topic = project_dict['name']
-    prompt_desc = project_dict['prompt']
+    video_type = project_dict.get('prompt') or "DOCUMENTARY"
     language = project_dict.get('language', 'hi')
     duration_mode = project_dict.get('duration_mode', 'medium')
     video_format = project_dict.get('video_format', 'landscape')
@@ -980,10 +1188,9 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     progress_cb(5.0, "Preparing to generate script...")
 
     # Check API key before starting
-    llm_provider = get_setting("llm_provider") or "openai"
-    api_key = get_setting("nvidia_api_key") if llm_provider == "nvidia" else get_setting("openai_api_key")
+    api_key = get_setting("openai_api_key")
     if not api_key:
-        raise ValueError(f"{llm_provider.title()} API key is missing. Please configure it in the settings panel.")
+        raise ValueError("OpenAI-compatible API key is missing. Please configure it in the settings panel.")
 
     if video_format == "portrait":
         if duration_mode == "short": # 60s
@@ -1016,8 +1223,6 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
   For example, if the language is Hindi ('hi'), you MUST use the Devanagari script. Do NOT use English alphabet transliterations.
   CRITICAL: This strictly applies to the Introduction and Conclusion as well!
 - The 'title' and 'chapter_title' fields can be in the requested language.
-- CRITICAL: The 'visual_cue' field MUST ALWAYS be in ENGLISH, regardless of the script language. This is used as a search keyword for media APIs which only understand English.
-- CRITICAL: All 'visual_meta' text fields MUST ALWAYS be in English.
 """
 
     narration_emphasis = f"""
@@ -1040,13 +1245,31 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     per_scene_time = max(5, (target_duration - 15) // max_scenes)
     per_scene_words = max(10, int(per_scene_time * speaking_rate))
 
+    from backend.agent.skill_loader import skill_loader
+    from backend.pipeline.genres import format_genre_script_prompt
+    genre_script_guidance = format_genre_script_prompt(video_type)
+
     scriptwriter_rules = _skill_content("scriptwriter")
     script_rules_block = f"""=== WRITING RULES ===
 {scriptwriter_rules}
 
 """ if scriptwriter_rules else ""
 
-    outline_system_prompt = f"""{script_rules_block}You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
+    outline_system_prompt = skill_loader.render_skill(
+        "script-outline-director",
+        script_rules_block=script_rules_block,
+        target_duration=target_duration,
+        min_scenes=min_scenes,
+        max_scenes=max_scenes,
+        per_scene_time=per_scene_time,
+        per_scene_words=per_scene_words,
+        language=language,
+        genre_script_guidance=genre_script_guidance,
+    )
+    if not outline_system_prompt:
+        outline_system_prompt = f"""{script_rules_block}You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
+
+{genre_script_guidance}
 
 CRITICAL RULES:
 - Return ONLY valid JSON matching the provided schema
@@ -1067,7 +1290,11 @@ BREAKDOWN REQUIREMENTS:
 """
 
     outline_user_prompt = f"""Topic: "{topic}"
-Detail: "{prompt_desc}"
+Video Type / Genre: "{video_type.upper()}"
+
+{genre_script_guidance}
+
+Adapt the narrative style and tone specifically to fit the "{video_type.upper()}" genre.
 
 VIDEO SPECIFICATIONS:
 - Target Duration: {target_duration} seconds
@@ -1084,10 +1311,13 @@ REQUIREMENTS:
 CHAPTER FORMAT NEEDED:
 {{ "scene_number": number, "chapter_title": "Short descriptive title", "scene_context": "Detailed factual context for this chapter" }}
 
+CRITICAL: Provide the outline as a raw JSON object matching the schema.
+NO markdown blocks (` ```json `), NO conversational text. Just the JSON object.
+
 NO generic phrases, no clickbait, no assumptions or unverified claims. Be precise and factual."""
 
     # Optionally augment with web search context
-    _web_ctx = _get_web_context_for_topic(f"{topic} - {prompt_desc}", "outline generation")
+    _web_ctx = _get_web_context_for_topic(f"{topic} {video_type}", "outline generation")
     if _web_ctx:
         outline_user_prompt += f"\n\nRelevant web context to inform your outline:\n{_web_ctx}"
 
@@ -1099,7 +1329,15 @@ NO generic phrases, no clickbait, no assumptions or unverified claims. Be precis
     # 2. Generate Base (Intro & Conclusion)
     progress_cb(20.0, "Writing introduction & conclusion...")
     logger.info("Stage 2: Generating Intro & Conclusion...")
-    base_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in crafting compelling video intros and conclusions.
+    base_system_prompt = skill_loader.render_skill(
+        "script-base-writer",
+        script_rules_block=script_rules_block,
+        target_duration=target_duration,
+        language=language,
+        sentence_rule=sentence_rule,
+    )
+    if not base_system_prompt:
+        base_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in crafting compelling video intros and conclusions.
 
 CRITICAL INTRO REQUIREMENTS:
 - Hook MUST grab immediate attention within 5-8 seconds
@@ -1208,8 +1446,7 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
     progress_cb(30.0, "Drafting scene narratives...")
     logger.info("Stage 3: Generating Scenes...")
 
-    scenes_array = []
-    chapters = outline_data.get("chapters", [])
+    chapters = _extract_chapters_from_outline(outline_data, min_scenes=min_scenes, max_scenes=max_scenes, topic=topic)
     total_chapters = len(chapters)
 
     # Recalculate per-scene duration based on actual chapter count from outline
@@ -1227,7 +1464,22 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
             prev_chap = chapters[idx - 1]
             prev_context = f"Previous Scene ({prev_chap.get('scene_number')}): {prev_chap.get('chapter_title')} - {prev_chap.get('scene_context')}"
 
-        scene_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
+        scene_system_prompt = skill_loader.render_skill(
+            "script-scene-writer",
+            script_rules_block=script_rules_block,
+            scene_num=scene_num,
+            chapter_title=chapter_title,
+            per_scene_duration=per_scene_duration,
+            per_scene_word_target=per_scene_word_target,
+            prev_context=prev_context,
+            language=language,
+            sentence_rule=sentence_rule,
+            genre_script_guidance=genre_script_guidance,
+        )
+        if not scene_system_prompt:
+            scene_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
+
+{genre_script_guidance}
 
 SCENE-SPECIFIC RULES:
 - This is Scene {scene_num}: {chapter_title}
@@ -1357,17 +1609,48 @@ VIDEO PRODUCTION CONSIDERATIONS:
 Write the narration content now. Be specific, focused, and engaging. Make it sound natural when spoken.
 """
 
-        # Optionally augment with scene-specific web search context
-        _web_ctx = _get_web_context_for_topic(f"{topic}: {chapter_title} - {context}", "scene narration")
-        if _web_ctx:
-            scene_user_prompt += f"\n\nIncorporate relevant facts from this web search into your narration:\n{_web_ctx}"
-
-        return runner.run_with_tools(
+        scene_res = runner.run_with_tools(
             scene_system_prompt, scene_user_prompt, SINGLE_SCENE_JSON_SCHEMA,
             base_activity_label="Scene Narration",
             allowed_tools=SCRIPT_NARRATION_TOOLS,
             max_turns=PIPELINE_SCRIPT_TURNS,
         )
+
+        if not isinstance(scene_res, dict):
+            if isinstance(scene_res, str) and scene_res.strip():
+                scene_res = {"narration": scene_res.strip(), "title": chapter_title}
+            else:
+                scene_res = {}
+
+        if "scene" in scene_res and isinstance(scene_res["scene"], dict):
+            scene_res = scene_res["scene"]
+        elif "data" in scene_res and isinstance(scene_res["data"], dict):
+            scene_res = scene_res["data"]
+
+        narration = (
+            scene_res.get("narration")
+            or scene_res.get("narr")
+            or scene_res.get("text")
+            or scene_res.get("content")
+            or scene_res.get("script")
+            or scene_res.get("voiceover")
+            or ""
+        )
+        title = scene_res.get("title") or scene_res.get("chapter_title") or chapter_title
+
+        narration = _safe_str(narration).strip()
+        title = _safe_str(title).strip()
+
+        if not narration:
+            fallback = f"{chapter_title}: {context}"
+            narration = fallback.strip()
+            logger.warning(f"Scene {scene_num} had empty narration; filled from chapter context.")
+
+        return {
+            "scene_number": scene_num,
+            "title": title or chapter_title,
+            "narration": narration
+        }
 
     # Use configurable llm_concurrency from settings for parallelism
     from backend.database.db import get_setting
@@ -1395,6 +1678,12 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
             idx = future_to_idx[future]
             try:
                 scene_data = future.result()
+                if not isinstance(scene_data, dict):
+                    scene_data = {
+                        "scene_number": chapters[idx].get("scene_number", idx + 1),
+                        "title": chapters[idx].get("chapter_title", f"Scene {idx + 1}"),
+                        "narration": _safe_str(scene_data).strip() or chapters[idx].get("scene_context", "")
+                    }
                 scene_data['scene_number'] = chapters[idx].get("scene_number", idx + 1)
                 results[idx] = scene_data
             except Exception as exc:
@@ -1417,68 +1706,20 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
 
     # 4. Assembly
     logger.info("Stage 4: Assembling Script...")
+    intro, conclusion = _extract_base_script(base_data, topic=topic)
+
+    doc_title = topic
+    if isinstance(outline_data, dict):
+        doc_title = outline_data.get("title") or outline_data.get("video_title") or outline_data.get("topic") or topic
+    elif isinstance(outline_data, str) and outline_data.strip():
+        doc_title = outline_data.strip()
+
     final_script = {
-        "title": outline_data.get("title", topic),
-        "introduction": base_data.get("introduction"),
+        "title": _safe_str(doc_title).strip() or topic,
+        "introduction": intro,
         "scenes": scenes_array,
-        "conclusion": base_data.get("conclusion")
+        "conclusion": conclusion
     }
-
-    # Repair LLM output: ensure text fields are strings (not nested objects/dicts)
-    def _safe_str(val):
-        """Convert a value to string if it isn't one already, handling nested dicts."""
-        if isinstance(val, str):
-            return val
-        if isinstance(val, dict):
-            # LLM sometimes returns {"text": "..."} or similar nested structure
-            for key in ("text", "content", "value", "hook", "summary", "cta"):
-                if key in val:
-                    inner = _safe_str(val[key])
-                    if inner:
-                        return inner
-            # Fallback: join all string values
-            parts = [str(v) for v in val.values() if isinstance(v, (str, int, float))]
-            return " ".join(parts) if parts else ""
-        if isinstance(val, list):
-            return " ".join(str(v) for v in val)
-        return str(val) if val is not None else ""
-
-    intro = final_script.get("introduction")
-    if not isinstance(intro, dict):
-        intro = {}
-        final_script["introduction"] = intro
-    intro["hook"] = _safe_str(intro.get("hook", ""))
-    intro["transition"] = _safe_str(intro.get("transition", ""))
-
-    conclusion = final_script.get("conclusion")
-    if not isinstance(conclusion, dict):
-        conclusion = {}
-        final_script["conclusion"] = conclusion
-    conclusion["summary"] = _safe_str(conclusion.get("summary", ""))
-    conclusion["cta"] = _safe_str(conclusion.get("cta", ""))
-
-    scenes = final_script.get("scenes")
-    if not isinstance(scenes, list):
-        scenes = []
-        final_script["scenes"] = scenes
-
-    for i in range(len(scenes)):
-        if not isinstance(scenes[i], dict):
-            scenes[i] = {}
-        scenes[i]["narration"] = _safe_str(scenes[i].get("narration", ""))
-        scenes[i]["title"] = _safe_str(scenes[i].get("title", ""))
-
-    # Fallback: fill empty narration from chapter context (LLM sometimes skips it)
-    for i, scene in enumerate(final_script.get("scenes", [])):
-        if not scene.get("narration", "").strip():
-            if i < len(chapters):
-                fallback = f"{chapters[i].get('chapter_title', '')}: {chapters[i].get('scene_context', '')}"
-                scene["narration"] = fallback.strip()
-                logger.warning(f"Scene {i+1} had empty narration; filled from chapter context.")
-    if not intro.get("hook", "").strip():
-        intro["hook"] = topic  # fallback
-    if not conclusion.get("summary", "").strip():
-        conclusion["summary"] = f"In conclusion, {topic} remains a significant chapter in history."
 
     # Initialize empty sub_visuals for everything
     intro["sub_visuals"] = []
@@ -1504,6 +1745,7 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
         raise ValueError(error_msg)
 
     final_script["video_format"] = project_dict.get('video_format', 'landscape')
+    final_script["_project_hash"] = compute_project_script_hash(project_dict)
 
     script_path = project_dir / "script.json"
     with open(script_path, "w", encoding="utf-8") as f:
@@ -1518,13 +1760,81 @@ Write the narration content now. Be specific, focused, and engaging. Make it sou
         except Exception as e:
             logger.warning(f"Failed to delete old design.json: {e}")
 
+    # Clean up obsolete downstream artifacts from previous script runs
+    # 1. Voiceover
+    voice_dir = project_dir / "voiceover"
+    if voice_dir.exists():
+        for f in voice_dir.iterdir():
+            if f.is_file():
+                try:
+                    f.unlink()
+                except Exception as e:
+                    logger.warning(f"Could not delete old voiceover file {f.name}: {e}")
+    merged_audio = project_dir / "voiceover.wav"
+    if merged_audio.exists():
+        try:
+            merged_audio.unlink()
+        except Exception:
+            pass
+
+    # 2. Transcription
+    trans_path = project_dir / "subtitles" / "transcription.json"
+    if trans_path.exists():
+        try:
+            trans_path.unlink()
+            logger.info("Invalidated old transcription.json on new script generation")
+        except Exception:
+            pass
+
+    # 3. Assets
+    assets_dir = project_dir / "assets"
+    if assets_dir.exists():
+        for f in assets_dir.iterdir():
+            if f.is_file() and (f.name.startswith("asset_") or f.name.startswith("preview_") or f.name == "assets_manifest.json"):
+                try:
+                    f.unlink()
+                    logger.info(f"Purged old asset file on new script generation: {f.name}")
+                except Exception as e:
+                    logger.warning(f"Could not delete old asset file {f.name}: {e}")
+
     update_project(project_dict['id'], script_path=str(script_path))
     progress_cb(100.0, "Script generation complete!")
     logger.info(f"Script generated successfully and saved to: {script_path}")
 
+def compute_project_script_hash(project_dict):
+    import hashlib
+    key_data = {
+        "name": project_dict.get('name', ''),
+        "prompt": project_dict.get('prompt', ''),
+        "language": project_dict.get('language', 'hi'),
+        "duration_mode": project_dict.get('duration_mode', 'medium'),
+        "video_format": project_dict.get('video_format', 'landscape'),
+        "style": project_dict.get('style', 'nitish_rajput')
+    }
+    return hashlib.md5(json.dumps(key_data, sort_keys=True).encode("utf-8")).hexdigest()
 
-
-
+def is_script_stale(project_dict, project_dir):
+    script_path = project_dir / "script.json"
+    if not script_path.exists():
+        return True
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script_data = json.load(f)
+        stored_hash = script_data.get("_project_hash")
+        
+        # If the project is from before the _project_hash was introduced,
+        # default to False so we don't accidentally wipe out legacy scripts.
+        if not stored_hash:
+            return False
+            
+        current_hash = compute_project_script_hash(project_dict)
+        if stored_hash != current_hash:
+            logger.info(f"script stale: project properties changed (stored={stored_hash} current={current_hash})")
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to check script staleness: {e}")
+        return True
 
 def _skill_content(name: str) -> str:
     """Loads a skill's markdown body from the skill registry, or '' if missing."""
@@ -1534,172 +1844,84 @@ def _skill_content(name: str) -> str:
 
 
 def _visual_rules_legacy_fallback(video_format: str, language: str) -> str:
-    """Hardcoded copy of the visual rules, used ONLY if the skill registry is unavailable."""
+    """Fallback rules if declarative-ast skill is missing."""
     return f"""
-=== MAXIMIZE CREATIVITY & DYNAMIC VISUALS ===
-Be extremely creative! Build a visually engaging video:
-- If explaining a concept, build a 'custom_html' animation or a 'network' diagram.
-- If making a claim, use a 'document' to flash dramatic evidence on screen.
-- If showing data, use a dynamic 'list' or 'network'.
-- Use 'visual_meta' to write evocative copy, inject dramatic headlines, and compose visually stunning overlays.
+=== VISUAL COMPOSITION SCHEMA ===
+You must use the declarative AST format for all visual compositions.
+Every sub-visual MUST have a `composition` property matching the AST schema.
 
-=== QUANTITY & TIMING ===
-- Break narration into logical visual beats — one sub-visual per beat.
-- Each sub-visual: 2-15 seconds. The sum MUST equal the Total Scene Duration.
-- For 'list' type: create 1 sub-visual PER LIST ITEM.
-- Vary transitions: subtle_slide, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
-
-=== VALID VISUAL TYPES (USE ONLY THESE) ===
-map | document | portrait | scene | image | youtube | parallax | network | list | custom_html | thread | device_mockup | ai_image
-
-=== TYPE SELECTION GUIDE — CHOOSE THE RIGHT VISUAL ===
-- list: Ranked items, countdowns, top-N lists, step-by-step. E.g. "Top 5", "How to".
-
-- map: Geography, routes, locations, territories, borders.
-- document: Factual claims, news events, classified archives, archival evidence. (See DOCUMENT RULES below.)
-
-- network: Connections between people, organizations, relationships.
-- portrait: Specific people or entities. visual_cue = person's EXACT FULL NAME only (used as Wikipedia search query). Do NOT add descriptive words — just the name. E.g. "Harshad Mehta", not "Harshad Mehta stockbroker".
-- parallax: Dramatic visual reveals with layered 3D depth.
-- custom_html: A FULL-SCREEN standalone visual type. See CRITICAL DISTINCTION below.
-- thread: Simulated social media / chat conversations.
-- device_mockup: Content inside a realistic device frame (iphone/macbook).
-- scene/image/ai_image: Default fallback (ai_image = AI-generated via HuggingFace). visual_cue MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon' instead of 'a sprawling city with neon lights at night').
-- youtube: Real-world footage.
-
-=== ⚠️ CRITICAL DISTINCTION: custom_html (visual type) vs custom_html_ui (overlay) ===
-These are TWO COMPLETELY DIFFERENT THINGS. DO NOT confuse them:
-
-1. "custom_html" as visual_type:
-   - This is a STANDALONE FULL-SCREEN VISUAL. It replaces the entire background.
-   - Use when the ENTIRE visual should be a coded UI/animation (no background image/video).
-   - Set visual_type = "custom_html" and visual_meta = {{"html": str, "css": str}}.
-   - The HTML is rendered at 100% width/height as the main visual content.
-   - Example use: An animated infographic, a stylized quote card, a dynamic data dashboard.
-
-2. "custom_html_ui" as an OVERLAY inside visual_meta:
-   - This is a TRANSPARENT OVERLAY that floats ON TOP of a background image/video.
-   - The background comes from scene/image/portrait/parallax/youtube/ai_image.
-   - Add it inside visual_meta: {{"custom_html_ui": {{"html": str, "css": str}}}}.
-   - Example use: An animated label over a portrait, a styled stat counter over stock footage.
-   - ONLY allowed on these types: scene, image, portrait, parallax, youtube, ai_image.
-
-NEVER set visual_type = "custom_html" when you actually want an overlay on a background.
-NEVER add custom_html_ui to data types (map, document, list, network, thread, device_mockup, custom_html).
-
-=== DOCUMENT RULES (ARCHIVAL / EVIDENCE VISUALS) ===
-- ALWAYS set "show_image": false in document visual_meta.
-- DO NOT generate "image_url" or "image_caption" fields.
-- The user will manually upload archival/evidence images themselves.
-- Focus on writing compelling text content: headline, doc_text, highlight_text, pull_quote.
-
-=== VISUAL META SCHEMAS (FILL CREATIVELY) ===
-- scene/image/parallax/ai_image: {{}} (empty object). visual_cue = 1-3 stock photo keywords.
-- portrait: {{"person_name": str}}. visual_cue = person's EXACT full name only.
-- youtube: {{"start_offset": 15, "duration": 15, "skip_intro": true}}
-- map: {{"map_style": "vintage", "locations": [{{"name": str, "coord": [lat, lon]}}]}} (2 locations)
-- document: {{"title": str, "headline": str, "subtitle": str, "doc_text": str, "highlight_text": str, "source": str, "date": str, "section": str, "pull_quote": str, "show_image": false}} (NEVER set show_image to true — user adds images manually)
-- network: {{"theme": "conspiracy_board"|"cyberpunk"|"corporate", "nodes": [{{"id": str, "label": str, "type": "person"|"entity"}}], "edges": [{{"source": str, "target": str}}]}}
-- list: {{"number": int, "title": str, "description": str}}
-- thread: {{"platform": "whatsapp"|"imessage"|"twitter"|"discord", "messages": [{{"sender": str, "text": str, "is_self": bool}}], "title": str}}
-- device_mockup: {{"device": "iphone"|"macbook"}} (optional: "screen_image_url": str)
-- custom_html: {{"html": str, "css": str}} (CRITICAL: Design for {video_format} orientation. Use raw CSS — no Tailwind. NOT a normal web page. Must look like a high-end video editor template with abundant smooth CSS animations.)
-
-=== OVERLAY RULES ===
-- custom_html_ui: Add {{"custom_html_ui": {{"html": str, "css": str}}}} inside visual_meta for custom overlays.
-- ONLY FOR: scene, image, parallax, portrait, youtube, ai_image.
-- NEVER FOR: custom_html, list, map, document, network, thread, device_mockup. For these types, bake all text directly into their specific visual_meta fields.
-- custom_html_ui content text: Match the target language ({language}).
-
-=== ANIMATION TIMING WITH WORD TIMESTAMPS ===
-When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
-- CSS animation-delay values in custom_html and custom_html_ui visuals
-- Text reveal animations timed to when specific words are spoken
-- Data visualization build-up animations synced to narration beats
-- Element entry/exit timings matching spoken content transitions
-Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP text element.
-When sub-visual duration breakdowns are provided, use the start offset and duration of each sub-visual to ensure animations fit within the allocated time window.
-
-=== ANTI-HALLUCINATION ===
-- DO NOT invent visual_meta fields not listed in the schemas above.
-- DO NOT add fields like "background_color", "font_size", "animation", etc. to visual_meta unless they are part of the schema.
-- The ONLY optional addition to visual_meta is "custom_html_ui" (and ONLY for allowed types).
-- visual_cue MUST ALWAYS be in English.
-- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which should match the target language.
+- Design for the {video_format} orientation.
+- Use `Image`, `Video`, `Text`, or `Map` layers inside a `Sequence`.
 """
 
 
 def _visual_rules_safety_net(video_format: str, language: str) -> str:
-    """Shared rules not owned by any single visual-type skill."""
+    """Shared rules for AST generation."""
+    safe_bottom_pct = "25%" if video_format == "portrait" else "15%"
+    text_bottom_limit = "28%" if video_format == "portrait" else "18%"
     return f"""
-=== SHARED RULES (apply to every visual) ===
-- visual_cue MUST ALWAYS be in English. Use 1-3 broad stock keywords for media types, the EXACT full name for portrait, or a short descriptive prompt for ai_image.
-- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which must match the target language ({language}).
-- custom_html / custom_html_ui: design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths, not fixed px.
+=== SHARED RULES (apply to every layer) ===
+- `query` in Image/Video MUST ALWAYS be in English. Use 1-3 broad descriptive stock keywords.
+- All text content MUST be in English, EXCEPT if you are specifically creating a subtitle/translation layer which must match the target language ({language}).
+- CRITICAL FONT RULE: If generating text/subtitles in a complex script (e.g., Hindi, Tamil, Bengali, Arabic), you MUST specify a Noto font (e.g., `Noto Sans Devanagari`) in the design system or layer style to prevent broken Unicode shaping.
+- Design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths where applicable.
+  * Landscape (16:9): Split screens use `left: "6%"` & `left: "52%"`, `width: "42%"`, `height: "66%"`.
+  * Portrait (9:16): Stack vertically! Top card `top: "12%"`, `height: "36%"`; Bottom card `top: "50%"`, `height: "22%"`.
+- SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
+- STANDARDIZED Z-INDEX HIERARCHY:
+  * 0 - 9: Background canvas — ANY suitable full-screen base: darkened Video footage, vector Maps, high-contrast Images, HTML gradient/pattern backgrounds, or styled solid-color canvases. Add continuous camera drift (`animations: [{{"property": "scale", "from": 1.0, "to": 1.06, "duration": ..., "easing": "linear"}}]`). VARY your background type — do NOT default to Video for every sub-visual.
+  * 10 - 29: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with glassmorphism styling (`backgroundColor: "rgba(15, 23, 42, 0.85)"`, `backdropFilter: "blur(20px)"`, `borderRadius: "20px"`, `border: "1px solid rgba(255, 255, 255, 0.15)"`) + spring entrance (`delay: 0.15`, `easing: "spring"`)
+  * 30 - 39: Foreground typography / callouts (respect subtitle safe area) with staggered reveal (`delay: 0.45` to `0.7`)
+
+=== NO STATIC CHAPTER TITLE CARDS IN SUB-VISUALS ===
+Do NOT create static chapter title badges, scene name cards, or temporary header pills inside sub-visual cuts. Chapter indicators and video branding are managed continuously at the root composition level. Dedicate sub-visual cuts entirely to motion graphics, infographics, evidence mockups, b-roll, and visual storytelling.
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
 When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
-- CSS animation-delay values in custom_html and custom_html_ui visuals
-- Text reveal animations timed to when specific words are spoken
-- Data visualization build-up animations synced to narration beats
-- Element entry/exit timings matching spoken content transitions
-Example: If "GDP" is spoken at [2.3s], set animation-delay: 2.3s on the GDP text element.
-When sub-visual duration breakdowns are provided, use the start offset and duration of each sub-visual to ensure animations fit within the allocated time window.
+- Text reveal animations timed to when specific words are spoken using `delay` in seconds.
+- Data visualization build-up animations synced to narration beats.
+- Element entry/exit timings matching spoken content transitions.
+Example: If "GDP" is spoken at [2.3s], set `delay: 2.3` on the GDP text animation.
 
-=== ANTI-HALLUCINATION ===
-- DO NOT invent visual_meta fields not listed in the schemas above.
-- DO NOT add fields like "background_color", "font_size", "animation", etc. to visual_meta unless they are part of the schema.
-- The ONLY optional addition to visual_meta is "custom_html_ui" (and ONLY for allowed types).
-- visual_cue MUST ALWAYS be in English.
-- All visual_meta text content MUST be in English, EXCEPT custom_html_ui content which should match the target language ({language}).
+- DO NOT add arbitrary properties that are not supported.
+- `query` in `Image` and `Video` content MUST ALWAYS be in English.
+- All text content MUST be in English.
 """
 
 
 def get_shared_visual_rules(video_format: str, language: str = "hi") -> str:
-    """Centralized visual generation rules shared by ai.py and bridge.py.
-
-    Built from the skill registry — visual-director-core plus every
-    visual-type-* skill — which is the SINGLE SOURCE OF TRUTH. Falls back to a
-    hardcoded copy only if the skill registry is missing or broken, so the
-    prompts never go empty.
-    """
+    """Centralized visual generation rules for the Declarative AST."""
     from backend.agent.skill_loader import skill_loader
 
-    core = skill_loader.get_skill("visual-director-core")
-    type_skills = sorted(
-        name for name in skill_loader.get_all_skills()
-        if name.startswith("visual-type-")
-    )
-    type_parts = []
-    for name in type_skills:
-        skill = skill_loader.get_skill(name)
-        if skill:
-            type_parts.append(skill.content)
+    ast = skill_loader.get_skill("declarative-ast")
 
-    if core is not None and len(type_parts) >= 10:
-        parts = [core.content] + type_parts
-        return "\n\n".join(parts) + "\n\n" + _visual_rules_safety_net(video_format, language)
+    if ast is not None:
+        return ast.content + "\n\n" + _visual_rules_safety_net(video_format, language)
 
-    logger.warning(
-        f"Skill registry incomplete (core={core is not None}, "
-        f"type_skills={len(type_parts)}/{len(type_skills)}). "
-        "Falling back to hardcoded visual rules."
-    )
+    logger.warning("declarative-ast skill not found. Using fallback rules.")
     return _visual_rules_legacy_fallback(video_format, language)
 
 
-def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event):
+def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=False):
     from backend.database.db import get_setting, update_project, get_project
     from backend.core.logger import logger
 
     script_path = project_dir / "script.json"
-    manifest_path = Path(project_dict.get('assets_manifest_path', project_dir / "voiceover" / "manifest.json"))
+    
+    # Try the database path first
+    manifest_path_str = project_dict.get('assets_manifest_path')
+    manifest_path = Path(manifest_path_str) if manifest_path_str else None
+    
+    # If it's missing or the file was deleted, fallback to the original voiceover manifest
+    if not manifest_path or not manifest_path.exists():
+        manifest_path = project_dir / "voiceover" / "manifest.json"
+        
     transcription_path = Path(project_dict.get('transcription_path', project_dir / "subtitles" / "transcription.json"))
 
     if not script_path.exists():
         raise FileNotFoundError("script.json is missing.")
     if not manifest_path.exists():
-        raise FileNotFoundError("manifest.json is missing.")
+        raise FileNotFoundError("manifest.json is missing. Please re-run from Voiceover generation.")
 
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
@@ -1724,41 +1946,78 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
         current_design_hash = hashlib.md5(json.dumps(design_system, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     visual_rules = get_shared_visual_rules(video_format, language)
+    visual_director = _skill_content("visual-director-core") or _skill_content("visual-director")
     editor_qa_rules = _skill_content("editor-qa")
+    motion_designer_rules = _skill_content("motion-graphics-designer")
+
     editor_qa_block = f"""=== EDITOR QA GUARDRAILS ===
 {editor_qa_rules}
 
 """ if editor_qa_rules else ""
 
-    visuals_system_prompt = f"""{editor_qa_block}You are an expert AI Visual Director for YouTube videos.
+    visual_director_block = f"""{visual_director}
+
+""" if visual_director else ""
+
+    motion_designer_block = f"""=== MOTION GRAPHICS STYLING & RECIPES ===
+{motion_designer_rules}
+
+""" if motion_designer_rules else ""
+
+    visuals_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
+{editor_qa_block}You are an expert AI Visual Director and Motion Graphics Designer for YouTube videos.
 
 CORE MISSION:
-Transform narration into compelling visual sequences that enhance the message.
+Transform narration into visually stunning, cinematic motion graphic sequences. Think like a top-tier After Effects artist.
+DO NOT default to the lazy pattern of [Full-Screen Stock Image] → [Centered Text].
+Every sub-visual should feel like a deliberate creative decision with rich multi-layer depth.
 {design_system_text}
-CRITICAL RULES:
+{visual_director_block}
+{motion_designer_block}
+=== 3-LAYER DEPTH & MOTION GRAMMAR ===
+Construct depth across 3 standardized Z-index layers on every visual beat:
+1. **Z-Index 0–9 (Atmospheric Canvas / Background)**: Full-screen base layer. Choose the BEST fit for the narrative moment:
+   - **Video**: Cinematic B-roll footage with `brightness(0.3)` filter + camera drift (`scale: 1.0 -> 1.06`). Best for atmospheric/cinematic beats.
+   - **Image**: High-contrast darkened photograph (portraits, evidence, textures) + camera drift. Best for entity spotlights and historical context.
+   - **HTML**: CSS gradient canvas, technical grid pattern, or colored slate. Best for data-heavy, tech, financial, and infographic beats without distracting footage.
+   - **Map**: Vector globe with animated route trajectory. Best when geography/travel is central to the narration.
+   ⚠️ VARIETY RULE: Do NOT use the same background type for consecutive sub-visuals. If cut #1 used Video, switch to Image, HTML Gradient/Grid, or Map for cut #2.
+2. **Z-Index 10–29 (Graphic Subject / Midground)**: Data charts (`Chart`), glassmorphic cards, vector shapes & icons (`Shape`), bespoke HTML evidence memos (`HTML`), or split-screen insets. Enter via physics spring (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out"}}]`).
+   * 💡 **Chart Placement Rule**: Charts MUST live in Z-Index 10–29 over an HTML gradient canvas or darkened video, styled with glassmorphism or proper padding. Never render a raw naked chart at z-index 0.
+3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (respecting subtitle safe area: `bottom > 18%` for landscape).
+
+=== MASTER VISUAL ARCHETYPES ===
+Vary your spatial layouts across cuts using these master blueprints:
+- **Split-Screen Data HUD**: Darkened Video/HTML background + Left 45% glassmorphic chart card + Right 45% media inset.
+- **Investigative Dossier**: Dark background + custom HTML leaked document memo with confidential stamp + glowing marker highlight quote.
+- **Macro Metric Callout**: Dark background + large glass badge with dynamic metric or progress bar (`Chart`).
+- **Geographic Route / Map**: Dark vector map with city pins + glowing animated SVG trajectory path (`preset_path: "route_arch"`).
+- **Technical Blueprint / HUD**: Grid background (HTML at z_index 0) + transparent vector diagram + glowing corner brackets (`preset_path: "corner_brackets"`).
+- **Bespoke Infographic Card**: HTML gradient background + high-production HTML/SVG comparison table, radar chart, or UI mockup.
+- **Cinematic Atmosphere Beat**: Graded high-contrast ambient footage with continuous Ken Burns drift (when narrative calls for a breather).
+- **Entity Spotlight**: Darkened full-screen Image (portrait/evidence photo at z_index 0 with `brightness(0.35)`) + glassmorphic bio card overlay + kinetic text.
+- **Data Infographic Showcase**: High-tech HTML gradient background (z_index 0) + glassmorphic Chart card (z_index 15) + floating kinetic headline callout (z_index 30).
+
+RULES:
 - COUNT: One sub-visual per visual beat
 - DURATION: Each 2-15 seconds, sum MUST equal scene duration
-- TRANSITION: Vary transitions — never repeat the same one
-- visual_cue: ALWAYS in English. MUST be 1-3 broad keywords optimized for stock photo search engines (e.g. 'city neon' instead of 'a sprawling city with neon lights'). Do not use complex sentences.
-- visual_meta text: ALWAYS in English
-- custom_html_ui content: Match the target language from the user prompt
+- 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
+- query: ALWAYS in English. Use descriptive, specific keywords for relevant results.
+- Text content: ALWAYS in English
+- style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers.
+- DESIGN SYSTEM: Bind `primary`, `accent`, `surface`, `glow`, and `fontFamily` from the project's design system into layer styles.
+- VIDEO: Set `"volume": 0` by default on all Video layers.
+- ONLY use the 9 valid content types: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles (Particles = canvas overlay confetti/embers/dust/money_rain/snow/stars, exactly ONE per cut, topmost z_index 30-39, matched to the beat emotion).
+- MOTION MODIFIERS: Set `"motion_blur": true` on fast-moving cards or spring entrances for physical shutter blur. Set `"camera_shake": "handheld" | "shockwave" | "glitch"` on background/composite layers for procedural organic camera motion. 2026 FX pack in layer `"filters"`: CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur) and SVG looks (`url(#fx-emboss)`, `url(#fx-sharpen)`, `url(#fx-posterize)`, `url(#fx-duotone-midnight)`, `url(#fx-duotone-inferno)`, `url(#fx-thermal)`) — max ONE SVG look per layer, ~1 FX cut per 3-4 cuts. Punch-in emphasis at sub-visual level: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]` — 0-2 marks per cut, cuts of 2s or longer only.
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
-{{"sub_visuals": [{{"visual_type": "...", "visual_cue": "...", "transition": "...", "visual_meta": {{...}}, "duration": 3.5}}]}}
+{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "duration": 3.5}}]}}
 
 ERROR PREVENTION:
 - Duration sum must equal exactly the provided scene duration (2 decimal places)
-- Use only valid visual types
-- All JSON numbers as numbers, not strings
-- All required fields present for each visual type
-
-FINAL CHECK before submitting:
-1. Duration sum equals scene duration
-2. All visual_cue are English
-3. visual_meta fields match the type's schema
-4. Transitions are all different
-5. No markdown — raw JSON only
+- Use only valid AST structures with numeric durations and valid easing values ("linear", "spring", "ease-in", "ease-out", "ease-in-out")
+- All required fields present for each content type
 
 {visual_rules}"""
 
@@ -1833,17 +2092,20 @@ FINAL CHECK before submitting:
         # cumulative_time += duration
 
         # --- Smart Preservation Logic ---
-        existing_sub_visuals = entry.get("sub_visuals", [])
+        # Look for existing sub-visuals in script.json FIRST, then manifest entry
+        script_entry_svs = []
+        if scene_type == "introduction" and script.get("introduction"):
+            script_entry_svs = script["introduction"].get("sub_visuals", [])
+        elif scene_type == "conclusion" and script.get("conclusion"):
+            script_entry_svs = script["conclusion"].get("sub_visuals", [])
+        elif scene_type == "scene" and isinstance(script.get("scenes"), list):
+            scene_idx = sum(1 for m in manifest[:i] if m.get("section_type") == "scene")
+            if 0 <= scene_idx < len(script["scenes"]):
+                script_entry_svs = script["scenes"][scene_idx].get("sub_visuals", [])
 
-        # Migrate legacy sub-visuals whose visual types were removed from the
-        # app (chart/timeline): swap them for a neutral scene entry that keeps
-        # the duration slot and renders normally.
-        existing_sub_visuals = [
-            {"visual_type": "scene", "visual_cue": v.get("visual_cue") or scene_title,
-             "transition": "fade", "visual_meta": {}, "duration": v.get("duration", 0)}
-            if v.get("visual_type") in REMOVED_VISUAL_TYPES else v
-            for v in existing_sub_visuals
-        ]
+        existing_sub_visuals = entry.get("sub_visuals", [])
+        if _has_meaningful_sub_visuals(script_entry_svs):
+            existing_sub_visuals = script_entry_svs
 
         # Compute narration hash for change-detection: when narration changes,
         # we must regenerate even if sub-visuals exist from a previous run.
@@ -1851,18 +2113,14 @@ FINAL CHECK before submitting:
         stored_hash = entry.get("_narr_hash", "")
 
         # Check if existing sub-visuals are valid (not just a single blank default generated by tts.py)
-        is_default = False
-        if len(existing_sub_visuals) == 1:
-            v = existing_sub_visuals[0]
-            if v.get("visual_type") == "scene" and v.get("visual_cue") == scene_title and not v.get("visual_meta"):
-                is_default = True
+        is_default = not _has_meaningful_sub_visuals(existing_sub_visuals)
 
         narration_changed = (stored_hash and stored_hash != narration_hash)
         
         stored_design_hash = entry.get("_design_hash", "")
         design_changed = (stored_design_hash and stored_design_hash != current_design_hash)
 
-        if existing_sub_visuals and not is_default and not narration_changed and not design_changed and not is_new_design:
+        if not force and existing_sub_visuals and not is_default and not narration_changed and not design_changed and not is_new_design:
             logger.info(f"Preserving existing sub-visuals for scene '{scene_title}'. Scaling durations to new total {duration}s.")
             old_total = sum([float(v.get("duration", 0)) for v in existing_sub_visuals])
             if old_total > 0:
@@ -1879,18 +2137,59 @@ FINAL CHECK before submitting:
             with _progress_lock:
                 completed += 1
             base_prog = 15.0 if is_new_design else 10.0
-            _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Preserved visual cues... {completed}/{total_scenes}")
+            _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Preserved AST scenes... {completed}/{total_scenes}")
             return entry
         # --- End Smart Preservation Logic ---
 
+        # --- STAGE 1: Visual Storyboard Planning ---
+        genre_key = project_dict.get('prompt') or 'documentary'
+        from backend.pipeline.genres import format_genre_storyboard_prompt, get_genre_profile
+        genre_profile = get_genre_profile(genre_key)
+        genre_storyboard_guidance = format_genre_storyboard_prompt(genre_key)
+
+        storyboard_skill = skill_loader.get_skill("storyboard-planner")
+        storyboard_guidance = f"\n\n{storyboard_skill.content}" if storyboard_skill else ""
+        plan_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
+You are an expert Visual Director and Cinematographer. Your job is to read the narration for this scene and write a highly creative, detailed storyboard plan describing the sub-visual beats needed.
+
+{genre_storyboard_guidance}
+
+Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Lottie, Footage, Particles atmosphere overlays) with cinematic motion blur and camera shake modifiers aligned with the {genre_profile['name']} style.
+Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling.
+Do not output AST JSON, just output a detailed text description of what each sub-visual should look like.{storyboard_guidance}"""
+
+        plan_user_prompt = f"Topic: {topic}\nGenre: {genre_profile['name']}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n\nWrite a storyboard plan for each sub-visual beat."
+
+        plan_schema = {
+            "type": "object",
+            "properties": {
+                "storyboard_plan": {"type": "string", "description": "The detailed visual plan/storyboard for this scene"}
+            },
+            "required": ["storyboard_plan"]
+        }
+        
+        try:
+            from backend.pipeline.ai import _call_llm_json
+            plan_response = _call_llm_json(plan_system_prompt, plan_user_prompt, plan_schema, cancel_event, activity_label=f"Planning Scene {i+1}")
+            storyboard = plan_response.get("storyboard_plan", "") if isinstance(plan_response, dict) else ""
+        except Exception as plan_e:
+            logger.warning(f"Stage 1 Planning failed for scene {i}: {plan_e}. Falling back to direct generation.")
+            storyboard = "No plan available. Make creative decisions directly."
+
+        # --- STAGE 2: AST Generation ---
         user_prompt = f"""Topic: "{topic}"
+Genre: "{genre_profile['name']}"
 Scene: {scene_title} ({scene_type})
 Total Scene Duration: {duration} seconds
 
 Narration:
 {narration}
 {word_timings}
-Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST exactly equal {duration} seconds."""
+
+APPROVED STORYBOARD PLAN:
+{storyboard}
+
+Generate the sub_visuals array following the APPROVED STORYBOARD PLAN precisely. The sum of 'duration' for all sub_visuals MUST exactly equal {duration} seconds."""
 
         try:
             # Generation + duration-math validation + enum correction via the
@@ -1913,14 +2212,14 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
             raise
         except Exception as e:
             logger.error(f"Failed to generate visuals for scene {i}: {e}")
-            entry["sub_visuals"] = [{"visual_type": "scene", "visual_cue": scene_title, "transition": "fade", "visual_meta": {}, "duration": duration}]
+            entry["sub_visuals"] = [{"composition": {"type": "Sequence", "children": []}, "duration": duration}]
             entry["_narr_hash"] = narration_hash
             entry["_design_hash"] = current_design_hash
 
         with _progress_lock:
             completed += 1
         base_prog = 15.0 if is_new_design else 10.0
-        _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Generated visual cues... {completed}/{total_scenes}")
+        _throttled_progress(base_prog + (completed / total_scenes) * (90.0 - base_prog), f"Planned & Built AST scenes... {completed}/{total_scenes}")
         return entry
 
     import concurrent.futures
@@ -2020,20 +2319,33 @@ Generate the sub_visuals array. The sum of 'duration' for all sub_visuals MUST e
     # Intro
     manifest_intro = next((m for m in manifest if m.get("section_type") == "introduction"), None)
     if manifest_intro and "introduction" in script:
-        script["introduction"]["sub_visuals"] = manifest_intro.get("sub_visuals", [])
+        m_subs = manifest_intro.get("sub_visuals", [])
+        if _has_meaningful_sub_visuals(m_subs) or not _has_meaningful_sub_visuals(script["introduction"].get("sub_visuals")):
+            script["introduction"]["sub_visuals"] = m_subs
 
     # Scenes
     for i, sc in enumerate(script_scenes):
         if i < len(manifest_scenes):
-            sc["sub_visuals"] = manifest_scenes[i].get("sub_visuals", [])
+            m_subs = manifest_scenes[i].get("sub_visuals", [])
+            if _has_meaningful_sub_visuals(m_subs) or not _has_meaningful_sub_visuals(sc.get("sub_visuals")):
+                sc["sub_visuals"] = m_subs
 
     # Conclusion
     manifest_conclusion = next((m for m in manifest if m.get("section_type") == "conclusion"), None)
     if manifest_conclusion and "conclusion" in script:
-        script["conclusion"]["sub_visuals"] = manifest_conclusion.get("sub_visuals", [])
+        m_subs = manifest_conclusion.get("sub_visuals", [])
+        if _has_meaningful_sub_visuals(m_subs) or not _has_meaningful_sub_visuals(script["conclusion"].get("sub_visuals")):
+            script["conclusion"]["sub_visuals"] = m_subs
 
     with open(script_path, "w", encoding="utf-8") as f:
         json.dump(script, f, indent=2, ensure_ascii=False)
+
+    # Reconcile disk assets with the newly generated manifest
+    try:
+        from backend.pipeline.assets import cleanup_removed_assets
+        cleanup_removed_assets(project_dict['id'], manifest)
+    except Exception as e:
+        logger.warning(f"Post visual-generation asset reconciliation failed: {e}")
 
     progress_cb(100.0, "Visual generation complete!")
     logger.info("Visual generation pipeline completed successfully.")

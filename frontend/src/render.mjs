@@ -4,7 +4,8 @@
  * This replaces the `remotion render` CLI to enable:
  *   1. Hardware-accelerated encoding (NVENC) via `hardwareAcceleration` param
  *   2. Custom FFmpeg/FFprobe binaries via `ffmpegExecutable`/`ffprobeExecutable`
- *   3. Resumable chunked rendering via frames and audio extraction
+ *   3. Resumable chunked rendering via fast JPEG frames and audio extraction
+ *   4. Low-latency static asset server with in-memory caching and keep-alive
  * 
  * Called from Python: node render.mjs --props <path> --output <path> [options]
  */
@@ -12,13 +13,53 @@
 import http from "http";
 import { renderMedia, selectComposition, renderFrames } from "@remotion/renderer";
 import { readFileSync, existsSync, statSync, createReadStream } from "fs";
-import { resolve } from "path";
+import { resolve, extname } from "path";
 import os from "os";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── MIME Types ───────────────────────────────────────────────────────────────
+const MIME_MAP = {
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json',
+};
+
+// ─── In-Memory Asset Cache ────────────────────────────────────────────────────
+// Caches frequently requested small assets (< 5 MB, e.g. logos, badges, textures, subtitles)
+// directly in Node.js RAM to eliminate redundant disk I/O across concurrent Chromium workers.
+const memoryCache = new Map();
+const MAX_ITEM_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_TOTAL_CACHE = 256 * 1024 * 1024; // 256 MB
+let currentCacheSize = 0;
+
+function getCachedBuffer(filePath, fileSize) {
+  if (memoryCache.has(filePath)) {
+    return memoryCache.get(filePath);
+  }
+  if (fileSize > MAX_ITEM_SIZE || currentCacheSize + fileSize > MAX_TOTAL_CACHE) {
+    return null;
+  }
+  try {
+    const buf = readFileSync(filePath);
+    memoryCache.set(filePath, buf);
+    currentCacheSize += buf.length;
+    return buf;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Static Asset Server ──────────────────────────────────────────────────────
 /**
- * Starts a minimal static file server to serve absolute file paths.
- * This avoids Chrome's net::ERR_UNKNOWN_URL_SCHEME for file:/// media.
+ * Starts a high-throughput local static file server with Keep-Alive support
+ * and RAM caching. This avoids Chrome's net::ERR_UNKNOWN_URL_SCHEME for file:///
+ * while maximizing concurrency throughput.
  */
 function startAssetServer() {
   return new Promise((resolveServer) => {
@@ -33,38 +74,82 @@ function startAssetServer() {
           return;
         }
 
+        const ext = extname(fullPath).toLowerCase();
+        const contentType = MIME_MAP[ext] || 'application/octet-stream';
         const stats = statSync(fullPath);
         const fileSize = stats.size;
         const range = req.headers.range;
 
+        // Common headers with Keep-Alive
+        const baseHeaders = {
+          'Access-Control-Allow-Origin': '*',
+          'Accept-Ranges': 'bytes',
+          'Connection': 'keep-alive',
+          'Keep-Alive': 'timeout=120, max=2000',
+        };
+
         if (range) {
           const parts = range.replace(/bytes=/, "").split("-");
-          const start = parseInt(parts[0], 10);
-          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+          let start = parseInt(parts[0], 10);
+          let end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+          if (isNaN(start)) {
+            start = Math.max(0, fileSize - end);
+            end = fileSize - 1;
+          }
+          if (isNaN(end) || end >= fileSize) {
+            end = fileSize - 1;
+          }
+          if (start > end || start < 0) {
+            res.writeHead(416, {
+              ...baseHeaders,
+              'Content-Range': `bytes */${fileSize}`,
+            });
+            res.end();
+            return;
+          }
+
           const chunksize = (end - start) + 1;
           const file = createReadStream(fullPath, { start, end });
-          const head = {
+          
+          res.writeHead(206, {
+            ...baseHeaders,
             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-            'Accept-Ranges': 'bytes',
             'Content-Length': chunksize,
-            'Content-Type': fullPath.endsWith('.mp4') ? 'video/mp4' : 
-                            fullPath.endsWith('.mp3') ? 'audio/mpeg' : 'application/octet-stream',
-            'Connection': 'close'
-          };
-          res.writeHead(206, head);
+            'Content-Type': contentType,
+          });
+          file.on('error', () => {
+            if (!res.headersSent) res.writeHead(500);
+            res.end();
+          });
+          req.on('close', () => file.destroy());
           file.pipe(res);
         } else {
-          const head = {
-            'Accept-Ranges': 'bytes',
+          // Serve from memory cache if available for small static assets
+          const cachedBuf = getCachedBuffer(fullPath, fileSize);
+          if (cachedBuf) {
+            res.writeHead(200, {
+              ...baseHeaders,
+              'Content-Length': cachedBuf.length,
+              'Content-Type': contentType,
+            });
+            res.end(cachedBuf);
+            return;
+          }
+
+          res.writeHead(200, {
+            ...baseHeaders,
             'Content-Length': fileSize,
-            'Content-Type': fullPath.endsWith('.mp4') ? 'video/mp4' : 
-                            fullPath.endsWith('.mp3') ? 'audio/mpeg' : 'application/octet-stream',
-            'Connection': 'close'
-          };
-          res.writeHead(200, head);
-          createReadStream(fullPath).pipe(res);
+            'Content-Type': contentType,
+          });
+          const stream = createReadStream(fullPath);
+          stream.on('error', () => {
+            if (!res.headersSent) res.writeHead(500);
+            res.end();
+          });
+          req.on('close', () => stream.destroy());
+          stream.pipe(res);
         }
-      } catch (e) {
+      } catch {
         res.statusCode = 500;
         res.end("Server Error");
       }
@@ -73,7 +158,7 @@ function startAssetServer() {
     server.listen(0, "127.0.0.1", () => {
       const port = server.address().port;
       const url = `http://127.0.0.1:${port}`;
-      console.log(`   📡 Node.js Asset server active: ${url}`);
+      console.log(`   📡 Node.js Asset server active (Keep-Alive + Cache): ${url}`);
       resolveServer({ server, url });
     });
   });
@@ -122,9 +207,9 @@ const cpuCount = os.cpus().length;
 let concurrencyValue;
 if (concurrencyArg) {
   if (concurrencyArg.endsWith("%")) {
-    concurrencyValue = Math.max(2, Math.floor(cpuCount * parseInt(concurrencyArg) / 100));
+    concurrencyValue = Math.max(1, Math.round(cpuCount * parseInt(concurrencyArg, 10) / 100));
   } else {
-    concurrencyValue = parseInt(concurrencyArg, 10);
+    concurrencyValue = Math.max(1, parseInt(concurrencyArg, 10));
   }
 } else {
   concurrencyValue = Math.max(1, cpuCount - 1);
@@ -154,6 +239,14 @@ async function main() {
   }
   
   const inputProps = rewriteUrls(inputPropsRaw);
+  
+  // Inject the dynamically bound static file server port into props so the 
+  // frontend `getMediaUrlSync` utility knows where to request local files from 
+  // during headless Remotion rendering instead of falling back to the Vite dev server.
+  inputProps.__file_server_port__ = assetServer.address().port;
+  // Headless export: full-quality motion blur (3 samples) + higher glass cap.
+  // Preview Player sends qualityMode='preview' for cheap interactive scrubbing.
+  if (!inputProps.qualityMode) inputProps.qualityMode = 'export';
 
   const bundleLocation = resolve(bundleDir);
   console.log(`Using pre-bundled project at: ${bundleLocation}`);
@@ -203,8 +296,12 @@ async function main() {
         "--disable-dev-shm-usage",
         "--allow-file-access-from-files",
         "--enable-accelerated-2d-canvas",
-        "--enable-gpu-rasterization",
-        "--enable-zero-copy",
+        "--disable-background-timer-throttling",
+        "--disable-renderer-backgrounding",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-breakpad",
+        "--disable-component-update",
+        "--no-default-browser-check",
         "--force-color-profile=srgb",
         "--font-render-hinting=medium",
         "--disable-font-subpixel-positioning",
@@ -216,6 +313,7 @@ async function main() {
 
   if (ffmpegExecutable) commonOptions.ffmpegExecutable = ffmpegExecutable;
   if (ffprobeExecutable) commonOptions.ffprobeExecutable = ffprobeExecutable;
+  if (glMode) commonOptions.gl = glMode;
   // Frame range will be set per renderFrames call
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -237,7 +335,8 @@ async function main() {
           ...commonOptions,
           frameRange: range,
           outputDir: resolve(framesDir),
-          imageFormat: "webp",
+          imageFormat: "jpeg",
+          jpegQuality: 95,
           onFrameUpdate: (renderedCount) => {
             const pct = (((overallRendered + renderedCount) / totalToRender) * 100).toFixed(1);
             process.stdout.write(`\rRender progress: ${pct}%  `);
@@ -271,7 +370,8 @@ async function main() {
         codec,
         crf,
         hardwareAcceleration: hwAccelValue,
-        imageFormat: "webp",
+        imageFormat: "jpeg",
+        jpegQuality: 95,
         onProgress: ({ progress }) => {
           const pct = (progress * 100).toFixed(1);
           process.stdout.write(`\rRender progress: ${pct}%  `);
@@ -289,19 +389,12 @@ main()
     // Force-exit even if a child (headless Chromium, ffmpeg worker) keeps the
     // event loop alive — otherwise the process never exits and the parent
     // pipeline hangs waiting for this process's stdout pipe to close.
-    //
-    // process.exit() terminates without flushing pending async pipe writes on
-    // Windows, which could drop the final progress line and stall the UI
-    // below 100%. Write the completion line through the async stdout queue
-    // and exit only after it has been flushed.
     process.stdout.write("\rRender progress: 100.0%  \n", () => {
       process.exit(0);
     });
   })
   .catch((err) => {
-    // Same flush concern on the error path — the parent reads this text to
-    // build failure diagnostics.
-    process.stderr.write(`\nRender failed: ${err.message || err}\n`, () => {
+    process.stderr.write(`\nRender failed: ${err.stack || err.message || err}\n`, () => {
       process.exit(1);
     });
   });

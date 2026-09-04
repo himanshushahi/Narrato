@@ -11,6 +11,7 @@ from pathlib import Path
 from backend.database.db import get_setting, update_project
 from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir, get_startupinfo, is_production
 from backend.core.logger import logger
+from backend.pipeline.assets import normalize_video_asset
 
 def clean_media_path(path_str):
     """Formats an absolute Windows path into a local file:/// URL."""
@@ -23,6 +24,16 @@ def clean_media_path(path_str):
 def _round_half_up(x):
     """Match JavaScript's Math.round (round half up), not Python's banker's rounding."""
     return int(math.floor(x + 0.5))
+
+
+def _safe_float(val, default=0.0) -> float:
+    """Safely convert value to float, handling None and invalid strings."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
 
 
 def compute_sub_visual_timings_frames(sub_visuals, scene_frames):
@@ -84,28 +95,127 @@ def scene_frame_offsets(scenes):
         offset += scene_frames
 
 
-def compute_frame_hash(props_dict, render_settings):
-    """Hash of frame-relevant properties only (scenes, transcription, resolution, fps).
-    Audio/encode settings don't affect pixel output, so they're excluded."""
-    frame_props = {
-        "scenes": props_dict["scenes"],
-        "transcription": props_dict["transcription"],
+def compute_granular_frame_hashes(props_dict, render_settings):
+    """
+    Computes global frame environment hash and per-scene frame hashes for granular cache invalidation.
+    Returns:
+      global_env_hash: str
+      scene_records: list of dicts with {
+        'index': i,
+        'start_frame': start_frame,
+        'end_frame': end_frame,
+        'duration_frames': scene_frames,
+        'scene_hash': hash_str
+      }
+    """
+    global_env = {
         "subtitleSettings": props_dict.get("subtitleSettings", {}),
         "style": props_dict.get("style"),
         "language": props_dict.get("language"),
         "videoFormat": props_dict.get("videoFormat"),
         "fps": props_dict.get("fps"),
+        "imageFormat": "jpeg",
         "resolution": render_settings.get("resolution"),
+        "overlays": props_dict.get("overlays", []),
+        # Effects quality changes pixels (blur samples, glass radius) → must
+        # invalidate granular frame reuse when the user edits Settings.
+        "quality": props_dict.get("quality", {}),
+    }
+    for k, ov in enumerate(global_env.get("overlays", [])):
+        logo = ov.get("logo_url") if isinstance(ov, dict) else None
+        if logo and isinstance(logo, str):
+            clean_p = logo.replace("file:///", "").replace("file://", "")
+            if os.path.exists(clean_p):
+                stat = os.stat(clean_p)
+                global_env[f"overlay_{k}_mtime"] = stat.st_mtime
+                global_env[f"overlay_{k}_size"] = stat.st_size
+
+    global_env_hash = hashlib.sha256(json.dumps(global_env, sort_keys=True).encode('utf-8')).hexdigest()
+
+    scenes = props_dict.get("scenes", [])
+    transcription = props_dict.get("transcription", {})
+    segments = transcription.get("segments", []) if isinstance(transcription, dict) else []
+
+    fps = props_dict.get("fps") or 30
+    scene_records = []
+
+    for sc, scene_start_frame, scene_frames in scene_frame_offsets(scenes):
+        idx = len(scene_records)
+        scene_start_sec = scene_start_frame / float(fps)
+        scene_end_sec = (scene_start_frame + scene_frames) / float(fps)
+
+        # Collect subtitle segments falling into this scene
+        scene_segments = []
+        for seg in segments:
+            seg_start = seg.get("start", 0)
+            seg_end = seg.get("end", 0)
+            if seg_start < scene_end_sec and seg_end > scene_start_sec:
+                scene_segments.append(seg)
+
+        scene_props = {
+            "scene": sc,
+            "segments": scene_segments,
+            "scene_frames": scene_frames,
+        }
+
+        # Include mtimes of referenced sub-visuals
+        for j, sv in enumerate(sc.get("sub_visuals", [])):
+            path_str = sv.get("visual_path")
+            if path_str and isinstance(path_str, str):
+                clean_p = path_str.replace("file:///", "").replace("file://", "")
+                if os.path.exists(clean_p):
+                    stat = os.stat(clean_p)
+                    scene_props[f"sv_{j}_mtime"] = stat.st_mtime
+                    scene_props[f"sv_{j}_size"] = stat.st_size
+
+        scene_hash = hashlib.sha256(json.dumps(scene_props, sort_keys=True).encode('utf-8')).hexdigest()
+        scene_records.append({
+            "index": idx,
+            "start_frame": scene_start_frame,
+            "end_frame": scene_start_frame + scene_frames - 1,
+            "duration_frames": scene_frames,
+            "scene_hash": scene_hash,
+        })
+
+    return global_env_hash, scene_records
+
+
+def compute_frame_hash(props_dict, render_settings):
+    """Hash of frame-relevant properties only (scenes, transcription, overlays, resolution, fps).
+    Audio/encode settings don't affect pixel output, so they're excluded."""
+    frame_props = {
+        "scenes": props_dict.get("scenes", []),
+        "transcription": props_dict.get("transcription", {}),
+        "subtitleSettings": props_dict.get("subtitleSettings", {}),
+        "style": props_dict.get("style"),
+        "language": props_dict.get("language"),
+        "videoFormat": props_dict.get("videoFormat"),
+        "fps": props_dict.get("fps"),
+        "imageFormat": "jpeg",
+        "resolution": render_settings.get("resolution"),
+        "overlays": props_dict.get("overlays", []),
+        "quality": props_dict.get("quality", {}),
     }
 
     # Hash file contents/mtime rather than just string paths to detect in-place overwrites
-    for i, sc in enumerate(frame_props["scenes"]):
+    for i, sc in enumerate(frame_props.get("scenes") or []):
         for j, sv in enumerate(sc.get("sub_visuals", [])):
             path_str = sv.get("visual_path")
-            if path_str and os.path.exists(path_str):
-                stat = os.stat(path_str)
-                frame_props[f"visual_{i}_{j}_mtime"] = stat.st_mtime
-                frame_props[f"visual_{i}_{j}_size"] = stat.st_size
+            if path_str and isinstance(path_str, str):
+                clean_p = path_str.replace("file:///", "").replace("file://", "")
+                if os.path.exists(clean_p):
+                    stat = os.stat(clean_p)
+                    frame_props[f"visual_{i}_{j}_mtime"] = stat.st_mtime
+                    frame_props[f"visual_{i}_{j}_size"] = stat.st_size
+
+    for k, ov in enumerate(frame_props.get("overlays", [])):
+        logo = ov.get("logo_url") if isinstance(ov, dict) else None
+        if logo and isinstance(logo, str):
+            clean_p = logo.replace("file:///", "").replace("file://", "")
+            if os.path.exists(clean_p):
+                stat = os.stat(clean_p)
+                frame_props[f"overlay_{k}_mtime"] = stat.st_mtime
+                frame_props[f"overlay_{k}_size"] = stat.st_size
 
     data_str = json.dumps(frame_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
@@ -140,6 +250,7 @@ def compute_audio_hash(props_dict, render_settings):
                     "duration": (t_end - t_start) / 30.0,
                 })
     audio_props["videoAudioSources"] = video_audio_sources
+    audio_props["musicClips"] = props_dict.get("musicClips", [])
 
     # Per-sub-visual audio cut flags (mute_voiceover / mute_bg_music) — toggling
     # them must invalidate the cached audio mix.
@@ -169,6 +280,14 @@ def compute_audio_hash(props_dict, render_settings):
                 audio_props[f"{key}_mtime"] = stat.st_mtime
                 audio_props[f"{key}_size"] = stat.st_size
 
+    for mc in audio_props.get("musicClips", []):
+        mpath = mc.get("audio_path")
+        if mpath and os.path.exists(mpath):
+            stat = os.stat(mpath)
+            mc_id = mc.get('id', 'clip')
+            audio_props[f"mc_{mc_id}_mtime"] = stat.st_mtime
+            audio_props[f"mc_{mc_id}_size"] = stat.st_size
+
     for vas in video_audio_sources:
         path_str = vas["path"]
         if path_str and os.path.exists(path_str):
@@ -192,16 +311,38 @@ def compute_mux_hash(frame_hash, audio_hash, render_settings):
     data_str = json.dumps(mux_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
-def get_missing_frame_ranges(frames_dir, total_frames):
+def get_missing_frame_ranges(frames_dir, total_frames, target_ext="jpeg"):
     """Finds all missing frame ranges from 0 to total_frames - 1."""
     if not frames_dir.exists():
         return f"0-{total_frames - 1}"
     
     existing_frames = set()
-    for f in frames_dir.glob("element-*.webp"):
-        match = re.search(r"element-(\d+)\.webp", f.name)
-        if match:
-            existing_frames.add(int(match.group(1)))
+    valid_exts = {target_ext, "jpg" if target_ext == "jpeg" else target_ext}
+
+    for f in list(frames_dir.glob("element-*.*")):
+        if f.stat().st_size == 0:
+            # Clean up corrupted 0-byte frames so FFmpeg doesn't choke on them later
+            try:
+                f.unlink()
+            except OSError:
+                pass
+            continue
+
+        match = re.search(r"element-(\d+)\.([a-zA-Z0-9]+)$", f.name)
+        if not match:
+            continue
+
+        frame_num = int(match.group(1))
+        ext = match.group(2).lower()
+
+        # If leftover frame beyond total_frames or wrong format, remove it
+        if frame_num >= total_frames or ext not in valid_exts:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        else:
+            existing_frames.add(frame_num)
             
     missing_ranges = []
     start = None
@@ -315,11 +456,12 @@ def _stream_process_output(process, cancel_event, line_callback, label="Process"
 
     return process.returncode, tail
 
-def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
-    """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering."""
-    manifest_path = Path(project_dict['assets_manifest_path'])
-    transcribe_path = Path(project_dict['transcription_path'])
-    audio_path = Path(project_dict['audio_path'])
+def prepare_render_props_and_settings(project_dict, project_dir):
+    """Prepares and returns normalized props, render_settings, and associated data for render & staleness checks."""
+    project_dir = Path(project_dir)
+    manifest_path = Path(project_dict.get('assets_manifest_path') or (project_dir / "assets_manifest.json"))
+    transcribe_path = Path(project_dict.get('transcription_path') or (project_dir / "subtitles" / "transcription.json"))
+    audio_path = Path(project_dict.get('audio_path') or (project_dir / "voiceover" / "voiceover.wav"))
 
     if not manifest_path.exists():
         raise FileNotFoundError(f"Segment manifest not found: {manifest_path}")
@@ -328,38 +470,101 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     if not audio_path.exists():
         raise FileNotFoundError(f"Narration track not found: {audio_path}")
 
-    logger.info(f"Preparing Remotion compilation properties for project: {project_dict['name']}")
-    progress_cb(5.0, "Preparing compilation properties...")
-
     # 1. Load manifests
     with open(manifest_path, "r", encoding="utf-8") as f:
-        scenes = json.load(f)
+        raw_manifest = json.load(f)
+    if isinstance(raw_manifest, dict):
+        scenes = raw_manifest.get("scenes") or raw_manifest.get("assets") or []
+    elif isinstance(raw_manifest, list):
+        scenes = raw_manifest
+    else:
+        scenes = []
+
     with open(transcribe_path, "r", encoding="utf-8") as f:
         transcript = json.load(f)
 
-    # Strip internal pipeline metadata (_content_hash, _voiceover_*) that doesn't affect
-    # rendering output. This prevents metadata changes (e.g. first save after hash system
-    # was introduced, or TTS engine/voice changes) from invalidating the render cache.
-    for sc in scenes:
-        sc.pop("_content_hash", None)
-        sc.pop("_voiceover_engine", None)
-        sc.pop("_voiceover_voice", None)
-        sc.pop("_voiceover_speed", None)
-        sc.pop("_voiceover_pitch", None)
+    # Sync live sub_visuals and global overlays from script.json if available
+    from backend.pipeline.assets import _has_meaningful_sub_visuals
+    script_path = project_dir / "script.json"
+    overlays = []
+    if script_path.exists():
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script_data = json.load(f)
+            script_scenes = script_data.get("scenes", []) if isinstance(script_data.get("scenes"), list) else []
+            scene_counter = 0
+            for sc in scenes:
+                if not isinstance(sc, dict):
+                    continue
+                sec_type = sc.get("section_type")
+                if sec_type == "introduction" and script_data.get("introduction"):
+                    subs = script_data["introduction"].get("sub_visuals")
+                    if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(sc.get("sub_visuals")):
+                        if subs:
+                            sc["sub_visuals"] = subs
+                elif sec_type == "conclusion" and script_data.get("conclusion"):
+                    subs = script_data["conclusion"].get("sub_visuals")
+                    if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(sc.get("sub_visuals")):
+                        if subs:
+                            sc["sub_visuals"] = subs
+                elif sec_type == "scene":
+                    if scene_counter < len(script_scenes):
+                        script_scene = script_scenes[scene_counter]
+                        subs = script_scene.get("sub_visuals")
+                        if _has_meaningful_sub_visuals(subs) or not _has_meaningful_sub_visuals(sc.get("sub_visuals")):
+                            if subs:
+                                sc["sub_visuals"] = subs
+                    scene_counter += 1
 
-    # Convert local absolute paths in scenes/audios into Bottle media serving URLs
+            raw_overlays = script_data.get("overlays", [])
+            if isinstance(raw_overlays, list):
+                overlays = raw_overlays
+        except Exception as e:
+            logger.warning(f"Could not merge script.json into render scenes/overlays: {e}")
+
+    # Strip internal pipeline metadata (_content_hash, _voiceover_*) that doesn't affect
+    # rendering output. This prevents metadata changes from invalidating the render cache.
     for sc in scenes:
-        sc["audio_url"] = clean_media_path(sc["audio_path"])
+        if isinstance(sc, dict):
+            sc.pop("_content_hash", None)
+            sc.pop("_voiceover_engine", None)
+            sc.pop("_voiceover_voice", None)
+            sc.pop("_voiceover_speed", None)
+            sc.pop("_voiceover_pitch", None)
+
+    # Convert local absolute paths in scenes/audios into Bottle media serving URLs & normalize video assets
+    for sc in scenes:
+        if isinstance(sc, dict):
+            if sc.get("audio_path"):
+                sc["audio_url"] = clean_media_path(sc["audio_path"])
         
         sub_visuals = sc.get("sub_visuals", [])
         
         for sv in sub_visuals:
             if sv.get("visual_path"):
+                sv["visual_path"] = normalize_video_asset(sv["visual_path"])
                 sv["visual_url"] = clean_media_path(sv["visual_path"])
             else:
                 sv["visual_url"] = ""
+
+            # Normalize AST composition layers
+            comp = sv.get("composition", {})
+            if isinstance(comp, dict) and comp.get("type") == "Sequence":
+                for layer in comp.get("children", []):
+                    content = layer.get("content", {})
+                    if content.get("type") == "Video" and content.get("local_path"):
+                        content["local_path"] = normalize_video_asset(content["local_path"])
         
         sc["sub_visuals"] = sub_visuals
+
+    # Clean local media paths in global overlays (e.g. watermark logo_url)
+    cleaned_overlays = []
+    for item in overlays:
+        if isinstance(item, dict):
+            item_copy = dict(item)
+            if item_copy.get("logo_url"):
+                item_copy["logo_url"] = clean_media_path(item_copy["logo_url"])
+            cleaned_overlays.append(item_copy)
 
     bg_music_url = ""
     bg_path_str = project_dict.get("bg_music_path")
@@ -377,13 +582,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             logger.error(f"Failed to parse project_settings: {e}")
 
     # ── Track visibility overrides ─────────────────────────────────────────
-    # When the user hides/mutes tracks in the timeline UI, these overrides
-    # make the final rendered video reflect those choices.
     render_track_overrides = {
         "muteVoice": project_settings.get("render_mute_voice", False),
         "muteMusic": project_settings.get("render_mute_music", False),
         "muteVideoAudio": project_settings.get("render_mute_video_audio", False),
         "hideSubtitles": project_settings.get("render_hide_subtitles", False),
+        "hideOverlays": project_settings.get("render_hide_overlays", False),
     }
 
     # Fetch rendering settings — project_settings override global defaults
@@ -394,15 +598,47 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     render_codec = project_settings.get("render_codec") or get_setting("render_codec") or "h264"
     render_hardware = project_settings.get("render_hardware") or get_setting("render_hardware") or "cpu"
     render_timeout = project_settings.get("render_timeout") or get_setting("render_timeout") or "600000"
+    render_motion_blur = project_settings.get("render_motion_blur") or get_setting("render_motion_blur") or "balanced"
+    render_glass_cap = project_settings.get("render_glass_cap") or get_setting("render_glass_cap") or "16"
 
     fps = int(render_fps)
     timeout_ms = int(render_timeout)
 
+    raw_music_clips = project_dict.get("music_clips")
+    parsed_music_clips = []
+    if raw_music_clips:
+        try:
+            parsed_music_clips = json.loads(raw_music_clips) if isinstance(raw_music_clips, str) else raw_music_clips
+        except Exception:
+            parsed_music_clips = []
+
+    cleaned_music_clips = []
+    for mc in parsed_music_clips:
+        if isinstance(mc, dict) and mc.get("audio_path"):
+            mc_copy = dict(mc)
+            mc_copy["audio_url"] = clean_media_path(mc_copy["audio_path"])
+            cleaned_music_clips.append(mc_copy)
+
+    bg_vol_val = _safe_float(project_dict.get("bg_music_volume"), default=0.15)
+    voice_vol_val = _safe_float(project_settings.get("voiceover_volume"), default=1.0)
+
+    # ── Visual-effects quality policy (Settings → Rendering Engine) ──────
+    # Validated here so a corrupt DB value can never break the renderer.
+    motion_blur_mode = str(render_motion_blur).lower() if render_motion_blur else "balanced"
+    if motion_blur_mode not in ("off", "balanced", "full"):
+        motion_blur_mode = "balanced"
+    try:
+        glass_cap_px = max(0, min(24, int(float(render_glass_cap))))
+    except (ValueError, TypeError):
+        glass_cap_px = 16
+    quality_policy = {"motionBlur": motion_blur_mode, "glassCap": glass_cap_px}
+
     props = {
         "audioUrl": clean_media_path(str(audio_path)),
         "bgMusicUrl": bg_music_url,
-        "bgMusicVolume": float(project_dict.get("bg_music_volume") or 0.15),
-        "voiceoverVolume": float(project_settings.get("voiceover_volume") or 1.0),
+        "bgMusicVolume": bg_vol_val,
+        "musicClips": cleaned_music_clips,
+        "voiceoverVolume": voice_vol_val,
         "muteVideoAudio": False,
         "scenes": scenes,
         "transcription": transcript,
@@ -410,7 +646,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "language": project_dict.get("language", "hi"),
         "videoFormat": project_dict.get("video_format", "landscape"),
         "fps": fps,
-        "subtitleSettings": project_settings
+        "subtitleSettings": project_settings,
+        "overlays": cleaned_overlays,
+        "quality": quality_policy,
     }
 
     # Apply track visibility overrides to render props
@@ -420,6 +658,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     if render_track_overrides["muteMusic"]:
         props["bgMusicVolume"] = 0.0
         props["bgMusicUrl"] = ""
+        props["musicClips"] = []
         logger.info("Smart Resume: Background music muted by track override.")
     if render_track_overrides["muteVideoAudio"]:
         props["muteVideoAudio"] = True
@@ -430,13 +669,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         else:
             props["subtitleSettings"] = {"hide_subtitles": True}
         logger.info("Smart Resume: Subtitles hidden by track override.")
-
-    # Write props to a JSON file
-    props_path = project_dir / "render_props.json"
-    with open(props_path, "w", encoding="utf-8") as f:
-        json.dump(props, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"Wrote render props to {props_path}")
+    if render_track_overrides["hideOverlays"]:
+        props["overlays"] = []
+        logger.info("Smart Resume: Overlays hidden by track override.")
 
     render_settings = {
         "resolution": render_resolution,
@@ -444,8 +679,124 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         "fps": fps,
         "crf": render_crf,
         "codec": render_codec,
-        "hardware": render_hardware
+        "hardware": render_hardware,
+        "timeout": timeout_ms,
     }
+
+    return (props, render_settings, scenes, transcript, audio_path, render_track_overrides, project_settings, cleaned_music_clips)
+
+
+def is_render_stale(project_dict, project_dir) -> bool:
+    """
+    Evaluates whether the render stage is stale under the Smart Resume caching architecture.
+    Returns True if:
+    - Target MP4 is missing on disk or empty
+    - Any render cache files (frame.hash.txt, audio.hash.txt, mux.hash.txt, audio.wav, frames dir) are missing
+    - audio_hash differs (bg_music path, volumes, music clips, fades, or cuts changed)
+    - frame_hash differs (visual layers, subtitles, or resolutions changed)
+    - mux_hash differs (CRF, codec, hardware changed)
+    """
+    try:
+        if not project_dict:
+            return True
+        project_dir = Path(project_dir)
+        
+        # 1. Check final video output
+        if project_dict.get('export_folder'):
+            exports_dir = Path(project_dict['export_folder'])
+        else:
+            from backend.core.config import get_exports_dir
+            exports_dir = get_exports_dir()
+        
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', project_dict.get('name', 'project'))
+        output_mp4_path = exports_dir / f"{safe_name}.mp4"
+        custom_video_path = project_dict.get('video_path')
+        if custom_video_path and Path(custom_video_path).exists() and Path(custom_video_path).stat().st_size > 0:
+            target_mp4 = Path(custom_video_path)
+        else:
+            target_mp4 = output_mp4_path
+
+        if not target_mp4.exists() or target_mp4.stat().st_size == 0:
+            return True
+
+        cache_dir = project_dir / "render_cache"
+        frame_hash_file = cache_dir / "frame.hash.txt"
+        audio_hash_file = cache_dir / "audio.hash.txt"
+        mux_hash_file = cache_dir / "mux.hash.txt"
+        cached_audio_path = cache_dir / "audio.wav"
+        frames_dir = cache_dir / "frames"
+
+        if not (frame_hash_file.exists() and audio_hash_file.exists() and mux_hash_file.exists() and cached_audio_path.exists() and frames_dir.exists()):
+            return True
+
+        if not any(frames_dir.glob("element-*.*")):
+            logger.info("Smart Resume: Render is stale because cached frames directory contains no frames.")
+            return True
+
+        # Check required upstream files
+        manifest_path = Path(project_dict.get('assets_manifest_path') or (project_dir / "assets_manifest.json"))
+        transcribe_path = Path(project_dict.get('transcription_path') or (project_dir / "subtitles" / "transcription.json"))
+        audio_path = Path(project_dict.get('audio_path') or (project_dir / "voiceover" / "voiceover.wav"))
+
+        if not (manifest_path.exists() and transcribe_path.exists() and audio_path.exists()):
+            return True
+
+        props, render_settings = prepare_render_props_and_settings(project_dict, project_dir)[:2]
+
+        current_audio_hash = compute_audio_hash(props, render_settings)
+        cached_audio_hash = audio_hash_file.read_text().strip()
+        if current_audio_hash != cached_audio_hash:
+            logger.info(f"Smart Resume: Render is stale due to audio changes (audio hash mismatch: {cached_audio_hash[:8]} vs {current_audio_hash[:8]}).")
+            return True
+
+        current_frame_hash = compute_frame_hash(props, render_settings)
+        cached_frame_hash = frame_hash_file.read_text().strip()
+        if current_frame_hash != cached_frame_hash:
+            logger.info(f"Smart Resume: Render is stale due to visual frame changes (frame hash mismatch: {cached_frame_hash[:8]} vs {current_frame_hash[:8]}).")
+            return True
+
+        current_mux_hash = compute_mux_hash(current_frame_hash, current_audio_hash, render_settings)
+        cached_mux_hash = mux_hash_file.read_text().strip()
+        if current_mux_hash != cached_mux_hash:
+            logger.info(f"Smart Resume: Render is stale due to mux/encode settings change.")
+            return True
+
+        return False
+    except Exception as e:
+        logger.error(f"Error evaluating is_render_stale: {e}")
+        return True
+
+
+def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=False):
+    """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering.
+
+    force=True (explicit stage re-run via start_processing_pipeline) invalidates
+    the frame/audio caches so every frame is re-rendered instead of skipped.
+    force=False (smart resume via resume_processing_pipeline) keeps granular reuse.
+    """
+    logger.info(f"Preparing Remotion compilation properties for project: {project_dict['name']}")
+    progress_cb(5.0, "Preparing compilation properties...")
+
+    project_dir = Path(project_dir)
+    (
+        props, render_settings, scenes, transcript, audio_path,
+        render_track_overrides, project_settings, cleaned_music_clips
+    ) = prepare_render_props_and_settings(project_dict, project_dir)
+
+    fps = render_settings["fps"]
+    timeout_ms = render_settings["timeout"]
+    render_resolution = render_settings["resolution"]
+    render_concurrency = render_settings["concurrency"]
+    render_crf = render_settings["crf"]
+    render_codec = render_settings["codec"]
+    render_hardware = render_settings["hardware"]
+
+    # Write props to a JSON file
+    props_path = project_dir / "render_props.json"
+    with open(props_path, "w", encoding="utf-8") as f:
+        json.dump(props, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Wrote render props to {props_path}")
 
     # Compute three domain-specific hashes
     frame_hash = compute_frame_hash(props, render_settings)
@@ -480,28 +831,98 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     # ── Ensure cache root exists ───────────────────────────────────────────
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Frame cache check ─────────────────────────────────────────────────
-    if frame_hash_file.exists():
-        existing = frame_hash_file.read_text().strip()
-        if existing == frame_hash:
-            if frames_dir.exists():
-                existing_count = len(list(frames_dir.glob("element-*.webp")))
-                logger.info(f"Frame hash matches. {existing_count} cached frames found. Will resume from missing ranges.")
-            else:
-                logger.info("Frame hash matches but frames/ missing. Re-creating.")
-                frames_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            existing_count = len(list(frames_dir.glob("element-*.webp"))) if frames_dir.exists() else 0
-            logger.info(f"Frame hash CHANGED (old:{existing[:12]}… != new:{frame_hash[:12]}…). "
-                        f"Invalidating {existing_count} cached frames.")
-            if frames_dir.exists():
-                shutil.rmtree(frames_dir, ignore_errors=True)
-            frames_dir.mkdir(parents=True, exist_ok=True)
-            frame_hash_file.write_text(frame_hash)
-    else:
-        logger.info("No frame cache found. Creating new frame cache.")
+    # ── Forced re-run: invalidate caches so frames are NOT skipped ──────────
+    # Without this, an explicit stage re-run (is_resume=False) still hits the
+    # Smart Resume fast path: hashes match → missing_ranges="" → "All frames
+    # already rendered. Skipping frame render phase."
+    if force:
+        logger.info("Force re-run requested: invalidating cached frames and audio so all frames re-render.")
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir, ignore_errors=True)
         frames_dir.mkdir(parents=True, exist_ok=True)
-        frame_hash_file.write_text(frame_hash)
+        if cached_audio_path.exists():
+            try:
+                cached_audio_path.unlink()
+            except OSError:
+                pass
+
+    # ── Granular Scene-Level Frame Cache Check ────────────────────────────
+    scene_cache_file = cache_dir / "scene_hashes.json"
+    global_env_hash, current_scene_records = compute_granular_frame_hashes(props, render_settings)
+
+    if not force and scene_cache_file.exists() and frames_dir.exists():
+        try:
+            with open(scene_cache_file, "r", encoding="utf-8") as f:
+                cached_data = json.load(f)
+            cached_global_hash = cached_data.get("global_env_hash")
+            cached_scenes = cached_data.get("scenes", [])
+
+            if cached_global_hash == global_env_hash:
+                # Global environment matches! We can do granular scene-level invalidation
+                cached_scene_map = {s["index"]: s for s in cached_scenes if isinstance(s, dict) and "index" in s}
+                invalidated_scene_count = 0
+                reused_scene_count = 0
+
+                for curr_s in current_scene_records:
+                    s_idx = curr_s["index"]
+                    prev_s = cached_scene_map.get(s_idx)
+                    # If scene hash changed or start/end frame boundary shifted:
+                    if (not prev_s or 
+                        prev_s.get("scene_hash") != curr_s["scene_hash"] or 
+                        prev_s.get("start_frame") != curr_s["start_frame"] or 
+                        prev_s.get("end_frame") != curr_s["end_frame"]):
+                        
+                        invalidated_scene_count += 1
+                        ranges_to_delete = []
+                        if prev_s:
+                            ranges_to_delete.append((prev_s.get("start_frame", 0), prev_s.get("end_frame", 0)))
+                        ranges_to_delete.append((curr_s["start_frame"], curr_s["end_frame"]))
+
+                        for r_start, r_end in ranges_to_delete:
+                            for f_num in range(r_start, r_end + 1):
+                                for p in (f"element-{f_num}.jpeg", f"element-{f_num}.jpg", f"element-{f_num}.webp",
+                                          f"element-{f_num:04d}.jpeg", f"element-{f_num:05d}.jpeg", f"element-{f_num:06d}.jpeg",
+                                          f"element-{f_num:04d}.webp", f"element-{f_num:05d}.webp"):
+                                    f_path = frames_dir / p
+                                    if f_path.exists():
+                                        try: f_path.unlink()
+                                        except OSError: pass
+                        logger.info(f"Smart Resume: Invalidated cached frames for modified Scene {s_idx} (frames {curr_s['start_frame']}-{curr_s['end_frame']}).")
+                    else:
+                        reused_scene_count += 1
+                        logger.info(f"Smart Resume: Reusing cached frames for unchanged Scene {s_idx} (frames {curr_s['start_frame']}-{curr_s['end_frame']}).")
+
+                # Remove any leftover frames from scenes that were deleted
+                if len(cached_scenes) > len(current_scene_records):
+                    for old_s in cached_scenes[len(current_scene_records):]:
+                        for f_num in range(old_s.get("start_frame", 0), old_s.get("end_frame", 0) + 1):
+                            for p in (f"element-{f_num}.jpeg", f"element-{f_num}.jpg", f"element-{f_num}.webp",
+                                      f"element-{f_num:04d}.jpeg", f"element-{f_num:05d}.jpeg", f"element-{f_num:06d}.jpeg"):
+                                f_path = frames_dir / p
+                                if f_path.exists():
+                                    try: f_path.unlink()
+                                    except OSError: pass
+
+                existing_count = sum(len(list(frames_dir.glob(p))) for p in ("element-*.jpeg", "element-*.jpg", "element-*.webp"))
+                logger.info(f"Smart Resume granular cache: {reused_scene_count} scenes reused, {invalidated_scene_count} scenes marked for re-render. {existing_count} cached frames on disk.")
+            else:
+                logger.info("Smart Resume: Global render environment changed (overlays/resolution/styles). Invalidating all frame caches.")
+                shutil.rmtree(frames_dir, ignore_errors=True)
+                frames_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Error evaluating granular scene cache: {e}. Falling back to full frame cache check.")
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            frames_dir.mkdir(parents=True, exist_ok=True)
+    elif not force and frame_hash_file.exists() and frame_hash_file.read_text().strip() == frame_hash:
+        existing_count = sum(len(list(frames_dir.glob(p))) for p in ("element-*.jpeg", "element-*.jpg", "element-*.webp"))
+        logger.info(f"Frame hash matches. {existing_count} cached frames found. Will resume from missing ranges.")
+    else:
+        logger.info("No valid granular frame cache found. Creating new frame cache.")
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        frames_dir.mkdir(parents=True, exist_ok=True)
+
+    frame_hash_file.write_text(frame_hash)
 
     # ── Audio cache check ─────────────────────────────────────────────────
     audio_cache_valid = False
@@ -549,16 +970,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     abs_bundle_dir = str(bundle_dir.resolve()).replace('\\', '/')
     abs_props_path = str(props_path.resolve()).replace('\\', '/')
     
-    if render_concurrency == "logical":
+
+
+
+    if render_concurrency in ["logical", "100%"]:
         concurrency_arg = "100%"
-        # Long videos (>= 6 min at 30fps) spawn one Chrome tab per logical core,
-        # each holding its own DOM/GPU buffers. Cap to half to avoid the RAM/GPU
-        # exhaustion that manifests as system freezes or screen blackouts.
-        if total_frames > 10800:
-            concurrency_arg = "50%"
-            logger.info(f"Long video ({total_frames} frames): capping render concurrency to 50% to prevent system hang.")
-    elif render_concurrency == "physical":
+    elif render_concurrency in ["physical", "50%"]:
         concurrency_arg = "50%"
+    elif render_concurrency in ["25%", "75%"]:
+        concurrency_arg = render_concurrency
     else:
         concurrency_arg = render_concurrency
     
@@ -749,6 +1169,16 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         logger.info("All frames already rendered. Skipping frame render phase.")
         progress_cb(80.0, "All frames already rendered.")
 
+    # ── Persist Granular Scene Hashes ──────────────────────────────────────
+    try:
+        with open(scene_cache_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "global_env_hash": global_env_hash,
+                "scenes": current_scene_records
+            }, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to persist scene_hashes.json: {e}")
+
     # ── Log Smart Resume render scope ──────────────────────────────────────
     frames_actually_rendered = bool(missing_ranges_str)
     summary_parts = []
@@ -775,8 +1205,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         bg_path_str = project_dict.get("bg_music_path")
         bg_path = str(Path(bg_path_str).resolve()) if bg_path_str and Path(bg_path_str).exists() else None
         
-        voice_vol = float(project_settings.get("voiceover_volume") or 1.0)
-        bg_vol = float(project_dict.get("bg_music_volume") or 0.15)
+        voice_vol = float(project_settings.get("voiceover_volume")) if project_settings.get("voiceover_volume") is not None else 1.0
+        bg_vol = float(project_dict.get("bg_music_volume")) if project_dict.get("bg_music_volume") is not None else 0.15
         
         if render_track_overrides.get("muteVoice"):
             voice_vol = 0.0
@@ -807,6 +1237,17 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
                 if sv.get("mute_bg_music"):
                     bg_cuts.append(((scene_start + t_start) / 30.0, (scene_start + t_end) / 30.0))
 
+        # ── Collect music clip inputs ──────────────────────────────────────
+        music_clip_inputs = []
+        if not render_track_overrides.get("muteMusic"):
+            for mc in cleaned_music_clips:
+                mpath = mc.get("audio_path")
+                if mpath and Path(mpath).exists() and not mc.get("is_muted"):
+                    music_clip_inputs.append(mc)
+
+        has_clips_config = project_dict.get("music_clips") is not None
+        has_legacy_bg = (not has_clips_config) and bg_path and bg_vol > 0 and not render_track_overrides.get("muteMusic")
+
         ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
         
         cmd_audio = [ffmpeg_bin, "-y"]
@@ -816,11 +1257,20 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         cmd_audio.extend(["-i", voice_path])
         input_count = 1
 
-        # Input 1: bg music (if present)
-        has_bg = bg_path and bg_vol > 0
-        if has_bg:
+        # Legacy Input 1: bg music (if present and project has never configured music_clips)
+        if has_legacy_bg:
             cmd_audio.extend(["-stream_loop", "-1", "-i", bg_path])
-            input_count = 2
+            input_count += 1
+
+        # Music clip inputs
+        music_clip_start_idx = input_count
+        for mc in music_clip_inputs:
+            mpath = mc["audio_path"]
+            if mc.get("loop", True):
+                cmd_audio.extend(["-stream_loop", "-1", "-i", mpath])
+            else:
+                cmd_audio.extend(["-i", mpath])
+            input_count += 1
 
         # Probe audio streams for each video track using ffprobe
         video_audio_inputs = []
@@ -844,13 +1294,10 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         mix_inputs = []
 
         # Chain per-sub-visual cut ranges: volume=0:enable='gte(t,s)*lt(t,e)'.
-        # gte/lt replicate the frontend's `frame >= start && frame < end` semantics;
-        # `between(t,s,e)` is inclusive at both ends and keeps each cut muted one
-        # frame longer than the preview.
         def _apply_cuts(vol: float, cuts: list) -> str:
             if not cuts:
-                return f"volume={vol}"
-            parts = [f"volume={vol}"]
+                return f"volume={vol:.3f}"
+            parts = [f"volume={vol:.3f}"]
             for s, e in cuts:
                 parts.append(f"volume=0:enable='gte(t,{s:.3f})*lt(t,{e:.3f})'")
             return ",".join(parts)
@@ -860,11 +1307,50 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         filter_parts.append(f"[0:a]{voice_filter}[voice]")
         mix_inputs.append("[voice]")
 
-        # BG music (input index 1 if present)
-        if has_bg:
+        # Legacy BG music (if present)
+        if has_legacy_bg:
             bg_filter = _apply_cuts(bg_vol, bg_cuts)
             filter_parts.append(f"[1:a]{bg_filter}[bg]")
             mix_inputs.append("[bg]")
+
+        # Music clips
+        for idx, mc in enumerate(music_clip_inputs):
+            in_idx = music_clip_start_idx + idx
+            start_sec = max(0.0, _safe_float(mc.get("start_frame"), 0.0) / 30.0)
+            dur_sec = max(0.1, _safe_float(mc.get("duration_frames"), 30.0) / 30.0)
+            src_start = max(0.0, _safe_float(mc.get("source_start_seconds"), 0.0))
+            fade_in = max(0.0, _safe_float(mc.get("fade_in_seconds"), 0.0))
+            fade_out = max(0.0, _safe_float(mc.get("fade_out_seconds"), 0.0))
+            master_vol_mult = (bg_vol / 0.15) if (bg_vol is not None and bg_vol >= 0) else 1.0
+            clip_vol = max(0.0, _safe_float(mc.get("volume"), 0.2) * master_vol_mult)
+
+            mc_filters = []
+            if src_start > 0:
+                mc_filters.append(f"atrim=start={src_start:.3f}:duration={dur_sec:.3f},asetpts=PTS-STARTPTS")
+            else:
+                mc_filters.append(f"atrim=duration={dur_sec:.3f},asetpts=PTS-STARTPTS")
+
+            if fade_in > 0:
+                mc_filters.append(f"afade=t=in:st=0:d={min(fade_in, dur_sec):.3f}")
+            if fade_out > 0:
+                st_out = max(0.0, dur_sec - fade_out)
+                mc_filters.append(f"afade=t=out:st={st_out:.3f}:d={min(fade_out, dur_sec):.3f}")
+
+            # Overlapping bg cuts
+            clip_end_sec = start_sec + dur_sec
+            for s, e in bg_cuts:
+                if max(s, start_sec) < min(e, clip_end_sec):
+                    rel_s = max(0.0, s - start_sec)
+                    rel_e = min(dur_sec, e - start_sec)
+                    mc_filters.append(f"volume=0:enable='gte(t,{rel_s:.3f})*lt(t,{rel_e:.3f})'")
+
+            mc_filters.append(f"volume={clip_vol:.3f}")
+            delay_ms = int(start_sec * 1000)
+            if delay_ms > 0:
+                mc_filters.append(f"adelay={delay_ms}:all=1")
+
+            filter_parts.append(f"[{in_idx}:a]" + ",".join(mc_filters) + f"[bgc{idx}]")
+            mix_inputs.append(f"[bgc{idx}]")
 
         # Video audio tracks
         for i, vat in enumerate(video_audio_inputs):
@@ -872,7 +1358,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             delay_ms = int(vat["start_time"] * 1000)
             vol = vat["volume"]
             if delay_ms > 0:
-                filter_parts.append(f"[{vidx}:a]volume={vol},adelay={delay_ms}|{delay_ms}[va{i}]")
+                filter_parts.append(f"[{vidx}:a]volume={vol},adelay={delay_ms}:all=1[va{i}]")
             else:
                 filter_parts.append(f"[{vidx}:a]volume={vol}[va{i}]")
             mix_inputs.append(f"[va{i}]")
@@ -907,35 +1393,43 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     progress_cb(90.0, "Muxing final video...")
     ffmpeg_bin = str(ffmpeg_exe) if ffmpeg_exe.exists() else "ffmpeg"
     
-    # Normalize frame filenames to consistent padding.
+    # Ensure all frames are within total_frames and remove any lingering leftover frames
+    for f in list(frames_dir.glob("element-*.*")):
+        m = re.search(r"element-(\d+)\.", f.name)
+        if m and int(m.group(1)) >= total_frames:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
+    # Normalize frame filenames to consistent padding and auto-detect image extension.
     # Remotion's renderFrames may produce unpadded names for single-frame ranges
-    # (e.g. element-474.webp) mixed with padded names for multi-frame ranges.
-    # Without normalization, FFmpeg's %0Nd pattern misses unpadded files and
-    # produces a truncated video — only N frames are encoded instead of all.
-    frame_files_list = list(frames_dir.glob("element-*.webp"))
+    # (e.g. element-474.jpeg) mixed with padded names for multi-frame ranges.
+    # Without normalization, FFmpeg's %0Nd pattern misses unpadded files.
+    frame_files_list = list(frames_dir.glob("element-*.jpeg")) or list(frames_dir.glob("element-*.jpg")) or list(frames_dir.glob("element-*.webp"))
     if not frame_files_list:
         raise RuntimeError(f"No frames found in {frames_dir}")
 
+    # Determine the file extension of the rendered frames
+    frame_ext = frame_files_list[0].suffix.lstrip(".")
+
     max_frame = 0
     for f in frame_files_list:
-        m = re.search(r"element-(\d+)\.webp", f.name)
+        m = re.search(r"element-(\d+)\.(?:jpeg|jpg|webp)", f.name)
         if m:
             max_frame = max(max_frame, int(m.group(1)))
 
     normalized_padding = max(len(str(max_frame)), 4)
     for f in frame_files_list:
-        m = re.search(r"element-(\d+)\.webp", f.name)
+        m = re.search(r"element-(\d+)\.(?:jpeg|jpg|webp)", f.name)
         if m:
             frame_num = int(m.group(1))
-            expected_name = f"element-{frame_num:0{normalized_padding}d}.webp"
+            expected_name = f"element-{frame_num:0{normalized_padding}d}.{frame_ext}"
             if f.name != expected_name:
                 dest = f.parent / expected_name
-                if not dest.exists():
-                    f.rename(dest)
-                else:
-                    f.unlink()
+                f.replace(dest)
 
-    frame_input_pattern = f"element-%0{normalized_padding}d.webp"
+    frame_input_pattern = f"element-%0{normalized_padding}d.{frame_ext}"
 
     ffmpeg_cmd = [
         ffmpeg_bin, "-y",

@@ -52,6 +52,7 @@ def init_db():
                 tts_speed REAL DEFAULT 1.0,
                 bg_music_path TEXT,
                 bg_music_volume REAL DEFAULT 0.15,
+                music_clips TEXT,
                 project_settings TEXT,
                 export_folder TEXT
             )
@@ -60,6 +61,11 @@ def init_db():
         # Add project_settings and export_folder to existing databases
         try:
             cursor.execute("ALTER TABLE projects ADD COLUMN video_format TEXT DEFAULT 'landscape'")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE projects ADD COLUMN music_clips TEXT")
         except sqlite3.OperationalError:
             pass # Column already exists
             
@@ -121,21 +127,13 @@ def init_db():
         
         # Insert default settings if empty or missing
         default_settings = {
-            "llm_provider": "openai",
             "openai_api_key": "",
             "openai_base_url": "https://api.openai.com/v1",
             "openai_model": "gpt-4o",
             "openai_temperature": "0.7",
             "openai_max_tokens": "4096",
             "openai_top_p": "1.0",
-            "nvidia_api_key": "",
-            "nvidia_base_url": "https://integrate.api.nvidia.com/v1",
-            "nvidia_model": "meta/llama-3.1-8b-instruct",
-            "nvidia_temperature": "0.7",
-            "nvidia_max_tokens": "4096",
-            "nvidia_top_p": "1.0",
-            "llm_concurrency": "1", # 1 for NVIDIA free tier, 3-5 for OpenAI
-            "llm_fallback_provider": "openai",
+            "llm_concurrency": "3",
             "whisper_model": "base",
             "whisper_device": "cpu", # 'cpu' or 'cuda'
             "tts_engine": "edge", # 'edge' or 'xtts'
@@ -146,6 +144,7 @@ def init_db():
             "bg_music_path": "",
             "bg_music_volume": "0.15",
             "pexels_api_key": "", # User's Pexels API Key
+            "pixabay_api_key": "", # User's Pixabay API Key
             "use_pexels": True,
             "use_youtube": True, # Enabled by default, user can toggle
             "youtube_download_duration": "15",
@@ -153,12 +152,14 @@ def init_db():
             "web_search_provider": "langsearch",  # Search provider
             "web_search_api_key": "",        # LangSearch API key
             "render_resolution": "1080p",
-            "render_concurrency": "logical",
+            "render_concurrency": "75%",
             "render_fps": "30",
             "render_crf": "23",
             "render_codec": "h264",
             "render_hardware": "cpu",
-            "render_timeout": "600000"
+            "render_timeout": "600000",
+            "render_motion_blur": "balanced",
+            "render_glass_cap": "16"
         }
         for k, v in default_settings.items():
             cursor.execute(
@@ -181,7 +182,7 @@ def init_db():
     logger.info("Database initialized successfully.")
 
 # Project Operations
-def create_project(name, prompt, export_folder, language="hi", style="nitish_rajput", duration_mode="medium", video_format="landscape"):
+def create_project(name, video_type, export_folder, language="hi", style="nitish_rajput", duration_mode="medium", video_format="landscape"):
     project_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
     
@@ -233,7 +234,7 @@ def create_project(name, prompt, export_folder, language="hi", style="nitish_raj
         conn.execute("""
             INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, project_settings, export_folder)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (project_id, name, prompt, now, now, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, project_settings, export_folder))
+        """, (project_id, name, video_type, now, now, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, project_settings, export_folder))
     logger.info(f"Created project in database: {name} (ID: {project_id}, Lang: {language}, Style: {style}, Format: {video_format}, ExportFolder: {export_folder})")
     return project_id
 
@@ -249,12 +250,18 @@ def get_all_projects():
 
 def update_project(project_id, **kwargs):
     kwargs['updated_at'] = datetime.utcnow().isoformat()
-    columns = ", ".join([f"{k} = ?" for k in kwargs.keys()])
-    values = list(kwargs.values())
+    sanitized = {}
+    for k, v in kwargs.items():
+        if isinstance(v, (dict, list)):
+            sanitized[k] = json.dumps(v, ensure_ascii=False)
+        else:
+            sanitized[k] = v
+    columns = ", ".join([f"{k} = ?" for k in sanitized.keys()])
+    values = list(sanitized.values())
     values.append(project_id)
     with get_db_connection() as conn:
         conn.execute(f"UPDATE projects SET {columns} WHERE id = ?", values)
-    logger.debug(f"Updated project {project_id}: {kwargs}")
+    logger.debug(f"Updated project {project_id}: {sanitized}")
 
 def delete_project(project_id):
     with get_db_connection() as conn:

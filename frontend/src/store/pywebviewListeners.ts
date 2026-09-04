@@ -2,7 +2,7 @@ import { useProjectStore, Task } from './useProjectStore';
 import { useSettingsStore } from './useSettingsStore';
 import { useUIStore } from './useUIStore';
 
-export const initializePywebviewListeners = () => {
+export const initializePywebviewListeners = async () => {
   if (!window.pywebview || typeof window.pywebview?.api?.db_get_projects !== 'function') {
     window.addEventListener('pywebviewready', () => {
       initializePywebviewListeners();
@@ -154,9 +154,12 @@ export const initializePywebviewListeners = () => {
   useSettingsStore.getState().checkGpuAvailability();
   
   if (typeof window.pywebview?.api?.get_file_server_port === 'function') {
-    window.pywebview.api.get_file_server_port().then((port: number) => {
+    try {
+      const port = await window.pywebview.api.get_file_server_port();
       (window as any).__file_server_port__ = port;
-    }).catch(console.error);
+    } catch (error) {
+      console.error(error);
+    }
   }
 
   if (typeof window.pywebview?.api?.get_agent_activity === 'function') {

@@ -96,13 +96,3 @@ def set_cached_response(cache_key: str, response):
             conn.commit()
     except Exception as e:
         logger.warning(f"Failed to write to LLM disk cache: {e}")
-
-def clear_llm_cache():
-    """Clear all entries in the LLM disk cache."""
-    try:
-        with _get_cache_connection() as conn:
-            conn.execute("DELETE FROM llm_cache")
-            conn.commit()
-        logger.info("LLM disk cache cleared.")
-    except Exception as e:
-        logger.error(f"Failed to clear LLM disk cache: {e}")

@@ -12,13 +12,11 @@ interface UsePipelineReturn {
   isRunning: boolean;
   targetStage: string;
   activeTaskStep: Task | null;
-  scriptChangedAlert: boolean;
   setTargetStage: (stage: string) => void;
   triggerFullPipeline: () => Promise<void>;
   handleResumeFromStage: (stageId: string) => Promise<void>;
   handleResumePipeline: () => Promise<void>;
   cancelPipeline: () => void;
-  setScriptChangedAlert: (alert: boolean) => void;
 }
 
 export function usePipeline(
@@ -67,7 +65,6 @@ export function usePipeline(
     }
   }, [selectedProject?.id, updateProject]);
   const [wasActive, setWasActive] = useState(false);
-  const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const previousTasksRef = useRef(tasks);
   const hasMountedRef = useRef(false);
 
@@ -150,19 +147,15 @@ export function usePipeline(
 
   const triggerFullPipeline = useCallback(async () => {
     if (!projectId) return;
-    setScriptChangedAlert(false);
     const allSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render'];
     const targetIdx = allSteps.indexOf(targetStage);
     const steps = allSteps.slice(0, targetIdx + 1);
     await syncTrackOverrides(steps);
     const res = await startPipeline(projectId, steps);
     if (res?.success) {
-      useEditorStore.getState().setAudioChangedAlert(false);
       loadFiles(projectId);
     }
   }, [projectId, targetStage, startPipeline, loadFiles, syncTrackOverrides]);
-
-
 
   const canResumeFrom = useCallback((stageId: string) => {
     const stageIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
@@ -199,11 +192,9 @@ export function usePipeline(
       return;
     }
 
-    setScriptChangedAlert(false);
     await syncTrackOverrides(stepsToRun);
     const res = await startPipeline(projectId, stepsToRun);
     if (res?.success) {
-      useEditorStore.getState().setAudioChangedAlert(false);
       addToast(`Resumed pipeline from: ${PIPELINE_STAGES[startIdx].title}`, 'success');
       loadFiles(projectId);
     } else {
@@ -227,9 +218,7 @@ export function usePipeline(
 
       // We simply pass the allowed range of steps to the backend. The backend evaluates staleness.
       const res = await useProjectStore.getState().resumePipeline(projectId, stepsToRun);
-      setScriptChangedAlert(false);
       if (res?.success) {
-        useEditorStore.getState().setAudioChangedAlert(false);
         addToast("Pipeline started successfully", 'success');
         loadFiles(projectId);
       } else {
@@ -246,8 +235,8 @@ export function usePipeline(
   }, [projectId, cancelPipeline]);
 
   return {
-    tasks, queue, isRunning, targetStage, activeTaskStep, scriptChangedAlert,
-    setTargetStage, setScriptChangedAlert,
+    tasks, queue, isRunning, targetStage, activeTaskStep,
+    setTargetStage,
     triggerFullPipeline, handleResumeFromStage, handleResumePipeline,
     cancelPipeline: cancelPipelineAction,
   };

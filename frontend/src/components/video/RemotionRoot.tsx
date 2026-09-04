@@ -22,9 +22,13 @@ export const RemotionRoot: React.FC = () => {
           transcription: { language: 'hi', segments: [] },
           style: 'nitish_rajput',
           language: 'hi',
-          videoFormat: 'landscape'
+          videoFormat: 'landscape',
+          overlays: []
         } as CompositionProps}
         calculateMetadata={({ props }) => {
+          if ((props as any).__file_server_port__) {
+            window.__file_server_port__ = (props as any).__file_server_port__;
+          }
           const fps = (props as any).fps || 30;
           const scenes = (props as any).scenes || [];
           const totalDuration = scenes.reduce(

@@ -3,7 +3,6 @@ import { useProjectStore } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { callApi, callApiOrThrow } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
-import { getValidVisualType } from '../../../utils/visualType';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -13,28 +12,37 @@ interface UseScriptEditingReturn {
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   rewritingSection: string | null;
+  /** True while ANY AI rewrite (section or single-cut) is in flight. */
+  isAnyRewriting: boolean;
+  /** True while a section-level rewrite for this card is in flight. */
+  isSectionRewriting: (cardKey: string) => boolean;
+  /** True while a single-cut rewrite for this card+cut is in flight. */
+  isSubRewriting: (cardKey: string, subIdx: number) => boolean;
+  /** True while a section- OR single-cut rewrite touches this card. */
+  isSectionLocked: (cardKey: string) => boolean;
+  /** Poison in-flight rewrites for a card (Revert path): late LLM results are discarded. */
+  invalidateRewrites: (cardKey: string) => void;
+  /** Poison ALL in-flight rewrites (project switch/unmount). */
+  invalidateAllRewrites: () => void;
   savingCardKey: string | null;
   sceneToDelete: number | null;
   localProjectSettings: any;
   isSavingSubtitles: boolean;
-  scriptChangedAlert: boolean;
-  setScriptChangedAlert: (alert: boolean) => void;
   previewAssets: Record<string, { visual_path: string; visual_url: string }>;
-  previewingSubVisual: string | null;
   uploadingSubVisual: string | null;
-  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number) => Promise<void>;
-  handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number) => Promise<void>;
+  handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string, latestData?: any) => Promise<string | undefined>;
   handleStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   handleCancelEdit: () => void;
-  handleSaveCard: (cardKey?: string, index?: number) => Promise<void>;
-  handleRewriteSection: (type: string, index: number) => Promise<void>;
-  handleRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
+  handleSaveCard: (cardKey?: string, index?: number, latestData?: any) => Promise<void>;
+  handleRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<any | undefined>;
+  handleRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<any | undefined>;
   insertAndSaveNewScene: (newScene: any, insertAfterIdx: number) => Promise<void>;
   confirmDeleteScene: () => Promise<void>;
   setSceneToDelete: (idx: number | null) => void;
   handleSettingsUpdate: (newSettings: any) => void;
-  handleSaveTranscription: () => Promise<void>;
+  handleSaveTranscription: (overrideDoc?: any) => Promise<void>;
   handleResetTranscription: () => void;
+  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
 }
 
 export function useScriptEditing(
@@ -59,11 +67,86 @@ export function useScriptEditing(
   const [localProjectSettings, setLocalProjectSettings] = useState<any>({});
   const [isSavingSubtitles, setIsSavingSubtitles] = useState(false);
   const [rewritingSection, setRewritingSection] = useState<string | null>(null);
-  const [scriptChangedAlert, setScriptChangedAlert] = useState(false);
   const [previewAssets, setPreviewAssets] = useState<Record<string, { visual_path: string; visual_url: string }>>({});
-  const [previewingSubVisual, setPreviewingSubVisual] = useState<string | null>(null);
   const [uploadingSubVisual, setUploadingSubVisual] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest script doc by ref so flushed Visuals-tab edits can be forwarded
+  // synchronously (setState is async; render-closure scriptData would be stale
+  // within the ~150ms debounce window).
+  const scriptDataRef = useRef(scriptData);
+  scriptDataRef.current = scriptData;
+  const manifestDataRef = useRef(manifestData);
+  manifestDataRef.current = manifestData;
+  const editingCardRef = useRef(editingCard);
+  editingCardRef.current = editingCard;
+  const originalScriptDataRef = useRef(originalScriptData);
+  originalScriptDataRef.current = originalScriptData;
+  /** Per-card pre-edit snapshots (script + manifest) for per-card cancel. */
+  const originalByCardRef = useRef<Record<string, any>>({});
+  const originalManifestByCardRef = useRef<Record<string, any>>({});
+
+  // ── Rewrite concurrency registry ────────────────────────────────────
+  // AI generations are slow (10–60s) and the user keeps editing meanwhile.
+  // Every rewrite flight carries a per-card generation token: starting a new
+  // rewrite, reverting, or switching projects bumps the generation, and a
+  // completion whose token no longer matches is discarded instead of landing
+  // on a moved/deleted cut or clobbering newer work.
+  const rewriteGenRef = useRef<Record<string, number>>({});
+  /** Active single-cut flights: `${cardKey}:${subIdx}` → token (state for UI). */
+  const [rewritingSubs, setRewritingSubs] = useState<Record<string, number>>({});
+  /** Active section flight (single-flight under global exclusivity). */
+  const sectionTokenRef = useRef<{ key: string; token: number } | null>(null);
+
+  const bumpRewriteGen = (cardKey: string): number => {
+    const next = (rewriteGenRef.current[cardKey] ?? 0) + 1;
+    rewriteGenRef.current[cardKey] = next;
+    return next;
+  };
+
+  /** Poison in-flight rewrites for a card — late results self-discard. */
+  const invalidateRewrites = useCallback((cardKey: string) => {
+    bumpRewriteGen(cardKey);
+    setRewritingSubs((prev) => {
+      const prefix = `${cardKey}:`;
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        if (k === cardKey || k.startsWith(prefix)) { changed = true; continue; }
+        next[k] = v;
+      }
+      return changed ? next : prev;
+    });
+    if (sectionTokenRef.current?.key === cardKey) {
+      sectionTokenRef.current = null;
+      setRewritingSection(null);
+    }
+  }, []);
+
+  /** Poison ALL in-flight rewrites — project switch / unmount. */
+  const invalidateAllRewrites = useCallback(() => {
+    rewriteGenRef.current = {};
+    sectionTokenRef.current = null;
+    setRewritingSection(null);
+    setRewritingSubs({});
+  }, []);
+
+  const isSectionRewriting = useCallback(
+    (cardKey: string) => rewritingSection === cardKey,
+    [rewritingSection],
+  );
+  const isSubRewriting = useCallback(
+    (cardKey: string, subIdx: number) => rewritingSubs[`${cardKey}:${subIdx}`] !== undefined,
+    [rewritingSubs],
+  );
+  const isSectionLocked = useCallback(
+    (cardKey: string) => {
+      if (rewritingSection === cardKey) return true;
+      const prefix = `${cardKey}:`;
+      return Object.keys(rewritingSubs).some((k) => k === cardKey || k.startsWith(prefix));
+    },
+    [rewritingSection, rewritingSubs],
+  );
+  const isAnyRewriting = rewritingSection !== null || Object.keys(rewritingSubs).length > 0;
 
   // Sync localProjectSettings from selectedProject.project_settings,
   // falling back to project column values as base defaults.
@@ -104,14 +187,60 @@ export function useScriptEditing(
   }, [localProjectSettings.fontFamily, downloadFont]);
 
   const handleStartEdit = useCallback((cardKey: string, mode: 'script' | 'visuals') => {
-    setOriginalScriptData(JSON.parse(JSON.stringify(scriptData)));
-    setOriginalManifestData(JSON.parse(JSON.stringify(manifestData)));
-    setEditingCard({ key: cardKey, mode });
-    setRewritePrompt('');
-  }, [scriptData, manifestData]);
+    // Per-card snapshots: switching from dirty Scene A to Scene B snapshots B
+    // without touching A's baseline, so cancelling B restores only B and A
+    // stays dirty (a session-wide whole-doc snapshot coupled the cards —
+    // cancelling B reverted A too).
+    const snap = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const snapManifest = JSON.parse(JSON.stringify(manifestDataRef.current));
+    if (!originalByCardRef.current[cardKey]) {
+      originalByCardRef.current[cardKey] = snap;
+      originalManifestByCardRef.current[cardKey] = snapManifest;
+    }
+    // Active card's snapshot drives narration-diffing in handleSaveCard.
+    setOriginalScriptData(originalByCardRef.current[cardKey]);
+    setOriginalManifestData(originalManifestByCardRef.current[cardKey]);
+    if (editingCardRef.current?.key !== cardKey || editingCardRef.current?.mode !== mode) {
+      setEditingCard({ key: cardKey, mode });
+      setRewritePrompt('');
+    }
+  }, []);
+
+  /** Copy one card's section from a snapshot doc into a live doc clone. */
+  const restoreCardSection = (liveDoc: any, snapshotDoc: any, cardKey: string) => {
+    if (cardKey === 'intro' || cardKey === 'introduction') {
+      if (snapshotDoc?.introduction) liveDoc.introduction = JSON.parse(JSON.stringify(snapshotDoc.introduction));
+      else delete liveDoc.introduction;
+    } else if (cardKey === 'conclusion') {
+      if (snapshotDoc?.conclusion) liveDoc.conclusion = JSON.parse(JSON.stringify(snapshotDoc.conclusion));
+      else delete liveDoc.conclusion;
+    } else if (cardKey.startsWith('scene_')) {
+      const idx = parseInt(cardKey.replace('scene_', ''), 10);
+      if (Number.isInteger(idx) && snapshotDoc?.scenes?.[idx] !== undefined && Array.isArray(liveDoc?.scenes)) {
+        liveDoc.scenes[idx] = JSON.parse(JSON.stringify(snapshotDoc.scenes[idx]));
+      }
+    }
+    return liveDoc;
+  };
 
   const handleCancelEdit = useCallback(async () => {
-    if (originalScriptData) setScriptData(originalScriptData);
+    // Per-card revert: restore only the active card's section, never the
+    // whole document, so unrelated dirty cards survive.
+    const key = editingCardRef.current?.key;
+    // Poison this card's in-flight rewrites first so a late LLM result can't
+    // land on top of the restored baseline ("revert didn't work").
+    if (key) invalidateRewrites(key);
+    const snap = key ? originalByCardRef.current[key] : null;
+    if (key && snap) {
+      const merged = restoreCardSection(
+        JSON.parse(JSON.stringify(scriptDataRef.current)),
+        snap,
+        key,
+      );
+      setScriptData(merged);
+      delete originalByCardRef.current[key];
+      delete originalManifestByCardRef.current[key];
+    }
     setEditingCard(null);
     setOriginalScriptData(null);
     setOriginalManifestData([]);
@@ -127,7 +256,7 @@ export function useScriptEditing(
       } catch (e) { /* best-effort */ }
     }
     setPreviewAssets({});
-  }, [originalScriptData, setScriptData, previewAssets, projectId]);
+  }, [setScriptData, previewAssets, projectId, invalidateRewrites]);
 
   const handleSettingsUpdate = useCallback((newSettings: any) => {
     setLocalProjectSettings(newSettings);
@@ -139,16 +268,22 @@ export function useScriptEditing(
     }, 1000);
   }, [selectedProject?.id, updateProject]);
 
-  const handleSaveCard = useCallback(async (cardKey?: string, index?: number) => {
-    // Edits apply to state synchronously on every keystroke, so the closure
-    // scriptData is always the latest — no flush needed before saving.
-    const data = scriptData;
+  const handleSaveCard = useCallback(async (cardKey?: string, index?: number, latestData?: any) => {
+    // Edits apply to state synchronously on every keystroke except the Visuals
+    // tab, which debounces high-frequency ticks. Read the ref so Save never
+    // misses a trailing commit (setState is async; the render closure would be
+    // pre-flush). Callers pass the just-flushed document as latestData when
+    // they have it.
+    const data = latestData ?? scriptDataRef.current;
     if (!projectId || !data || !selectedProject?.script_path) return;
+    // Clone-on-write target for finalized compositions (see below). Saves use
+    // `working ?? data` so the live state object is never mutated in place.
+    let working: any | null = null;
 
     if (cardKey) setSavingCardKey(cardKey);
 
     let narrationChanged = false;
-    if (originalScriptData && editingCard?.mode === 'script') {
+    if (originalScriptData && editingCardRef.current?.mode === 'script') {
       if (cardKey === 'introduction' || cardKey === 'intro') {
         if (data.introduction?.hook !== originalScriptData.introduction?.hook) narrationChanged = true;
       } else if (cardKey === 'conclusion') {
@@ -195,34 +330,74 @@ export function useScriptEditing(
             if (preview?.visual_path) {
               // Mark the matching original manifest entry as consumed so
               // subsequent sub-visuals with the same type+cue don't match it.
-              const origIdx = origSubVisuals.findIndex((osv: any, i: number) =>
-                !matchedIndices.has(i) &&
-                osv.visual_type === lsv.visual_type &&
-                osv.visual_cue === lsv.visual_cue
+              const origIdx = origSubVisuals.findIndex((_: any, i: number) =>
+                !matchedIndices.has(i)
               );
               if (origIdx !== -1) matchedIndices.add(origIdx);
 
               let finalPath = preview.visual_path;
-              if (preview.visual_path.includes('previews')) {
+              if (preview.visual_path.includes('previews') || preview.visual_path.includes('preview_') || preview.visual_path.includes('upload_')) {
                 const result = await callApi<any>('finalize_upload_asset', projectId, preview.visual_path, mIdx, sIdx);
-                if (result?.success) {
+                if (result?.success && result.visual_path) {
                   finalPath = result.visual_path;
                 }
               }
-              return { ...lsv, visual_path: finalPath, visual_url: preview.visual_url };
+
+              // Update AST composition media layers to point to finalPath
+              let updatedComposition = lsv.composition;
+              if (updatedComposition && Array.isArray(updatedComposition.children)) {
+                const updatedChildren = updatedComposition.children.map((layer: any) => {
+                  if (layer?.content && (layer.content.local_path === preview.visual_path || layer.content.type === 'Image' || layer.content.type === 'Video')) {
+                    return {
+                      ...layer,
+                      content: {
+                        ...layer.content,
+                        local_path: finalPath
+                      }
+                    };
+                  }
+                  return layer;
+                });
+                updatedComposition = { ...updatedComposition, children: updatedChildren };
+              }
+
+              // Propagate the finalized composition back into the saved doc
+              // without mutating live React state in place: `data` may be
+              // scriptDataRef.current (or the just-flushed object already
+              // handed to setScriptData), so clone-on-first-write and sync
+              // the clone back to state below.
+              const targetDoc = working ?? data;
+              const ensureWorking = () => {
+                if (!working) working = JSON.parse(JSON.stringify(data));
+                return working;
+              };
+              if (type === 'introduction' && targetDoc?.introduction?.sub_visuals?.[sIdx]) {
+                const doc = ensureWorking();
+                doc.introduction.sub_visuals[sIdx] = { ...doc.introduction.sub_visuals[sIdx], composition: updatedComposition };
+              } else if (type === 'conclusion' && targetDoc?.conclusion?.sub_visuals?.[sIdx]) {
+                const doc = ensureWorking();
+                doc.conclusion.sub_visuals[sIdx] = { ...doc.conclusion.sub_visuals[sIdx], composition: updatedComposition };
+              } else if (type === 'scene' && Array.isArray(targetDoc?.scenes)) {
+                const currentSceneIdx = sceneCounter - 1;
+                if (targetDoc.scenes[currentSceneIdx]?.sub_visuals?.[sIdx]) {
+                  const doc = ensureWorking();
+                  doc.scenes[currentSceneIdx].sub_visuals[sIdx] = { ...doc.scenes[currentSceneIdx].sub_visuals[sIdx], composition: updatedComposition };
+                }
+              }
+
+              return { ...lsv, composition: updatedComposition, visual_path: finalPath, visual_url: preview.visual_url };
             }
           }
-          // Fall back to matching by content (type+cue) with original manifest
-          // so re-runs don't re-download unchanged assets
-          const matchIdx = origSubVisuals.findIndex((osv: any, i: number) =>
-            !matchedIndices.has(i) &&
-            osv.visual_type === lsv.visual_type &&
-            osv.visual_cue === lsv.visual_cue
-          );
+          const matchIdx = sIdx < origSubVisuals.length ? sIdx : -1;
           if (matchIdx !== -1) {
             matchedIndices.add(matchIdx);
             const match = origSubVisuals[matchIdx];
-            return { ...lsv, visual_path: match.visual_path, visual_url: match.visual_url };
+            return { 
+                ...lsv, 
+                visual_path: match.visual_path, 
+                visual_url: match.visual_url,
+                composition: lsv.composition || match.composition 
+            };
           }
           // New or changed sub-visual — strip any stale visual_path/visual_url
           // that scriptData may have carried over from a previous pipeline run,
@@ -238,7 +413,7 @@ export function useScriptEditing(
         return { ...manifestScene, duration: sceneDuration, sub_visuals: mergedSubVisuals };
       }));
 
-      await callApi<any>('save_project_with_cleanup', projectId, data, liveManifest);
+      await callApi<any>('save_project_with_cleanup', projectId, working ?? data, liveManifest);
 
       // Fetch assets only for genuinely new/changed sub-visuals
       const origManifest = originalManifestData && originalManifestData.length > 0 ? originalManifestData : manifestData;
@@ -255,23 +430,25 @@ export function useScriptEditing(
         const origSubs = origManifest[mIdx]?.sub_visuals || [];
         const matchedOrigIndices = new Set<number>();
         for (let sIdx = 0; sIdx < liveSubs.length; sIdx++) {
-          const lsv = liveSubs[sIdx];
-          // Skip download if this sub-visual was handled via upload/preview
+          // Skip download if this sub-visual was handled via upload/preview.
+          // Count 'scene' entries before mIdx (same convention as
+          // manifestToScriptSceneIndex) so a missing/stale intro can't shift
+          // scene_N keys.
+          let scriptIdxForKey = 0;
+          for (let k = 0; k < mIdx; k++) {
+            if (liveManifest[k]?.section_type === 'scene') scriptIdxForKey++;
+          }
           const sectionKey = liveManifest[mIdx].section_type === 'introduction' ? 'intro'
             : liveManifest[mIdx].section_type === 'conclusion' ? 'conclusion'
-            : `scene_${mIdx - (liveManifest[0]?.section_type === 'introduction' ? 1 : 0)}`;
+            : `scene_${scriptIdxForKey}`;
           const assetKey = `${sectionKey}_${sIdx}`;
           if (handledFromPreview.has(assetKey)) {
             continue;
           }
-          const origMatch = origSubs.findIndex((osv: any, i: number) =>
-            !matchedOrigIndices.has(i) &&
-            osv.visual_type === lsv.visual_type &&
-            osv.visual_cue === lsv.visual_cue
-          );
-          if (origMatch === -1 && lsv.visual_type && ['scene', 'image', 'portrait', 'parallax', 'youtube'].includes(lsv.visual_type)) {
+          const origMatch = sIdx < origSubs.length ? sIdx : -1;
+          if (origMatch === -1) {
             try {
-              const result = await callApi<any>('fetch_single_scene_asset', projectId, mIdx, sIdx, lsv.visual_type, lsv.visual_cue || '');
+              const result = await callApi<any>('fetch_single_scene_asset', projectId, mIdx, sIdx);
               if (!result?.success) {
                 assetDownloadFailures++;
                 console.warn(`Asset download failed for [${mIdx}:${sIdx}]: ${result?.error || 'Unknown error'}`);
@@ -280,13 +457,55 @@ export function useScriptEditing(
               assetDownloadFailures++;
               console.error("Failed to fetch asset", sIdx, e);
             }
-          } else if (origMatch !== -1) {
+          } else {
             matchedOrigIndices.add(origMatch);
           }
         }
       }
 
       await loadFiles(projectId);
+      // Sync finalized compositions back to state WITHOUT clobbering edits
+      // typed during the long save: patch only `composition` objects from the
+      // save snapshot into the latest doc instead of replacing the whole doc
+      // (classic save-while-typing data loss).
+      if (working) {
+        try {
+          const latest = JSON.parse(JSON.stringify(scriptDataRef.current));
+          const patchCompositions = (liveSubs: any[] | undefined, savedSubs: any[] | undefined) => {
+            if (!Array.isArray(liveSubs) || !Array.isArray(savedSubs)) return liveSubs;
+            return liveSubs.map((live: any, i: number) => (
+              savedSubs[i]?.composition !== undefined
+                ? { ...live, composition: savedSubs[i].composition }
+                : live
+            ));
+          };
+          if (working.introduction && latest.introduction) {
+            latest.introduction = {
+              ...latest.introduction,
+              sub_visuals: patchCompositions(latest.introduction.sub_visuals, working.introduction.sub_visuals),
+            };
+          }
+          if (working.conclusion && latest.conclusion) {
+            latest.conclusion = {
+              ...latest.conclusion,
+              sub_visuals: patchCompositions(latest.conclusion.sub_visuals, working.conclusion.sub_visuals),
+            };
+          }
+          if (Array.isArray(working.scenes) && Array.isArray(latest.scenes)) {
+            latest.scenes = latest.scenes.map((liveScene: any, i: number) => (
+              working.scenes[i]
+                ? { ...liveScene, sub_visuals: patchCompositions(liveScene.sub_visuals, working.scenes[i].sub_visuals) }
+                : liveScene
+            ));
+          }
+          setScriptData(latest);
+        } catch {
+          setScriptData(working);
+        }
+      }
+      // Whole document persisted — all per-card baselines are now stale.
+      originalByCardRef.current = {};
+      originalManifestByCardRef.current = {};
       setEditingCard(null);
       setSavingCardKey(null);
       setRewritePrompt('');
@@ -303,8 +522,7 @@ export function useScriptEditing(
       const isNewSceneSave = index !== undefined && !originalScriptData;
       const contentChanged = narrationChanged || isNewSceneSave;
       if (contentChanged) {
-        addToast("Narration text updated! We recommend resuming/syncing the pipeline to regenerate voiceover and subtitles.", 'warning', 6000);
-        setScriptChangedAlert(true);
+        addToast("Narration text updated!", 'success');
       } else {
         addToast("Project saved successfully!", 'success');
       }
@@ -316,14 +534,29 @@ export function useScriptEditing(
       setSavingCardKey(null);
       addToast("Failed to save script changes", 'error');
     }
-  }, [projectId, scriptData, selectedProject, originalScriptData, originalManifestData, manifestData, loadFiles, addToast, previewAssets]);
+  }, [projectId, selectedProject, originalScriptData, originalManifestData, manifestData, loadFiles, addToast, previewAssets, setScriptData]);
 
-  const handleRewriteSection = useCallback(async (type: string, index: number) => {
-    const data = scriptData;
+  const handleRewriteSection = useCallback(async (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => {
+    const data = latestData ?? scriptDataRef.current;
     if (!projectId || !data || !selectedProject?.script_path) return;
+    // Explicit intent wins: the Visuals tab passes 'visuals' so a fast
+    // open → rewrite can't race the post-render effect that sets
+    // editingCard.mode.
+    const effectiveMode = modeOverride ?? editingCardRef.current?.mode;
 
-    const sectionKey = type === 'introduction' ? 'intro' : type === 'conclusion' ? 'conclusion' : `scene_${index}`;
+    const cardKey = type === 'introduction' ? 'intro' : type === 'conclusion' ? 'conclusion' : `scene_${index}`;
+    const sectionKey = cardKey;
+    // Generation token: a newer rewrite, a Revert, or a project switch bumps
+    // this card's generation and this flight's completion self-discards.
+    const token = bumpRewriteGen(cardKey);
+    sectionTokenRef.current = { key: sectionKey, token };
     setRewritingSection(sectionKey);
+    const clearOwnEntry = () => {
+      if (sectionTokenRef.current?.key === sectionKey && sectionTokenRef.current?.token === token) {
+        sectionTokenRef.current = null;
+        setRewritingSection(null);
+      }
+    };
 
     try {
       let res;
@@ -341,7 +574,7 @@ export function useScriptEditing(
           selectedProject.language
         );
       } else {
-        if (editingCard?.mode === 'visuals') {
+        if (effectiveMode === 'visuals') {
           res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
             'regenerate_visuals_section', projectId, index, type, data, rewritePrompt
           );
@@ -352,171 +585,146 @@ export function useScriptEditing(
         }
       }
 
+      // Stale gate: superseded by a newer rewrite, a Revert, or project switch.
+      if (rewriteGenRef.current[cardKey] !== token) {
+        addToast('Discarded stale AI result — a newer rewrite or revert superseded it.', 'info');
+        return undefined;
+      }
+
       if (res?.success && res.data) {
-        const updated = { ...data };
-        if (editingCard?.mode === 'visuals') {
-          // Visuals rewrite only returns the sub_visuals array, we merge it into the existing scene/section
-          if (type === 'introduction') updated.introduction.sub_visuals = res.data.sub_visuals || [];
-          else if (type === 'conclusion') updated.conclusion.sub_visuals = res.data.sub_visuals || [];
-          else updated.scenes[index].sub_visuals = res.data.sub_visuals || [];
+        const isVisualsRewrite = effectiveMode === 'visuals' && !isNewScene;
+        if (isVisualsRewrite) {
+          // Preview-only: hand the AI sub_visuals back to the caller (Visuals
+          // tab) WITHOUT touching scriptData or disk. The tab applies them to
+          // local state (visible instantly in player/timeline/editor); the
+          // user then Saves to persist or Reverts to discard.
+          setRewritePrompt('');
+          addToast("AI visuals applied — review in the player, then Save or Revert.", 'success');
+          return res.data.sub_visuals || [];
         } else {
           // Script rewrite returns the whole section (without sub_visuals by default now)
           // We need to merge existing sub_visuals back in if this wasn't a new scene
           const newSection = res.data;
+          // Merge into the LATEST doc — not the pre-flight snapshot — so edits
+          // made anywhere (including other sections) during the 30–60s
+          // generation window survive instead of being whole-doc clobbered.
+          const latest = JSON.parse(JSON.stringify(scriptDataRef.current));
           let oldSubVisuals = [];
-          if (type === 'introduction') oldSubVisuals = updated.introduction?.sub_visuals || [];
-          else if (type === 'conclusion') oldSubVisuals = updated.conclusion?.sub_visuals || [];
-          else if (!isNewScene) oldSubVisuals = updated.scenes[index]?.sub_visuals || [];
-          
-          newSection.sub_visuals = oldSubVisuals;
-          
-          if (type === 'introduction') updated.introduction = newSection;
-          else if (type === 'conclusion') updated.conclusion = newSection;
-          else updated.scenes[index] = newSection;
-        }
-        setScriptData(updated);
+          if (type === 'introduction') oldSubVisuals = latest.introduction?.sub_visuals || [];
+          else if (type === 'conclusion') oldSubVisuals = latest.conclusion?.sub_visuals || [];
+          else if (!isNewScene) oldSubVisuals = latest.scenes?.[index]?.sub_visuals || [];
 
-        if (isNewScene || isNewIntroduction || isNewConclusion) {
-          setRewritePrompt('');
-          setRewritingSection(null);
-          addToast("AI content generated! Review and click Save to fetch visuals.", 'success');
-        } else {
-          await callApi('save_json_file', selectedProject.script_path, updated);
-          setEditingCard(null);
-          setRewritePrompt('');
-          setRewritingSection(null);
-          setScriptChangedAlert(true);
-          addToast("LLM rewrite completed and saved! Click 'Sync Audio & Subtitles' or 'Resume Pipeline' to rebuild voiceover.", 'success');
+          newSection.sub_visuals = oldSubVisuals;
+
+          if (type === 'introduction') latest.introduction = newSection;
+          else if (type === 'conclusion') latest.conclusion = newSection;
+          else if (Array.isArray(latest.scenes) && (latest.scenes[index] !== undefined || isNewScene)) {
+            latest.scenes[index] = newSection;
+          }
+          setScriptData(latest);
+
+          if (isNewScene || isNewIntroduction || isNewConclusion) {
+            setRewritePrompt('');
+            addToast("AI content generated! Review and click Save to fetch visuals.", 'success');
+          } else {
+            await callApi('save_json_file', selectedProject.script_path, latest);
+            setEditingCard(null);
+            setRewritePrompt('');
+            addToast("LLM rewrite completed and saved!", 'success');
+          }
         }
       } else {
-        setRewritingSection(null);
         addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
       }
     } catch (err: any) {
-      setRewritingSection(null);
       console.error(err);
       addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
+    } finally {
+      clearOwnEntry();
     }
-  }, [projectId, scriptData, selectedProject, rewritePrompt, setScriptData, addToast]);
+  }, [projectId, selectedProject, rewritePrompt, setScriptData, addToast]);
 
-  const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
-    const data = scriptData;
-    if (!projectId || !data || !selectedProject?.script_path) return;
+  const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => {
+    const data = latestData ?? scriptDataRef.current;
+    if (!projectId || !data || !selectedProject?.script_path) return undefined;
+    // Register the flight: drives the cut-badge spinner + section locks, and
+    // mints a generation token so a superseding rewrite/revert discards this
+    // result instead of landing it on a moved cut.
+    const cardKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const subKey = `${cardKey}:${subIdx}`;
+    const token = bumpRewriteGen(cardKey);
+    setRewritingSubs((prev) => ({ ...prev, [subKey]: token }));
     try {
       const res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
         'regenerate_sub_visual', projectId, sceneIdx, sectionType, subIdx, data, prompt, selectedProject.language
       );
+      // Stale gate: superseded by a newer rewrite, a Revert, or project switch.
+      if (rewriteGenRef.current[cardKey] !== token) {
+        addToast('Discarded stale AI cut — a newer rewrite or revert superseded it.', 'info');
+        return undefined;
+      }
       if (res?.success && res.data) {
-        // Deep clone to avoid mutating React state via shared nested references
-        const updated = JSON.parse(JSON.stringify(data));
-
-        let targetSection;
-        if (sectionType === 'introduction') targetSection = updated.introduction;
-        else if (sectionType === 'conclusion') targetSection = updated.conclusion;
-        else targetSection = updated.scenes?.[sceneIdx];
-
-        if (targetSection && targetSection.sub_visuals) {
-          targetSection.sub_visuals[subIdx] = res.data;
-          setScriptData(updated);
-          await callApi('save_json_file', selectedProject.script_path, updated);
-          addToast("Sub-Visual updated successfully!", 'success');
-        }
+        // Preview-only: return the AI cut WITHOUT touching scriptData or
+        // disk. The caller applies it to local state (visible instantly in
+        // player/timeline/editor); the user then Saves to persist or Reverts
+        // to discard.
+        addToast("AI visuals applied — review in the player, then Save or Revert.", 'success');
+        return res.data;
       } else {
         addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
+        return undefined;
       }
     } catch (err: any) {
       console.error(err);
       addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
-    }
-  }, [projectId, scriptData, selectedProject, setScriptData, addToast]);
-
-  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
-    const data = scriptData;
-    if (!projectId || !data) return;
-
-    // Read current type+cue from scriptData
-    let visual_type: string, visual_cue: string, visual_meta: any = {};
-    if (sectionType === 'introduction') {
-      const sv = data.introduction?.sub_visuals?.[subIdx] || {};
-      visual_type = sv.visual_type || 'scene';
-      visual_cue = sv.visual_cue || '';
-      visual_meta = sv.visual_meta || {};
-    } else if (sectionType === 'conclusion') {
-      const sv = data.conclusion?.sub_visuals?.[subIdx] || {};
-      visual_type = sv.visual_type || 'scene';
-      visual_cue = sv.visual_cue || '';
-      visual_meta = sv.visual_meta || {};
-    } else {
-      const sv = data.scenes?.[sceneIdx]?.sub_visuals?.[subIdx] || {};
-      visual_type = sv.visual_type || 'scene';
-      visual_cue = sv.visual_cue || '';
-      visual_meta = sv.visual_meta || {};
-    }
-
-    if (!visual_cue.trim()) {
-      addToast("Enter a visual cue before previewing", 'warning');
-      return;
-    }
-
-    // Build key: "intro_0", "scene_2_1", "conclusion_0"
-    const sectionKey = sectionType === 'introduction' ? 'intro'
-      : sectionType === 'conclusion' ? 'conclusion'
-      : `scene_${sceneIdx}`;
-    const assetKey = `${sectionKey}_${subIdx}`;
-
-    setPreviewingSubVisual(assetKey);
-    try {
-      const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
-        'preview_asset_download', projectId, visual_type, visual_cue, visual_meta
-      );
-      if (result?.success) {
-        if (result.visual_path) {
-          const vPath: string = result.visual_path;
-          const visualUrl = getMediaUrlSync(vPath);
-          setPreviewAssets(prev => ({
-            ...prev,
-            [assetKey]: { visual_path: vPath, visual_url: visualUrl }
-          }));
-          addToast("Preview downloaded!", 'success');
-        } else {
-          addToast((result as any).message || "Non-media visual - rendered natively", 'success');
-        }
-      } else {
-        addToast("Preview failed: " + (result?.error || "Unknown error"), 'error');
-      }
-    } catch (err: any) {
-      console.error(err);
-      addToast("Preview failed: " + (err?.message || String(err)), 'error');
+      return undefined;
     } finally {
-      setPreviewingSubVisual(null);
+      // Clear only our own entry — a newer flight may have replaced it.
+      setRewritingSubs((prev) => {
+        if (prev[subKey] !== token) return prev;
+        const next = { ...prev };
+        delete next[subKey];
+        return next;
+      });
     }
-  }, [projectId, scriptData, addToast]);
+  }, [projectId, selectedProject, addToast]);
 
-  const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number) => {
-    const data = scriptData;
-    if (!projectId || !data) return;
+  const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string, latestData?: any) => {
+    const data = latestData ?? scriptDataRef.current;
+    if (!projectId || !data) return undefined;
 
     const sectionKey = sectionType === 'introduction' ? 'intro'
       : sectionType === 'conclusion' ? 'conclusion'
       : `scene_${sceneIdx}`;
     const assetKey = `${sectionKey}_${subIdx}`;
 
-    // Calculate the correct manifest index (intro is 0, scenes follow, conclusion is last)
+    // Calculate the correct manifest index (intro is 0, scenes follow, conclusion is last).
+    // Locate the nth 'scene' entry so intro presence/divergence can't shift it.
     let manifestIdx = sceneIdx;
     if (sectionType === 'introduction') {
       manifestIdx = 0;
     } else if (sectionType === 'conclusion') {
       manifestIdx = (manifestData?.length || 1) - 1;
-    } else if (sectionType === 'scenes') {
-      const hasIntro = manifestData?.[0]?.section_type === 'introduction';
-      manifestIdx = sceneIdx + (hasIntro ? 1 : 0);
+    } else if (sectionType === 'scenes' || sectionType === 'scene') {
+      let seen = -1;
+      let found = -1;
+      (manifestData || []).forEach((m: any, i: number) => {
+        if (m?.section_type === 'scene') {
+          seen++;
+          if (seen === sceneIdx && found === -1) found = i;
+        }
+      });
+      // No positional fallback: on a diverged/stale manifest the old
+      // `sceneIdx + hasIntro` guess uploads to the WRONG scene. Abort loudly.
+      if (found === -1) {
+        addToast(`Upload aborted: scene ${sceneIdx} not found in manifest (stale manifest?)`, 'error');
+        return undefined;
+      }
+      manifestIdx = found;
     }
 
-    // Read the current type from scriptData — the same live source the UI
-    // renders — and normalize it (getValidVisualType) so the backend's
-    // strict video/image decision matches the button the user clicked.
-    // Reading from manifestData here could be stale (an unsaved type change)
-    // or carry a fuzzy label that the backend rejects.
     let rawVisualType = '';
     if (sectionType === 'introduction') {
       rawVisualType = data.introduction?.sub_visuals?.[subIdx]?.visual_type || '';
@@ -525,7 +733,18 @@ export function useScriptEditing(
     } else {
       rawVisualType = data.scenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.visual_type || '';
     }
-    const visualType = getValidVisualType(rawVisualType);
+    const getValidVisualType = (type: string) => {
+      if (!type) return 'scene';
+      const t = String(type).toLowerCase();
+      if (['ast', 'scene', 'youtube', 'image', 'video'].includes(t)) {
+        if (t.includes('youtube') || t.includes('video')) return 'youtube';
+        return t;
+      }
+      return 'ast'; // Default fallback
+    };
+    
+    // If AstGraphicalEditor passed an explicit override (e.g. "image" or "video") based on the layer type, use it!
+    const visualType = overrideVisualType || getValidVisualType(rawVisualType);
 
     setUploadingSubVisual(assetKey);
     try {
@@ -546,19 +765,68 @@ export function useScriptEditing(
           [assetKey]: { visual_path: vPath, visual_url: visualUrl }
         }));
         addToast("Media uploaded successfully!", 'success');
+        return vPath;
       } else {
         addToast("Upload failed: " + (result?.error || "Unknown error"), 'error');
+        return undefined;
       }
     } catch (err: any) {
       console.error(err);
       addToast("Upload failed: " + (err?.message || String(err)), 'error');
+      return undefined;
     } finally {
       setUploadingSubVisual(null);
     }
-  }, [projectId, scriptData, manifestData, previewAssets, addToast]);
+  }, [projectId, selectedProject, addToast, manifestData, previewAssets]);
+  
+  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, query: string, _latestData?: any) => {
+    if (!projectId) return undefined;
+
+    const sectionKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const assetKey = `${sectionKey}_${subIdx}`;
+
+    try {
+      const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
+        'preview_asset_download', projectId, query
+      );
+      if (result?.success && result.visual_path) {
+        const vPath: string = result.visual_path;
+        const visualUrl = `${getMediaUrlSync(vPath)}&t=${Date.now()}`;
+        
+        setPreviewAssets(prev => {
+          const existing = prev[assetKey];
+          if (existing?.visual_path && existing.visual_path !== vPath) {
+            callApi('cleanup_preview_assets', projectId, [existing.visual_path]).catch(() => {});
+          }
+          return {
+            ...prev,
+            [assetKey]: { visual_path: vPath, visual_url: visualUrl }
+          };
+        });
+        addToast("Preview downloaded successfully!", 'success');
+        return vPath;
+      } else {
+        addToast("Preview failed: " + (result?.error || "Unknown error"), 'error');
+        return undefined;
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast("Preview failed: " + (err?.message || String(err)), 'error');
+      return undefined;
+    }
+  }, [projectId, addToast]);
+
 
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
+    // Scene inserts shift every later scene's index — an in-flight rewrite
+    // would land on the wrong section. Locked until rewrites settle.
+    if (isAnyRewriting) {
+      addToast('Scene insert is paused while an AI rewrite is in progress.', 'warning');
+      return;
+    }
 
     const insertPosition = insertAfterIdx >= 0 ? insertAfterIdx + 1 : (scriptData.scenes?.length || 0);
     const newScriptData = { ...scriptData };
@@ -610,11 +878,16 @@ export function useScriptEditing(
 
     await callApi<any>('save_project_with_cleanup', projectId, newScriptData, newManifestData);
     setEditingCard({ key: `scene_${insertPosition}`, mode: 'script' });
-    setScriptChangedAlert(true);
-  }, [projectId, scriptData, selectedProject, manifestData, setScriptData, setManifestData]);
+  }, [projectId, scriptData, selectedProject, manifestData, setScriptData, setManifestData, isAnyRewriting, addToast]);
 
   const confirmDeleteScene = useCallback(async () => {
     if (sceneToDelete === null || !projectId) return;
+    // Scene deletes shift every later scene's index — an in-flight rewrite
+    // would land on the wrong section. Locked until rewrites settle.
+    if (isAnyRewriting) {
+      addToast('Scene delete is paused while an AI rewrite is in progress.', 'warning');
+      return;
+    }
     const idx = sceneToDelete;
 
     // Delegate entirely to the backend delete_scene API which handles:
@@ -624,20 +897,23 @@ export function useScriptEditing(
     const result = await callApi<any>('delete_scene', projectId, idx);
     if (result?.success) {
       await loadFiles(projectId);
-      addToast("Scene deleted successfully! Please resume pipeline to sync audio.", 'success');
-      setScriptChangedAlert(true);
+      addToast("Scene deleted successfully!", 'success');
     } else {
       addToast("Failed to delete scene: " + (result?.error || "Unknown error"), 'error');
     }
     setSceneToDelete(null);
-  }, [sceneToDelete, projectId, loadFiles, addToast]);
+  }, [sceneToDelete, projectId, loadFiles, addToast, isAnyRewriting]);
 
-  const handleSaveTranscription = useCallback(async () => {
-    if (!projectId || !transcriptionData || !selectedProject?.transcription_path) return;
+  const handleSaveTranscription = useCallback(async (overrideDoc?: any) => {
+    const doc = overrideDoc ?? transcriptionData;
+    if (!projectId || !doc || !selectedProject?.transcription_path) return;
     setIsSavingSubtitles(true);
     try {
-      const success = await callApi<boolean>('save_json_file', selectedProject.transcription_path, transcriptionData);
+      const success = await callApi<boolean>('save_json_file', selectedProject.transcription_path, doc);
       if (success) {
+        // Keep local state in sync when the caller flushed a newer draft
+        // than the hook's closed-over transcriptionData.
+        if (overrideDoc) _setTranscriptionData(overrideDoc);
         addToast("Subtitles saved successfully!", 'success');
         loadFiles(projectId);
       } else {
@@ -649,7 +925,7 @@ export function useScriptEditing(
     } finally {
       setIsSavingSubtitles(false);
     }
-  }, [projectId, transcriptionData, selectedProject, loadFiles, addToast]);
+  }, [projectId, transcriptionData, selectedProject, loadFiles, addToast, _setTranscriptionData]);
 
   const handleResetTranscription = useCallback(() => {
     if (!projectId || !selectedProject?.transcription_path) return;
@@ -673,11 +949,12 @@ export function useScriptEditing(
   return {
     editingCard, setEditingCard,
     rewritePrompt, setRewritePrompt,
-    rewritingSection,
+    rewritingSection, isAnyRewriting,
+    isSectionRewriting, isSubRewriting, isSectionLocked,
+    invalidateRewrites, invalidateAllRewrites,
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
-    scriptChangedAlert, setScriptChangedAlert,
-    previewAssets, previewingSubVisual, uploadingSubVisual, handlePreviewSubVisual, handleUploadSubVisual,
+    previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,

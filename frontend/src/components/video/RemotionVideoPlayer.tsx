@@ -1,11 +1,15 @@
 import { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Player, PlayerRef } from '@remotion/player';
-import { NitishRajputComposition, Scene, Transcription } from './NitishRajputComposition';
+import { NitishRajputComposition, Scene, Transcription, MusicClip } from './NitishRajputComposition';
+import { GlobalOverlayItem } from './GlobalOverlaysRenderer';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { parseQuality } from './renderQuality';
 
 interface Props {
   audioUrl: string;
   bgMusicUrl?: string;
   bgMusicVolume?: number;
+  musicClips?: MusicClip[];
   voiceoverVolume?: number;
   muteVideoAudio?: boolean;
   scenes: Scene[];
@@ -14,6 +18,8 @@ interface Props {
   language?: string;
   videoFormat?: string;
   subtitleSettings?: any;
+  designSystem?: any;
+  overlays?: GlobalOverlayItem[];
   /** Preview resolution scale (0.5 = 960x540, 1 = full 1920x1080). Defaults to 0.5 for fast scrubbing/playback. */
   compositionScale?: number;
   onFrameUpdate?: (frame: number) => void;
@@ -28,10 +34,13 @@ export interface RemotionVideoPlayerRef {
   getCurrentFrame: () => number;
 }
 
+const BROWSER_MEDIA_BEHAVIOR = { mode: 'prevent-media-session' as const };
+
 const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   audioUrl,
   bgMusicUrl,
   bgMusicVolume = 0.15,
+  musicClips = [],
   voiceoverVolume = 1.0,
   muteVideoAudio = false,
   scenes = [],
@@ -40,6 +49,8 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   language = 'hi',
   videoFormat = 'landscape',
   subtitleSettings = {},
+  designSystem,
+  overlays = [],
   compositionScale = 0.5,
   onFrameUpdate,
   onPlayStateChange
@@ -68,7 +79,12 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         playerRef.current.pause();
       }
     },
-    getCurrentFrame: () => (playerRef.current ? playerRef.current.getCurrentFrame() : 0),
+    getCurrentFrame: () => {
+      if (playerRef.current) {
+        return playerRef.current.getCurrentFrame();
+      }
+      return 0;
+    }
   }));
 
   const hasScenes = scenes && scenes.length > 0;
@@ -91,25 +107,28 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         const frame = playerRef.current.getCurrentFrame();
         if (frame !== lastFrame) {
           lastFrame = frame;
-          onFrameUpdateRef.current?.(frame);
+          if (onFrameUpdateRef.current) {
+            onFrameUpdateRef.current(frame);
+          }
         }
-        const playing = playerRef.current.isPlaying();
-        if (playing !== lastPlaying) {
-          lastPlaying = playing;
-          onPlayStateChangeRef.current?.(playing);
+        const isPlaying = playerRef.current.isPlaying();
+        if (isPlaying !== lastPlaying) {
+          lastPlaying = isPlaying;
+          if (onPlayStateChangeRef.current) {
+            onPlayStateChangeRef.current(isPlaying);
+          }
         }
       }
-    }, 200);
+    }, 50);
 
     return () => clearInterval(interval);
   }, [hasScenes]);
 
   const durationInFrames = useMemo(() => {
-    if (!scenes || scenes.length === 0) {
-      return 150;
-    }
-    const totalDuration = scenes.reduce((acc, scene) => acc + (scene.duration || 0), 0);
-    return Math.max(150, Math.ceil(totalDuration * 30));
+    if (!scenes || scenes.length === 0) return 300;
+    return scenes.reduce((acc, scene) => {
+      return acc + Math.max(30, Math.ceil((scene.duration || 0) * 30));
+    }, 0);
   }, [scenes]);
 
   // Fast preview renders the composition canvas at compositionScale resolution
@@ -120,11 +139,25 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   const compWidth = Math.round(baseWidth * compositionScale);
   const compHeight = Math.round(baseHeight * compositionScale);
 
+  // Preview quality: per-project overrides (subtitleSettings carries
+  // localProjectSettings) win over global Settings — same precedence as
+  // backend render.py (project_settings.get(...) or get_setting(...)).
+  const renderMotionBlur = useSettingsStore((s) => (s.settings as any).render_motion_blur);
+  const renderGlassCap = useSettingsStore((s) => (s.settings as any).render_glass_cap);
+
   const inputProps = useMemo(() => {
+    const proj = (subtitleSettings ?? {}) as any;
+    // NOTE: unset project keys arrive as '' — use || (not ??) so they fall
+    // through to global Settings instead of parsing '' as glassCap 0.
+    const quality = parseQuality({
+      motionBlur: proj.render_motion_blur || renderMotionBlur,
+      glassCap: proj.render_glass_cap || renderGlassCap,
+    });
     return {
       audioUrl,
       bgMusicUrl,
       bgMusicVolume,
+      musicClips,
       voiceoverVolume,
       muteVideoAudio,
       scenes,
@@ -133,8 +166,14 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       language,
       videoFormat,
       subtitleSettings,
+      designSystem,
+      overlays,
+      // Preview path: policy from Settings; cheap samples + capped glass in
+      // balanced mode so scrubbing glass-heavy scenes stays interactive.
+      qualityMode: 'preview' as const,
+      quality,
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, musicClips, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays, renderMotionBlur, renderGlassCap]);
 
   if (!scenes || scenes.length === 0) {
     return (
@@ -163,8 +202,9 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
           height: '100%',
         }}
         controls={false}
-        loop
+        loop={false}
         spaceKeyToPlayOrPause={false}
+        browserMediaControlsBehavior={BROWSER_MEDIA_BEHAVIOR}
         renderLoading={() => (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>

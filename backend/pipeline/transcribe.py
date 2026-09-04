@@ -305,6 +305,17 @@ def is_transcribe_stale(project_dict, project_dir):
     if not subtitles_path.exists():
         return True
         
+    # Check if voiceover audio file is newer than the transcription
+    audio_path_str = project_dict.get('audio_path') if project_dict else None
+    audio_path = Path(audio_path_str) if audio_path_str and Path(audio_path_str).exists() else Path(project_dir) / "voiceover.wav"
+    if audio_path.exists():
+        try:
+            if audio_path.stat().st_mtime > subtitles_path.stat().st_mtime:
+                logger.info("transcribe stale: voiceover audio file is newer than transcription.json")
+                return True
+        except OSError:
+            pass
+
     model_size, device, language = _resolve_whisper_settings(project_dict)
     current_hash = _compute_transcribe_hash(model_size, device, language)
     stored_hash = _read_stored_transcribe_hash(project_dir)

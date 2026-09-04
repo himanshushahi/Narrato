@@ -2,12 +2,9 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscLoading, VscSave, VscEdit, VscTrash, VscAdd, VscSparkle,
-  VscPlay, VscSymbolRuler, VscSymbolKeyword, VscEdit as VscEditIcon,
-  VscLayers
+  VscPlay, VscSymbolRuler, VscSymbolKeyword, VscEdit as VscEditIcon, VscLayers
 } from 'react-icons/vsc';
 import { CustomInput, CustomTextarea } from '../../../components/ui/CustomInput';
-import { SubVisualsEditor } from '../../ProjectEditor/SubVisualsEditor';
-import { SubVisualsView } from '../../ProjectEditor/SubVisualsView';
 import { formatTime } from '../../ProjectEditor/constants';
 
 interface ScriptTabProps {
@@ -22,29 +19,26 @@ interface ScriptTabProps {
   setRewritePrompt: (p: string) => void;
   savingCardKey: string | null;
   rewritingSection: string | null;
+  /** True while ANY AI rewrite is in flight — saves + rewrites lock globally. */
+  isAnyRewriting: boolean;
   isSaving: boolean;
   onSeek: (frame: number) => void;
-  onSaveCard: (cardKey?: string, index?: number) => void;
+  onSaveCard: (cardKey?: string, index?: number, latestData?: any) => void;
   onStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   onCancelEdit: () => void;
-  onRewriteSection: (type: string, index: number) => void;
-  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
+  onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => void;
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
-  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
-  previewingSubVisual?: string | null;
-  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
-  uploadingSubVisual?: string | null;
+  /** Open a cut in the dedicated Visuals tab (manifest/timeline coordinates). */
+  onOpenVisuals: (sceneIdx: number, subIdx: number) => void;
 }
 
 export const ScriptTab = React.memo(function ScriptTab({
   scriptData, sceneTimings, activeSceneIdx, activeSubIdx,
-  editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection,
-  onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
-  onSetSceneToDelete, onSetScriptData,
-  onPreviewSubVisual, previewingSubVisual,
-  onUploadSubVisual, uploadingSubVisual
+  editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection, isAnyRewriting,
+  onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onInsertScene,
+  onSetSceneToDelete, onSetScriptData, onOpenVisuals,
 }: ScriptTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -62,8 +56,8 @@ export const ScriptTab = React.memo(function ScriptTab({
     onSetScriptDataRef.current(data);
   }, []);
 
-  const handleSaveCard = useCallback((cardKey?: string, index?: number) => {
-    onSaveCardRef.current?.(cardKey, index);
+  const handleSaveCard = useCallback((cardKey?: string, index?: number, latestData?: any) => {
+    onSaveCardRef.current?.(cardKey, index, latestData);
   }, []);
 
   useEffect(() => {
@@ -101,6 +95,15 @@ export const ScriptTab = React.memo(function ScriptTab({
     );
   }
 
+  // Structural inserts lock while ANY card edit is active (matches pre-split
+  // behavior: `!editingCard`); deletes stay always visible so a card can be
+  // removed without first saving/cancelling another card's draft.
+  // Scene add/delete shifts indices globally, so they also lock while any AI
+  // rewrite is in flight (the delete confirmation carries its own guard too).
+  const structuralLocked = editingCard !== null || isAnyRewriting;
+  // Whole-document saves lock globally during any AI rewrite: saving would
+  // persist a pre-AI doc and wipe every card baseline.
+  const saveLocked = savingCardKey !== null || isAnyRewriting;
   const sceneCount = scriptData.scenes?.length || 0;
 
   return (
@@ -118,8 +121,9 @@ export const ScriptTab = React.memo(function ScriptTab({
             const introTimings = sceneTimings[introSceneIdx]?.subs;
             const isIntroActive = activeSceneIdx === introSceneIdx;
             const introActiveSubIdx = isIntroActive ? activeSubIdx : -1;
-            const isEditing = editingCard?.key === 'intro';
-            const editingMode = editingCard?.mode;
+            // Script edit form only for script sessions — a 'visuals' session
+            // (Visuals tab) must not pop the script editor open here.
+            const isEditing = editingCard?.key === 'intro' && editingCard?.mode === 'script';
 
             return (
               <SceneCard
@@ -129,64 +133,38 @@ export const ScriptTab = React.memo(function ScriptTab({
                 activeSubIdx={introActiveSubIdx}
                 timings={introTimings}
                 savingKey={savingCardKey === 'introduction'}
-                editingMode={editingMode}
                 onCardClick={() => { if (!isEditing && sceneTimings[introSceneIdx]) onSeek(sceneTimings[introSceneIdx].start); }}
                 onEditScript={() => onStartEdit('intro', 'script')}
-                onEditVisuals={() => onStartEdit('intro', 'visuals')}
+                onOpenVisuals={() => onOpenVisuals(introSceneIdx, introActiveSubIdx >= 0 ? introActiveSubIdx : 0)}
                 onSave={() => handleSaveCard('introduction')}
                 onCancel={onCancelEdit}
-                disabled={savingCardKey !== null || rewritingSection !== null}
+                disabled={saveLocked}
               >
                 {isEditing ? (
                   <EditFormFields>
-                    {editingMode === 'script' && (
-                      <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Hook Text">
-                        <InsetCard>
-                          <CustomTextarea
-                            rows={3}
-                            placeholder="Write an engaging hook..."
-                            value={scriptData.introduction?.hook || ''}
-                            onChange={(e) => {
-                              const copy = { ...scriptData };
-                              copy.introduction = copy.introduction || {};
-                              copy.introduction.hook = e.target.value;
-                              handleSetScriptData(copy);
-                            }}
-                          />
-                        </InsetCard>
-                      </EditSection>
-                    )}
-
-                    {/* Visual Cues section */}
-                    {editingMode === 'visuals' && (
-                      <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
-                        <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
-                          <SubVisualsEditor
-                            subVisuals={scriptData.introduction?.sub_visuals || []}
-                            onChange={(newSubs) => {
-                              const copy = { ...scriptData };
-                              copy.introduction = { ...copy.introduction, sub_visuals: newSubs };
-                              handleSetScriptData(copy);
-                            }}
-                            timings={introTimings}
-                            totalDurationFrames={sceneTimings[0] ? sceneTimings[0].end - sceneTimings[0].start : 0}
-                            activeIdx={introActiveSubIdx}
-                            onSeek={onSeek}
-                            onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'introduction', subIdx, prompt)}
-                            onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(-1, 'introduction', subIdx) : undefined}
-                            previewingSubVisual={previewingSubVisual}
-                            onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(-1, 'introduction', subIdx) : undefined}
-                            uploadingSubVisual={uploadingSubVisual}
-                          />
-                        </div>
-                      </EditSection>
-                    )}
+                    <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Hook Text">
+                      <InsetCard>
+                        <CustomTextarea
+                          rows={3}
+                          placeholder="Write an engaging hook..."
+                          value={scriptData.introduction?.hook || ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            handleSetScriptData({
+                              ...scriptData,
+                              introduction: { ...(scriptData.introduction || {}), hook: v },
+                            });
+                          }}
+                        />
+                      </InsetCard>
+                    </EditSection>
 
                     <AIRewriteSection
                       prompt={rewritePrompt}
                       onPromptChange={setRewritePrompt}
                       onRewrite={() => onRewriteSection('introduction', 0)}
                       isRewriting={rewritingSection === 'intro'}
+                      locked={isAnyRewriting && rewritingSection !== 'intro'}
                     />
                   </EditFormFields>
                 ) : (
@@ -195,14 +173,6 @@ export const ScriptTab = React.memo(function ScriptTab({
                       <p className="text-xs text-zinc-200 leading-relaxed">{scriptData.introduction.hook}</p>
                     ) : (
                       <p className="text-xs text-zinc-600 italic">No hook written yet</p>
-                    )}
-                    {(scriptData.introduction?.sub_visuals?.length > 0) && (
-                      <SubVisualsView
-                        subVisuals={scriptData.introduction?.sub_visuals || []}
-                        timings={introTimings}
-                        activeIdx={introActiveSubIdx}
-                        onSeek={onSeek}
-                      />
                     )}
                   </div>
                 )}
@@ -223,8 +193,7 @@ export const ScriptTab = React.memo(function ScriptTab({
             <div className="space-y-3">
               {(scriptData.scenes || []).map((scene: any, idx: number) => {
                 const cardKey = `scene_${idx}`;
-                const isEditing = editingCard?.key === cardKey;
-                const editingMode = editingCard?.mode;
+                const isEditing = editingCard?.key === cardKey && editingCard?.mode === 'script';
                 const globalSceneIdx = idx + (scriptData.introduction ? 1 : 0);
                 const timings = sceneTimings[globalSceneIdx]?.subs;
                 const isActive = activeSceneIdx === globalSceneIdx;
@@ -239,79 +208,55 @@ export const ScriptTab = React.memo(function ScriptTab({
                       activeSubIdx={activeSubIdxForScene}
                       timings={timings}
                       savingKey={savingCardKey === cardKey}
-                      editingMode={editingMode}
                       onCardClick={() => { if (!isEditing && sceneTimings[globalSceneIdx]) onSeek(sceneTimings[globalSceneIdx].start); }}
                       onEditScript={() => onStartEdit(cardKey, 'script')}
-                      onEditVisuals={() => onStartEdit(cardKey, 'visuals')}
+                      onOpenVisuals={() => onOpenVisuals(globalSceneIdx, activeSubIdxForScene >= 0 ? activeSubIdxForScene : 0)}
                       onSave={() => handleSaveCard(cardKey, idx)}
                       onCancel={onCancelEdit}
                       onDelete={() => onSetSceneToDelete(idx)}
-                      disabled={savingCardKey !== null || rewritingSection !== null}
+                      disabled={saveLocked}
                     >
                       {isEditing ? (
                         <EditFormFields>
-                          {editingMode === 'script' && (
-                            <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Content">
-                              <InsetCard>
-                                <CustomInput
-                                  label="Chapter Name"
-                                  type="text"
-                                  value={scriptData.scenes?.[idx]?.title || ''}
-                                  onChange={(e) => {
-                                    const copy = { ...scriptData };
-                                    if (copy.scenes?.[idx]) copy.scenes[idx].title = e.target.value;
-                                    handleSetScriptData(copy);
-                                  }}
-                                />
-                                <CustomTextarea
-                                  rows={3}
-                                  placeholder="Write the narration for this scene..."
-                                  value={scriptData.scenes?.[idx]?.narration || ''}
-                                  onChange={(e) => {
-                                    const copy = { ...scriptData };
-                                    if (copy.scenes?.[idx]) copy.scenes[idx].narration = e.target.value;
-                                    handleSetScriptData(copy);
-                                  }}
-                                />
-                              </InsetCard>
-                            </EditSection>
-                          )}
-
-                          {/* Visual Cues section */}
-                          {editingMode === 'visuals' && (
-                            <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
-                              <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
-                                <SubVisualsEditor
-                                  subVisuals={scene?.sub_visuals || []}
-                                  onChange={(newSubs) => {
-                                    const copy = { ...scriptData };
-                                    if (copy.scenes) {
-                                      copy.scenes = [...copy.scenes];
-                                      if (copy.scenes[idx]) {
-                                        copy.scenes[idx] = { ...copy.scenes[idx], sub_visuals: newSubs };
-                                      }
-                                    }
-                                    handleSetScriptData(copy);
-                                  }}
-                                  timings={timings}
-                                  totalDurationFrames={sceneTimings[globalSceneIdx] ? sceneTimings[globalSceneIdx].end - sceneTimings[globalSceneIdx].start : 0}
-                                  activeIdx={activeSubIdxForScene}
-                                  onSeek={onSeek}
-                                  onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(idx, 'scenes', subIdx, prompt)}
-                                  onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(idx, 'scenes', subIdx) : undefined}
-                                  previewingSubVisual={previewingSubVisual}
-                                  onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(idx, 'scenes', subIdx) : undefined}
-                                  uploadingSubVisual={uploadingSubVisual}
-                                />
-                              </div>
-                            </EditSection>
-                          )}
+                          <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Content">
+                            <InsetCard>
+                              <CustomInput
+                                label="Chapter Name"
+                                type="text"
+                                value={scriptData.scenes?.[idx]?.title || ''}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  handleSetScriptData({
+                                    ...scriptData,
+                                    scenes: (scriptData.scenes || []).map((s: any, i: number) =>
+                                      i === idx ? { ...s, title: v } : s,
+                                    ),
+                                  });
+                                }}
+                              />
+                              <CustomTextarea
+                                rows={3}
+                                placeholder="Write the narration for this scene..."
+                                value={scriptData.scenes?.[idx]?.narration || ''}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  handleSetScriptData({
+                                    ...scriptData,
+                                    scenes: (scriptData.scenes || []).map((s: any, i: number) =>
+                                      i === idx ? { ...s, narration: v } : s,
+                                    ),
+                                  });
+                                }}
+                              />
+                            </InsetCard>
+                          </EditSection>
 
                           <AIRewriteSection
                             prompt={rewritePrompt}
                             onPromptChange={setRewritePrompt}
                             onRewrite={() => onRewriteSection('scenes', idx)}
                             isRewriting={rewritingSection === `scene_${idx}`}
+                            locked={isAnyRewriting && rewritingSection !== `scene_${idx}`}
                           />
                         </EditFormFields>
                       ) : (
@@ -321,27 +266,19 @@ export const ScriptTab = React.memo(function ScriptTab({
                           ) : (
                             <p className="text-xs text-zinc-600 italic">No narration written yet</p>
                           )}
-                          {(scene.sub_visuals?.length > 0) && (
-                            <SubVisualsView
-                              subVisuals={scene.sub_visuals || []}
-                              timings={timings}
-                              activeIdx={activeSubIdxForScene}
-                              onSeek={onSeek}
-                            />
-                          )}
                         </div>
                       )}
                     </SceneCard>
 
                     {/* Insert button between scenes */}
-                    {!editingCard && idx < sceneCount - 1 && (
+                    {!structuralLocked && idx < sceneCount - 1 && (
                       <DividerInsertButton
                         onClick={() => {
                           const blankScene = {
                             scene_number: idx + 2,
                             title: "New Scene",
                             narration: "",
-                            sub_visuals: [{ visual_type: "scene", visual_cue: "", transition: "fade", visual_meta: {} }]
+                            sub_visuals: [{ composition: { type: "Sequence", children: [] } }]
                           };
                           onInsertScene(blankScene, idx);
                         }}
@@ -361,7 +298,7 @@ export const ScriptTab = React.memo(function ScriptTab({
           )}
 
           {/* Add Scene button */}
-          {!editingCard && (
+          {!structuralLocked && (
             <div className={sceneCount > 0 ? 'mt-3' : ''}>
               <button
                 onClick={() => {
@@ -370,7 +307,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                     scene_number: lastIdx + 2,
                     title: "New Scene",
                     narration: "",
-                    sub_visuals: [{ visual_type: "scene", visual_cue: "", transition: "fade", visual_meta: {} }]
+                    sub_visuals: [{ visual_cue: "", visual_meta: {} }]
                   };
                   onInsertScene(blankScene, Math.max(0, lastIdx));
                 }}
@@ -397,8 +334,7 @@ export const ScriptTab = React.memo(function ScriptTab({
             const concTimings = sceneTimings[concSceneIdx]?.subs;
             const isConcActive = activeSceneIdx === concSceneIdx;
             const concActiveSubIdx = isConcActive ? activeSubIdx : -1;
-            const isEditing = editingCard?.key === 'conclusion';
-            const editingMode = editingCard?.mode;
+            const isEditing = editingCard?.key === 'conclusion' && editingCard?.mode === 'script';
 
             return (
               <SceneCard
@@ -408,75 +344,50 @@ export const ScriptTab = React.memo(function ScriptTab({
                 activeSubIdx={concActiveSubIdx}
                 timings={concTimings}
                 savingKey={savingCardKey === 'conclusion'}
-                editingMode={editingMode}
                 onCardClick={() => { if (!isEditing && sceneTimings[concSceneIdx]) onSeek(sceneTimings[concSceneIdx].start); }}
                 onEditScript={() => onStartEdit('conclusion', 'script')}
-                onEditVisuals={() => onStartEdit('conclusion', 'visuals')}
+                onOpenVisuals={() => onOpenVisuals(concSceneIdx, concActiveSubIdx >= 0 ? concActiveSubIdx : 0)}
                 onSave={() => handleSaveCard('conclusion')}
                 onCancel={onCancelEdit}
-                disabled={savingCardKey !== null || rewritingSection !== null}
+                disabled={saveLocked}
               >
                 {isEditing ? (
                   <EditFormFields>
-                    {editingMode === 'script' && (
-                      <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Content">
-                        <InsetCard>
-                          <CustomTextarea
-                            label="Summary Text"
-                            rows={2}
-                            value={scriptData.conclusion?.summary || ''}
-                            onChange={(e) => {
-                              const copy = { ...scriptData };
-                              copy.conclusion = copy.conclusion || {};
-                              copy.conclusion.summary = e.target.value;
-                              handleSetScriptData(copy);
-                            }}
-                          />
-                          <CustomTextarea
-                            label="Call To Action (CTA)"
-                            rows={2}
-                            value={scriptData.conclusion?.cta || ''}
-                            onChange={(e) => {
-                              const copy = { ...scriptData };
-                              copy.conclusion = copy.conclusion || {};
-                              copy.conclusion.cta = e.target.value;
-                              handleSetScriptData(copy);
-                            }}
-                          />
-                        </InsetCard>
-                      </EditSection>
-                    )}
-
-                    {/* Visual Cues section */}
-                    {editingMode === 'visuals' && (
-                      <EditSection icon={<VscLayers className="text-[9px] text-zinc-500" />} title="Visual Cues">
-                        <div className="bg-zinc-900/40 rounded-lg border border-zinc-800/40">
-                          <SubVisualsEditor
-                            subVisuals={scriptData.conclusion?.sub_visuals || []}
-                            onChange={(newSubs) => {
-                              const copy = { ...scriptData };
-                              copy.conclusion = { ...copy.conclusion, sub_visuals: newSubs };
-                              handleSetScriptData(copy);
-                            }}
-                            timings={concTimings}
-                            totalDurationFrames={sceneTimings[concSceneIdx] ? sceneTimings[concSceneIdx].end - sceneTimings[concSceneIdx].start : 0}
-                            activeIdx={concActiveSubIdx}
-                            onSeek={onSeek}
-                            onRewriteSubVisual={(subIdx, prompt) => onRewriteSubVisual(-1, 'conclusion', subIdx, prompt)}
-                            onPreviewSubVisual={onPreviewSubVisual ? (subIdx) => onPreviewSubVisual(-1, 'conclusion', subIdx) : undefined}
-                            previewingSubVisual={previewingSubVisual}
-                            onUploadSubVisual={onUploadSubVisual ? (subIdx) => onUploadSubVisual(-1, 'conclusion', subIdx) : undefined}
-                            uploadingSubVisual={uploadingSubVisual}
-                          />
-                        </div>
-                      </EditSection>
-                    )}
+                    <EditSection icon={<VscEditIcon className="text-[9px] text-zinc-500" />} title="Content">
+                      <InsetCard>
+                        <CustomTextarea
+                          label="Summary Text"
+                          rows={2}
+                          value={scriptData.conclusion?.summary || ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            handleSetScriptData({
+                              ...scriptData,
+                              conclusion: { ...(scriptData.conclusion || {}), summary: v },
+                            });
+                          }}
+                        />
+                        <CustomTextarea
+                          label="Call To Action (CTA)"
+                          rows={2}
+                          value={scriptData.conclusion?.cta || ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            handleSetScriptData({
+                              ...scriptData,
+                              conclusion: { ...(scriptData.conclusion || {}), cta: v },
+                            });
+                          }}
+                        />
+                      </InsetCard>
+                    </EditSection>
 
                     <AIRewriteSection
                       prompt={rewritePrompt}
                       onPromptChange={setRewritePrompt}
                       onRewrite={() => onRewriteSection('conclusion', 0)}
                       isRewriting={rewritingSection === 'conclusion'}
+                      locked={isAnyRewriting && rewritingSection !== 'conclusion'}
                     />
                   </EditFormFields>
                 ) : (
@@ -491,14 +402,6 @@ export const ScriptTab = React.memo(function ScriptTab({
                         <span className="w-1 h-1 rounded-full bg-blue-500 shrink-0" />
                         {scriptData.conclusion.cta}
                       </div>
-                    )}
-                    {(scriptData.conclusion?.sub_visuals?.length > 0) && (
-                      <SubVisualsView
-                        subVisuals={scriptData.conclusion?.sub_visuals || []}
-                        timings={concTimings}
-                        activeIdx={concActiveSubIdx}
-                        onSeek={onSeek}
-                      />
                     )}
                   </div>
                 )}
@@ -553,14 +456,13 @@ interface SceneCardProps {
   label: string;
   isActive: boolean;
   isEditing: boolean;
-  editingMode?: 'script' | 'visuals';
   activeSubIdx: number;
   timings: any[];
   savingKey: boolean;
   children: React.ReactNode;
   onCardClick: () => void;
   onEditScript: () => void;
-  onEditVisuals: () => void;
+  onOpenVisuals: () => void;
   onSave: () => void;
   onCancel: () => void;
   onDelete?: () => void;
@@ -569,7 +471,7 @@ interface SceneCardProps {
 
 const SceneCard: React.FC<SceneCardProps> = ({
   label, isActive, isEditing, children, savingKey,
-  onCardClick, onEditScript, onEditVisuals, onSave, onCancel, onDelete, disabled
+  onCardClick, onEditScript, onOpenVisuals, onSave, onCancel, onDelete, disabled
 }) => (
   <motion.div
     data-active-scene={isActive ? 'true' : undefined}
@@ -641,11 +543,12 @@ const SceneCard: React.FC<SceneCardProps> = ({
                 disabled={disabled}
                 className="text-[9px] flex items-center gap-1 text-zinc-400 hover:text-white px-2 py-1 hover:bg-zinc-800 transition-colors cursor-pointer border-r border-zinc-800/60 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <VscEdit className="text-[9px]" /> Script
+                <VscEdit className="text-[9px]" /> Edit
               </button>
               <button
-                onClick={onEditVisuals}
+                onClick={onOpenVisuals}
                 disabled={disabled}
+                title="Edit visuals in the Visuals tab"
                 className="text-[9px] flex items-center gap-1 text-zinc-400 hover:text-white px-2 py-1 hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <VscLayers className="text-[9px]" /> Visuals
@@ -746,9 +649,11 @@ interface AIRewriteSectionProps {
   onPromptChange: (p: string) => void;
   onRewrite: () => void;
   isRewriting?: boolean;
+  /** Global exclusivity: another rewrite is in flight elsewhere. */
+  locked?: boolean;
 }
 
-const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptChange, onRewrite, isRewriting }) => (
+const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptChange, onRewrite, isRewriting, locked }) => (
   <div className="border-t border-zinc-700/30 pt-3">
     <div className="flex items-center gap-1.5 mb-2">
       <VscSparkle className="text-[9px] text-zinc-500" />
@@ -764,18 +669,20 @@ const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptCha
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !isRewriting && prompt.trim()) {
+            if (e.key === 'Enter' && !isRewriting && !locked && prompt.trim()) {
               e.preventDefault();
               onRewrite();
             }
           }}
-          disabled={isRewriting}
+          disabled={isRewriting || locked}
+          title={locked && !isRewriting ? 'AI rewrites run one at a time — wait for the current one' : undefined}
           className="w-full bg-zinc-900/80 border border-zinc-700/60 rounded-lg px-3 py-2 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all disabled:opacity-50"
         />
       </div>
       <button
         onClick={onRewrite}
-        disabled={isRewriting || !prompt.trim()}
+        disabled={isRewriting || locked || !prompt.trim()}
+        title={locked && !isRewriting ? 'AI rewrites run one at a time — wait for the current one' : undefined}
         className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800/80 hover:bg-blue-600/20 hover:text-blue-400 text-zinc-300 border border-zinc-700/60 hover:border-blue-600/30 rounded-lg text-[10px] font-bold transition-all shrink-0 h-9 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
       >
         {isRewriting ? (

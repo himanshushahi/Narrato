@@ -1,19 +1,14 @@
 import logging
 from typing import List, Dict, Any, Tuple
+from backend.agent.schemas import SubVisualAST
 
 logger = logging.getLogger(__name__)
 
 # The same enums the pipeline enforces (ai.py SUB_VISUAL_SCHEMA /
 # get_shared_visual_rules). Keep in sync with backend/pipeline/ai.py.
-VALID_VISUAL_TYPES = {
-    "map", "document", "portrait", "scene", "image", "youtube",
-    "parallax", "network", "list", "custom_html", "thread",
-    "device_mockup", "ai_image",
-}
-
 VALID_TRANSITIONS = {
-    "subtle_slide", "fade", "slide_left", "slide_right", "slide_up",
-    "slide_down", "zoom_in", "zoom_out", "glitch", "none",
+    "none", "cut", "fade", "crossfade", "slide_left", "slide_right", 
+    "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "dissolve"
 }
 
 
@@ -27,61 +22,35 @@ def _safe_float(val, default: float = 0.0) -> float:
         return default
 
 
-def normalize_visual_type(v_type: str) -> str:
-    """Fuzzy-map a visual type string onto the valid enum (mirrors ai.py)."""
-    t = str(v_type or "scene").lower().strip().replace("_", " ")
-    if t in VALID_VISUAL_TYPES:
-        return t
-    for key, mapped in (
-        ("parallax", "parallax"),
-        ("portrait", "portrait"),
-        ("map", "map"),
-        ("network", "network"),
-        ("document", "document"),
-        ("youtube", "youtube"),
-        ("list", "list"),
-        ("html", "custom_html"),
-        ("ai image", "ai_image"),
-        ("image", "image"),
-        ("thread", "thread"),
-        ("chat", "thread"),
-        ("mockup", "device_mockup"),
-        ("device", "device_mockup"),
-        ("scene", "scene"),
-    ):
-        if key in t:
-            return mapped
-    return "scene"
+
 
 
 def normalize_transition(transition: str) -> str:
     """Fuzzy-map a transition string onto the valid enum."""
-    t = str(transition or "fade").lower().strip().replace("-", "_").replace(" ", "_")
+    t = str(transition or "cut").lower().strip().replace("-", "_").replace(" ", "_")
     if t in VALID_TRANSITIONS:
         return t
     for key in ("subtle_slide", "slide_left", "slide_right", "slide_up",
-                "slide_down", "zoom_in", "zoom_out", "glitch"):
+                "slide_down", "zoom_in", "zoom_out", "glitch", "crossfade", "dissolve", "cut", "none"):
         if key in t:
             return key
-    if "fade" in t or "dissolve" in t:
+    if "fade" in t:
         return "fade"
     return "fade"
 
 
 def _dummy_visual(target_duration: float) -> List[Dict[str, Any]]:
     return [{
-        "visual_type": "scene",
-        "visual_cue": "General visual",
-        "transition": "fade",
-        "visual_meta": {},
+        "transition": "cut",
+        "composition": {"type": "Sequence", "children": []},
         "duration": target_duration,
     }]
 
 
 def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1) -> Tuple[bool, List[Dict[str, Any]], str]:
     """
-    Validates a list of sub-visuals, ensuring their durations sum up to the
-    target_duration, and normalizes types/transitions onto the valid enums.
+    Validates a list of AST sub-visuals, ensuring their durations sum up to the
+    target_duration, and normalizes transitions onto valid enums.
 
     Returns: (is_valid, normalized_sub_visuals, error_message)
     """
@@ -95,7 +64,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     total_duration = 0.0
 
     # Validation pass
-    for i, v in enumerate(sub_visuals):
+    for v in sub_visuals:
         if not isinstance(v, dict):
             continue
 
@@ -105,13 +74,49 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
 
         total_duration += dur
 
-        normalized.append({
-            "visual_type": normalize_visual_type(v.get("visual_type")),
-            "visual_cue": str(v.get("visual_cue", f"Visual {i+1}")),
-            "transition": normalize_transition(v.get("transition")),
-            "visual_meta": v.get("visual_meta", {}) if isinstance(v.get("visual_meta"), dict) else {},
+        entry = {
+            "composition": v.get("composition", {"type": "Sequence", "children": []}),
+            "transition": normalize_transition(v.get("transition", "cut")),
             "duration": dur,
-        })
+        }
+        # Mid-cut punch-in zooms: [{at, scale, duration}] — sanitize ranges so
+        # a bad mark can never break the renderer (clamped again client-side).
+        if isinstance(v.get("emphasis"), list):
+            marks = []
+            for m in v["emphasis"]:
+                if not isinstance(m, dict):
+                    continue
+                try:
+                    at = max(0.0, float(m.get("at", 0)))
+                except (ValueError, TypeError):
+                    continue
+                try:
+                    scale = float(m.get("scale", 1.12))
+                except (ValueError, TypeError):
+                    scale = 1.12
+                try:
+                    mark_dur = float(m.get("duration", 0.5))
+                except (ValueError, TypeError):
+                    mark_dur = 0.5
+                marks.append({
+                    "at": round(min(at, dur), 2),
+                    "scale": round(min(1.6, max(1.02, scale)), 3),
+                    "duration": round(min(2.0, max(0.2, mark_dur)), 2),
+                })
+            if marks:
+                entry["emphasis"] = marks
+        if "subtitle_position" in v and v["subtitle_position"] in ("bottom", "top", "hidden"):
+            entry["subtitle_position"] = v["subtitle_position"]
+        if "visual_path" in v:
+            entry["visual_path"] = v["visual_path"]
+        if "visual_url" in v:
+            entry["visual_url"] = v["visual_url"]
+        
+        try:
+            validated = SubVisualAST.model_validate(entry)
+            normalized.append(validated.model_dump(exclude_none=True))
+        except Exception:
+            normalized.append(entry)
 
     if not normalized:
         return False, _dummy_visual(target_duration), "No valid sub_visuals found."
@@ -136,23 +141,3 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     return True, normalized, ""
 
 
-def validate_script(script_json: Dict[str, Any]) -> Tuple[bool, str]:
-    """
-    Validates that a generated script meets the basic structural requirements.
-    """
-    if not isinstance(script_json, dict):
-        return False, "Script must be a JSON object."
-
-    if not script_json.get("title"):
-        return False, "Script is missing a title."
-
-    if not isinstance(script_json.get("scenes"), list):
-        return False, "Scenes must be a list."
-
-    if not script_json.get("introduction", {}).get("hook"):
-        return False, "Introduction hook is missing."
-
-    if not script_json.get("conclusion", {}).get("summary"):
-        return False, "Conclusion summary is missing."
-
-    return True, ""

@@ -2,15 +2,19 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscEdit, VscAccount, VscSettingsGear,
-  VscExport, VscSymbolKeyword
+  VscExport, VscSymbolKeyword, VscLayers, VscFileMedia
 } from 'react-icons/vsc';
 import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
 import { useEditorStore, InspectorTab } from '../../store/useEditorStore';
 import { ScriptTab } from './InspectorTabs/ScriptTab';
+import { VisualsTab } from './InspectorTabs/VisualsTab';
 import { SubtitleTab } from './InspectorTabs/SubtitleTab';
 import { VoiceTab } from './InspectorTabs/VoiceTab';
+import { OverlaysTab } from './InspectorTabs/OverlaysTab';
 import { ExportTab } from './InspectorTabs/ExportTab';
 import { SettingsTab } from './InspectorTabs/SettingsTab';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
+import { usePlaybackStore } from '../../store/usePlaybackStore';
 import { Task } from '../../store/useProjectStore';
 
 interface InspectorPanelProps {
@@ -18,8 +22,6 @@ interface InspectorPanelProps {
   manifestData: any[];
   transcriptionData: any;
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
-  activeSceneIdx: number;
-  activeSubIdx: number;
   localProjectSettings: any;
   projectId: string;
 
@@ -29,20 +31,27 @@ interface InspectorPanelProps {
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   rewritingSection: string | null;
+  isAnyRewriting: boolean;
+  isSectionRewriting: (cardKey: string) => boolean;
+  isSubRewriting: (cardKey: string, subIdx: number) => boolean;
+  isSectionLocked: (cardKey: string) => boolean;
+  invalidateRewrites: (cardKey: string) => void;
   savingCardKey: string | null;
   isSaving: boolean;
-  onSaveCard: (cardKey?: string, index?: number) => void;
+  onSaveCard: (cardKey?: string, index?: number, latestData?: any) => void;
   onStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   onCancelEdit: () => void;
-  onRewriteSection: (type: string, index: number) => void;
-  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
+  onOpenVisuals: (sceneIdx: number, subIdx: number) => void;
+  onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<any | undefined> | void;
+  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<any | undefined>;
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
-  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
-  previewingSubVisual?: string | null;
-  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
+  onSaveOverlays?: (overlays: any[]) => void;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
+  onRegisterFlush?: (flush: (() => any) | null) => void;
 
   // Pipeline props
   tasks: Record<string, Task>;
@@ -50,7 +59,6 @@ interface InspectorPanelProps {
   isPipelineRunning: boolean;
   targetStage: string;
   activeTaskStep: Task | null;
-  scriptChangedAlert: boolean;
   hasScriptData: boolean;
   onSetTargetStage: (stage: string) => void;
   onTriggerFullPipeline: () => void;
@@ -62,8 +70,9 @@ interface InspectorPanelProps {
   isSavingSubtitles: boolean;
   onSettingsUpdate: (settings: any) => void;
   onTranscriptionChange: (data: any) => void;
-  onSaveTranscription: () => void;
+  onSaveTranscription: (doc?: any) => void;
   onResetTranscription: () => void;
+  onRegisterSubtitleFlush?: (flush: (() => any) | null) => void;
 
   // Navigation
   onSeek: (frame: number) => void;
@@ -71,6 +80,8 @@ interface InspectorPanelProps {
 
 const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
   { id: 'script', label: 'Script', icon: <VscEdit /> },
+  { id: 'visuals', label: 'Visuals', icon: <VscFileMedia /> },
+  { id: 'overlays', label: 'Overlays', icon: <VscLayers /> },
   { id: 'subtitle', label: 'Subtitle', icon: <VscSymbolKeyword /> },
   { id: 'voice', label: 'Voice', icon: <VscAccount /> },
   { id: 'settings', label: 'Settings', icon: <VscSettingsGear /> },
@@ -79,20 +90,39 @@ const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   scriptData, manifestData, transcriptionData, sceneTimings,
-  activeSceneIdx, activeSubIdx, localProjectSettings, projectId,
+  localProjectSettings, projectId,
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
-  onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
-  onSetSceneToDelete, onSetScriptData,
-  onPreviewSubVisual, previewingSubVisual,
-  onUploadSubVisual, uploadingSubVisual,
-  tasks, queue, isPipelineRunning, targetStage, activeTaskStep, scriptChangedAlert, hasScriptData,
+  isAnyRewriting, isSectionRewriting, isSubRewriting, isSectionLocked, invalidateRewrites,
+  onSaveCard, onStartEdit, onCancelEdit, onOpenVisuals, onRewriteSection, onRewriteSubVisual, onInsertScene,
+  onSetSceneToDelete,   onSetScriptData, onSaveOverlays,
+  onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, onRegisterFlush,
+  tasks, queue, isPipelineRunning, targetStage, activeTaskStep, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
+  onRegisterSubtitleFlush,
   onSeek,
 }) => {
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
   const inspectorTab = useEditorStore((s) => s.inspectorTab);
   const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+
+  // Subscribe to active scene/sub index with equality check so InspectorPanel
+  // only updates when scene/sub boundaries actually change.
+  const [activeSceneIdx, activeSubIdx] = useStoreWithEqualityFn(
+    usePlaybackStore,
+    (s) => {
+      const sceneIdx = sceneTimings.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end);
+      let subIdx = -1;
+      if (sceneIdx !== -1) {
+        const subs = sceneTimings[sceneIdx]?.subs;
+        if (subs && subs.length > 0) {
+          subIdx = subs.findIndex(x => s.currentFrame >= x.start && s.currentFrame < x.end);
+        }
+      }
+      return [sceneIdx, subIdx] as const;
+    },
+    (a, b) => a[0] === b[0] && a[1] === b[1]
+  );
 
   const renderTabContent = () => {
     switch (inspectorTab) {
@@ -109,21 +139,49 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             rewritePrompt={rewritePrompt}
             setRewritePrompt={setRewritePrompt}
             rewritingSection={rewritingSection}
+            isAnyRewriting={isAnyRewriting}
             savingCardKey={savingCardKey}
             isSaving={isSaving}
             onSeek={onSeek}
             onSaveCard={onSaveCard}
             onStartEdit={onStartEdit}
             onCancelEdit={onCancelEdit}
+            onOpenVisuals={onOpenVisuals}
             onRewriteSection={onRewriteSection}
-            onRewriteSubVisual={onRewriteSubVisual}
             onInsertScene={onInsertScene}
             onSetSceneToDelete={onSetSceneToDelete}
             onSetScriptData={onSetScriptData}
-            onPreviewSubVisual={onPreviewSubVisual}
-            previewingSubVisual={previewingSubVisual}
+          />
+        );
+      case 'visuals':
+        return (
+          <VisualsTab
+            scriptData={scriptData}
+            manifestData={manifestData}
+            sceneTimings={sceneTimings}
+            activeSceneIdx={activeSceneIdx}
+            activeSubIdx={activeSubIdx}
+            editingCard={editingCard}
+            savingCardKey={savingCardKey}
+            rewritingSection={rewritingSection}
+            isAnyRewriting={isAnyRewriting}
+            isSectionRewriting={isSectionRewriting}
+            isSubRewriting={isSubRewriting}
+            isSectionLocked={isSectionLocked}
+            invalidateRewrites={invalidateRewrites}
+            rewritePrompt={rewritePrompt}
+            setRewritePrompt={setRewritePrompt}
+            onSeek={onSeek}
+            onSaveCard={onSaveCard}
+            onCancelEdit={onCancelEdit}
+            onStartEdit={onStartEdit}
+            onSetScriptData={onSetScriptData}
+            onRewriteSection={onRewriteSection}
+            onRewriteSubVisual={onRewriteSubVisual}
             onUploadSubVisual={onUploadSubVisual}
+            onPreviewSubVisual={onPreviewSubVisual}
             uploadingSubVisual={uploadingSubVisual}
+            onRegisterFlush={onRegisterFlush}
           />
         );
       case 'subtitle':
@@ -138,6 +196,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             onResetTranscription={onResetTranscription}
             onPlaySegment={onSeek}
             onSeek={onSeek}
+            onRegisterFlush={onRegisterSubtitleFlush}
           />
         );
       case 'voice':
@@ -145,6 +204,15 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
           <VoiceTab
             localProjectSettings={localProjectSettings}
             onSettingsUpdate={onSettingsUpdate}
+          />
+        );
+      case 'overlays':
+        return (
+          <OverlaysTab
+            scriptData={scriptData}
+            projectId={projectId}
+            onSetScriptData={onSetScriptData}
+            onSaveOverlays={onSaveOverlays}
           />
         );
       case 'export':
@@ -156,7 +224,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             targetStage={targetStage}
             activeTaskStep={activeTaskStep}
             projectId={projectId}
-            scriptChangedAlert={scriptChangedAlert}
             hasScriptData={hasScriptData}
             onSetTargetStage={onSetTargetStage}
             onTriggerFullPipeline={onTriggerFullPipeline}

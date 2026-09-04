@@ -4,6 +4,9 @@ interface PywebviewApi {
   browse_bg_music_file(): Promise<string>;
   clear_bg_music(): Promise<{ success: boolean; deleted_file?: boolean }>;
   upload_project_bg_music(project_id: string): Promise<{ success: boolean; path: string | null; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
+  upload_music_clip(project_id: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
+  add_music_clip_from_path(project_id: string, file_path: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
+  update_music_clips(project_id: string, clips: any[]): Promise<{ success: boolean; error?: string }>;
   db_get_projects(): Promise<any[]>;
   db_get_project(project_id: string): Promise<any>;
   db_update_project(project_id: string, updates_dict: any): Promise<{ success: boolean; error?: string }>;
@@ -40,16 +43,17 @@ interface PywebviewApi {
   generate_voice_preview(text: string, engine: string, voice: string, speed: string, pitch: string, language: string): Promise<{ success: boolean; audio_path?: string; error?: string }>;
   get_ytdlp_version(): Promise<{ installed: boolean; version: string | null; path: string | null }>;
   update_ytdlp(): Promise<{ status: string }>;
-  fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number, visual_type: string, visual_cue: string): Promise<any>;
-  preview_asset_download(project_id: string, visual_type: string, visual_cue: string, visual_meta?: any): Promise<{ success: boolean; visual_path?: string; error?: string }>;
+  fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number): Promise<any>;
+  preview_asset_download(project_id: string, query: string): Promise<{ success: boolean; visual_path?: string; error?: string }>;
   cleanup_preview_assets(project_id: string, preview_paths: string[]): Promise<{ success: boolean; deleted?: string[] }>;
+  upload_overlay_asset(project_id: string): Promise<{ success: boolean; asset_path?: string; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
+  save_uploaded_overlay_data(project_id: string, data_url: string, filename?: string): Promise<{ success: boolean; asset_path?: string; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
   save_project_with_cleanup(project_id: string, script_data: any, manifest_data: any): Promise<any>;
   update_scene_duration(project_id: string, scene_index: number, new_duration_seconds: number): Promise<{ success: boolean; error?: string }>;
   reorder_scenes(project_id: string, new_scene_order: number[]): Promise<{ success: boolean; error?: string }>;
   delete_scene(project_id: string, scene_index: number): Promise<{ success: boolean; error?: string }>;
   get_prefs(): Promise<any>;
   save_prefs(prefs: any): Promise<void>;
-  test_huggingface_model(api_key: string, model: string, provider: string, prompt: string, aspect_ratio: string): Promise<{ success: boolean; image?: string; error?: string }>;
   get_agent_activity(): Promise<any[]>;
 }
 

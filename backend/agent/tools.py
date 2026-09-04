@@ -5,9 +5,47 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 from backend.pipeline.web_search import search_and_format
+from backend.agent.skill_loader import skill_loader
 from backend.core.logger import logger
+from backend.agent.schemas import (
+    WebSearchToolArgs, GetSkillToolArgs, SearchMediaToolArgs,
+    SearchWikipediaImageToolArgs, SearchPixabayPhotoToolArgs, SearchYouTubeVideoToolArgs,
+    ReadProjectFileToolArgs, ProjectStatusReportToolArgs, ListProjectFilesToolArgs,
+    UpdateDesignSettingsToolArgs, UpdateSubtitlesToolArgs, UpdateVisualSettingsToolArgs,
+    UpdateSceneDurationToolArgs, ReorderScenesToolArgs, DeleteSceneToolArgs,
+    AddSceneWithAiToolArgs, RegenerateScriptSectionToolArgs, RegenerateSceneVisualsToolArgs,
+    SetTtsSettingsToolArgs, InvalidateSceneToolArgs, UpdateSubVisualToolArgs,
+)
 
 logger = logging.getLogger(__name__)
+
+TOOL_ARGUMENT_MODELS = {
+    "web_search": WebSearchToolArgs,
+    "get_skill": GetSkillToolArgs,
+    "search_pexels_photo": SearchMediaToolArgs,
+    "search_pexels_video": SearchMediaToolArgs,
+    "search_wikipedia_image": SearchWikipediaImageToolArgs,
+    "search_pixabay_photo": SearchPixabayPhotoToolArgs,
+    "search_pixabay_video": SearchMediaToolArgs,
+    "search_youtube_video": SearchYouTubeVideoToolArgs,
+    "read_project_file": ReadProjectFileToolArgs,
+    "project_status_report": ProjectStatusReportToolArgs,
+    "list_project_files": ListProjectFilesToolArgs,
+    "update_design_settings": UpdateDesignSettingsToolArgs,
+    "update_subtitles": UpdateSubtitlesToolArgs,
+    "update_subtitle_settings": UpdateVisualSettingsToolArgs,
+    "update_numbering_settings": UpdateVisualSettingsToolArgs,
+    "update_chapter_branding": UpdateVisualSettingsToolArgs,
+    "update_sub_visual": UpdateSubVisualToolArgs,
+    "update_scene_duration": UpdateSceneDurationToolArgs,
+    "reorder_scenes": ReorderScenesToolArgs,
+    "delete_scene": DeleteSceneToolArgs,
+    "add_scene_with_ai": AddSceneWithAiToolArgs,
+    "regenerate_script_section": RegenerateScriptSectionToolArgs,
+    "regenerate_scene_visuals": RegenerateSceneVisualsToolArgs,
+    "set_tts_settings": SetTtsSettingsToolArgs,
+    "invalidate_scene": InvalidateSceneToolArgs,
+}
 
 
 def _project_dir(project_id: str) -> Path:
@@ -236,10 +274,6 @@ def _format_settings_overview(settings: dict) -> str:
     return "\n".join(lines) if lines else "  (none stored)"
 
 
-def _get_project_row(project_id: str):
-    from backend.database.db import get_project
-    return get_project(project_id)
-
 
 def get_tools_schema() -> List[Dict[str, Any]]:
     """Returns the JSON schema definitions for all available agent tools."""
@@ -266,34 +300,21 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                 }
             }
         },
-        {
-            "type": "function",
-            "function": {
-                "name": "get_visual_type_rules",
-                "description": "Fetches the required JSON schema and design rules for a specific visual type (e.g., 'custom_html', 'network'). Use this before generating complex sub-visuals to ensure you follow the design system.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "visual_type": {
-                            "type": "string",
-                            "description": "The visual type to look up. E.g., 'custom_html', 'map', 'document', 'network', 'thread', 'device_mockup', 'list', 'portrait', 'parallax', 'scene', 'image', 'ai_image', 'youtube'."
-                        }
-                    },
-                    "required": ["visual_type"]
-                }
-            }
-        },
+
         {
             "type": "function",
             "function": {
                 "name": "get_skill",
-                "description": "Loads a specialized skill definition: 'scriptwriter' (narration/TTS rules), 'subtitle-designer' (subtitle styling), 'custom-html-designer' (HTML/CSS design rules), 'stock-asset-searcher' (stock keyword rules), 'editor-qa' (guardrails for editing projects), 'visual-director-core' (visual selection rules).",
+                "description": (
+                    "Loads a specialized skill definition for project rules and best practices. "
+                    f"Available skills: {', '.join(sorted(skill_loader.get_all_skills().keys())) if 'skill_loader' in globals() or 'skill_loader' in locals() else 'declarative-ast, visual-director-core, scriptwriter, editor-qa, subtitle-designer, stock-asset-searcher'}."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Skill name: scriptwriter, subtitle-designer, custom-html-designer, stock-asset-searcher, editor-qa, visual-director-core, or a visual-type-* skill (e.g. visual-type-custom-html, visual-type-document)"
+                            "description": "Skill name to load"
                         }
                     },
                     "required": ["name"]
@@ -348,17 +369,51 @@ def get_tools_schema() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "function": {
-                "name": "preview_asset",
-                "description": "Downloads a single asset for a visual type/cue into the project's previews directory so the result can be shown in the editor. Returns the downloaded file path.",
+                "name": "search_pixabay_photo",
+                "description": "Searches Pixabay for a stock photo. Returns a URL if found, or a not-found message. "
+                               "Pixabay has a large catalog of illustrations, vectors, and photos — many available as transparent PNG (use image_type='png' for cutouts). "
+                               "Useful to verify a Pixabay asset exists before setting source:'pixabay' in an AST layer.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "project_id": {"type": "string"},
-                        "visual_type": {"type": "string", "description": "e.g. 'scene', 'image', 'portrait', 'parallax', 'youtube', 'ai_image', 'device_mockup'"},
-                        "visual_cue": {"type": "string", "description": "1-3 word English stock keyword or person name"},
-                        "visual_meta": {"type": "object", "description": "Optional meta (e.g. person_name for portrait)"}
+                        "query": {"type": "string", "description": "Search query (in English)"},
+                        "orientation": {"type": "string", "enum": ["landscape", "portrait"], "description": "Preferred orientation (default landscape)"},
+                        "image_type": {"type": "string", "enum": ["all", "photo", "illustration", "vector"], "description": "Filter by image type. Use 'illustration' or 'vector' for transparent-bg cutout assets."}
                     },
-                    "required": ["project_id", "visual_type", "visual_cue"]
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_pixabay_video",
+                "description": "Searches Pixabay for stock video footage. Returns a URL if found. "
+                               "Pixabay video catalog is smaller than Pexels — prefer Pexels for B-roll, use Pixabay for animation loops or abstract footage.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query (in English)"}
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_youtube_video",
+                "description": "Checks whether a YouTube video matching the query can be downloaded via yt-dlp. "
+                               "Returns the video title and duration if found, or an error. "
+                               "Use this to verify source='youtube' will work before adding it to an AST layer. "
+                               "Best for: animation loops, timelapse footage, cinematic B-roll, specific footage not on Pexels/Pixabay. "
+                               "Requires yt-dlp to be installed.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query (in English, e.g. 'city timelapse night', 'ocean waves')"}
+                    },
+                    "required": ["query"]
                 }
             }
         },
@@ -414,7 +469,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                     "type": "object",
                     "properties": {
                         "project_id": {"type": "string"},
-                        "updates": {"type": "object", "description": "Key-value pairs to deep-merge into design.json (e.g. {'color_palette': {'primary': '#4F46E5'}, 'typography': {'heading_font': 'Oswald'}, 'css_guidelines': '...'})"}
+                        "updates": {"type": "object", "description": "Key-value pairs to deep-merge into design.json. Example: {'color_palette': {'primary': '#4F46E5'}, 'typography': {'heading_font': 'Noto Sans Devanagari'}, 'css_guidelines': '...'}. CRITICAL: For complex-script languages (Hindi, Tamil, Bengali, Arabic, etc.) always use Noto fonts (e.g. 'Noto Sans Devanagari') — never Latin-only fonts like Oswald or Outfit."}
                     },
                     "required": ["project_id", "updates"]
                 }
@@ -470,7 +525,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "update_scene_properties",
-                "description": "Edits a specific sub-visual's properties in the project's script.json. Use this to tweak visual_meta or inject a camera transform ({'transform': {'zoom': 1.2, 'offsetX': 50, 'offsetY': -20}}).",
+                "description": "Edits a specific sub-visual's properties in the project's script.json (e.g. modifying composition, animations, filters, style, or transition).",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -649,6 +704,15 @@ def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
 def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
     """Tool dispatcher. Kept private — public entry point is execute_tool."""
     try:
+        # Validate and coerce arguments through Pydantic model if registered
+        arg_model = TOOL_ARGUMENT_MODELS.get(tool_name)
+        if arg_model is not None and isinstance(arguments, dict):
+            try:
+                validated_model = arg_model.model_validate(arguments)
+                arguments = validated_model.model_dump(exclude_none=True)
+            except Exception as val_err:
+                logger.warning(f"Pydantic argument validation for {tool_name}: {val_err}")
+
         # --- Research / lookup tools ---
         if tool_name == "web_search":
             query = arguments.get("query")
@@ -670,32 +734,17 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                             result=res if res else None)
             return res if res else "No results found."
 
-        if tool_name == "get_visual_type_rules":
-            vtype = arguments.get("visual_type")
-            if not vtype:
-                return "Error: Missing visual_type."
 
-            from backend.agent.skill_loader import skill_loader
-            skill_name = f"visual-type-{vtype.replace('_', '-')}"
-            skill = skill_loader.get_skill(skill_name, context="tool")
-            if not skill:
-                # Defensive fallback: image/ai_image rules live in their own
-                # skills now; fall back to the shared scene rules if a specific
-                # skill is missing from disk.
-                skill = skill_loader.get_skill("visual-type-scene", context="tool")
-            if skill:
-                return skill.content
-            return f"Error: Rules for visual type '{vtype}' not found."
 
         if tool_name == "get_skill":
             name = arguments.get("name")
             if not name:
                 return "Error: Missing skill name."
-            from backend.agent.skill_loader import skill_loader
             skill = skill_loader.get_skill(name, context="tool")
             if skill:
                 return f"--- SKILL: {name} (v{skill.version}) ---\n{skill.content}"
-            return f"Error: Skill '{name}' not found. Available: scriptwriter, subtitle-designer, custom-html-designer, stock-asset-searcher, editor-qa, visual-director-core, visual-type-*."
+            available = ", ".join(sorted(skill_loader.get_all_skills().keys()))
+            return f"Error: Skill '{name}' not found. Available skills: {available}."
 
         if tool_name == "search_pexels_photo":
             query = arguments.get("query")
@@ -725,18 +774,68 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             url = search_wikipedia_image(query)
             return url if url else f"No Wikipedia image found for '{query}'"
 
-        if tool_name == "preview_asset":
-            project_id = arguments.get("project_id")
-            visual_type = arguments.get("visual_type")
-            visual_cue = arguments.get("visual_cue")
-            visual_meta = arguments.get("visual_meta") or {}
-            if not project_id or not visual_type or not visual_cue:
-                return "Error: project_id, visual_type, and visual_cue are required."
-            from backend.pipeline.assets import preview_asset_download
-            result = preview_asset_download(project_id, visual_type, visual_cue, visual_meta)
-            if result.get("success"):
-                return f"Preview asset saved to: {result.get('visual_path') or result.get('path') or ''}"
-            return f"Error: {result.get('error', 'preview failed')}"
+        if tool_name == "search_pixabay_photo":
+            query = arguments.get("query")
+            orientation = arguments.get("orientation")
+            image_type = arguments.get("image_type", "all")
+            from backend.database.db import get_setting
+            from backend.pipeline.assets import search_pixabay_photo
+            api_key = get_setting("pixabay_api_key")
+            if not api_key:
+                return "Error: Pixabay API key not configured in settings."
+            url = search_pixabay_photo(query, api_key, orientation, image_type=image_type)
+            return url if url else f"No Pixabay photo found for '{query}'"
+
+        if tool_name == "search_pixabay_video":
+            query = arguments.get("query")
+            from backend.database.db import get_setting
+            from backend.pipeline.assets import search_pixabay_video
+            api_key = get_setting("pixabay_api_key")
+            if not api_key:
+                return "Error: Pixabay API key not configured in settings."
+            url = search_pixabay_video(query, api_key)
+            return url if url else f"No Pixabay video found for '{query}'"
+
+        if tool_name == "search_youtube_video":
+            query = arguments.get("query")
+            if not query:
+                return "Error: query is required."
+            from backend.core.config import get_ytdlp_path, get_startupinfo
+            import subprocess, json as _json
+            ytdlp_path = get_ytdlp_path()
+            try:
+                startupinfo = get_startupinfo()
+                res = subprocess.run(
+                    [
+                        ytdlp_path,
+                        f"ytsearch1:{query}",
+                        "--dump-json",
+                        "--no-download",
+                        "--no-warnings",
+                        "--quiet",
+                    ],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, timeout=20, startupinfo=startupinfo
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    try:
+                        info = _json.loads(res.stdout.strip().splitlines()[0])
+                        title = info.get("title", "Unknown")
+                        duration = info.get("duration", "?")
+                        uploader = info.get("uploader", "")
+                        return (
+                            f"YouTube match found: '{title}' by {uploader} "
+                            f"({duration}s). Use source='youtube', query='{query}'."
+                        )
+                    except Exception:
+                        return f"YouTube match found for '{query}' but metadata parse failed. Still usable."
+                return f"No YouTube result found for '{query}'."
+            except FileNotFoundError:
+                return "Error: yt-dlp binary not found. Install it from Settings → Binaries."
+            except subprocess.TimeoutExpired:
+                return f"Error: YouTube search timed out for '{query}'."
+            except Exception as e:
+                return f"Error during YouTube search: {e}"
 
         # --- Project file / state tools ---
         if tool_name == "read_project_file":

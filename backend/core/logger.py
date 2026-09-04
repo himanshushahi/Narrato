@@ -32,6 +32,18 @@ def setup_logger():
     logger = logging.getLogger("Narrato")
     logger.setLevel(logging.DEBUG)
     
+    # Ensure stdout/stderr do not crash on Windows charmap/cp1252 encodings
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except Exception:
+            pass
+
     # Avoid duplicate handlers if setup is run multiple times
     if logger.handlers:
         return logger

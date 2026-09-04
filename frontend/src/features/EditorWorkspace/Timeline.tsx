@@ -1,28 +1,50 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
-import { FPS, HEADER_WIDTH, MIN_SCENE_DURATION_SECONDS } from './timelineConstants';
+import { FPS, HEADER_WIDTH, MIN_SCENE_DURATION_SECONDS, ZOOM_MIN, ZOOM_MAX } from './timelineConstants';
 
 import { TimelineRuler } from './components/TimelineRuler';
 import { TimelinePlayhead } from './components/TimelinePlayhead';
 import { TimelineZoomControls } from './components/TimelineZoomControls';
-import { VideoTrack } from './components/VideoTrack';
+import { VideoTrack, TRANSITION_OPTIONS } from './components/VideoTrack';
+import { OverlaysTrack } from './components/OverlaysTrack';
 import { VoiceTrack } from './components/VoiceTrack';
 import { MusicTrack } from './components/MusicTrack';
 import { SubtitleTrack } from './components/SubtitleTrack';
 import { VideoAudioTrack } from './components/VideoAudioTrack';
+import { GlobalOverlayItem } from '../../components/video/GlobalOverlaysRenderer';
+import { MusicClip } from '../../components/video/NitishRajputComposition';
+import {
+  Scissors, Copy, Trash2, VolumeX, Volume2, Music, Edit3,
+  Layers, ChevronRight, Check, AlertTriangle
+} from 'lucide-react';
 
 interface TimelineProps {
   liveScenes: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
+  overlays?: GlobalOverlayItem[];
   transcriptionData?: any;
+  audioUrl?: string;
+  bgMusicUrl?: string;
+  musicClips?: MusicClip[];
+  onUpdateMusicClips?: (clips: MusicClip[]) => Promise<boolean | void>;
+  onUploadMusicClip?: (startFrame?: number) => Promise<void>;
   onSeek: (frame: number) => void;
   onDeleteScene?: (index: number) => void;
   onResizeSubVisual?: (sceneIndex: number, newRatios: number[]) => void;
   onResizeScene?: (sceneIndex: number, newDurationSeconds: number, nextDurationSeconds: number | null, mode: 'boundary' | 'absolute') => void;
   onTimingsDragUpdate?: (timings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>) => void;
   onToggleSubVisualAudioFlag?: (sceneIdx: number, subIdx: number, flag: 'mute_voiceover' | 'mute_bg_music') => void;
+  onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
+  onUpdateSubVisualTransition?: (sceneIdx: number, subIdx: number, transition: string) => void;
+  onSplitSubVisualAtFrame?: (sceneIdx: number, subIdx: number, frame: number) => void;
+  onDuplicateSubVisual?: (sceneIdx: number, subIdx: number) => void;
+  onDeleteSubVisual?: (sceneIdx: number, subIdx: number) => void;
+  onUpdateOverlay?: (target: number | string, updates: Partial<GlobalOverlayItem>) => void;
+  onToggleOverlayEnabled?: (target: number | string) => void;
+  onSelectOverlay?: (overlayId: string) => void;
+  onOpenInspectorScript?: (sceneIdx: number, subIdx: number) => void;
   readOnly?: boolean;
 }
 
@@ -32,44 +54,123 @@ interface LocalTiming {
   subs: Array<{ start: number; end: number }>;
 }
 
+interface ContextMenuState {
+  x: number;
+  y: number;
+  sceneIdx: number;
+  subIdx: number;
+  showTransitionsSubmenu?: boolean;
+  showDeleteConfirm?: boolean;
+}
+
 export const Timeline: React.FC<TimelineProps> = React.memo(({
   liveScenes,
   sceneTimings,
+  overlays = [],
   transcriptionData,
+  audioUrl,
+  bgMusicUrl,
+  musicClips = [],
+  onUpdateMusicClips,
+  onUploadMusicClip,
   onSeek,
   onDeleteScene,
   onResizeSubVisual,
   onResizeScene,
   onTimingsDragUpdate,
   onToggleSubVisualAudioFlag,
+  onSelectSubVisual,
+  onUpdateSubVisualTransition,
+  onSplitSubVisualAtFrame,
+  onDuplicateSubVisual,
+  onDeleteSubVisual,
+  onUpdateOverlay,
+  onToggleOverlayEnabled,
+  onSelectOverlay,
+  onOpenInspectorScript,
   readOnly = false,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [hoveredSceneIdx, setHoveredSceneIdx] = useState<number | null>(null);
-  const [hoveredSubVisual, setHoveredSubVisual] = useState<{ scene: number; sub: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const timelineZoom = useEditorStore((s) => s.timelineZoom);
   const setTimelineZoom = useEditorStore((s) => s.setTimelineZoom);
   const trackMuted = useEditorStore((s) => s.trackMuted);
   const trackHidden = useEditorStore((s) => s.trackHidden);
+  const trackOrder = useEditorStore((s) => s.trackOrder);
+  const setTrackOrder = useEditorStore((s) => s.setTrackOrder);
   const toggleTrackMute = useEditorStore((s) => s.toggleTrackMute);
   const toggleTrackHide = useEditorStore((s) => s.toggleTrackHide);
+
+  // Drag-and-drop track reordering state
+  const [draggingTrackIdx, setDraggingTrackIdx] = useState<number | null>(null);
+  const [dragOverTrackIdx, setDragOverTrackIdx] = useState<number | null>(null);
+
+  const handleTrackDragStart = useCallback((e: React.DragEvent, index: number) => {
+    setDraggingTrackIdx(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  }, []);
+
+  const handleTrackDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    // Functional set: same value bails out with no re-render, and the
+    // callback stays referentially stable (no per-hover track re-renders).
+    setDragOverTrackIdx((prev) => (prev === index ? prev : index));
+  }, []);
+
+  const handleTrackDrop = useCallback((e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (draggingTrackIdx === null || draggingTrackIdx === dropIndex) {
+      setDraggingTrackIdx(null);
+      setDragOverTrackIdx(null);
+      return;
+    }
+
+    const newOrder = [...trackOrder];
+    const [removed] = newOrder.splice(draggingTrackIdx, 1);
+    newOrder.splice(dropIndex, 0, removed);
+    setTrackOrder(newOrder);
+
+    setDraggingTrackIdx(null);
+    setDragOverTrackIdx(null);
+  }, [draggingTrackIdx, trackOrder, setTrackOrder]);
+
+  const handleTrackDragEnd = useCallback(() => {
+    setDraggingTrackIdx(null);
+    setDragOverTrackIdx(null);
+  }, []);
 
   const [localTimings, setLocalTimings] = useState<LocalTiming[]>(sceneTimings);
   const localTimingsRef = useRef(localTimings);
   localTimingsRef.current = localTimings;
 
-  const [, setTimingsVersion] = useState(0);
   useEffect(() => {
-    setTimingsVersion(v => v + 1);
     setLocalTimings(sceneTimings);
   }, [sceneTimings]);
 
+  // Notify the parent (InspectorPanel via activeTimings) of drag updates.
+  // rAF-coalesced, NOT debounced: multiple mousemoves within one frame
+  // collapse into a single parent update with the latest timings, so the
+  // timeline stays frame-accurate in sync without re-rendering the whole
+  // workspace on every mousemove event.
+  const onTimingsDragUpdateRef = useRef(onTimingsDragUpdate);
+  onTimingsDragUpdateRef.current = onTimingsDragUpdate;
+  const timingsRafRef = useRef(0);
   useEffect(() => {
-    if (onTimingsDragUpdate) {
-      onTimingsDragUpdate(localTimings);
-    }
-  }, [localTimings, onTimingsDragUpdate]);
+    if (!onTimingsDragUpdateRef.current) return;
+    cancelAnimationFrame(timingsRafRef.current);
+    timingsRafRef.current = requestAnimationFrame(() => {
+      onTimingsDragUpdateRef.current?.(localTimingsRef.current);
+    });
+    return () => cancelAnimationFrame(timingsRafRef.current);
+  }, [localTimings]);
+  // Strict-sync flush: if the timeline unmounts with a coalesced update
+  // still pending (mid-drag unmount), deliver the latest timings.
+  useEffect(() => () => {
+    cancelAnimationFrame(timingsRafRef.current);
+    onTimingsDragUpdateRef.current?.(localTimingsRef.current);
+  }, []);
 
   type DragState = {
     type: 'resize_sub_visual' | 'resize_scene_boundary' | 'resize_scene_absolute';
@@ -79,22 +180,30 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     initialEnd: number;
     subIdx?: number;
     initialRatios?: number[];
-    /** For scene boundary: initial duration of left scene in frames */
     initialLeftFrames?: number;
-    /** For scene boundary: initial duration of right scene in frames */
     initialRightFrames?: number;
-    /** For scene absolute: initial total duration in frames */
     initialTotalFrames?: number;
     mouseX: number;
     committed: boolean;
   };
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
-
   const isDraggingPlayheadRef = useRef(false);
 
   const totalDuration = localTimings.length > 0 ? localTimings[localTimings.length - 1].end : 300;
   const totalW = Math.max((totalDuration / FPS) * timelineZoom + 100, 400);
+
+  // Dismiss context menu immediately on any click or pointerdown outside the menu
+  useEffect(() => {
+    const handleGlobalPointerDown = (e: MouseEvent) => {
+      const menuEl = document.getElementById('timeline-context-menu');
+      if (menuEl && !menuEl.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener('pointerdown', handleGlobalPointerDown);
+    return () => window.removeEventListener('pointerdown', handleGlobalPointerDown);
+  }, []);
 
   // Follow the playhead while scrubbing — imperative scroll, no re-render.
   const timelineZoomRef = useRef(timelineZoom);
@@ -114,14 +223,105 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     return unsub;
   }, []);
 
+  // ── Snapping Helper ────────────────────────────────────────────────────────
+  // Snap points live in a ref so the snapping callbacks stay referentially
+  // stable across localTimings updates (no per-mousemove identity churn down
+  // to the playhead and click handlers). Values are still frame-accurate:
+  // the ref is refreshed every render, and drag math always reads latest.
+  const snapThresholdPixels = 8;
+  const snapPoints = useMemo(() => {
+    const pts: number[] = [];
+    for (const scene of localTimings) {
+      pts.push(scene.start, scene.end);
+      if (scene.subs) {
+        for (const sub of scene.subs) pts.push(sub.start, sub.end);
+      }
+    }
+    return pts;
+  }, [localTimings]);
+  const snapPointsRef = useRef<number[]>(snapPoints);
+  snapPointsRef.current = snapPoints;
+
+  const findSnappedFrame = useCallback((rawFrame: number): number => {
+    const zoom = timelineZoomRef.current;
+    const rawX = (rawFrame / FPS) * zoom;
+    let closestFrame = rawFrame;
+    let minDiff = Infinity;
+
+    for (const pt of snapPointsRef.current) {
+      const ptX = (pt / FPS) * zoom;
+      const diff = Math.abs(rawX - ptX);
+      if (diff <= snapThresholdPixels && diff < minDiff) {
+        minDiff = diff;
+        closestFrame = pt;
+      }
+    }
+
+    return closestFrame;
+  }, []);
+
+  // ── Fit Timeline to Container ─────────────────────────────────────────────
+  const handleFitTimeline = useCallback(() => {
+    if (!scrollRef.current || totalDuration <= 0) return;
+    const availableWidth = scrollRef.current.clientWidth - HEADER_WIDTH - 40;
+    if (availableWidth <= 0) return;
+    const optimalZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.floor(availableWidth / (totalDuration / FPS))));
+    setTimelineZoom(optimalZoom);
+  }, [totalDuration, setTimelineZoom]);
+
+  // ── Split at Playhead Helper ─────────────────────────────────────────────
+  const getCanSplitAtFrame = useCallback((frame: number) => {
+    const timings = localTimingsRef.current;
+    const sceneIdx = timings.findIndex(t => frame >= t.start && frame < t.end);
+    if (sceneIdx === -1) return null;
+    const timing = timings[sceneIdx];
+    if (!timing || !timing.subs) return null;
+    const subIdx = timing.subs.findIndex(x => frame >= x.start && frame < x.end);
+    if (subIdx === -1) return null;
+    const sub = timing.subs[subIdx];
+    const frameOffsetStart = frame - sub.start;
+    const frameOffsetEnd = sub.end - frame;
+    const canSplit = frameOffsetStart >= 0.5 * FPS && frameOffsetEnd >= 0.5 * FPS;
+    return { sceneIdx, subIdx, sub, canSplit };
+  }, []);
+
+  const handleSplitAtPlayhead = useCallback(() => {
+    const frame = usePlaybackStore.getState().currentFrame;
+    const splitInfo = getCanSplitAtFrame(frame);
+    if (!splitInfo?.canSplit || !onSplitSubVisualAtFrame) return;
+    onSplitSubVisualAtFrame(splitInfo.sceneIdx, splitInfo.subIdx, frame);
+  }, [getCanSplitAtFrame, onSplitSubVisualAtFrame]);
+
+  // Keyboard shortcut 'C' to split cut
+  useEffect(() => {
+    if (readOnly) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const frame = usePlaybackStore.getState().currentFrame;
+        const splitInfo = getCanSplitAtFrame(frame);
+        if (splitInfo?.canSplit) {
+          e.preventDefault();
+          handleSplitAtPlayhead();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [readOnly, getCanSplitAtFrame, handleSplitAtPlayhead]);
+
+  // ── Sub-Visual Resizing ───────────────────────────────────────────────────
+  // NOTE: these capture the drag-start snapshot from localTimingsRef (not the
+  // render closure), so their identities stay stable across mousemove ticks.
+  // That lets memoized SceneBlocks for untouched scenes skip re-rendering
+  // while a drag is in progress — sync is unaffected, drag math reads latest.
   const startSubVisualResize = useCallback((e: React.MouseEvent, sceneIdx: number, subIdx: number) => {
     e.stopPropagation();
-    if (!scrollRef.current) return;
-
-    const scene = liveScenes?.[sceneIdx];
-    if (!scene) return;
-
-    const timing = localTimings[sceneIdx];
+    const timing = localTimingsRef.current[sceneIdx];
+    if (!timing) return;
     const sceneDuration = timing.end - timing.start;
     if (sceneDuration <= 0) return;
 
@@ -141,21 +341,22 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     setDragState(dragRef.current);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [localTimings, liveScenes]);
+  }, []);
 
   const startSceneBoundaryResize = useCallback((e: React.MouseEvent, sceneIdx: number) => {
     e.stopPropagation();
-    if (sceneIdx >= localTimings.length - 1) return;
+    const timings = localTimingsRef.current;
+    if (sceneIdx >= timings.length - 1) return;
 
-    const leftFrames = localTimings[sceneIdx].end - localTimings[sceneIdx].start;
-    const rightFrames = localTimings[sceneIdx + 1].end - localTimings[sceneIdx + 1].start;
+    const leftFrames = timings[sceneIdx].end - timings[sceneIdx].start;
+    const rightFrames = timings[sceneIdx + 1].end - timings[sceneIdx + 1].start;
 
     dragRef.current = {
       type: 'resize_scene_boundary',
       sceneIdx,
       initialMouseX: e.clientX,
-      initialStart: localTimings[sceneIdx].start,
-      initialEnd: localTimings[sceneIdx].end,
+      initialStart: timings[sceneIdx].start,
+      initialEnd: timings[sceneIdx].end,
       initialLeftFrames: leftFrames,
       initialRightFrames: rightFrames,
       mouseX: e.clientX,
@@ -164,19 +365,19 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     setDragState(dragRef.current);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [localTimings]);
+  }, []);
 
   const startSceneAbsoluteResize = useCallback((e: React.MouseEvent, sceneIdx: number) => {
     e.stopPropagation();
 
-    const totalFrames = localTimings[sceneIdx].end - localTimings[sceneIdx].start;
+    const totalFrames = localTimingsRef.current[sceneIdx].end - localTimingsRef.current[sceneIdx].start;
 
     dragRef.current = {
       type: 'resize_scene_absolute',
       sceneIdx,
       initialMouseX: e.clientX,
-      initialStart: localTimings[sceneIdx].start,
-      initialEnd: localTimings[sceneIdx].end,
+      initialStart: localTimingsRef.current[sceneIdx].start,
+      initialEnd: localTimingsRef.current[sceneIdx].end,
       initialTotalFrames: totalFrames,
       mouseX: e.clientX,
       committed: false,
@@ -184,7 +385,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     setDragState(dragRef.current);
     document.body.style.cursor = 'ew-resize';
     document.body.style.userSelect = 'none';
-  }, [localTimings]);
+  }, []);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -249,131 +450,105 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
           let sumBefore = 0;
           for (let i = 0; i < d.subIdx!; i++) sumBefore += ratios[i];
 
-          let newSplitRatio = sumBefore + ratios[d.subIdx!] + deltaRatio;
+          const leftRatio = ratios[d.subIdx!];
+          const rightRatio = ratios[d.subIdx! + 1];
+          const combined = leftRatio + rightRatio;
 
-          const leftBound = sumBefore + MIN_RATIO;
-          const rightBound = sumBefore + ratios[d.subIdx!] + ratios[d.subIdx! + 1] - MIN_RATIO;
+          let newLeft = Math.max(MIN_RATIO, Math.min(combined - MIN_RATIO, leftRatio + deltaRatio));
+          let newRight = combined - newLeft;
 
-          newSplitRatio = Math.max(leftBound, Math.min(newSplitRatio, rightBound));
+          ratios[d.subIdx!] = newLeft;
+          ratios[d.subIdx! + 1] = newRight;
 
-          const newLeftRatio = newSplitRatio - sumBefore;
-          const newRightRatio = (ratios[d.subIdx!] + ratios[d.subIdx! + 1]) - newLeftRatio;
+          let currentFrame = t.start;
+          t.subs = subs.map((_, i) => {
+            const dur = Math.round(ratios[i] * sceneDurationFrames);
+            const start = currentFrame;
+            const end = (i === subs.length - 1) ? t.end : start + dur;
+            currentFrame = end;
+            return { start, end };
+          });
 
-          ratios[d.subIdx!] = newLeftRatio;
-          ratios[d.subIdx! + 1] = newRightRatio;
-
-          let currentStart = t.start;
-          for (let i = 0; i < subs.length; i++) {
-            const subDurFrames = Math.max(1, Math.round(ratios[i] * sceneDurationFrames));
-            subs[i] = { start: currentStart, end: currentStart + subDurFrames };
-            currentStart += subDurFrames;
-          }
-          subs[subs.length - 1].end = t.end;
-
-          t.subs = subs;
           next[d.sceneIdx] = t;
           return next;
         });
       } else if (d.type === 'resize_scene_boundary') {
-        const leftIdx = d.sceneIdx;
-        const rightIdx = leftIdx + 1;
-        const initialLeftFrames = d.initialLeftFrames!;
-        const initialRightFrames = d.initialRightFrames!;
-        const pairTotalFrames = initialLeftFrames + initialRightFrames;
+        const deltaFrames = Math.round((dx / timelineZoom) * FPS);
+        const minFrames = Math.round(MIN_SCENE_DURATION_SECONDS * FPS);
+
+        const leftOrig = d.initialLeftFrames!;
+        const rightOrig = d.initialRightFrames!;
+        const total = leftOrig + rightOrig;
+
+        let newLeft = Math.max(minFrames, Math.min(total - minFrames, leftOrig + deltaFrames));
 
         setLocalTimings((prev) => {
           const next = [...prev];
-          const leftTiming = next[leftIdx];
-          const rightTiming = next[rightIdx];
-          if (!leftTiming || !rightTiming) return prev;
+          const left = { ...next[d.sceneIdx] };
+          const right = { ...next[d.sceneIdx + 1] };
 
-          const minFrames = Math.max(1, MIN_SCENE_DURATION_SECONDS * FPS);
-          // Compute delta relative to the initial left scene pixel width
-          const initialLeftPixelWidth = (initialLeftFrames / FPS) * timelineZoom;
-          const deltaFrames = initialLeftPixelWidth > 0 ? Math.round((dx / initialLeftPixelWidth) * initialLeftFrames) : 0;
+          const boundary = d.initialStart + newLeft;
+          left.end = boundary;
+          right.start = boundary;
 
-          let newLeftFrames = Math.max(minFrames, Math.min(initialLeftFrames + deltaFrames, pairTotalFrames - minFrames));
-          let newRightFrames = pairTotalFrames - newLeftFrames;
-
-          // Recompute sub-visual timings within each scene
-          const buildSubs = (timing: LocalTiming, initDurFrames: number, newDurFrames: number) => {
-            const ratios = timing.subs.map(s => (s.end - s.start) / Math.max(1, initDurFrames));
-            const subs = [...timing.subs];
-            let currentStart = timing.start;
-            for (let i = 0; i < subs.length; i++) {
-              const subDurFrames = Math.max(1, Math.round(ratios[i] * newDurFrames));
-              subs[i] = { start: currentStart, end: currentStart + subDurFrames };
-              currentStart += subDurFrames;
-            }
-            if (subs.length > 0) subs[subs.length - 1].end = timing.start + newDurFrames;
-            return subs;
+          const scaleSubs = (scene: LocalTiming, origFrames: number) => {
+            if (!scene.subs || scene.subs.length === 0) return [];
+            const dur = scene.end - scene.start;
+            let cur = scene.start;
+            return scene.subs.map((s, i) => {
+              const origSubDur = s.end - s.start;
+              const ratio = origFrames > 0 ? origSubDur / origFrames : 1 / scene.subs.length;
+              const subDur = Math.round(ratio * dur);
+              const start = cur;
+              const end = (i === scene.subs.length - 1) ? scene.end : start + subDur;
+              cur = end;
+              return { start, end };
+            });
           };
 
-          next[leftIdx] = {
-            ...leftTiming,
-            end: leftTiming.start + newLeftFrames,
-            subs: buildSubs(leftTiming, initialLeftFrames, newLeftFrames),
-          };
-          next[rightIdx] = {
-            ...rightTiming,
-            start: next[leftIdx].end,
-            end: next[leftIdx].end + newRightFrames,
-            subs: buildSubs(rightTiming, initialRightFrames, newRightFrames),
-          };
+          left.subs = scaleSubs(left, leftOrig);
+          right.subs = scaleSubs(right, rightOrig);
 
-          // Shift all subsequent scenes
-          const shift = next[rightIdx].end - rightTiming.end;
-          for (let i = rightIdx + 1; i < next.length; i++) {
-            next[i] = {
-              ...next[i],
-              start: next[i].start + shift,
-              end: next[i].end + shift,
-            };
-          }
-
+          next[d.sceneIdx] = left;
+          next[d.sceneIdx + 1] = right;
           return next;
         });
       } else if (d.type === 'resize_scene_absolute') {
-        const minFrames = Math.max(1, MIN_SCENE_DURATION_SECONDS * FPS);
-        const sceneIdx = d.sceneIdx;
-        const initialTotalFrames = d.initialTotalFrames!;
+        const deltaFrames = Math.round((dx / timelineZoom) * FPS);
+        const minFrames = Math.round(MIN_SCENE_DURATION_SECONDS * FPS);
+        const newTotal = Math.max(minFrames, d.initialTotalFrames! + deltaFrames);
+        const frameDiff = newTotal - d.initialTotalFrames!;
 
         setLocalTimings((prev) => {
           const next = [...prev];
-          const timing = next[sceneIdx];
-          if (!timing) return prev;
-
-          const initialPixelWidth = (initialTotalFrames / FPS) * timelineZoom;
-          const deltaFrames = initialPixelWidth > 0 ? Math.round((dx / initialPixelWidth) * initialTotalFrames) : 0;
-
-          const ratios = timing.subs.map(s => (s.end - s.start) / Math.max(1, timing.end - timing.start));
-          const newDurFrames = Math.max(minFrames, initialTotalFrames + deltaFrames);
-
-          // Rebuild sub-visuals with new duration
-          let currentStart = timing.start;
-          const subs = timing.subs.map((_, i) => {
-            const subDurFrames = Math.max(1, Math.round(ratios[i] * newDurFrames));
-            const sub = { start: currentStart, end: currentStart + subDurFrames };
-            currentStart += subDurFrames;
-            return sub;
+          let offset = 0;
+          return next.map((t, idx) => {
+            const current = { ...t };
+            if (idx === d.sceneIdx) {
+              current.end = current.start + newTotal;
+              const origDur = d.initialTotalFrames!;
+              const newDur = newTotal;
+              let cur = current.start;
+              current.subs = (current.subs || []).map((s, i) => {
+                const origSubDur = s.end - s.start;
+                const ratio = origDur > 0 ? origSubDur / origDur : 1 / current.subs.length;
+                const subDur = Math.round(ratio * newDur);
+                const start = cur;
+                const end = (i === current.subs.length - 1) ? current.end : start + subDur;
+                cur = end;
+                return { start, end };
+              });
+              offset = frameDiff;
+            } else if (idx > d.sceneIdx) {
+              current.start += offset;
+              current.end += offset;
+              current.subs = (current.subs || []).map(s => ({
+                start: s.start + offset,
+                end: s.end + offset,
+              }));
+            }
+            return current;
           });
-          if (subs.length > 0) subs[subs.length - 1].end = timing.start + newDurFrames;
-
-          const newEnd = timing.start + newDurFrames;
-          const shift = newEnd - timing.end;
-
-          next[sceneIdx] = { ...timing, end: newEnd, subs };
-
-          // Shift all subsequent scenes
-          for (let i = sceneIdx + 1; i < next.length; i++) {
-            next[i] = {
-              ...next[i],
-              start: next[i].start + shift,
-              end: next[i].end + shift,
-            };
-          }
-
-          return next;
         });
       }
     };
@@ -386,15 +561,19 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     };
   }, [dragState, timelineZoom, onResizeSubVisual, onResizeScene]);
 
+  // ── Timeline Click to Seek ────────────────────────────────────────────────
   const handleTimelineClick = useCallback((e: React.MouseEvent) => {
     if (dragRef.current || isDraggingPlayheadRef.current) return;
     if (!scrollRef.current) return;
+    const zoom = timelineZoomRef.current;
     const rect = scrollRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left + scrollRef.current.scrollLeft - HEADER_WIDTH;
-    const frame = Math.max(0, Math.floor((x / timelineZoom) * FPS));
-    onSeek(frame);
-  }, [onSeek, timelineZoom]);
+    const rawFrame = Math.max(0, Math.floor((x / zoom) * FPS));
+    const snappedFrame = findSnappedFrame(rawFrame);
+    onSeek(snappedFrame);
+  }, [onSeek, findSnappedFrame]);
 
+  // ── Playhead Scrubbing with Snapping ──────────────────────────────────────
   const startPlayheadDrag = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -402,14 +581,16 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
 
     const getFrameFromMouse = (clientX: number) => {
       if (!scrollRef.current) return usePlaybackStore.getState().currentFrame;
+      const zoom = timelineZoomRef.current;
       const rect = scrollRef.current.getBoundingClientRect();
       const x = clientX - rect.left + scrollRef.current.scrollLeft - HEADER_WIDTH;
-      return Math.max(0, Math.floor((x / timelineZoom) * FPS));
+      const raw = Math.max(0, Math.floor((x / zoom) * FPS));
+      return findSnappedFrame(raw);
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!isDraggingPlayheadRef.current) return;
-      const frame = getFrameFromMouse(e.clientX);
+      const frame = getFrameFromMouse(moveEvent.clientX);
       onSeek(frame);
     };
 
@@ -426,7 +607,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     document.addEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = 'grabbing';
     document.body.style.userSelect = 'none';
-  }, [onSeek, timelineZoom]);
+  }, [onSeek, findSnappedFrame]);
 
   const isDraggingScene = dragState?.type === 'resize_sub_visual' || dragState?.type === 'resize_scene_boundary' || dragState?.type === 'resize_scene_absolute';
 
@@ -434,87 +615,195 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
     onDeleteScene?.(index);
   }, [onDeleteScene]);
 
-  const handleSceneHoverEnter = useCallback((idx: number) => setHoveredSceneIdx(idx), []);
-  const handleSceneHoverLeave = useCallback(() => setHoveredSceneIdx(null), []);
-  const handleSubHoverEnter = useCallback((scene: number, sub: number) => setHoveredSubVisual({ scene, sub }), []);
-  const handleSubHoverLeave = useCallback(() => setHoveredSubVisual(null), []);
+  const handleOpenContextMenu = useCallback((e: React.MouseEvent, sceneIdx: number, subIdx: number) => {
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      sceneIdx,
+      subIdx,
+      showTransitionsSubmenu: false,
+    });
+  }, []);
+
+  const activeTargetSubVisual = contextMenu ? liveScenes?.[contextMenu.sceneIdx]?.sub_visuals?.[contextMenu.subIdx] : null;
 
   return (
-    <div className="h-full bg-zinc-950/90 border-t border-zinc-800/60 flex flex-col select-none overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1 border-b border-zinc-800/40 shrink-0">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Timeline</span>
-        {!readOnly && <TimelineZoomControls timelineZoom={timelineZoom} setTimelineZoom={setTimelineZoom} />}
+    <div className="h-full bg-zinc-950/90 border-t border-zinc-800/60 flex flex-col select-none overflow-hidden relative">
+      {/* Timeline Toolbar Header */}
+      <div className="flex items-center justify-between px-3 py-1 border-b border-zinc-800/40 shrink-0 bg-zinc-950">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Timeline</span>
+          <span className="text-[9px] font-mono text-zinc-500">
+            {((totalDuration / FPS) || 0).toFixed(1)}s Total
+          </span>
+        </div>
+        {!readOnly && (
+          <TimelineZoomControls
+            timelineZoom={timelineZoom}
+            setTimelineZoom={setTimelineZoom}
+            onFitTimeline={handleFitTimeline}
+            onSplitAtPlayhead={handleSplitAtPlayhead}
+            localTimings={localTimings}
+          />
+        )}
       </div>
 
+      {/* Timeline Main Scrollable View */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-x-auto overflow-y-auto timeline-scrollbar min-h-0"
+        className="flex-1 overflow-x-auto overflow-y-auto timeline-scrollbar min-h-0 relative cursor-pointer"
         onClick={handleTimelineClick}
       >
-        <div style={{ width: totalW, height: '100%', position: 'relative' }}>
-          <div className="h-6 relative border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-sm sticky top-0 z-50">
-            <div className="sticky left-0 top-0 bottom-0 w-[110px] bg-zinc-950/90 border-r border-zinc-800/60 z-[60] backdrop-blur-md float-left h-full" />
+        <div style={{ width: totalW, minHeight: '100%', height: 'max-content', position: 'relative' }}>
+          {/* Time Ruler */}
+          <div className="h-6 relative border-b border-zinc-800/60 bg-zinc-950/80 sticky top-0 z-50">
+            <div className="sticky left-0 top-0 bottom-0 bg-zinc-950/90 border-r border-zinc-800/60 z-[60] float-left h-full" style={{ width: HEADER_WIDTH }} />
             <TimelineRuler totalDuration={totalDuration} timelineZoom={timelineZoom} />
           </div>
 
-          <VideoTrack
-            localTimings={localTimings}
-            liveScenes={liveScenes}
-            timelineZoom={timelineZoom}
-            hoveredSceneIdx={hoveredSceneIdx}
-            hoveredSubVisual={hoveredSubVisual}
-            isDraggingScene={isDraggingScene}
-            readOnly={readOnly}
-            onSeek={onSeek}
-            onSceneHoverEnter={handleSceneHoverEnter}
-            onSceneHoverLeave={handleSceneHoverLeave}
-            onSubHoverEnter={handleSubHoverEnter}
-            onSubHoverLeave={handleSubHoverLeave}
-            onSubVisualResizeStart={startSubVisualResize}
-            onSceneBoundaryResizeStart={startSceneBoundaryResize}
-            onSceneAbsoluteResizeStart={startSceneAbsoluteResize}
-            onDeleteScene={onDeleteScene ? handleDeleteScene : undefined}
-          />
+          {/* Dynamic Reorderable Tracks */}
+          {trackOrder.map((trackId, index) => {
+            const isDragOver = dragOverTrackIdx === index;
 
-          <VoiceTrack
-            localTimings={localTimings}
-            liveScenes={liveScenes}
-            timelineZoom={timelineZoom}
-            trackMuted={trackMuted}
-            isDraggingScene={isDraggingScene}
-            toggleTrackMute={toggleTrackMute}
-            onSeek={onSeek}
-            onToggleSubVisualAudioFlag={onToggleSubVisualAudioFlag}
-          />
+            switch (trackId) {
+              case 'video':
+                return (
+                  <VideoTrack
+                    key="video"
+                    index={index}
+                    isDragOver={isDragOver}
+                    onDragStart={handleTrackDragStart}
+                    onDragOver={handleTrackDragOver}
+                    onDrop={handleTrackDrop}
+                    onDragEnd={handleTrackDragEnd}
+                    localTimings={localTimings}
+                    liveScenes={liveScenes}
+                    timelineZoom={timelineZoom}
+                    isDraggingScene={isDraggingScene}
+                    readOnly={readOnly}
+                    onSeek={onSeek}
+                    onSubVisualResizeStart={startSubVisualResize}
+                    onSceneBoundaryResizeStart={startSceneBoundaryResize}
+                    onSceneAbsoluteResizeStart={startSceneAbsoluteResize}
+                    onDeleteScene={onDeleteScene ? handleDeleteScene : undefined}
+                    onUpdateSubVisualTransition={onUpdateSubVisualTransition}
+                    onOpenContextMenu={handleOpenContextMenu}
+                    onSelectSubVisual={onSelectSubVisual}
+                  />
+                );
 
-          <MusicTrack
-            totalDuration={totalDuration}
-            localTimings={localTimings}
-            liveScenes={liveScenes}
-            timelineZoom={timelineZoom}
-            trackMuted={trackMuted}
-            isDraggingScene={isDraggingScene}
-            toggleTrackMute={toggleTrackMute}
-            onSeek={onSeek}
-            onToggleSubVisualAudioFlag={onToggleSubVisualAudioFlag}
-          />
+              case 'overlays':
+                return (
+                  <OverlaysTrack
+                    key="overlays"
+                    index={index}
+                    isDragOver={isDragOver}
+                    onDragStart={handleTrackDragStart}
+                    onDragOver={handleTrackDragOver}
+                    onDrop={handleTrackDrop}
+                    onDragEnd={handleTrackDragEnd}
+                    overlays={overlays}
+                    totalDuration={totalDuration}
+                    timelineZoom={timelineZoom}
+                    trackHidden={trackHidden}
+                    toggleTrackHide={toggleTrackHide}
+                    onSeek={onSeek}
+                    onUpdateOverlay={onUpdateOverlay}
+                    onToggleOverlayEnabled={onToggleOverlayEnabled}
+                    onSelectOverlay={onSelectOverlay}
+                    readOnly={readOnly}
+                  />
+                );
 
-          <VideoAudioTrack
-            localTimings={localTimings}
-            liveScenes={liveScenes}
-            timelineZoom={timelineZoom}
-            trackMuted={trackMuted}
-            toggleTrackMute={toggleTrackMute}
-            onSeek={onSeek}
-          />
+              case 'subs':
+                return (
+                  <SubtitleTrack
+                    key="subs"
+                    index={index}
+                    isDragOver={isDragOver}
+                    onDragStart={handleTrackDragStart}
+                    onDragOver={handleTrackDragOver}
+                    onDrop={handleTrackDrop}
+                    onDragEnd={handleTrackDragEnd}
+                    transcriptionData={transcriptionData}
+                    timelineZoom={timelineZoom}
+                    trackHidden={trackHidden}
+                    toggleTrackHide={toggleTrackHide}
+                    onSeek={onSeek}
+                  />
+                );
 
-          <SubtitleTrack
-            transcriptionData={transcriptionData}
-            timelineZoom={timelineZoom}
-            trackHidden={trackHidden}
-            toggleTrackHide={toggleTrackHide}
-            onSeek={onSeek}
-          />
+              case 'voice':
+                return (
+                  <VoiceTrack
+                    key="voice"
+                    index={index}
+                    isDragOver={isDragOver}
+                    onDragStart={handleTrackDragStart}
+                    onDragOver={handleTrackDragOver}
+                    onDrop={handleTrackDrop}
+                    onDragEnd={handleTrackDragEnd}
+                    localTimings={localTimings}
+                    liveScenes={liveScenes}
+                    timelineZoom={timelineZoom}
+                    trackMuted={trackMuted}
+                    isDraggingScene={isDraggingScene}
+                    toggleTrackMute={toggleTrackMute}
+                    onSeek={onSeek}
+                    onToggleSubVisualAudioFlag={onToggleSubVisualAudioFlag}
+                    audioUrl={audioUrl}
+                  />
+                );
+
+              case 'music':
+                return (
+                  <MusicTrack
+                    key="music"
+                    index={index}
+                    isDragOver={isDragOver}
+                    onDragStart={handleTrackDragStart}
+                    onDragOver={handleTrackDragOver}
+                    onDrop={handleTrackDrop}
+                    onDragEnd={handleTrackDragEnd}
+                    totalDuration={totalDuration}
+                    localTimings={localTimings}
+                    liveScenes={liveScenes}
+                    timelineZoom={timelineZoom}
+                    trackMuted={trackMuted}
+                    isDraggingScene={isDraggingScene}
+                    toggleTrackMute={toggleTrackMute}
+                    onSeek={onSeek}
+                    onToggleSubVisualAudioFlag={onToggleSubVisualAudioFlag}
+                    bgMusicUrl={bgMusicUrl}
+                    musicClips={musicClips}
+                    onUpdateMusicClips={onUpdateMusicClips}
+                    onUploadMusicClip={onUploadMusicClip}
+                  />
+                );
+
+              case 'videoaudio':
+                return (
+                  <VideoAudioTrack
+                    key="videoaudio"
+                    index={index}
+                    isDragOver={isDragOver}
+                    onDragStart={handleTrackDragStart}
+                    onDragOver={handleTrackDragOver}
+                    onDrop={handleTrackDrop}
+                    onDragEnd={handleTrackDragEnd}
+                    localTimings={localTimings}
+                    liveScenes={liveScenes}
+                    timelineZoom={timelineZoom}
+                    trackMuted={trackMuted}
+                    toggleTrackMute={toggleTrackMute}
+                    onSeek={onSeek}
+                  />
+                );
+
+              default:
+                return null;
+            }
+          })}
 
           {sceneTimings.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -525,18 +814,263 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
             </div>
           )}
 
+          {/* Playhead Scrub Line spanning all tracks */}
           <TimelinePlayhead
             timelineZoom={timelineZoom}
             onStartDrag={startPlayheadDrag}
           />
-
-
         </div>
       </div>
+
+      {/* ── Context Menu Popover ──────────────────────────────────────────── */}
+      {contextMenu && (
+        <div
+          id="timeline-context-menu"
+          key={`${contextMenu.sceneIdx}-${contextMenu.subIdx}-${contextMenu.x}-${contextMenu.y}`}
+          className="fixed z-[9999] w-56 bg-zinc-900 border border-zinc-700 rounded-none shadow-2xl p-1.5 space-y-0.5 text-xs text-zinc-200"
+          style={{
+            top: Math.max(10, Math.min(window.innerHeight - 320, contextMenu.y)),
+            left: Math.max(10, Math.min(window.innerWidth - 250, contextMenu.x)),
+            transition: 'none',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-zinc-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
+            <span>Cut Actions (Scene {contextMenu.sceneIdx + 1} : #{contextMenu.subIdx + 1})</span>
+          </div>
+
+          {/* Split at Playhead */}
+          {(() => {
+            const splitInfo = contextMenu ? getCanSplitAtFrame(usePlaybackStore.getState().currentFrame) : null;
+            const canSplit = !!splitInfo?.canSplit;
+            return (
+              <button
+                type="button"
+                disabled={!canSplit}
+                onClick={() => {
+                  handleSplitAtPlayhead();
+                  setContextMenu(null);
+                }}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-none text-left transition-colors cursor-pointer ${
+                  canSplit ? 'hover:bg-zinc-800 text-zinc-200' : 'opacity-40 cursor-not-allowed text-zinc-500'
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5 text-amber-400" />
+                <div className="flex-1">
+                  <div>Split Cut at Playhead</div>
+                  <div className="text-[8px] text-zinc-500">Shortcut: C</div>
+                </div>
+              </button>
+            );
+          })()}
+
+          {/* Duplicate Cut */}
+          {onDuplicateSubVisual && (
+            <button
+              type="button"
+              onClick={() => {
+                onDuplicateSubVisual(contextMenu.sceneIdx, contextMenu.subIdx);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-none text-left hover:bg-zinc-800 text-zinc-200 transition-colors cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Duplicate Cut</span>
+            </button>
+          )}
+
+          {/* Change Transition Submenu */}
+          <div className="relative group/trans">
+            <button
+              type="button"
+              onClick={() => setContextMenu(prev => prev ? {
+                ...prev,
+                showTransitionsSubmenu: !prev.showTransitionsSubmenu,
+                showDeleteConfirm: false,
+              } : null)}
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-none text-left hover:bg-zinc-800 text-zinc-200 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <Layers className="w-3.5 h-3.5 text-purple-400" />
+                <span>Change Transition</span>
+              </div>
+              <ChevronRight className="w-3 h-3 text-zinc-500" />
+            </button>
+
+            {/* Nested Transitions Submenu */}
+            {contextMenu.showTransitionsSubmenu && (
+              <div
+                className={`absolute z-[300] w-48 bg-zinc-900 border border-zinc-700 rounded-none shadow-2xl p-1 space-y-0.5 max-h-56 overflow-y-auto ${
+                  contextMenu.x + 230 + 195 > window.innerWidth
+                    ? 'right-full mr-1 top-0'
+                    : 'left-full ml-1 top-0'
+                }`}
+              >
+                {TRANSITION_OPTIONS.map((opt) => {
+                  const Icon = opt.icon;
+                  const isCurrent = activeTargetSubVisual?.transition === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        onUpdateSubVisualTransition?.(contextMenu.sceneIdx, contextMenu.subIdx, opt.id);
+                        setContextMenu(null);
+                      }}
+                      className={`w-full flex items-center justify-between px-2 py-1 rounded-none text-left text-[11px] transition-colors cursor-pointer ${
+                        isCurrent ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-zinc-300 hover:bg-zinc-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Icon className="w-3 h-3 text-zinc-400" />
+                        <span>{opt.label}</span>
+                      </div>
+                      {isCurrent && <Check className="w-3 h-3 text-cyan-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="h-px bg-zinc-800 my-1" />
+
+          {/* Toggle Voiceover Mute */}
+          {onToggleSubVisualAudioFlag && (
+            <button
+              type="button"
+              onClick={() => {
+                onToggleSubVisualAudioFlag(contextMenu.sceneIdx, contextMenu.subIdx, 'mute_voiceover');
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-none text-left hover:bg-zinc-800 text-zinc-200 transition-colors cursor-pointer"
+            >
+              {activeTargetSubVisual?.mute_voiceover ? (
+                <>
+                  <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Unmute Voiceover</span>
+                </>
+              ) : (
+                <>
+                  <VolumeX className="w-3.5 h-3.5 text-red-400" />
+                  <span>Mute Voiceover for this Cut</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Toggle Music Mute */}
+          {onToggleSubVisualAudioFlag && (
+            <button
+              type="button"
+              onClick={() => {
+                onToggleSubVisualAudioFlag(contextMenu.sceneIdx, contextMenu.subIdx, 'mute_bg_music');
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-none text-left hover:bg-zinc-800 text-zinc-200 transition-colors cursor-pointer"
+            >
+              <Music className="w-3.5 h-3.5 text-pink-400" />
+              <span>{activeTargetSubVisual?.mute_bg_music ? 'Unmute BG Music' : 'Mute BG Music for this Cut'}</span>
+            </button>
+          )}
+
+          {/* Edit in Inspector */}
+          {onOpenInspectorScript && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenInspectorScript(contextMenu.sceneIdx, contextMenu.subIdx);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-none text-left hover:bg-zinc-800 text-zinc-200 transition-colors cursor-pointer"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+              <span>Edit in Inspector</span>
+            </button>
+          )}
+
+          {/* Delete Sub-Visual Cut Submenu */}
+          {onDeleteSubVisual && (() => {
+            const currentScene = liveScenes?.[contextMenu.sceneIdx];
+            const subVisualsCount = currentScene?.sub_visuals?.length || localTimings[contextMenu.sceneIdx]?.subs?.length || 1;
+            const isOnlySubVisual = subVisualsCount <= 1;
+
+            return (
+              <>
+                <div className="h-px bg-zinc-800 my-1" />
+                <div className="relative group/delete">
+                  <button
+                    type="button"
+                    disabled={isOnlySubVisual}
+                    onClick={() => {
+                      if (!isOnlySubVisual) {
+                        setContextMenu(prev => prev ? {
+                          ...prev,
+                          showDeleteConfirm: !prev.showDeleteConfirm,
+                          showTransitionsSubmenu: false,
+                        } : null);
+                      }
+                    }}
+                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-none text-left transition-colors cursor-pointer ${
+                      isOnlySubVisual
+                        ? 'opacity-40 cursor-not-allowed text-zinc-500'
+                        : 'hover:bg-red-500/20 text-red-400'
+                    }`}
+                    title={isOnlySubVisual ? "Cannot delete the only cut in this scene" : "Delete this sub-visual cut"}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Sub-Visual Cut</span>
+                    </div>
+                    {isOnlySubVisual ? (
+                      <span className="text-[7.5px] text-zinc-500 font-mono">Min 1</span>
+                    ) : (
+                      <ChevronRight className="w-3 h-3 text-red-400" />
+                    )}
+                  </button>
+
+                  {/* Nested Delete Confirmation Submenu */}
+                  {contextMenu.showDeleteConfirm && !isOnlySubVisual && (
+                    <div
+                      className={`absolute z-[300] w-52 bg-zinc-900 border border-zinc-700 rounded-none shadow-2xl p-1.5 space-y-1.5 select-none ${
+                        contextMenu.x + 230 + 210 > window.innerWidth
+                          ? 'right-full mr-1 top-0'
+                          : 'left-full ml-1 top-0'
+                      }`}
+                    >
+                      <div className="flex items-start gap-1.5 text-red-300 font-bold text-[10px] leading-tight px-1 pt-0.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.2" />
+                        <div>
+                          <div>Delete Cut #{contextMenu.subIdx + 1}?</div>
+                          <div className="text-[8px] font-normal text-zinc-400 mt-0.5">
+                            Duration merges into adjacent cut.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-1 border-t border-zinc-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDeleteSubVisual(contextMenu.sceneIdx, contextMenu.subIdx);
+                            setContextMenu(null);
+                          }}
+                          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-red-600 hover:bg-red-500 text-white font-bold text-[10px] rounded-none cursor-pointer shadow transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Confirm Delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 });
 
 Timeline.displayName = 'Timeline';
-
-export default Timeline;

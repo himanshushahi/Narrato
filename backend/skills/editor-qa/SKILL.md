@@ -1,24 +1,23 @@
 ---
 name: editor-qa
-version: "1.0"
+version: "2.0"
 when_to_use: "Before finalizing any edit to a project — scene rewrites, visual regenerations, reorders, duration changes."
 ---
 === GUARDRAILS FOR EDITS ===
-1. NARRATIVE INTEGRITY — After any script edit, the rewritten segment must connect smoothly with the
-   surrounding scenes. Do not change facts established elsewhere in the video.
-2. LANGUAGE — Edits must stay in the project's language and native script. Never mix transliterations.
-3. DURATION MATH — When regenerating visuals, sub-visual durations must sum EXACTLY to the scene duration.
-   Use the validation error feedback to recalculate rather than shipping approximate sums.
-4. ENUMS — visual_type must be one of: map, document, portrait, scene, image, youtube, parallax,
-   network, list, custom_html, thread, device_mockup, ai_image. Transitions: subtle_slide, fade,
-   slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none.
-5. HASH DISCIPLINE — After edits that change narration, the corresponding _narr_hash must be updated so
-   downstream smart-resume does not treat the scene as unchanged.
-6. PRESERVE UNTOUCHED — When the user asks for a targeted change, keep all other fields byte-identical.
+1. NARRATIVE INTEGRITY — After any script edit, the rewritten segment must connect smoothly with surrounding scenes. Do not contradict facts established elsewhere.
+2. LANGUAGE & CTL SHAPING — Edits must stay in the project's language and native script. For Indic/Arabic/complex scripts, ensure Noto fonts (e.g. `Noto Sans Devanagari`) are used in layer styling to avoid broken Unicode matras.
+3. DURATION MATH — When generating or regenerating visuals, sub-visual durations must sum EXACTLY to the scene duration (2 decimal places).
+ 4. COMPOSITION & PRIMITIVES — Sub-visual visuals must be structured as valid AST nodes (`Sequence` containing `Layer` items). Use only the 9 valid content types (`Chart`, `Shape`, `Text`, `Image`, `Video`, `Map`, `HTML`, `Lottie`, `Particles`).
+5. NO STATIC CHAPTER TITLE CARDS — Never place static chapter title badges or temporary scene name cards inside sub-visual cuts. Chapter indicators are rendered continuously at the root composition level.
+6. Z-INDEX DISCIPLINE — Ensure Z-indexes follow standard ranges: Backgrounds (0–9), Midground Visuals (10–29), Foreground Typography (30–39). Subtitle safe area must be respected.
+7. PRESERVE UNTOUCHED — When performing a targeted change on a scene or sub-visual, keep all other fields and scenes byte-identical.
 
 === CHECKLIST BEFORE SUBMITTING ===
-- [ ] Spoken text in correct script, no transliterations
-- [ ] Duration sum matches scene duration
-- [ ] All enums valid, no hallucinated visual_meta fields
-- [ ] visual_cue and visual_meta in English (except custom_html_ui content)
+- [ ] Spoken text in correct native script (no transliterations)
+- [ ] Duration sum equals scene duration exactly
+- [ ] All AST layer types and properties are valid
+- [ ] Content search queries (`query`) in English
+- [ ] No static chapter title layers embedded in sub-visual cuts
+- [ ] Complex scripts use Noto fonts (`Noto Sans Devanagari`, etc.)
 - [ ] No markdown/backticks around the JSON output
+

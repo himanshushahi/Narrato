@@ -12,7 +12,6 @@ when_to_use: "When writing or rewriting narration, hooks, summaries, CTAs, or sc
 - Spoken text (hook, narration, summary, cta) MUST be written in the requested language's native script.
   For Hindi ('hi') that means Devanagari (हिंदी). NEVER use English alphabet transliterations.
 - This applies to Introduction and Conclusion too. Titles/chapter titles may use the requested language.
-- visual_cue and all visual_meta text MUST always be in English (used as search keywords).
 
 === TTS-FRIENDLY WRITING ===
 - Write numbers as words ("forty-two" NOT "42"), avoid abbreviations ("for example" NOT "e.g.").

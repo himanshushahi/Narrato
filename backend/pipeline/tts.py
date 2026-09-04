@@ -402,9 +402,8 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                 orig_scene = script["scenes"][scene_idx]
                 sub_visuals = orig_scene.get("sub_visuals", [])
 
-        # Ensure sub_visuals is a valid list
         if not isinstance(sub_visuals, list) or len(sub_visuals) == 0:
-            sub_visuals = [{"visual_type": "scene", "visual_cue": sec["title"], "visual_meta": {}}]
+            sub_visuals = [{"composition": {"type": "Sequence", "children": []}}]
 
         manifest_entries.append({
             "index": idx,
@@ -449,71 +448,65 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                 except OSError:
                     pass
 
-    # Preserve visual_path/visual_url from existing manifest for unchanged sub-visuals.
-    # This prevents re-downloading all assets when only voiceover is regenerated.
-    # Matches sub-visuals by content (visual_type + visual_cue) rather than by
-    # position, so it works correctly even when scenes are inserted or reordered.
+    # Preserve visual_path/visual_url from existing manifest for unchanged AST sub-visuals.
+    # This prevents re-downloading assets when only voiceover is regenerated.
     old_manifest_path = voice_dir / "manifest.json"
     if old_manifest_path.exists():
         try:
             with open(old_manifest_path, "r", encoding="utf-8") as f:
                 old_manifest = json.load(f)
 
-            for new_entry in manifest_entries:
-                new_sub_visuals = new_entry.get("sub_visuals", [])
-
-                # Find the best-matching old entry by counting how many sub-visuals
-                # share the same content-determining fields (visual_type, visual_cue).
-                best_old_entry = None
-                best_match_count = -1
+            old_by_key = {}
+            if isinstance(old_manifest, list):
                 for old_entry in old_manifest:
+                    if isinstance(old_entry, dict):
+                        k = (old_entry.get("section_type"), (old_entry.get("text") or "").strip())
+                        old_by_key[k] = old_entry
+
+            for new_entry in manifest_entries:
+                k = (new_entry.get("section_type"), (new_entry.get("text") or "").strip())
+                old_entry = old_by_key.get(k)
+                if old_entry and isinstance(old_entry, dict):
+                    new_sub_visuals = new_entry.get("sub_visuals", [])
                     old_sub_visuals = old_entry.get("sub_visuals", [])
-                    count = sum(
-                        1 for nsv in new_sub_visuals
-                        for osv in old_sub_visuals
-                        if (nsv.get("visual_type") == osv.get("visual_type")
-                            and nsv.get("visual_cue") == osv.get("visual_cue"))
-                    )
-                    if count > best_match_count:
-                        best_match_count = count
-                        best_old_entry = old_entry
-
-                if best_old_entry is None or best_match_count < 1:
-                    continue
-
-                old_sub_visuals = best_old_entry.get("sub_visuals", [])
-                for nsv in new_sub_visuals:
-                    # Find the matching sub-visual by content within the chosen old entry
-                    osv = next(
-                        (osv for osv in old_sub_visuals
-                         if (nsv.get("visual_type") == osv.get("visual_type")
-                             and nsv.get("visual_cue") == osv.get("visual_cue")
-                             and json.dumps(nsv.get("visual_meta", {}), sort_keys=True, default=str)
-                             == json.dumps(osv.get("visual_meta", {}), sort_keys=True, default=str))),
-                        None
-                    )
-                    if osv:
-                        if osv.get("visual_path"):
-                            nsv["visual_path"] = osv["visual_path"]
-                        if osv.get("visual_url"):
-                            nsv["visual_url"] = osv["visual_url"]
+                    for j, nsv in enumerate(new_sub_visuals):
+                        if j < len(old_sub_visuals):
+                            osv = old_sub_visuals[j]
+                            if osv.get("visual_path"):
+                                nsv["visual_path"] = osv["visual_path"]
+                            if osv.get("visual_url"):
+                                nsv["visual_url"] = osv["visual_url"]
+                            # Also copy local_path into AST composition layers if matching
+                            n_comp = nsv.get("composition", {})
+                            o_comp = osv.get("composition", {})
+                            if n_comp.get("type") == "Sequence" and o_comp.get("type") == "Sequence":
+                                n_children = n_comp.get("children", [])
+                                o_children = o_comp.get("children", [])
+                                for l_idx, n_layer in enumerate(n_children):
+                                    if l_idx < len(o_children):
+                                        o_layer = o_children[l_idx]
+                                        o_content = o_layer.get("content", {})
+                                        n_content = n_layer.get("content", {})
+                                        if o_content.get("local_path") and not n_content.get("local_path"):
+                                            n_content["local_path"] = o_content["local_path"]
         except Exception as e:
             logger.warning(f"Could not preserve visual_path from old manifest: {e}")
 
-    # Verify preserved visual_path files still exist on disk.
+    # Verify preserved visual_path and AST layer local_path files still exist on disk.
     # Scene insertion/deletion shifts array positions, and cleanup_removed_assets
     # deletes files at old positions. The content-matched preservation above may
     # have copied dangling references. Check each preserved path and update to
     # the new position filename if the old file was cleaned up.
+    from backend.pipeline.assets import KNOWN_MEDIA_EXTENSIONS
+    assets_dir = project_dir / "assets"
     for entry in manifest_entries:
         scene_idx = entry.get("index", 0)
         for sub_idx, sv in enumerate(entry.get("sub_visuals", [])):
             vp = sv.get("visual_path", "")
             if vp and not Path(vp).exists():
                 # Try the new position filename
-                assets_dir = project_dir / "assets"
                 found = False
-                for ext in (".mp4", ".jpg", ".png", ".jpeg"):
+                for ext in KNOWN_MEDIA_EXTENSIONS:
                     candidate = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}{ext}"
                     if candidate.exists():
                         sv["visual_path"] = str(candidate)
@@ -526,9 +519,54 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                     sv["visual_url"] = ""
                     logger.info(f"Cleared stale visual_path for [{scene_idx}:{sub_idx}] - will re-download")
 
+            # Also verify AST composition layer local_paths
+            comp = sv.get("composition", {})
+            if isinstance(comp, dict) and comp.get("type") == "Sequence":
+                for l_idx, layer in enumerate(comp.get("children", [])):
+                    if isinstance(layer, dict):
+                        content = layer.get("content", {})
+                        if isinstance(content, dict):
+                            lp = content.get("local_path", "")
+                            if lp and not Path(lp).exists():
+                                found = False
+                                for ext in KNOWN_MEDIA_EXTENSIONS:
+                                    candidate = assets_dir / f"asset_{scene_idx:03d}_{sub_idx:02d}_{l_idx:02d}{ext}"
+                                    if candidate.exists():
+                                        content["local_path"] = str(candidate)
+                                        logger.info(f"Updated stale AST layer local_path for [{scene_idx}:{sub_idx}:{l_idx}] to {candidate}")
+                                        found = True
+                                        break
+                                if not found:
+                                    content.pop("local_path", None)
+                                    logger.info(f"Cleared stale AST layer local_path for [{scene_idx}:{sub_idx}:{l_idx}] - will re-download")
+
     manifest_path = voice_dir / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_entries, f, indent=2, ensure_ascii=False)
+
+    # Post-completion cleanup:
+    # 1. Purge excess segment audio files beyond total_sections from previous longer runs
+    if voice_dir.exists():
+        for f in voice_dir.iterdir():
+            if f.is_file() and f.name.startswith("segment_") and (f.suffix.lower() in [".wav", ".mp3"]):
+                m = re.match(r"segment_(\d+)", f.name)
+                if m:
+                    seg_num = int(m.group(1))
+                    if seg_num >= total_sections:
+                        try:
+                            f.unlink()
+                            logger.info(f"Purged excess voiceover audio file: {f.name}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete excess segment {f.name}: {e}")
+
+    # 2. Invalidate old transcription so downstream transcription stage generates fresh word timings
+    transcription_file = project_dir / "subtitles" / "transcription.json"
+    if transcription_file.exists():
+        try:
+            transcription_file.unlink()
+            logger.info("Invalidated stale transcription.json on voiceover completion.")
+        except Exception as e:
+            logger.warning(f"Could not delete stale transcription.json: {e}")
 
     # Sync resolved settings back to the project so downstream staleness checks
     # and the UI read the same values that were actually used.

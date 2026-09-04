@@ -22,6 +22,10 @@ from backend.pipeline.ai import (
     SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, _call_llm_json, _get_web_context_for_topic,
     get_shared_visual_rules
 )
+from backend.agent.schemas import (
+    ScriptIntroResponse, ScriptConclusionResponse, ScriptSceneResponse,
+    SubVisualAST, VisualsArrayResponse
+)
 from backend.core.power import power_manager, auto_instrument_bridge
 
 ui_queue = queue.Queue()
@@ -161,6 +165,43 @@ def _get_section_narration(section_type: str, section_data: dict) -> str:
     # Introduction stores narration in 'hook'; scenes in 'narration'.
     # Fall back to whichever exists.
     return section_data.get('narration', section_data.get('hook', ''))
+
+
+def _get_section_duration(project_id: str, scene_idx: int, section_type: str, current_visuals: list) -> float:
+    """Returns the duration for a section, preferring sub_visuals sum or manifest audio duration."""
+    total_duration = sum(_safe_float(sv.get("duration", 0)) for sv in current_visuals if isinstance(sv, dict))
+    if total_duration > 0:
+        return total_duration
+
+    try:
+        from backend.core.config import get_storage_dir
+        project = get_project(project_id)
+        manifest_path = project.get("assets_manifest_path") if project else ""
+        if not manifest_path or not os.path.exists(manifest_path):
+            manifest_path = str(get_storage_dir() / project_id / "voiceover" / "manifest.json")
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            for m_idx, entry in enumerate(manifest):
+                m_sec = entry.get("section_type", "")
+                if section_type == "introduction" and m_sec == "introduction":
+                    dur = _safe_float(entry.get("duration", 0))
+                    if dur > 0:
+                        return dur
+                elif section_type == "conclusion" and m_sec == "conclusion":
+                    dur = _safe_float(entry.get("duration", 0))
+                    if dur > 0:
+                        return dur
+                elif section_type in ("scenes", "scene") and m_sec == "scene":
+                    scene_count = sum(1 for e in manifest[:m_idx] if e.get("section_type") == "scene")
+                    if scene_count == scene_idx:
+                        dur = _safe_float(entry.get("duration", 0))
+                        if dur > 0:
+                            return dur
+    except Exception as e:
+        logger.warning(f"Failed to load section duration from manifest: {e}")
+
+    return 15.0
 
 
 def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, full_script: dict) -> str:
@@ -308,11 +349,9 @@ def _format_sub_visual_durations(sub_visuals: list, highlight_idx: int = -1) -> 
     for i, sv in enumerate(sub_visuals):
         if not isinstance(sv, dict):
             continue
-        v_type = sv.get("visual_type", "unknown")
-        v_cue = sv.get("visual_cue", "")
         dur = _safe_float(sv.get("duration", 0))
         marker = "  ← EDITING THIS" if i == highlight_idx else ""
-        lines.append(f'  [{i}] {v_type} "{v_cue}" — {dur}s (starts at {cumulative:.1f}s){marker}')
+        lines.append(f'  [{i}] AST node — {dur}s (starts at {cumulative:.1f}s){marker}')
         cumulative += dur
 
     return "\n".join(lines) + "\n"
@@ -509,6 +548,197 @@ class ApiBridge:
             logger.error(f"upload_project_bg_music copy error: {e}")
             return {"success": False, "path": None, "error": str(e)}
 
+    def _probe_audio_duration_seconds(self, file_path: str) -> float:
+        try:
+            from backend.core.config import get_startupinfo, get_ffprobe_path
+            ffprobe_bin = get_ffprobe_path()
+            cmd = [
+                ffprobe_bin, "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(file_path)
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=10, startupinfo=get_startupinfo())
+            if res.returncode == 0 and res.stdout.strip():
+                return float(res.stdout.strip())
+        except Exception as e:
+            logger.warning(f"Could not probe audio duration for {file_path}: {e}")
+        return 30.0
+
+    def upload_music_clip(self, project_id: str, start_frame: int = 0) -> dict:
+        logger.info(f"Bridge API: upload_music_clip called for project {project_id} at frame {start_frame}")
+        import webview
+        import uuid
+        window = self._get_window()
+        if not window:
+            return {"success": False, "error": "No window"}
+        try:
+            result = window.create_file_dialog(
+                dialog_type=webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=('Audio Files (*.mp3;*.wav;*.ogg;*.flac;*.m4a)', 'All Files (*.*)')
+            )
+            if not result:
+                return {"success": False, "error": "No file selected"}
+            file_path = result[0]
+        except Exception as e:
+            logger.error(f"upload_music_clip dialog error: {e}")
+            return {"success": False, "error": str(e)}
+
+        import shutil
+        from backend.core.config import get_storage_dir
+
+        proj_dir = get_storage_dir() / project_id
+        audio_dir = proj_dir / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        src = Path(file_path)
+        ext = src.suffix.lower() or ".mp3"
+        clip_id = f"mc_{uuid.uuid4().hex[:8]}"
+        dest = audio_dir / f"{clip_id}{ext}"
+        try:
+            shutil.copy(str(src), str(dest))
+            dur_sec = self._probe_audio_duration_seconds(str(dest))
+            dur_frames = max(30, int(round(dur_sec * 30)))
+            
+            proj = get_project(project_id) or {}
+            raw_clips = proj.get("music_clips")
+            clips = []
+            if raw_clips is not None:
+                try:
+                    clips = json.loads(raw_clips) if isinstance(raw_clips, str) else list(raw_clips)
+                except Exception:
+                    clips = []
+            elif proj.get("bg_music_path") and Path(proj["bg_music_path"]).exists():
+                # Seamlessly convert existing legacy bg_music into the first clip
+                bg_p = Path(proj["bg_music_path"])
+                bg_dur = self._probe_audio_duration_seconds(str(bg_p))
+                bg_vol_val = float(proj.get("bg_music_volume")) if proj.get("bg_music_volume") is not None else 0.15
+                legacy_clip = {
+                    "id": "default_bgm",
+                    "name": bg_p.name,
+                    "audio_path": str(bg_p),
+                    "start_frame": 0,
+                    "duration_frames": max(30, int(round(bg_dur * 30))),
+                    "source_start_seconds": 0.0,
+                    "source_duration_seconds": bg_dur,
+                    "volume": bg_vol_val,
+                    "loop": True,
+                    "fade_in_seconds": 0.5,
+                    "fade_out_seconds": 1.0,
+                    "is_muted": False
+                }
+                clips.append(legacy_clip)
+            
+            new_clip = {
+                "id": clip_id,
+                "name": src.name,
+                "audio_path": str(dest),
+                "start_frame": max(0, int(start_frame or 0)),
+                "duration_frames": dur_frames,
+                "source_start_seconds": 0.0,
+                "source_duration_seconds": dur_sec,
+                "volume": 0.2,
+                "loop": True,
+                "fade_in_seconds": 0.5,
+                "fade_out_seconds": 1.0,
+                "is_muted": False
+            }
+            clips.append(new_clip)
+            update_project(project_id, music_clips=json.dumps(clips))
+            return {
+                "success": True,
+                "clip": new_clip,
+                "clips": clips
+            }
+        except Exception as e:
+            logger.error(f"upload_music_clip error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def add_music_clip_from_path(self, project_id: str, file_path: str, start_frame: int = 0) -> dict:
+        logger.info(f"Bridge API: add_music_clip_from_path called for project {project_id} from {file_path}")
+        import uuid
+        import shutil
+        from backend.core.config import get_storage_dir
+
+        src = Path(file_path)
+        if not src.exists():
+            return {"success": False, "error": f"File does not exist: {file_path}"}
+
+        proj_dir = get_storage_dir() / project_id
+        audio_dir = proj_dir / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        ext = src.suffix.lower() or ".mp3"
+        clip_id = f"mc_{uuid.uuid4().hex[:8]}"
+        dest = audio_dir / f"{clip_id}{ext}"
+        try:
+            if src.resolve() != dest.resolve():
+                shutil.copy(str(src), str(dest))
+            dur_sec = self._probe_audio_duration_seconds(str(dest))
+            dur_frames = max(30, int(round(dur_sec * 30)))
+            
+            proj = get_project(project_id) or {}
+            raw_clips = proj.get("music_clips")
+            clips = []
+            if raw_clips is not None:
+                try:
+                    clips = json.loads(raw_clips) if isinstance(raw_clips, str) else list(raw_clips)
+                except Exception:
+                    clips = []
+            elif proj.get("bg_music_path") and Path(proj["bg_music_path"]).exists() and Path(proj["bg_music_path"]).resolve() != dest.resolve():
+                # Seamlessly convert existing legacy bg_music into the first clip
+                bg_p = Path(proj["bg_music_path"])
+                bg_dur = self._probe_audio_duration_seconds(str(bg_p))
+                bg_vol_val = float(proj.get("bg_music_volume")) if proj.get("bg_music_volume") is not None else 0.15
+                legacy_clip = {
+                    "id": "default_bgm",
+                    "name": bg_p.name,
+                    "audio_path": str(bg_p),
+                    "start_frame": 0,
+                    "duration_frames": max(30, int(round(bg_dur * 30))),
+                    "source_start_seconds": 0.0,
+                    "source_duration_seconds": bg_dur,
+                    "volume": bg_vol_val,
+                    "loop": True,
+                    "fade_in_seconds": 0.5,
+                    "fade_out_seconds": 1.0,
+                    "is_muted": False
+                }
+                clips.append(legacy_clip)
+            
+            new_clip = {
+                "id": clip_id,
+                "name": src.name,
+                "audio_path": str(dest),
+                "start_frame": max(0, int(start_frame or 0)),
+                "duration_frames": dur_frames,
+                "source_start_seconds": 0.0,
+                "source_duration_seconds": dur_sec,
+                "volume": 0.2,
+                "loop": True,
+                "fade_in_seconds": 0.5,
+                "fade_out_seconds": 1.0,
+                "is_muted": False
+            }
+            clips.append(new_clip)
+            update_project(project_id, music_clips=json.dumps(clips))
+            return {
+                "success": True,
+                "clip": new_clip,
+                "clips": clips
+            }
+        except Exception as e:
+            logger.error(f"add_music_clip_from_path error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def update_music_clips(self, project_id: str, clips: list) -> dict:
+        try:
+            clips_json = json.dumps(clips) if not isinstance(clips, str) else clips
+            update_project(project_id, music_clips=clips_json)
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"update_music_clips error: {e}")
+            return {"success": False, "error": str(e)}
+
     def db_get_projects(self) -> list:
         return get_all_projects()
 
@@ -548,9 +778,9 @@ class ApiBridge:
         update_settings(settings_dict)
         return True
 
-    def create_new_project(self, name: str, prompt: str, export_folder: str, language: str = "hi", style: str = "nitish_rajput", duration_mode: str = "medium", video_format: str = "landscape") -> dict:
+    def create_new_project(self, name: str, video_type: str, export_folder: str, language: str = "hi", style: str = "nitish_rajput", duration_mode: str = "medium", video_format: str = "landscape") -> dict:
         try:
-            project_id = create_project(name, prompt, export_folder, language, style, duration_mode, video_format)
+            project_id = create_project(name, video_type, export_folder, language, style, duration_mode, video_format)
             return {"project_id": project_id, "success": True}
         except Exception as e:
             logger.error(f"Error creating project: {e}")
@@ -932,29 +1162,10 @@ class ApiBridge:
         )
         intro_hook = full_script.get("introduction", {}).get("hook", "")[:200]
         conclusion_summary = full_script.get("conclusion", {}).get("summary", "")[:200]
-        system_prompt = (
-            "You are an expert AI scriptwriter with deep knowledge of video production and narrative structure. You will receive a script segment and a rewrite prompt explaining exactly how to modify it.\n\n"
-            "CRITICAL CORE REQUIREMENTS:\n"
-            "1. MAINTAIN NARRATIVE CONSISTENCY: You MUST preserve the video's core message and tone while making specific changes requested.\n"
-            f"2. LANGUAGE PRECISION: NEVER use English transliterations. Write in the target language ({language}) - for Hindi use Devanagari script (हिंदी), for English use English. NO English words in Hindi sections.\n"
-            "3. STRUCTURE CONSISTENCY: Return ONLY valid JSON matching the provided schema exactly.\n"
-            "4. ANTI-HALLUCINATION: Do NOT invent facts, dates, names, or data you don't have evidence for. Only use verifiable information.\n"
-            "5. LENGTH AWARENESS: Match the speaking duration (roughly 180-220 words per minute).\n"
-            "6. TTS-FRIENDLY WRITING: Write numbers as words (\"forty-two\" NOT \"42\"), avoid abbreviations (\"for example\" NOT \"e.g.\"), use short clear sentences, avoid special characters (& @ ©), write dates in full, use commas/periods for pauses.\n\n"
-            "HERE IS THE COMPLETE SCRIPT CONTEXT:\n"
-            f"Video Title: {full_script.get('title', 'Untitled')}\n"
-            f"Introduction Hook: {intro_hook}\n"
-            f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
-            f"Conclusion: {conclusion_summary}\n\n"
-            "CONTEXTUAL CONSTRAINTS:\n"
-            "- This is part of a multi-scene YouTube video with specific duration targets.\n"
-            "- Narration should sound natural when spoken aloud, with proper rhythm and pacing.\n"
-            "- Every sentence must be factual, specific, and verifiable.\n"
-            "- Avoid generic phrases, clichés, and vague statements.\n"
-            "- Each scene should have a unique, memorable angle on the topic.\n\n"
-        )
+        doc_title = full_script.get('title', 'Untitled')
+        lang_instr = ""
         if language != "en":
-            system_prompt += (
+            lang_instr = (
                 f"LANGUAGE SPELLING RULE:\n"
                 f"- The rewritten narration MUST be written in language code '{language}'.\n"
                 f"- This means for '{language}', you MUST use the {'Devanagari script' if language == 'hi' else 'standard'} script.\n"
@@ -966,30 +1177,68 @@ class ApiBridge:
                 "- Match the linguistic style and complexity expected by native speakers\n\n"
             )
         else:
-            system_prompt += "LANGUAGE RULE:\n- The rewritten narration MUST be written in English.\n\n"
+            lang_instr = "LANGUAGE RULE:\n- The rewritten narration MUST be written in English.\n\n"
+
+        length_constraint = ""
+        if section_type not in ("introduction", "conclusion"):
+            lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
+            avg_len = max(20, sum(lengths) // len(lengths)) if lengths else 80
+            length_constraint = (
+                f"LENGTH CONSTRAINT:\n"
+                f"- Aim for approximately {avg_len} words in the rewritten narration.\n"
+                f"- This equals {avg_len * 60 / 180:.1f} to {avg_len * 60 / 150:.1f} seconds of spoken audio (150-180 WPM).\n"
+                f"- Match the pacing and content density of surrounding scenes.\n\n"
+            )
+
+        from backend.agent.skill_loader import skill_loader
+        system_prompt = skill_loader.render_skill(
+            "script-rewriter",
+            language=language,
+            doc_title=doc_title,
+            intro_hook=intro_hook,
+            scenes_summary=scenes_summary if scenes_summary else '  (none yet)',
+            conclusion_summary=conclusion_summary,
+            language_instructions=lang_instr,
+            length_constraint=length_constraint,
+        )
+        if not system_prompt:
+            system_prompt = (
+                "You are an expert AI scriptwriter with deep knowledge of video production and narrative structure. You will receive a script segment and a rewrite prompt explaining exactly how to modify it.\n\n"
+                "CRITICAL CORE REQUIREMENTS:\n"
+                "1. MAINTAIN NARRATIVE CONSISTENCY: You MUST preserve the video's core message and tone while making specific changes requested.\n"
+                f"2. LANGUAGE PRECISION: NEVER use English transliterations. Write in the target language ({language}) - for Hindi use Devanagari script (हिंदी), for English use English. NO English words in Hindi sections.\n"
+                "3. STRUCTURE CONSISTENCY: Return ONLY valid JSON matching the provided schema exactly.\n"
+                "4. ANTI-HALLUCINATION: Do NOT invent facts, dates, names, or data you don't have evidence for. Only use verifiable information.\n"
+                "5. LENGTH AWARENESS: Match the speaking duration (roughly 180-220 words per minute).\n"
+                "6. TTS-FRIENDLY WRITING: Write numbers as words (\"forty-two\" NOT \"42\"), avoid abbreviations (\"for example\" NOT \"e.g.\"), use short clear sentences, avoid special characters (& @ ©), write dates in full, use commas/periods for pauses.\n\n"
+                "HERE IS THE COMPLETE SCRIPT CONTEXT:\n"
+                f"Video Title: {doc_title}\n"
+                f"Introduction Hook: {intro_hook}\n"
+                f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
+                f"Conclusion: {conclusion_summary}\n\n"
+                "CONTEXTUAL CONSTRAINTS:\n"
+                "- This is part of a multi-scene YouTube video with specific duration targets.\n"
+                "- Narration should sound natural when spoken aloud, with proper rhythm and pacing.\n"
+                "- Every sentence must be factual, specific, and verifiable.\n"
+                "- Avoid generic phrases, clichés, and vague statements.\n"
+                "- Each scene should have a unique, memorable angle on the topic.\n\n"
+                f"{lang_instr}"
+                f"{length_constraint}"
+            )
 
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
             prompt_struct = "Expected: { \"hook\": \"text\" }"
-            schema = SCRIPT_INTRO_JSON_SCHEMA
+            schema = ScriptIntroResponse
         elif section_type == "conclusion":
             target_content = full_script.get("conclusion", {})
             prompt_struct = "Expected: { \"summary\": \"text\", \"cta\": \"text\" }"
-            schema = SCRIPT_CONCLUSION_JSON_SCHEMA
+            schema = ScriptConclusionResponse
         else:
             scenes = full_script.get("scenes", [])
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
             prompt_struct = "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }"
-            schema = SCRIPT_SCENE_JSON_SCHEMA
-
-        # Calculate appropriate length based on existing content
-        if section_type not in ("introduction", "conclusion"):
-            lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
-            avg_len = max(20, sum(lengths) // len(lengths)) if lengths else 80
-            system_prompt += f"LENGTH CONSTRAINT:\n"
-            system_prompt += f"- Aim for approximately {avg_len} words in the rewritten narration.\n"
-            system_prompt += f"- This equals {avg_len * 60 / 180:.1f} to {avg_len * 60 / 150:.1f} seconds of spoken audio (150-180 WPM).\n"
-            system_prompt += f"- Match the pacing and content density of surrounding scenes.\n\n"
+            schema = ScriptSceneResponse
 
         content_is_empty = False
         if section_type == "introduction":
@@ -1046,18 +1295,26 @@ class ApiBridge:
         visual_rules = get_shared_visual_rules(video_format, language)
         design_system_text = _get_design_system_prompt(project_id)
 
-        system_prompt = (
-            "You are an expert AI Visual Director. You will receive a script segment (narration) "
-            "and a prompt explaining how to modify or rewrite its visuals. "
-            "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
-            "Return ONLY valid JSON matching the provided schema. No markdown backticks.\n\n"
-            f"{design_system_text}\n"
-            "CRITICAL RULES:\n"
-            "- COUNT: Generate as many sub-visuals as needed (usually one per visual beat, each lasting 2-15 seconds).\n"
-            "- DURATION: The sum of 'duration' for all sub-visuals MUST exactly equal the target duration.\n"
-            "- IMPORTANT: Every sub_visual must have 'visual_type', 'visual_cue' (ALWAYS in English), 'transition', 'duration' (in seconds), and 'visual_meta'.\n\n"
-            f"{visual_rules}\n"
+        from backend.agent.skill_loader import skill_loader
+        system_prompt = skill_loader.render_skill(
+            "visual-rewriter",
+            design_system_text=design_system_text,
+            visual_rules=visual_rules,
         )
+        if not system_prompt:
+            system_prompt = (
+                "You are an expert AI Visual Director. You will receive a script segment (narration) "
+                "and a prompt explaining how to modify or rewrite its visuals. "
+                "Your task is to generate ONLY the 'sub_visuals' array for this segment.\n"
+                "Return ONLY valid JSON matching the provided schema. No markdown backticks.\n\n"
+                f"{design_system_text}\n"
+                "CRITICAL RULES:\n"
+                "- COUNT: Generate as many sub-visuals as needed (usually one per visual beat, each lasting 2-15 seconds).\n"
+                "- DURATION: The sum of 'duration' for all sub-visuals MUST exactly equal the target duration.\n"
+                "- IMPORTANT: Every sub_visual must have a 'composition' object (AST format) and a 'duration' (in seconds).\n"
+                "- 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.\n\n"
+                f"{visual_rules}\n"
+            )
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
         elif section_type == "conclusion":
@@ -1066,36 +1323,51 @@ class ApiBridge:
             scenes = full_script.get("scenes", [])
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
         current_visuals = target_content.get("sub_visuals", [])
-        total_duration = sum(_safe_float(sv.get("duration", 0)) for sv in current_visuals if isinstance(sv, dict))
-        if total_duration <= 0:
-            total_duration = 15.0
-        prompt_struct = "Expected: { \"sub_visuals\": [{ \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 5.0 }, { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 10.0 }] } (generate as many items as needed)"
+        total_duration = _get_section_duration(project_id, scene_idx, section_type, current_visuals)
+        prompt_struct = "Expected: { \"sub_visuals\": [{ \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": 5.0 }] } (generate as many items as needed)"
 
         # Gather word-level transcript and duration breakdown for precise AI timing
         narration_text = _get_section_narration(section_type, target_content)
         word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
         duration_table = _format_sub_visual_durations(current_visuals)
 
+        prev_scene_context = ""
+        if section_type == "scenes" and scene_idx > 0:
+            scenes = full_script.get("scenes", [])
+            if scene_idx < len(scenes):
+                prev_scene = scenes[scene_idx - 1]
+                prev_svs = prev_scene.get("sub_visuals", [])
+                if prev_svs:
+                    last_sv = prev_svs[-1].get("composition", {})
+                    prev_scene_context = f"IMPORTANT CONTEXT - Previous Scene's Last Visual Layout:\n{json.dumps(last_sv, indent=2)}\n(Ensure your FIRST sub-visual does NOT use the exact same layout as this to maintain variety).\n\n"
+
         user_prompt = (
             f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
             f"Narration for this segment:\n\"{narration_text}\"\n"
             + (f"{word_timings}\n" if word_timings else "")
             + (f"{duration_table}\n" if duration_table else "")
+            + prev_scene_context
             + f"Current Sub-Visuals:\n{json.dumps(current_visuals, indent=2)}\n\n"
             f"Rewrite Instruction: {rewrite_prompt}\n\n"
             f"Total Duration to fill: {total_duration} seconds.\n"
             f"Generate the rewritten JSON sub_visuals array now. The sum of sub-visual durations MUST equal {total_duration}. Structure matches: {prompt_struct}."
         )
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
-        result = _call_llm_safe(system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
+        result = _call_llm_safe(system_prompt, user_prompt, VisualsArrayResponse, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
         if result.get("success") and "data" in result:
             data = result["data"]
             if isinstance(data, list):
                 svs = data
             elif isinstance(data, dict):
                 # If the dict is a single sub_visual, wrap it in a list
-                if "visual_type" in data and "sub_visuals" not in data:
+                if "composition" in data and "sub_visuals" not in data:
                     svs = [data]
+                elif "visuals" in data and isinstance(data["visuals"], list):
+                    svs = data["visuals"]
+                elif "subvisuals" in data and isinstance(data["subvisuals"], list):
+                    svs = data["subvisuals"]
+                elif "data" in data and isinstance(data["data"], dict) and "sub_visuals" in data["data"]:
+                    svs = data["data"]["sub_visuals"]
                 else:
                     svs = data.get("sub_visuals", [])
             else:
@@ -1107,9 +1379,7 @@ class ApiBridge:
                     if isinstance(v, dict):
                         v["duration"] = round(_safe_float(v.get("duration", 1.0), 1.0) / _norm * total_duration, 2)
             
-            # Ensure the structure matches what the caller expects
-            if isinstance(data, list) or (isinstance(data, dict) and "visual_type" in data and "sub_visuals" not in data):
-                result["data"] = {"sub_visuals": svs}
+            result["data"] = {"sub_visuals": svs}
         return result
 
     def regenerate_sub_visual(self, project_id: str, scene_idx: int, section_type: str, sub_idx: int, full_script: dict, rewrite_prompt: str, language: str = "hi") -> dict:
@@ -1118,17 +1388,25 @@ class ApiBridge:
         visual_rules = get_shared_visual_rules(video_format, language)
         design_system_text = _get_design_system_prompt(project_id)
 
-        system_prompt = (
-            "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
-            "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
-            "Your task is to rewrite this single sub-visual based strictly on the user's request. "
-            "You may change any field including 'visual_type' if the user's request warrants it. "
-            "Do NOT change the narration.\n"
-            "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
-            f"{design_system_text}\n"
-            "The sub_visual has: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": float }\n\n"
-            f"{visual_rules}\n"
+        from backend.agent.skill_loader import skill_loader
+        system_prompt = skill_loader.render_skill(
+            "sub-visual-rewriter",
+            design_system_text=design_system_text,
+            visual_rules=visual_rules,
         )
+        if not system_prompt:
+            system_prompt = (
+                "You are an expert AI visual designer. You will receive a single 'sub_visual' object from a video script, "
+                "along with the surrounding narration context, and a prompt request explaining how to modify or rewrite this specific visual. "
+                "Your task is to rewrite this single sub-visual based strictly on the user's request. "
+                "You may change any field including 'composition' if the user's request warrants it. "
+                "Do NOT change the narration.\n"
+                "Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.\n\n"
+                f"{design_system_text}\n"
+                "The sub_visual has: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": float }\n"
+                "- 🚫 NO CHAPTER TITLE BADGES: Do NOT place static chapter title badges or temporary header pills inside sub_visual cuts. Root overlays manage continuous chapter branding.\n\n"
+                f"{visual_rules}\n"
+            )
         if section_type == "introduction":
             section = full_script.get("introduction", {})
         elif section_type == "conclusion":
@@ -1144,7 +1422,7 @@ class ApiBridge:
         target_sub_visual = sub_visuals[sub_idx]
         if not isinstance(target_sub_visual, dict):
             target_sub_visual = {}
-        prompt_struct = "Expected: { \"visual_type\": \"...\", \"visual_cue\": \"...\", \"transition\": \"...\", \"visual_meta\": {}, \"duration\": 4.5 }"
+        prompt_struct = "Expected: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": 4.5 }"
         scene_title = section.get('title', 'Introduction/Conclusion')
         doc_title = full_script.get('title', 'Untitled')
 
@@ -1156,6 +1434,14 @@ class ApiBridge:
         # Compute cumulative start offset for the target sub-visual within the scene
         sub_start_offset = sum(_safe_float(sv.get("duration", 0)) for sv in sub_visuals[:sub_idx] if isinstance(sv, dict))
 
+        prev_context = ""
+        if sub_idx > 0:
+            prev_context = f"Previous Sub-Visual Layout:\n{json.dumps(sub_visuals[sub_idx - 1].get('composition', {}), indent=2)}\n\n"
+        
+        next_context = ""
+        if sub_idx < len(sub_visuals) - 1:
+            next_context = f"Next Sub-Visual Layout:\n{json.dumps(sub_visuals[sub_idx + 1].get('composition', {}), indent=2)}\n\n"
+
         user_prompt = (
             f"Video Title: \"{doc_title}\"\n"
             f"Scene Title: \"{scene_title}\"\n"
@@ -1163,12 +1449,15 @@ class ApiBridge:
             + (f"{word_timings}\n" if word_timings else "")
             + (f"{duration_table}\n" if duration_table else "")
             + f"This sub-visual's target start offset is {sub_start_offset:.1f}s into the scene and lasts {_safe_float(target_sub_visual.get('duration', 0)):.1f}s.\n\n"
-            f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
-            f"Rewrite Instruction: {rewrite_prompt}\n\n"
+            + prev_context
+            + f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
+            + next_context
+            + f"Rewrite Instruction: {rewrite_prompt}\n\n"
+            f"CRITICAL: Ensure your new sub-visual layout is distinctly different from the Previous and Next Sub-Visual Layouts to avoid visual repetition.\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
-        return _call_llm_safe(system_prompt, user_prompt, SUB_VISUAL_SCHEMA, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
+        return _call_llm_safe(system_prompt, user_prompt, SubVisualAST, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
 
     def add_scene_with_ai(self, full_script: dict, user_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: add_scene_with_ai — user_prompt: '{user_prompt[:80]}...'")
@@ -1181,45 +1470,63 @@ class ApiBridge:
         conclusion_summary = full_script.get("conclusion", {}).get("summary", "")[:200]
         scene_lengths = [len(s.get('narration', '').split()) for s in existing_scenes if s.get('narration')]
         avg_scene_words = max(20, sum(scene_lengths) // len(scene_lengths)) if scene_lengths else 80
-        system_prompt = (
-            "You are an expert video scriptwriter. Your task is to create a BRAND NEW scene "
-            "to insert into an existing video script. The new scene must fit naturally into the "
-            "narrative flow, maintaining consistent tone, style, and pacing with the surrounding content.\n\n"
-            "HERE IS THE FULL SCRIPT CONTEXT:\n"
-            f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
-            f"Introduction Hook: \"{intro_hook}\"\n"
-            f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
-            f"Conclusion: \"{conclusion_summary}\"\n\n"
-            "IMPORTANT: You are generating ONLY the script/narration for this scene. "
-            "Do NOT generate visual cues or a sub_visuals array. The visual team will add visuals later based on your narration.\n\n"
-            "CRITICAL — NARRATION RULES:\n"
-            "- The `narration` field is the spoken voiceover. It MUST be a non-empty string.\n"
-            "- Do NOT skip narration. Do NOT leave it blank or null.\n"
-            "- Never repeat the video title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
-            f"- LENGTH: Aim for approximately {avg_scene_words} words — match the pacing of the surrounding scenes.\n\n"
-            "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
-            "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }\n"
-        )
+        doc_title = full_script.get("title", "Untitled")
+
+        lang_instr = ""
         if language != "en":
-            system_prompt += (
+            lang_instr = (
                 f"LANGUAGE: The narration MUST be written in language code '{language}'.\n"
                 f"For example, if the language is Hindi ('hi'), you MUST use the Devanagari script (हिंदी). "
                 f"Do NOT use English alphabet transliterations.\n\n"
             )
         else:
-            system_prompt += "LANGUAGE: The narration text MUST be written in English.\n\n"
+            lang_instr = "LANGUAGE: The narration text MUST be written in English.\n\n"
+
+        length_constraint = f"LENGTH: Aim for approximately {avg_scene_words} words — match the pacing of the surrounding scenes.\n\n"
+
+        from backend.agent.skill_loader import skill_loader
+        system_prompt = skill_loader.render_skill(
+            "script-scene-adder",
+            language=language,
+            doc_title=doc_title,
+            intro_hook=intro_hook,
+            scenes_summary=scenes_summary if scenes_summary else '  (none yet)',
+            conclusion_summary=conclusion_summary,
+            language_instructions=lang_instr,
+            length_constraint=length_constraint,
+        )
+        if not system_prompt:
+            system_prompt = (
+                "You are an expert video scriptwriter. Your task is to create a BRAND NEW scene "
+                "to insert into an existing video script. The new scene must fit naturally into the "
+                "narrative flow, maintaining consistent tone, style, and pacing with the surrounding content.\n\n"
+                "HERE IS THE FULL SCRIPT CONTEXT:\n"
+                f"Video Title: \"{doc_title}\"\n"
+                f"Introduction Hook: \"{intro_hook}\"\n"
+                f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
+                f"Conclusion: \"{conclusion_summary}\"\n\n"
+                "IMPORTANT: You are generating ONLY the script/narration for this scene. "
+                "Do NOT generate visual cues or a sub_visuals array. The visual team will add visuals later based on your narration.\n\n"
+                "CRITICAL — NARRATION RULES:\n"
+                "- The `narration` field is the spoken voiceover. It MUST be a non-empty string.\n"
+                "- Do NOT skip narration. Do NOT leave it blank or null.\n"
+                "- Never repeat the video title verbatim in spoken text. The title is an internal label — write original spoken content instead.\n"
+                f"- LENGTH: Aim for approximately {avg_scene_words} words — match the pacing of the surrounding scenes.\n\n"
+                "Return ONLY valid JSON matching the scene schema. No markdown backticks.\n"
+                "Expected: { \"scene_number\": N, \"title\": \"text\", \"narration\": \"text\" }\n"
+                f"{lang_instr}"
+            )
         user_content = (
             f"Generate a new scene for this video based on the following description:\n\n"
             f"{user_prompt}\n\n"
             f"Make the scene fit naturally with the existing narrative. "
             f"The scene_number will be assigned by the system, so just put 1 as a placeholder."
         )
-        doc_title = full_script.get("title", "Untitled")
         _web_ctx = _get_web_context_for_topic(f"{doc_title} - add scene: {user_prompt[:100]}", "add new scene")
         if _web_ctx:
             user_content += f"\n\n---\nIncorporate relevant facts from this web search into your new scene:\n{_web_ctx}"
         from backend.agent.agent_engine import BRIDGE_ADD_SCENE_TOOLS
-        result = _call_llm_safe(system_prompt, user_content, SCRIPT_SCENE_JSON_SCHEMA, use_tools=True, allowed_tools=BRIDGE_ADD_SCENE_TOOLS)
+        result = _call_llm_safe(system_prompt, user_content, ScriptSceneResponse, use_tools=True, allowed_tools=BRIDGE_ADD_SCENE_TOOLS)
         if result.get("success") and "data" in result:
             result["data"]["sub_visuals"] = []
         return result
@@ -1447,20 +1754,20 @@ class ApiBridge:
         threading.Thread(target=_update_task, daemon=True).start()
         return {"status": "started"}
 
-    def fetch_single_scene_asset(self, project_id: str, manifest_scene_index: int, sub_visual_index: int, visual_type: str, visual_cue: str) -> dict:
-        logger.info(f"Bridge API: fetch_single_scene_asset index {manifest_scene_index}:{sub_visual_index} for project {project_id} (type: {visual_type})")
+    def fetch_single_scene_asset(self, project_id: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
+        logger.info(f"Bridge API: fetch_single_scene_asset index {manifest_scene_index}:{sub_visual_index} for project {project_id}")
         from backend.pipeline.assets import fetch_single_scene_asset as fetch_single
         try:
-            return fetch_single(project_id, manifest_scene_index, sub_visual_index, visual_type, visual_cue)
+            return fetch_single(project_id, manifest_scene_index, sub_visual_index)
         except Exception as e:
             logger.error(f"Failed to fetch single scene asset: {e}")
             return {"success": False, "error": str(e)}
 
-    def preview_asset_download(self, project_id: str, visual_type: str, visual_cue: str, visual_meta: dict = None) -> dict:
-        logger.info(f"Bridge API: preview_asset_download for project {project_id} (type: {visual_type}, cue: {visual_cue})")
+    def preview_asset_download(self, project_id: str, query: str) -> dict:
+        logger.info(f"Bridge API: preview_asset_download for project {project_id} (query: {query})")
         from backend.pipeline.assets import preview_asset_download as preview_fn
         try:
-            return preview_fn(project_id, visual_type, visual_cue, visual_meta)
+            return preview_fn(project_id, query)
         except Exception as e:
             logger.error(f"Failed to preview asset: {e}")
             return {"success": False, "error": str(e)}
@@ -1474,21 +1781,22 @@ class ApiBridge:
             logger.error(f"Failed to cleanup preview assets: {e}")
             return {"success": False, "error": str(e)}
 
-    def upload_sub_visual_media(self, project_id: str, manifest_scene_index: int, sub_visual_index: int, visual_type: str = "") -> dict:
-        logger.info(f"Bridge API: upload_sub_visual_media for project {project_id} [{manifest_scene_index}:{sub_visual_index}] (visual_type: {visual_type})")
+    def upload_sub_visual_media(self, project_id: str, manifest_scene_index: int, sub_visual_index: int, visual_type: str = "ast") -> dict:
+        logger.info(f"Bridge API: upload_sub_visual_media for project {project_id} [{manifest_scene_index}:{sub_visual_index}] visual_type={visual_type}")
         import webview
         window = self._get_window()
         if not window:
             return {"success": False, "error": "No window available for file dialog"}
 
-        # Video/image is decided by the layer type: scene (and youtube, kept
-        # for API compatibility) accept video only; image visuals accept images
-        # only. .mov/.avi stay rejected: Chromium (the WebView2 preview AND
-        # Remotion's headless-Chrome export) cannot decode those containers,
-        # and the media detection in PanScanImage only handles .mp4/.webm.
-        is_video_type = visual_type in ('scene', 'youtube')
-        file_types = ('Video Files (*.mp4;*.webm)',) if is_video_type else ('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
-        allowed_exts = (".mp4", ".webm") if is_video_type else (".jpg", ".jpeg", ".png", ".webp", ".gif")
+        if visual_type == "video":
+            file_types = ('Video Files (*.mp4;*.webm)',)
+            allowed_exts = (".mp4", ".webm")
+        elif visual_type == "image":
+            file_types = ('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
+            allowed_exts = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+        else:
+            file_types = ('Media Files (*.mp4;*.webm;*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
+            allowed_exts = (".mp4", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".gif")
 
         try:
             result = window.create_file_dialog(
@@ -1507,10 +1815,9 @@ class ApiBridge:
 
         ext = src_path.suffix.lower()
         if ext not in allowed_exts:
-            media_type = "video" if is_video_type else "image"
-            return {"success": False, "error": f"Unsupported file extension '{ext}'. Please upload a valid {media_type} file ({'; '.join(allowed_exts)})."}
+            return {"success": False, "error": f"Unsupported file extension '{ext}'. Please upload a valid media file ({'; '.join(allowed_exts)})."}
 
-        is_video = is_video_type
+        is_video = ext in (".mp4", ".webm")
 
         # Container extensions lie: a .mp4 can hold HEVC/H.265 (iPhone/GoPro/DJI
         # default), which WebView2 previews fine but the headless-Chrome export
@@ -1561,6 +1868,106 @@ class ApiBridge:
             "size_bytes": stat.st_size,
             "extension": ext,
         }
+
+    def upload_overlay_asset(self, project_id: str) -> dict:
+        logger.info(f"Bridge API: upload_overlay_asset for project {project_id}")
+        import webview
+        window = self._get_window()
+        if not window:
+            return {"success": False, "error": "No window available for file dialog"}
+
+        file_types = ('Image Files (*.png;*.jpg;*.jpeg;*.webp;*.svg;*.gif)',)
+        allowed_exts = (".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif")
+
+        try:
+            result = window.create_file_dialog(
+                dialog_type=webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=file_types
+            )
+            if not result:
+                return {"success": False, "error": "No file selected"}
+            src_path = Path(result[0])
+        except Exception as e:
+            logger.error(f"upload_overlay_asset file dialog error: {e}")
+            return {"success": False, "error": str(e)}
+
+        ext = src_path.suffix.lower()
+        if ext not in allowed_exts:
+            return {"success": False, "error": f"Unsupported file extension '{ext}'."}
+
+        from backend.core.config import get_storage_dir
+        import shutil
+        import time
+        assets_dir = get_storage_dir() / project_id / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"overlay_{int(time.time() * 1000)}{ext}"
+        dest_file = assets_dir / filename
+
+        try:
+            shutil.copy2(str(src_path), str(dest_file))
+            logger.info(f"Uploaded overlay asset to {dest_file}")
+        except Exception as e:
+            logger.error(f"Failed to copy overlay file: {e}")
+            return {"success": False, "error": f"Failed to copy file: {e}"}
+
+        stat = dest_file.stat()
+        return {
+            "success": True,
+            "asset_path": str(dest_file),
+            "filename": filename,
+            "size_bytes": stat.st_size,
+            "extension": ext,
+        }
+
+    def save_uploaded_overlay_data(self, project_id: str, data_url: str, filename: str = "") -> dict:
+        """Save a base64/data URL uploaded overlay image to the project assets directory."""
+        logger.info(f"Bridge API: save_uploaded_overlay_data for project {project_id}")
+        try:
+            if not data_url:
+                return {"success": False, "error": "No data provided"}
+            import base64
+            import time
+            from backend.core.config import get_storage_dir
+
+            if "," in data_url:
+                header, encoded = data_url.split(",", 1)
+            else:
+                header = ""
+                encoded = data_url
+
+            raw_bytes = base64.b64decode(encoded)
+
+            ext = ".png"
+            if filename and "." in filename:
+                ext = Path(filename).suffix.lower()
+            elif "image/jpeg" in header:
+                ext = ".jpg"
+            elif "image/webp" in header:
+                ext = ".webp"
+            elif "image/svg" in header:
+                ext = ".svg"
+            elif "image/gif" in header:
+                ext = ".gif"
+
+            assets_dir = get_storage_dir() / project_id / "assets"
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            dest_filename = f"overlay_{int(time.time() * 1000)}{ext}"
+            dest_file = assets_dir / dest_filename
+            dest_file.write_bytes(raw_bytes)
+
+            stat = dest_file.stat()
+            return {
+                "success": True,
+                "asset_path": str(dest_file),
+                "filename": dest_filename,
+                "size_bytes": stat.st_size,
+                "extension": ext,
+            }
+        except Exception as e:
+            logger.error(f"save_uploaded_overlay_data error: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
     def finalize_upload_asset(self, project_id: str, preview_path: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
         logger.info(f"Bridge API: finalize_upload_asset for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
@@ -1917,47 +2324,109 @@ class ApiBridge:
                     scene_counter += 1
             if manifest_entry is None:
                 return {"success": False, "error": f"Scene index {scene_index} not found"}
+
+            old_dur = float(manifest_entry.get("duration", 0)) or 1.0
             manifest_entry["duration"] = new_duration_seconds
-            logger.info(f"Updated scene {scene_index} duration: -> {new_duration_seconds}s")
+            
+            # Scale sub-visuals proportionally
+            subs = manifest_entry.get("sub_visuals", [])
+            if subs:
+                total_existing = sum(float(sv.get("duration", 0)) for sv in subs)
+                if total_existing > 0:
+                    scale = new_duration_seconds / total_existing
+                    for sv in subs:
+                        ratio = float(sv.get("duration", 0)) / total_existing
+                        sv["duration"] = round(float(sv.get("duration", 0)) * scale, 2)
+                        sv["duration_ratio"] = round(ratio, 4)
+                else:
+                    for sv in subs:
+                        sv["duration"] = round(new_duration_seconds / len(subs), 2)
+                        sv["duration_ratio"] = round(1.0 / len(subs), 4)
+
+            logger.info(f"Updated scene {scene_index} duration: {old_dur}s -> {new_duration_seconds}s")
             for entry in manifest:
                 if "_content_hash" in entry:
                     del entry["_content_hash"]
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2, ensure_ascii=False)
+
+            # Synchronize into script.json if available
+            script_path = project.get("script_path")
+            if script_path and os.path.exists(script_path):
+                try:
+                    with open(script_path, "r", encoding="utf-8") as f:
+                        script_data = json.load(f)
+                    if isinstance(script_data.get("scenes"), list) and scene_index < len(script_data["scenes"]):
+                        script_scene = script_data["scenes"][scene_index]
+                        script_subs = script_scene.get("sub_visuals", [])
+                        if script_subs:
+                            total_existing = sum(float(sv.get("duration", 0)) for sv in script_subs)
+                            if total_existing > 0:
+                                scale = new_duration_seconds / total_existing
+                                for sv in script_subs:
+                                    ratio = float(sv.get("duration", 0)) / total_existing
+                                    sv["duration"] = round(float(sv.get("duration", 0)) * scale, 2)
+                                    sv["duration_ratio"] = round(ratio, 4)
+                            else:
+                                for sv in script_subs:
+                                    sv["duration"] = round(new_duration_seconds / len(script_subs), 2)
+                                    sv["duration_ratio"] = round(1.0 / len(script_subs), 4)
+                        with open(script_path, "w", encoding="utf-8") as f:
+                            json.dump(script_data, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"Failed to sync duration change to script.json: {e}")
+
+            # Synchronize into voiceover/manifest.json if present
+            from backend.core.config import get_storage_dir
+            voiceover_manifest_path = get_storage_dir() / project_id / "voiceover" / "manifest.json"
+            if voiceover_manifest_path.exists() and str(voiceover_manifest_path) != str(manifest_path):
+                try:
+                    with open(voiceover_manifest_path, "r", encoding="utf-8") as f:
+                        vo_manifest = json.load(f)
+                    v_counter = 0
+                    for v_entry in vo_manifest:
+                        if v_entry.get("section_type") == "scene":
+                            if v_counter == scene_index:
+                                v_entry["duration"] = new_duration_seconds
+                                v_subs = v_entry.get("sub_visuals", [])
+                                if v_subs:
+                                    v_total = sum(float(sv.get("duration", 0)) for sv in v_subs)
+                                    if v_total > 0:
+                                        v_scale = new_duration_seconds / v_total
+                                        for sv in v_subs:
+                                            ratio = float(sv.get("duration", 0)) / v_total
+                                            sv["duration"] = round(float(sv.get("duration", 0)) * v_scale, 2)
+                                            sv["duration_ratio"] = round(ratio, 4)
+                                    else:
+                                        for sv in v_subs:
+                                            sv["duration"] = round(new_duration_seconds / len(v_subs), 2)
+                                            sv["duration_ratio"] = round(1.0 / len(v_subs), 4)
+                                break
+                            v_counter += 1
+                    with open(voiceover_manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(vo_manifest, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"Failed to sync duration change to voiceover manifest: {e}")
+
             return {"success": True}
         except Exception as e:
             logger.error(f"update_scene_duration failed: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
-    def test_huggingface_model(self, api_key: str, model: str, provider: str, prompt: str, aspect_ratio: str) -> dict:
+    def search_lucide_icons(self, query: str = "", limit: int = 12):
+        """Search Lucide icon catalog with semantic keywords."""
         try:
-            import base64
-            from io import BytesIO
-            from huggingface_hub import InferenceClient
-
-            if not api_key or not model:
-                return {"success": False, "error": "API Key and Model are required"}
-
-            model = model.strip()
-            # Pass provider only if it's not "auto"
-            client_provider = None if provider == "auto" else provider
-            client = InferenceClient(api_key=api_key, provider=client_provider)
-
-            is_portrait = aspect_ratio == "portrait"
-            img_width = 576 if is_portrait else 1024
-            img_height = 1024 if is_portrait else 576
-
-            image = client.text_to_image(prompt=prompt, model=model, width=img_width, height=img_height)
-
-            buffered = BytesIO()
-            image.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-            return {"success": True, "image": f"data:image/png;base64,{img_str}"}
+            from backend.pipeline.icons import search_lucide_icons
+            try:
+                parsed_limit = int(limit) if limit is not None else 12
+            except (ValueError, TypeError):
+                parsed_limit = 12
+            results = search_lucide_icons(query, limit=parsed_limit)
+            return {"success": True, "data": results}
         except Exception as e:
-            from backend.core.logger import logger
-            logger.error(f"test_huggingface_model failed: {e}", exc_info=True)
+            logger.error(f"search_lucide_icons failed: {e}")
             return {"success": False, "error": str(e)}
+
 
 
 api_bridge = ApiBridge()

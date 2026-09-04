@@ -15,7 +15,6 @@ import {
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
 } from 'react-icons/vsc';
 import { MdOutlineMovie } from 'react-icons/md';
-import { BsStars } from 'react-icons/bs';
 import { callApi } from '../utils/call-api';
 import { getMediaUrlSync } from '../utils/mediaUrl';
 
@@ -28,7 +27,7 @@ const GPU_ERROR_TEXT: Record<string, string> = {
   extract_failed: 'Extraction failed — retry.',
 };
 
-export const SettingsPage: React.FC = () => {
+const SettingsPage: React.FC = () => {
   const settings = useSettingsStore((state) => state.settings);
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const fetchSettings = useSettingsStore((state) => state.fetchSettings);
@@ -64,11 +63,6 @@ export const SettingsPage: React.FC = () => {
   const [ytdlpInstalled, setYtdlpInstalled] = useState(false);
   const [ytdlpPath, setYtdlpPath] = useState<string | null>(null);
 
-  // HF Test States
-  const [hfTestPrompt, setHfTestPrompt] = useState('A futuristic city skyline');
-  const [hfTestFormat, setHfTestFormat] = useState('portrait');
-  const [hfTestImage, setHfTestImage] = useState('');
-  const [isHfTesting, setIsHfTesting] = useState(false);
 
   // App language state (computed locally based on voice settings)
   const [appLanguage, setAppLanguage] = useState<'hi' | 'en'>('hi');
@@ -153,33 +147,6 @@ export const SettingsPage: React.FC = () => {
     const ok = await callApi<boolean>('check_xtts_downloaded');
     setXttsInstalled(!!ok);
   };
-  const handleTestHfModel = async () => {
-    if (!window.pywebview) return;
-    const apiKey = formData.huggingface_api_key;
-    const model = formData.huggingface_model || "black-forest-labs/FLUX.1-schnell";
-    const provider = formData.huggingface_provider || "auto";
-    if (!apiKey) {
-      useUIStore.getState().addToast("Please enter a Hugging Face API Key first", "warning");
-      return;
-    }
-    
-    setIsHfTesting(true);
-    setHfTestImage('');
-    try {
-      const res = await window.pywebview.api.test_huggingface_model(apiKey, model, provider, hfTestPrompt, hfTestFormat);
-      if (res && res.success && res.image) {
-        setHfTestImage(res.image);
-        useUIStore.getState().addToast("Image generated successfully!", "success");
-      } else {
-        useUIStore.getState().addToast(res?.error || "Failed to generate image", "error");
-      }
-    } catch (e: any) {
-      useUIStore.getState().addToast(e.message || "Failed to test model", "error");
-    } finally {
-      setIsHfTesting(false);
-    }
-  };
-
 
 
   // Check Whisper model downloads
@@ -288,10 +255,7 @@ export const SettingsPage: React.FC = () => {
     updateYtdlp();
   };
 
-  const isConnected = formData.llm_provider === 'nvidia' 
-    ? !!formData.nvidia_api_key?.trim() 
-    : !!formData.openai_api_key?.trim();
-  const isNvidia = formData.llm_provider === 'nvidia';
+  const isConnected = !!formData.openai_api_key?.trim();
 
   const hardwareTabs: Tab[] = [
     { id: 'cpu', label: 'CPU Engine' },
@@ -320,12 +284,10 @@ export const SettingsPage: React.FC = () => {
   ];
 
   const renderConcurrencyOptions: SelectOption[] = [
-    { value: '1', label: '1 Core (Slow & Stable)' },
-    { value: '2', label: '2 Cores' },
-    { value: '4', label: '4 Cores' },
-    { value: '8', label: '8 Cores' },
-    { value: 'logical', label: 'Max Logical Cores (Fastest)' },
-    { value: 'physical', label: 'Max Physical Cores (Recommended)' }
+    { value: '25%', label: '25% (Light / 1-2 Cores)' },
+    { value: '50%', label: '50% (Balanced / Half Cores)' },
+    { value: '75%', label: '75% (Fast - Recommended)' },
+    { value: '100%', label: '100% (Max / Fastest)' },
   ];
 
   const renderFpsOptions: SelectOption[] = [
@@ -353,6 +315,12 @@ export const SettingsPage: React.FC = () => {
     { value: '900000', label: '15 min' },
     { value: '1800000', label: '30 min' },
     { value: '3600000', label: '60 min' },
+  ];
+
+  const motionBlurOptions: SelectOption[] = [
+    { value: 'off', label: 'Off (Fastest — no shutter blur)' },
+    { value: 'balanced', label: 'Balanced (Recommended — near-identical look)' },
+    { value: 'full', label: 'Full (Original 5-sample blur — slowest)' },
   ];
 
 
@@ -385,30 +353,19 @@ export const SettingsPage: React.FC = () => {
           <div>
             <AIProviderCard
               title="AI Language Model Provider"
-              provider={formData.llm_provider === 'nvidia' ? 'Nvidia NIM' : 'OpenAI Compatible Endpoint'}
+              provider="OpenAI Compatible Endpoint"
               isConnected={isConnected}
             >
               <div className="space-y-6">
-                <div className="flex justify-start">
-                  <AnimatedTabs
-                    tabs={[
-                      { id: 'openai', label: 'OpenAI Compatible' },
-                      { id: 'nvidia', label: 'Nvidia NIM' }
-                    ]}
-                    activeTab={formData.llm_provider || 'openai'}
-                    onChange={(tabId) => handleSelectChange('llm_provider', tabId)}
-                  />
-                </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="md:col-span-3">
                     <CustomInput
                       label="API Authorization Key"
                       type="password"
-                      name={isNvidia ? "nvidia_api_key" : "openai_api_key"}
-                      value={isNvidia ? formData.nvidia_api_key || '' : formData.openai_api_key || ''}
+                      name="openai_api_key"
+                      value={formData.openai_api_key || ''}
                       onChange={handleInputChange}
-                      placeholder={isNvidia ? 'nvapi-...' : 'sk-...'}
+                      placeholder="sk-... or provider API key (OpenAI, NVIDIA NIM, OpenRouter, Groq, etc.)"
                       icon={<VscKey />}
                     />
                   </div>
@@ -416,10 +373,10 @@ export const SettingsPage: React.FC = () => {
                     <CustomInput
                       label="Base URL"
                       type="text"
-                      name={isNvidia ? "nvidia_base_url" : "openai_base_url"}
-                      value={isNvidia ? formData.nvidia_base_url || '' : formData.openai_base_url || ''}
+                      name="openai_base_url"
+                      value={formData.openai_base_url || ''}
                       onChange={handleInputChange}
-                      placeholder={isNvidia ? 'https://integrate.api.nvidia.com/v1' : 'https://api.openai.com/v1'}
+                      placeholder="https://api.openai.com/v1 (or https://integrate.api.nvidia.com/v1, OpenRouter, Ollama, etc.)"
                       icon={<VscLink />}
                     />
                   </div>
@@ -427,10 +384,10 @@ export const SettingsPage: React.FC = () => {
                     <CustomInput
                       label="Model Name"
                       type="text"
-                      name={isNvidia ? "nvidia_model" : "openai_model"}
-                      value={isNvidia ? formData.nvidia_model || '' : formData.openai_model || ''}
+                      name="openai_model"
+                      value={formData.openai_model || ''}
                       onChange={handleInputChange}
-                      placeholder={isNvidia ? 'meta/llama-3.1-8b-instruct' : 'gpt-4o'}
+                      placeholder="gpt-4o, meta/llama-3.1-8b-instruct, etc."
                       icon={<VscSymbolClass />}
                     />
                   </div>
@@ -441,29 +398,29 @@ export const SettingsPage: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <CustomRange
                       label="Temperature"
-                      valueDisplay={parseFloat(isNvidia ? formData.nvidia_temperature || '0.7' : formData.openai_temperature || '0.7').toFixed(2)}
+                      valueDisplay={parseFloat(formData.openai_temperature || '0.7').toFixed(2)}
                       min="0"
                       max="2"
                       step="0.05"
-                      name={isNvidia ? "nvidia_temperature" : "openai_temperature"}
-                      value={isNvidia ? formData.nvidia_temperature : formData.openai_temperature}
+                      name="openai_temperature"
+                      value={formData.openai_temperature}
                       onChange={handleInputChange}
                     />
                     <CustomRange
                       label="Top P"
-                      valueDisplay={parseFloat(isNvidia ? formData.nvidia_top_p || '1.0' : formData.openai_top_p || '1.0').toFixed(2)}
+                      valueDisplay={parseFloat(formData.openai_top_p || '1.0').toFixed(2)}
                       min="0"
                       max="1"
                       step="0.05"
-                      name={isNvidia ? "nvidia_top_p" : "openai_top_p"}
-                      value={isNvidia ? formData.nvidia_top_p : formData.openai_top_p}
+                      name="openai_top_p"
+                      value={formData.openai_top_p}
                       onChange={handleInputChange}
                     />
                     <CustomInput
                       label="Max Tokens"
                       type="number"
-                      name={isNvidia ? "nvidia_max_tokens" : "openai_max_tokens"}
-                      value={isNvidia ? formData.nvidia_max_tokens : formData.openai_max_tokens}
+                      name="openai_max_tokens"
+                      value={formData.openai_max_tokens}
                       onChange={handleInputChange}
                     />
                   </div>
@@ -472,119 +429,37 @@ export const SettingsPage: React.FC = () => {
             </AIProviderCard>
           </div>
 
-          {/* HuggingFace Image Generation Card */}
+
+
+          {/* Stock Media APIs */}
           <div>
             <GlassCard className="p-6 space-y-6">
               <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
-                <BsStars className="text-base text-[var(--color-accent-primary)]" />
-                Hugging Face Image Generation
+                <MdOutlineMovie className="text-base text-[var(--color-accent-primary)]" />
+                Stock Media Providers
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <CustomInput
-                  label="Hugging Face API Key"
+                  label="Pexels API Key"
                   type="password"
-                  name="huggingface_api_key"
-                  value={formData.huggingface_api_key || ''}
+                  name="pexels_api_key"
+                  value={formData.pexels_api_key || ''}
                   onChange={handleInputChange}
-                  placeholder="hf_..."
+                  placeholder="Enter Pexels API Key"
                   icon={<VscKey />}
                 />
                 <CustomInput
-                  label="Default Model Name"
-                  type="text"
-                  name="huggingface_model"
-                  value={formData.huggingface_model || ''}
+                  label="Pixabay API Key"
+                  type="password"
+                  name="pixabay_api_key"
+                  value={formData.pixabay_api_key || ''}
                   onChange={handleInputChange}
-                  placeholder="black-forest-labs/FLUX.1-schnell"
-                  icon={<VscSymbolClass />}
-                />
-                <CustomSelect
-                  label="Inference Provider"
-                  options={[
-                    { value: 'auto', label: 'Auto (Default)' },
-                    { value: 'black-forest-labs', label: 'Black Forest Labs' },
-                    { value: 'cerebras', label: 'Cerebras' },
-                    { value: 'clarifai', label: 'Clarifai' },
-                    { value: 'cohere', label: 'Cohere' },
-                    { value: 'deepinfra', label: 'DeepInfra' },
-                    { value: 'fal-ai', label: 'Fal.ai' },
-                    { value: 'featherless-ai', label: 'Featherless AI' },
-                    { value: 'fireworks-ai', label: 'Fireworks AI' },
-                    { value: 'groq', label: 'Groq' },
-                    { value: 'hf-inference', label: 'HF Inference Endpoints' },
-                    { value: 'hyperbolic', label: 'Hyperbolic' },
-                    { value: 'nebius', label: 'Nebius' },
-                    { value: 'novita', label: 'Novita' },
-                    { value: 'nscale', label: 'Nscale' },
-                    { value: 'nvidia', label: 'NVIDIA' },
-                    { value: 'openai', label: 'OpenAI' },
-                    { value: 'ovhcloud', label: 'OVHcloud' },
-                    { value: 'publicai', label: 'PublicAI' },
-                    { value: 'replicate', label: 'Replicate' },
-                    { value: 'sambanova', label: 'SambaNova' },
-                    { value: 'scaleway', label: 'Scaleway' },
-                    { value: 'together', label: 'Together AI' },
-                    { value: 'wavespeed', label: 'Wavespeed' },
-                    { value: 'zai-org', label: 'ZAI Org' }
-                  ]}
-                  value={formData.huggingface_provider || 'auto'}
-                  onChange={(val) => handleSelectChange('huggingface_provider', val)}
+                  placeholder="Enter Pixabay API Key"
+                  icon={<VscKey />}
                 />
               </div>
               <div className="text-[10px] text-stone-400">
-                This is used for generating AI Images when using the "AI Generated Image" visual type. Leave Model Name blank to use the prompt's specified model or the backend default. Set Inference Provider to "Auto" to let Hugging Face choose, or force a specific provider.
-              </div>
-              
-              <div className="mt-4 pt-6 border-t border-stone-800/50">
-                <h3 className="text-xs font-semibold text-stone-300 mb-4 uppercase tracking-wider flex items-center gap-2">
-                  <VscSymbolClass className="text-[var(--color-accent-primary)]" />
-                  Test Image Generation
-                </h3>
-                <div className="flex flex-col lg:flex-row gap-6">
-                  <div className="flex-1 space-y-4">
-                    <CustomInput
-                      label="Test Prompt"
-                      type="text"
-                      name="hfTestPrompt"
-                      value={hfTestPrompt}
-                      onChange={(e) => setHfTestPrompt(e.target.value)}
-                      placeholder="A futuristic city skyline..."
-                    />
-                    <CustomSelect
-                      label="Aspect Ratio"
-                      options={[
-                        { value: 'portrait', label: 'Portrait (9:16)' },
-                        { value: 'landscape', label: 'Landscape (16:9)' }
-                      ]}
-                      value={hfTestFormat}
-                      onChange={(val) => setHfTestFormat(val)}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleTestHfModel}
-                      disabled={isHfTesting || !formData.huggingface_api_key}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-stone-800 hover:bg-stone-700 text-stone-200 rounded-lg text-sm transition-colors border border-stone-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isHfTesting ? (
-                        <div className="w-4 h-4 border-2 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <BsStars className="text-[var(--color-accent-primary)]" />
-                      )}
-                      {isHfTesting ? 'Generating Preview...' : 'Test Generation'}
-                    </button>
-                  </div>
-                  
-                  <div className="flex-[1.5] bg-black/40 border border-stone-800/50 rounded-lg overflow-hidden flex flex-col items-center justify-center min-h-[250px] relative">
-                    {hfTestImage ? (
-                      <img src={hfTestImage} alt="Generated Test" className="object-contain max-h-[350px] max-w-full" />
-                    ) : (
-                      <div className="text-stone-600 text-xs flex flex-col items-center gap-3">
-                        <VscSymbolClass className="text-3xl opacity-30" />
-                        <span>Preview will appear here</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                These keys are required to automatically search and download stock photos and videos when using the AI pipeline. You can obtain free keys by registering on their respective developer portals.
               </div>
             </GlassCard>
           </div>
@@ -1260,7 +1135,7 @@ export const SettingsPage: React.FC = () => {
                   <CustomSelect
                     label="CPU Concurrency"
                     options={renderConcurrencyOptions}
-                    value={formData.render_concurrency || 'logical'}
+                    value={formData.render_concurrency === 'logical' ? '100%' : (formData.render_concurrency === 'physical' ? '50%' : (formData.render_concurrency || '75%'))}
                     onChange={(val) => handleSelectChange('render_concurrency', val)}
                   />
                   <CustomSelect
@@ -1281,6 +1156,32 @@ export const SettingsPage: React.FC = () => {
                     value={formData.render_timeout || '600000'}
                     onChange={(val) => handleSelectChange('render_timeout', val)}
                   />
+                </div>
+
+                <div className="bg-black/15 p-4 rounded-md border border-stone-850 space-y-6">
+                  <h3 className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">Visual Effects Quality</h3>
+                  <p className="text-xs text-stone-400 -mt-3">
+                    Motion shutter blur and frosted-glass blur are the two most expensive effects.
+                    Balanced keeps the look while rendering much faster. Applies to preview and export.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <CustomSelect
+                      label="Motion Shutter Blur"
+                      options={motionBlurOptions}
+                      value={(formData as any).render_motion_blur || 'balanced'}
+                      onChange={(val) => handleSelectChange('render_motion_blur', val)}
+                    />
+                    <CustomRange
+                      label="Max Glass Blur (frosted cards & overlays)"
+                      valueDisplay={(formData as any).render_glass_cap === '0' ? 'Off' : `${(formData as any).render_glass_cap || '16'}px`}
+                      min="0"
+                      max="24"
+                      step="2"
+                      name="render_glass_cap"
+                      value={(formData as any).render_glass_cap || '16'}
+                      onChange={handleInputChange}
+                    />
+                  </div>
                 </div>
               </div>
             </GlassCard>

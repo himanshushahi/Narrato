@@ -206,6 +206,24 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
         # (it 404s there), exactly like the old startswith('path=') check.
         params = parse_qs(parsed.query, keep_blank_values=True)
 
+        # 0. Handle API endpoints
+        if parsed.path == '/api/icons/search':
+            from backend.pipeline.icons import search_lucide_icons
+            query = params.get('q', [''])[0]
+            try:
+                limit = int(params.get('limit', [12])[0])
+            except (ValueError, TypeError):
+                limit = 12
+            results = search_lucide_icons(query, limit=limit)
+            body = json.dumps({"query": query, "icons": results}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # 1. Handle frontend files from URL path. A request is media ONLY when
         # it carries a `path` query parameter — checking membership (not a
         # startswith prefix) so future extra query params can't misroute a

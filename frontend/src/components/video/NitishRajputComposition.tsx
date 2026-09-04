@@ -1,38 +1,33 @@
 import React, { useMemo, useCallback } from 'react';
-import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment } from 'remotion';
+import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment, interpolate, Easing } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
-import { PanScanImage } from './PanScanImage';
-import { ParallaxImage } from './ParallaxImage';
-import { DataVisualizations } from './DataVisualizations';
-import { NumberingList } from './NumberingList';
-import { TransitionWrapper } from './TransitionWrapper';
-import { ZoomWrapper } from './ZoomWrapper';
-import { SubVisualTransform } from './SubVisualTransform';
-import { CustomHtmlVisual } from './CustomHtmlVisual';
-import { CustomHtmlUiOverlay } from './CustomHtmlUiOverlay';
-import { ThreadSimulation } from './ThreadSimulation';
-import { DeviceMockup } from './DeviceMockup';
+import { GlobalOverlaysRenderer, GlobalOverlayItem } from './GlobalOverlaysRenderer';
+
+import { ASTRenderer } from './ASTRenderer';
 import { calculateSubVisualTimings } from '../../utils/duration';
 import { getCanvasScaleFactor } from './compositionScale';
+import { QualityMode, QualityPolicy } from './renderQuality';
 
 interface SubVisual {
-  visual_type: 'scene' | 'portrait' | 'image' | 'map' | 'document' | 'youtube' | 'parallax' | 'network' | 'list' | 'custom_html' | 'thread' | 'device_mockup' | 'ai_image';
-  visual_cue: string;
-  transition_type?: string;
-  visual_url?: string;
-  visual_meta?: any;
-  duration?: number;
-  /** User-configured zoom & pan offset applied uniformly to this sub-visual */
-  transform?: SubVisualTransform;
+  composition?: any;
   /** Proportional duration share within the scene (values sum to ~1.0). Set by Adjust Durations bar. */
   duration_ratio?: number;
-  /** Volume for video-type sub-visuals (0-1). 0 = muted (default), 1 = full volume. */
-  videoVolume?: number;
   /** Cut the narrator voiceover during this sub-visual's timeline interval. */
   mute_voiceover?: boolean;
   /** Cut the background music during this sub-visual's timeline interval. */
   mute_bg_music?: boolean;
+  /** Entrance transition animation */
+  transition?: string;
+  /** Mid-cut punch-in zooms (MrBeast-style emphasis): sudden scale-up + settle. */
+  emphasis?: EmphasisMark[];
+}
+
+/** One punch-in: `at` seconds (sub-relative) zoom to `scale` over `duration` seconds. */
+export interface EmphasisMark {
+  at: number;
+  scale?: number;
+  duration?: number;
 }
 
 export interface Scene {
@@ -65,10 +60,27 @@ export interface Transcription {
   segments: TranscriptionSegment[];
 }
 
+export interface MusicClip {
+  id: string;
+  name: string;
+  audio_path: string;
+  audio_url?: string;
+  start_frame: number;
+  duration_frames: number;
+  source_start_seconds?: number;
+  source_duration_seconds?: number;
+  volume?: number;
+  loop?: boolean;
+  fade_in_seconds?: number;
+  fade_out_seconds?: number;
+  is_muted?: boolean;
+}
+
 export interface Props {
   audioUrl: string;
   bgMusicUrl?: string;
   bgMusicVolume?: number;
+  musicClips?: MusicClip[];
   voiceoverVolume?: number;
   muteVideoAudio?: boolean;
   scenes: Scene[];
@@ -76,6 +88,13 @@ export interface Props {
   style?: string;
   language?: string;
   subtitleSettings?: any;
+  designSystem?: any;
+  overlays?: GlobalOverlayItem[];
+  /** 'preview' = cheap samples + capped glass; 'export' = full quality. Auto-detected when omitted. */
+  qualityMode?: QualityMode;
+  /** Visual-effects policy from Settings (defaults to balanced). */
+  quality?: QualityPolicy | unknown;
+  __file_server_port__?: number;
 }
 
 export interface SceneTiming {
@@ -93,89 +112,279 @@ export interface SceneTiming {
 // ~1-3 scenes instead of all 250 visuals, which prevents the OOM/GPU timeout
 // hang on 10-15 minute videos.
 
-const BLACK_PLACEHOLDER_STYLE: React.CSSProperties = {
-  width: '100%',
-  height: '100%',
-  backgroundColor: '#0c0a09',
-};
-
-const isFrameInRanges = (frame: number, ranges: Array<{ start: number; end: number }>): boolean =>
-  ranges.some((r) => frame >= r.start && frame < r.end);
-
 const SceneGate: React.FC<{
   from: number;
   durationInFrames: number;
   children: React.ReactNode;
 }> = ({ from, durationInFrames, children }) => {
-  // useCurrentFrame at composition-root level = the global frame. The
-  // Sequence is only mounted while the playhead is near, so the gate is a
-  // real decision here (unlike rendering it inside the Sequence, where
-  // Remotion already drops inactive trees and the check is tautological).
   const frame = useCurrentFrame();
-  // Buffer: mount -90f before start, keep +120f past end
-  const isNear = frame >= from - 90 && frame <= from + durationInFrames + 120;
+  // During headless export, Chromium tabs render arbitrary frames in parallel.
+  // The buffer-based virtualization can race with React mount/paint, producing
+  // blank frames. Disable virtualization during rendering – Remotion's own
+  // <Sequence> already hides content outside its frame range.
+  const isRendering = getRemotionEnvironment().isRendering;
+  // Buffer: mount -90f before start, keep +120f past end (preview only)
+  const isNear = isRendering || (frame >= from - 90 && frame <= from + durationInFrames + 120);
   return isNear ? (
-    <Sequence from={from} durationInFrames={durationInFrames}>
-      {children}
-    </Sequence>
-  ) : (
-    <div style={BLACK_PLACEHOLDER_STYLE} />
-  );
-};
-
-const SubGate: React.FC<{
-  subFrom: number;
-  subDuration: number;
-  children: React.ReactNode;
-}> = ({ subFrom, subDuration, children }) => {
-  // frame is scene-relative here (SubGate lives inside SceneGate's Sequence).
-  const frame = useCurrentFrame();
-  // Buffer: mount -60f before start, keep +90f past end
-  const isNear = frame >= subFrom - 60 && frame <= subFrom + subDuration + 90;
-  return isNear ? (
-    <Sequence from={subFrom} durationInFrames={subDuration}>
+    <Sequence from={from} durationInFrames={durationInFrames} premountFor={30}>
       {children}
     </Sequence>
   ) : null;
 };
 
-// Volume for the narration/music tracks is evaluated against GLOBAL timeline
-// frames. But `<Audio loop>` internally wraps the element in a Remotion
-// `<Loop>`, so the `frame` argument given to the `volume` callback is
-// LOOP-RELATIVE (it resets to 0 on every loop pass and never matches the
-// global timeline after the first pass). Instead of trusting that argument,
-// this component subscribes to the global frame itself: Remotion evaluates
-// the volume callback during the render of the current frame, so the captured
-// global frame is always the frame being rendered.
+const SubVisualTransitionWrapper: React.FC<{
+  transition?: string;
+  durationInFrames: number;
+  children: React.ReactNode;
+}> = ({ transition = 'cut', durationInFrames, children }) => {
+  const frame = useCurrentFrame();
+
+  if (!transition || transition === 'none' || transition === 'cut') {
+    return <>{children}</>;
+  }
+
+  // 12-15 frame entrance animation, capped at half the cut duration
+  const transFrames = Math.min(14, Math.max(4, Math.floor(durationInFrames / 2)));
+  // Clamp config shared by every interpolation – prevents black flash during
+  // headless export where sub-visuals are non-overlapping and the previous
+  // sub-visual is already unmounted when this one starts at opacity 0.
+  const clampBoth = { extrapolateLeft: 'clamp' as const, extrapolateRight: 'clamp' as const };
+  // Minimum opacity ensures the content is never fully invisible on frame 0,
+  // which avoids exposing the black background between non-overlapping sequences.
+  const MIN_OPACITY = 0.35;
+  let style: React.CSSProperties = { width: '100%', height: '100%' };
+
+  switch (transition) {
+    case 'slide_left': {
+      const x = interpolate(frame, [0, transFrames], [100, 0], {
+        ...clampBoth,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, transform: `translateX(${x}%)`, opacity };
+      break;
+    }
+    case 'slide_right': {
+      const x = interpolate(frame, [0, transFrames], [-100, 0], {
+        ...clampBoth,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, transform: `translateX(${x}%)`, opacity };
+      break;
+    }
+    case 'slide_up': {
+      const y = interpolate(frame, [0, transFrames], [100, 0], {
+        ...clampBoth,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, transform: `translateY(${y}%)`, opacity };
+      break;
+    }
+    case 'slide_down': {
+      const y = interpolate(frame, [0, transFrames], [-100, 0], {
+        ...clampBoth,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, transform: `translateY(${y}%)`, opacity };
+      break;
+    }
+    case 'zoom_in': {
+      const scale = interpolate(frame, [0, transFrames], [1.18, 1], {
+        ...clampBoth,
+        easing: Easing.out(Easing.cubic),
+      });
+      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, transform: `scale(${scale})`, opacity };
+      break;
+    }
+    case 'zoom_out': {
+      const scale = interpolate(frame, [0, transFrames], [0.85, 1], {
+        ...clampBoth,
+        easing: Easing.out(Easing.cubic),
+      });
+      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, transform: `scale(${scale})`, opacity };
+      break;
+    }
+    case 'glitch': {
+      const isGlitching = frame < Math.min(8, transFrames);
+      const glitchX = isGlitching ? (frame % 2 === 0 ? (frame % 4 === 0 ? 15 : -15) : 0) : 0;
+      const opacity = interpolate(frame, [0, 4], [0.4, 1], clampBoth);
+      style = {
+        ...style,
+        transform: glitchX ? `translateX(${glitchX}px)` : undefined,
+        filter: isGlitching ? 'contrast(1.3) hue-rotate(90deg)' : undefined,
+        opacity,
+      };
+      break;
+    }
+    case 'crossfade': {
+      const opacity = interpolate(frame, [0, transFrames], [MIN_OPACITY, 1], {
+        ...clampBoth,
+        easing: Easing.inOut(Easing.quad),
+      });
+      style = { ...style, opacity };
+      break;
+    }
+    case 'fade':
+    default: {
+      const opacity = interpolate(frame, [0, transFrames], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, opacity };
+      break;
+    }
+  }
+
+  return <div style={style}>{children}</div>;
+};
+
+const SubGate: React.FC<{
+  subFrom: number;
+  subDuration: number;
+  transition?: string;
+  emphasis?: EmphasisMark[];
+  children: React.ReactNode;
+}> = ({ subFrom, subDuration, transition, emphasis, children }) => {
+  // frame is scene-relative here (SubGate lives inside SceneGate's Sequence).
+  const frame = useCurrentFrame();
+  const isRendering = getRemotionEnvironment().isRendering;
+  // Buffer: mount -60f before start, keep +90f past end (preview only)
+  const isNear = isRendering || (frame >= subFrom - 60 && frame <= subFrom + subDuration + 60);
+  return isNear ? (
+    <Sequence from={subFrom} durationInFrames={subDuration} premountFor={30}>
+      <SubVisualTransitionWrapper transition={transition} durationInFrames={subDuration}>
+        <EmphasisWrapper emphasis={emphasis}>
+          {children}
+        </EmphasisWrapper>
+      </SubVisualTransitionWrapper>
+    </Sequence>
+  ) : null;
+};
+
+/**
+ * Mid-cut punch-in zooms (MrBeast-style emphasis energy): at each mark the
+ * content snaps to `scale` with a fast ease-out attack, then settles back to
+ * 1.0 over the mark duration. Pure function of frame — deterministic for
+ * scrubbing and headless export. Zero-cost passthrough when empty.
+ */
+const EmphasisWrapper: React.FC<{
+  emphasis?: EmphasisMark[];
+  children: React.ReactNode;
+}> = ({ emphasis, children }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  if (!emphasis || emphasis.length === 0) return <>{children}</>;
+  let total = 1;
+  for (const m of emphasis) {
+    if (!m || typeof m.at !== 'number') continue;
+    const peak = Math.min(1.6, Math.max(1.02, typeof m.scale === 'number' ? m.scale : 1.12));
+    const dur = Math.min(2, Math.max(0.2, typeof m.duration === 'number' ? m.duration : 0.5));
+    const startF = Math.max(0, Math.round(m.at * fps));
+    const durF = Math.max(2, Math.round(dur * fps));
+    const attack = interpolate(frame, [startF, startF + durF * 0.35], [0, 1], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+      easing: Easing.out(Easing.cubic),
+    });
+    const release = interpolate(frame, [startF + durF * 0.35, startF + durF], [0, 1], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+      easing: Easing.inOut(Easing.ease),
+    });
+    total *= 1 + (peak - 1) * attack * (1 - release);
+  }
+  if (total === 1) return <>{children}</>;
+  return (
+    <div style={{ width: '100%', height: '100%', transform: `scale(${total})`, transformOrigin: 'center center' }}>
+      {children}
+    </div>
+  );
+};
+
+const isFrameInRanges = (frame: number, ranges: Array<{ start: number; end: number }>): boolean =>
+  ranges.some((r) => frame >= r.start && frame < r.end);
+
+// ── Frame-accurate volume modulation for audio elements ─────────────────────
 const FrameVolumeAudio: React.FC<{
   src: string;
-  loop?: boolean;
   muteRanges: Array<{ start: number; end: number }>;
-  baseVolume: number;
-}> = ({ src, loop, muteRanges, baseVolume }) => {
+  baseVolume?: number;
+  loop?: boolean;
+}> = ({ src, muteRanges, baseVolume = 1, loop = false }) => {
   const frame = useCurrentFrame();
-  const volume = Math.max(0, Math.min(1, baseVolume));
+  const isMuted = isFrameInRanges(frame, muteRanges);
+  const volume = isMuted ? 0 : baseVolume;
+  return <Audio src={src} volume={volume} loop={loop} />;
+};
+
+const DynamicFadeAudio: React.FC<{
+  src: string;
+  clipDurationFrames: number;
+  baseVolume?: number;
+  startFromFrame?: number;
+  fadeInFrames?: number;
+  fadeOutFrames?: number;
+  loop?: boolean;
+  globalMuteRanges?: Array<{ start: number; end: number }>;
+  clipGlobalStart?: number;
+}> = ({
+  src,
+  clipDurationFrames,
+  baseVolume = 0.2,
+  startFromFrame = 0,
+  fadeInFrames = 0,
+  fadeOutFrames = 0,
+  loop = true,
+  globalMuteRanges = [],
+  clipGlobalStart = 0,
+}) => {
+  const frame = useCurrentFrame();
+  const globalFrame = clipGlobalStart + frame;
+  const isMuted = isFrameInRanges(globalFrame, globalMuteRanges);
+
+  let volFactor = 1.0;
+  if (fadeInFrames > 0 && frame < fadeInFrames) {
+    volFactor = Math.min(volFactor, Math.max(0, frame / fadeInFrames));
+  }
+  if (fadeOutFrames > 0 && frame > clipDurationFrames - fadeOutFrames) {
+    const remaining = clipDurationFrames - frame;
+    volFactor = Math.min(volFactor, Math.max(0, remaining / fadeOutFrames));
+  }
+
+  const volume = isMuted ? 0 : Math.max(0, baseVolume * volFactor);
   return (
     <Audio
       src={src}
+      volume={volume}
+      startFrom={startFromFrame}
       loop={loop}
-      pauseWhenBuffering
-      volume={() => (isFrameInRanges(frame, muteRanges) ? 0 : volume)}
     />
   );
 };
 
-export const NitishRajputComposition = ({
+export const NitishRajputComposition: React.FC<Props> = ({
   audioUrl,
   bgMusicUrl,
-  bgMusicVolume = 0.15,
+  bgMusicVolume = 0.2,
+  musicClips = [],
   voiceoverVolume = 1.0,
-  muteVideoAudio = false,
-  scenes = [],
-  transcription = { language: '', segments: [] },
+
+  scenes,
+  transcription,
   style = 'nitish_rajput',
-  subtitleSettings = {}
-}: Props) => {
+  subtitleSettings = {},
+  designSystem,
+  overlays = [],
+  qualityMode,
+  quality,
+  __file_server_port__
+}) => {
+  if (__file_server_port__ && typeof window !== 'undefined') {
+    window.__file_server_port__ = __file_server_port__;
+  }
+
   const { width: canvasWidth, height: canvasHeight } = useVideoConfig();
   // Fast preview (compositionScale=0.5) shrinks the Player canvas to 960x540.
   // Visuals are authored in 1080p logical pixels, so the content tree is laid
@@ -183,14 +392,19 @@ export const NitishRajputComposition = ({
   // exported 1080p render (scaleFactor 1) is untouched.
   const scaleFactor = getCanvasScaleFactor(canvasWidth, canvasHeight);
 
+  // Compute total duration in frames
+  const totalDurationInFrames = useMemo(() => {
+    return scenes.reduce((acc, s) => acc + Math.max(30, Math.ceil((s.duration || 0) * 30)), 0);
+  }, [scenes]);
+
   // Build scene timing lookup (cumulative start/end times) for subtitle gap-filling
   const sceneTimings: SceneTiming[] = useMemo(() => {
-    let offset = 0;
+    let currentTime = 0;
     return scenes.map(scene => {
-      const start = offset;
-      const end = offset + (scene.duration || 0);
-      offset = end;
-      return { start, end, text: scene.text };
+      const start = currentTime;
+      const end = currentTime + (scene.duration || 0);
+      currentTime = end;
+      return { start, end, text: scene.text || '' };
     });
   }, [scenes]);
 
@@ -215,114 +429,19 @@ export const NitishRajputComposition = ({
     return { voiceMuteRanges: voice, bgMuteRanges: bg };
   }, [scenes]);
 
+  // Compute frame-range subtitle displacements for dodging (top, bottom, hidden)
+  // Disabled to keep subtitles consistent at the bottom of the screen.
+  const subtitleDisplacements = useMemo(() => {
+    return [];
+  }, [scenes]);
+
   // Helper to render a single sub-visual's content
-  const renderSubVisual = useCallback((subVis: SubVisual, durationFrames: number) => {
-    const type = subVis.visual_type;
-    const url = subVis.visual_url || '';
-    const meta = subVis.visual_meta || {};
-    const transform = subVis.transform;
-
-    if (type === 'map' || type === 'document' || type === 'network') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          {/* ZoomWrapper wraps both background and visualization — they scale together */}
-          <ZoomWrapper transform={transform}>
-            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-              <div style={{
-                position: 'absolute', inset: 0,
-                backgroundColor: '#1c1917',
-                backgroundImage: 'radial-gradient(circle, #292524 0%, #0c0a09 100%)'
-              }} />
-              <DataVisualizations type={type} meta={meta} durationInFrames={durationFrames} />
-            </div>
-          </ZoomWrapper>
-          {/* Vignette overlay stays OUTSIDE ZoomWrapper so it never scales with camera zoom — same pattern as ParallaxImage */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
-            pointerEvents: 'none', zIndex: 10
-          }} />
-        </div>
-      );
+  const renderSubVisual = useCallback((subVis: SubVisual) => {
+    if (subVis.composition) {
+      return <ASTRenderer composition={subVis.composition} qualityMode={qualityMode} quality={quality} />;
     }
-
-    if (type === 'parallax') {
-      return (
-        <ParallaxImage
-          backgroundUrl={url}
-          foregroundUrl={meta.foreground_url}
-          meta={meta.parallax || meta}
-          cue={subVis.visual_cue}
-          durationInFrames={durationFrames}
-          transform={transform}
-        />
-      );
-    }
-
-    if (type === 'list') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          <ZoomWrapper transform={transform}>
-            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-              <div style={{
-                position: 'absolute', inset: 0,
-                backgroundColor: '#1c1917',
-                backgroundImage: 'radial-gradient(circle, #292524 0%, #0c0a09 100%)'
-              }} />
-              <NumberingList meta={meta} durationInFrames={durationFrames} subtitleSettings={subtitleSettings} cue={subVis.visual_cue} />
-            </div>
-          </ZoomWrapper>
-          <div style={{
-            position: 'absolute', inset: 0,
-            boxShadow: 'inset 0 0 250px rgba(0,0,0,0.9)',
-            pointerEvents: 'none', zIndex: 10
-          }} />
-        </div>
-      );
-    }
-
-    if (type === 'custom_html') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          <ZoomWrapper transform={transform}>
-            <CustomHtmlVisual meta={meta} />
-          </ZoomWrapper>
-        </div>
-      );
-    }
-
-    if (type === 'thread') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          <ZoomWrapper transform={transform}>
-            <ThreadSimulation meta={meta} durationInFrames={durationFrames} />
-          </ZoomWrapper>
-        </div>
-      );
-    }
-    if (type === 'device_mockup') {
-      return (
-        <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-          <ZoomWrapper transform={transform}>
-            <DeviceMockup meta={meta} durationInFrames={durationFrames} visualUrl={url} />
-          </ZoomWrapper>
-        </div>
-      );
-    }
-
-
-    // Default: Image, portrait, or B-roll video. Display with pan-and-scan camera glide
-    return (
-      <PanScanImage
-        src={url}
-        type={type}
-        cue={subVis.visual_cue}
-        durationInFrames={durationFrames}
-        transform={transform}
-        videoVolume={muteVideoAudio ? 0 : (subVis.videoVolume || 0)}
-      />
-    );
-  }, [subtitleSettings, muteVideoAudio]);
+    return null;
+  }, [qualityMode, quality]);
 
   // ── Time-window virtualization ──────────────────────────────────────────────
   // Pre-calculate and memoize the timeline tree once; per-frame virtualization
@@ -344,49 +463,22 @@ export const NitishRajputComposition = ({
             const timing = timings[subIdx];
             const subFrom = timing.start;
             const subDuration = Math.max(1, timing.end - timing.start);
-            const htmlUiMeta = subVis.visual_meta?.custom_html_ui;
-
             return (
               <SubGate
                 key={`sub-${subIdx}`}
                 subFrom={subFrom}
                 subDuration={subDuration}
+                transition={subVis.transition}
+                emphasis={subVis.emphasis}
               >
-                <TransitionWrapper durationInFrames={subDuration} type={subVis.transition_type}>
-                  {renderSubVisual(subVis, subDuration)}
-                </TransitionWrapper>
-                {htmlUiMeta && (
-                  <div style={{ position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none' }}>
-                    <CustomHtmlUiOverlay meta={htmlUiMeta} />
-                  </div>
-                )}
+                {renderSubVisual(subVis)}
               </SubGate>
             );
           })}
-
-          {!subtitleSettings?.hide_chapter_name && scene.title && (
-            <div style={{
-              position: 'absolute',
-              top: 50,
-              left: 60,
-              fontFamily: 'Montserrat, sans-serif',
-              fontWeight: 800,
-              fontSize: 24,
-              color: subtitleSettings?.chapter_text_color || '#d6d3d1',
-              textTransform: 'uppercase',
-              letterSpacing: 2,
-              opacity: 0.6,
-              borderLeft: `4px solid ${subtitleSettings?.chapter_border_color || '#b45309'}`,
-              paddingLeft: 12,
-              zIndex: 50
-            }}>
-              {scene.title}
-            </div>
-          )}
         </SceneGate>
       );
     });
-  }, [scenes, subtitleSettings, renderSubVisual]);
+  }, [scenes, renderSubVisual]);
 
   // ── Resolution scaling (fast preview) ─────────────────────────────────────
   // At scaleFactor 1 (export / full-res preview) the layers mount directly.
@@ -399,7 +491,17 @@ export const NitishRajputComposition = ({
       {/* 3. Chronological Scene Sequences */}
       {renderedScenes}
 
-      {/* 4. Active Typographic Subtitle Overlay */}
+      {/* 4. Global Overlays & Branding Layer */}
+      {overlays && overlays.length > 0 && (
+        <GlobalOverlaysRenderer
+          overlays={overlays}
+          totalDurationInFrames={totalDurationInFrames}
+          qualityMode={qualityMode}
+          quality={quality}
+        />
+      )}
+
+      {/* 5. Active Typographic Subtitle Overlay */}
       {!subtitleSettings?.hide_subtitles && transcription && transcription.segments && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 100, pointerEvents: 'none' }}>
           <KineticSubtitles 
@@ -407,6 +509,8 @@ export const NitishRajputComposition = ({
             sceneTimings={sceneTimings}
             styleType={style} 
             subtitleSettings={subtitleSettings}
+            subtitleDisplacements={subtitleDisplacements}
+            designSystem={designSystem}
           />
         </div>
       )}
@@ -429,9 +533,35 @@ export const NitishRajputComposition = ({
           {audioUrl && (
             <FrameVolumeAudio src={audioUrl} muteRanges={voiceMuteRanges} baseVolume={voiceoverVolume} />
           )}
-          {bgMusicUrl && (
+          {musicClips && musicClips.length > 0 ? (
+            musicClips.map((clip) => {
+              if (!clip.audio_url || clip.is_muted) return null;
+              const startFrame = Math.max(0, Math.round(clip.start_frame || 0));
+              const durationFrames = Math.max(1, Math.round(clip.duration_frames || 30));
+              const fadeInFrames = Math.round((clip.fade_in_seconds || 0) * 30);
+              const fadeOutFrames = Math.round((clip.fade_out_seconds || 0) * 30);
+              const startFromFrame = Math.round((clip.source_start_seconds || 0) * 30);
+              const clipVolume = Math.max(0, (clip.volume ?? 0.2) * (bgMusicVolume !== undefined ? bgMusicVolume / 0.15 : 1));
+
+              return (
+                <Sequence key={clip.id} from={startFrame} durationInFrames={durationFrames} premountFor={30}>
+                  <DynamicFadeAudio
+                    src={clip.audio_url}
+                    clipDurationFrames={durationFrames}
+                    baseVolume={clipVolume}
+                    startFromFrame={startFromFrame}
+                    fadeInFrames={fadeInFrames}
+                    fadeOutFrames={fadeOutFrames}
+                    loop={clip.loop !== false}
+                    globalMuteRanges={bgMuteRanges}
+                    clipGlobalStart={startFrame}
+                  />
+                </Sequence>
+              );
+            })
+          ) : bgMusicUrl ? (
             <FrameVolumeAudio src={bgMusicUrl} muteRanges={bgMuteRanges} baseVolume={bgMusicVolume} loop />
-          )}
+          ) : null}
         </>
       )}
 

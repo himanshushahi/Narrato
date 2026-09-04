@@ -1,13 +1,11 @@
 import json
 import re
-from typing import Dict, Any, Callable
+from typing import Dict, Any, Callable, Union
 from backend.core.logger import logger
 from backend.agent.tools import get_tools_schema, execute_tool
 from backend.agent.validators import validate_sub_visuals
 from backend.pipeline.ai import _call_llm_json, clean_json_response
-
-# Matches a ```tool\n{...}\n``` block the model emits before the final JSON.
-TOOL_BLOCK_RE = re.compile(r"```tool\s*\n*(\{.*?\})\s*```", re.DOTALL)
+from backend.agent.schemas import get_model_json_schema, parse_and_validate_model, VisualsArrayResponse, SubVisualAST
 
 # Any fenced block (```tool / ```json / plain ```) that may hold a tool call.
 FENCED_BLOCK_RE = re.compile(r"```(?:json|tool)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -57,21 +55,59 @@ def _try_extract_json_objects(text: str) -> list:
     return objects
 
 
-def _looks_like_tool_call(call) -> bool:
-    return (
-        isinstance(call, dict)
-        and call.get("name")
-        and isinstance(call["name"], str)
-        and "arguments" in call
-        and (call["arguments"] is None or isinstance(call["arguments"], dict))
+def _normalize_tool_call(call) -> dict | None:
+    if not isinstance(call, dict):
+        return None
+    name = (
+        call.get("name")
+        or call.get("tool")
+        or call.get("function")
+        or call.get("tool_name")
+        or call.get("call")
     )
+    if not name or not isinstance(name, str):
+        return None
+
+    # Check if there is an arguments field or an explicit tool-identifying key
+    has_args_key = any(k in call for k in ("arguments", "parameters", "args", "input"))
+    is_explicit_tool_key = any(k in call for k in ("tool", "function", "tool_name", "call"))
+
+    if not has_args_key and not is_explicit_tool_key:
+        return None
+
+    args = (
+        call.get("arguments")
+        if "arguments" in call
+        else call.get("parameters")
+        if "parameters" in call
+        else call.get("args")
+        if "args" in call
+        else call.get("input")
+        if "input" in call
+        else {}
+    )
+    if args is None:
+        args = {}
+    elif isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            args = {"query": args}
+    elif not isinstance(args, dict):
+        return None
+
+    return {"name": name.strip(), "arguments": args}
+
+
+def _looks_like_tool_call(call) -> bool:
+    return _normalize_tool_call(call) is not None
 
 
 def _extract_tool_blocks(text: str) -> list:
     """Extract tool-call objects from model output across all common formats:
     ```tool``` fenced blocks, ```json```-fenced blocks, plain ``` fences, and
-    bare JSON objects shaped like {"name": ..., "arguments": ...}. Deduplicates
-    identical calls (same name + same arguments).
+    bare JSON objects shaped like {"name": ..., "arguments": ...} or {"tool": ...}.
+    Deduplicates identical calls (same name + same arguments).
     """
     # Strip <think>...</think> blocks from reasoning models before extracting tools
     text = re.sub(r'<think>.*?(?:</think>|$)', '', text, flags=re.DOTALL | re.IGNORECASE)
@@ -79,13 +115,14 @@ def _extract_tool_blocks(text: str) -> list:
     found = []
     seen = set()
 
-    def _add(call):
-        if not _looks_like_tool_call(call):
+    def _add(raw_obj):
+        norm = _normalize_tool_call(raw_obj)
+        if not norm:
             return
-        key = (call["name"], json.dumps(call.get("arguments") or {}, sort_keys=True, default=str))
+        key = (norm["name"], json.dumps(norm.get("arguments") or {}, sort_keys=True, default=str))
         if key not in seen:
             seen.add(key)
-            found.append(call)
+            found.append(norm)
 
     for match in FENCED_BLOCK_RE.finditer(text):
         for obj in _try_extract_json_objects(match.group(1)):
@@ -115,10 +152,12 @@ PIPELINE_SCRIPT_TURNS = 5
 # AI rewrite tools are excluded so a pipeline run can never mutate the project
 # or spawn recursive ReAct loops mid-generation.
 PIPELINE_VISUAL_TOOLS = frozenset({
-    "web_search", "get_skill", "get_visual_type_rules",
+    "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
     "search_pexels_photo", "search_pexels_video",
-    "search_wikipedia_image", "preview_asset",
+    "search_wikipedia_image",
+    "search_pixabay_photo", "search_pixabay_video",
+    "search_youtube_video",
 })
 
 SCRIPT_NARRATION_TOOLS = frozenset({
@@ -127,18 +166,20 @@ SCRIPT_NARRATION_TOOLS = frozenset({
 })
 
 # Bridge: script rewrites — research + read-only project access.
-# No visual-type rules or asset search needed for narration-only rewrites.
+# No visual AST rules or asset search needed for narration-only rewrites.
 BRIDGE_SCRIPT_TOOLS = frozenset({
     "web_search", "get_skill", "read_project_file",
     "list_project_files", "project_status_report",
 })
 
-# Bridge: visual rewrites — research + visual-type rules + asset search.
-# Needs Pexels/Wikipedia/preview tools to verify assets exist before using them.
+# Bridge: visual rewrites — research + declarative AST composition rules + asset search.
+# Needs Pexels/Wikipedia/Pixabay/YouTube tools to verify assets exist before using them.
 BRIDGE_VISUAL_TOOLS = frozenset({
-    "web_search", "get_skill", "get_visual_type_rules",
+    "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
     "search_pexels_photo", "search_pexels_video", "search_wikipedia_image",
+    "search_pixabay_photo", "search_pixabay_video",
+    "search_youtube_video",
 })
 
 # Bridge: add scene — research only (narration-only, visuals added later).
@@ -177,7 +218,7 @@ class AgentRunner:
             lines.append(f"  Parameters: {json.dumps(props)}")
         lines.append("")
         lines.append(
-            "If you need external data (web facts, visual-type schemas, project files, "
+            "If you need external data (web facts, declarative AST schemas, project files, "
             "design settings) to produce a correct result, BEFORE outputting the final JSON "
             "emit EXACTLY ONE tool call block:\n"
             '```tool\n{"name": "tool_name", "arguments": {"param": "value"}}\n```\n'
@@ -189,9 +230,9 @@ class AgentRunner:
         )
         return "\n".join(lines)
 
-    def run_with_tools(self, system_prompt: str, user_prompt: str, schema: dict,
+    def run_with_tools(self, system_prompt: str, user_prompt: str, schema: Any = None,
                        base_activity_label: str = "Agent",
-                       allowed_tools=None, max_turns: int = None) -> dict:
+                       allowed_tools=None, max_turns: int = None) -> Any:
         """
         Loose ReAct loop: the model may emit ```tool``` blocks that get executed
         via the tool registry, with results fed back for the next turn. The final
@@ -219,11 +260,10 @@ class AgentRunner:
             if not isinstance(raw, str):
                 # Defensive: if a provider ever returns a parsed value here,
                 # accept it as the final answer.
-                return raw
+                return parse_and_validate_model(schema, raw)
 
             tool_blocks = _extract_tool_blocks(raw)
             if tool_blocks:
-                executed_any = False
                 for call in tool_blocks:
                     self._check_cancel()
                     name = call.get("name")
@@ -236,25 +276,29 @@ class AgentRunner:
                     self._emit_progress(f"Agent: Executing tool {name}...")
                     result_str = execute_tool(name, args)
                     current_user_prompt += f"\n\nTool '{name}' result:\n{result_str}"
-                    executed_any = True
-                if executed_any:
-                    continue  # give the model a turn to act on the results
+                continue  # give the model a turn to act on the results or rejection notices
 
             # No tool block: try to parse the loose response as the final JSON.
             try:
-                return clean_json_response(raw)
-            except ValueError:
+                parsed = clean_json_response(raw)
+                if schema is not None:
+                    # Validate and coerce via Pydantic
+                    parsed = parse_and_validate_model(schema, parsed)
+                return parsed
+            except Exception:
                 if turn == turns_budget - 1:
                     # Last turn: enforce the schema with a strict call.
                     self._emit_progress(f"{base_activity_label}: Finalizing with strict schema...")
-                    return _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (finalizing)")
+                    strict_res = _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (finalizing)")
+                    return parse_and_validate_model(schema, strict_res)
                 current_user_prompt += (
-                    "\n\n[System: your response was not valid JSON. If you need information, "
+                    "\n\n[System: your response was not valid or complete JSON matching the requested schema. If you need information, "
                     "emit a tool block. Otherwise output ONLY valid JSON matching the requested schema.]"
                 )
 
         # Loop exhausted without a parseable answer — final strict attempt.
-        return _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (strict fallback)")
+        strict_fallback = _call_llm_json(enhanced_system_prompt, current_user_prompt, schema, self.cancel_event, activity_label=f"{base_activity_label} (strict fallback)")
+        return parse_and_validate_model(schema, strict_fallback)
 
     def run_with_tools_safe(self, system_prompt: str, user_prompt: str, schema: dict,
                             allowed_tools=None, max_turns: int = None) -> dict:
@@ -268,14 +312,6 @@ class AgentRunner:
         except Exception as e:
             logger.error(f"Agent LLM call failed: {type(e).__name__}: {e}")
             return {"success": False, "error": str(e)}
-
-    def generate_bulk_scenes_oneshot(self, system_prompt: str, user_prompt: str, schema: dict) -> dict:
-        """
-        For bulk scene generation, ReAct looping is too slow.
-        We just do a single-shot execution using _call_llm_json.
-        """
-        self._emit_progress("Agent: Generating visuals (One-Shot)...")
-        return _call_llm_json(system_prompt, user_prompt, schema, self.cancel_event, activity_label="Agent: bulk visuals")
 
     def validate_and_correct_visuals(self, system_prompt: str, user_prompt: str, schema: dict, expected_duration: float,
                                      allowed_tools=None, max_turns: int = None) -> dict:
@@ -293,6 +329,42 @@ class AgentRunner:
                                          allowed_tools=allowed_tools, max_turns=max_turns)
         except Exception as e:
             raise e
+
+        if isinstance(result, list):
+            result = {"sub_visuals": result}
+        elif isinstance(result, dict) and "sub_visuals" not in result:
+            if "visuals" in result and isinstance(result["visuals"], list):
+                result = {"sub_visuals": result["visuals"]}
+            elif "subvisuals" in result and isinstance(result["subvisuals"], list):
+                result = {"sub_visuals": result["subvisuals"]}
+            elif "composition" in result:
+                result = {"sub_visuals": [result]}
+            elif "data" in result:
+                if isinstance(result["data"], list):
+                    result = {"sub_visuals": result["data"]}
+                elif isinstance(result["data"], dict) and "sub_visuals" in result["data"]:
+                    result = {"sub_visuals": result["data"]["sub_visuals"]}
+
+        if not isinstance(result, dict) or "sub_visuals" not in result or not result.get("sub_visuals"):
+            self._emit_progress(f"Agent: Sub-visuals missing or empty. Requesting visual generation...")
+            correction_prompt = user_prompt + f"\n\nCRITICAL REQUIREMENT: You MUST generate a non-empty 'sub_visuals' array. Total scene duration is {expected_duration} seconds. Generate at least 2-4 sub-visuals whose durations sum to {expected_duration}."
+            try:
+                corrected_result = self.run_with_tools(system_prompt, correction_prompt, schema, base_activity_label="Agent: visual correction",
+                                                       allowed_tools=allowed_tools, max_turns=max_turns)
+                if isinstance(corrected_result, list):
+                    corrected_result = {"sub_visuals": corrected_result}
+                elif isinstance(corrected_result, dict) and "sub_visuals" not in corrected_result:
+                    if "visuals" in corrected_result and isinstance(corrected_result["visuals"], list):
+                        corrected_result = {"sub_visuals": corrected_result["visuals"]}
+                    elif "composition" in corrected_result:
+                        corrected_result = {"sub_visuals": [corrected_result]}
+
+                if isinstance(corrected_result, dict) and "sub_visuals" in corrected_result and corrected_result["sub_visuals"]:
+                    _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
+                    corrected_result["sub_visuals"] = final_svs
+                    return corrected_result
+            except Exception:
+                pass
 
         if not isinstance(result, dict) or "sub_visuals" not in result:
             return result
@@ -312,8 +384,16 @@ class AgentRunner:
         try:
             corrected_result = self.run_with_tools(system_prompt, correction_prompt, schema, base_activity_label="Agent: visual correction",
                                                    allowed_tools=allowed_tools, max_turns=max_turns)
+            if isinstance(corrected_result, list):
+                corrected_result = {"sub_visuals": corrected_result}
+            elif isinstance(corrected_result, dict) and "sub_visuals" not in corrected_result:
+                if "visuals" in corrected_result and isinstance(corrected_result["visuals"], list):
+                    corrected_result = {"sub_visuals": corrected_result["visuals"]}
+                elif "composition" in corrected_result:
+                    corrected_result = {"sub_visuals": [corrected_result]}
+
             if isinstance(corrected_result, dict) and "sub_visuals" in corrected_result:
-                is_valid2, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
+                _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
                 corrected_result["sub_visuals"] = final_svs
                 return corrected_result
         except Exception:

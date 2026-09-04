@@ -45,6 +45,18 @@ class QueueManager:
         Steps: 'generate_script', 'generate_voiceover', 'transcribe', 
                'generate_visuals', 'fetch_assets', 'render'
         """
+        # ── Deduplication guard ────────────────────────────────────────────
+        # Reject if this project is already actively processing or waiting
+        # in the queue.  This prevents double-renders caused by the frontend
+        # firing both start_processing_pipeline and resume_processing_pipeline
+        # before the queue-status broadcast propagates back to the UI.
+        if self._active_project_id == project_id:
+            logger.warning(f"Project {project_id} is already actively processing — ignoring duplicate queue request.")
+            return True  # Return True so the frontend doesn't show an error
+        if any(q[0] == project_id for q in self._queue):
+            logger.warning(f"Project {project_id} is already queued — ignoring duplicate queue request.")
+            return True
+
         # Always create a new cancel event when queuing so active workers retaining the old event stay cancelled
         self._cancel_events[project_id] = threading.Event()
 
@@ -72,7 +84,10 @@ class QueueManager:
                     is_stale = True
                 elif not is_downstream_stale:
                     try:
-                        if step == 'generate_voiceover':
+                        if step == 'generate_script':
+                            from backend.pipeline.ai import is_script_stale
+                            is_stale = is_script_stale(proj, proj_dir)
+                        elif step == 'generate_voiceover':
                             from backend.pipeline.tts import is_voiceover_stale
                             is_stale = is_voiceover_stale(proj, proj_dir)
                         elif step == 'transcribe':
@@ -85,9 +100,8 @@ class QueueManager:
                             from backend.pipeline.assets import is_assets_stale
                             is_stale = is_assets_stale(proj, proj_dir)
                         elif step == 'render':
-                            # Nothing upstream changed — only stale if output video is missing
-                            video_path = proj.get('video_path')
-                            is_stale = not (video_path and os.path.exists(video_path))
+                            from backend.pipeline.render import is_render_stale
+                            is_stale = is_render_stale(proj, proj_dir)
                     except Exception as e:
                         logger.error(f"Error checking staleness for {step}: {e}")
                         is_stale = True
@@ -97,21 +111,30 @@ class QueueManager:
                     remaining_steps.append(step)
                     
             if not remaining_steps and 'render' in pipeline_steps:
-                # Only force render if output video is missing (upstream is unchanged)
-                video_path = proj.get('video_path')
-                if not (video_path and os.path.exists(video_path)):
+                from backend.pipeline.render import is_render_stale
+                if is_render_stale(proj, proj_dir):
                     remaining_steps = ['render']
                 
             steps_to_queue = remaining_steps
         else:
             steps_to_queue = steps
+            # Reset tasks for downstream stages not included in this forced run
+            all_steps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']
+            if steps_to_queue:
+                try:
+                    first_step_idx = all_steps.index(steps_to_queue[0])
+                    for s in all_steps[first_step_idx:]:
+                        if s not in steps_to_queue:
+                            update_task(f"{project_id}_{s}", status='pending', progress=0.0, message='Pending upstream changes')
+                except ValueError:
+                    pass
 
         # Create/reset database task entries
         for step in steps_to_queue:
             create_task(project_id, step)
 
-        self._queue.append((project_id, steps_to_queue))
-        logger.info(f"Queued project {project_id} for steps: {steps_to_queue}")
+        self._queue.append((project_id, steps_to_queue, is_resume))
+        logger.info(f"Queued project {project_id} for steps: {steps_to_queue} (is_resume={is_resume})")
         self._broadcast_queue_status()
         return True
 
@@ -176,7 +199,7 @@ class QueueManager:
                 time.sleep(0.5)
                 continue
 
-            project_id, steps = self._queue.pop(0)
+            project_id, steps, is_resume = self._queue.pop(0)
             self._active_project_id = project_id
             self._broadcast_queue_status()
 
@@ -205,7 +228,7 @@ class QueueManager:
                         # Run the specific pipeline step
                         from backend.pipeline.ai import usage_tracking_context
                         with usage_tracking_context(task_id):
-                            self._execute_step(project_id, step, cancel_event)
+                            self._execute_step(project_id, step, cancel_event, is_resume)
                         
                         update_task(task_id, status='completed', progress=100.0, message='Step completed.')
                         self._broadcast_task_progress(project_id, step, 100.0, 'Step completed.', 'completed')
@@ -247,7 +270,7 @@ class QueueManager:
             self._active_project_id = None
             self._broadcast_queue_status()
 
-    def _execute_step(self, project_id, step, cancel_event):
+    def _execute_step(self, project_id, step, cancel_event, is_resume=False):
         """Router to execute pipeline steps."""
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
@@ -288,12 +311,12 @@ class QueueManager:
             
         elif step == 'generate_visuals':
             from backend.pipeline.ai import generate_visuals_pipeline
-            generate_visuals_pipeline(proj, proj_dir, progress_cb, cancel_event)
+            generate_visuals_pipeline(proj, proj_dir, progress_cb, cancel_event, force=not is_resume)
             
         elif step == 'render':
             logger.info(f"Smart Resume: Starting render step — cache hashes will determine incremental scope.")
             from backend.pipeline.render import render_pipeline
-            render_pipeline(proj, proj_dir, progress_cb, cancel_event)
+            render_pipeline(proj, proj_dir, progress_cb, cancel_event, force=not is_resume)
             
         else:
             raise ValueError(f"Unknown pipeline step: {step}")

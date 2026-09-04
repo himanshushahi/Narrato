@@ -8,6 +8,7 @@ when_to_use: "When updating subtitle styling (fonts, colors, positions, outlines
 - Use an outline (stroke) and/or shadow behind the text — never rely on fill color alone.
 - Keep font size proportional to the video resolution (larger for 4K, smaller for mobile portrait).
 - Fonts: prefer web-safe families or bundled font names the renderer supports. Avoid exotic families.
+  - **CRITICAL**: For complex scripts (Hindi/Devanagari, Bengali, Tamil, Arabic, etc.), you MUST use the corresponding Noto font (e.g., `Noto Sans Devanagari`) to prevent broken Unicode shaping. Do not use generic fonts for these languages.
 
 === POSITIONING ===
 - Default position is lower-center (like YouTube captions) — do NOT place text under UI elements.

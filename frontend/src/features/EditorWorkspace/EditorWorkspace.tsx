@@ -1,9 +1,10 @@
-import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
+import { useUIStore } from '../../store/useUIStore';
 import { useEditorData } from './hooks/useEditorData';
 import { usePipeline } from './hooks/usePipeline';
 import { useScriptEditing } from './hooks/useScriptEditing';
@@ -17,10 +18,13 @@ import { MediaSidebar } from './MediaSidebar';
 import { VideoPreview } from './VideoPreview';
 import { Timeline } from './Timeline';
 import { InspectorPanel } from './InspectorPanel';
+import { GlobalOverlayItem } from '../../components/video/GlobalOverlaysRenderer';
+import { FPS } from './timelineConstants';
+import { manifestToScriptSceneIndex } from './visualSelection';
 
 const EMPTY_ARRAY: any[] = [];
 
-export const EditorWorkspace: React.FC = () => {
+const EditorWorkspace: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const selectedProject = useProjectStore((s) => s.selectedProject);
   const [projectReady, setProjectReady] = useState(false);
@@ -62,14 +66,40 @@ export const EditorWorkspace: React.FC = () => {
   const timelineHeight = useEditorStore((s) => s.timelineHeight);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
+  const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+  const updateProject = useProjectStore((s) => s.updateProject);
+
   // === Hooks ===
   const {
     scriptData, setScriptData,
+    designData,
     manifestData, setManifestData,
     transcriptionData, setTranscriptionData,
     liveScenes, sceneTimings, reloadKey,
+    musicClips, updateMusicClips,
     loadFiles
   } = useEditorData(id);
+
+  const handleUploadMusicClip = useCallback(async (startFrame?: number) => {
+    if (!id) return;
+    try {
+      const res = await callApi<{ success: boolean; clip?: any; clips?: any[]; error?: string }>('upload_music_clip', id, startFrame);
+      if (res && res.success) {
+        await loadFiles(id);
+        if (res.clip?.id) {
+          useEditorStore.getState().setSelectedMusicClipId(res.clip.id);
+          useEditorStore.getState().setLeftPanelTab('music');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to upload music clip:', e);
+    }
+  }, [id, loadFiles]);
+
+  const handleBgMusicVolumeChange = useCallback(async (vol: number) => {
+    if (!id) return;
+    await updateProject(id, { bg_music_volume: vol });
+  }, [id, updateProject]);
 
   const [activeTimings, setActiveTimings] = useState(sceneTimings);
   useEffect(() => {
@@ -77,18 +107,17 @@ export const EditorWorkspace: React.FC = () => {
   }, [sceneTimings]);
 
   const {
-    tasks, queue, isRunning, targetStage, activeTaskStep, scriptChangedAlert,
-    setTargetStage, setScriptChangedAlert, triggerFullPipeline,
+    tasks, queue, isRunning, targetStage, activeTaskStep,
+    setTargetStage, triggerFullPipeline,
     handleResumePipeline, handleResumeFromStage, cancelPipeline
   } = usePipeline(id, loadFiles);
 
   const {
     editingCard, setEditingCard, rewritePrompt, setRewritePrompt,
-    rewritingSection,
+    rewritingSection, isAnyRewriting, isSectionRewriting, isSubRewriting, isSectionLocked,
+    invalidateRewrites, invalidateAllRewrites,
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
-    scriptChangedAlert: scriptEditingAlert,
-    setScriptChangedAlert: setScriptEditingAlert,
-    previewAssets, previewingSubVisual, uploadingSubVisual, handlePreviewSubVisual, handleUploadSubVisual,
+    previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription, handleResetTranscription
@@ -96,6 +125,12 @@ export const EditorWorkspace: React.FC = () => {
     id, scriptData, setScriptData, manifestData, setManifestData,
     transcriptionData, setTranscriptionData, loadFiles
   );
+
+  // Poison any in-flight AI rewrites on project switch so late LLM results
+  // can never land in the newly opened project.
+  useEffect(() => {
+    invalidateAllRewrites();
+  }, [id, invalidateAllRewrites]);
 
   // Latest-state refs: handlers read these instead of render-time closures so
   // consecutive operations (toggle → resize in quick succession) always see the
@@ -115,6 +150,42 @@ export const EditorWorkspace: React.FC = () => {
     return next;
   }, []);
 
+  // ── Rewrite section locks (timeline guards) ───────────────────────────
+  // Ref mirrors keep the timeline write-handlers referentially stable while
+  // always reading the latest rewrite registry.
+  const isSectionLockedRef = useRef(isSectionLocked);
+  isSectionLockedRef.current = isSectionLocked;
+  const isAnyRewritingRef = useRef(isAnyRewriting);
+  isAnyRewritingRef.current = isAnyRewriting;
+
+  /** Manifest scene index → Visuals-tab card key (intro / scene_N / conclusion). */
+  const cardKeyForScene = useCallback((sceneIdx: number): string | null => {
+    const m = manifestDataRef.current?.[sceneIdx];
+    if (!m) return null;
+    if (m.section_type === 'introduction') return 'intro';
+    if (m.section_type === 'conclusion') return 'conclusion';
+    return `scene_${manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)}`;
+  }, []);
+
+  /**
+   * Block timeline writes that would shift or wipe a section with an AI
+   * rewrite in flight (split/duplicate/delete/resize, plus index-positional
+   * scalar toggles). Guards live at the handler level so ruler drags,
+   * boundary handles, hotkeys, and context menus are all sealed in one stroke.
+   * Navigation (selection, seeking) is never blocked.
+   */
+  const requireSectionUnlocked = useCallback((sceneIdx: number, action: string): boolean => {
+    const key = cardKeyForScene(sceneIdx);
+    if (key && isSectionLockedRef.current(key)) {
+      useUIStore.getState().addToast(
+        `${action} is paused while this section's AI rewrite is in progress.`,
+        'warning',
+      );
+      return false;
+    }
+    return true;
+  }, [cardKeyForScene]);
+
   // Toggle a per-sub-visual audio cut flag (mute_voiceover / mute_bg_music) from
   // the timeline. Updates script.json (source of truth) and the assets manifest
   // (export source) in place, preserving visual_path/visual_url on the manifest.
@@ -127,6 +198,7 @@ export const EditorWorkspace: React.FC = () => {
 
   const handleToggleSubVisualAudioFlag = useCallback(async (sceneIdx: number, subIdx: number, flag: 'mute_voiceover' | 'mute_bg_music') => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Audio toggle')) return;
     const manifestScene = manifestDataRef.current[sceneIdx];
     if (!manifestScene?.sub_visuals?.[subIdx]) return;
 
@@ -139,21 +211,17 @@ export const EditorWorkspace: React.FC = () => {
     const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
 
     // Map timeline index → script.json section (intro / scenes / conclusion).
-    const hasIntro = !!scriptDataRef.current.introduction;
+    // Scene index counts 'scene' manifest entries (same convention as
+    // resolveVisualSelection) so stale intro presence can't shift it.
     const sectionType = manifestScene.section_type;
     let scriptScene: any = null;
     if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
     else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
-    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+    else scriptScene = scriptCopy.scenes?.[manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)];
     if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals.length > 0) {
       const scriptSubs = scriptScene.sub_visuals;
-      // Match the manifest sub-visual by content (visual_type + visual_cue),
-      // mirroring liveScenes — index-based mapping desyncs when sub-visuals
-      // are inserted, deleted, or reordered in one file but not the other.
-      const target = manifestScene.sub_visuals[subIdx];
-      let scriptIdx = scriptSubs.findIndex((ssv: any) =>
-        ssv?.visual_type === target.visual_type && ssv?.visual_cue === target.visual_cue
-      );
+      // Removed unused updateSv
+      let scriptIdx = subIdx;
       // Fall back to same index if content match fails (same fallback as liveScenes)
       if (scriptIdx === -1 && subIdx < scriptSubs.length) scriptIdx = subIdx;
       if (scriptIdx !== -1) {
@@ -173,29 +241,270 @@ export const EditorWorkspace: React.FC = () => {
     }
   }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
 
-  // Sync scriptEditing's alert to the pipeline hook so handleResumePipeline can use it.
-  // Use a ref to only propagate CHANGES — prevents a race where handleResumePipeline
-  // clears the pipeline's alert but this effect re-sets it from the still-true source.
-  const prevScriptEditingRef = useRef(scriptEditingAlert);
-  useEffect(() => {
-    if (scriptEditingAlert !== prevScriptEditingRef.current) {
-      setScriptChangedAlert(scriptEditingAlert);
-      prevScriptEditingRef.current = scriptEditingAlert;
-    }
-  }, [scriptEditingAlert, setScriptChangedAlert]);
+  // ── Timeline: Update Sub-Visual Transition ─────────────────────────────────
+  const handleUpdateSubVisualTransition = useCallback(async (sceneIdx: number, subIdx: number, transition: string) => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Transition change')) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    if (!manifestScene?.sub_visuals?.[subIdx]) return;
 
-  // Clear both alerts when the pipeline finishes — narration is now synced
-  const prevRunningRef = useRef(isRunning);
-  useEffect(() => {
-    if (prevRunningRef.current && !isRunning) {
-      setScriptChangedAlert(false);
-      setScriptEditingAlert(false);
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
+    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
+    else scriptScene = scriptCopy.scenes?.[manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)];
+
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
+      scriptScene.sub_visuals[subIdx].transition = transition;
     }
-    prevRunningRef.current = isRunning;
-  }, [isRunning, setScriptChangedAlert, setScriptEditingAlert]);
+    if (manifestCopy[sceneIdx]?.sub_visuals?.[subIdx]) {
+      manifestCopy[sceneIdx].sub_visuals[subIdx].transition = transition;
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist transition:', e);
+    }
+  }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
+
+  // ── Timeline: Split Sub-Visual at Playhead ─────────────────────────────────
+  const handleSplitSubVisualAtFrame = useCallback(async (sceneIdx: number, subIdx: number, frame: number) => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Split cut')) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    const timing = sceneTimings[sceneIdx];
+    if (!manifestScene?.sub_visuals?.[subIdx] || !timing?.subs?.[subIdx]) return;
+
+    const subTiming = timing.subs[subIdx];
+    const currentSubStart = subTiming.start;
+    const currentSubEnd = subTiming.end;
+    const totalSubFrames = currentSubEnd - currentSubStart;
+    if (totalSubFrames <= FPS) return;
+
+    const leftFrames = frame - currentSubStart;
+    const rightFrames = currentSubEnd - frame;
+    if (leftFrames < 0.5 * FPS || rightFrames < 0.5 * FPS) return;
+
+    const origDuration = manifestScene.sub_visuals?.[subIdx]?.duration ?? Number(((currentSubEnd - currentSubStart) / FPS).toFixed(2));
+    const leftDuration = Math.max(0.2, Math.min(Math.max(0.2, origDuration - 0.2), Number((leftFrames / FPS).toFixed(2))));
+    const rightDuration = Math.max(0.2, Number((origDuration - leftDuration).toFixed(2)));
+
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') {
+      scriptScene = scriptCopy.introduction;
+    } else if (sectionType === 'conclusion') {
+      scriptScene = scriptCopy.conclusion;
+    } else {
+      const sceneNumber = manifestDataRef.current.slice(0, sceneIdx).filter((m: any) => m.section_type === 'scene').length;
+      scriptScene = scriptCopy.scenes?.[sceneNumber];
+    }
+
+    // Ensure scriptScene has sub_visuals matching manifestScene
+    if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {
+      scriptScene.sub_visuals = JSON.parse(JSON.stringify(manifestScene.sub_visuals));
+    }
+
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
+      const origSub = scriptScene.sub_visuals[subIdx];
+      const leftSub = { ...origSub, duration: leftDuration };
+      const rightSub = JSON.parse(JSON.stringify({ ...origSub, duration: rightDuration }));
+      scriptScene.sub_visuals.splice(subIdx, 1, leftSub, rightSub);
+    }
+
+    if (Array.isArray(manifestCopy[sceneIdx]?.sub_visuals) && manifestCopy[sceneIdx].sub_visuals[subIdx]) {
+      const origManSub = manifestCopy[sceneIdx].sub_visuals[subIdx];
+      const leftManSub = { ...origManSub, duration: leftDuration };
+      const rightManSub = JSON.parse(JSON.stringify({ ...origManSub, duration: rightDuration }));
+      manifestCopy[sceneIdx].sub_visuals.splice(subIdx, 1, leftManSub, rightManSub);
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist split sub-visual:', e);
+    }
+  }, [id, selectedProject, sceneTimings, enqueueSave, setScriptData, setManifestData]);
+
+  // ── Timeline: Duplicate Sub-Visual Cut ─────────────────────────────────────
+  const handleDuplicateSubVisual = useCallback(async (sceneIdx: number, subIdx: number) => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Duplicate cut')) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    if (!manifestScene?.sub_visuals?.[subIdx]) return;
+
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') {
+      scriptScene = scriptCopy.introduction;
+    } else if (sectionType === 'conclusion') {
+      scriptScene = scriptCopy.conclusion;
+    } else {
+      const sceneNumber = manifestDataRef.current.slice(0, sceneIdx).filter((m: any) => m.section_type === 'scene').length;
+      scriptScene = scriptCopy.scenes?.[sceneNumber];
+    }
+
+    // Ensure scriptScene has sub_visuals matching manifestScene
+    if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {
+      scriptScene.sub_visuals = JSON.parse(JSON.stringify(manifestScene.sub_visuals));
+    }
+
+    const origManSub = manifestCopy[sceneIdx]?.sub_visuals?.[subIdx];
+    const origDur = origManSub?.duration || 2;
+    const leftDur = Math.max(0.2, Number((origDur / 2).toFixed(2)));
+    const rightDur = Math.max(0.2, Number((origDur - leftDur).toFixed(2)));
+
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
+      const origSub = scriptScene.sub_visuals[subIdx];
+      origSub.duration = leftDur;
+      const cloneSub = JSON.parse(JSON.stringify({ ...origSub, duration: rightDur }));
+      scriptScene.sub_visuals.splice(subIdx + 1, 0, cloneSub);
+    }
+
+    if (Array.isArray(manifestCopy[sceneIdx]?.sub_visuals) && manifestCopy[sceneIdx].sub_visuals[subIdx]) {
+      origManSub.duration = leftDur;
+      const cloneManSub = JSON.parse(JSON.stringify({ ...origManSub, duration: rightDur }));
+      manifestCopy[sceneIdx].sub_visuals.splice(subIdx + 1, 0, cloneManSub);
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist duplicated sub-visual:', e);
+    }
+  }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
+
+  // ── Timeline: Delete Sub-Visual Cut ───────────────────────────────────────
+  const handleDeleteSubVisual = useCallback(async (sceneIdx: number, subIdx: number) => {
+    if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Delete cut')) return;
+    const manifestScene = manifestDataRef.current[sceneIdx];
+    if (!manifestScene?.sub_visuals || manifestScene.sub_visuals.length <= 1) return;
+
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
+
+    const sectionType = manifestScene.section_type;
+    let scriptScene: any = null;
+    if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
+    else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
+    else scriptScene = scriptCopy.scenes?.[manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)];
+
+    // Ensure scriptScene has sub_visuals matching manifestScene
+    if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {
+      scriptScene.sub_visuals = JSON.parse(JSON.stringify(manifestScene.sub_visuals));
+    }
+
+    const origManSub = manifestCopy[sceneIdx]?.sub_visuals?.[subIdx];
+    const origScriptSub = scriptScene?.sub_visuals?.[subIdx];
+    const removedDur = Number((origManSub?.duration ?? origScriptSub?.duration ?? 2));
+
+    if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals.length > 1) {
+      scriptScene.sub_visuals.splice(subIdx, 1);
+      const remainingIdx = Math.min(subIdx, scriptScene.sub_visuals.length - 1);
+      scriptScene.sub_visuals[remainingIdx].duration = Number(((scriptScene.sub_visuals[remainingIdx].duration || 2) + removedDur).toFixed(2));
+    }
+
+    if (Array.isArray(manifestCopy[sceneIdx]?.sub_visuals) && manifestCopy[sceneIdx].sub_visuals.length > 1) {
+      manifestCopy[sceneIdx].sub_visuals.splice(subIdx, 1);
+      const remainingIdx = Math.min(subIdx, manifestCopy[sceneIdx].sub_visuals.length - 1);
+      manifestCopy[sceneIdx].sub_visuals[remainingIdx].duration = Number(((manifestCopy[sceneIdx].sub_visuals[remainingIdx].duration || 2) + removedDur).toFixed(2));
+    }
+
+    setScriptData(scriptCopy);
+    setManifestData(manifestCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+      await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
+    } catch (e) {
+      console.error('Failed to persist deleted sub-visual:', e);
+    }
+  }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
+
+  // ── Timeline: Overlays Management ─────────────────────────────────────────
+  const handleUpdateOverlay = useCallback(async (target: number | string, updates: Partial<GlobalOverlayItem>) => {
+    if (!scriptDataRef.current || !selectedProject?.script_path) return;
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    if (!Array.isArray(scriptCopy.overlays)) return;
+
+    const idx = typeof target === 'string'
+      ? scriptCopy.overlays.findIndex((o: any) => o.id === target)
+      : target;
+
+    if (idx === -1 || !scriptCopy.overlays[idx]) return;
+
+    scriptCopy.overlays[idx] = { ...scriptCopy.overlays[idx], ...updates };
+    setScriptData(scriptCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+    } catch (e) {
+      console.error('Failed to persist overlay updates:', e);
+    }
+  }, [selectedProject, enqueueSave, setScriptData]);
+
+  const handleToggleOverlayEnabled = useCallback(async (target: number | string) => {
+    if (!scriptDataRef.current || !selectedProject?.script_path) return;
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    if (!Array.isArray(scriptCopy.overlays)) return;
+
+    const idx = typeof target === 'string'
+      ? scriptCopy.overlays.findIndex((o: any) => o.id === target)
+      : target;
+
+    if (idx === -1 || !scriptCopy.overlays[idx]) return;
+
+    scriptCopy.overlays[idx].enabled = scriptCopy.overlays[idx].enabled === false;
+    setScriptData(scriptCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+    } catch (e) {
+      console.error('Failed to persist overlay toggle:', e);
+    }
+  }, [selectedProject, enqueueSave, setScriptData]);
+
+  const handleSaveOverlays = useCallback(async (newOverlays: GlobalOverlayItem[]) => {
+    if (!scriptDataRef.current || !selectedProject?.script_path) return;
+    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    scriptCopy.overlays = newOverlays;
+    setScriptData(scriptCopy);
+
+    try {
+      await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
+    } catch (e) {
+      console.error('Failed to auto-save overlays:', e);
+    }
+  }, [selectedProject, enqueueSave, setScriptData]);
+
+  const handleSelectOverlay = useCallback((_overlayId: string) => {
+    setInspectorTab('overlays');
+  }, [setInspectorTab]);
 
   // Auto-switch to Script tab when script generation finishes
-  const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
   const prevScriptGenStatusRef = useRef(tasks['generate_script']?.status);
   
   useEffect(() => {
@@ -221,22 +530,6 @@ export const EditorWorkspace: React.FC = () => {
   }, []);
 
   // === Computed values ===
-  const activeTimingsToUse = activeTimings.length > 0 ? activeTimings : sceneTimings;
-  // Derive the active scene/sub indices INSIDE the store selector so this
-  // component re-renders only when the active item actually changes
-  // (scene boundaries), not on every playhead frame.
-  const activeSceneIdx = usePlaybackStore((s) => {
-    const timings = activeTimingsToUse;
-    return timings.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end);
-  });
-  const activeSubIdx = usePlaybackStore((s) => {
-    if (activeSceneIdx < 0) return -1;
-    const timings = activeTimingsToUse;
-    const subs = timings[activeSceneIdx]?.subs;
-    return subs && subs.length > 0
-      ? subs.findIndex(t => s.currentFrame >= t.start && s.currentFrame < t.end)
-      : -1;
-  });
   const hasScriptData = !!scriptData;
   const isLoading = !selectedProject || !projectReady;
 
@@ -257,12 +550,45 @@ export const EditorWorkspace: React.FC = () => {
           key = `scene_${sceneCounter}_${sIdx}`;
         }
         const preview = previewAssets[key];
-        return preview ? { ...sv, visual_url: preview.visual_url } : sv;
+        if (!preview) return sv;
+
+        let updatedComposition = sv.composition;
+        if (sv.composition && Array.isArray(sv.composition.children)) {
+          const updatedChildren = sv.composition.children.map((layer: any) => {
+            if (layer?.content && (layer.content.type === 'Image' || layer.content.type === 'Video')) {
+              return {
+                ...layer,
+                content: {
+                  ...layer.content,
+                  local_path: preview.visual_path
+                }
+              };
+            }
+            return layer;
+          });
+          updatedComposition = { ...sv.composition, children: updatedChildren };
+        }
+
+        return {
+          ...sv,
+          visual_url: preview.visual_url,
+          composition: updatedComposition
+        };
       });
       if (type === 'scene') sceneCounter++;
       return { ...scene, sub_visuals };
     });
   }, [liveScenes, previewAssets]);
+
+  // Deferred scenes for the heavy consumers (video player, timeline).
+  // Every keystroke/slider tick in the inspector creates a new scenes array;
+  // without this, the Remotion <Player> re-renders synchronously inside the
+  // same task as the keystroke and typing feels laggy. The deferred value
+  // keeps its previous reference while the user is typing so the memoized
+  // player/timeline skip, then catches up once input pauses. The inspector
+  // itself keeps the urgent (synchronous) value so editors never show stale
+  // text. Selection/playhead stay responsive — they live in zustand stores.
+  const deferredLiveScenes = useDeferredValue(effectiveLiveScenes);
 
   // === Handlers ===
   const handleSeek = useCallback((frame: number) => {
@@ -270,22 +596,108 @@ export const EditorWorkspace: React.FC = () => {
       playerRef.current.seekTo(frame);
     }
   }, []);
+  // Flusher for debounced Visuals-tab edits (registered by VisualsTab itself;
+  // null when another tab is active). Lets Ctrl+S / TopBar saves include
+  // in-flight color-drag / slider ticks.
+  const visualsFlushRef = useRef<(() => any) | null>(null);
+  const handleRegisterVisualsFlush = useCallback((flush: (() => any) | null) => {
+    visualsFlushRef.current = flush;
+  }, []);
+  // Flusher for debounced Subtitle-tab edits (registered by SubtitleTab itself;
+  // null when another tab is active). Lets Ctrl+S / TopBar saves include
+  // in-flight debounced subtitle edits without waiting for the 400ms timer.
+  const subtitleFlushRef = useRef<(() => any) | null>(null);
+  const handleRegisterSubtitleFlush = useCallback((flush: (() => any) | null) => {
+    subtitleFlushRef.current = flush;
+  }, []);
+
+  // ── Visuals editor: silent selection (timeline cut click, asset click) ──
+  // Flush in-flight debounced ticks first so a cross-section switch can't
+  // race the trailing write / stale the Revert snapshot.
+  const handleSelectSubVisual = useCallback((sceneIdx: number, subIdx: number) => {
+    visualsFlushRef.current?.();
+    const st = useEditorStore.getState();
+    st.setSelectedSceneIndex(sceneIdx);
+    st.setSelectedSubVisualIndex(subIdx);
+  }, []);
+
+  // ── Visuals editor: select + snapshot + open the Visuals tab ──────────────
+  // (Timeline "Edit in Inspector" and keyboard shortcut route here.)
+  // The tab switch is conditional: stale/deleted indices resolve to nothing,
+  // and switching anyway would strand editingCard on the previous section
+  // while the tab shows "No cut selected".
+  const handleOpenVisualEditor = useCallback((sceneIdx: number, subIdx: number) => {
+    const manifestScene = manifestDataRef.current?.[sceneIdx];
+    if (!manifestScene) return;
+    const sectionType = manifestScene.section_type;
+    let cardKey = '';
+    let sectionExists = false;
+    const doc = scriptDataRef.current;
+    if (sectionType === 'introduction') {
+      cardKey = 'intro';
+      sectionExists = !!doc?.introduction;
+    } else if (sectionType === 'conclusion') {
+      cardKey = 'conclusion';
+      sectionExists = !!doc?.conclusion;
+    } else if (sectionType === 'scene') {
+      // Single source of truth with resolveVisualSelection: count 'scene'
+      // entries in the manifest so stale intro presence can't shift indices.
+      const scriptIdx = manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx);
+      if (doc?.scenes?.[scriptIdx] === undefined) return;
+      cardKey = `scene_${scriptIdx}`;
+      sectionExists = true;
+    } else {
+      return;
+    }
+    if (!sectionExists || !cardKey) return;
+    handleSelectSubVisual(sceneIdx, subIdx);
+    handleStartEdit(cardKey, 'visuals');
+    setInspectorTab('visuals');
+    const timing = sceneTimings[sceneIdx];
+    if (timing?.subs?.[subIdx]) {
+      handleSeek(timing.subs[subIdx].start);
+    } else if (timing) {
+      handleSeek(timing.start);
+    }
+  }, [handleSelectSubVisual, handleStartEdit, setInspectorTab, sceneTimings, handleSeek]);
 
   const handleSave = useCallback(() => {
+    // Whole-document save is locked while ANY AI rewrite is in flight: it
+    // would persist a pre-AI doc and wipe every card baseline. Covers Ctrl+S,
+    // the TopBar button, and every tab's Save (they all route here except
+    // VisualsTab/ScriptTab direct saves, which carry their own guards).
+    if (isAnyRewritingRef.current) {
+      useUIStore.getState().addToast('Save is paused while an AI rewrite is in progress.', 'warning');
+      return;
+    }
+    const tab = useEditorStore.getState().inspectorTab;
+    // Exclusive + serialized: a dirty card save ends with loadFiles() which
+    // re-reads transcription_path from disk, so it must never run
+    // concurrently with handleSaveTranscription (stale-subtitle clobber).
+    // Card saves go through the save queue; transcription follows the card
+    // instead of racing it.
     if (editingCard) {
+      // Flush debounced Visuals-tab ticks first (color drags, scrubs) and
+      // hand the exact document to the save pipeline.
+      const flushed = visualsFlushRef.current?.();
       const idx = editingCard.key.startsWith('scene_')
         ? parseInt(editingCard.key.replace('scene_', ''))
         : undefined;
-      handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx);
-    } else {
-      const tab = useEditorStore.getState().inspectorTab;
-      if (tab === 'subtitle') {
-        handleSaveTranscription();
-      } else if (id && scriptData && selectedProject?.script_path) {
-        handleSaveCard();
-      }
+      void enqueueSave(() => handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx, flushed ?? undefined))
+        .then(() => {
+          if (useEditorStore.getState().inspectorTab === 'subtitle') {
+            const flushedSub = subtitleFlushRef.current?.();
+            return handleSaveTranscription(flushedSub ?? undefined);
+          }
+          return undefined;
+        });
+    } else if (tab === 'subtitle') {
+      const flushedSub = subtitleFlushRef.current?.();
+      void enqueueSave(() => handleSaveTranscription(flushedSub ?? undefined));
+    } else if (id && scriptData && selectedProject?.script_path) {
+      void enqueueSave(() => handleSaveCard());
     }
-  }, [editingCard, handleSaveCard, id, scriptData, selectedProject, handleSaveTranscription]);
+  }, [editingCard, handleSaveCard, id, scriptData, selectedProject, handleSaveTranscription, enqueueSave]);
 
   const handlePlayPause = useCallback(() => {
     if (playerRef.current) {
@@ -296,60 +708,51 @@ export const EditorWorkspace: React.FC = () => {
 
   const handleResizeSubVisual = useCallback(async (sceneIndex: number, newRatios: number[]) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current) return;
+    if (!requireSectionUnlocked(sceneIndex, 'Cut resize')) return;
 
     const sceneDuration = manifestDataRef.current[sceneIndex]?.duration || 1;
 
     // 1. Update scriptData locally (newRatios[i] corresponds to script sub i —
     // the timeline displays liveScenes, which are script sub-visuals in content).
+    // Section is driven by the manifest entry's section_type (same convention
+    // as resolveVisualSelection) so a stale intro on either side can't shift
+    // the scene index.
     const scriptCopy = { ...scriptDataRef.current };
-    const hasIntro = scriptDataRef.current.introduction ? 1 : 0;
-    
+
     const updateSv = (sv: any, i: number) => {
       const ratio = typeof newRatios[i] === 'number' && !isNaN(newRatios[i])
         ? newRatios[i]
         : sv.duration_ratio;
       return {
-        ...sv, 
+        ...sv,
         duration_ratio: ratio,
         duration: ratio * sceneDuration
       };
     };
 
-    let scriptSubs: any[] = [];
-    if (sceneIndex === 0 && hasIntro) {
+    const resizeSection = manifestDataRef.current[sceneIndex]?.section_type;
+    if (resizeSection === 'introduction' && scriptCopy.introduction) {
       scriptCopy.introduction = { ...scriptCopy.introduction };
       scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map(updateSv);
-      scriptSubs = scriptCopy.introduction.sub_visuals;
-    } else if (sceneIndex === (scriptDataRef.current.scenes?.length || 0) + hasIntro && scriptDataRef.current.conclusion) {
+    } else if (resizeSection === 'conclusion' && scriptCopy.conclusion) {
       scriptCopy.conclusion = { ...scriptCopy.conclusion };
       scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map(updateSv);
-      scriptSubs = scriptCopy.conclusion.sub_visuals;
-    } else {
-      const idx = sceneIndex - hasIntro;
+    } else if (resizeSection === 'scene') {
+      const idx = manifestToScriptSceneIndex(manifestDataRef.current, sceneIndex);
       if (scriptCopy.scenes && scriptCopy.scenes[idx]) {
         scriptCopy.scenes = [...scriptCopy.scenes];
         scriptCopy.scenes[idx] = { ...scriptCopy.scenes[idx] };
         scriptCopy.scenes[idx].sub_visuals = (scriptCopy.scenes[idx].sub_visuals || []).map(updateSv);
-        scriptSubs = scriptCopy.scenes[idx].sub_visuals;
       }
     }
 
-    // 2. Update manifestData locally — match each manifest sub-visual to the
-    // updated script sub-visual by content (visual_type + visual_cue) so a
-    // desynced list (insert/delete before Save) doesn't get ratios shifted to
-    // the wrong positions or written as NaN/undefined.
+    // 2. Update manifestData locally — match each manifest sub-visual by index
     const manifestCopy = [...manifestDataRef.current];
     if (manifestCopy[sceneIndex]?.sub_visuals) {
-      const matchedIndices = new Set<number>();
       manifestCopy[sceneIndex].sub_visuals = manifestCopy[sceneIndex].sub_visuals.map((sv: any, i: number) => {
-        let scriptIdx = scriptSubs.findIndex((ssv: any, j: number) =>
-          !matchedIndices.has(j) && ssv?.visual_type === sv.visual_type && ssv?.visual_cue === sv.visual_cue
-        );
-        if (scriptIdx === -1 && i < scriptSubs.length) scriptIdx = i;
-        if (scriptIdx !== -1) matchedIndices.add(scriptIdx);
-        if (scriptIdx === -1) return sv;
-        const ratio = typeof newRatios[scriptIdx] === 'number' && !isNaN(newRatios[scriptIdx])
-          ? newRatios[scriptIdx]
+        if (i >= newRatios.length) return sv;
+        const ratio = typeof newRatios[i] === 'number' && !isNaN(newRatios[i])
+          ? newRatios[i]
           : sv.duration_ratio;
         return { ...sv, duration_ratio: ratio, duration: ratio * sceneDuration };
       });
@@ -373,6 +776,10 @@ export const EditorWorkspace: React.FC = () => {
     sceneIndex: number, newDurationSeconds: number, nextDurationSeconds: number | null, mode: 'boundary' | 'absolute'
   ) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current) return;
+    if (!requireSectionUnlocked(sceneIndex, 'Scene resize')) return;
+    // Boundary drags rewrite the NEXT scene's timings too — both must be free.
+    if (mode === 'boundary' && nextDurationSeconds !== null
+      && !requireSectionUnlocked(sceneIndex + 1, 'Scene resize')) return;
 
     const manifestCopy = [...manifestDataRef.current];
 
@@ -404,9 +811,9 @@ export const EditorWorkspace: React.FC = () => {
       );
     }
 
-    // Mirror into scriptData
+    // Mirror into scriptData — section driven by the manifest entry's
+    // section_type (same convention as resolveVisualSelection).
     const scriptCopy = { ...scriptDataRef.current };
-    const hasIntro = scriptDataRef.current.introduction ? 1 : 0;
 
     const updateSv = (sv: any, durSec: number, totalExistingDur: number, subCount: number) => {
       const ratio = typeof sv.duration_ratio === 'number' && !isNaN(sv.duration_ratio)
@@ -421,14 +828,15 @@ export const EditorWorkspace: React.FC = () => {
       const subs = manifestCopy[idx]?.sub_visuals || [];
       const subCount = subs.length || 1;
       const totalExistingDur = subs.reduce((sum: number, sv: any) => sum + (typeof sv.duration === 'number' ? sv.duration : 0), 0);
-      if (idx === 0 && hasIntro) {
+      const sectionType = manifestCopy[idx]?.section_type;
+      if (sectionType === 'introduction' && scriptCopy.introduction) {
         scriptCopy.introduction = { ...scriptCopy.introduction };
         scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
-      } else if (idx === (scriptDataRef.current.scenes?.length || 0) + hasIntro && scriptDataRef.current.conclusion) {
+      } else if (sectionType === 'conclusion' && scriptCopy.conclusion) {
         scriptCopy.conclusion = { ...scriptCopy.conclusion };
         scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
-      } else {
-        const sIdx = idx - hasIntro;
+      } else if (sectionType === 'scene') {
+        const sIdx = manifestToScriptSceneIndex(manifestCopy, idx);
         if (scriptCopy.scenes && scriptCopy.scenes[sIdx]) {
           scriptCopy.scenes = [...scriptCopy.scenes];
           scriptCopy.scenes[sIdx] = { ...scriptCopy.scenes[sIdx] };
@@ -480,13 +888,25 @@ export const EditorWorkspace: React.FC = () => {
     const cf = currentFrameRef.current;
     const timingIdx = timings.findIndex(t => cf >= t.start && cf < t.end);
     if (timingIdx < 0) return;
-    const hasIntro = scriptData?.introduction ? true : false;
+    // Timeline order mirrors the manifest — read intro and conclusion presence
+    // from the manifest, not scriptData, so a stale side can't shift the index.
+    const manifest = manifestDataRef.current;
+    const hasIntro = manifest?.[0]?.section_type === 'introduction';
+    const hasCon = manifest?.[manifest.length - 1]?.section_type === 'conclusion';
     const isInt = hasIntro && timingIdx === 0;
-    const isCon = timingIdx === timings.length - 1;
+    const isCon = hasCon && timingIdx === timings.length - 1;
     if (isInt || isCon) return;
-    const sceneIdx = timingIdx - (hasIntro ? 1 : 0);
-    setSceneToDelete(sceneIdx);
-  }, [setSceneToDelete, scriptData]);
+    // Opening the delete confirmation while either section rewrites would
+    // shift scene indices under the in-flight generation (confirm is guarded
+    // too — this just avoids the dead-end modal).
+    if (!requireSectionUnlocked(timingIdx, 'Scene delete')) return;
+    const sceneIdx = manifestToScriptSceneIndex(manifest, timingIdx);
+    if (sceneIdx >= 0) {
+      setSceneToDelete(sceneIdx);
+    } else {
+      setSceneToDelete(timingIdx - (hasIntro ? 1 : 0));
+    }
+  }, [setSceneToDelete]);
 
   const handleSeekRelative = useCallback((delta: number) => {
     handleSeek(Math.max(0, Math.min(totalFramesRef.current, currentFrameRef.current + delta)));
@@ -568,9 +988,16 @@ export const EditorWorkspace: React.FC = () => {
   }, []);
 
   const handleDeleteSceneTimeline = useCallback((idx: number) => {
-    const sceneIdx = idx - (scriptData?.introduction ? 1 : 0);
-    setSceneToDelete(sceneIdx);
-  }, [scriptData?.introduction, setSceneToDelete]);
+    if (!requireSectionUnlocked(idx, 'Scene delete')) return;
+    const manifest = manifestDataRef.current;
+    const sceneIdx = manifestToScriptSceneIndex(manifest, idx);
+    if (sceneIdx >= 0) {
+      setSceneToDelete(sceneIdx);
+    } else {
+      const hasIntro = manifest?.[0]?.section_type === 'introduction' || !!scriptDataRef.current?.introduction;
+      setSceneToDelete(idx - (hasIntro ? 1 : 0));
+    }
+  }, [setSceneToDelete]);
 
   const handleEditActiveVisuals = useCallback(() => {
     if (!scriptData || !sceneTimings?.length) return;
@@ -580,20 +1007,12 @@ export const EditorWorkspace: React.FC = () => {
       return sceneTimings.findIndex(t => cf >= t.start && cf < t.end);
     })();
     if (activeIdx < 0) return;
-    const hasIntro = !!scriptData.introduction;
-    const sceneCount = scriptData.scenes?.length || 0;
-    const concIdx = (hasIntro ? 1 : 0) + sceneCount;
-    let cardKey: string;
-    if (hasIntro && activeIdx === 0) {
-      cardKey = 'intro';
-    } else if (activeIdx >= concIdx) {
-      cardKey = 'conclusion';
-    } else {
-      const sceneIdx = activeIdx - (hasIntro ? 1 : 0);
-      cardKey = `scene_${sceneIdx}`;
-    }
-    handleStartEdit(cardKey, 'visuals');
-  }, [scriptData, sceneTimings, handleStartEdit]);
+    const subs = sceneTimings[activeIdx]?.subs || [];
+    const cf = currentFrameRef.current;
+    let subIdx = subs.findIndex(s => cf >= s.start && cf < s.end);
+    if (subIdx < 0) subIdx = 0;
+    handleOpenVisualEditor(activeIdx, subIdx);
+  }, [scriptData, sceneTimings, handleOpenVisualEditor]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -665,6 +1084,7 @@ export const EditorWorkspace: React.FC = () => {
         <TopBar
           onSave={handleSave}
           isSaving={savingCardKey !== null}
+          isSaveLocked={isAnyRewriting}
           isPipelineRunning={isRunning}
           pipelineStatusText={activeTaskStep?.message}
           hasScriptData={hasScriptData}
@@ -679,10 +1099,16 @@ export const EditorWorkspace: React.FC = () => {
           manifestData={manifestData}
           sceneTimings={sceneTimings}
           onSeek={handleSeek}
+          onSelectSubVisual={handleSelectSubVisual}
           projectId={id}
           isPipelineRunning={isRunning}
           activeTaskStep={activeTaskStep}
           reloadTrigger={reloadKey}
+          musicClips={musicClips}
+          onUpdateMusicClips={updateMusicClips}
+          onUploadMusicClip={handleUploadMusicClip}
+          bgMusicVolume={safeProject.bg_music_volume}
+          onBgMusicVolumeChange={handleBgMusicVolumeChange}
         />
         <ResizeHandle direction="vertical" target="leftPanel" side="right" min={300} />
       </div>
@@ -691,16 +1117,19 @@ export const EditorWorkspace: React.FC = () => {
       <div style={{ gridArea: 'main' }} className="relative">
         <VideoPreview
           playerRef={playerRef}
-          liveScenes={effectiveLiveScenes || liveScenes || EMPTY_ARRAY}
+          liveScenes={deferredLiveScenes || EMPTY_ARRAY}
           transcriptionData={transcriptionData}
           audioUrl={audioUrl}
           bgMusicUrl={bgMusicUrl}
           bgMusicVolume={safeProject.bg_music_volume}
+          musicClips={musicClips}
           voiceoverVolume={parseFloat(localProjectSettings?.voiceover_volume || '1.0')}
           styleType={safeProject.style}
           language={safeProject.language}
           videoFormat={safeProject.video_format || 'landscape'}
           subtitleSettings={localProjectSettings}
+          designSystem={designData}
+          overlays={scriptData?.overlays || EMPTY_ARRAY}
           onFrameUpdate={handleFrameUpdate}
           isPipelineRunning={isRunning}
           fullscreenToggleRef={fullscreenToggleRef}
@@ -715,8 +1144,6 @@ export const EditorWorkspace: React.FC = () => {
           manifestData={manifestData}
           transcriptionData={transcriptionData}
           sceneTimings={activeTimings}
-          activeSceneIdx={activeSceneIdx}
-          activeSubIdx={activeSubIdx}
           localProjectSettings={localProjectSettings}
           projectId={id || ''}
 
@@ -725,27 +1152,33 @@ export const EditorWorkspace: React.FC = () => {
           rewritePrompt={rewritePrompt}
           setRewritePrompt={setRewritePrompt}
           rewritingSection={rewritingSection}
+          isAnyRewriting={isAnyRewriting}
+          isSectionRewriting={isSectionRewriting}
+          isSubRewriting={isSubRewriting}
+          isSectionLocked={isSectionLocked}
+          invalidateRewrites={invalidateRewrites}
           savingCardKey={savingCardKey}
           isSaving={savingCardKey !== null}
           onSaveCard={handleSaveCard}
           onStartEdit={handleStartEdit}
           onCancelEdit={handleCancelEdit}
+          onOpenVisuals={handleOpenVisualEditor}
           onRewriteSection={handleRewriteSection}
           onRewriteSubVisual={handleRewriteSubVisual}
           onInsertScene={insertAndSaveNewScene}
           onSetSceneToDelete={setSceneToDelete}
           onSetScriptData={setScriptData}
-          onPreviewSubVisual={handlePreviewSubVisual}
-          previewingSubVisual={previewingSubVisual}
+          onSaveOverlays={handleSaveOverlays}
           onUploadSubVisual={handleUploadSubVisual}
+          onPreviewSubVisual={handlePreviewSubVisual}
           uploadingSubVisual={uploadingSubVisual}
+          onRegisterFlush={handleRegisterVisualsFlush}
 
           tasks={tasks}
           queue={queue}
           isPipelineRunning={isRunning}
           targetStage={targetStage}
           activeTaskStep={activeTaskStep}
-          scriptChangedAlert={scriptChangedAlert}
           hasScriptData={hasScriptData}
           onSetTargetStage={setTargetStage}
           onTriggerFullPipeline={triggerFullPipeline}
@@ -758,6 +1191,7 @@ export const EditorWorkspace: React.FC = () => {
           onTranscriptionChange={setTranscriptionData}
           onSaveTranscription={handleSaveTranscription}
           onResetTranscription={handleResetTranscription}
+          onRegisterSubtitleFlush={handleRegisterSubtitleFlush}
 
           onSeek={handleSeek}
         />
@@ -767,15 +1201,30 @@ export const EditorWorkspace: React.FC = () => {
       <div style={{ gridArea: 'timeline' }} className="relative">
         <ResizeHandle direction="horizontal" target="timeline" side="top" />
         <Timeline
-          liveScenes={liveScenes || EMPTY_ARRAY}
+          liveScenes={deferredLiveScenes || EMPTY_ARRAY}
           sceneTimings={sceneTimings}
+          overlays={scriptData?.overlays || EMPTY_ARRAY}
           transcriptionData={transcriptionData}
+          audioUrl={audioUrl}
+          bgMusicUrl={bgMusicUrl}
+          musicClips={musicClips}
+          onUpdateMusicClips={updateMusicClips}
+          onUploadMusicClip={handleUploadMusicClip}
           onSeek={handleSeek}
           onDeleteScene={handleDeleteSceneTimeline}
           onResizeSubVisual={handleResizeSubVisual}
           onResizeScene={handleResizeScene}
           onTimingsDragUpdate={setActiveTimings}
           onToggleSubVisualAudioFlag={handleToggleSubVisualAudioFlag}
+          onSelectSubVisual={handleSelectSubVisual}
+          onUpdateSubVisualTransition={handleUpdateSubVisualTransition}
+          onSplitSubVisualAtFrame={handleSplitSubVisualAtFrame}
+          onDuplicateSubVisual={handleDuplicateSubVisual}
+          onDeleteSubVisual={handleDeleteSubVisual}
+          onUpdateOverlay={handleUpdateOverlay}
+          onToggleOverlayEnabled={handleToggleOverlayEnabled}
+          onSelectOverlay={handleSelectOverlay}
+          onOpenInspectorScript={handleOpenVisualEditor}
         />
       </div>
 
