@@ -117,13 +117,14 @@ interface SceneBlockProps {
   onDeleteScene: ((index: number) => void) | undefined;
   onOpenTransitionMenu: (sceneIdx: number, subIdx: number, btnRect: DOMRect, currentTransition: string) => void;
   onOpenContextMenu?: (e: React.MouseEvent, sceneIdx: number, subIdx: number) => void;
+  onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
 }
 
 const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
   idx, timing, scene, timelineZoom, isActive, activeSubIdx, isDraggingScene,
   readOnly, isLast, onSeek,
   onSubVisualResizeStart, onSceneBoundaryResizeStart, onSceneAbsoluteResizeStart, onDeleteScene,
-  onOpenTransitionMenu, onOpenContextMenu
+  onOpenTransitionMenu, onOpenContextMenu, onSelectSubVisual
 }) => {
   const x = (timing.start / FPS) * timelineZoom;
   const w = Math.max(8, ((timing.end - timing.start) / FPS) * timelineZoom);
@@ -207,6 +208,7 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
               sceneIdx={idx}
               onOpenTransitionMenu={onOpenTransitionMenu}
               onOpenContextMenu={onOpenContextMenu}
+              onSelectSubVisual={onSelectSubVisual}
             />
           ))}
         </div>
@@ -269,11 +271,12 @@ interface SubVisualBlockProps {
   sceneIdx: number;
   onOpenTransitionMenu: (sceneIdx: number, subIdx: number, btnRect: DOMRect, currentTransition: string) => void;
   onOpenContextMenu?: (e: React.MouseEvent, sceneIdx: number, subIdx: number) => void;
+  onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
 }
 
 const SubVisualBlock: React.FC<SubVisualBlockProps> = React.memo(({
   block, isDraggingScene, readOnly, isLast, onSeek, onResizeStart, sceneIdx,
-  onOpenTransitionMenu, onOpenContextMenu
+  onOpenTransitionMenu, onOpenContextMenu, onSelectSubVisual
 }) => {
   const isEven = block.subIdx % 2 === 0;
   const cutBg = isEven ? 'bg-zinc-900/90 hover:bg-zinc-850/95' : 'bg-zinc-950/95 hover:bg-zinc-900/95';
@@ -290,6 +293,7 @@ const SubVisualBlock: React.FC<SubVisualBlockProps> = React.memo(({
       onClick={(e) => {
         if (!isDraggingScene) {
           e.stopPropagation();
+          onSelectSubVisual?.(sceneIdx, block.subIdx);
           onSeek(block.subStart);
         }
       }}
@@ -400,6 +404,7 @@ interface VideoTrackProps {
   onDeleteScene: ((index: number) => void) | undefined;
   onUpdateSubVisualTransition?: (sceneIdx: number, subIdx: number, transition: string) => void;
   onOpenContextMenu?: (e: React.MouseEvent, sceneIdx: number, subIdx: number) => void;
+  onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
   // Drag reordering props
   index?: number;
   onDragStart?: (e: React.DragEvent, index: number) => void;
@@ -424,7 +429,7 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
   isDraggingScene, readOnly,
   onSeek,
   onSubVisualResizeStart, onSceneBoundaryResizeStart, onSceneAbsoluteResizeStart, onDeleteScene,
-  onUpdateSubVisualTransition, onOpenContextMenu,
+  onUpdateSubVisualTransition, onOpenContextMenu, onSelectSubVisual,
   index, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, isDragOver
 }) => {
   // Single active transition popover state across the entire video track
@@ -515,6 +520,7 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
             onDeleteScene={onDeleteScene}
             onOpenTransitionMenu={handleOpenTransitionMenu}
             onOpenContextMenu={onOpenContextMenu}
+            onSelectSubVisual={onSelectSubVisual}
           />
         );
       })}

@@ -28,6 +28,7 @@ interface MediaSidebarProps {
   manifestData: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
   onSeek?: (frame: number) => void;
+  onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
   projectId?: string;
   isPipelineRunning?: boolean;
   activeTaskStep?: any;
@@ -415,7 +416,7 @@ const MusicClipRow: React.FC<{
 MusicClipRow.displayName = 'MusicClipRow';
 
 export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
-  scriptData, manifestData, sceneTimings, onSeek,
+  scriptData, manifestData, sceneTimings, onSeek, onSelectSubVisual,
   projectId, activeTaskStep, reloadTrigger = 0,
   musicClips = [], onUpdateMusicClips, onUploadMusicClip, bgMusicVolume, onBgMusicVolumeChange
 }) => {
@@ -443,6 +444,8 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   sceneTimingsRef.current = sceneTimings;
   const onSeekRef = useRef(onSeek);
   onSeekRef.current = onSeek;
+  const onSelectSubVisualRef = useRef(onSelectSubVisual);
+  onSelectSubVisualRef.current = onSelectSubVisual;
 
   /** Stable per-scene seek handler (index into sceneTimings). */
   const handleSceneSelect = useCallback((sceneIndex: number) => {
@@ -451,6 +454,18 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
 
   /** Stable asset seek handler passed by reference to memoized rows. */
   const handleAssetClick = useCallback((asset: AssetEntry) => {
+    // Silently track the clicked asset's cut for the Visuals tab (no tab switch).
+    // Route through the parent selector when available so in-flight debounced
+    // Visuals-tab ticks are flushed before switching sections.
+    if (typeof asset.sceneIndex === 'number' && typeof asset.subIndex === 'number') {
+      if (onSelectSubVisualRef.current) {
+        onSelectSubVisualRef.current(asset.sceneIndex, asset.subIndex);
+      } else {
+        const st = useEditorStore.getState();
+        st.setSelectedSceneIndex(asset.sceneIndex);
+        st.setSelectedSubVisualIndex(asset.subIndex);
+      }
+    }
     if (asset.timing) {
       onSeekRef.current?.(asset.timing.start);
     }
@@ -529,14 +544,24 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
     return results;
   }, [sceneSearch, hasIntro, hasConclusion, scenes, scriptData, sceneTimings]);
 
-  // Derive scene titles from scriptData
-  const sceneTitles = useMemo(() => {
+  // Derive scene titles from scriptData (referentially stabilized: a new
+  // array identity on every keystroke would defeat the asset memo below and
+  // re-render every row per tick).
+  const sceneTitlesRaw = useMemo(() => {
     const titles: string[] = [];
     if (hasIntro) titles.push('Introduction');
     (scenes || []).forEach((s: any) => titles.push(s.title || 'Untitled'));
     if (hasConclusion) titles.push('Conclusion');
     return titles;
   }, [scriptData, hasIntro, hasConclusion]);
+  const sceneTitlesRef = useRef(sceneTitlesRaw);
+  if (
+    sceneTitlesRef.current.length !== sceneTitlesRaw.length ||
+    sceneTitlesRef.current.some((t, i) => t !== sceneTitlesRaw[i])
+  ) {
+    sceneTitlesRef.current = sceneTitlesRaw;
+  }
+  const sceneTitles = sceneTitlesRef.current;
 
   const isFetchingAssets = activeTaskStep?.step === 'fetch_assets' && activeTaskStep?.status === 'running';
 

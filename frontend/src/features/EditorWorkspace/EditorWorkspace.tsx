@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '../../store/useProjectStore';
@@ -19,6 +19,7 @@ import { Timeline } from './Timeline';
 import { InspectorPanel } from './InspectorPanel';
 import { GlobalOverlayItem } from '../../components/video/GlobalOverlaysRenderer';
 import { FPS } from './timelineConstants';
+import { manifestToScriptSceneIndex } from './visualSelection';
 
 const EMPTY_ARRAY: any[] = [];
 
@@ -531,46 +532,82 @@ const EditorWorkspace: React.FC = () => {
     });
   }, [liveScenes, previewAssets]);
 
+  // Deferred scenes for the heavy consumers (video player, timeline).
+  // Every keystroke/slider tick in the inspector creates a new scenes array;
+  // without this, the Remotion <Player> re-renders synchronously inside the
+  // same task as the keystroke and typing feels laggy. The deferred value
+  // keeps its previous reference while the user is typing so the memoized
+  // player/timeline skip, then catches up once input pauses. The inspector
+  // itself keeps the urgent (synchronous) value so editors never show stale
+  // text. Selection/playhead stay responsive — they live in zustand stores.
+  const deferredLiveScenes = useDeferredValue(effectiveLiveScenes);
+
   // === Handlers ===
   const handleSeek = useCallback((frame: number) => {
     if (playerRef.current) {
       playerRef.current.seekTo(frame);
     }
   }, []);
+  // Flusher for debounced Visuals-tab edits (registered by VisualsTab itself;
+  // null when another tab is active). Lets Ctrl+S / TopBar saves include
+  // in-flight color-drag / slider ticks.
+  const visualsFlushRef = useRef<(() => any) | null>(null);
+  const handleRegisterVisualsFlush = useCallback((flush: (() => any) | null) => {
+    visualsFlushRef.current = flush;
+  }, []);
 
-  const handleOpenInspectorScript = useCallback((sceneIdx: number, subIdx: number) => {
-    setInspectorTab('script');
+  // ── Visuals editor: silent selection (timeline cut click, asset click) ──
+  // Flush in-flight debounced ticks first so a cross-section switch can't
+  // race the trailing write / stale the Revert snapshot.
+  const handleSelectSubVisual = useCallback((sceneIdx: number, subIdx: number) => {
+    visualsFlushRef.current?.();
+    const st = useEditorStore.getState();
+    st.setSelectedSceneIndex(sceneIdx);
+    st.setSelectedSubVisualIndex(subIdx);
+  }, []);
+
+  // ── Visuals editor: select + snapshot + open the Visuals tab ──────────────
+  // (Timeline "Edit in Inspector" and keyboard shortcut route here.)
+  const handleOpenVisualEditor = useCallback((sceneIdx: number, subIdx: number) => {
+    handleSelectSubVisual(sceneIdx, subIdx);
     if (manifestDataRef.current && manifestDataRef.current[sceneIdx]) {
       const scene = manifestDataRef.current[sceneIdx];
-      const hasIntro = !!scriptDataRef.current?.introduction;
       let cardKey = '';
       if (scene.section_type === 'introduction') cardKey = 'intro';
       else if (scene.section_type === 'conclusion') cardKey = 'conclusion';
-      else cardKey = `scene_${sceneIdx - (hasIntro ? 1 : 0)}`;
+      // Single source of truth with resolveVisualSelection: count 'scene'
+      // entries in the manifest so stale intro presence can't shift indices.
+      else cardKey = `scene_${manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)}`;
 
       handleStartEdit(cardKey, 'visuals');
     }
+    setInspectorTab('visuals');
     const timing = sceneTimings[sceneIdx];
     if (timing?.subs?.[subIdx]) {
       handleSeek(timing.subs[subIdx].start);
     } else if (timing) {
       handleSeek(timing.start);
     }
-  }, [setInspectorTab, handleStartEdit, sceneTimings, handleSeek]);
+  }, [handleSelectSubVisual, handleStartEdit, setInspectorTab, sceneTimings, handleSeek]);
 
   const handleSave = useCallback(() => {
+    const tab = useEditorStore.getState().inspectorTab;
+    // A dirty script/visuals card persists across inspector tabs, so save it
+    // first — otherwise Ctrl+S from the Subtitle tab would silently leave the
+    // card unsaved. Flush both when both are dirty.
     if (editingCard) {
+      // Flush debounced Visuals-tab ticks first (color drags, scrubs) and
+      // hand the exact document to the save pipeline.
+      const flushed = visualsFlushRef.current?.();
       const idx = editingCard.key.startsWith('scene_')
         ? parseInt(editingCard.key.replace('scene_', ''))
         : undefined;
-      handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx);
-    } else {
-      const tab = useEditorStore.getState().inspectorTab;
-      if (tab === 'subtitle') {
-        handleSaveTranscription();
-      } else if (id && scriptData && selectedProject?.script_path) {
-        handleSaveCard();
-      }
+      handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx, flushed ?? undefined);
+    } else if (id && scriptData && selectedProject?.script_path) {
+      handleSaveCard();
+    }
+    if (tab === 'subtitle') {
+      handleSaveTranscription();
     }
   }, [editingCard, handleSaveCard, id, scriptData, selectedProject, handleSaveTranscription]);
 
@@ -854,20 +891,12 @@ const EditorWorkspace: React.FC = () => {
       return sceneTimings.findIndex(t => cf >= t.start && cf < t.end);
     })();
     if (activeIdx < 0) return;
-    const hasIntro = !!scriptData.introduction;
-    const sceneCount = scriptData.scenes?.length || 0;
-    const concIdx = (hasIntro ? 1 : 0) + sceneCount;
-    let cardKey: string;
-    if (hasIntro && activeIdx === 0) {
-      cardKey = 'intro';
-    } else if (activeIdx >= concIdx) {
-      cardKey = 'conclusion';
-    } else {
-      const sceneIdx = activeIdx - (hasIntro ? 1 : 0);
-      cardKey = `scene_${sceneIdx}`;
-    }
-    handleStartEdit(cardKey, 'visuals');
-  }, [scriptData, sceneTimings, handleStartEdit]);
+    const subs = sceneTimings[activeIdx]?.subs || [];
+    const cf = currentFrameRef.current;
+    let subIdx = subs.findIndex(s => cf >= s.start && cf < s.end);
+    if (subIdx < 0) subIdx = 0;
+    handleOpenVisualEditor(activeIdx, subIdx);
+  }, [scriptData, sceneTimings, handleOpenVisualEditor]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -953,6 +982,7 @@ const EditorWorkspace: React.FC = () => {
           manifestData={manifestData}
           sceneTimings={sceneTimings}
           onSeek={handleSeek}
+          onSelectSubVisual={handleSelectSubVisual}
           projectId={id}
           isPipelineRunning={isRunning}
           activeTaskStep={activeTaskStep}
@@ -970,7 +1000,7 @@ const EditorWorkspace: React.FC = () => {
       <div style={{ gridArea: 'main' }} className="relative">
         <VideoPreview
           playerRef={playerRef}
-          liveScenes={effectiveLiveScenes || liveScenes || EMPTY_ARRAY}
+          liveScenes={deferredLiveScenes || EMPTY_ARRAY}
           transcriptionData={transcriptionData}
           audioUrl={audioUrl}
           bgMusicUrl={bgMusicUrl}
@@ -1010,6 +1040,7 @@ const EditorWorkspace: React.FC = () => {
           onSaveCard={handleSaveCard}
           onStartEdit={handleStartEdit}
           onCancelEdit={handleCancelEdit}
+          onOpenVisuals={handleOpenVisualEditor}
           onRewriteSection={handleRewriteSection}
           onRewriteSubVisual={handleRewriteSubVisual}
           onInsertScene={insertAndSaveNewScene}
@@ -1019,6 +1050,7 @@ const EditorWorkspace: React.FC = () => {
           onUploadSubVisual={handleUploadSubVisual}
           onPreviewSubVisual={handlePreviewSubVisual}
           uploadingSubVisual={uploadingSubVisual}
+          onRegisterFlush={handleRegisterVisualsFlush}
 
           tasks={tasks}
           queue={queue}
@@ -1046,7 +1078,7 @@ const EditorWorkspace: React.FC = () => {
       <div style={{ gridArea: 'timeline' }} className="relative">
         <ResizeHandle direction="horizontal" target="timeline" side="top" />
         <Timeline
-          liveScenes={liveScenes || EMPTY_ARRAY}
+          liveScenes={deferredLiveScenes || EMPTY_ARRAY}
           sceneTimings={sceneTimings}
           overlays={scriptData?.overlays || EMPTY_ARRAY}
           transcriptionData={transcriptionData}
@@ -1061,6 +1093,7 @@ const EditorWorkspace: React.FC = () => {
           onResizeScene={handleResizeScene}
           onTimingsDragUpdate={setActiveTimings}
           onToggleSubVisualAudioFlag={handleToggleSubVisualAudioFlag}
+          onSelectSubVisual={handleSelectSubVisual}
           onUpdateSubVisualTransition={handleUpdateSubVisualTransition}
           onSplitSubVisualAtFrame={handleSplitSubVisualAtFrame}
           onDuplicateSubVisual={handleDuplicateSubVisual}
@@ -1068,7 +1101,7 @@ const EditorWorkspace: React.FC = () => {
           onUpdateOverlay={handleUpdateOverlay}
           onToggleOverlayEnabled={handleToggleOverlayEnabled}
           onSelectOverlay={handleSelectOverlay}
-          onOpenInspectorScript={handleOpenInspectorScript}
+          onOpenInspectorScript={handleOpenVisualEditor}
         />
       </div>
 

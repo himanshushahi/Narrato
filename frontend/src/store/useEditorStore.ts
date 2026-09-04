@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 export type LeftPanelTab = 'scenes' | 'assets' | 'music';
-export type InspectorTab = 'script' | 'subtitle' | 'voice' | 'overlays' | 'settings' | 'export';
+export type InspectorTab = 'script' | 'subtitle' | 'voice' | 'overlays' | 'visuals' | 'settings' | 'export';
 type PreviewQuality = 'fast' | 'full';
 
 interface EditorStore {

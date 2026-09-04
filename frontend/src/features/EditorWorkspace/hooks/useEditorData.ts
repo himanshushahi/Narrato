@@ -1,10 +1,29 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { callApi } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 import { estimateTextDuration, calculateSubVisualTimings } from '../../../utils/duration';
 import { MusicClip } from '../../../components/video/NitishRajputComposition';
+
+/** Frame-value equality for timing records (numbers only — cheap). */
+function sameTimings(
+  a: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>,
+  b: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>,
+): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].start !== b[i].start || a[i].end !== b[i].end) return false;
+    const sa = a[i].subs || [];
+    const sb = b[i].subs || [];
+    if (sa.length !== sb.length) return false;
+    for (let j = 0; j < sa.length; j++) {
+      if (sa[j].start !== sb[j].start || sa[j].end !== sb[j].end) return false;
+    }
+  }
+  return true;
+}
 
 interface UseEditorDataReturn {
   scriptData: any;
@@ -220,7 +239,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   }, [manifestData, scriptData, reloadKey, buildSceneFromScript]);
 
   // Compute scene timings
-  const sceneTimings = useMemo(() => {
+  const rawTimings = useMemo(() => {
     if (!liveScenes) return [];
     let offset = 0;
     return liveScenes.map((scene: any) => {
@@ -229,13 +248,23 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
       const end = offset + durationFrames;
 
       const subVisuals = scene.sub_visuals || [];
-      
+
       const subs = calculateSubVisualTimings(subVisuals, durationFrames, start);
 
       offset = end;
       return { start, end, subs };
     });
   }, [liveScenes]);
+
+  // Deep-stabilize timings: visual/text edits that don't move frame
+  // boundaries return the PREVIOUS array reference, so the Timeline, track
+  // components, and sidebar lists memo-skip instead of re-rendering on every
+  // keystroke/slider tick. Purely referential — frame values identical.
+  const timingsRef = useRef(rawTimings);
+  if (!sameTimings(timingsRef.current, rawTimings)) {
+    timingsRef.current = rawTimings;
+  }
+  const sceneTimings = timingsRef.current;
 
   const selectedProject = useProjectStore((s) => s.selectedProject);
   const updateProject = useProjectStore((s) => s.updateProject);

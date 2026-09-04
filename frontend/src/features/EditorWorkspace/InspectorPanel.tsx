@@ -2,11 +2,12 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   VscEdit, VscAccount, VscSettingsGear,
-  VscExport, VscSymbolKeyword, VscLayers
+  VscExport, VscSymbolKeyword, VscLayers, VscFileMedia
 } from 'react-icons/vsc';
 import { ScrollableTabBar } from '../../components/ui/ScrollableTabBar';
 import { useEditorStore, InspectorTab } from '../../store/useEditorStore';
 import { ScriptTab } from './InspectorTabs/ScriptTab';
+import { VisualsTab } from './InspectorTabs/VisualsTab';
 import { SubtitleTab } from './InspectorTabs/SubtitleTab';
 import { VoiceTab } from './InspectorTabs/VoiceTab';
 import { OverlaysTab } from './InspectorTabs/OverlaysTab';
@@ -32,9 +33,10 @@ interface InspectorPanelProps {
   rewritingSection: string | null;
   savingCardKey: string | null;
   isSaving: boolean;
-  onSaveCard: (cardKey?: string, index?: number) => void;
+  onSaveCard: (cardKey?: string, index?: number, latestData?: any) => void;
   onStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   onCancelEdit: () => void;
+  onOpenVisuals: (sceneIdx: number, subIdx: number) => void;
   onRewriteSection: (type: string, index: number) => void;
   onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
   onInsertScene: (newScene: any, afterIdx: number) => void;
@@ -44,6 +46,7 @@ interface InspectorPanelProps {
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => Promise<string | undefined>;
   onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
+  onRegisterFlush?: (flush: (() => any) | null) => void;
 
   // Pipeline props
   tasks: Record<string, Task>;
@@ -71,9 +74,10 @@ interface InspectorPanelProps {
 
 const tabMeta: { id: InspectorTab; label: string; icon: React.ReactNode }[] = [
   { id: 'script', label: 'Script', icon: <VscEdit /> },
+  { id: 'visuals', label: 'Visuals', icon: <VscFileMedia /> },
+  { id: 'overlays', label: 'Overlays', icon: <VscLayers /> },
   { id: 'subtitle', label: 'Subtitle', icon: <VscSymbolKeyword /> },
   { id: 'voice', label: 'Voice', icon: <VscAccount /> },
-  { id: 'overlays', label: 'Overlays', icon: <VscLayers /> },
   { id: 'settings', label: 'Settings', icon: <VscSettingsGear /> },
   { id: 'export', label: 'Export', icon: <VscExport /> },
 ];
@@ -82,9 +86,9 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   scriptData, manifestData, transcriptionData, sceneTimings,
   localProjectSettings, projectId,
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
-  onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onRewriteSubVisual, onInsertScene,
-  onSetSceneToDelete, onSetScriptData, onSaveOverlays,
-  onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
+  onSaveCard, onStartEdit, onCancelEdit, onOpenVisuals, onRewriteSection, onRewriteSubVisual, onInsertScene,
+  onSetSceneToDelete,   onSetScriptData, onSaveOverlays,
+  onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, onRegisterFlush,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
@@ -133,14 +137,37 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             onSaveCard={onSaveCard}
             onStartEdit={onStartEdit}
             onCancelEdit={onCancelEdit}
+            onOpenVisuals={onOpenVisuals}
             onRewriteSection={onRewriteSection}
-            onRewriteSubVisual={onRewriteSubVisual}
             onInsertScene={onInsertScene}
             onSetSceneToDelete={onSetSceneToDelete}
             onSetScriptData={onSetScriptData}
+          />
+        );
+      case 'visuals':
+        return (
+          <VisualsTab
+            scriptData={scriptData}
+            manifestData={manifestData}
+            sceneTimings={sceneTimings}
+            activeSceneIdx={activeSceneIdx}
+            activeSubIdx={activeSubIdx}
+            editingCard={editingCard}
+            savingCardKey={savingCardKey}
+            rewritingSection={rewritingSection}
+            rewritePrompt={rewritePrompt}
+            setRewritePrompt={setRewritePrompt}
+            onSeek={onSeek}
+            onSaveCard={onSaveCard}
+            onCancelEdit={onCancelEdit}
+            onStartEdit={onStartEdit}
+            onSetScriptData={onSetScriptData}
+            onRewriteSection={onRewriteSection}
+            onRewriteSubVisual={onRewriteSubVisual}
             onUploadSubVisual={onUploadSubVisual}
             onPreviewSubVisual={onPreviewSubVisual}
             uploadingSubVisual={uploadingSubVisual}
+            onRegisterFlush={onRegisterFlush}
           />
         );
       case 'subtitle':

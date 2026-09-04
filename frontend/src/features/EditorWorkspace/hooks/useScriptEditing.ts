@@ -18,12 +18,12 @@ interface UseScriptEditingReturn {
   isSavingSubtitles: boolean;
   previewAssets: Record<string, { visual_path: string; visual_url: string }>;
   uploadingSubVisual: string | null;
-  handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string) => Promise<string | undefined>;
+  handleUploadSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string, latestData?: any) => Promise<string | undefined>;
   handleStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   handleCancelEdit: () => void;
-  handleSaveCard: (cardKey?: string, index?: number) => Promise<void>;
-  handleRewriteSection: (type: string, index: number) => Promise<void>;
-  handleRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
+  handleSaveCard: (cardKey?: string, index?: number, latestData?: any) => Promise<void>;
+  handleRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<void>;
+  handleRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<void>;
   insertAndSaveNewScene: (newScene: any, insertAfterIdx: number) => Promise<void>;
   confirmDeleteScene: () => Promise<void>;
   setSceneToDelete: (idx: number | null) => void;
@@ -58,6 +58,17 @@ export function useScriptEditing(
   const [previewAssets, setPreviewAssets] = useState<Record<string, { visual_path: string; visual_url: string }>>({});
   const [uploadingSubVisual, setUploadingSubVisual] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest script doc by ref so flushed Visuals-tab edits can be forwarded
+  // synchronously (setState is async; render-closure scriptData would be stale
+  // within the ~150ms debounce window).
+  const scriptDataRef = useRef(scriptData);
+  scriptDataRef.current = scriptData;
+  const manifestDataRef = useRef(manifestData);
+  manifestDataRef.current = manifestData;
+  const editingCardRef = useRef(editingCard);
+  editingCardRef.current = editingCard;
+  const originalScriptDataRef = useRef(originalScriptData);
+  originalScriptDataRef.current = originalScriptData;
 
   // Sync localProjectSettings from selectedProject.project_settings,
   // falling back to project column values as base defaults.
@@ -98,11 +109,22 @@ export function useScriptEditing(
   }, [localProjectSettings.fontFamily, downloadFont]);
 
   const handleStartEdit = useCallback((cardKey: string, mode: 'script' | 'visuals') => {
-    setOriginalScriptData(JSON.parse(JSON.stringify(scriptData)));
-    setOriginalManifestData(JSON.parse(JSON.stringify(manifestData)));
+    // Keep the session's original snapshot across card/section switches so
+    // Revert/Escape restores the pre-session doc. Without this, switching
+    // from dirty Scene A to Scene B snapshots Scene A dirt as the baseline
+    // and Scene A can never be reverted.
+    if (editingCardRef.current && originalScriptDataRef.current) {
+      if (editingCardRef.current.key !== cardKey || editingCardRef.current.mode !== mode) {
+        setEditingCard({ key: cardKey, mode });
+        setRewritePrompt('');
+      }
+      return;
+    }
+    setOriginalScriptData(JSON.parse(JSON.stringify(scriptDataRef.current)));
+    setOriginalManifestData(JSON.parse(JSON.stringify(manifestDataRef.current)));
     setEditingCard({ key: cardKey, mode });
     setRewritePrompt('');
-  }, [scriptData, manifestData]);
+  }, []);
 
   const handleCancelEdit = useCallback(async () => {
     if (originalScriptData) setScriptData(originalScriptData);
@@ -133,16 +155,22 @@ export function useScriptEditing(
     }, 1000);
   }, [selectedProject?.id, updateProject]);
 
-  const handleSaveCard = useCallback(async (cardKey?: string, index?: number) => {
-    // Edits apply to state synchronously on every keystroke, so the closure
-    // scriptData is always the latest — no flush needed before saving.
-    const data = scriptData;
+  const handleSaveCard = useCallback(async (cardKey?: string, index?: number, latestData?: any) => {
+    // Edits apply to state synchronously on every keystroke except the Visuals
+    // tab, which debounces high-frequency ticks. Read the ref so Save never
+    // misses a trailing commit (setState is async; the render closure would be
+    // pre-flush). Callers pass the just-flushed document as latestData when
+    // they have it.
+    const data = latestData ?? scriptDataRef.current;
     if (!projectId || !data || !selectedProject?.script_path) return;
+    // Clone-on-write target for finalized compositions (see below). Saves use
+    // `working ?? data` so the live state object is never mutated in place.
+    let working: any | null = null;
 
     if (cardKey) setSavingCardKey(cardKey);
 
     let narrationChanged = false;
-    if (originalScriptData && editingCard?.mode === 'script') {
+    if (originalScriptData && editingCardRef.current?.mode === 'script') {
       if (cardKey === 'introduction' || cardKey === 'intro') {
         if (data.introduction?.hook !== originalScriptData.introduction?.hook) narrationChanged = true;
       } else if (cardKey === 'conclusion') {
@@ -220,15 +248,27 @@ export function useScriptEditing(
                 updatedComposition = { ...updatedComposition, children: updatedChildren };
               }
 
-              // Propagate the finalized composition back into scriptData
-              if (type === 'introduction' && data?.introduction?.sub_visuals?.[sIdx]) {
-                data.introduction.sub_visuals[sIdx].composition = updatedComposition;
-              } else if (type === 'conclusion' && data?.conclusion?.sub_visuals?.[sIdx]) {
-                data.conclusion.sub_visuals[sIdx].composition = updatedComposition;
-              } else if (type === 'scene' && Array.isArray(data?.scenes)) {
+              // Propagate the finalized composition back into the saved doc
+              // without mutating live React state in place: `data` may be
+              // scriptDataRef.current (or the just-flushed object already
+              // handed to setScriptData), so clone-on-first-write and sync
+              // the clone back to state below.
+              const targetDoc = working ?? data;
+              const ensureWorking = () => {
+                if (!working) working = JSON.parse(JSON.stringify(data));
+                return working;
+              };
+              if (type === 'introduction' && targetDoc?.introduction?.sub_visuals?.[sIdx]) {
+                const doc = ensureWorking();
+                doc.introduction.sub_visuals[sIdx] = { ...doc.introduction.sub_visuals[sIdx], composition: updatedComposition };
+              } else if (type === 'conclusion' && targetDoc?.conclusion?.sub_visuals?.[sIdx]) {
+                const doc = ensureWorking();
+                doc.conclusion.sub_visuals[sIdx] = { ...doc.conclusion.sub_visuals[sIdx], composition: updatedComposition };
+              } else if (type === 'scene' && Array.isArray(targetDoc?.scenes)) {
                 const currentSceneIdx = sceneCounter - 1;
-                if (data.scenes[currentSceneIdx]?.sub_visuals?.[sIdx]) {
-                  data.scenes[currentSceneIdx].sub_visuals[sIdx].composition = updatedComposition;
+                if (targetDoc.scenes[currentSceneIdx]?.sub_visuals?.[sIdx]) {
+                  const doc = ensureWorking();
+                  doc.scenes[currentSceneIdx].sub_visuals[sIdx] = { ...doc.scenes[currentSceneIdx].sub_visuals[sIdx], composition: updatedComposition };
                 }
               }
 
@@ -260,7 +300,7 @@ export function useScriptEditing(
         return { ...manifestScene, duration: sceneDuration, sub_visuals: mergedSubVisuals };
       }));
 
-      await callApi<any>('save_project_with_cleanup', projectId, data, liveManifest);
+      await callApi<any>('save_project_with_cleanup', projectId, working ?? data, liveManifest);
 
       // Fetch assets only for genuinely new/changed sub-visuals
       const origManifest = originalManifestData && originalManifestData.length > 0 ? originalManifestData : manifestData;
@@ -277,10 +317,17 @@ export function useScriptEditing(
         const origSubs = origManifest[mIdx]?.sub_visuals || [];
         const matchedOrigIndices = new Set<number>();
         for (let sIdx = 0; sIdx < liveSubs.length; sIdx++) {
-          // Skip download if this sub-visual was handled via upload/preview
+          // Skip download if this sub-visual was handled via upload/preview.
+          // Count 'scene' entries before mIdx (same convention as
+          // manifestToScriptSceneIndex) so a missing/stale intro can't shift
+          // scene_N keys.
+          let scriptIdxForKey = 0;
+          for (let k = 0; k < mIdx; k++) {
+            if (liveManifest[k]?.section_type === 'scene') scriptIdxForKey++;
+          }
           const sectionKey = liveManifest[mIdx].section_type === 'introduction' ? 'intro'
             : liveManifest[mIdx].section_type === 'conclusion' ? 'conclusion'
-            : `scene_${mIdx - (liveManifest[0]?.section_type === 'introduction' ? 1 : 0)}`;
+            : `scene_${scriptIdxForKey}`;
           const assetKey = `${sectionKey}_${sIdx}`;
           if (handledFromPreview.has(assetKey)) {
             continue;
@@ -304,6 +351,9 @@ export function useScriptEditing(
       }
 
       await loadFiles(projectId);
+      // Sync finalized compositions back to state (new object identity, so
+      // the UI never shows a mutated-without-render doc if loadFiles lags).
+      if (working) setScriptData(working);
       setEditingCard(null);
       setSavingCardKey(null);
       setRewritePrompt('');
@@ -332,11 +382,15 @@ export function useScriptEditing(
       setSavingCardKey(null);
       addToast("Failed to save script changes", 'error');
     }
-  }, [projectId, scriptData, selectedProject, originalScriptData, originalManifestData, manifestData, loadFiles, addToast, previewAssets]);
+  }, [projectId, selectedProject, originalScriptData, originalManifestData, manifestData, loadFiles, addToast, previewAssets, setScriptData]);
 
-  const handleRewriteSection = useCallback(async (type: string, index: number) => {
-    const data = scriptData;
+  const handleRewriteSection = useCallback(async (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => {
+    const data = latestData ?? scriptDataRef.current;
     if (!projectId || !data || !selectedProject?.script_path) return;
+    // Explicit intent wins: the Visuals tab passes 'visuals' so a fast
+    // open → rewrite can't race the post-render effect that sets
+    // editingCard.mode.
+    const effectiveMode = modeOverride ?? editingCardRef.current?.mode;
 
     const sectionKey = type === 'introduction' ? 'intro' : type === 'conclusion' ? 'conclusion' : `scene_${index}`;
     setRewritingSection(sectionKey);
@@ -357,7 +411,7 @@ export function useScriptEditing(
           selectedProject.language
         );
       } else {
-        if (editingCard?.mode === 'visuals') {
+        if (effectiveMode === 'visuals') {
           res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
             'regenerate_visuals_section', projectId, index, type, data, rewritePrompt
           );
@@ -371,7 +425,8 @@ export function useScriptEditing(
       if (res?.success && res.data) {
         // Deep clone to avoid mutating React state via shared nested references
         const updated = JSON.parse(JSON.stringify(data));
-        if (editingCard?.mode === 'visuals') {
+        const isVisualsRewrite = effectiveMode === 'visuals' && !isNewScene;
+        if (isVisualsRewrite) {
           // Visuals rewrite only returns the sub_visuals array, we merge it into the existing scene/section
           if (type === 'introduction') updated.introduction.sub_visuals = res.data.sub_visuals || [];
           else if (type === 'conclusion') updated.conclusion.sub_visuals = res.data.sub_visuals || [];
@@ -413,10 +468,10 @@ export function useScriptEditing(
       console.error(err);
       addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
     }
-  }, [projectId, scriptData, selectedProject, rewritePrompt, setScriptData, addToast]);
+  }, [projectId, selectedProject, rewritePrompt, setScriptData, addToast]);
 
-  const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
-    const data = scriptData;
+  const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => {
+    const data = latestData ?? scriptDataRef.current;
     if (!projectId || !data || !selectedProject?.script_path) return;
     try {
       const res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
@@ -444,10 +499,10 @@ export function useScriptEditing(
       console.error(err);
       addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
     }
-  }, [projectId, scriptData, selectedProject, setScriptData, addToast]);
+  }, [projectId, selectedProject, setScriptData, addToast]);
 
-  const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string) => {
-    const data = scriptData;
+  const handleUploadSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, overrideVisualType?: string, latestData?: any) => {
+    const data = latestData ?? scriptDataRef.current;
     if (!projectId || !data) return undefined;
 
     const sectionKey = sectionType === 'introduction' ? 'intro'
@@ -455,15 +510,23 @@ export function useScriptEditing(
       : `scene_${sceneIdx}`;
     const assetKey = `${sectionKey}_${subIdx}`;
 
-    // Calculate the correct manifest index (intro is 0, scenes follow, conclusion is last)
+    // Calculate the correct manifest index (intro is 0, scenes follow, conclusion is last).
+    // Locate the nth 'scene' entry so intro presence/divergence can't shift it.
     let manifestIdx = sceneIdx;
     if (sectionType === 'introduction') {
       manifestIdx = 0;
     } else if (sectionType === 'conclusion') {
       manifestIdx = (manifestData?.length || 1) - 1;
     } else if (sectionType === 'scenes') {
-      const hasIntro = manifestData?.[0]?.section_type === 'introduction';
-      manifestIdx = sceneIdx + (hasIntro ? 1 : 0);
+      let seen = -1;
+      let found = -1;
+      (manifestData || []).forEach((m: any, i: number) => {
+        if (m?.section_type === 'scene') {
+          seen++;
+          if (seen === sceneIdx && found === -1) found = i;
+        }
+      });
+      manifestIdx = found !== -1 ? found : sceneIdx + (manifestData?.[0]?.section_type === 'introduction' ? 1 : 0);
     }
 
     let rawVisualType = '';
@@ -518,7 +581,7 @@ export function useScriptEditing(
     } finally {
       setUploadingSubVisual(null);
     }
-  }, [projectId, scriptData, selectedProject, setScriptData, addToast, manifestData, previewAssets]);
+  }, [projectId, selectedProject, addToast, manifestData, previewAssets]);
   
   const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, query: string) => {
     if (!projectId) return undefined;

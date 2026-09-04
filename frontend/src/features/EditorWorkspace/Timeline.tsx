@@ -36,6 +36,7 @@ interface TimelineProps {
   onResizeScene?: (sceneIndex: number, newDurationSeconds: number, nextDurationSeconds: number | null, mode: 'boundary' | 'absolute') => void;
   onTimingsDragUpdate?: (timings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>) => void;
   onToggleSubVisualAudioFlag?: (sceneIdx: number, subIdx: number, flag: 'mute_voiceover' | 'mute_bg_music') => void;
+  onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
   onUpdateSubVisualTransition?: (sceneIdx: number, subIdx: number, transition: string) => void;
   onSplitSubVisualAtFrame?: (sceneIdx: number, subIdx: number, frame: number) => void;
   onDuplicateSubVisual?: (sceneIdx: number, subIdx: number) => void;
@@ -78,6 +79,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   onResizeScene,
   onTimingsDragUpdate,
   onToggleSubVisualAudioFlag,
+  onSelectSubVisual,
   onUpdateSubVisualTransition,
   onSplitSubVisualAtFrame,
   onDuplicateSubVisual,
@@ -686,6 +688,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
                     onDeleteScene={onDeleteScene ? handleDeleteScene : undefined}
                     onUpdateSubVisualTransition={onUpdateSubVisualTransition}
                     onOpenContextMenu={handleOpenContextMenu}
+                    onSelectSubVisual={onSelectSubVisual}
                   />
                 );
 
