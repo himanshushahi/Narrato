@@ -166,9 +166,16 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
           const osv = matchIdx !== -1 ? origSubVisuals[matchIdx] : {};
 
           const visualUrl = osv.visual_url ? `${osv.visual_url}&t=${reloadKey}` : '';
+          // Script is the source of truth for the transition: the AST
+          // sub-visual editor writes scriptData only (the manifest is rebuilt
+          // on save), while the timeline writes both stores. Resolving from
+          // the script side keeps the player and timeline badges in sync with
+          // unsaved editor changes instead of showing the stale manifest value.
+          const resolvedTransition = lsv.transition || lsv.transition_type || osv.transition || osv.transition_type;
           return {
             ...osv,
-            transition_type: lsv.transition_type || lsv.transition,
+            transition: resolvedTransition,
+            transition_type: resolvedTransition,
             visual_meta: lsv.visual_meta,
             transform: lsv.transform,
             duration_ratio: lsv.duration_ratio,

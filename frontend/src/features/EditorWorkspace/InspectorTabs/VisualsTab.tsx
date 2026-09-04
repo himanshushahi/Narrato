@@ -333,8 +333,34 @@ export const VisualsTab = React.memo(function VisualsTab({
       ? (pendingFullRef.current ?? cur?.subVisuals ?? [])
       : (cur?.subVisuals ?? []);
     if (subIdx < 0 || subIdx >= base.length) return;
+    const prev = base[subIdx] ?? {};
+    const next = newSubs[0];
+    // Discrete scalar edits (transition dropdown, mute toggles) apply
+    // synchronously — same tick as the timeline path — instead of riding the
+    // 150ms composition-drag debounce, so the player updates instantly.
+    let compositionSame = false;
+    try {
+      compositionSame = JSON.stringify(prev?.composition) === JSON.stringify(next?.composition);
+    } catch { compositionSame = false; }
+    const scalarOnly = compositionSame
+      && prev?.duration === next?.duration
+      && prev?.duration_ratio === next?.duration_ratio;
+    if (scalarOnly) {
+      const flushed = commitPending();
+      const doc = flushed ?? scriptDataRef.current;
+      const r = resolvedRef.current;
+      if (!r) return;
+      const sectionSubs = readSectionSubs(doc, r);
+      if (subIdx < 0 || subIdx >= sectionSubs.length) return;
+      const full = [...sectionSubs];
+      full[subIdx] = next;
+      try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(full); } catch { /* ignore */ }
+      onSetScriptDataRef.current(writeSectionSubs(doc, r, full));
+      setPendingTick(t => t + 1);
+      return;
+    }
     const full = [...base];
-    full[subIdx] = newSubs[0];
+    full[subIdx] = next;
     scheduleWriteBack(full);
   };
 
