@@ -31,6 +31,11 @@ interface InspectorPanelProps {
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   rewritingSection: string | null;
+  isAnyRewriting: boolean;
+  isSectionRewriting: (cardKey: string) => boolean;
+  isSubRewriting: (cardKey: string, subIdx: number) => boolean;
+  isSectionLocked: (cardKey: string) => boolean;
+  invalidateRewrites: (cardKey: string) => void;
   savingCardKey: string | null;
   isSaving: boolean;
   onSaveCard: (cardKey?: string, index?: number, latestData?: any) => void;
@@ -86,6 +91,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   scriptData, manifestData, transcriptionData, sceneTimings,
   localProjectSettings, projectId,
   editingCard, setEditingCard, rewritePrompt, setRewritePrompt, rewritingSection, savingCardKey, isSaving,
+  isAnyRewriting, isSectionRewriting, isSubRewriting, isSectionLocked, invalidateRewrites,
   onSaveCard, onStartEdit, onCancelEdit, onOpenVisuals, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete,   onSetScriptData, onSaveOverlays,
   onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, onRegisterFlush,
@@ -131,6 +137,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             rewritePrompt={rewritePrompt}
             setRewritePrompt={setRewritePrompt}
             rewritingSection={rewritingSection}
+            isAnyRewriting={isAnyRewriting}
             savingCardKey={savingCardKey}
             isSaving={isSaving}
             onSeek={onSeek}
@@ -155,6 +162,11 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             editingCard={editingCard}
             savingCardKey={savingCardKey}
             rewritingSection={rewritingSection}
+            isAnyRewriting={isAnyRewriting}
+            isSectionRewriting={isSectionRewriting}
+            isSubRewriting={isSubRewriting}
+            isSectionLocked={isSectionLocked}
+            invalidateRewrites={invalidateRewrites}
             rewritePrompt={rewritePrompt}
             setRewritePrompt={setRewritePrompt}
             onSeek={onSeek}

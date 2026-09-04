@@ -12,6 +12,18 @@ interface UseScriptEditingReturn {
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   rewritingSection: string | null;
+  /** True while ANY AI rewrite (section or single-cut) is in flight. */
+  isAnyRewriting: boolean;
+  /** True while a section-level rewrite for this card is in flight. */
+  isSectionRewriting: (cardKey: string) => boolean;
+  /** True while a single-cut rewrite for this card+cut is in flight. */
+  isSubRewriting: (cardKey: string, subIdx: number) => boolean;
+  /** True while a section- OR single-cut rewrite touches this card. */
+  isSectionLocked: (cardKey: string) => boolean;
+  /** Poison in-flight rewrites for a card (Revert path): late LLM results are discarded. */
+  invalidateRewrites: (cardKey: string) => void;
+  /** Poison ALL in-flight rewrites (project switch/unmount). */
+  invalidateAllRewrites: () => void;
   savingCardKey: string | null;
   sceneToDelete: number | null;
   localProjectSettings: any;
@@ -72,6 +84,69 @@ export function useScriptEditing(
   /** Per-card pre-edit snapshots (script + manifest) for per-card cancel. */
   const originalByCardRef = useRef<Record<string, any>>({});
   const originalManifestByCardRef = useRef<Record<string, any>>({});
+
+  // ── Rewrite concurrency registry ────────────────────────────────────
+  // AI generations are slow (10–60s) and the user keeps editing meanwhile.
+  // Every rewrite flight carries a per-card generation token: starting a new
+  // rewrite, reverting, or switching projects bumps the generation, and a
+  // completion whose token no longer matches is discarded instead of landing
+  // on a moved/deleted cut or clobbering newer work.
+  const rewriteGenRef = useRef<Record<string, number>>({});
+  /** Active single-cut flights: `${cardKey}:${subIdx}` → token (state for UI). */
+  const [rewritingSubs, setRewritingSubs] = useState<Record<string, number>>({});
+  /** Active section flight (single-flight under global exclusivity). */
+  const sectionTokenRef = useRef<{ key: string; token: number } | null>(null);
+
+  const bumpRewriteGen = (cardKey: string): number => {
+    const next = (rewriteGenRef.current[cardKey] ?? 0) + 1;
+    rewriteGenRef.current[cardKey] = next;
+    return next;
+  };
+
+  /** Poison in-flight rewrites for a card — late results self-discard. */
+  const invalidateRewrites = useCallback((cardKey: string) => {
+    bumpRewriteGen(cardKey);
+    setRewritingSubs((prev) => {
+      const prefix = `${cardKey}:`;
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        if (k === cardKey || k.startsWith(prefix)) { changed = true; continue; }
+        next[k] = v;
+      }
+      return changed ? next : prev;
+    });
+    if (sectionTokenRef.current?.key === cardKey) {
+      sectionTokenRef.current = null;
+      setRewritingSection(null);
+    }
+  }, []);
+
+  /** Poison ALL in-flight rewrites — project switch / unmount. */
+  const invalidateAllRewrites = useCallback(() => {
+    rewriteGenRef.current = {};
+    sectionTokenRef.current = null;
+    setRewritingSection(null);
+    setRewritingSubs({});
+  }, []);
+
+  const isSectionRewriting = useCallback(
+    (cardKey: string) => rewritingSection === cardKey,
+    [rewritingSection],
+  );
+  const isSubRewriting = useCallback(
+    (cardKey: string, subIdx: number) => rewritingSubs[`${cardKey}:${subIdx}`] !== undefined,
+    [rewritingSubs],
+  );
+  const isSectionLocked = useCallback(
+    (cardKey: string) => {
+      if (rewritingSection === cardKey) return true;
+      const prefix = `${cardKey}:`;
+      return Object.keys(rewritingSubs).some((k) => k === cardKey || k.startsWith(prefix));
+    },
+    [rewritingSection, rewritingSubs],
+  );
+  const isAnyRewriting = rewritingSection !== null || Object.keys(rewritingSubs).length > 0;
 
   // Sync localProjectSettings from selectedProject.project_settings,
   // falling back to project column values as base defaults.
@@ -152,6 +227,9 @@ export function useScriptEditing(
     // Per-card revert: restore only the active card's section, never the
     // whole document, so unrelated dirty cards survive.
     const key = editingCardRef.current?.key;
+    // Poison this card's in-flight rewrites first so a late LLM result can't
+    // land on top of the restored baseline ("revert didn't work").
+    if (key) invalidateRewrites(key);
     const snap = key ? originalByCardRef.current[key] : null;
     if (key && snap) {
       const merged = restoreCardSection(
@@ -178,7 +256,7 @@ export function useScriptEditing(
       } catch (e) { /* best-effort */ }
     }
     setPreviewAssets({});
-  }, [setScriptData, previewAssets, projectId]);
+  }, [setScriptData, previewAssets, projectId, invalidateRewrites]);
 
   const handleSettingsUpdate = useCallback((newSettings: any) => {
     setLocalProjectSettings(newSettings);
@@ -466,8 +544,19 @@ export function useScriptEditing(
     // editingCard.mode.
     const effectiveMode = modeOverride ?? editingCardRef.current?.mode;
 
-    const sectionKey = type === 'introduction' ? 'intro' : type === 'conclusion' ? 'conclusion' : `scene_${index}`;
+    const cardKey = type === 'introduction' ? 'intro' : type === 'conclusion' ? 'conclusion' : `scene_${index}`;
+    const sectionKey = cardKey;
+    // Generation token: a newer rewrite, a Revert, or a project switch bumps
+    // this card's generation and this flight's completion self-discards.
+    const token = bumpRewriteGen(cardKey);
+    sectionTokenRef.current = { key: sectionKey, token };
     setRewritingSection(sectionKey);
+    const clearOwnEntry = () => {
+      if (sectionTokenRef.current?.key === sectionKey && sectionTokenRef.current?.token === token) {
+        sectionTokenRef.current = null;
+        setRewritingSection(null);
+      }
+    };
 
     try {
       let res;
@@ -496,9 +585,13 @@ export function useScriptEditing(
         }
       }
 
+      // Stale gate: superseded by a newer rewrite, a Revert, or project switch.
+      if (rewriteGenRef.current[cardKey] !== token) {
+        addToast('Discarded stale AI result — a newer rewrite or revert superseded it.', 'info');
+        return undefined;
+      }
+
       if (res?.success && res.data) {
-        // Deep clone to avoid mutating React state via shared nested references
-        const updated = JSON.parse(JSON.stringify(data));
         const isVisualsRewrite = effectiveMode === 'visuals' && !isNewScene;
         if (isVisualsRewrite) {
           // Preview-only: hand the AI sub_visuals back to the caller (Visuals
@@ -506,55 +599,72 @@ export function useScriptEditing(
           // local state (visible instantly in player/timeline/editor); the
           // user then Saves to persist or Reverts to discard.
           setRewritePrompt('');
-          setRewritingSection(null);
           addToast("AI visuals applied — review in the player, then Save or Revert.", 'success');
           return res.data.sub_visuals || [];
         } else {
           // Script rewrite returns the whole section (without sub_visuals by default now)
           // We need to merge existing sub_visuals back in if this wasn't a new scene
           const newSection = res.data;
+          // Merge into the LATEST doc — not the pre-flight snapshot — so edits
+          // made anywhere (including other sections) during the 30–60s
+          // generation window survive instead of being whole-doc clobbered.
+          const latest = JSON.parse(JSON.stringify(scriptDataRef.current));
           let oldSubVisuals = [];
-          if (type === 'introduction') oldSubVisuals = updated.introduction?.sub_visuals || [];
-          else if (type === 'conclusion') oldSubVisuals = updated.conclusion?.sub_visuals || [];
-          else if (!isNewScene) oldSubVisuals = updated.scenes[index]?.sub_visuals || [];
-          
-          newSection.sub_visuals = oldSubVisuals;
-          
-          if (type === 'introduction') updated.introduction = newSection;
-          else if (type === 'conclusion') updated.conclusion = newSection;
-          else updated.scenes[index] = newSection;
-        }
-        setScriptData(updated);
+          if (type === 'introduction') oldSubVisuals = latest.introduction?.sub_visuals || [];
+          else if (type === 'conclusion') oldSubVisuals = latest.conclusion?.sub_visuals || [];
+          else if (!isNewScene) oldSubVisuals = latest.scenes?.[index]?.sub_visuals || [];
 
-        if (isNewScene || isNewIntroduction || isNewConclusion) {
-          setRewritePrompt('');
-          setRewritingSection(null);
-          addToast("AI content generated! Review and click Save to fetch visuals.", 'success');
-        } else {
-          await callApi('save_json_file', selectedProject.script_path, updated);
-          setEditingCard(null);
-          setRewritePrompt('');
-          setRewritingSection(null);
-          addToast("LLM rewrite completed and saved!", 'success');
+          newSection.sub_visuals = oldSubVisuals;
+
+          if (type === 'introduction') latest.introduction = newSection;
+          else if (type === 'conclusion') latest.conclusion = newSection;
+          else if (Array.isArray(latest.scenes) && (latest.scenes[index] !== undefined || isNewScene)) {
+            latest.scenes[index] = newSection;
+          }
+          setScriptData(latest);
+
+          if (isNewScene || isNewIntroduction || isNewConclusion) {
+            setRewritePrompt('');
+            addToast("AI content generated! Review and click Save to fetch visuals.", 'success');
+          } else {
+            await callApi('save_json_file', selectedProject.script_path, latest);
+            setEditingCard(null);
+            setRewritePrompt('');
+            addToast("LLM rewrite completed and saved!", 'success');
+          }
         }
       } else {
-        setRewritingSection(null);
         addToast("Rewrite failed: " + (res?.error || "Unknown error"), 'error');
       }
     } catch (err: any) {
-      setRewritingSection(null);
       console.error(err);
       addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
+    } finally {
+      clearOwnEntry();
     }
   }, [projectId, selectedProject, rewritePrompt, setScriptData, addToast]);
 
   const handleRewriteSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => {
     const data = latestData ?? scriptDataRef.current;
     if (!projectId || !data || !selectedProject?.script_path) return undefined;
+    // Register the flight: drives the cut-badge spinner + section locks, and
+    // mints a generation token so a superseding rewrite/revert discards this
+    // result instead of landing it on a moved cut.
+    const cardKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const subKey = `${cardKey}:${subIdx}`;
+    const token = bumpRewriteGen(cardKey);
+    setRewritingSubs((prev) => ({ ...prev, [subKey]: token }));
     try {
       const res = await callApiOrThrow<{ success: boolean; data?: any; error?: string }>(
         'regenerate_sub_visual', projectId, sceneIdx, sectionType, subIdx, data, prompt, selectedProject.language
       );
+      // Stale gate: superseded by a newer rewrite, a Revert, or project switch.
+      if (rewriteGenRef.current[cardKey] !== token) {
+        addToast('Discarded stale AI cut — a newer rewrite or revert superseded it.', 'info');
+        return undefined;
+      }
       if (res?.success && res.data) {
         // Preview-only: return the AI cut WITHOUT touching scriptData or
         // disk. The caller applies it to local state (visible instantly in
@@ -570,6 +680,14 @@ export function useScriptEditing(
       console.error(err);
       addToast("Rewrite failed: " + (err?.message || String(err)), 'error');
       return undefined;
+    } finally {
+      // Clear only our own entry — a newer flight may have replaced it.
+      setRewritingSubs((prev) => {
+        if (prev[subKey] !== token) return prev;
+        const next = { ...prev };
+        delete next[subKey];
+        return next;
+      });
     }
   }, [projectId, selectedProject, addToast]);
 
@@ -703,6 +821,12 @@ export function useScriptEditing(
 
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
     if (!projectId || !scriptData || !selectedProject?.script_path) return;
+    // Scene inserts shift every later scene's index — an in-flight rewrite
+    // would land on the wrong section. Locked until rewrites settle.
+    if (isAnyRewriting) {
+      addToast('Scene insert is paused while an AI rewrite is in progress.', 'warning');
+      return;
+    }
 
     const insertPosition = insertAfterIdx >= 0 ? insertAfterIdx + 1 : (scriptData.scenes?.length || 0);
     const newScriptData = { ...scriptData };
@@ -754,10 +878,16 @@ export function useScriptEditing(
 
     await callApi<any>('save_project_with_cleanup', projectId, newScriptData, newManifestData);
     setEditingCard({ key: `scene_${insertPosition}`, mode: 'script' });
-  }, [projectId, scriptData, selectedProject, manifestData, setScriptData, setManifestData]);
+  }, [projectId, scriptData, selectedProject, manifestData, setScriptData, setManifestData, isAnyRewriting, addToast]);
 
   const confirmDeleteScene = useCallback(async () => {
     if (sceneToDelete === null || !projectId) return;
+    // Scene deletes shift every later scene's index — an in-flight rewrite
+    // would land on the wrong section. Locked until rewrites settle.
+    if (isAnyRewriting) {
+      addToast('Scene delete is paused while an AI rewrite is in progress.', 'warning');
+      return;
+    }
     const idx = sceneToDelete;
 
     // Delegate entirely to the backend delete_scene API which handles:
@@ -772,7 +902,7 @@ export function useScriptEditing(
       addToast("Failed to delete scene: " + (result?.error || "Unknown error"), 'error');
     }
     setSceneToDelete(null);
-  }, [sceneToDelete, projectId, loadFiles, addToast]);
+  }, [sceneToDelete, projectId, loadFiles, addToast, isAnyRewriting]);
 
   const handleSaveTranscription = useCallback(async () => {
     if (!projectId || !transcriptionData || !selectedProject?.transcription_path) return;
@@ -815,7 +945,9 @@ export function useScriptEditing(
   return {
     editingCard, setEditingCard,
     rewritePrompt, setRewritePrompt,
-    rewritingSection,
+    rewritingSection, isAnyRewriting,
+    isSectionRewriting, isSubRewriting, isSectionLocked,
+    invalidateRewrites, invalidateAllRewrites,
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
     previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,

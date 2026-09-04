@@ -61,7 +61,7 @@ const AstJsonEditor = ({ initialValue, onChange }: { initialValue: object, onCha
   );
 };
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, singleCut = false, cutNumber }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string) => Promise<string | undefined> | void, uploadingSubVisual?: string | null, singleCut?: boolean, cutNumber?: number }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, singleCut = false, cutNumber, aiDisabled = false, promptDraftKey, loadPromptDraft, savePromptDraft }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string) => Promise<string | undefined> | void, uploadingSubVisual?: string | null, singleCut?: boolean, cutNumber?: number, aiDisabled?: boolean, promptDraftKey?: string, loadPromptDraft?: (key: string) => string, savePromptDraft?: (key: string, text: string) => void }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
@@ -186,18 +186,21 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                   {onRewriteSubVisual && (
                     <button
                       type="button"
+                      disabled={aiDisabled}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (aiDisabled) return;
                         if (aiPromptIdx === idx) {
                           setAiPromptIdx(null);
                           setAiPromptText('');
                         } else {
                           setAiPromptIdx(idx);
-                          setAiPromptText('');
+                          // Restore the per-cut draft so switching cuts mid-typing never loses it.
+                          setAiPromptText(promptDraftKey && loadPromptDraft ? (loadPromptDraft(promptDraftKey) ?? '') : '');
                         }
                       }}
-                      className={`px-2 py-1 rounded-md text-xs flex items-center gap-1 transition-colors cursor-pointer ${aiPromptIdx === idx ? 'bg-amber-500 text-black font-bold' : 'text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30'}`}
-                      title="AI Magic Rewrite"
+                      className={`px-2 py-1 rounded-md text-xs flex items-center gap-1 transition-colors ${aiDisabled ? 'opacity-40 cursor-not-allowed text-stone-500 bg-white/5 border border-white/10' : `cursor-pointer ${aiPromptIdx === idx ? 'bg-amber-500 text-black font-bold' : 'text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30'}`}`}
+                      title={aiDisabled ? 'AI rewrites run one at a time — wait for the current one' : 'AI Magic Rewrite'}
                     >
                       <BsStars size={12} />
                       <span className="text-[10px] font-bold">AI Rewrite</span>
@@ -226,11 +229,15 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                       placeholder={`e.g. Change this to a stunning 3D globe animation...`}
                       className="flex-1 bg-black/50 border border-amber-900/50 rounded px-3 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
                       value={aiPromptText}
-                      onChange={e => setAiPromptText(e.target.value)}
+                      onChange={e => {
+                        setAiPromptText(e.target.value);
+                        if (promptDraftKey && savePromptDraft) savePromptDraft(promptDraftKey, e.target.value);
+                      }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && aiPromptText.trim() && !isRewriting) {
+                        if (e.key === 'Enter' && aiPromptText.trim() && !isRewriting && !aiDisabled) {
                           e.preventDefault();
                           setIsRewriting(true);
+                          if (promptDraftKey && savePromptDraft) savePromptDraft(promptDraftKey, '');
                           onRewriteSubVisual(idx, aiPromptText).finally(() => {
                             setIsRewriting(false);
                             setAiPromptIdx(null);
@@ -240,9 +247,10 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                       }}
                     />
                     <button
-                      disabled={isRewriting || !aiPromptText.trim()}
+                      disabled={isRewriting || aiDisabled || !aiPromptText.trim()}
                       onClick={() => {
                         setIsRewriting(true);
+                        if (promptDraftKey && savePromptDraft) savePromptDraft(promptDraftKey, '');
                         onRewriteSubVisual(idx, aiPromptText).finally(() => {
                           setIsRewriting(false);
                           setAiPromptIdx(null);

@@ -34,6 +34,11 @@ function writeSectionSubs(doc: any, r: ResolvedVisual, fullSubs: any[]): any {
   return copy;
 }
 
+/** JSON with a null fallback — identity snapshots for rewrite relocation. */
+const safeJson = (v: any): string | null => {
+  try { return JSON.stringify(v); } catch { return null; }
+};
+
 /** Trailing-edge delay for high-frequency visual edits (color drags, scrubs). */
 const COMMIT_DEBOUNCE_MS = 150;
 
@@ -46,6 +51,13 @@ interface VisualsTabProps {
   editingCard: { key: string; mode: 'script' | 'visuals' } | null;
   savingCardKey: string | null;
   rewritingSection: string | null;
+  /** True while ANY AI rewrite is in flight (global Save + rewrite exclusivity). */
+  isAnyRewriting: boolean;
+  isSectionRewriting: (cardKey: string) => boolean;
+  isSubRewriting: (cardKey: string, subIdx: number) => boolean;
+  isSectionLocked: (cardKey: string) => boolean;
+  /** Poison this card's in-flight rewrites (Revert path). */
+  invalidateRewrites: (cardKey: string) => void;
   rewritePrompt: string;
   setRewritePrompt: (p: string) => void;
   onSeek: (frame: number) => void;
@@ -71,6 +83,7 @@ interface VisualsTabProps {
 export const VisualsTab = React.memo(function VisualsTab({
   scriptData, manifestData, sceneTimings, activeSceneIdx, activeSubIdx,
   editingCard, savingCardKey, rewritingSection, rewritePrompt, setRewritePrompt,
+  isAnyRewriting, isSectionRewriting, isSubRewriting, isSectionLocked, invalidateRewrites,
   onSeek, onSaveCard, onCancelEdit, onStartEdit, onSetScriptData,
   onRewriteSection, onRewriteSubVisual, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
   onRegisterFlush,
@@ -118,6 +131,17 @@ export const VisualsTab = React.memo(function VisualsTab({
   /** Selection sub-index mirror (ref, not render closure) so lens writes use
    * the fresh section AND fresh cut together on fast switches. */
   const selSubIdxRef = useRef<number>(selectedSubVisualIndex ?? -1);
+  /** AI prompt drafts per cut — the lens remounts on cut switch, so drafts
+   * live here to survive navigation. Must stay above the early returns. */
+  const promptDraftsRef = useRef<Record<string, string>>({});
+  const loadPromptDraft = useCallback(
+    (key: string) => promptDraftsRef.current[key] ?? '',
+    [],
+  );
+  const savePromptDraft = useCallback((key: string, text: string) => {
+    if (text) promptDraftsRef.current[key] = text;
+    else delete promptDraftsRef.current[key];
+  }, []);
   /** Bumps whenever pending is scheduled/committed/discarded so the header
    * (cut count, pending-aware view) re-renders — refs alone don't trigger it. */
   const [pendingTick, setPendingTick] = useState(0);
@@ -314,7 +338,18 @@ export const VisualsTab = React.memo(function VisualsTab({
   const saveArg: string = resolved.sectionType === 'introduction' ? 'introduction' : resolved.cardKey;
   const saveIndex: number | undefined = isScene ? resolved.sceneNumber : undefined;
   const isSaving = savingCardKey === saveArg;
-  const busy = savingCardKey !== null || rewritingSection !== null;
+  // Global gate: while ANY AI rewrite is in flight anywhere, whole-document
+  // Save and every other AI rewrite are locked (save persists the whole doc
+  // and wipes all baselines — it must never run mid-generation).
+  const busy = savingCardKey !== null || isAnyRewriting;
+  // Section-scoped gate: structural edits to THIS section (revert, add/delete
+  // cut) lock while a rewrite touches it; other sections stay editable.
+  const sectionLocked = resolved ? isSectionLocked(resolved.cardKey) : false;
+  // Lens gate: the single-cut editor locks while a section rewrite replaces
+  // this section's array, or a single-cut rewrite targets the open cut —
+  // otherwise in-flight slider ticks would be silently dropped on landing.
+  // Navigation (cut buttons, prev/next, timeline) stays free.
+  const lensLocked = !!resolved && (isSectionRewriting(resolved.cardKey) || isSubRewriting(resolved.cardKey, actualSubIdx));
   const rewriteKey = resolved.sectionType === 'introduction' ? 'intro'
     : isScene ? `scene_${resolved.sceneNumber}` : 'conclusion';
   const isRewritingSection = rewritingSection === rewriteKey;
@@ -443,6 +478,12 @@ export const VisualsTab = React.memo(function VisualsTab({
   };
 
   const handleSaveVisuals = () => {
+    // Whole-document save is locked while any AI rewrite is in flight: the
+    // save would persist a pre-AI doc and wipe every card baseline.
+    if (isAnyRewriting) {
+      addToast('Save is paused while an AI rewrite is in progress.', 'warning');
+      return;
+    }
     // Flush in-flight drag ticks first and hand the exact document to the
     // save pipeline so Save can never miss the last milliseconds of a drag.
     const flushed = commitPending();
@@ -459,6 +500,9 @@ export const VisualsTab = React.memo(function VisualsTab({
     // Idempotent: a second click is a no-op. Never kills the whole edit
     // session — with no baseline yet there is nothing to restore, just drop
     // pending ticks.
+    // Poison this section's in-flight rewrites FIRST so a late LLM result
+    // can't land on top of the restored baseline.
+    if (resolved) invalidateRewrites(resolved.cardKey);
     discardPending();
     const baseline = resolved ? sectionBaselinesRef.current[resolved.cardKey] : null;
     if (baseline && resolved) {
@@ -479,10 +523,10 @@ export const VisualsTab = React.memo(function VisualsTab({
   // the pre-AI baseline. The section identity is captured BEFORE the request
   // so a section switch mid-generation still lands in the right section.
   /** Write AI-produced subs for a captured section into the store (unsaved). */
-  const applyAiSubs = (r: ResolvedVisual, fullSubs: any[]) => {
+  const applyAiSubs = (r: ResolvedVisual, fullSubs: any[], baseDoc?: any) => {
     commitPending();
     const snapSubs = snapshot(fullSubs);
-    const doc = writeSectionSubs(scriptDataRef.current, r, snapSubs);
+    const doc = writeSectionSubs(baseDoc ?? scriptDataRef.current, r, snapSubs);
     // Tag as our own write so the baseline effect ignores the echo — the
     // pre-AI baseline stays intact, keeping Revert meaningful.
     try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(snapSubs); } catch { /* ignore */ }
@@ -490,15 +534,38 @@ export const VisualsTab = React.memo(function VisualsTab({
   };
 
   const withFlushRewriteSub = async (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => {
-    const flushed = commitPending();
+    const flushedPre = commitPending();
     const r = resolvedRef.current;
-    const cut = await onRewriteSubVisual(sceneIdx, sectionType, subIdx, prompt, flushed ?? undefined);
-    if (cut === undefined || !r) return;
-    const base = readSectionSubs(scriptDataRef.current, r);
+    if (!r) return;
+    // Snapshot the origin cut BEFORE the 10–60s generation window: after the
+    // await, the user may have switched cuts, edited, or (for unlocked
+    // sections) restructured — the result must relocate by identity, never by
+    // blind index, and never resurrect a deleted cut.
+    const preBase = readSectionSubs(flushedPre ?? scriptDataRef.current, r);
+    if (subIdx < 0 || subIdx >= preBase.length) return;
+    const originIdx = subIdx;
+    const originSnap = safeJson(preBase[subIdx]);
+    const cut = await onRewriteSubVisual(sceneIdx, sectionType, subIdx, prompt, flushedPre ?? undefined);
+    // undefined = backend failure OR superseded flight (hook already toasted).
+    if (cut === undefined) return;
+    // Flush ticks made DURING generation first, then read — reading before
+    // the commit would silently drop them from the merged write below.
+    const flushedPost = commitPending();
+    const doc = flushedPost ?? scriptDataRef.current;
+    const base = readSectionSubs(doc, r);
+    let target = -1;
+    if (originIdx >= 0 && originIdx < base.length && safeJson(base[originIdx]) === originSnap) {
+      target = originIdx;
+    } else if (originSnap !== null) {
+      target = base.findIndex((s) => safeJson(s) === originSnap);
+    }
+    if (target === -1) {
+      addToast('Cut rewrite aborted: the target cut was deleted or changed during generation.', 'warning');
+      return;
+    }
     const full = [...base];
-    if (subIdx >= 0 && subIdx < full.length) full[subIdx] = cut;
-    else full.push(cut);
-    applyAiSubs(r, full);
+    full[target] = cut;
+    applyAiSubs(r, full, doc);
   };
   const withFlushUpload = (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => {
     const flushed = commitPending();
@@ -507,18 +574,20 @@ export const VisualsTab = React.memo(function VisualsTab({
   const withFlushRewriteSection = async (type: string, index: number) => {
     const flushed = commitPending();
     const r = resolvedRef.current;
+    if (!r) return;
     // Explicit 'visuals' intent — don't rely on editingCard.mode, which is
     // set in a post-render effect and races a fast open → rewrite.
     // Preview-only from the backend's view: the hook returns the AI subs
     // without saving; applied below to local state (unsaved).
     const aiSubs = await onRewriteSection(type, index, flushed ?? undefined, 'visuals');
-    if (Array.isArray(aiSubs)) {
-      if (!r) return;
-      applyAiSubs(r, aiSubs);
-      // Count may have changed — keep the selection valid on the same card.
-      if (r.cardKey === resolvedRef.current?.cardKey) {
-        setSelectedSubVisualIndex(Math.min(selSubIdxRef.current, Math.max(0, aiSubs.length - 1)));
-      }
+    if (!Array.isArray(aiSubs)) return; // failed or superseded (hook toasted)
+    // Flush ticks made during generation before applying, so the wholesale
+    // array replace below never drops them from the merged write.
+    const flushedPost = commitPending();
+    applyAiSubs(r, aiSubs, flushedPost ?? undefined);
+    // Count may have changed — keep the selection valid on the same card.
+    if (r.cardKey === resolvedRef.current?.cardKey) {
+      setSelectedSubVisualIndex(Math.min(selSubIdxRef.current, Math.max(0, aiSubs.length - 1)));
     }
   };
   const withFlushPreview = (sceneIdx: number, sectionType: string, subIdx: number, query: string) => {
@@ -554,14 +623,16 @@ export const VisualsTab = React.memo(function VisualsTab({
                 <button
                   key={i}
                   onClick={() => selectCut(i)}
-                  className={`shrink-0 w-6 h-6 rounded-md text-[9px] font-mono font-bold border transition-colors cursor-pointer ${
+                  className={`shrink-0 w-6 h-6 rounded-md text-[9px] font-mono font-bold border transition-colors cursor-pointer flex items-center justify-center ${
                     i === actualSubIdx
                       ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
                       : 'bg-zinc-900/60 text-zinc-500 border-zinc-800 hover:text-zinc-300 hover:border-zinc-600'
                   }`}
-                  title={`Cut ${i + 1}`}
+                  title={isSubRewriting(resolved.cardKey, i) ? `Cut ${i + 1} — AI rewriting…` : `Cut ${i + 1}`}
                 >
-                  {i + 1}
+                  {isSubRewriting(resolved.cardKey, i)
+                    ? <VscLoading className="animate-spin text-[9px]" />
+                    : (i + 1)}
                 </button>
               ))}
             </div>
@@ -582,14 +653,15 @@ export const VisualsTab = React.memo(function VisualsTab({
             <button
               onClick={handleSaveVisuals}
               disabled={busy}
+              title={isAnyRewriting ? 'Save is paused while an AI rewrite is in progress' : undefined}
               className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-2.5 py-2 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
             >
               {isSaving ? <><VscLoading className="animate-spin text-[10px]" /> Saving...</> : <><VscSave className="text-[10px]" /> Save Visuals</>}
             </button>
             <button
               onClick={handleCancelVisuals}
-              disabled={busy}
-              title="Discard unsaved visual changes in this section (stays in the Visuals tab)"
+              disabled={savingCardKey !== null || sectionLocked}
+              title={sectionLocked ? 'Revert is paused while this section rewrites' : 'Discard unsaved visual changes in this section (stays in the Visuals tab)'}
               className="px-4 py-2 text-[10px] font-bold disabled:opacity-50 disabled:cursor-not-allowed text-zinc-400 hover:text-white rounded-lg border border-zinc-700/60 bg-zinc-900/50 hover:bg-zinc-800 transition-all cursor-pointer"
             >
               Revert
@@ -614,21 +686,36 @@ export const VisualsTab = React.memo(function VisualsTab({
 
           {/* Single-cut editor lens */}
           {selectedCut ? (
-            <SubVisualsEditor
-              key={`${resolved.cardKey}_cut_${actualSubIdx}`}
-              subVisuals={[selectedCut]}
-              onChange={handleLensChange}
-              timings={resolved.subTiming ? [resolved.subTiming] : []}
-              totalDurationFrames={resolved.totalDurationFrames}
-              activeIdx={sel.sceneIdx === activeSceneIdx && activeSubIdx === actualSubIdx ? 0 : -1}
-              onSeek={onSeek}
-              onRewriteSubVisual={(_, prompt) => withFlushRewriteSub(handlerSceneIdx, resolved.sectionType, actualSubIdx, prompt)}
-              onUploadSubVisual={onUploadSubVisual ? (_, visualType) => withFlushUpload(handlerSceneIdx, resolved.sectionType, actualSubIdx, visualType) : undefined}
-              onPreviewSubVisual={onPreviewSubVisual ? (_, query) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query) : undefined}
-              uploadingSubVisual={uploadingSubVisual}
-              singleCut
-              cutNumber={actualSubIdx + 1}
-            />
+            <div className="relative">
+              <div className={lensLocked ? 'pointer-events-none opacity-60 saturate-50' : undefined}>
+                <SubVisualsEditor
+                  key={`${resolved.cardKey}_cut_${actualSubIdx}`}
+                  subVisuals={[selectedCut]}
+                  onChange={handleLensChange}
+                  timings={resolved.subTiming ? [resolved.subTiming] : []}
+                  totalDurationFrames={resolved.totalDurationFrames}
+                  activeIdx={sel.sceneIdx === activeSceneIdx && activeSubIdx === actualSubIdx ? 0 : -1}
+                  onSeek={onSeek}
+                  onRewriteSubVisual={(_, prompt) => withFlushRewriteSub(handlerSceneIdx, resolved.sectionType, actualSubIdx, prompt)}
+                  onUploadSubVisual={onUploadSubVisual ? (_, visualType) => withFlushUpload(handlerSceneIdx, resolved.sectionType, actualSubIdx, visualType) : undefined}
+                  onPreviewSubVisual={onPreviewSubVisual ? (_, query) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query) : undefined}
+                  uploadingSubVisual={uploadingSubVisual}
+                  singleCut
+                  cutNumber={actualSubIdx + 1}
+                  aiDisabled={busy}
+                  promptDraftKey={`${resolved.cardKey}:${actualSubIdx}`}
+                  loadPromptDraft={loadPromptDraft}
+                  savePromptDraft={savePromptDraft}
+                />
+              </div>
+              {lensLocked && (
+                <div className="absolute inset-x-0 top-0 flex justify-center pt-1 pointer-events-none">
+                  <span className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-amber-300 bg-amber-950/90 border border-amber-700/50 rounded-full px-2.5 py-1">
+                    <VscLoading className="animate-spin text-[9px]" /> AI rewrite in progress…
+                  </span>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="text-center py-6 space-y-2 border border-dashed border-zinc-700/60 rounded-xl bg-zinc-900/40">
               <p className="text-[11px] text-zinc-400 font-medium">
@@ -642,20 +729,21 @@ export const VisualsTab = React.memo(function VisualsTab({
             </div>
           )}
 
-          {/* Cut add/remove */}
+          {/* Cut add/remove — section-scoped: locked only while THIS section rewrites */}
           <div className="flex items-center gap-2">
             <button
               onClick={handleAddCut}
-              disabled={busy}
+              disabled={savingCardKey !== null || sectionLocked}
+              title={sectionLocked ? 'Add Cut is paused while this section rewrites' : undefined}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] font-bold text-zinc-400 hover:text-amber-400 bg-zinc-800/30 hover:bg-amber-600/[0.07] rounded-xl border border-dashed border-zinc-700/60 hover:border-amber-600/30 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <VscAdd className="text-[10px]" /> Add Cut
             </button>
             <button
               onClick={handleDeleteCut}
-              disabled={busy || cutCount <= 1}
+              disabled={savingCardKey !== null || sectionLocked || cutCount <= 1}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] font-bold text-zinc-500 hover:text-red-400 bg-zinc-800/30 hover:bg-red-950/30 rounded-xl border border-dashed border-zinc-700/60 hover:border-red-900/50 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              title={cutCount <= 1 ? 'A section needs at least one cut' : 'Delete this cut'}
+              title={sectionLocked ? 'Delete Cut is paused while this section rewrites' : (cutCount <= 1 ? 'A section needs at least one cut' : 'Delete this cut')}
             >
               <VscTrash className="text-[10px]" /> Delete Cut
             </button>
@@ -677,18 +765,20 @@ export const VisualsTab = React.memo(function VisualsTab({
                   value={rewritePrompt}
                   onChange={(e) => setRewritePrompt(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !isRewritingSection && rewritePrompt.trim()) {
+                    if (e.key === 'Enter' && !busy && rewritePrompt.trim()) {
                       e.preventDefault();
                       withFlushRewriteSection(resolved.sectionType, isScene ? resolved.sceneNumber : 0);
                     }
                   }}
-                  disabled={isRewritingSection}
+                  disabled={busy}
+                  title={isAnyRewriting && !isRewritingSection ? 'AI rewrites run one at a time — wait for the current one' : undefined}
                   className="w-full bg-zinc-900/80 border border-zinc-700/60 rounded-lg px-3 py-2 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all disabled:opacity-50"
                 />
               </div>
               <button
                 onClick={() => withFlushRewriteSection(resolved.sectionType, isScene ? resolved.sceneNumber : 0)}
-                disabled={isRewritingSection || !rewritePrompt.trim()}
+                disabled={busy || !rewritePrompt.trim()}
+                title={isAnyRewriting && !isRewritingSection ? 'AI rewrites run one at a time — wait for the current one' : undefined}
                 className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800/80 hover:bg-blue-600/20 hover:text-blue-400 text-zinc-300 border border-zinc-700/60 hover:border-blue-600/30 rounded-lg text-[10px] font-bold transition-all shrink-0 h-9 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isRewritingSection ? (

@@ -19,6 +19,8 @@ interface ScriptTabProps {
   setRewritePrompt: (p: string) => void;
   savingCardKey: string | null;
   rewritingSection: string | null;
+  /** True while ANY AI rewrite is in flight — saves + rewrites lock globally. */
+  isAnyRewriting: boolean;
   isSaving: boolean;
   onSeek: (frame: number) => void;
   onSaveCard: (cardKey?: string, index?: number, latestData?: any) => void;
@@ -34,7 +36,7 @@ interface ScriptTabProps {
 
 export const ScriptTab = React.memo(function ScriptTab({
   scriptData, sceneTimings, activeSceneIdx, activeSubIdx,
-  editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection,
+  editingCard, rewritePrompt, setRewritePrompt, savingCardKey, rewritingSection, isAnyRewriting,
   onSeek, onSaveCard, onStartEdit, onCancelEdit, onRewriteSection, onInsertScene,
   onSetSceneToDelete, onSetScriptData, onOpenVisuals,
 }: ScriptTabProps) {
@@ -96,7 +98,12 @@ export const ScriptTab = React.memo(function ScriptTab({
   // Structural inserts lock while ANY card edit is active (matches pre-split
   // behavior: `!editingCard`); deletes stay always visible so a card can be
   // removed without first saving/cancelling another card's draft.
-  const structuralLocked = editingCard !== null;
+  // Scene add/delete shifts indices globally, so they also lock while any AI
+  // rewrite is in flight (the delete confirmation carries its own guard too).
+  const structuralLocked = editingCard !== null || isAnyRewriting;
+  // Whole-document saves lock globally during any AI rewrite: saving would
+  // persist a pre-AI doc and wipe every card baseline.
+  const saveLocked = savingCardKey !== null || isAnyRewriting;
   const sceneCount = scriptData.scenes?.length || 0;
 
   return (
@@ -131,7 +138,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                 onOpenVisuals={() => onOpenVisuals(introSceneIdx, introActiveSubIdx >= 0 ? introActiveSubIdx : 0)}
                 onSave={() => handleSaveCard('introduction')}
                 onCancel={onCancelEdit}
-                disabled={savingCardKey !== null || rewritingSection !== null}
+                disabled={saveLocked}
               >
                 {isEditing ? (
                   <EditFormFields>
@@ -157,6 +164,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                       onPromptChange={setRewritePrompt}
                       onRewrite={() => onRewriteSection('introduction', 0)}
                       isRewriting={rewritingSection === 'intro'}
+                      locked={isAnyRewriting && rewritingSection !== 'intro'}
                     />
                   </EditFormFields>
                 ) : (
@@ -206,7 +214,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                       onSave={() => handleSaveCard(cardKey, idx)}
                       onCancel={onCancelEdit}
                       onDelete={() => onSetSceneToDelete(idx)}
-                      disabled={savingCardKey !== null || rewritingSection !== null}
+                      disabled={saveLocked}
                     >
                       {isEditing ? (
                         <EditFormFields>
@@ -248,6 +256,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             onPromptChange={setRewritePrompt}
                             onRewrite={() => onRewriteSection('scenes', idx)}
                             isRewriting={rewritingSection === `scene_${idx}`}
+                            locked={isAnyRewriting && rewritingSection !== `scene_${idx}`}
                           />
                         </EditFormFields>
                       ) : (
@@ -340,7 +349,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                 onOpenVisuals={() => onOpenVisuals(concSceneIdx, concActiveSubIdx >= 0 ? concActiveSubIdx : 0)}
                 onSave={() => handleSaveCard('conclusion')}
                 onCancel={onCancelEdit}
-                disabled={savingCardKey !== null || rewritingSection !== null}
+                disabled={saveLocked}
               >
                 {isEditing ? (
                   <EditFormFields>
@@ -378,6 +387,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                       onPromptChange={setRewritePrompt}
                       onRewrite={() => onRewriteSection('conclusion', 0)}
                       isRewriting={rewritingSection === 'conclusion'}
+                      locked={isAnyRewriting && rewritingSection !== 'conclusion'}
                     />
                   </EditFormFields>
                 ) : (
@@ -639,9 +649,11 @@ interface AIRewriteSectionProps {
   onPromptChange: (p: string) => void;
   onRewrite: () => void;
   isRewriting?: boolean;
+  /** Global exclusivity: another rewrite is in flight elsewhere. */
+  locked?: boolean;
 }
 
-const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptChange, onRewrite, isRewriting }) => (
+const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptChange, onRewrite, isRewriting, locked }) => (
   <div className="border-t border-zinc-700/30 pt-3">
     <div className="flex items-center gap-1.5 mb-2">
       <VscSparkle className="text-[9px] text-zinc-500" />
@@ -657,18 +669,20 @@ const AIRewriteSection: React.FC<AIRewriteSectionProps> = ({ prompt, onPromptCha
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !isRewriting && prompt.trim()) {
+            if (e.key === 'Enter' && !isRewriting && !locked && prompt.trim()) {
               e.preventDefault();
               onRewrite();
             }
           }}
-          disabled={isRewriting}
+          disabled={isRewriting || locked}
+          title={locked && !isRewriting ? 'AI rewrites run one at a time — wait for the current one' : undefined}
           className="w-full bg-zinc-900/80 border border-zinc-700/60 rounded-lg px-3 py-2 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all disabled:opacity-50"
         />
       </div>
       <button
         onClick={onRewrite}
-        disabled={isRewriting || !prompt.trim()}
+        disabled={isRewriting || locked || !prompt.trim()}
+        title={locked && !isRewriting ? 'AI rewrites run one at a time — wait for the current one' : undefined}
         className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800/80 hover:bg-blue-600/20 hover:text-blue-400 text-zinc-300 border border-zinc-700/60 hover:border-blue-600/30 rounded-lg text-[10px] font-bold transition-all shrink-0 h-9 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
       >
         {isRewriting ? (

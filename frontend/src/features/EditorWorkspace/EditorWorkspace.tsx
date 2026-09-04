@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
+import { useUIStore } from '../../store/useUIStore';
 import { useEditorData } from './hooks/useEditorData';
 import { usePipeline } from './hooks/usePipeline';
 import { useScriptEditing } from './hooks/useScriptEditing';
@@ -113,7 +114,8 @@ const EditorWorkspace: React.FC = () => {
 
   const {
     editingCard, setEditingCard, rewritePrompt, setRewritePrompt,
-    rewritingSection,
+    rewritingSection, isAnyRewriting, isSectionRewriting, isSubRewriting, isSectionLocked,
+    invalidateRewrites, invalidateAllRewrites,
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
     previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
@@ -123,6 +125,12 @@ const EditorWorkspace: React.FC = () => {
     id, scriptData, setScriptData, manifestData, setManifestData,
     transcriptionData, setTranscriptionData, loadFiles
   );
+
+  // Poison any in-flight AI rewrites on project switch so late LLM results
+  // can never land in the newly opened project.
+  useEffect(() => {
+    invalidateAllRewrites();
+  }, [id, invalidateAllRewrites]);
 
   // Latest-state refs: handlers read these instead of render-time closures so
   // consecutive operations (toggle → resize in quick succession) always see the
@@ -142,6 +150,42 @@ const EditorWorkspace: React.FC = () => {
     return next;
   }, []);
 
+  // ── Rewrite section locks (timeline guards) ───────────────────────────
+  // Ref mirrors keep the timeline write-handlers referentially stable while
+  // always reading the latest rewrite registry.
+  const isSectionLockedRef = useRef(isSectionLocked);
+  isSectionLockedRef.current = isSectionLocked;
+  const isAnyRewritingRef = useRef(isAnyRewriting);
+  isAnyRewritingRef.current = isAnyRewriting;
+
+  /** Manifest scene index → Visuals-tab card key (intro / scene_N / conclusion). */
+  const cardKeyForScene = useCallback((sceneIdx: number): string | null => {
+    const m = manifestDataRef.current?.[sceneIdx];
+    if (!m) return null;
+    if (m.section_type === 'introduction') return 'intro';
+    if (m.section_type === 'conclusion') return 'conclusion';
+    return `scene_${manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)}`;
+  }, []);
+
+  /**
+   * Block timeline writes that would shift or wipe a section with an AI
+   * rewrite in flight (split/duplicate/delete/resize, plus index-positional
+   * scalar toggles). Guards live at the handler level so ruler drags,
+   * boundary handles, hotkeys, and context menus are all sealed in one stroke.
+   * Navigation (selection, seeking) is never blocked.
+   */
+  const requireSectionUnlocked = useCallback((sceneIdx: number, action: string): boolean => {
+    const key = cardKeyForScene(sceneIdx);
+    if (key && isSectionLockedRef.current(key)) {
+      useUIStore.getState().addToast(
+        `${action} is paused while this section's AI rewrite is in progress.`,
+        'warning',
+      );
+      return false;
+    }
+    return true;
+  }, [cardKeyForScene]);
+
   // Toggle a per-sub-visual audio cut flag (mute_voiceover / mute_bg_music) from
   // the timeline. Updates script.json (source of truth) and the assets manifest
   // (export source) in place, preserving visual_path/visual_url on the manifest.
@@ -154,6 +198,7 @@ const EditorWorkspace: React.FC = () => {
 
   const handleToggleSubVisualAudioFlag = useCallback(async (sceneIdx: number, subIdx: number, flag: 'mute_voiceover' | 'mute_bg_music') => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Audio toggle')) return;
     const manifestScene = manifestDataRef.current[sceneIdx];
     if (!manifestScene?.sub_visuals?.[subIdx]) return;
 
@@ -199,6 +244,7 @@ const EditorWorkspace: React.FC = () => {
   // ── Timeline: Update Sub-Visual Transition ─────────────────────────────────
   const handleUpdateSubVisualTransition = useCallback(async (sceneIdx: number, subIdx: number, transition: string) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Transition change')) return;
     const manifestScene = manifestDataRef.current[sceneIdx];
     if (!manifestScene?.sub_visuals?.[subIdx]) return;
 
@@ -232,6 +278,7 @@ const EditorWorkspace: React.FC = () => {
   // ── Timeline: Split Sub-Visual at Playhead ─────────────────────────────────
   const handleSplitSubVisualAtFrame = useCallback(async (sceneIdx: number, subIdx: number, frame: number) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Split cut')) return;
     const manifestScene = manifestDataRef.current[sceneIdx];
     const timing = sceneTimings[sceneIdx];
     if (!manifestScene?.sub_visuals?.[subIdx] || !timing?.subs?.[subIdx]) return;
@@ -297,6 +344,7 @@ const EditorWorkspace: React.FC = () => {
   // ── Timeline: Duplicate Sub-Visual Cut ─────────────────────────────────────
   const handleDuplicateSubVisual = useCallback(async (sceneIdx: number, subIdx: number) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Duplicate cut')) return;
     const manifestScene = manifestDataRef.current[sceneIdx];
     if (!manifestScene?.sub_visuals?.[subIdx]) return;
 
@@ -351,6 +399,7 @@ const EditorWorkspace: React.FC = () => {
   // ── Timeline: Delete Sub-Visual Cut ───────────────────────────────────────
   const handleDeleteSubVisual = useCallback(async (sceneIdx: number, subIdx: number) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
+    if (!requireSectionUnlocked(sceneIdx, 'Delete cut')) return;
     const manifestScene = manifestDataRef.current[sceneIdx];
     if (!manifestScene?.sub_visuals || manifestScene.sub_visuals.length <= 1) return;
 
@@ -606,6 +655,14 @@ const EditorWorkspace: React.FC = () => {
   }, [handleSelectSubVisual, handleStartEdit, setInspectorTab, sceneTimings, handleSeek]);
 
   const handleSave = useCallback(() => {
+    // Whole-document save is locked while ANY AI rewrite is in flight: it
+    // would persist a pre-AI doc and wipe every card baseline. Covers Ctrl+S,
+    // the TopBar button, and every tab's Save (they all route here except
+    // VisualsTab/ScriptTab direct saves, which carry their own guards).
+    if (isAnyRewritingRef.current) {
+      useUIStore.getState().addToast('Save is paused while an AI rewrite is in progress.', 'warning');
+      return;
+    }
     const tab = useEditorStore.getState().inspectorTab;
     // Exclusive + serialized: a dirty card save ends with loadFiles() which
     // re-reads transcription_path from disk, so it must never run
@@ -642,6 +699,7 @@ const EditorWorkspace: React.FC = () => {
 
   const handleResizeSubVisual = useCallback(async (sceneIndex: number, newRatios: number[]) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current) return;
+    if (!requireSectionUnlocked(sceneIndex, 'Cut resize')) return;
 
     const sceneDuration = manifestDataRef.current[sceneIndex]?.duration || 1;
 
@@ -709,6 +767,10 @@ const EditorWorkspace: React.FC = () => {
     sceneIndex: number, newDurationSeconds: number, nextDurationSeconds: number | null, mode: 'boundary' | 'absolute'
   ) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current) return;
+    if (!requireSectionUnlocked(sceneIndex, 'Scene resize')) return;
+    // Boundary drags rewrite the NEXT scene's timings too — both must be free.
+    if (mode === 'boundary' && nextDurationSeconds !== null
+      && !requireSectionUnlocked(sceneIndex + 1, 'Scene resize')) return;
 
     const manifestCopy = [...manifestDataRef.current];
 
@@ -825,6 +887,10 @@ const EditorWorkspace: React.FC = () => {
     const isInt = hasIntro && timingIdx === 0;
     const isCon = hasCon && timingIdx === timings.length - 1;
     if (isInt || isCon) return;
+    // Opening the delete confirmation while either section rewrites would
+    // shift scene indices under the in-flight generation (confirm is guarded
+    // too — this just avoids the dead-end modal).
+    if (!requireSectionUnlocked(timingIdx, 'Scene delete')) return;
     const sceneIdx = manifestToScriptSceneIndex(manifest, timingIdx);
     if (sceneIdx >= 0) {
       setSceneToDelete(sceneIdx);
@@ -913,6 +979,7 @@ const EditorWorkspace: React.FC = () => {
   }, []);
 
   const handleDeleteSceneTimeline = useCallback((idx: number) => {
+    if (!requireSectionUnlocked(idx, 'Scene delete')) return;
     const manifest = manifestDataRef.current;
     const sceneIdx = manifestToScriptSceneIndex(manifest, idx);
     if (sceneIdx >= 0) {
@@ -1008,6 +1075,7 @@ const EditorWorkspace: React.FC = () => {
         <TopBar
           onSave={handleSave}
           isSaving={savingCardKey !== null}
+          isSaveLocked={isAnyRewriting}
           isPipelineRunning={isRunning}
           pipelineStatusText={activeTaskStep?.message}
           hasScriptData={hasScriptData}
@@ -1075,6 +1143,11 @@ const EditorWorkspace: React.FC = () => {
           rewritePrompt={rewritePrompt}
           setRewritePrompt={setRewritePrompt}
           rewritingSection={rewritingSection}
+          isAnyRewriting={isAnyRewriting}
+          isSectionRewriting={isSectionRewriting}
+          isSubRewriting={isSubRewriting}
+          isSectionLocked={isSectionLocked}
+          invalidateRewrites={invalidateRewrites}
           savingCardKey={savingCardKey}
           isSaving={savingCardKey !== null}
           onSaveCard={handleSaveCard}
