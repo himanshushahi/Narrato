@@ -40,7 +40,7 @@ interface UseScriptEditingReturn {
   confirmDeleteScene: () => Promise<void>;
   setSceneToDelete: (idx: number | null) => void;
   handleSettingsUpdate: (newSettings: any) => void;
-  handleSaveTranscription: () => Promise<void>;
+  handleSaveTranscription: (overrideDoc?: any) => Promise<void>;
   handleResetTranscription: () => void;
   handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
 }
@@ -904,12 +904,16 @@ export function useScriptEditing(
     setSceneToDelete(null);
   }, [sceneToDelete, projectId, loadFiles, addToast, isAnyRewriting]);
 
-  const handleSaveTranscription = useCallback(async () => {
-    if (!projectId || !transcriptionData || !selectedProject?.transcription_path) return;
+  const handleSaveTranscription = useCallback(async (overrideDoc?: any) => {
+    const doc = overrideDoc ?? transcriptionData;
+    if (!projectId || !doc || !selectedProject?.transcription_path) return;
     setIsSavingSubtitles(true);
     try {
-      const success = await callApi<boolean>('save_json_file', selectedProject.transcription_path, transcriptionData);
+      const success = await callApi<boolean>('save_json_file', selectedProject.transcription_path, doc);
       if (success) {
+        // Keep local state in sync when the caller flushed a newer draft
+        // than the hook's closed-over transcriptionData.
+        if (overrideDoc) _setTranscriptionData(overrideDoc);
         addToast("Subtitles saved successfully!", 'success');
         loadFiles(projectId);
       } else {
@@ -921,7 +925,7 @@ export function useScriptEditing(
     } finally {
       setIsSavingSubtitles(false);
     }
-  }, [projectId, transcriptionData, selectedProject, loadFiles, addToast]);
+  }, [projectId, transcriptionData, selectedProject, loadFiles, addToast, _setTranscriptionData]);
 
   const handleResetTranscription = useCallback(() => {
     if (!projectId || !selectedProject?.transcription_path) return;

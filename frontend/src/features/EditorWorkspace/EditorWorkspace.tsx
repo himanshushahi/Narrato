@@ -603,6 +603,13 @@ const EditorWorkspace: React.FC = () => {
   const handleRegisterVisualsFlush = useCallback((flush: (() => any) | null) => {
     visualsFlushRef.current = flush;
   }, []);
+  // Flusher for debounced Subtitle-tab edits (registered by SubtitleTab itself;
+  // null when another tab is active). Lets Ctrl+S / TopBar saves include
+  // in-flight debounced subtitle edits without waiting for the 400ms timer.
+  const subtitleFlushRef = useRef<(() => any) | null>(null);
+  const handleRegisterSubtitleFlush = useCallback((flush: (() => any) | null) => {
+    subtitleFlushRef.current = flush;
+  }, []);
 
   // ── Visuals editor: silent selection (timeline cut click, asset click) ──
   // Flush in-flight debounced ticks first so a cross-section switch can't
@@ -679,12 +686,14 @@ const EditorWorkspace: React.FC = () => {
       void enqueueSave(() => handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx, flushed ?? undefined))
         .then(() => {
           if (useEditorStore.getState().inspectorTab === 'subtitle') {
-            return handleSaveTranscription();
+            const flushedSub = subtitleFlushRef.current?.();
+            return handleSaveTranscription(flushedSub ?? undefined);
           }
           return undefined;
         });
     } else if (tab === 'subtitle') {
-      void enqueueSave(() => handleSaveTranscription());
+      const flushedSub = subtitleFlushRef.current?.();
+      void enqueueSave(() => handleSaveTranscription(flushedSub ?? undefined));
     } else if (id && scriptData && selectedProject?.script_path) {
       void enqueueSave(() => handleSaveCard());
     }
@@ -1182,6 +1191,7 @@ const EditorWorkspace: React.FC = () => {
           onTranscriptionChange={setTranscriptionData}
           onSaveTranscription={handleSaveTranscription}
           onResetTranscription={handleResetTranscription}
+          onRegisterSubtitleFlush={handleRegisterSubtitleFlush}
 
           onSeek={handleSeek}
         />

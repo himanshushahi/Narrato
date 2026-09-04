@@ -70,8 +70,9 @@ interface InspectorPanelProps {
   isSavingSubtitles: boolean;
   onSettingsUpdate: (settings: any) => void;
   onTranscriptionChange: (data: any) => void;
-  onSaveTranscription: () => void;
+  onSaveTranscription: (doc?: any) => void;
   onResetTranscription: () => void;
+  onRegisterSubtitleFlush?: (flush: (() => any) | null) => void;
 
   // Navigation
   onSeek: (frame: number) => void;
@@ -98,6 +99,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
+  onRegisterSubtitleFlush,
   onSeek,
 }) => {
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
@@ -194,6 +196,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             onResetTranscription={onResetTranscription}
             onPlaySegment={onSeek}
             onSeek={onSeek}
+            onRegisterFlush={onRegisterSubtitleFlush}
           />
         );
       case 'voice':
