@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import { BiTrashAlt, BiPlus } from 'react-icons/bi';
 import { BsGeoAlt, BsCodeSquare } from 'react-icons/bs';
 
@@ -30,7 +30,7 @@ const PRESET_CITIES: { name: string; coord: [number, number] }[] = [
   { name: 'Toronto', coord: [43.6532, -79.3832] },
 ];
 
-export const AstMapLocationsEditor: React.FC<AstMapLocationsEditorProps> = ({
+const AstMapLocationsEditorInner: React.FC<AstMapLocationsEditorProps> = ({
   locations = [],
   onChange,
 }) => {
@@ -193,3 +193,6 @@ export const AstMapLocationsEditor: React.FC<AstMapLocationsEditorProps> = ({
     </div>
   );
 };
+
+export const AstMapLocationsEditor = memo(AstMapLocationsEditorInner);
+AstMapLocationsEditor.displayName = 'AstMapLocationsEditor';

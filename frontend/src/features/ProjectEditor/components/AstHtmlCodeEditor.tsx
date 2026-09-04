@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import Editor from 'react-simple-code-editor';
 import hljs from 'highlight.js/lib/core';
 import xml from 'highlight.js/lib/languages/xml';
@@ -64,7 +64,7 @@ function formatHtml(html: string): string {
   return formatted.trim();
 }
 
-export const AstHtmlCodeEditor: React.FC<AstHtmlCodeEditorProps> = ({
+const AstHtmlCodeEditorInner: React.FC<AstHtmlCodeEditorProps> = ({
   value,
   onChange,
 }) => {
@@ -139,3 +139,6 @@ export const AstHtmlCodeEditor: React.FC<AstHtmlCodeEditorProps> = ({
     </div>
   );
 };
+
+export const AstHtmlCodeEditor = memo(AstHtmlCodeEditorInner);
+AstHtmlCodeEditor.displayName = 'AstHtmlCodeEditor';

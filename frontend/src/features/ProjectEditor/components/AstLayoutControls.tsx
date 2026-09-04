@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { BsLayoutSplit, BsSliders } from 'react-icons/bs';
 
 interface AstLayoutControlsProps {
@@ -122,8 +122,7 @@ const BG_PRESETS = [
   { label: 'Transparent', value: 'transparent' },
 ];
 
-const SHADOW_PRESETS = [
-  { label: 'None', value: 'none' },
+const SHADOW_PRESETS = [  { label: 'None', value: 'none' },
   { label: 'Cinematic Drop', value: '0 16px 40px rgba(0, 0, 0, 0.6)' },
   { label: 'Soft Shadow', value: '0 10px 30px rgba(0, 0, 0, 0.4)' },
   { label: 'Neon Cyan Glow', value: '0 0 35px rgba(6, 182, 212, 0.4), 0 10px 40px rgba(0, 0, 0, 0.6)' },
@@ -131,7 +130,44 @@ const SHADOW_PRESETS = [
   { label: 'Crimson Alert', value: '0 0 35px rgba(239, 68, 68, 0.4), 0 10px 40px rgba(0, 0, 0, 0.6)' },
 ];
 
-export const AstLayoutControls: React.FC<AstLayoutControlsProps> = ({
+/** Derive a native-picker-safe #rrggbb swatch from any CSS color string. */
+const cssToSwatchHex = (val: any): string => {
+  if (typeof val === 'string') {
+    const v = val.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+    const short = v.match(/^#([0-9a-fA-F]{3})$/);
+    if (short) {
+      const [r, g, b] = short[1].split('');
+      return `#${r}${r}${g}${g}${b}${b}`;
+    }
+    const rgb = v.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+    if (rgb) {
+      const toHex = (n: string) => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0');
+      return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
+    }
+  }
+  return '#0f172a';
+};
+
+/** True only when the value is a plain opaque color the native picker can
+ * round-trip without data loss. Gradients, `transparent`, named colors and
+ * rgba() with alpha would otherwise be silently overwritten with a solid. */
+const isPickerSafeSolid = (val: any): boolean => {
+  if (typeof val !== 'string') return false;
+  const v = val.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v) || /^#[0-9a-fA-F]{3}$/.test(v)) return true;
+  const m = v.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/i);
+  if (m) {
+    // rgb() or rgba() with alpha === 1 converts losslessly; anything with
+    // translucency would lose its alpha in the #rrggbb picker.
+    if (m[4] === undefined) return true;
+    const a = parseFloat(m[4]);
+    return a === 1;
+  }
+  return false;
+};
+
+const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
   style = {},
   onChange,
 }) => {
@@ -141,6 +177,23 @@ export const AstLayoutControls: React.FC<AstLayoutControlsProps> = ({
     const updated = { ...currentStyle };
     if (val === undefined || val === '') {
       delete updated[field];
+      if (field === 'backgroundColor' || field === 'background') {
+        delete updated.backgroundColor;
+        delete updated.background;
+      }
+    } else if (field === 'backgroundColor' || field === 'background') {
+      // Route complex paint (gradient / image) to `background` and plain
+      // colors to `backgroundColor` so pasting a gradient can't be stored as
+      // an invalid backgroundColor while deleting the valid background.
+      const s = String(val);
+      if (/gradient\s*\(/i.test(s) || /url\s*\(/i.test(s)) {
+        updated.background = val;
+        delete updated.backgroundColor;
+      } else {
+        updated[field] = val;
+        if (field === 'backgroundColor') delete updated.background;
+        else delete updated.backgroundColor;
+      }
     } else {
       updated[field] = val;
     }
@@ -148,7 +201,13 @@ export const AstLayoutControls: React.FC<AstLayoutControlsProps> = ({
   };
 
   const handleApplyPreset = (presetStyle: Record<string, any>) => {
-    onChange({ ...currentStyle, ...presetStyle });
+    // Keep background/backgroundColor mutually exclusive (same rule as
+    // handleUpdate) so a preset can't leave both keys set with a stale
+    // gradient winning over the preset's solid.
+    const merged = { ...currentStyle, ...presetStyle };
+    if ('backgroundColor' in presetStyle) delete merged.background;
+    if ('background' in presetStyle) delete merged.backgroundColor;
+    onChange(merged);
   };
 
   // Helper: parse percentage or pixel number
@@ -315,13 +374,29 @@ export const AstLayoutControls: React.FC<AstLayoutControlsProps> = ({
         {/* Background Custom Input + Color Pick */}
         <div className="space-y-1">
           <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Custom Background CSS</label>
-          <input
-            type="text"
-            className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 font-mono"
-            value={currentStyle.backgroundColor || currentStyle.background || ''}
-            onChange={e => handleUpdate('backgroundColor', e.target.value)}
-            placeholder="rgba(15, 23, 42, 0.85)"
-          />
+          <div className="flex items-center gap-1.5 bg-black/60 border border-white/10 rounded px-2 py-1 focus-within:border-amber-500/50">
+            {(() => {
+              const rawBg = currentStyle.backgroundColor || currentStyle.background || '';
+              const pickerSafe = isPickerSafeSolid(rawBg);
+              return (
+                <input
+                  type="color"
+                  value={pickerSafe ? cssToSwatchHex(rawBg) : '#0f172a'}
+                  onChange={e => handleUpdate('backgroundColor', e.target.value)}
+                  disabled={!pickerSafe && rawBg !== ''}
+                  className={`w-4 h-4 rounded bg-transparent border-0 p-0 shrink-0 ${pickerSafe || rawBg === '' ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}
+                  title={pickerSafe || rawBg === '' ? 'Pick background color' : 'Color picker disabled for gradients / transparent / named colors — edit the CSS text instead'}
+                />
+              );
+            })()}
+            <input
+              type="text"
+              className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono min-w-0"
+              value={currentStyle.backgroundColor || currentStyle.background || ''}
+              onChange={e => handleUpdate('backgroundColor', e.target.value)}
+              placeholder="rgba(15, 23, 42, 0.85)"
+            />
+          </div>
         </div>
 
         {/* Sliders: Glass Blur & Corner Radius */}
@@ -436,3 +511,6 @@ export const AstLayoutControls: React.FC<AstLayoutControlsProps> = ({
     </div>
   );
 };
+
+export const AstLayoutControls = memo(AstLayoutControlsInner);
+AstLayoutControls.displayName = 'AstLayoutControls';

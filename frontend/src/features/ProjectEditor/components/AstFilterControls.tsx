@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { BsEyedropper, BsSliders } from 'react-icons/bs';
 
 interface AstFilterControlsProps {
@@ -47,7 +47,7 @@ const FILTER_PRESETS: { label: string; icon: string; filters: string[] }[] = [
   },
 ];
 
-export const AstFilterControls: React.FC<AstFilterControlsProps> = ({
+const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
   filters = [],
   onChange,
 }) => {
@@ -231,3 +231,6 @@ export const AstFilterControls: React.FC<AstFilterControlsProps> = ({
     </div>
   );
 };
+
+export const AstFilterControls = memo(AstFilterControlsInner);
+AstFilterControls.displayName = 'AstFilterControls';

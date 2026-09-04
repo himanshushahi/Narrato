@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { BiTrashAlt, BiCopy } from 'react-icons/bi';
 import { BsPlus, BsSearch, BsUpload, BsChevronDown, BsChevronRight, BsSliders } from 'react-icons/bs';
 import Editor from 'react-simple-code-editor';
@@ -57,7 +57,25 @@ const SUPPORTED_FONTS = [
 
 hljs.registerLanguage('json', json);
 
-const MiniJsonEditor = ({ label, value, onChange }: { label: string; value: any; onChange: (val: any) => void }) => {
+/** Stable empty fallbacks so memoized sub-panels don't see a fresh {} / [] per tick. */
+const EMPTY_STYLE: Record<string, any> = {};
+const EMPTY_LIST: any[] = [];
+
+export interface AstLayerApi {
+  updateLayer: (idx: number, field: string, val: any) => void;
+  updateContent: (idx: number, field: string, val: any) => void;
+  updateContentFields: (idx: number, updates: Record<string, any>) => void;
+  deleteLayer: (idx: number) => void;
+  duplicateLayer: (idx: number) => void;
+  previewQuery: (idx: number, query: string) => void;
+  toggleAdvanced: (idx: number) => void;
+  setAdvancedTab: (idx: number, tab: 'layout' | 'animations' | 'filters' | 'motion') => void;
+  openIconPicker: (idx: number) => void;
+  changeType: (idx: number, newType: string) => void;
+  selectIcon: (iconName: string) => void;
+}
+
+const MiniJsonEditorInner = ({ label, value, onChange }: { label: string; value: any; onChange: (val: any) => void }) => {
   const [text, setText] = useState(() => JSON.stringify(value || {}, null, 2));
   const [error, setError] = useState(false);
 
@@ -114,6 +132,9 @@ const MiniJsonEditor = ({ label, value, onChange }: { label: string; value: any;
   );
 };
 
+const MiniJsonEditor = memo(MiniJsonEditorInner);
+(MiniJsonEditor as any).displayName = 'MiniJsonEditor';
+
 export const AstGraphicalEditor = ({
   initialValue,
   onChange,
@@ -139,31 +160,49 @@ export const AstGraphicalEditor = ({
   const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'filters' | 'motion'>>({});
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
 
+  // Identity of the last composition we sent upstream. Parent propagation is
+  // synchronous, so our own echo arrives with this exact reference — skip it
+  // in O(1) instead of deep-comparing (JSON.stringify per tick, brutal with
+  // embedded Lottie JSON). Genuinely external objects always sync.
+  const lastSentRef = useRef<any>(null);
+
   useEffect(() => {
-    if (initialValue) {
-      setComposition((prev: any) => {
-        if (JSON.stringify(initialValue) !== JSON.stringify(prev)) {
-          return initialValue;
-        }
-        return prev;
-      });
+    if (initialValue && initialValue !== lastSentRef.current) {
+      setComposition(initialValue);
     }
   }, [initialValue]);
 
+  // Latest-value refs so every mutator below reads current state even when
+  // called through the stable api object (memoized panels, async handlers).
+  const compositionRef = useRef(composition);
+  compositionRef.current = composition;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onPreviewRef = useRef(onPreviewSubVisual);
+  onPreviewRef.current = onPreviewSubVisual;
+  const iconPickerIdxRef = useRef(iconPickerIdx);
+  iconPickerIdxRef.current = iconPickerIdx;
+
   const triggerChange = (newComp: any) => {
+    lastSentRef.current = newComp;
+    // Update the ref synchronously: rapid consecutive edits in the same tick
+    // (color drag, slider scrub, batched field updates) must build on the
+    // latest composition instead of the last *rendered* one, or earlier ticks
+    // get overwritten and keystrokes/drag frames are lost.
+    compositionRef.current = newComp;
     setComposition(newComp);
-    onChange(newComp);
+    onChangeRef.current(newComp);
   };
 
   const updateLayer = (idx: number, field: string, val: any) => {
-    const newComp = { ...composition };
+    const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     newComp.children[idx] = { ...newComp.children[idx], [field]: val };
     triggerChange(newComp);
   };
 
   const updateContentFields = (idx: number, updates: Record<string, any>) => {
-    const newComp = { ...composition };
+    const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     const content = { ...(newComp.children[idx]?.content || {}), ...updates };
     newComp.children[idx] = { ...newComp.children[idx], content };
@@ -175,7 +214,7 @@ export const AstGraphicalEditor = ({
   };
 
   const handleAddLayer = () => {
-    const newComp = { ...composition };
+    const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     newComp.children.push({
       type: 'Layer',
@@ -186,14 +225,14 @@ export const AstGraphicalEditor = ({
   };
 
   const handleDeleteLayer = (idx: number) => {
-    const newComp = { ...composition };
+    const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     newComp.children.splice(idx, 1);
     triggerChange(newComp);
   };
 
   const handleDuplicateLayer = (idx: number) => {
-    const newComp = { ...composition };
+    const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     const clone = JSON.parse(JSON.stringify(newComp.children[idx]));
     clone.z_index = (clone.z_index || 0) + 1;
@@ -202,10 +241,10 @@ export const AstGraphicalEditor = ({
   };
 
   const handlePreviewQuery = async (idx: number, queryToSearch: string) => {
-    if (!queryToSearch || !onPreviewSubVisual) return;
+    if (!queryToSearch || !onPreviewRef.current) return;
     setPreviewingIdx(idx);
     try {
-      const p = await onPreviewSubVisual(queryToSearch);
+      const p = await onPreviewRef.current(queryToSearch);
       if (p) {
         updateContent(idx, 'local_path', p);
       }
@@ -220,6 +259,63 @@ export const AstGraphicalEditor = ({
     setExpandedAdvanced(prev => ({ ...prev, [idx]: !prev[idx] }));
   };
 
+  // Stable per-layer API for memoized children: every function reads latest
+  // state through refs, so identities never churn across ticks and sibling
+  // layers memo-skip while one layer is edited.
+  const api: AstLayerApi = useMemo(() => ({
+    updateLayer: (idx, field, val) => updateLayer(idx, field, val),
+    updateContent: (idx, field, val) => updateContent(idx, field, val),
+    updateContentFields: (idx, updates) => updateContentFields(idx, updates),
+    deleteLayer: (idx) => handleDeleteLayer(idx),
+    duplicateLayer: (idx) => handleDuplicateLayer(idx),
+    previewQuery: (idx, query) => { void handlePreviewQuery(idx, query); },
+    toggleAdvanced: (idx) => toggleAdvanced(idx),
+    setAdvancedTab: (idx, tab) => setAdvancedTab(prev => ({ ...prev, [idx]: tab })),
+    openIconPicker: (idx) => setIconPickerIdx(idx),
+    changeType: (idx, newType) => {
+      const comp = compositionRef.current;
+      const copy = { ...comp };
+      copy.children = [...(copy.children || [])];
+      const oldLayer = copy.children[idx] || {};
+      const newContent = { ...(oldLayer.content || {}), type: newType };
+      if (newType === 'Video') {
+        newContent.volume = 0;
+      }
+      copy.children[idx] = { ...oldLayer, content: newContent };
+      triggerChange(copy);
+    },
+    selectIcon: (iconName) => {
+      const pickIdx = iconPickerIdxRef.current;
+      if (pickIdx === null) return;
+      const currentContent = compositionRef.current.children?.[pickIdx]?.content || {};
+      updateContentFields(pickIdx, {
+        type: 'Shape',
+        shape_type: 'icon',
+        icon_name: iconName,
+        stroke: currentContent.stroke || currentContent.fill || '#00d4ff',
+        stroke_width: currentContent.stroke_width ?? 2,
+        radius: currentContent.radius ?? 50,
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
+  // Per-layer stable sub-panel callbacks (index-bound once; api never changes).
+  // Rebuilt only when the layer count changes (add/remove/duplicate).
+  const layerCallbacks = useMemo(() => {
+    const count = (composition.children || []).length;
+    return Array.from({ length: count }, (_, idx) => ({
+      onStyleChange: (val: any) => api.updateContent(idx, 'style', val),
+      onAnimationsChange: (val: any) => api.updateLayer(idx, 'animations', val),
+      onFiltersChange: (val: any) => api.updateLayer(idx, 'filters', val),
+      onChartDataChange: (val: any) => api.updateContent(idx, 'data', val),
+      onHtmlChange: (val: string) => api.updateContent(idx, 'html_content', val),
+      onLocationsChange: (val: any) => api.updateContent(idx, 'locations', val),
+      onAnimationDataChange: (val: any) => api.updateContent(idx, 'animation_data', val),
+      onPreviewQuery: (query: string) => api.previewQuery(idx, query),
+    }));
+  }, [api, (composition.children || []).length]);
+
   const layers = composition.children || [];
 
   return (
@@ -231,7 +327,12 @@ export const AstGraphicalEditor = ({
 
         return (
           <div
-            key={idx}
+            // Index-bound key: layers have no stable ids and content mutates every
+            // tick (so content-hashing would remount on each drag). Include the
+            // content type so an in-place type switch doesn't reuse the wrong
+            // sub-panel instance. Middle insert/delete can still shift per-layer
+            // local drafts (JSON tabs) — sub-panels should stay controlled.
+            key={`${cType}-${idx}`}
             className="p-3 bg-zinc-900/70 border border-zinc-800/90 rounded-xl space-y-3 relative group/layer hover:border-zinc-700/80 transition-all shadow-sm w-full min-w-0"
           >
             {/* Header: Layer Title, Z-Index, and Action Buttons */}
@@ -274,18 +375,7 @@ export const AstGraphicalEditor = ({
               <select
                 className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
                 value={cType}
-                onChange={e => {
-                  const newType = e.target.value as any;
-                  const copy = { ...composition };
-                  copy.children = [...(copy.children || [])];
-                  const oldLayer = copy.children[idx] || {};
-                  const newContent = { ...(oldLayer.content || {}), type: newType };
-                  if (newType === 'Video') {
-                    newContent.volume = 0;
-                  }
-                  copy.children[idx] = { ...oldLayer, content: newContent };
-                  triggerChange(copy);
-                }}
+                onChange={e => api.changeType(idx, e.target.value)}
               >
                 <option value="Image">Image</option>
                 <option value="Video">Video</option>
@@ -616,8 +706,8 @@ export const AstGraphicalEditor = ({
                 {/* Visual Chart Data Points Table */}
                 <div className="w-full">
                   <AstChartDataEditor
-                    data={content.data || []}
-                    onChange={val => updateContent(idx, 'data', val)}
+                    data={content.data || EMPTY_LIST}
+                    onChange={layerCallbacks[idx].onChartDataChange}
                   />
                 </div>
               </div>
@@ -846,7 +936,7 @@ export const AstGraphicalEditor = ({
                 </div>
 
                 <div className="w-full">
-                  <MiniJsonEditor label="Raw Animation Data (JSON Override)" value={content.animation_data || {}} onChange={val => updateContent(idx, 'animation_data', val)} />
+                  <MiniJsonEditor label="Raw Animation Data (JSON Override)" value={content.animation_data || EMPTY_STYLE} onChange={layerCallbacks[idx].onAnimationDataChange} />
                 </div>
               </div>
             )}
@@ -856,7 +946,7 @@ export const AstGraphicalEditor = ({
               <div className="w-full">
                 <AstHtmlCodeEditor
                   value={content.html_content || ''}
-                  onChange={val => updateContent(idx, 'html_content', val)}
+                  onChange={layerCallbacks[idx].onHtmlChange}
                 />
               </div>
             )}
@@ -879,8 +969,8 @@ export const AstGraphicalEditor = ({
                 </div>
                 <div className="w-full">
                   <AstMapLocationsEditor
-                    locations={content.locations || []}
-                    onChange={val => updateContent(idx, 'locations', val)}
+                    locations={content.locations || EMPTY_LIST}
+                    onChange={layerCallbacks[idx].onLocationsChange}
                   />
                 </div>
               </div>
@@ -891,13 +981,15 @@ export const AstGraphicalEditor = ({
               <button
                 type="button"
                 onClick={() => toggleAdvanced(idx)}
-                className="w-full flex items-center justify-between py-1 text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                className="w-full flex items-center justify-start gap-2 py-1 text-left text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
               >
                 <span className="flex items-center gap-1.5">
                   <BsSliders size={11} className="text-amber-400" />
                   Advanced (Layout, Animations, Filters & Motion FX)
                 </span>
-                {isAdvancedOpen ? <BsChevronDown size={11} /> : <BsChevronRight size={11} />}
+                {isAdvancedOpen
+                  ? <BsChevronDown size={11} className="ml-auto shrink-0" />
+                  : <BsChevronRight size={11} className="ml-auto shrink-0" />}
               </button>
 
               {isAdvancedOpen && (
@@ -932,24 +1024,24 @@ export const AstGraphicalEditor = ({
                   {/* Tab 1: Layout & Cards */}
                   {(!advancedTab[idx] || advancedTab[idx] === 'layout') && (
                     <AstLayoutControls
-                      style={content.style || {}}
-                      onChange={val => updateContent(idx, 'style', val)}
+                      style={content.style || EMPTY_STYLE}
+                      onChange={layerCallbacks[idx].onStyleChange}
                     />
                   )}
 
                   {/* Tab 2: Animations */}
                   {advancedTab[idx] === 'animations' && (
                     <AstAnimationBuilder
-                      animations={layer.animations || []}
-                      onChange={val => updateLayer(idx, 'animations', val)}
+                      animations={layer.animations || EMPTY_LIST}
+                      onChange={layerCallbacks[idx].onAnimationsChange}
                     />
                   )}
 
                   {/* Tab 3: Filters */}
                   {advancedTab[idx] === 'filters' && (
                     <AstFilterControls
-                      filters={layer.filters || []}
-                      onChange={val => updateLayer(idx, 'filters', val)}
+                      filters={layer.filters || EMPTY_LIST}
+                      onChange={layerCallbacks[idx].onFiltersChange}
                     />
                   )}
 
@@ -1063,7 +1155,7 @@ export const AstGraphicalEditor = ({
         onClose={() => setIconPickerIdx(null)}
         onSelectIcon={(iconName) => {
           if (iconPickerIdx !== null) {
-            const currentContent = composition.children?.[iconPickerIdx]?.content || {};
+            const currentContent = compositionRef.current.children?.[iconPickerIdx]?.content || {};
             updateContentFields(iconPickerIdx, {
               type: 'Shape',
               shape_type: 'icon',
@@ -1074,7 +1166,7 @@ export const AstGraphicalEditor = ({
             });
           }
         }}
-        currentIcon={iconPickerIdx !== null ? (composition.children?.[iconPickerIdx]?.content?.icon_name || 'trending-up') : undefined}
+        currentIcon={iconPickerIdx !== null ? (compositionRef.current.children?.[iconPickerIdx]?.content?.icon_name || 'trending-up') : undefined}
       />
     </div>
   );

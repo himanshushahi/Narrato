@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import { BiTrashAlt, BiPlus } from 'react-icons/bi';
 import { BsPalette, BsCodeSquare } from 'react-icons/bs';
 
@@ -21,7 +21,7 @@ const PALETTES: { label: string; icon: string; colors: string[] }[] = [
   { label: 'Sunset Flame', icon: '🔥', colors: ['#ef4444', '#f97316', '#eab308', '#dc2626', '#fb923c'] },
 ];
 
-export const AstChartDataEditor: React.FC<AstChartDataEditorProps> = ({
+const AstChartDataEditorInner: React.FC<AstChartDataEditorProps> = ({
   data = [],
   onChange,
 }) => {
@@ -191,3 +191,6 @@ export const AstChartDataEditor: React.FC<AstChartDataEditorProps> = ({
     </div>
   );
 };
+
+export const AstChartDataEditor = memo(AstChartDataEditorInner);
+AstChartDataEditor.displayName = 'AstChartDataEditor';

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { ASTAnimation } from '../../../components/video/ASTAnimator';
 import { BiTrashAlt, BiPlus, BiCopy } from 'react-icons/bi';
 import { BsLightningCharge } from 'react-icons/bs';
@@ -63,7 +63,7 @@ const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
   },
 ];
 
-export const AstAnimationBuilder: React.FC<AstAnimationBuilderProps> = ({
+const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
   animations = [],
   onChange,
 }) => {
@@ -300,3 +300,6 @@ export const AstAnimationBuilder: React.FC<AstAnimationBuilderProps> = ({
     </div>
   );
 };
+
+export const AstAnimationBuilder = memo(AstAnimationBuilderInner);
+AstAnimationBuilder.displayName = 'AstAnimationBuilder';
