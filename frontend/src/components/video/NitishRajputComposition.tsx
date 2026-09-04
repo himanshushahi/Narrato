@@ -19,6 +19,15 @@ interface SubVisual {
   mute_bg_music?: boolean;
   /** Entrance transition animation */
   transition?: string;
+  /** Mid-cut punch-in zooms (MrBeast-style emphasis): sudden scale-up + settle. */
+  emphasis?: EmphasisMark[];
+}
+
+/** One punch-in: `at` seconds (sub-relative) zoom to `scale` over `duration` seconds. */
+export interface EmphasisMark {
+  at: number;
+  scale?: number;
+  duration?: number;
 }
 
 export interface Scene {
@@ -235,8 +244,9 @@ const SubGate: React.FC<{
   subFrom: number;
   subDuration: number;
   transition?: string;
+  emphasis?: EmphasisMark[];
   children: React.ReactNode;
-}> = ({ subFrom, subDuration, transition, children }) => {
+}> = ({ subFrom, subDuration, transition, emphasis, children }) => {
   // frame is scene-relative here (SubGate lives inside SceneGate's Sequence).
   const frame = useCurrentFrame();
   const isRendering = getRemotionEnvironment().isRendering;
@@ -245,10 +255,52 @@ const SubGate: React.FC<{
   return isNear ? (
     <Sequence from={subFrom} durationInFrames={subDuration} premountFor={30}>
       <SubVisualTransitionWrapper transition={transition} durationInFrames={subDuration}>
-        {children}
+        <EmphasisWrapper emphasis={emphasis}>
+          {children}
+        </EmphasisWrapper>
       </SubVisualTransitionWrapper>
     </Sequence>
   ) : null;
+};
+
+/**
+ * Mid-cut punch-in zooms (MrBeast-style emphasis energy): at each mark the
+ * content snaps to `scale` with a fast ease-out attack, then settles back to
+ * 1.0 over the mark duration. Pure function of frame — deterministic for
+ * scrubbing and headless export. Zero-cost passthrough when empty.
+ */
+const EmphasisWrapper: React.FC<{
+  emphasis?: EmphasisMark[];
+  children: React.ReactNode;
+}> = ({ emphasis, children }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  if (!emphasis || emphasis.length === 0) return <>{children}</>;
+  let total = 1;
+  for (const m of emphasis) {
+    if (!m || typeof m.at !== 'number') continue;
+    const peak = Math.min(1.6, Math.max(1.02, typeof m.scale === 'number' ? m.scale : 1.12));
+    const dur = Math.min(2, Math.max(0.2, typeof m.duration === 'number' ? m.duration : 0.5));
+    const startF = Math.max(0, Math.round(m.at * fps));
+    const durF = Math.max(2, Math.round(dur * fps));
+    const attack = interpolate(frame, [startF, startF + durF * 0.35], [0, 1], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+      easing: Easing.out(Easing.cubic),
+    });
+    const release = interpolate(frame, [startF + durF * 0.35, startF + durF], [0, 1], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+      easing: Easing.inOut(Easing.ease),
+    });
+    total *= 1 + (peak - 1) * attack * (1 - release);
+  }
+  if (total === 1) return <>{children}</>;
+  return (
+    <div style={{ width: '100%', height: '100%', transform: `scale(${total})`, transformOrigin: 'center center' }}>
+      {children}
+    </div>
+  );
 };
 
 const isFrameInRanges = (frame: number, ranges: Array<{ start: number; end: number }>): boolean =>
@@ -417,6 +469,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
                 subFrom={subFrom}
                 subDuration={subDuration}
                 transition={subVis.transition}
+                emphasis={subVis.emphasis}
               >
                 {renderSubVisual(subVis)}
               </SubGate>

@@ -5,7 +5,7 @@ import { VscTrash } from 'react-icons/vsc';
 import {
   Image as ImageIcon, Map as MapIcon, Layers,
   BarChart3, Shapes, Type, Video as VideoIcon,
-  Code, Sparkles, Zap, ZoomIn, ZoomOut, MoveRight,
+  Code, Sparkles, Sparkle, Zap, ZoomIn, ZoomOut, MoveRight,
   Minus
 } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
@@ -47,6 +47,7 @@ const AST_PRIMITIVE_BADGES: Record<string, { label: string; icon: React.ElementT
   Map: { label: 'Map', icon: MapIcon, color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
   HTML: { label: 'HTML', icon: Code, color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' },
   Lottie: { label: 'Lottie', icon: Sparkles, color: 'bg-violet-500/20 text-violet-300 border-violet-500/30' },
+  Particles: { label: 'Particles', icon: Sparkle, color: 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30' },
 };
 
 const extractAstPrimitives = (subVisual: any): string[] => {
@@ -321,6 +322,16 @@ const SubVisualBlock: React.FC<SubVisualBlockProps> = React.memo(({
             <span className="text-[7px] font-mono font-bold px-1 py-0.2 rounded-none bg-black/80 text-cyan-300 border border-cyan-500/30 shrink-0">
               #{block.subIdx + 1}
             </span>
+
+            {/* Punch-in emphasis marker */}
+            {Array.isArray((block.raw as any)?.emphasis) && (block.raw as any).emphasis.length > 0 && (
+              <span
+                className="text-[7px] font-mono font-bold px-1 py-0.2 rounded-none bg-black/80 text-amber-300 border border-amber-500/30 shrink-0"
+                title={`${(block.raw as any).emphasis.length} punch-in zoom${(block.raw as any).emphasis.length > 1 ? 's' : ''} — edit in Visuals tab`}
+              >
+                🎯{(block.raw as any).emphasis.length}
+              </span>
+            )}
 
             {/* Primitive type badges */}
             {block.astTypes.map((t) => {

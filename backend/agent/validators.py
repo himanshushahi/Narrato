@@ -79,6 +79,32 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             "transition": normalize_transition(v.get("transition", "cut")),
             "duration": dur,
         }
+        # Mid-cut punch-in zooms: [{at, scale, duration}] — sanitize ranges so
+        # a bad mark can never break the renderer (clamped again client-side).
+        if isinstance(v.get("emphasis"), list):
+            marks = []
+            for m in v["emphasis"]:
+                if not isinstance(m, dict):
+                    continue
+                try:
+                    at = max(0.0, float(m.get("at", 0)))
+                except (ValueError, TypeError):
+                    continue
+                try:
+                    scale = float(m.get("scale", 1.12))
+                except (ValueError, TypeError):
+                    scale = 1.12
+                try:
+                    mark_dur = float(m.get("duration", 0.5))
+                except (ValueError, TypeError):
+                    mark_dur = 0.5
+                marks.append({
+                    "at": round(min(at, dur), 2),
+                    "scale": round(min(1.6, max(1.02, scale)), 3),
+                    "duration": round(min(2.0, max(0.2, mark_dur)), 2),
+                })
+            if marks:
+                entry["emphasis"] = marks
         if "subtitle_position" in v and v["subtitle_position"] in ("bottom", "top", "hidden"):
             entry["subtitle_position"] = v["subtitle_position"]
         if "visual_path" in v:

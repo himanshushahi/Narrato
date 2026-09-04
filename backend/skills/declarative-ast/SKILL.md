@@ -66,7 +66,7 @@ Every layer should move with purpose according to its role, creating a tactile *
 
 ---
 
-## 4. The 8 Valid AST Content Types & Motion Modifiers
+## 4. The 9 Valid AST Content Types & Motion Modifiers
 
 The `content` object inside every `Layer` must specify one of the **8 supported types**:
 
@@ -126,12 +126,22 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 ### 8. `HTML` (Universal Dynamic Canvas: Evidence Memos, UI Mocks, Custom Shapes, Timelines)
 * `html_content`: Custom inline HTML/SVG/CSS markup. Ideal for bespoke leaked documents, chat bubbles, technical HUD blueprints, comparison cards, and metric tickers.
 
+### 9. `Particles` (Canvas Confetti, Embers, Dust, Money Rain, Snow & Stars)
+* `particle_preset`: `"confetti"` (celebrations) | `"embers"` (fire/energy/crisis, rises) | `"dust"` (ambient depth) | `"money_rain"` (finance/profits) | `"snow"` | `"stars"` (twinkling night sky).
+* Optional tuning: `particle_count` (10–300), `particle_colors` (hex palette override), `particle_size` ([min_px, max_px] at 1080p), `particle_speed` (multiplier), `particle_direction` ("up"/"down"/"left"/"right"/"outward"/"twinkle"), `particle_opacity` (0–1).
+* RULES: exactly ONE Particles layer per cut, always topmost (`z_index` 30–39), pointer-transparent overlay — it decorates, never covers key content. Match the preset to the emotion of the narration beat (profits → money_rain, scandal → embers, victory → confetti).
+
 ---
 
 ### Universal Layer Motion Modifiers
 Every `Layer` can additionally specify:
 * `motion_blur: true` — Applies realistic camera shutter motion blur to moving elements and fast spring entrances (`shutter_angle: 180`).
 * `camera_shake: "handheld" | "shockwave" | "glitch"` — Procedural Perlin noise camera drift or impact shock.
+* `emphasis: [...]` — **Sub-visual level** (sibling of `transition`, NOT inside layers): mid-cut punch-in zooms for MrBeast-style energy. Each mark `{"at": <seconds into cut>, "scale": <1.02–1.6 peak zoom>, "duration": <0.2–2s>}` snaps the whole cut to `scale` then settles back. Example: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]`. RULES: 0–2 marks per cut, only on cuts ≥2s, `at` + `duration` must fit inside the cut duration, place marks on the single most shocking word/stat of the narration beat — never on every cut.
+* `filters: [...]` — 2026 FX pack color-grade / look applied to the layer (array of CSS/SVG filter strings, combine freely):
+  * Cinematic CSS looks: `Neon Glow Pop` → `["drop-shadow(0 0 22px rgba(255,0,200,0.75))", "saturate(1.5)", "contrast(1.2)"]`; `Cyberpunk` → `["hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)"]`; `Golden Hour` → `["sepia(0.45)", "saturate(1.6)", "brightness(1.05)"]`; `Bleach Bypass` → `["grayscale(0.4)", "contrast(1.5)"]`; `Night Vision` → `["sepia(1)", "hue-rotate(70deg)", "saturate(3)", "contrast(1.2)"]`; `Thermal False-Color` → `["grayscale(1)", "invert(1)", "hue-rotate(190deg)", "saturate(4)"]`; `Noir Hard` → `["grayscale(1)", "contrast(1.8)"]`; `Dream Blur` → `["blur(1.5px)", "brightness(1.15)", "saturate(1.3)"]`.
+  * SVG-filter looks (rendered identically in preview + export): `"url(#fx-emboss)"` relief, `"url(#fx-sharpen)"` footage bite, `"url(#fx-posterize)"` comic quantization, `"url(#fx-duotone-midnight)"` navy→cyan grade, `"url(#fx-duotone-inferno)"` black→orange grade, `"url(#fx-thermal)"` true heat-band thermal vision.
+  * RULES: use at most ONE SVG `url(#fx-*)` look per layer (they replace each other); CSS looks compose freely after it. Prefer FX on full-bleed media layers (evidence photos, B-roll, maps) — 1 FX cut per 3–4 cuts max, so the video keeps a consistent base grade.
 
 ---
 

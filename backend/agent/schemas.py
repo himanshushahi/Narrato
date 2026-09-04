@@ -166,7 +166,7 @@ class MapLocation(AppBaseModel):
 
 class LayerContent(AppBaseModel):
     """Rich polymorphic content payload for an AST Layer."""
-    type: Literal["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie"] = Field(..., description="Content type: Image, Video, Text, Chart, Shape, Map, HTML, Lottie")
+    type: Literal["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie", "Particles"] = Field(..., description="Content type: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles")
     query: Optional[str] = Field(default=None, description="Search query for Pexels, Wikipedia, Pixabay, or YouTube (if Image/Video)")
     source: Optional[str] = Field(default=None, description="Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed.", json_schema_extra={"enum": ["pexels", "wikipedia", "pixabay", "youtube"]})
     text: Optional[str] = Field(default=None, description="Text content (if Text)")
@@ -213,6 +213,14 @@ class LayerContent(AppBaseModel):
     volume: Optional[float] = Field(default=None, description="Audio volume from 0 to 1 (default 0 for Video)")
     locations: Optional[List[Union[MapLocation, Dict[str, Any]]]] = Field(default=None, description="Locations to map (if Map)")
     map_style: Optional[str] = Field(default=None, description="Style of map (if Map)", json_schema_extra={"enum": ["vintage", "modern_dark", "minimal_light", "nautical_blue"]})
+    # Particles properties (canvas confetti / embers / dust / money / snow / stars)
+    particle_preset: Optional[str] = Field(default=None, description="Particle preset (if Particles)", json_schema_extra={"enum": ["confetti", "embers", "dust", "money_rain", "snow", "stars"]})
+    particle_count: Optional[int] = Field(default=None, description="Particle count 10-300 (if Particles)")
+    particle_colors: Optional[List[str]] = Field(default=None, description="Override palette hex colors (if Particles)")
+    particle_size: Optional[List[float]] = Field(default=None, description="[min_px, max_px] particle size at 1080p (if Particles)")
+    particle_speed: Optional[float] = Field(default=None, description="Global speed multiplier (if Particles)")
+    particle_direction: Optional[str] = Field(default=None, description="Motion direction (if Particles)", json_schema_extra={"enum": ["up", "down", "left", "right", "outward", "twinkle"]})
+    particle_opacity: Optional[float] = Field(default=None, description="Master opacity 0-1 (if Particles)")
     image_type: Optional[str] = Field(default=None, description="Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons.", json_schema_extra={"enum": ["all", "photo", "illustration", "vector"]})
     yt_start_offset: Optional[float] = Field(default=None, description="Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15.")
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
@@ -257,6 +265,7 @@ class SubVisualAST(AppBaseModel):
     duration: float = Field(..., gt=0, description="Precise duration in seconds")
     composition: Union[SequenceComposition, Dict[str, Any]] = Field(..., description="Declarative AST composition")
     transition: Optional[str] = Field(default="cut", description="Transition into this cut (cut, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none)")
+    emphasis: Optional[List[Dict[str, Any]]] = Field(default=None, description="Mid-cut punch-in zooms: [{at: seconds sub-relative, scale: peak zoom 1.02-1.6, duration: seconds 0.2-2}]")
     subtitle_position: Optional[str] = Field(default=None, description="Subtitle placement override (bottom/top/hidden)")
     visual_path: Optional[str] = Field(default=None, description="Resolved local media file path")
     visual_url: Optional[str] = Field(default=None, description="Stock media URL")

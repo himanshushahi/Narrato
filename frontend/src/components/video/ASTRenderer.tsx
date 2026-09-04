@@ -6,12 +6,14 @@ import { ChartRenderer, ChartDataItem } from './ChartRenderer';
 import { ShapeRenderer } from './ShapeRenderer';
 import { KineticText } from './KineticText';
 import { LottieRenderer } from './LottieRenderer';
+import { ParticlesRenderer, ParticlePreset } from './ParticlesRenderer';
 import { CameraShakeType } from './CameraNoise';
 import { ASTErrorBoundary } from './ASTErrorBoundary';
+import { FxFilterDefs } from './FxFilterDefs';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
 
 interface ASTLayerContent {
-  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Shape' | 'Lottie';
+  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Shape' | 'Lottie' | 'Particles';
   local_path?: string;
   text?: string;
   font?: string;
@@ -59,6 +61,15 @@ interface ASTLayerContent {
   animation_mode?: 'static' | 'words_stagger' | 'typewriter' | 'marker_highlight';
   highlight_color?: string;
   highlight_words?: string[];
+
+  // Particles props
+  particle_preset?: ParticlePreset;
+  particle_count?: number;
+  particle_colors?: string[];
+  particle_size?: [number, number];
+  particle_speed?: number;
+  particle_direction?: 'up' | 'down' | 'left' | 'right' | 'outward' | 'twinkle';
+  particle_opacity?: number;
 }
 
 export interface ASTLayer {
@@ -227,6 +238,9 @@ export const ASTRenderer: React.FC<{
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#0c0a09' }}>
+      {/* 2026 FX pack: static SVG filter defs referenced via url(#fx-*) tokens
+          in layer `filters` arrays. Rendered once per composition. */}
+      <FxFilterDefs />
       {composition.children.map((layer, idx) => {
         const { content, animations, filters, z_index } = layer;
         const contentStyle = (content as any).style as React.CSSProperties | undefined;
@@ -314,6 +328,19 @@ export const ASTRenderer: React.FC<{
               loop={content.loop}
               playback_rate={content.playback_rate}
               direction={(content.lottie_direction || content.direction) as ('forward' | 'backward') | undefined}
+              style={innerStyle}
+            />
+          );
+        } else if (content.type === 'Particles') {
+          node = (
+            <ParticlesRenderer
+              preset={content.particle_preset || 'confetti'}
+              count={content.particle_count}
+              colors={content.particle_colors}
+              size={content.particle_size as [number, number] | undefined}
+              speed={content.particle_speed}
+              direction={content.particle_direction}
+              opacity={content.particle_opacity}
               style={innerStyle}
             />
           );

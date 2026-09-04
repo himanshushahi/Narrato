@@ -291,6 +291,73 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                   </select>
                 </div>
 
+                {/* Punch-in Emphasis Marks: mid-cut zoom snaps */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 shrink-0">
+                      🎯 Punch-ins ({(sv.emphasis || []).length}):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const dur = typeof sv.duration === 'number' && sv.duration > 0 ? sv.duration : 3;
+                        const marks = [...(sv.emphasis || [])];
+                        marks.push({ at: Number(Math.min(Math.max(0.5, dur / 3), Math.max(0, dur - 0.6)).toFixed(2)), scale: 1.12, duration: 0.5 });
+                        handleUpdate(idx, 'emphasis', marks);
+                      }}
+                      className="text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded cursor-pointer"
+                      title="Add a punch-in zoom (sudden scale-up + settle) at 1/3 into this cut"
+                    >
+                      + Add
+                    </button>
+                  </div>
+                  {(sv.emphasis || []).map((m: any, mIdx: number) => {
+                    const dur = typeof sv.duration === 'number' && sv.duration > 0 ? sv.duration : 3;
+                    const setMark = (patch: Record<string, any>) => {
+                      const marks = [...(sv.emphasis || [])];
+                      marks[mIdx] = { ...marks[mIdx], ...patch };
+                      handleUpdate(idx, 'emphasis', marks);
+                    };
+                    const delMark = () => {
+                      handleUpdate(idx, 'emphasis', (sv.emphasis || []).filter((_: any, i: number) => i !== mIdx));
+                    };
+                    return (
+                      <div key={mIdx} className="p-2 bg-black/40 border border-white/10 rounded-lg space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-bold text-stone-400">Punch {mIdx + 1}</span>
+                          <button type="button" onClick={delMark}
+                            className="text-[9px] text-stone-500 hover:text-red-400 uppercase font-semibold cursor-pointer">
+                            Remove
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <label className="space-y-0.5">
+                            <span className="text-[8px] font-bold uppercase text-stone-500">At (s)</span>
+                            <input type="number" min={0} max={dur} step={0.1}
+                              value={m?.at ?? 0}
+                              onChange={e => setMark({ at: Math.min(dur, Math.max(0, parseFloat(e.target.value) || 0)) })}
+                              className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-1 text-[11px] font-mono text-stone-200 focus:outline-none focus:border-amber-500/50" />
+                          </label>
+                          <label className="space-y-0.5">
+                            <span className="text-[8px] font-bold uppercase text-stone-500">Zoom</span>
+                            <input type="number" min={1.02} max={1.6} step={0.01}
+                              value={m?.scale ?? 1.12}
+                              onChange={e => setMark({ scale: Math.min(1.6, Math.max(1.02, parseFloat(e.target.value) || 1.12)) })}
+                              className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-1 text-[11px] font-mono text-stone-200 focus:outline-none focus:border-amber-500/50" />
+                          </label>
+                          <label className="space-y-0.5">
+                            <span className="text-[8px] font-bold uppercase text-stone-500">Secs</span>
+                            <input type="number" min={0.2} max={2} step={0.1}
+                              value={m?.duration ?? 0.5}
+                              onChange={e => setMark({ duration: Math.min(2, Math.max(0.2, parseFloat(e.target.value) || 0.5)) })}
+                              className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-1 text-[11px] font-mono text-stone-200 focus:outline-none focus:border-amber-500/50" />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {/* Audio Cut toggles: 50% / 50% Equal Horizontal Split */}
                 <div className="grid grid-cols-2 gap-2 w-full">
                   <button

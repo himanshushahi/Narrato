@@ -45,6 +45,78 @@ const FILTER_PRESETS: { label: string; icon: string; filters: string[] }[] = [
     icon: '👻',
     filters: ['mix-blend-mode: overlay'],
   },
+  // ── 2026 FX pack: CSS-grade cinematic looks ──────────────────────────
+  {
+    label: 'Neon Glow Pop',
+    icon: '🌆',
+    filters: ['drop-shadow(0 0 22px rgba(255,0,200,0.75))', 'saturate(1.5)', 'contrast(1.2)'],
+  },
+  {
+    label: 'Cyberpunk',
+    icon: '🤖',
+    filters: ['hue-rotate(-35deg)', 'saturate(1.8)', 'contrast(1.25)'],
+  },
+  {
+    label: 'Golden Hour',
+    icon: '🌅',
+    filters: ['sepia(0.45)', 'saturate(1.6)', 'brightness(1.05)', 'contrast(1.05)'],
+  },
+  {
+    label: 'Bleach Bypass',
+    icon: '🥋',
+    filters: ['grayscale(0.4)', 'contrast(1.5)', 'brightness(1.05)'],
+  },
+  {
+    label: 'Night Vision',
+    icon: '🌙',
+    filters: ['sepia(1)', 'hue-rotate(70deg)', 'saturate(3)', 'brightness(0.9)', 'contrast(1.2)'],
+  },
+  {
+    label: 'Thermal False-Color',
+    icon: '🌡️',
+    filters: ['grayscale(1)', 'invert(1)', 'hue-rotate(190deg)', 'saturate(4)', 'contrast(1.2)'],
+  },
+  {
+    label: 'Noir Hard',
+    icon: '🎬',
+    filters: ['grayscale(1)', 'contrast(1.8)', 'brightness(0.95)'],
+  },
+  {
+    label: 'Dream Blur',
+    icon: '☁️',
+    filters: ['blur(1.5px)', 'brightness(1.15)', 'saturate(1.3)'],
+  },
+  // ── 2026 FX pack: SVG-filter looks (defs in FxFilterDefs) ────────────
+  {
+    label: 'Emboss Relief',
+    icon: '🗿',
+    filters: ['url(#fx-emboss)'],
+  },
+  {
+    label: 'Sharpen Footage',
+    icon: '🔍',
+    filters: ['url(#fx-sharpen)'],
+  },
+  {
+    label: 'Posterize Pop',
+    icon: '🎨',
+    filters: ['url(#fx-posterize)', 'saturate(1.4)'],
+  },
+  {
+    label: 'Midnight Duotone',
+    icon: '🌌',
+    filters: ['url(#fx-duotone-midnight)'],
+  },
+  {
+    label: 'Inferno Duotone',
+    icon: '🔥',
+    filters: ['url(#fx-duotone-inferno)'],
+  },
+  {
+    label: 'Thermal X-Ray',
+    icon: '📡',
+    filters: ['url(#fx-thermal)'],
+  },
 ];
 
 const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
@@ -76,6 +148,13 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
   const blendMatch = filterString.match(/mix-blend-mode:\s*([a-zA-Z-]+)/);
   const blendMode = blendMatch ? blendMatch[1] : 'normal';
 
+  // FX tokens the sliders don't model (SVG url() looks, saturate,
+  // hue-rotate, invert, blur, drop-shadow…) survive slider edits: the
+  // sliders only own brightness/contrast/grayscale/sepia/blend, so carry
+  // everything else through untouched.
+  const SLIDER_OWNED = /^(brightness|contrast|grayscale|sepia)\([\d.]+(?:%|px)?\)$|^mix-blend-mode:/;
+  const extraTokens = (filters || []).filter((f) => !SLIDER_OWNED.test(f.trim()));
+
   const updateFilters = (newVals: {
     brightness?: number;
     contrast?: number;
@@ -95,6 +174,11 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
     if (g > 0) list.push(`grayscale(${g.toFixed(2)})`);
     if (s > 0) list.push(`sepia(${s.toFixed(2)})`);
     if (bm && bm !== 'normal') list.push(`mix-blend-mode: ${bm}`);
+    // Re-attach untouched FX tokens (SVG url() looks, drop-shadows, etc.)
+    // that the sliders don't model, so grading never wipes the FX pack.
+    for (const t of extraTokens) {
+      if (!list.includes(t)) list.push(t);
+    }
 
     onChange(list);
   };

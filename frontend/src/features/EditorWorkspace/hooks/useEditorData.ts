@@ -176,6 +176,8 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             ...osv,
             transition: resolvedTransition,
             transition_type: resolvedTransition,
+            // Script is the source of truth for punch-ins too (same reason).
+            emphasis: (lsv as any).emphasis ?? (osv as any).emphasis,
             visual_meta: lsv.visual_meta,
             transform: lsv.transform,
             duration_ratio: lsv.duration_ratio,

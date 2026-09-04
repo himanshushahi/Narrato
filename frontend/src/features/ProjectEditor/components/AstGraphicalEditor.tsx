@@ -13,6 +13,7 @@ import { AstFilterControls } from './AstFilterControls';
 import { AstChartDataEditor } from './AstChartDataEditor';
 import { AstMapLocationsEditor } from './AstMapLocationsEditor';
 import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
+import { AstParticlesEditor } from './AstParticlesEditor';
 
 const SUPPORTED_FONTS = [
   {
@@ -312,6 +313,11 @@ export const AstGraphicalEditor = ({
       if (newType === 'Video') {
         newContent.volume = 0;
       }
+      if (newType === 'Particles') {
+        newContent.particle_preset = newContent.particle_preset || 'confetti';
+        newContent.particle_count = newContent.particle_count ?? 100;
+        newContent.particle_opacity = newContent.particle_opacity ?? 0.9;
+      }
       copy.children[idx] = { ...oldLayer, content: newContent };
       triggerChange(copy);
     },
@@ -340,6 +346,7 @@ export const AstGraphicalEditor = ({
       onAnimationsChange: (val: any) => api.updateLayer(idx, 'animations', val),
       onFiltersChange: (val: any) => api.updateLayer(idx, 'filters', val),
       onChartDataChange: (val: any) => api.updateContent(idx, 'data', val),
+      onParticlesChange: (updates: Record<string, any>) => api.updateContentFields(idx, updates),
       onHtmlChange: (val: string) => api.updateContent(idx, 'html_content', val),
       onLocationsChange: (val: any) => api.updateContent(idx, 'locations', val),
       onAnimationDataChange: (val: any) => api.updateContent(idx, 'animation_data', val),
@@ -413,6 +420,7 @@ export const AstGraphicalEditor = ({
                 <option value="Chart">Chart (Bar/Line/Pie)</option>
                 <option value="Shape">Shape / Vector (Native)</option>
                 <option value="Lottie">Lottie (Vector Animation)</option>
+                <option value="Particles">Particles (Confetti/Embers…)</option>
                 <option value="HTML">HTML / SVG (Custom)</option>
                 <option value="Map">Map</option>
               </select>
@@ -738,6 +746,23 @@ export const AstGraphicalEditor = ({
                   <AstChartDataEditor
                     data={content.data || EMPTY_LIST}
                     onChange={layerCallbacks[idx].onChartDataChange}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Dynamic Content Fields for Particles */}
+            {cType === 'Particles' && (
+              <div className="space-y-2.5">
+                <div className="w-full">
+                  <AstParticlesEditor
+                    preset={content.particle_preset || 'confetti'}
+                    count={content.particle_count}
+                    size={content.particle_size}
+                    speed={content.particle_speed}
+                    opacity={content.particle_opacity ?? 0.9}
+                    direction={content.particle_direction}
+                    onChange={layerCallbacks[idx].onParticlesChange}
                   />
                 </div>
               </div>
