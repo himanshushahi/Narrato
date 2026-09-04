@@ -57,9 +57,9 @@ const SUPPORTED_FONTS = [
 
 hljs.registerLanguage('json', json);
 
-/** Stable empty fallbacks so memoized sub-panels don't see a fresh {} / [] per tick. */
-const EMPTY_STYLE: Record<string, any> = {};
-const EMPTY_LIST: any[] = [];
+/** Stable empty fallbacks so memoized sub-panels don't see a fresh {} / [] per tick. Frozen — never mutate. */
+const EMPTY_STYLE: Record<string, any> = Object.freeze({}) as Record<string, any>;
+const EMPTY_LIST: any[] = Object.freeze([] as any[]) as any[];
 
 export interface AstLayerApi {
   updateLayer: (idx: number, field: string, val: any) => void;
@@ -161,30 +161,61 @@ export const AstGraphicalEditor = ({
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
 
   // Identity of the last composition we sent upstream. Parent propagation is
-  // synchronous, so our own echo arrives with this exact reference — skip it
-  // in O(1) instead of deep-comparing (JSON.stringify per tick, brutal with
-  // embedded Lottie JSON). Genuinely external objects always sync.
+  // synchronous in the common path, so our own echo arrives with this exact
+  // reference — skip it in O(1). Upstream clones (history snapshot, JSON
+  // round-trip, `|| {}` fallback) arrive with a new reference but identical
+  // content — skip those via a JSON signature so in-progress drafts survive.
+  // The stringify runs only when initialValue identity changes (echo/external),
+  // never per keystroke/drag tick.
   const lastSentRef = useRef<any>(null);
+  const lastSentJsonRef = useRef<string | null>(null);
+  const safeStringify = (v: any): string | null => {
+    try {
+      const s = JSON.stringify(v ?? null);
+      // Cap signature size: huge embedded Lottie JSON shouldn't be re-hashed
+      // on every echo; fall back to reference check in that case.
+      return s.length > 500000 ? null : s;
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
-    if (initialValue && initialValue !== lastSentRef.current) {
-      setComposition(initialValue);
+    if (!initialValue) return;
+    if (initialValue === lastSentRef.current) return;
+    // Own echo, just cloned upstream: adopt the new reference, keep local draft.
+    if (lastSentJsonRef.current !== null) {
+      const incomingJson = safeStringify(initialValue);
+      if (incomingJson !== null && incomingJson === lastSentJsonRef.current) {
+        lastSentRef.current = initialValue;
+        return;
+      }
     }
+    // No-op when the parent is already showing what we render.
+    const incomingStr = safeStringify(initialValue);
+    const currentStr = safeStringify(compositionRef.current);
+    if (incomingStr !== null && currentStr !== null && incomingStr === currentStr) {
+      lastSentRef.current = initialValue;
+      return;
+    }
+    setComposition(initialValue);
   }, [initialValue]);
 
   // Latest-value refs so every mutator below reads current state even when
   // called through the stable api object (memoized panels, async handlers).
+  // Synced in effects/events only — never during render (concurrent-mode tear).
   const compositionRef = useRef(composition);
-  compositionRef.current = composition;
   const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
   const onPreviewRef = useRef(onPreviewSubVisual);
-  onPreviewRef.current = onPreviewSubVisual;
   const iconPickerIdxRef = useRef(iconPickerIdx);
-  iconPickerIdxRef.current = iconPickerIdx;
+  useEffect(() => { compositionRef.current = composition; }, [composition]);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => { onPreviewRef.current = onPreviewSubVisual; }, [onPreviewSubVisual]);
+  useEffect(() => { iconPickerIdxRef.current = iconPickerIdx; }, [iconPickerIdx]);
 
   const triggerChange = (newComp: any) => {
     lastSentRef.current = newComp;
+    lastSentJsonRef.current = safeStringify(newComp);
     // Update the ref synchronously: rapid consecutive edits in the same tick
     // (color drag, slider scrub, batched field updates) must build on the
     // latest composition instead of the last *rendered* one, or earlier ticks
@@ -271,7 +302,7 @@ export const AstGraphicalEditor = ({
     previewQuery: (idx, query) => { void handlePreviewQuery(idx, query); },
     toggleAdvanced: (idx) => toggleAdvanced(idx),
     setAdvancedTab: (idx, tab) => setAdvancedTab(prev => ({ ...prev, [idx]: tab })),
-    openIconPicker: (idx) => setIconPickerIdx(idx),
+    openIconPicker: (idx) => { iconPickerIdxRef.current = idx; setIconPickerIdx(idx); },
     changeType: (idx, newType) => {
       const comp = compositionRef.current;
       const copy = { ...comp };
@@ -327,12 +358,11 @@ export const AstGraphicalEditor = ({
 
         return (
           <div
-            // Index-bound key: layers have no stable ids and content mutates every
-            // tick (so content-hashing would remount on each drag). Include the
-            // content type so an in-place type switch doesn't reuse the wrong
-            // sub-panel instance. Middle insert/delete can still shift per-layer
-            // local drafts (JSON tabs) — sub-panels should stay controlled.
-            key={`${cType}-${idx}`}
+            // Index-bound key: layers have no stable ids. Keep the layer shell
+            // stable across in-place type switches (Image<->Video share a branch)
+            // so focus and per-layer drafts survive; type-specific sub-panels
+            // are different component types and remount on their own.
+            key={idx}
             className="p-3 bg-zinc-900/70 border border-zinc-800/90 rounded-xl space-y-3 relative group/layer hover:border-zinc-700/80 transition-all shadow-sm w-full min-w-0"
           >
             {/* Header: Layer Title, Z-Index, and Action Buttons */}
@@ -1008,11 +1038,10 @@ export const AstGraphicalEditor = ({
                           key={tab.id}
                           type="button"
                           onClick={() => setAdvancedTab(prev => ({ ...prev, [idx]: tab.id as any }))}
-                          className={`py-1 text-[10px] font-bold rounded-md flex items-center justify-center gap-1 transition-colors cursor-pointer truncate ${
-                            active
+                          className={`py-1 text-[10px] font-bold rounded-md flex items-center justify-center gap-1 transition-colors cursor-pointer truncate ${active
                               ? 'bg-amber-500 text-black shadow-sm font-extrabold'
                               : 'text-stone-400 hover:text-stone-200 hover:bg-white/5'
-                          }`}
+                            }`}
                         >
                           <span>{tab.icon}</span>
                           <span className="truncate">{tab.label}</span>
@@ -1152,10 +1181,10 @@ export const AstGraphicalEditor = ({
       {/* Lucide Icon Picker Modal */}
       <IconPickerModal
         isOpen={iconPickerIdx !== null}
-        onClose={() => setIconPickerIdx(null)}
+        onClose={() => { iconPickerIdxRef.current = null; setIconPickerIdx(null); }}
         onSelectIcon={(iconName) => {
           if (iconPickerIdx !== null) {
-            const currentContent = compositionRef.current.children?.[iconPickerIdx]?.content || {};
+            const currentContent = composition.children?.[iconPickerIdx]?.content || {};
             updateContentFields(iconPickerIdx, {
               type: 'Shape',
               shape_type: 'icon',
@@ -1166,7 +1195,7 @@ export const AstGraphicalEditor = ({
             });
           }
         }}
-        currentIcon={iconPickerIdx !== null ? (compositionRef.current.children?.[iconPickerIdx]?.content?.icon_name || 'trending-up') : undefined}
+        currentIcon={iconPickerIdx !== null ? (composition.children?.[iconPickerIdx]?.content?.icon_name || 'trending-up') : undefined}
       />
     </div>
   );

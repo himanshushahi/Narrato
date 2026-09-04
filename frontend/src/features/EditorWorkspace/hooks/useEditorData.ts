@@ -260,11 +260,15 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   // boundaries return the PREVIOUS array reference, so the Timeline, track
   // components, and sidebar lists memo-skip instead of re-rendering on every
   // keystroke/slider tick. Purely referential — frame values identical.
-  const timingsRef = useRef(rawTimings);
-  if (!sameTimings(timingsRef.current, rawTimings)) {
-    timingsRef.current = rawTimings;
-  }
-  const sceneTimings = timingsRef.current;
+  // Memo with ref comparison prevents 1-render lag and extra paint cycles.
+  const prevTimingsRef = useRef(rawTimings);
+  const sceneTimings = useMemo(() => {
+    if (sameTimings(prevTimingsRef.current, rawTimings)) {
+      return prevTimingsRef.current;
+    }
+    prevTimingsRef.current = rawTimings;
+    return rawTimings;
+  }, [rawTimings]);
 
   const selectedProject = useProjectStore((s) => s.selectedProject);
   const updateProject = useProjectStore((s) => s.updateProject);

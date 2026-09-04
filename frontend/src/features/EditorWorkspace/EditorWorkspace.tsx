@@ -166,12 +166,13 @@ const EditorWorkspace: React.FC = () => {
     const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
 
     // Map timeline index → script.json section (intro / scenes / conclusion).
-    const hasIntro = !!scriptDataRef.current.introduction;
+    // Scene index counts 'scene' manifest entries (same convention as
+    // resolveVisualSelection) so stale intro presence can't shift it.
     const sectionType = manifestScene.section_type;
     let scriptScene: any = null;
     if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
     else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
-    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+    else scriptScene = scriptCopy.scenes?.[manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)];
     if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals.length > 0) {
       const scriptSubs = scriptScene.sub_visuals;
       // Removed unused updateSv
@@ -204,12 +205,11 @@ const EditorWorkspace: React.FC = () => {
     const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
     const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
 
-    const hasIntro = !!scriptDataRef.current.introduction;
     const sectionType = manifestScene.section_type;
     let scriptScene: any = null;
     if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
     else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
-    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+    else scriptScene = scriptCopy.scenes?.[manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)];
 
     if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
       scriptScene.sub_visuals[subIdx].transition = transition;
@@ -357,12 +357,11 @@ const EditorWorkspace: React.FC = () => {
     const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
     const manifestCopy = JSON.parse(JSON.stringify(manifestDataRef.current));
 
-    const hasIntro = !!scriptDataRef.current.introduction;
     const sectionType = manifestScene.section_type;
     let scriptScene: any = null;
     if (sectionType === 'introduction') scriptScene = scriptCopy.introduction;
     else if (sectionType === 'conclusion') scriptScene = scriptCopy.conclusion;
-    else scriptScene = scriptCopy.scenes?.[sceneIdx - (hasIntro ? 1 : 0)];
+    else scriptScene = scriptCopy.scenes?.[manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)];
 
     // Ensure scriptScene has sub_visuals matching manifestScene
     if (scriptScene && !Array.isArray(scriptScene.sub_visuals) && Array.isArray(manifestScene.sub_visuals)) {
@@ -568,19 +567,35 @@ const EditorWorkspace: React.FC = () => {
 
   // ── Visuals editor: select + snapshot + open the Visuals tab ──────────────
   // (Timeline "Edit in Inspector" and keyboard shortcut route here.)
+  // The tab switch is conditional: stale/deleted indices resolve to nothing,
+  // and switching anyway would strand editingCard on the previous section
+  // while the tab shows "No cut selected".
   const handleOpenVisualEditor = useCallback((sceneIdx: number, subIdx: number) => {
-    handleSelectSubVisual(sceneIdx, subIdx);
-    if (manifestDataRef.current && manifestDataRef.current[sceneIdx]) {
-      const scene = manifestDataRef.current[sceneIdx];
-      let cardKey = '';
-      if (scene.section_type === 'introduction') cardKey = 'intro';
-      else if (scene.section_type === 'conclusion') cardKey = 'conclusion';
+    const manifestScene = manifestDataRef.current?.[sceneIdx];
+    if (!manifestScene) return;
+    const sectionType = manifestScene.section_type;
+    let cardKey = '';
+    let sectionExists = false;
+    const doc = scriptDataRef.current;
+    if (sectionType === 'introduction') {
+      cardKey = 'intro';
+      sectionExists = !!doc?.introduction;
+    } else if (sectionType === 'conclusion') {
+      cardKey = 'conclusion';
+      sectionExists = !!doc?.conclusion;
+    } else if (sectionType === 'scene') {
       // Single source of truth with resolveVisualSelection: count 'scene'
       // entries in the manifest so stale intro presence can't shift indices.
-      else cardKey = `scene_${manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)}`;
-
-      handleStartEdit(cardKey, 'visuals');
+      const scriptIdx = manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx);
+      if (doc?.scenes?.[scriptIdx] === undefined) return;
+      cardKey = `scene_${scriptIdx}`;
+      sectionExists = true;
+    } else {
+      return;
     }
+    if (!sectionExists || !cardKey) return;
+    handleSelectSubVisual(sceneIdx, subIdx);
+    handleStartEdit(cardKey, 'visuals');
     setInspectorTab('visuals');
     const timing = sceneTimings[sceneIdx];
     if (timing?.subs?.[subIdx]) {
@@ -592,9 +607,11 @@ const EditorWorkspace: React.FC = () => {
 
   const handleSave = useCallback(() => {
     const tab = useEditorStore.getState().inspectorTab;
-    // A dirty script/visuals card persists across inspector tabs, so save it
-    // first — otherwise Ctrl+S from the Subtitle tab would silently leave the
-    // card unsaved. Flush both when both are dirty.
+    // Exclusive + serialized: a dirty card save ends with loadFiles() which
+    // re-reads transcription_path from disk, so it must never run
+    // concurrently with handleSaveTranscription (stale-subtitle clobber).
+    // Card saves go through the save queue; transcription follows the card
+    // instead of racing it.
     if (editingCard) {
       // Flush debounced Visuals-tab ticks first (color drags, scrubs) and
       // hand the exact document to the save pipeline.
@@ -602,14 +619,19 @@ const EditorWorkspace: React.FC = () => {
       const idx = editingCard.key.startsWith('scene_')
         ? parseInt(editingCard.key.replace('scene_', ''))
         : undefined;
-      handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx, flushed ?? undefined);
+      void enqueueSave(() => handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx, flushed ?? undefined))
+        .then(() => {
+          if (useEditorStore.getState().inspectorTab === 'subtitle') {
+            return handleSaveTranscription();
+          }
+          return undefined;
+        });
+    } else if (tab === 'subtitle') {
+      void enqueueSave(() => handleSaveTranscription());
     } else if (id && scriptData && selectedProject?.script_path) {
-      handleSaveCard();
+      void enqueueSave(() => handleSaveCard());
     }
-    if (tab === 'subtitle') {
-      handleSaveTranscription();
-    }
-  }, [editingCard, handleSaveCard, id, scriptData, selectedProject, handleSaveTranscription]);
+  }, [editingCard, handleSaveCard, id, scriptData, selectedProject, handleSaveTranscription, enqueueSave]);
 
   const handlePlayPause = useCallback(() => {
     if (playerRef.current) {
@@ -625,28 +647,31 @@ const EditorWorkspace: React.FC = () => {
 
     // 1. Update scriptData locally (newRatios[i] corresponds to script sub i —
     // the timeline displays liveScenes, which are script sub-visuals in content).
+    // Section is driven by the manifest entry's section_type (same convention
+    // as resolveVisualSelection) so a stale intro on either side can't shift
+    // the scene index.
     const scriptCopy = { ...scriptDataRef.current };
-    const hasIntro = scriptDataRef.current.introduction ? 1 : 0;
-    
+
     const updateSv = (sv: any, i: number) => {
       const ratio = typeof newRatios[i] === 'number' && !isNaN(newRatios[i])
         ? newRatios[i]
         : sv.duration_ratio;
       return {
-        ...sv, 
+        ...sv,
         duration_ratio: ratio,
         duration: ratio * sceneDuration
       };
     };
 
-    if (sceneIndex === 0 && hasIntro) {
+    const resizeSection = manifestDataRef.current[sceneIndex]?.section_type;
+    if (resizeSection === 'introduction' && scriptCopy.introduction) {
       scriptCopy.introduction = { ...scriptCopy.introduction };
       scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map(updateSv);
-    } else if (sceneIndex === (scriptDataRef.current.scenes?.length || 0) + hasIntro && scriptDataRef.current.conclusion) {
+    } else if (resizeSection === 'conclusion' && scriptCopy.conclusion) {
       scriptCopy.conclusion = { ...scriptCopy.conclusion };
       scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map(updateSv);
-    } else {
-      const idx = sceneIndex - hasIntro;
+    } else if (resizeSection === 'scene') {
+      const idx = manifestToScriptSceneIndex(manifestDataRef.current, sceneIndex);
       if (scriptCopy.scenes && scriptCopy.scenes[idx]) {
         scriptCopy.scenes = [...scriptCopy.scenes];
         scriptCopy.scenes[idx] = { ...scriptCopy.scenes[idx] };
@@ -715,9 +740,9 @@ const EditorWorkspace: React.FC = () => {
       );
     }
 
-    // Mirror into scriptData
+    // Mirror into scriptData — section driven by the manifest entry's
+    // section_type (same convention as resolveVisualSelection).
     const scriptCopy = { ...scriptDataRef.current };
-    const hasIntro = scriptDataRef.current.introduction ? 1 : 0;
 
     const updateSv = (sv: any, durSec: number, totalExistingDur: number, subCount: number) => {
       const ratio = typeof sv.duration_ratio === 'number' && !isNaN(sv.duration_ratio)
@@ -732,14 +757,15 @@ const EditorWorkspace: React.FC = () => {
       const subs = manifestCopy[idx]?.sub_visuals || [];
       const subCount = subs.length || 1;
       const totalExistingDur = subs.reduce((sum: number, sv: any) => sum + (typeof sv.duration === 'number' ? sv.duration : 0), 0);
-      if (idx === 0 && hasIntro) {
+      const sectionType = manifestCopy[idx]?.section_type;
+      if (sectionType === 'introduction' && scriptCopy.introduction) {
         scriptCopy.introduction = { ...scriptCopy.introduction };
         scriptCopy.introduction.sub_visuals = (scriptCopy.introduction.sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
-      } else if (idx === (scriptDataRef.current.scenes?.length || 0) + hasIntro && scriptDataRef.current.conclusion) {
+      } else if (sectionType === 'conclusion' && scriptCopy.conclusion) {
         scriptCopy.conclusion = { ...scriptCopy.conclusion };
         scriptCopy.conclusion.sub_visuals = (scriptCopy.conclusion.sub_visuals || []).map((sv: any) => updateSv(sv, durSec, totalExistingDur, subCount));
-      } else {
-        const sIdx = idx - hasIntro;
+      } else if (sectionType === 'scene') {
+        const sIdx = manifestToScriptSceneIndex(manifestCopy, idx);
         if (scriptCopy.scenes && scriptCopy.scenes[sIdx]) {
           scriptCopy.scenes = [...scriptCopy.scenes];
           scriptCopy.scenes[sIdx] = { ...scriptCopy.scenes[sIdx] };
@@ -791,13 +817,21 @@ const EditorWorkspace: React.FC = () => {
     const cf = currentFrameRef.current;
     const timingIdx = timings.findIndex(t => cf >= t.start && cf < t.end);
     if (timingIdx < 0) return;
-    const hasIntro = scriptData?.introduction ? true : false;
+    // Timeline order mirrors the manifest — read intro and conclusion presence
+    // from the manifest, not scriptData, so a stale side can't shift the index.
+    const manifest = manifestDataRef.current;
+    const hasIntro = manifest?.[0]?.section_type === 'introduction';
+    const hasCon = manifest?.[manifest.length - 1]?.section_type === 'conclusion';
     const isInt = hasIntro && timingIdx === 0;
-    const isCon = timingIdx === timings.length - 1;
+    const isCon = hasCon && timingIdx === timings.length - 1;
     if (isInt || isCon) return;
-    const sceneIdx = timingIdx - (hasIntro ? 1 : 0);
-    setSceneToDelete(sceneIdx);
-  }, [setSceneToDelete, scriptData]);
+    const sceneIdx = manifestToScriptSceneIndex(manifest, timingIdx);
+    if (sceneIdx >= 0) {
+      setSceneToDelete(sceneIdx);
+    } else {
+      setSceneToDelete(timingIdx - (hasIntro ? 1 : 0));
+    }
+  }, [setSceneToDelete]);
 
   const handleSeekRelative = useCallback((delta: number) => {
     handleSeek(Math.max(0, Math.min(totalFramesRef.current, currentFrameRef.current + delta)));
@@ -879,9 +913,15 @@ const EditorWorkspace: React.FC = () => {
   }, []);
 
   const handleDeleteSceneTimeline = useCallback((idx: number) => {
-    const sceneIdx = idx - (scriptData?.introduction ? 1 : 0);
-    setSceneToDelete(sceneIdx);
-  }, [scriptData?.introduction, setSceneToDelete]);
+    const manifest = manifestDataRef.current;
+    const sceneIdx = manifestToScriptSceneIndex(manifest, idx);
+    if (sceneIdx >= 0) {
+      setSceneToDelete(sceneIdx);
+    } else {
+      const hasIntro = manifest?.[0]?.section_type === 'introduction' || !!scriptDataRef.current?.introduction;
+      setSceneToDelete(idx - (hasIntro ? 1 : 0));
+    }
+  }, [setSceneToDelete]);
 
   const handleEditActiveVisuals = useCallback(() => {
     if (!scriptData || !sceneTimings?.length) return;

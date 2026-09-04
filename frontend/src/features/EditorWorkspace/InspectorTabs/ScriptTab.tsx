@@ -24,7 +24,7 @@ interface ScriptTabProps {
   onSaveCard: (cardKey?: string, index?: number, latestData?: any) => void;
   onStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   onCancelEdit: () => void;
-  onRewriteSection: (type: string, index: number) => void;
+  onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => void;
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
@@ -54,8 +54,8 @@ export const ScriptTab = React.memo(function ScriptTab({
     onSetScriptDataRef.current(data);
   }, []);
 
-  const handleSaveCard = useCallback((cardKey?: string, index?: number) => {
-    onSaveCardRef.current?.(cardKey, index);
+  const handleSaveCard = useCallback((cardKey?: string, index?: number, latestData?: any) => {
+    onSaveCardRef.current?.(cardKey, index, latestData);
   }, []);
 
   useEffect(() => {
@@ -93,9 +93,10 @@ export const ScriptTab = React.memo(function ScriptTab({
     );
   }
 
-  // A 'visuals' session (Visuals tab properties panel) must not hide
-  // script structural actions — only a 'script' session locks them.
-  const scriptEditing = editingCard?.mode === 'script';
+  // Structural inserts lock while ANY card edit is active (matches pre-split
+  // behavior: `!editingCard`); deletes stay always visible so a card can be
+  // removed without first saving/cancelling another card's draft.
+  const structuralLocked = editingCard !== null;
   const sceneCount = scriptData.scenes?.length || 0;
 
   return (
@@ -204,7 +205,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                       onOpenVisuals={() => onOpenVisuals(globalSceneIdx, activeSubIdxForScene >= 0 ? activeSubIdxForScene : 0)}
                       onSave={() => handleSaveCard(cardKey, idx)}
                       onCancel={onCancelEdit}
-                      onDelete={!scriptEditing ? () => onSetSceneToDelete(idx) : undefined}
+                      onDelete={() => onSetSceneToDelete(idx)}
                       disabled={savingCardKey !== null || rewritingSection !== null}
                     >
                       {isEditing ? (
@@ -261,7 +262,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                     </SceneCard>
 
                     {/* Insert button between scenes */}
-                    {!scriptEditing && idx < sceneCount - 1 && (
+                    {!structuralLocked && idx < sceneCount - 1 && (
                       <DividerInsertButton
                         onClick={() => {
                           const blankScene = {
@@ -288,7 +289,7 @@ export const ScriptTab = React.memo(function ScriptTab({
           )}
 
           {/* Add Scene button */}
-          {!scriptEditing && (
+          {!structuralLocked && (
             <div className={sceneCount > 0 ? 'mt-3' : ''}>
               <button
                 onClick={() => {

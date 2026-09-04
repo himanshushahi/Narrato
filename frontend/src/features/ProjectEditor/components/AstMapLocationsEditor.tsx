@@ -1,4 +1,4 @@
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { BiTrashAlt, BiPlus } from 'react-icons/bi';
 import { BsGeoAlt, BsCodeSquare } from 'react-icons/bs';
 
@@ -36,6 +36,24 @@ const AstMapLocationsEditorInner: React.FC<AstMapLocationsEditorProps> = ({
 }) => {
   const [showJson, setShowJson] = useState(false);
   const [jsonText, setJsonText] = useState(() => JSON.stringify(locations, null, 2));
+
+  // Keep Raw JSON in sync with external updates while open — same pattern as
+  // MiniJsonEditor. Skip while the text is invalid JSON being typed.
+  useEffect(() => {
+    try {
+      const newText = JSON.stringify(locations, null, 2);
+      setJsonText(prev => {
+        try {
+          if (JSON.stringify(JSON.parse(prev), null, 2) !== newText) return newText;
+          return prev;
+        } catch {
+          return prev;
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }, [locations]);
 
   const handleUpdate = (idx: number, updates: Partial<MapLocation>) => {
     const updated = [...locations];

@@ -28,7 +28,10 @@ interface MediaSidebarProps {
   manifestData: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
   onSeek?: (frame: number) => void;
-  onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
+  /** Required: routes through the parent selector so in-flight debounced
+   * Visuals-tab ticks flush before switching sections (a direct store write
+   * here would race the trailing 150ms commit). */
+  onSelectSubVisual: (sceneIdx: number, subIdx: number) => void;
   projectId?: string;
   isPipelineRunning?: boolean;
   activeTaskStep?: any;
@@ -455,16 +458,10 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   /** Stable asset seek handler passed by reference to memoized rows. */
   const handleAssetClick = useCallback((asset: AssetEntry) => {
     // Silently track the clicked asset's cut for the Visuals tab (no tab switch).
-    // Route through the parent selector when available so in-flight debounced
-    // Visuals-tab ticks are flushed before switching sections.
+    // Always routes through the parent selector so in-flight debounced
+    // Visuals-tab ticks flush before switching sections.
     if (typeof asset.sceneIndex === 'number' && typeof asset.subIndex === 'number') {
-      if (onSelectSubVisualRef.current) {
-        onSelectSubVisualRef.current(asset.sceneIndex, asset.subIndex);
-      } else {
-        const st = useEditorStore.getState();
-        st.setSelectedSceneIndex(asset.sceneIndex);
-        st.setSelectedSubVisualIndex(asset.subIndex);
-      }
+      onSelectSubVisualRef.current(asset.sceneIndex, asset.subIndex);
     }
     if (asset.timing) {
       onSeekRef.current?.(asset.timing.start);

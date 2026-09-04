@@ -500,7 +500,15 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
       {localTimings.map((timing, idx) => {
         const scene = liveScenes?.[idx];
         const isSceneActive = idx === activeSceneIdx;
-        const currentActiveSubIdx = isSceneActive ? activeSubIdxInScene : -1;
+        // Clamp: liveScenes is deferred (stale for a beat after add/delete
+        // cut) while localTimings is urgent — an out-of-range highlight index
+        // must never ring a phantom cut. Clicks/seeks already use urgent
+        // timing geometry; per-sub badges fall back to {} until deferred
+        // catches up (see staticSubs).
+        const subsLen = timing.subs?.length ?? 0;
+        const currentActiveSubIdx = isSceneActive && activeSubIdxInScene >= 0 && activeSubIdxInScene < subsLen
+          ? activeSubIdxInScene
+          : -1;
         return (
           <SceneBlock
             key={idx}

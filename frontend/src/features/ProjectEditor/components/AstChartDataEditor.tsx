@@ -1,4 +1,4 @@
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { BiTrashAlt, BiPlus } from 'react-icons/bi';
 import { BsPalette, BsCodeSquare } from 'react-icons/bs';
 
@@ -27,6 +27,25 @@ const AstChartDataEditorInner: React.FC<AstChartDataEditorProps> = ({
 }) => {
   const [showJson, setShowJson] = useState(false);
   const [jsonText, setJsonText] = useState(() => JSON.stringify(data, null, 2));
+
+  // Keep Raw JSON in sync with external updates (palette/preset/sync) while
+  // open — same pattern as MiniJsonEditor. Skip while the text is invalid
+  // JSON being typed so drafts aren't clobbered.
+  useEffect(() => {
+    try {
+      const newText = JSON.stringify(data, null, 2);
+      setJsonText(prev => {
+        try {
+          if (JSON.stringify(JSON.parse(prev), null, 2) !== newText) return newText;
+          return prev;
+        } catch {
+          return prev;
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }, [data]);
 
   const handleUpdateItem = (idx: number, field: keyof ChartDataItem, val: any) => {
     const updated = [...data];

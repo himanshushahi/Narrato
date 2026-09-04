@@ -30,7 +30,7 @@ interface UseScriptEditingReturn {
   handleSettingsUpdate: (newSettings: any) => void;
   handleSaveTranscription: () => Promise<void>;
   handleResetTranscription: () => void;
-  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
+  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
 }
 
 export function useScriptEditing(
@@ -69,6 +69,9 @@ export function useScriptEditing(
   editingCardRef.current = editingCard;
   const originalScriptDataRef = useRef(originalScriptData);
   originalScriptDataRef.current = originalScriptData;
+  /** Per-card pre-edit snapshots (script + manifest) for per-card cancel. */
+  const originalByCardRef = useRef<Record<string, any>>({});
+  const originalManifestByCardRef = useRef<Record<string, any>>({});
 
   // Sync localProjectSettings from selectedProject.project_settings,
   // falling back to project column values as base defaults.
@@ -109,25 +112,57 @@ export function useScriptEditing(
   }, [localProjectSettings.fontFamily, downloadFont]);
 
   const handleStartEdit = useCallback((cardKey: string, mode: 'script' | 'visuals') => {
-    // Keep the session's original snapshot across card/section switches so
-    // Revert/Escape restores the pre-session doc. Without this, switching
-    // from dirty Scene A to Scene B snapshots Scene A dirt as the baseline
-    // and Scene A can never be reverted.
-    if (editingCardRef.current && originalScriptDataRef.current) {
-      if (editingCardRef.current.key !== cardKey || editingCardRef.current.mode !== mode) {
-        setEditingCard({ key: cardKey, mode });
-        setRewritePrompt('');
-      }
-      return;
+    // Per-card snapshots: switching from dirty Scene A to Scene B snapshots B
+    // without touching A's baseline, so cancelling B restores only B and A
+    // stays dirty (a session-wide whole-doc snapshot coupled the cards —
+    // cancelling B reverted A too).
+    const snap = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const snapManifest = JSON.parse(JSON.stringify(manifestDataRef.current));
+    if (!originalByCardRef.current[cardKey]) {
+      originalByCardRef.current[cardKey] = snap;
+      originalManifestByCardRef.current[cardKey] = snapManifest;
     }
-    setOriginalScriptData(JSON.parse(JSON.stringify(scriptDataRef.current)));
-    setOriginalManifestData(JSON.parse(JSON.stringify(manifestDataRef.current)));
-    setEditingCard({ key: cardKey, mode });
-    setRewritePrompt('');
+    // Active card's snapshot drives narration-diffing in handleSaveCard.
+    setOriginalScriptData(originalByCardRef.current[cardKey]);
+    setOriginalManifestData(originalManifestByCardRef.current[cardKey]);
+    if (editingCardRef.current?.key !== cardKey || editingCardRef.current?.mode !== mode) {
+      setEditingCard({ key: cardKey, mode });
+      setRewritePrompt('');
+    }
   }, []);
 
+  /** Copy one card's section from a snapshot doc into a live doc clone. */
+  const restoreCardSection = (liveDoc: any, snapshotDoc: any, cardKey: string) => {
+    if (cardKey === 'intro' || cardKey === 'introduction') {
+      if (snapshotDoc?.introduction) liveDoc.introduction = JSON.parse(JSON.stringify(snapshotDoc.introduction));
+      else delete liveDoc.introduction;
+    } else if (cardKey === 'conclusion') {
+      if (snapshotDoc?.conclusion) liveDoc.conclusion = JSON.parse(JSON.stringify(snapshotDoc.conclusion));
+      else delete liveDoc.conclusion;
+    } else if (cardKey.startsWith('scene_')) {
+      const idx = parseInt(cardKey.replace('scene_', ''), 10);
+      if (Number.isInteger(idx) && snapshotDoc?.scenes?.[idx] !== undefined && Array.isArray(liveDoc?.scenes)) {
+        liveDoc.scenes[idx] = JSON.parse(JSON.stringify(snapshotDoc.scenes[idx]));
+      }
+    }
+    return liveDoc;
+  };
+
   const handleCancelEdit = useCallback(async () => {
-    if (originalScriptData) setScriptData(originalScriptData);
+    // Per-card revert: restore only the active card's section, never the
+    // whole document, so unrelated dirty cards survive.
+    const key = editingCardRef.current?.key;
+    const snap = key ? originalByCardRef.current[key] : null;
+    if (key && snap) {
+      const merged = restoreCardSection(
+        JSON.parse(JSON.stringify(scriptDataRef.current)),
+        snap,
+        key,
+      );
+      setScriptData(merged);
+      delete originalByCardRef.current[key];
+      delete originalManifestByCardRef.current[key];
+    }
     setEditingCard(null);
     setOriginalScriptData(null);
     setOriginalManifestData([]);
@@ -143,7 +178,7 @@ export function useScriptEditing(
       } catch (e) { /* best-effort */ }
     }
     setPreviewAssets({});
-  }, [originalScriptData, setScriptData, previewAssets, projectId]);
+  }, [setScriptData, previewAssets, projectId]);
 
   const handleSettingsUpdate = useCallback((newSettings: any) => {
     setLocalProjectSettings(newSettings);
@@ -351,9 +386,48 @@ export function useScriptEditing(
       }
 
       await loadFiles(projectId);
-      // Sync finalized compositions back to state (new object identity, so
-      // the UI never shows a mutated-without-render doc if loadFiles lags).
-      if (working) setScriptData(working);
+      // Sync finalized compositions back to state WITHOUT clobbering edits
+      // typed during the long save: patch only `composition` objects from the
+      // save snapshot into the latest doc instead of replacing the whole doc
+      // (classic save-while-typing data loss).
+      if (working) {
+        try {
+          const latest = JSON.parse(JSON.stringify(scriptDataRef.current));
+          const patchCompositions = (liveSubs: any[] | undefined, savedSubs: any[] | undefined) => {
+            if (!Array.isArray(liveSubs) || !Array.isArray(savedSubs)) return liveSubs;
+            return liveSubs.map((live: any, i: number) => (
+              savedSubs[i]?.composition !== undefined
+                ? { ...live, composition: savedSubs[i].composition }
+                : live
+            ));
+          };
+          if (working.introduction && latest.introduction) {
+            latest.introduction = {
+              ...latest.introduction,
+              sub_visuals: patchCompositions(latest.introduction.sub_visuals, working.introduction.sub_visuals),
+            };
+          }
+          if (working.conclusion && latest.conclusion) {
+            latest.conclusion = {
+              ...latest.conclusion,
+              sub_visuals: patchCompositions(latest.conclusion.sub_visuals, working.conclusion.sub_visuals),
+            };
+          }
+          if (Array.isArray(working.scenes) && Array.isArray(latest.scenes)) {
+            latest.scenes = latest.scenes.map((liveScene: any, i: number) => (
+              working.scenes[i]
+                ? { ...liveScene, sub_visuals: patchCompositions(liveScene.sub_visuals, working.scenes[i].sub_visuals) }
+                : liveScene
+            ));
+          }
+          setScriptData(latest);
+        } catch {
+          setScriptData(working);
+        }
+      }
+      // Whole document persisted — all per-card baselines are now stale.
+      originalByCardRef.current = {};
+      originalManifestByCardRef.current = {};
       setEditingCard(null);
       setSavingCardKey(null);
       setRewritePrompt('');
@@ -517,7 +591,7 @@ export function useScriptEditing(
       manifestIdx = 0;
     } else if (sectionType === 'conclusion') {
       manifestIdx = (manifestData?.length || 1) - 1;
-    } else if (sectionType === 'scenes') {
+    } else if (sectionType === 'scenes' || sectionType === 'scene') {
       let seen = -1;
       let found = -1;
       (manifestData || []).forEach((m: any, i: number) => {
@@ -526,7 +600,13 @@ export function useScriptEditing(
           if (seen === sceneIdx && found === -1) found = i;
         }
       });
-      manifestIdx = found !== -1 ? found : sceneIdx + (manifestData?.[0]?.section_type === 'introduction' ? 1 : 0);
+      // No positional fallback: on a diverged/stale manifest the old
+      // `sceneIdx + hasIntro` guess uploads to the WRONG scene. Abort loudly.
+      if (found === -1) {
+        addToast(`Upload aborted: scene ${sceneIdx} not found in manifest (stale manifest?)`, 'error');
+        return undefined;
+      }
+      manifestIdx = found;
     }
 
     let rawVisualType = '';
@@ -583,7 +663,7 @@ export function useScriptEditing(
     }
   }, [projectId, selectedProject, addToast, manifestData, previewAssets]);
   
-  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, query: string) => {
+  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, query: string, _latestData?: any) => {
     if (!projectId) return undefined;
 
     const sectionKey = sectionType === 'introduction' ? 'intro'

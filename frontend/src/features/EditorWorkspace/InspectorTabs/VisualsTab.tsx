@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   VscLayers, VscAdd, VscTrash, VscSave, VscLoading,
   VscChevronLeft, VscChevronRight, VscSparkle,
@@ -57,7 +57,7 @@ interface VisualsTabProps {
   onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => void;
   onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<void>;
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any) => Promise<string | undefined>;
-  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
 }
 
@@ -74,6 +74,10 @@ export const VisualsTab = React.memo(function VisualsTab({
   onRewriteSection, onRewriteSubVisual, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
   onRegisterFlush,
 }: VisualsTabProps) {
+  // Session cancel stays parent-owned (InspectorPanel/EditorWorkspace); Revert
+  // restores the section baseline and stays in-tab, so this is intentionally
+  // unused here beyond API stability.
+  void onCancelEdit;
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const setSelectedSubVisualIndex = useEditorStore((s) => s.setSelectedSubVisualIndex);
@@ -90,13 +94,37 @@ export const VisualsTab = React.memo(function VisualsTab({
 
   // Begin (or resume after save/cancel) a visuals edit session for the
   // selected section so save-diffing and AI regeneration work unchanged.
+  // Only auto-start when no edit session exists — never hijack an in-progress
+  // 'script' session (ScriptTab dirty state would be abandoned with no prompt).
+  // Flush pending ticks of the previous section before switching cards.
   const onStartEditRef = useRef(onStartEdit);
-  onStartEditRef.current = onStartEdit;
-  useEffect(() => {
-    if (resolved && (editingCard?.key !== resolved.cardKey || editingCard?.mode !== 'visuals')) {
-      onStartEditRef.current(resolved.cardKey, 'visuals');
-    }
-  }, [resolved?.cardKey, editingCard?.key, editingCard?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scriptDataRef = useRef(scriptData);
+  const onSetScriptDataRef = useRef(onSetScriptData);
+  const resolvedRef = useRef(resolved);
+  const pendingFullRef = useRef<any[] | null>(null);
+  /** Section the pending array belongs to — captured at schedule time so a
+   * cross-section cut switch during the debounce window can't write Scene A's
+   * array into Scene B. Also stores the scenes-array length so a structural
+   * insert/delete (scene shift) aborts the stale commit instead of writing
+   * Scene A's cuts into shifted Scene B. */
+  const pendingResolvedRef = useRef<(ResolvedVisual & { scenesLength: number }) | null>(null);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Signature of the last array this tab wrote to the store — distinguishes
+   * our own store echo from genuinely external changes (AI rewrite, timeline
+   * resize, Script-tab edits) for baseline maintenance. */
+  const lastWrittenJsonRef = useRef<string | null>(null);
+  /** Selection sub-index mirror (ref, not render closure) so lens writes use
+   * the fresh section AND fresh cut together on fast switches. */
+  const selSubIdxRef = useRef<number>(selectedSubVisualIndex ?? -1);
+  /** Bumps whenever pending is scheduled/committed/discarded so the header
+   * (cut count, pending-aware view) re-renders — refs alone don't trigger it. */
+  const [pendingTick, setPendingTick] = useState(0);
+  useEffect(() => { onStartEditRef.current = onStartEdit; }, [onStartEdit]);
+  useEffect(() => { scriptDataRef.current = scriptData; }, [scriptData]);
+  useEffect(() => { onSetScriptDataRef.current = onSetScriptData; }, [onSetScriptData]);
+  useEffect(() => { resolvedRef.current = resolved; }, [resolved]);
+  useEffect(() => { selSubIdxRef.current = selectedSubVisualIndex ?? -1; }, [selectedSubVisualIndex]);
+  void pendingTick;
 
   // ── Debounced upstream writes ─────────────────────────────────────
   // Color-picker drags and slider scrubs fire dozens of ticks per second.
@@ -106,18 +134,6 @@ export const VisualsTab = React.memo(function VisualsTab({
   // local composition state); only the trailing edge hits the store.
   // Structural actions (add/delete/switch/save/…) flush first via
   // commitPending(), so in-flight ticks are never lost.
-  const scriptDataRef = useRef(scriptData);
-  scriptDataRef.current = scriptData;
-  const onSetScriptDataRef = useRef(onSetScriptData);
-  onSetScriptDataRef.current = onSetScriptData;
-  const resolvedRef = useRef(resolved);
-  resolvedRef.current = resolved;
-  const pendingFullRef = useRef<any[] | null>(null);
-  /** Section the pending array belongs to — captured at schedule time so a
-   * cross-section cut switch during the debounce window can't write Scene A's
-   * array into Scene B. */
-  const pendingResolvedRef = useRef<ResolvedVisual | null>(null);
-  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Synchronously push pending edits to the store. Returns the new doc. */
   const commitPending = useCallback((): any | null => {
@@ -130,8 +146,18 @@ export const VisualsTab = React.memo(function VisualsTab({
     pendingFullRef.current = null;
     pendingResolvedRef.current = null;
     if (!pending || !r) return null;
+    // Guard: a scene insert/delete shifted script indices mid-debounce —
+    // writing by stale sceneNumber would corrupt the wrong scene. Abort.
+    const liveScenesLength = scriptDataRef.current?.scenes?.length ?? 0;
+    const capturedLength = (r as ResolvedVisual & { scenesLength?: number }).scenesLength;
+    if (capturedLength !== undefined && capturedLength !== liveScenesLength) {
+      setPendingTick(t => t + 1);
+      return null;
+    }
+    try { lastWrittenJsonRef.current = JSON.stringify(pending); } catch { /* ignore */ }
     const copy = writeSectionSubs(scriptDataRef.current, r, pending);
     onSetScriptDataRef.current(copy);
+    setPendingTick(t => t + 1);
     return copy;
   }, []);
 
@@ -139,7 +165,10 @@ export const VisualsTab = React.memo(function VisualsTab({
     pendingFullRef.current = fullSubs;
     // Capture the section now — resolvedRef may point at a different section
     // by the time the trailing edge fires.
-    pendingResolvedRef.current = resolvedRef.current;
+    const cur = resolvedRef.current;
+    pendingResolvedRef.current = cur
+      ? { ...cur, scenesLength: scriptDataRef.current?.scenes?.length ?? 0 }
+      : null;
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     commitTimerRef.current = setTimeout(() => {
       commitTimerRef.current = null;
@@ -147,9 +176,14 @@ export const VisualsTab = React.memo(function VisualsTab({
       const r = pendingResolvedRef.current;
       pendingFullRef.current = null;
       pendingResolvedRef.current = null;
-      if (!pending || !r) return;
+      if (!pending || !r) { setPendingTick(t => t + 1); return; }
+      const liveScenesLength = scriptDataRef.current?.scenes?.length ?? 0;
+      if (r.scenesLength !== liveScenesLength) { setPendingTick(t => t + 1); return; }
+      try { lastWrittenJsonRef.current = JSON.stringify(pending); } catch { /* ignore */ }
       onSetScriptDataRef.current(writeSectionSubs(scriptDataRef.current, r, pending));
+      setPendingTick(t => t + 1);
     }, COMMIT_DEBOUNCE_MS);
+    setPendingTick(t => t + 1);
   }, []);
 
   /** Discard pending edits without committing (Cancel path). */
@@ -160,12 +194,23 @@ export const VisualsTab = React.memo(function VisualsTab({
     }
     pendingFullRef.current = null;
     pendingResolvedRef.current = null;
+    setPendingTick(t => t + 1);
   }, []);
+
+  useEffect(() => {
+    // Start a visuals session only when nothing is being edited. A pending
+    // section switch flushes first so the old section's ticks land home.
+    if (resolved && editingCard === null) {
+      commitPending();
+      onStartEditRef.current(resolved.cardKey, 'visuals');
+    }
+  }, [resolved?.cardKey, editingCard, commitPending]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Expose the flusher for external saves (Ctrl+S / TopBar) and flush any
   // in-flight drag edits on unmount (e.g. tab switch) — edits are never lost.
+  // The edit session itself persists (resume after tab switch); only ticks flush.
   const onRegisterFlushRef = useRef(onRegisterFlush);
-  onRegisterFlushRef.current = onRegisterFlush;
+  useEffect(() => { onRegisterFlushRef.current = onRegisterFlush; }, [onRegisterFlush]);
   useEffect(() => {
     onRegisterFlushRef.current?.(() => commitPending());
     return () => {
@@ -189,13 +234,35 @@ export const VisualsTab = React.memo(function VisualsTab({
   // Section baseline for Revert: snapshot the section's subVisuals when the
   // section is first resolved so "Revert" can restore this section cleanly,
   // without clobbering other sections or losing baseline on cut switches.
-  // NOTE: must live above the early returns — hooks cannot run conditionally.
+  // Refreshes on genuinely external changes (AI rewrite, timeline resize,
+  // Script-tab edits): our own store echo matches lastWrittenJsonRef and is
+  // ignored, anything else re-baselines so Revert never restores pre-rewrite
+  // visuals. NOTE: must live above the early returns — hooks cannot run
+  // conditionally.
   const sectionBaselinesRef = useRef<Record<string, any[]>>({});
+  const snapshot = (subs: any[]) => { try { return JSON.parse(JSON.stringify(subs)); } catch { return [...subs]; } };
   useEffect(() => {
-    if (resolved && !sectionBaselinesRef.current[resolved.cardKey]) {
-      sectionBaselinesRef.current[resolved.cardKey] = JSON.parse(JSON.stringify(resolved.subVisuals));
+    if (!resolved) return;
+    const key = resolved.cardKey;
+    const current = resolved.subVisuals;
+    if (!sectionBaselinesRef.current[key]) {
+      sectionBaselinesRef.current[key] = snapshot(current);
+      return;
     }
-  }, [resolved?.cardKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    // No in-flight own edits and current differs from both baseline and our
+    // last write → external replacement (AI/timeline/script). Re-baseline.
+    if (!pendingFullRef.current && !commitTimerRef.current) {
+      let curJson: string | null = null;
+      let baseJson: string | null = null;
+      try {
+        curJson = JSON.stringify(current);
+        baseJson = JSON.stringify(sectionBaselinesRef.current[key]);
+      } catch { return; }
+      if (curJson !== baseJson && curJson !== lastWrittenJsonRef.current) {
+        sectionBaselinesRef.current[key] = snapshot(current);
+      }
+    }
+  }, [resolved?.cardKey, resolved?.subVisuals]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!scriptData) {
     return (
@@ -252,14 +319,16 @@ export const VisualsTab = React.memo(function VisualsTab({
     // Accumulate on the pending array when one exists for THIS section:
     // SubVisualsEditor's own base can lag behind during the debounce window,
     // and rebuilding from the stale section array would drop in-flight ticks.
-    // Read entirely from refs — the render-closure `resolved` can point at the
-    // previous section if a selection switch re-rendered late.
+    // Read section AND cut index from refs — both render closures can point at
+    // the previous section/cut if a selection switch re-rendered late.
     const cur = resolvedRef.current;
+    const subIdx = selSubIdxRef.current;
     const base = pendingResolvedRef.current?.cardKey === cur?.cardKey
       ? (pendingFullRef.current ?? cur?.subVisuals ?? [])
       : (cur?.subVisuals ?? []);
+    if (subIdx < 0 || subIdx >= base.length) return;
     const full = [...base];
-    full[actualSubIdx] = newSubs[0];
+    full[subIdx] = newSubs[0];
     scheduleWriteBack(full);
   };
 
@@ -271,13 +340,18 @@ export const VisualsTab = React.memo(function VisualsTab({
     if (!r) return null;
     const full = updater(readSectionSubs(doc, r));
     const copy = writeSectionSubs(doc, r, full);
+    try { lastWrittenJsonRef.current = JSON.stringify(full); } catch { /* ignore */ }
     onSetScriptDataRef.current(copy);
     return full;
   };
 
   /** Scale ratios proportionally to sum to 1 and derive durations. */
   const applyRatios = (subs: any[], ratios: number[]) => {
-    const totalSec = (resolvedRef.current?.totalDurationFrames || 90) / 30;
+    // Prefer real timing; when timing is missing preserve existing durations
+    // instead of silently rescaling the section to 3s.
+    const refFrames = resolvedRef.current?.totalDurationFrames ?? 0;
+    const existingTotal = subs.reduce((a, s) => a + (Number(s?.duration) || 0), 0);
+    const totalSec = refFrames > 0 ? refFrames / 30 : (existingTotal > 0 ? existingTotal : 3);
     const sum = ratios.reduce((a, b) => a + b, 0);
     const safe = sum > 0 ? ratios.map((r) => r / sum) : ratios.map(() => 1 / ratios.length);
     return subs.map((s, i) => ({
@@ -308,25 +382,28 @@ export const VisualsTab = React.memo(function VisualsTab({
 
   const handleDeleteCut = () => {
     if (cutCount <= 1) return;
+    const subIdx = selSubIdxRef.current;
     const full = writeImmediate((subs) => {
       // Preserve relative timing of the survivors (renormalize proportionally)
       // instead of equalizing them.
-      const kept = subs.filter((_: any, i: number) => i !== actualSubIdx);
+      const kept = subs.filter((_: any, i: number) => i !== subIdx);
       const ratios = kept.map((s) => {
         const r = Number(s?.duration_ratio);
         return Number.isFinite(r) && r > 0 ? r : 1;
       });
       return applyRatios(kept, ratios);
     });
-    if (full) setSelectedSubVisualIndex(Math.min(actualSubIdx, full.length - 1));
+    if (full) setSelectedSubVisualIndex(Math.min(subIdx, full.length - 1));
   };
 
   const selectCut = (idx: number) => {
+    if (cutCount === 0) return;
     commitPending();
-    setSelectedSubVisualIndex(idx);
+    setSelectedSubVisualIndex(Math.max(0, Math.min(cutCount - 1, idx)));
   };
 
   const goCut = (delta: number) => {
+    if (cutCount === 0) return;
     const next = Math.max(0, Math.min(cutCount - 1, actualSubIdx + delta));
     selectCut(next);
   };
@@ -337,19 +414,23 @@ export const VisualsTab = React.memo(function VisualsTab({
     const flushed = commitPending();
     if (resolved) {
       const doc = flushed ?? scriptDataRef.current;
-      sectionBaselinesRef.current[resolved.cardKey] = JSON.parse(JSON.stringify(readSectionSubs(doc, resolved)));
+      sectionBaselinesRef.current[resolved.cardKey] = snapshot(readSectionSubs(doc, resolved));
     }
     onSaveCard(saveArg, saveIndex, flushed ?? undefined);
   };
 
   const handleCancelVisuals = () => {
+    // Revert = restore this section's baseline, stay in the Visuals tab.
+    // Idempotent: a second click is a no-op. Never kills the whole edit
+    // session — with no baseline yet there is nothing to restore, just drop
+    // pending ticks.
     discardPending();
     const baseline = resolved ? sectionBaselinesRef.current[resolved.cardKey] : null;
     if (baseline && resolved) {
-      const copy = writeSectionSubs(scriptDataRef.current, resolved, JSON.parse(JSON.stringify(baseline)));
+      const restored = snapshot(baseline);
+      const copy = writeSectionSubs(scriptDataRef.current, resolved, restored);
+      try { lastWrittenJsonRef.current = JSON.stringify(restored); } catch { /* ignore */ }
       onSetScriptDataRef.current(copy);
-    } else {
-      onCancelEdit();
     }
   };
 
@@ -372,8 +453,8 @@ export const VisualsTab = React.memo(function VisualsTab({
     return onRewriteSection(type, index, flushed ?? undefined, 'visuals');
   };
   const withFlushPreview = (sceneIdx: number, sectionType: string, subIdx: number, query: string) => {
-    commitPending();
-    return onPreviewSubVisual!(sceneIdx, sectionType, subIdx, query);
+    const flushed = commitPending();
+    return onPreviewSubVisual!(sceneIdx, sectionType, subIdx, query, flushed ?? undefined);
   };
 
   return (

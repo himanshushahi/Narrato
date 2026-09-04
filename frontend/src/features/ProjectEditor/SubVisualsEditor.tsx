@@ -12,6 +12,10 @@ import 'highlight.js/styles/atom-one-dark.css';
 
 hljs.registerLanguage('json', json);
 
+// Stable fallback so AstGraphicalEditor's echo check doesn't see a fresh {}
+// literal on every render when a cut has no composition yet.
+const EMPTY_COMPOSITION: Record<string, any> = Object.freeze({ type: 'Sequence', children: [] }) as Record<string, any>;
+
 const AstJsonEditor = ({ initialValue, onChange }: { initialValue: object, onChange: (val: object) => void }) => {
   const [text, setText] = useState(() => JSON.stringify(initialValue, null, 2));
   const [error, setError] = useState(false);
@@ -61,7 +65,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
-  const [viewMode, setViewMode] = useState<Record<number, 'gui'|'json'>>({});
+  const [viewMode, setViewMode] = useState<Record<number, 'gui' | 'json'>>({});
 
   // Keep the latest array in a ref so rapid consecutive edits build on top of
   // each other, and only resync when the prop actually changes.
@@ -69,12 +73,10 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
   const prevSubVisualsRef = useRef(subVisuals);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  useEffect(() => {
-    if (prevSubVisualsRef.current !== subVisuals) {
-      prevSubVisualsRef.current = subVisuals;
-      latestSubVisualsRef.current = subVisuals;
-    }
-  });
+  if (prevSubVisualsRef.current !== subVisuals) {
+    prevSubVisualsRef.current = subVisuals;
+    latestSubVisualsRef.current = subVisuals;
+  }
 
   useEffect(() => {
     if (activeIdx === undefined || activeIdx < 0) return;
@@ -124,19 +126,19 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
       {/* Duration ratios only make sense for the full cut list — in single-cut
           lens mode the tab owns add/remove and the ratios stay untouched. */}
       {!singleCut && (
-      <SubVisualsDurationBar
-        subVisuals={subVisuals}
-        onChange={(ratios) => {
-          const copy = [...latestSubVisualsRef.current];
-          ratios.forEach((r, i) => {
-            copy[i].duration_ratio = r;
-            copy[i].duration = r * ((totalDurationFrames || 0) / 30);
-          });
-          latestSubVisualsRef.current = copy;
-          onChange(copy);
-        }}
-        totalDurationFrames={totalDurationFrames || 0}
-      />
+        <SubVisualsDurationBar
+          subVisuals={subVisuals}
+          onChange={(ratios) => {
+            const copy = [...latestSubVisualsRef.current];
+            ratios.forEach((r, i) => {
+              copy[i].duration_ratio = r;
+              copy[i].duration = r * ((totalDurationFrames || 0) / 30);
+            });
+            latestSubVisualsRef.current = copy;
+            onChange(copy);
+          }}
+          totalDurationFrames={totalDurationFrames || 0}
+        />
       )}
 
       {subVisuals.map((sv: any, idx: number) => {
@@ -147,13 +149,13 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
           <Fragment key={idx}>
             {/* Insert divider between cards (list mode only) */}
             {!singleCut && (
-            <div className="flex items-center gap-2 group/insert">
-              <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
-              <button type="button" onClick={(e) => { e.stopPropagation(); handleInsert(idx); }} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-stone-500 hover:text-amber-400 opacity-0 group-hover/insert:opacity-100 transition-all duration-200 px-2 py-1 rounded hover:bg-amber-500/10 cursor-pointer" title="Insert layer here">
-                <BsPlus size={14} /> Insert
-              </button>
-              <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
-            </div>
+              <div className="flex items-center gap-2 group/insert">
+                <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
+                <button type="button" onClick={(e) => { e.stopPropagation(); handleInsert(idx); }} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-stone-500 hover:text-amber-400 opacity-0 group-hover/insert:opacity-100 transition-all duration-200 px-2 py-1 rounded hover:bg-amber-500/10 cursor-pointer" title="Insert layer here">
+                  <BsPlus size={14} /> Insert
+                </button>
+                <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
+              </div>
             )}
 
             <div key={idx}
@@ -202,14 +204,14 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     </button>
                   )}
                   {!singleCut && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleRemove(idx); }}
-                    className="p-1.5 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-md transition-colors cursor-pointer"
-                    title="Delete Cut"
-                  >
-                    <BiTrashAlt size={13} />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleRemove(idx); }}
+                      className="p-1.5 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-md transition-colors cursor-pointer"
+                      title="Delete Cut"
+                    >
+                      <BiTrashAlt size={13} />
+                    </button>
                   )}
                 </div>
               </div>
@@ -306,23 +308,23 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               <div className="space-y-2 pt-1" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold uppercase tracking-wider text-stone-400">Composition (AST)</label>
-                  <button 
-                    type="button" 
-                    onClick={(e) => { e.stopPropagation(); setViewMode(prev => ({ ...prev, [idx]: prev[idx] === 'json' ? 'gui' : 'json' })) }} 
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setViewMode(prev => ({ ...prev, [idx]: prev[idx] === 'json' ? 'gui' : 'json' })) }}
                     className="text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-white/10 border border-white/10 text-stone-300 px-2 py-1 rounded transition-colors cursor-pointer"
                   >
-                     View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}
+                    View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}
                   </button>
                 </div>
 
                 {viewMode[idx] === 'json' ? (
                   <AstJsonEditor
-                    initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
+                    initialValue={(sv ?? latestSubVisualsRef.current[idx])?.composition || EMPTY_COMPOSITION}
                     onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
                   />
                 ) : (
                   <AstGraphicalEditor
-                    initialValue={latestSubVisualsRef.current[idx]?.composition || {}}
+                    initialValue={(sv ?? latestSubVisualsRef.current[idx])?.composition || EMPTY_COMPOSITION}
                     onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
                     onUploadSubVisual={onUploadSubVisual ? (visualType) => onUploadSubVisual(idx, visualType) : undefined}
                     onPreviewSubVisual={onPreviewSubVisual ? (query) => onPreviewSubVisual(idx, query) : undefined}
@@ -337,9 +339,9 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
       {subVisuals.length === 0 && <p className="text-xs text-stone-500 italic">No sub-visuals. A default black screen will be shown.</p>}
 
       {!singleCut && (
-      <button type="button" onClick={handleAdd} className="w-full py-3 mt-2 text-xs font-bold uppercase tracking-wider bg-amber-600/10 text-amber-500 hover:bg-amber-600/20 border border-amber-600/30 border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors">
-        <BsPlus size={20} /> Add New Sub-Visual
-      </button>
+        <button type="button" onClick={handleAdd} className="w-full py-3 mt-2 text-xs font-bold uppercase tracking-wider bg-amber-600/10 text-amber-500 hover:bg-amber-600/20 border border-amber-600/30 border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors">
+          <BsPlus size={20} /> Add New Sub-Visual
+        </button>
       )}
     </div>
   );

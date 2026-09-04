@@ -90,7 +90,36 @@ export function resolveVisualSelection(
   }
 
   if (sectionType === 'scene' && Array.isArray(scriptData.scenes)) {
-    const scriptIdx = manifestToScriptSceneIndex(manifestData, sel.sceneIdx);
+    const manifestHasIntro = manifestData?.[0]?.section_type === 'introduction';
+    const scriptHasIntro = !!scriptData.introduction;
+    const countIdx = manifestToScriptSceneIndex(manifestData, sel.sceneIdx);
+    // Positional fallback for stale manifests (intro added/removed on one
+    // side without sync): mirror the timeline mapping (sceneIndex - hasIntro).
+    const positionalIdx = sel.sceneIdx - (manifestHasIntro ? 1 : 0);
+    const candidates = [countIdx, positionalIdx].filter(
+      (v, i, a) => Number.isInteger(v) && (v as number) >= 0 && a.indexOf(v) === i,
+    ) as number[];
+    const manifestTitle = (manifestScene as any)?.title as string | undefined;
+    let scriptIdx = -1;
+    // Prefer the candidate whose script title matches the manifest title;
+    // without titles, prefer the count mapping (pre-existing behavior).
+    for (const c of candidates) {
+      const s = scriptData.scenes[c];
+      if (!s) continue;
+      if (!manifestTitle || !s.title || s.title === manifestTitle) { scriptIdx = c; break; }
+    }
+    // Title mismatch on all candidates: if the manifest/side intro presence
+    // disagrees (stale manifest), the two mappings point at different scenes.
+    // When script intro presence disagrees with the manifest, try compensating
+    // by ±1 before giving up.
+    if (scriptIdx === -1 && manifestHasIntro !== scriptHasIntro) {
+      for (const c of candidates.flatMap((c) => [c - 1, c + 1])) {
+        const s = scriptData.scenes[c];
+        if (!s) continue;
+        if (!manifestTitle || !s.title || s.title === manifestTitle) { scriptIdx = c; break; }
+      }
+    }
+    if (scriptIdx === -1) return null;
     const scriptScene = scriptData.scenes[scriptIdx];
     if (!scriptScene) return null;
     const subVisuals = scriptScene.sub_visuals || [];

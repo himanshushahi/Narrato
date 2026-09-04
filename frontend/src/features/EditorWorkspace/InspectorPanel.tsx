@@ -37,14 +37,14 @@ interface InspectorPanelProps {
   onStartEdit: (cardKey: string, mode: 'script' | 'visuals') => void;
   onCancelEdit: () => void;
   onOpenVisuals: (sceneIdx: number, subIdx: number) => void;
-  onRewriteSection: (type: string, index: number) => void;
-  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string) => Promise<void>;
+  onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => void;
+  onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<void>;
   onInsertScene: (newScene: any, afterIdx: number) => void;
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
   onSaveOverlays?: (overlays: any[]) => void;
-  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => Promise<string | undefined>;
-  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string) => Promise<string | undefined>;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
   onRegisterFlush?: (flush: (() => any) | null) => void;
 
