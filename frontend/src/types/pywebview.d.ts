@@ -7,6 +7,11 @@ interface PywebviewApi {
   upload_music_clip(project_id: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
   add_music_clip_from_path(project_id: string, file_path: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
   update_music_clips(project_id: string, clips: any[]): Promise<{ success: boolean; error?: string }>;
+  search_sfx(query: string, limit?: number, sort?: string, license_filter?: string): Promise<{ success: boolean; query?: string; sfx?: any[]; source?: string; error?: string }>;
+  upload_sfx_clip(project_id: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
+  add_sfx_clip_from_path(project_id: string, file_path: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
+  download_sfx_to_project(project_id: string, audio_url: string, name?: string, start_frame?: number): Promise<{ success: boolean; clip?: any; clips?: any[]; error?: string }>;
+  update_sfx_clips(project_id: string, clips: any[]): Promise<{ success: boolean; error?: string }>;
   db_get_projects(): Promise<any[]>;
   db_get_project(project_id: string): Promise<any>;
   db_update_project(project_id: string, updates_dict: any): Promise<{ success: boolean; error?: string }>;

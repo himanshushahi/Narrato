@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type LeftPanelTab = 'scenes' | 'assets' | 'music';
+export type LeftPanelTab = 'scenes' | 'assets' | 'music' | 'sfx';
 export type InspectorTab = 'script' | 'subtitle' | 'voice' | 'overlays' | 'visuals' | 'settings' | 'export';
 type PreviewQuality = 'fast' | 'full';
 
@@ -18,6 +18,7 @@ interface EditorStore {
   selectedSceneIndex: number | null;
   selectedSubVisualIndex: number | null;
   selectedMusicClipId: string | null;
+  selectedSfxClipId: string | null;
 
   // Command palette
   commandPaletteOpen: boolean;
@@ -45,6 +46,7 @@ interface EditorStore {
   setSelectedSceneIndex: (idx: number | null) => void;
   setSelectedSubVisualIndex: (idx: number | null) => void;
   setSelectedMusicClipId: (id: string | null) => void;
+  setSelectedSfxClipId: (id: string | null) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setIsPlaying: (playing: boolean) => void;
   setTimelineZoom: (zoom: number) => void;
@@ -52,7 +54,7 @@ interface EditorStore {
   toggleTrackHide: (trackId: string) => void;
   setTrackOrder: (order: string[]) => void;
   setPreviewQuality: (q: PreviewQuality) => void;
-  getRenderTrackOverrides: () => { render_mute_voice: boolean; render_mute_music: boolean; render_mute_video_audio: boolean; render_hide_subtitles: boolean };
+  getRenderTrackOverrides: () => { render_mute_voice: boolean; render_mute_music: boolean; render_mute_sfx: boolean; render_mute_video_audio: boolean; render_hide_subtitles: boolean; render_hide_overlays: boolean };
 }
 
 const STORAGE_KEY = 'narrato_editor_layout';
@@ -84,7 +86,7 @@ const saveLayout = async (state: Partial<EditorStore>) => {
   }, 1000); // debounce save
 };
 
-const DEFAULT_TRACK_ORDER = ['video', 'overlays', 'subs', 'voice', 'music', 'videoaudio'];
+const DEFAULT_TRACK_ORDER = ['video', 'overlays', 'subs', 'voice', 'music', 'sfx', 'videoaudio'];
 
 const defaults = {
   leftPanelWidth: 300,
@@ -131,6 +133,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   selectedSceneIndex: null,
   selectedSubVisualIndex: null,
   selectedMusicClipId: null,
+  selectedSfxClipId: null,
   commandPaletteOpen: false,
   isPlaying: false,
   timelineZoom: persisted.timelineZoom ?? defaults.timelineZoom,
@@ -148,6 +151,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setSelectedSceneIndex: (idx) => set({ selectedSceneIndex: idx }),
   setSelectedSubVisualIndex: (idx) => set({ selectedSubVisualIndex: idx }),
   setSelectedMusicClipId: (id) => set({ selectedMusicClipId: id }),
+  setSelectedSfxClipId: (id) => set({ selectedSfxClipId: id }),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setTimelineZoom: (zoom) => set((s) => { const next = { ...s, timelineZoom: zoom }; saveLayout(next); return next; }),
@@ -172,6 +176,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     return {
       render_mute_voice: !!(state.trackMuted['voice'] || state.trackHidden['voice']),
       render_mute_music: !!(state.trackMuted['music'] || state.trackHidden['music']),
+      render_mute_sfx: !!(state.trackMuted['sfx'] || state.trackHidden['sfx']),
       render_mute_video_audio: !!(state.trackMuted['videoaudio'] || state.trackHidden['videoaudio']),
       render_hide_subtitles: !!state.trackHidden['subs'],
       render_hide_overlays: !!state.trackHidden['overlays'],
