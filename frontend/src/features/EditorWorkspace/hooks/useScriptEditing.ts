@@ -6,6 +6,13 @@ import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
+function isTempPreviewFile(filePath: string | undefined | null): boolean {
+  if (!filePath) return false;
+  const lower = filePath.toLowerCase();
+  if (lower.includes('asset_')) return false;
+  return lower.includes('/previews/') || lower.includes('\\previews\\') || lower.includes('preview_') || lower.includes('upload_');
+}
+
 interface UseScriptEditingReturn {
   editingCard: { key: string, mode: 'script' | 'visuals' } | null;
   setEditingCard: (card: { key: string, mode: 'script' | 'visuals' } | null) => void;
@@ -43,6 +50,9 @@ interface UseScriptEditingReturn {
   handleSaveTranscription: (overrideDoc?: any) => Promise<void>;
   handleResetTranscription: () => void;
   handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
+  handleDeleteLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  handleDuplicateLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  handleDeleteCutAsset: (sceneIdx: number, sectionType: string, subIdx: number) => void;
 }
 
 export function useScriptEditing(
@@ -68,6 +78,8 @@ export function useScriptEditing(
   const [isSavingSubtitles, setIsSavingSubtitles] = useState(false);
   const [rewritingSection, setRewritingSection] = useState<string | null>(null);
   const [previewAssets, setPreviewAssets] = useState<Record<string, { visual_path: string; visual_url: string; layerIdx?: number }>>({});
+  const previewAssetsRef = useRef(previewAssets);
+  useEffect(() => { previewAssetsRef.current = previewAssets; }, [previewAssets]);
   const [uploadingSubVisual, setUploadingSubVisual] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latest script doc by ref so flushed Visuals-tab edits can be forwarded
@@ -246,9 +258,9 @@ export function useScriptEditing(
     setOriginalManifestData([]);
     setRewritePrompt('');
 
-    // Cleanup preview assets on cancel — best-effort
+    // Cleanup preview assets on cancel — best-effort (temp paths only)
     const previewPaths = Object.values(previewAssets)
-      .filter((a): a is { visual_path: string; visual_url: string } => !!a.visual_path)
+      .filter((a): a is { visual_path: string; visual_url: string } => !!a.visual_path && isTempPreviewFile(a.visual_path))
       .map(a => a.visual_path);
     if (previewPaths.length > 0 && projectId) {
       try {
@@ -362,10 +374,12 @@ export function useScriptEditing(
                 const layerAssetKey = `${assetKeyPrefix}_${sIdx}_${lIdx}`;
                 const layerPreview = previewAssets[layerAssetKey];
 
+                const isBlankNewLayer = !layer.content.local_path && (!layer.content.query || !layer.content.query.trim());
                 const isSingleMediaLayer = mediaLayers.length === 1 && isMedia;
-                // If a cut-level preview was already finalized for a single-media-layer cut, reuse finalCutPath to avoid writing two copies on disk
-                const previewForLayer = layerPreview || (
-                  cutPreview?.visual_path && isMedia && (
+                // If a cut-level preview was already finalized for a single-media-layer cut, reuse finalCutPath to avoid writing two copies on disk.
+                // Guard: blank newly-added layers must never inherit a stale layerPreview or cutPreview.
+                const previewForLayer = (!isBlankNewLayer && layerPreview) || (
+                  cutPreview?.visual_path && isMedia && !isBlankNewLayer && (
                     cutPreview.layerIdx === lIdx ||
                     layer.content.local_path === cutPreview.visual_path ||
                     (cutPreview.layerIdx === undefined && isSingleMediaLayer)
@@ -543,9 +557,9 @@ export function useScriptEditing(
       setSavingCardKey(null);
       setRewritePrompt('');
 
-      // Cleanup preview assets after save — best-effort
+      // Cleanup preview assets after save — best-effort (temp paths only)
       const savedPreviewPaths = Object.values(previewAssets)
-        .filter((a): a is { visual_path: string; visual_url: string } => !!a.visual_path)
+        .filter((a): a is { visual_path: string; visual_url: string } => !!a.visual_path && isTempPreviewFile(a.visual_path))
         .map(a => a.visual_path);
       if (savedPreviewPaths.length > 0 && projectId) {
         callApi('cleanup_preview_assets', projectId, savedPreviewPaths).catch(() => {});
@@ -790,7 +804,7 @@ export function useScriptEditing(
         // Re-uploading over an existing preview orphans the replaced file
         // (videos can be hundreds of MB) — delete it right away, best-effort.
         const existing = previewAssets[assetKey];
-        if (existing?.visual_path && existing.visual_path !== vPath) {
+        if (existing?.visual_path && existing.visual_path !== vPath && isTempPreviewFile(existing.visual_path)) {
           callApi('cleanup_preview_assets', projectId, [existing.visual_path]).catch(() => {});
         }
         setPreviewAssets(prev => ({
@@ -827,17 +841,16 @@ export function useScriptEditing(
       if (result?.success && result.visual_path) {
         const vPath: string = result.visual_path;
         const visualUrl = `${getMediaUrlSync(vPath)}&t=${Date.now()}`;
+
+        const existing = previewAssetsRef.current[assetKey];
+        if (existing?.visual_path && existing.visual_path !== vPath && isTempPreviewFile(existing.visual_path) && projectId) {
+          callApi('cleanup_preview_assets', projectId, [existing.visual_path]).catch(() => {});
+        }
         
-        setPreviewAssets(prev => {
-          const existing = prev[assetKey];
-          if (existing?.visual_path && existing.visual_path !== vPath) {
-            callApi('cleanup_preview_assets', projectId, [existing.visual_path]).catch(() => {});
-          }
-          return {
-            ...prev,
-            [assetKey]: { visual_path: vPath, visual_url: visualUrl, layerIdx }
-          };
-        });
+        setPreviewAssets(prev => ({
+          ...prev,
+          [assetKey]: { visual_path: vPath, visual_url: visualUrl, layerIdx }
+        }));
         addToast("Preview downloaded successfully!", 'success');
         return vPath;
       } else {
@@ -850,6 +863,169 @@ export function useScriptEditing(
       return undefined;
     }
   }, [projectId, addToast]);
+
+  /**
+   * Evict preview asset for a deleted layer, clean up its temporary file,
+   * and shift down subsequent layer keys (> layerIdx).
+   * Note: Whole-scene insert/delete shifts scene_N prefixes and triggers a full reload/save.
+   */
+  const handleDeleteLayerAsset = useCallback((sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => {
+    const sectionKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const prefix = `${sectionKey}_${subIdx}_`;
+
+    // 1. Identify paths to cleanup outside updater (pure updater for StrictMode)
+    const current = previewAssetsRef.current;
+    const toCleanup: string[] = [];
+    const targetKey = `${prefix}${layerIdx}`;
+    if (current[targetKey]?.visual_path && isTempPreviewFile(current[targetKey].visual_path)) {
+      toCleanup.push(current[targetKey].visual_path);
+    }
+    const cutPreview = current[`${sectionKey}_${subIdx}`];
+    if (cutPreview?.layerIdx === layerIdx && cutPreview.visual_path && isTempPreviewFile(cutPreview.visual_path)) {
+      toCleanup.push(cutPreview.visual_path);
+    }
+
+    if (toCleanup.length > 0 && projectId) {
+      callApi('cleanup_preview_assets', projectId, toCleanup).catch(() => {});
+    }
+
+    // 2. Pure state transition
+    setPreviewAssets(prev => {
+      const next: typeof prev = {};
+
+      for (const [k, v] of Object.entries(prev)) {
+        if (k.startsWith(prefix)) {
+          const lIdx = parseInt(k.slice(prefix.length), 10);
+          if (!isNaN(lIdx)) {
+            if (lIdx === layerIdx) {
+              continue; // Evict
+            } else if (lIdx > layerIdx) {
+              const newKey = `${prefix}${lIdx - 1}`;
+              next[newKey] = { ...v, layerIdx: lIdx - 1 };
+              continue; // Shift down
+            }
+          }
+        } else if (k === `${sectionKey}_${subIdx}`) {
+          // Cut-level preview
+          if (v.layerIdx === layerIdx) {
+            continue; // Evict
+          } else if (v.layerIdx !== undefined && v.layerIdx > layerIdx) {
+            next[k] = { ...v, layerIdx: v.layerIdx - 1 };
+            continue;
+          }
+        }
+        next[k] = v;
+      }
+
+      return next;
+    });
+  }, [projectId]);
+
+  /**
+   * When a layer is duplicated at layerIdx, shift up keys for layers > layerIdx
+   * and duplicate the preview entry at layerIdx + 1 if the source layer had one.
+   */
+  const handleDuplicateLayerAsset = useCallback((sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => {
+    const sectionKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const prefix = `${sectionKey}_${subIdx}_`;
+
+    setPreviewAssets(prev => {
+      const next: typeof prev = {};
+      const sourceKey = `${prefix}${layerIdx}`;
+      const sourcePreview = prev[sourceKey];
+
+      for (const [k, v] of Object.entries(prev)) {
+        if (k.startsWith(prefix)) {
+          const lIdx = parseInt(k.slice(prefix.length), 10);
+          if (!isNaN(lIdx)) {
+            if (lIdx <= layerIdx) {
+              next[k] = v;
+            } else {
+              next[`${prefix}${lIdx + 1}`] = { ...v, layerIdx: lIdx + 1 };
+            }
+            continue;
+          }
+        } else if (k === `${sectionKey}_${subIdx}`) {
+          if (v.layerIdx !== undefined && v.layerIdx > layerIdx) {
+            next[k] = { ...v, layerIdx: v.layerIdx + 1 };
+            continue;
+          }
+        }
+        next[k] = v;
+      }
+
+      if (sourcePreview) {
+        next[`${prefix}${layerIdx + 1}`] = { ...sourcePreview, layerIdx: layerIdx + 1 };
+      }
+
+      return next;
+    });
+  }, []);
+
+  /**
+   * When a cut is deleted at subIdx, evict its cut and layer previews (with cleanup),
+   * and shift down subsequent cut keys (> subIdx).
+   */
+  const handleDeleteCutAsset = useCallback((sceneIdx: number, sectionType: string, subIdx: number) => {
+    const sectionKey = sectionType === 'introduction' ? 'intro'
+      : sectionType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const cutPrefix = `${sectionKey}_`;
+
+    // 1. Identify paths to cleanup outside updater (pure updater for StrictMode)
+    const current = previewAssetsRef.current;
+    const toCleanup: string[] = [];
+    for (const [k, v] of Object.entries(current)) {
+      if (k.startsWith(cutPrefix)) {
+        const rest = k.slice(cutPrefix.length);
+        const parts = rest.split('_');
+        const sIdx = parseInt(parts[0], 10);
+        if (sIdx === subIdx && v.visual_path && isTempPreviewFile(v.visual_path)) {
+          toCleanup.push(v.visual_path);
+        }
+      }
+    }
+
+    if (toCleanup.length > 0 && projectId) {
+      callApi('cleanup_preview_assets', projectId, toCleanup).catch(() => {});
+    }
+
+    // 2. Pure state transition
+    setPreviewAssets(prev => {
+      const next: typeof prev = {};
+
+      for (const [k, v] of Object.entries(prev)) {
+        if (!k.startsWith(cutPrefix)) {
+          next[k] = v;
+          continue;
+        }
+
+        const rest = k.slice(cutPrefix.length); // e.g. "0" or "0_1"
+        const parts = rest.split('_');
+        const sIdx = parseInt(parts[0], 10);
+        if (isNaN(sIdx)) {
+          next[k] = v;
+          continue;
+        }
+
+        if (sIdx === subIdx) {
+          continue; // Evict
+        } else if (sIdx > subIdx) {
+          const newRest = [sIdx - 1, ...parts.slice(1)].join('_');
+          next[`${cutPrefix}${newRest}`] = v;
+          continue; // Shift cut index down
+        }
+
+        next[k] = v;
+      }
+
+      return next;
+    });
+  }, [projectId]);
 
 
   const insertAndSaveNewScene = useCallback(async (newScene: any, insertAfterIdx: number) => {
@@ -988,6 +1164,7 @@ export function useScriptEditing(
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
     previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
+    handleDeleteLayerAsset, handleDuplicateLayerAsset, handleDeleteCutAsset,
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,

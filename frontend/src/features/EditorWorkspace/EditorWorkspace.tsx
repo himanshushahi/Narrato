@@ -137,6 +137,7 @@ const EditorWorkspace: React.FC = () => {
     invalidateRewrites, invalidateAllRewrites,
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
     previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
+    handleDeleteLayerAsset, handleDuplicateLayerAsset, handleDeleteCutAsset,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription, handleResetTranscription
@@ -594,9 +595,10 @@ const EditorWorkspace: React.FC = () => {
             const isMedia = layer.content.type === 'Image' || layer.content.type === 'Video';
             const layerKey = `${key}_${lIdx}`;
             const layerPreview = previewAssets[layerKey];
+            const isBlankNewLayer = !layer.content.local_path && (!layer.content.query || !layer.content.query.trim());
 
-            // 1. Explicit layer-specific preview
-            if (layerPreview?.visual_path) {
+            // 1. Explicit layer-specific preview (guard: never apply to blank newly-added layers)
+            if (layerPreview?.visual_path && !isBlankNewLayer) {
               layerChanged = true;
               return {
                 ...layer,
@@ -608,9 +610,9 @@ const EditorWorkspace: React.FC = () => {
             }
 
             // 2. Cut-level preview fallback: only applies if this layer explicitly matches,
-            // or if it already had this preview path, or if this is the only media layer in the cut
+            // or if it already had this preview path, or if this is the only media layer in the cut (and not a blank newly added layer)
             const isSingleMediaLayer = mediaLayers.length === 1 && isMedia;
-            const isTargetLayer = isMedia && (
+            const isTargetLayer = isMedia && !isBlankNewLayer && (
               cutPreview?.layerIdx !== undefined
                 ? cutPreview.layerIdx === lIdx
                 : (layer.content.local_path === cutPreview?.visual_path || isSingleMediaLayer)
@@ -1266,6 +1268,9 @@ const EditorWorkspace: React.FC = () => {
           onUploadSubVisual={handleUploadSubVisual}
           onPreviewSubVisual={handlePreviewSubVisual}
           uploadingSubVisual={uploadingSubVisual}
+          onDeleteLayerSubVisual={handleDeleteLayerAsset}
+          onDuplicateLayerSubVisual={handleDuplicateLayerAsset}
+          onDeleteCutSubVisual={handleDeleteCutAsset}
           onRegisterFlush={handleRegisterVisualsFlush}
 
           tasks={tasks}

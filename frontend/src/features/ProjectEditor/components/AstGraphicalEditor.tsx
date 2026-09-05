@@ -142,12 +142,16 @@ export const AstGraphicalEditor = ({
   onChange,
   onUploadSubVisual,
   onPreviewSubVisual,
+  onDeleteLayer,
+  onDuplicateLayer,
   uploadingSubVisual
 }: {
   initialValue: any;
   onChange: (val: any) => void;
   onUploadSubVisual?: (visualType?: string, layerIdx?: number) => Promise<string | undefined> | void;
   onPreviewSubVisual?: (query: string, layerIdx?: number) => Promise<string | undefined> | void;
+  onDeleteLayer?: (layerIdx: number) => void;
+  onDuplicateLayer?: (layerIdx: number) => void;
   uploadingSubVisual?: string | null;
 }) => {
   const [composition, setComposition] = useState(() => {
@@ -210,10 +214,14 @@ export const AstGraphicalEditor = ({
   const compositionRef = useRef(composition);
   const onChangeRef = useRef(onChange);
   const onPreviewRef = useRef(onPreviewSubVisual);
+  const onDeleteLayerRef = useRef(onDeleteLayer);
+  const onDuplicateLayerRef = useRef(onDuplicateLayer);
   const iconPickerIdxRef = useRef(iconPickerIdx);
   useEffect(() => { compositionRef.current = composition; }, [composition]);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onPreviewRef.current = onPreviewSubVisual; }, [onPreviewSubVisual]);
+  useEffect(() => { onDeleteLayerRef.current = onDeleteLayer; }, [onDeleteLayer]);
+  useEffect(() => { onDuplicateLayerRef.current = onDuplicateLayer; }, [onDuplicateLayer]);
   useEffect(() => { iconPickerIdxRef.current = iconPickerIdx; }, [iconPickerIdx]);
 
   const triggerChange = (newComp: any) => {
@@ -259,18 +267,62 @@ export const AstGraphicalEditor = ({
   };
 
   const handleDeleteLayer = (idx: number) => {
+    onDeleteLayerRef.current?.(idx);
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     newComp.children.splice(idx, 1);
+    setPreviewingIdx(prev => (prev === null ? null : prev === idx ? null : prev > idx ? prev - 1 : prev));
+    setUploadingIdx(prev => (prev === null ? null : prev === idx ? null : prev > idx ? prev - 1 : prev));
+    setIconPickerIdx(prev => (prev === null ? null : prev === idx ? null : prev > idx ? prev - 1 : prev));
+    setExpandedAdvanced(prev => {
+      const next: Record<number, boolean> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i < idx) next[i] = v;
+        else if (i > idx) next[i - 1] = v;
+      }
+      return next;
+    });
+    setAdvancedTab(prev => {
+      const next: Record<number, any> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i < idx) next[i] = v;
+        else if (i > idx) next[i - 1] = v;
+      }
+      return next;
+    });
     triggerChange(newComp);
   };
 
   const handleDuplicateLayer = (idx: number) => {
+    onDuplicateLayerRef.current?.(idx);
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     const clone = JSON.parse(JSON.stringify(newComp.children[idx]));
     clone.z_index = (clone.z_index || 0) + 1;
     newComp.children.splice(idx + 1, 0, clone);
+    setPreviewingIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
+    setUploadingIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
+    setIconPickerIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
+    setExpandedAdvanced(prev => {
+      const next: Record<number, boolean> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i <= idx) next[i] = v;
+        else next[i + 1] = v;
+      }
+      return next;
+    });
+    setAdvancedTab(prev => {
+      const next: Record<number, any> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i <= idx) next[i] = v;
+        else next[i + 1] = v;
+      }
+      return next;
+    });
     triggerChange(newComp);
   };
 

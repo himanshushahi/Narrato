@@ -51,6 +51,9 @@ interface InspectorPanelProps {
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
   onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
+  onDeleteLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  onDuplicateLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  onDeleteCutSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
   onRegisterFlush?: (flush: (() => any) | null) => void;
 
   // Pipeline props
@@ -96,7 +99,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   isAnyRewriting, isSectionRewriting, isSubRewriting, isSectionLocked, invalidateRewrites,
   onSaveCard, onStartEdit, onCancelEdit, onOpenVisuals, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete,   onSetScriptData, onSaveOverlays,
-  onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, onRegisterFlush,
+  onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
+  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onDeleteCutSubVisual, onRegisterFlush,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
@@ -183,6 +187,9 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             onUploadSubVisual={onUploadSubVisual}
             onPreviewSubVisual={onPreviewSubVisual}
             uploadingSubVisual={uploadingSubVisual}
+            onDeleteLayerSubVisual={onDeleteLayerSubVisual}
+            onDuplicateLayerSubVisual={onDuplicateLayerSubVisual}
+            onDeleteCutSubVisual={onDeleteCutSubVisual}
             onRegisterFlush={onRegisterFlush}
           />
         );
