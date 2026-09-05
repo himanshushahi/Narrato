@@ -1,6 +1,6 @@
 import { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import { Player, PlayerRef } from '@remotion/player';
-import { NitishRajputComposition, Scene, Transcription, MusicClip } from './NitishRajputComposition';
+import { NitishRajputComposition, Scene, Transcription, MusicClip, SfxClip } from './NitishRajputComposition';
 import { GlobalOverlayItem } from './GlobalOverlaysRenderer';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { parseQuality } from './renderQuality';
@@ -10,6 +10,8 @@ interface Props {
   bgMusicUrl?: string;
   bgMusicVolume?: number;
   musicClips?: MusicClip[];
+  sfxClips?: SfxClip[];
+  sfxVolume?: number;
   voiceoverVolume?: number;
   muteVideoAudio?: boolean;
   scenes: Scene[];
@@ -41,6 +43,8 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   bgMusicUrl,
   bgMusicVolume = 0.15,
   musicClips = [],
+  sfxClips = [],
+  sfxVolume = 0.5,
   voiceoverVolume = 1.0,
   muteVideoAudio = false,
   scenes = [],
@@ -158,6 +162,8 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       bgMusicUrl,
       bgMusicVolume,
       musicClips,
+      sfxClips,
+      sfxVolume,
       voiceoverVolume,
       muteVideoAudio,
       scenes,
@@ -173,7 +179,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       qualityMode: 'preview' as const,
       quality,
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, musicClips, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays, renderMotionBlur, renderGlassCap]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, musicClips, sfxClips, sfxVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays, renderMotionBlur, renderGlassCap]);
 
   if (!scenes || scenes.length === 0) {
     return (

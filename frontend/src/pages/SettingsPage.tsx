@@ -457,9 +457,18 @@ const SettingsPage: React.FC = () => {
                   placeholder="Enter Pixabay API Key"
                   icon={<VscKey />}
                 />
+                <CustomInput
+                  label="Freesound API Key (SFX)"
+                  type="password"
+                  name="freesound_api_key"
+                  value={(formData as any).freesound_api_key || ''}
+                  onChange={handleInputChange}
+                  placeholder="Get free key at freesound.org/apiv2/apply"
+                  icon={<VscKey />}
+                />
               </div>
               <div className="text-[10px] text-stone-400">
-                These keys are required to automatically search and download stock photos and videos when using the AI pipeline. You can obtain free keys by registering on their respective developer portals.
+                These keys are required to automatically search and download stock photos and videos when using the AI pipeline. Freesound key powers trending SFX search (free at freesound.org/apiv2/apply); Pixabay CDN URLs also work as manual SFX. You can obtain free keys by registering on their respective developer portals.
               </div>
             </GlassCard>
           </div>
@@ -1013,9 +1022,9 @@ const SettingsPage: React.FC = () => {
 
                   <CustomRange
                     label="Sound Effects (SFX) Volume"
-                    valueDisplay={`${Math.round(parseFloat(formData.sfx_volume || '0.20') * 100)}%`}
+                    valueDisplay={`${Math.round(parseFloat(formData.sfx_volume || '0.5') * 100)}%`}
                     min="0"
-                    max="0.6"
+                    max="1.0"
                     step="0.01"
                     name="sfx_volume"
                     value={formData.sfx_volume}

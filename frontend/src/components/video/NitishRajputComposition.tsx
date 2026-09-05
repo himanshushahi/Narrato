@@ -76,11 +76,15 @@ export interface MusicClip {
   is_muted?: boolean;
 }
 
+export type SfxClip = MusicClip;
+
 export interface Props {
   audioUrl: string;
   bgMusicUrl?: string;
   bgMusicVolume?: number;
   musicClips?: MusicClip[];
+  sfxClips?: SfxClip[];
+  sfxVolume?: number;
   voiceoverVolume?: number;
   muteVideoAudio?: boolean;
   scenes: Scene[];
@@ -369,6 +373,8 @@ export const NitishRajputComposition: React.FC<Props> = ({
   bgMusicUrl,
   bgMusicVolume = 0.2,
   musicClips = [],
+  sfxClips = [],
+  sfxVolume = 0.5,
   voiceoverVolume = 1.0,
 
   scenes,
@@ -562,6 +568,28 @@ export const NitishRajputComposition: React.FC<Props> = ({
           ) : bgMusicUrl ? (
             <FrameVolumeAudio src={bgMusicUrl} muteRanges={bgMuteRanges} baseVolume={bgMusicVolume} loop />
           ) : null}
+          {sfxClips && sfxClips.length > 0 && sfxClips.map((clip) => {
+            if (!clip.audio_url || clip.is_muted) return null;
+            const startFrame = Math.max(0, Math.round(clip.start_frame || 0));
+            const durationFrames = Math.max(1, Math.round(clip.duration_frames || 30));
+            const fadeInFrames = Math.round((clip.fade_in_seconds || 0) * 30);
+            const fadeOutFrames = Math.round((clip.fade_out_seconds || 0) * 30);
+            const startFromFrame = Math.round((clip.source_start_seconds || 0) * 30);
+            const clipVolume = Math.max(0, (clip.volume ?? 0.5) * (sfxVolume !== undefined ? sfxVolume / 0.5 : 1));
+            return (
+              <Sequence key={`sfx-${clip.id}`} from={startFrame} durationInFrames={durationFrames} premountFor={30}>
+                <DynamicFadeAudio
+                  src={clip.audio_url}
+                  clipDurationFrames={durationFrames}
+                  baseVolume={clipVolume}
+                  startFromFrame={startFromFrame}
+                  fadeInFrames={fadeInFrames}
+                  fadeOutFrames={fadeOutFrames}
+                  loop={!!clip.loop}
+                />
+              </Sequence>
+            );
+          })}
         </>
       )}
 

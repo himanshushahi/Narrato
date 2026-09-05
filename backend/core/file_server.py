@@ -224,6 +224,32 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
+        if parsed.path == '/api/sfx/search':
+            try:
+                from backend.pipeline.sfx import search_sfx
+                query = params.get('q', [''])[0].strip()
+                if not query:
+                    raise ValueError("Missing required 'q' (search query) parameter.")
+                try:
+                    limit = int(params.get('limit', [10])[0])
+                except (ValueError, TypeError):
+                    limit = 10
+                sort = params.get('sort', ['downloads_desc'])[0]
+                license_filter = params.get('license', [''])[0]
+                result = {"success": True,
+                          **search_sfx(query, limit=limit, sort=sort, license_filter=license_filter)}
+            except Exception as e:
+                result = {"success": False, "query": params.get('q', [''])[0],
+                          "sfx": [], "source": "freesound", "error": str(e)}
+            body = json.dumps(result).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # 1. Handle frontend files from URL path. A request is media ONLY when
         # it carries a `path` query parameter — checking membership (not a
         # startswith prefix) so future extra query params can't misroute a

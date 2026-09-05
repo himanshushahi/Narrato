@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  VscLayers, VscPackage, VscMusic,
+  VscLayers, VscPackage, VscMusic, VscPulse,
   VscSearch, VscAdd, VscWarning,
   VscCheck, VscLoading, VscListFlat, VscSymbolField,
   VscRefresh, VscPlay, VscTrash,
@@ -15,7 +15,8 @@ import { CustomSelect } from '../../components/ui/CustomSelect';
 import { useEditorStore, LeftPanelTab } from '../../store/useEditorStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
-import { MusicClip } from '../../components/video/NitishRajputComposition';
+import { MusicClip, SfxClip } from '../../components/video/NitishRajputComposition';
+import { SfxPanel } from './components/SfxPanel';
 import { callApi } from '../../utils/call-api';
 import { getMediaUrlSync, getMediaThumbUrl } from '../../utils/mediaUrl';
 import { formatTime } from '../../features/ProjectEditor/constants';
@@ -41,6 +42,10 @@ interface MediaSidebarProps {
   onUploadMusicClip?: (startFrame?: number) => Promise<void>;
   bgMusicVolume?: number;
   onBgMusicVolumeChange?: (vol: number) => void;
+  sfxClips?: SfxClip[];
+  onUpdateSfxClips?: (clips: SfxClip[]) => Promise<boolean | void>;
+  onUploadSfxClip?: (startFrame?: number) => Promise<void>;
+  onRefreshSfx?: () => Promise<void>;
 }
 
 /** Format bytes to a human-readable string */
@@ -421,7 +426,8 @@ MusicClipRow.displayName = 'MusicClipRow';
 export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
   scriptData, manifestData, sceneTimings, onSeek, onSelectSubVisual,
   projectId, activeTaskStep, reloadTrigger = 0,
-  musicClips = [], onUpdateMusicClips, onUploadMusicClip, bgMusicVolume, onBgMusicVolumeChange
+  musicClips = [], onUpdateMusicClips, onUploadMusicClip, bgMusicVolume, onBgMusicVolumeChange,
+  sfxClips = [], onUpdateSfxClips, onUploadSfxClip, onRefreshSfx
 }) => {
   const leftPanelWidth = useEditorStore((s) => s.leftPanelWidth);
   const leftPanelTab = useEditorStore((s) => s.leftPanelTab);
@@ -708,6 +714,7 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
       { id: 'scenes' as LeftPanelTab, label: 'Scenes', icon: <VscLayers /> },
       { id: 'assets' as LeftPanelTab, label: assetsLabel, icon: <VscPackage /> },
       { id: 'music' as LeftPanelTab, label: 'Music', icon: <VscMusic /> },
+      { id: 'sfx' as LeftPanelTab, label: 'SFX', icon: <VscPulse /> },
     ];
   }, [assets.length]);
 
@@ -1199,11 +1206,23 @@ export const MediaSidebar: React.FC<MediaSidebarProps> = React.memo(({
     );
   };
 
+  const renderSfxTab = () => (
+    <SfxPanel
+      projectId={projectId}
+      sfxClips={sfxClips}
+      onUpdateSfxClips={onUpdateSfxClips || (async () => {})}
+      onUploadSfxClip={onUploadSfxClip || (async () => {})}
+      onRefreshSfx={onRefreshSfx}
+      onSeek={onSeek}
+    />
+  );
+
   const renderTabContent = () => {
     switch (leftPanelTab) {
       case 'scenes': return renderScenesTab();
       case 'assets': return renderAssetsTab();
       case 'music': return renderMusicTab();
+      case 'sfx': return renderSfxTab();
     }
   };
 

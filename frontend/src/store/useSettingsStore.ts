@@ -34,6 +34,7 @@ export interface Settings {
   bg_music_volume: string;
   pexels_api_key: string;
   pixabay_api_key: string;
+  freesound_api_key: string;
   use_pexels: boolean;
   use_youtube: boolean;
   youtube_download_duration: string;
@@ -157,10 +158,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     bg_music_volume: "0.15",
     pexels_api_key: "",
     pixabay_api_key: "",
+    freesound_api_key: "",
     use_pexels: true,
     use_youtube: true,
     youtube_download_duration: "15",
-    sfx_volume: "0.20",
+    sfx_volume: "0.5",
     web_search_enabled: false,
     web_search_provider: "langsearch",
     web_search_api_key: "",
