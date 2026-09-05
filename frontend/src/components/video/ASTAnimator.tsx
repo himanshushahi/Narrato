@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig, Easing, getRemotionEnvironment } from 'remotion';
 import { CameraMotionBlur } from '@remotion/motion-blur';
 import { getCameraNoise, CameraShakeType } from './CameraNoise';
+import { hasSpatialMotion } from './spatialMotion';
 import {
   QualityMode,
   QualityPolicy,
@@ -177,11 +178,11 @@ export const ASTAnimator: React.FC<ASTAnimatorProps> = ({
 
   // Static layers gain nothing from shutter blur but still pay N samples per
   // frame — bypass the wrapper entirely (common when AI sets motion_blur on
-  // a layer without animations).
-  const hasMotion =
-    (animations && animations.length > 0) ||
-    floating ||
-    (camera_shake && camera_shake !== 'none');
+  // a layer without animations). Only *spatial* keyframes (scale/slide/rotate)
+  // produce shutter motion; opacity/blur/brightness fades are spatially
+  // identical subframes, so they must not trigger multi-sample rendering.
+  // Rule lives in ./spatialMotion (shared with the editor) — do not duplicate.
+  const hasMotion = hasSpatialMotion(animations, floating, camera_shake);
   if (!hasMotion) {
     return content;
   }

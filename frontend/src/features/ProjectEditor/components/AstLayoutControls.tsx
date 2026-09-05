@@ -4,6 +4,16 @@ import { BsLayoutSplit, BsSliders } from 'react-icons/bs';
 interface AstLayoutControlsProps {
   style?: React.CSSProperties;
   onChange: (style: React.CSSProperties) => void;
+  /** When set, the card-surface section + glass presets are disabled (values preserved). */
+  surfaceDisabledReason?: string | null;
+  /** Info banner shown above the card-surface section without disabling (limited tier). */
+  surfaceNote?: string | null;
+  /** Info note for Coordinates & Dimensions (resize crops rather than refits). */
+  dimensionsNote?: string | null;
+  /** True when stale card-surface keys exist while disabled — shows a clear action. */
+  hasStaleCardStyle?: boolean;
+  /** Removes leftover card-surface keys (called from the disabled-section banner). */
+  onClearCardStyle?: () => void;
 }
 
 const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> }[] = [
@@ -170,6 +180,11 @@ const isPickerSafeSolid = (val: any): boolean => {
 const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
   style = {},
   onChange,
+  surfaceDisabledReason = null,
+  surfaceNote = null,
+  dimensionsNote = null,
+  hasStaleCardStyle = false,
+  onClearCardStyle,
 }) => {
   const currentStyle = (style || {}) as Record<string, any>;
 
@@ -253,17 +268,32 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           Position & Card Layout Presets
         </label>
         <div className="grid grid-cols-2 gap-1.5">
-          {LAYOUT_PRESETS.map((preset, pIdx) => (
+          {LAYOUT_PRESETS.map((preset) => {
+            const isFullscreen = preset.label === 'Fullscreen';
+            const presetDisabled = !!surfaceDisabledReason && !isFullscreen;
+            const btn = (
             <button
-              key={pIdx}
               type="button"
+              disabled={presetDisabled}
               onClick={() => handleApplyPreset(preset.style)}
-              className="px-2.5 py-1.5 bg-black/40 hover:bg-amber-500/15 border border-white/10 hover:border-amber-500/40 text-[10px] font-bold rounded-lg text-stone-300 hover:text-amber-300 transition-colors flex items-center gap-2 cursor-pointer text-left truncate"
+              className={`w-full px-2.5 py-1.5 bg-black/40 border text-[10px] font-bold rounded-lg flex items-center gap-2 text-left truncate transition-colors ${presetDisabled ? 'opacity-40 border-white/5 text-stone-500 pointer-events-none' : 'hover:bg-amber-500/15 border-white/10 hover:border-amber-500/40 text-stone-300 hover:text-amber-300 cursor-pointer'}`}
             >
               <span>{preset.icon}</span>
               <span className="truncate">{preset.label}</span>
             </button>
-          ))}
+            );
+            // Wrapper owns the tooltip: native `title` on a `disabled` button
+            // never fires in Chromium (disabled controls swallow mouse events).
+            return (
+              <div
+                key={preset.label}
+                className={presetDisabled ? 'cursor-not-allowed' : undefined}
+                title={presetDisabled ? surfaceDisabledReason ?? undefined : preset.label}
+              >
+                {btn}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -276,6 +306,11 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           </span>
           <span className="text-[9px] text-stone-500 font-mono">1920x1080 Grid</span>
         </div>
+        {dimensionsNote && (
+          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
+            ℹ️ {dimensionsNote}
+          </div>
+        )}
 
         {/* Sliders: Left & Top */}
         <div className="grid grid-cols-2 gap-3">
@@ -345,7 +380,32 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
       </div>
 
       {/* 3. Card Surface & Glassmorphism */}
-      <div className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-3">
+      {surfaceDisabledReason ? (
+        <div
+          className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[10px] leading-relaxed text-amber-200/90 space-y-1.5"
+          title={surfaceDisabledReason}
+        >
+          <div>⚠️ {surfaceDisabledReason}</div>
+          {hasStaleCardStyle && onClearCardStyle && (
+            <button
+              type="button"
+              onClick={onClearCardStyle}
+              className="text-[10px] font-bold underline text-amber-300 hover:text-amber-100 cursor-pointer"
+            >
+              Remove leftover card background &amp; borders
+            </button>
+          )}
+        </div>
+      ) : surfaceNote ? (
+        <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
+          ℹ️ {surfaceNote}
+        </div>
+      ) : null}
+      <fieldset
+        disabled={!!surfaceDisabledReason}
+        title={surfaceDisabledReason ?? undefined}
+        className={`p-3 bg-black/40 border border-white/10 rounded-xl space-y-3 ${surfaceDisabledReason ? 'opacity-50' : ''}`}
+      >
         <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
           Card Surface & Glassmorphism
         </div>
@@ -507,7 +567,7 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
             ))}
           </select>
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 };

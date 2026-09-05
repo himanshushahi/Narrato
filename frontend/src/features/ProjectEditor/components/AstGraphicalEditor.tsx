@@ -14,6 +14,7 @@ import { AstChartDataEditor } from './AstChartDataEditor';
 import { AstMapLocationsEditor } from './AstMapLocationsEditor';
 import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
 import { AstParticlesEditor } from './AstParticlesEditor';
+import { normalizeLayerKind, getLayerCapability, getMotionState, CARD_SURFACE_KEYS, isSvgLookToken } from './layerCapabilities';
 
 const SUPPORTED_FONTS = [
   {
@@ -362,6 +363,29 @@ export const AstGraphicalEditor = ({
         const content = layer.content || {};
         const cType = content.type || 'Image';
         const isAdvancedOpen = !!expandedAdvanced[idx];
+        const layerKind = normalizeLayerKind(cType);
+        const layerCap = getLayerCapability(layerKind);
+        const motionState = getMotionState({
+          motionBlur: !!layer.motion_blur,
+          animations: layer.animations || [],
+          floating: !!layer.floating,
+          cameraShake: layer.camera_shake,
+        });
+        const surfaceDisabled = layerCap.glass === 'poor';
+        const styleObj = (content.style || {}) as Record<string, any>;
+        // Fullscreen preset injects neutral values (transparent bg, 0px radius)
+        // that must not count as stale card styling.
+        const hasStaleCardStyle =
+          surfaceDisabled &&
+          CARD_SURFACE_KEYS.some((k) => {
+            const val = styleObj[k];
+            if (val === undefined || val === null || val === '' || val === 'none') return false;
+            if ((k === 'backgroundColor' || k === 'background') && val === 'transparent') return false;
+            if (k === 'borderRadius' && (val === '0px' || val === 0 || val === '0')) return false;
+            if (k === 'boxShadow' && val === 'none') return false;
+            if ((k === 'backdropFilter' || k === 'WebkitBackdropFilter') && val === 'none') return false;
+            return true;
+          });
 
         return (
           <div
@@ -1080,15 +1104,36 @@ export const AstGraphicalEditor = ({
                     <AstLayoutControls
                       style={content.style || EMPTY_STYLE}
                       onChange={layerCallbacks[idx].onStyleChange}
+                      surfaceDisabledReason={surfaceDisabled ? layerCap.glassNote ?? null : null}
+                      surfaceNote={!surfaceDisabled && layerCap.glass === 'limited' ? layerCap.glassNote ?? null : null}
+                      dimensionsNote={layerCap.dimensionsNote ?? null}
+                      hasStaleCardStyle={hasStaleCardStyle}
+                      onClearCardStyle={() => {
+                        const next = { ...(content.style || {}) };
+                        for (const k of CARD_SURFACE_KEYS) delete next[k];
+                        api.updateContent(idx, 'style', next);
+                      }}
                     />
                   )}
 
-                  {/* Tab 2: Animations */}
+                  {/* Tab 2: Animations (universal — wrapper transform applies to every type) */}
                   {advancedTab[idx] === 'animations' && (
-                    <AstAnimationBuilder
-                      animations={layer.animations || EMPTY_LIST}
-                      onChange={layerCallbacks[idx].onAnimationsChange}
-                    />
+                    <div className="space-y-2.5">
+                      {layerKind === 'Text' && content.animation_mode && content.animation_mode !== 'static' && (
+                        <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
+                          ℹ️ This text already animates internally ({content.animation_mode}). Layer keyframes stack on top — prefer one system to avoid double-transform timing clashes.
+                        </div>
+                      )}
+                      {(layerKind === 'Particles' || layerKind === 'Map') && (
+                        <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
+                          ℹ️ [{layerKind}] is a full-frame canvas — 3D tilt (rotateX/Y) or large slides rotate the whole canvas and expose rectangular clipping edges. Opacity/scale keyframes are safest here.
+                        </div>
+                      )}
+                      <AstAnimationBuilder
+                        animations={layer.animations || EMPTY_LIST}
+                        onChange={layerCallbacks[idx].onAnimationsChange}
+                      />
+                    </div>
                   )}
 
                   {/* Tab 3: Filters */}
@@ -1096,6 +1141,25 @@ export const AstGraphicalEditor = ({
                     <AstFilterControls
                       filters={layer.filters || EMPTY_LIST}
                       onChange={layerCallbacks[idx].onFiltersChange}
+                      typeHint={layerCap.filterNote ?? null}
+                      layerTypeLabel={layerKind}
+                      disableSvgLooks={layerCap.disableSvgLooks ?? false}
+                      svgDisabledReason={layerCap.filterNote ?? null}
+                      hasStaleSvgLooks={
+                        !!layerCap.disableSvgLooks &&
+                        (layer.filters || []).some((f: string) => isSvgLookToken(f))
+                      }
+                      onClearSvgLooks={() => {
+                        const next = (layer.filters || []).filter(
+                          (f: string) => !isSvgLookToken(f),
+                        );
+                        api.updateLayer(idx, 'filters', next);
+                      }}
+                      blendHint={
+                        layers.length <= 1 || idx === 0
+                          ? 'Blend needs a layer beneath to show — no visible change on a single opaque fullscreen layer.'
+                          : null
+                      }
                     />
                   )}
 
@@ -1118,7 +1182,7 @@ export const AstGraphicalEditor = ({
                           <span>🌊 Harmonic Floating</span>
                         </label>
 
-                        <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer p-2 bg-black/50 border border-white/5 rounded-lg hover:border-amber-500/30 transition-colors">
+                        <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer p-2 bg-black/50 border border-white/5 rounded-lg hover:border-amber-500/30 transition-colors" title={layer.motion_blur && !motionState.hasMotion ? 'Motion Blur is a no-op on this static layer — add an animation, floating or camera shake first (values are preserved)' : 'Physical shutter blur for moving layers'}>
                           <input
                             type="checkbox"
                             checked={!!layer.motion_blur}
@@ -1129,29 +1193,42 @@ export const AstGraphicalEditor = ({
                         </label>
                       </div>
 
-                      {/* Shutter Angle Slider when motion blur is enabled */}
-                      {layer.motion_blur && (
-                        <div className="space-y-1 p-2.5 bg-black/50 border border-white/5 rounded-lg">
-                          <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
-                            <span>Shutter Angle (Motion Blur Spread)</span>
-                            <span className="text-amber-400 font-mono">{layer.shutter_angle ?? 180}°</span>
-                          </div>
+                      {layer.motion_blur && !motionState.hasMotion && (
+                        <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[10px] leading-relaxed text-amber-200/90">
+                          ⚠️ Blur is armed but this [{layerKind}] layer is static — the renderer bypasses shutter blur without animations, floating or shake. Add a keyframe to activate it.
+                        </div>
+                      )}
+
+                      {/* Shutter Angle Slider — always visible so the disabled reason is discoverable */}
+                      <div
+                        className={`space-y-1 p-2.5 bg-black/50 border border-white/5 rounded-lg ${motionState.shutterDisabled ? 'opacity-60' : ''}`}
+                        title={motionState.shutterReason ?? undefined}
+                      >
+                        <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                          <span>Shutter Angle (Motion Blur Spread)</span>
+                          <span className="text-amber-400 font-mono">{layer.shutter_angle ?? 180}°</span>
+                        </div>
+                        <div title={motionState.shutterReason ?? undefined}>
                           <input
                             type="range"
                             min="45"
                             max="360"
                             step="45"
                             value={layer.shutter_angle ?? 180}
+                            disabled={motionState.shutterDisabled}
                             onChange={e => updateLayer(idx, 'shutter_angle', parseInt(e.target.value, 10))}
-                            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+                            className="w-full accent-amber-500 h-1.5 bg-black/60 rounded disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                           />
-                          <div className="flex justify-between text-[8px] text-stone-500 font-mono">
-                            <span>90° (Crisp)</span>
-                            <span>180° (Cinematic 24fps)</span>
-                            <span>360° (Dreamy)</span>
-                          </div>
                         </div>
-                      )}
+                        <div className="flex justify-between text-[8px] text-stone-500 font-mono">
+                          <span>90° (Crisp)</span>
+                          <span>180° (Cinematic 24fps)</span>
+                          <span>360° (Dreamy)</span>
+                        </div>
+                        {motionState.shutterReason && (
+                          <p className="text-[9px] text-stone-500 leading-relaxed">{motionState.shutterReason}</p>
+                        )}
+                      </div>
 
                       {/* Camera Shake */}
                       <div className="space-y-1">
@@ -1169,7 +1246,7 @@ export const AstGraphicalEditor = ({
                       </div>
 
                       {/* Transform Origin Anchor Selection */}
-                      <div className="space-y-1">
+                      <div className="space-y-1" title={!motionState.hasMotion ? 'Anchor point only matters with scale/rotate animations, floating or camera shake — no visible change on a static layer' : 'Pivot point for scale/rotate transforms'}>
                         <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Transform Origin (Anchor Point)</label>
                         <select
                           className="w-full bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"

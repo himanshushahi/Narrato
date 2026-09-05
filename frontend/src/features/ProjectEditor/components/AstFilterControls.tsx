@@ -1,10 +1,29 @@
 import React, { memo } from 'react';
 import { BsEyedropper, BsSliders } from 'react-icons/bs';
+import { isSvgLookToken } from './layerCapabilities';
 
 interface AstFilterControlsProps {
   filters?: string[];
   onChange: (filters: string[]) => void;
+  /** Contextual hint for the current layer type (e.g. Particles + SVG looks). */
+  typeHint?: string | null;
+  /** Layer type label shown in the hint, e.g. "Particles". */
+  layerTypeLabel?: string | null;
+  /** When true, SVG url(#fx-*) look presets are disabled (transparent canvas). */
+  disableSvgLooks?: boolean;
+  /** Tooltip for the disabled SVG presets. */
+  svgDisabledReason?: string | null;
+  /** True when an SVG look is active while disabled — shows a remove action. */
+  hasStaleSvgLooks?: boolean;
+  /** Removes active SVG url(#fx-*) tokens (called from the stale banner). */
+  onClearSvgLooks?: () => void;
+  /** Blend-mode caption. Pass null to hide (multi-layer stacks where blend works). */
+  blendHint?: string | null;
 }
+
+/** True for SVG-filter looks (emboss / sharpen / posterize / duotones / thermal). */
+const isSvgLook = (filters: string[]): boolean =>
+  filters.some((f) => isSvgLookToken(f));
 
 const BLEND_MODES: { value: string; label: string; group: string }[] = [
   { value: 'normal', label: 'Normal (Standard)', group: 'Standard' },
@@ -122,6 +141,13 @@ const FILTER_PRESETS: { label: string; icon: string; filters: string[] }[] = [
 const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
   filters = [],
   onChange,
+  typeHint = null,
+  layerTypeLabel = null,
+  disableSvgLooks = false,
+  svgDisabledReason = null,
+  hasStaleSvgLooks = false,
+  onClearSvgLooks,
+  blendHint = 'Blend needs a layer beneath to show — no visible change on a single opaque fullscreen layer.',
 }) => {
   // Parse individual filter values from filters array
   const filterString = (filters || []).join(' ');
@@ -185,6 +211,23 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
 
   return (
     <div className="space-y-3.5">
+      {typeHint && (
+        <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
+          ℹ️ {layerTypeLabel ? <span className="font-bold">[{layerTypeLabel}] </span> : null}{typeHint}
+        </div>
+      )}
+      {disableSvgLooks && hasStaleSvgLooks && onClearSvgLooks && (
+        <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[10px] leading-relaxed text-amber-200/90 space-y-1.5">
+          <div>⚠️ This layer has an active SVG look that renders empty on a transparent canvas.</div>
+          <button
+            type="button"
+            onClick={onClearSvgLooks}
+            className="text-[10px] font-bold underline text-amber-300 hover:text-amber-100 cursor-pointer"
+          >
+            Remove SVG look filters
+          </button>
+        </div>
+      )}
       {/* 1. Preset Buttons */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
@@ -203,17 +246,27 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {FILTER_PRESETS.map((preset, pIdx) => (
-            <button
-              key={pIdx}
-              type="button"
-              onClick={() => onChange(preset.filters)}
-              className="px-2.5 py-1.5 bg-black/40 hover:bg-amber-500/15 border border-white/10 hover:border-amber-500/40 text-[10px] font-bold rounded-lg text-stone-300 hover:text-amber-300 transition-colors flex items-center gap-1.5 cursor-pointer"
-            >
-              <span>{preset.icon}</span>
-              <span>{preset.label}</span>
-            </button>
-          ))}
+          {FILTER_PRESETS.map((preset, pIdx) => {
+            const svg = isSvgLook(preset.filters);
+            const disabled = disableSvgLooks && svg;
+            return (
+              <div
+                key={pIdx}
+                className={disabled ? 'cursor-not-allowed opacity-40' : undefined}
+                title={disabled ? svgDisabledReason ?? 'SVG looks need opaque pixels — disabled for this transparent layer' : preset.label}
+              >
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onChange(preset.filters)}
+                  className={`px-2.5 py-1.5 bg-black/40 border text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition-colors ${disabled ? 'pointer-events-none border-white/5 text-stone-500' : 'hover:bg-amber-500/15 border-white/10 hover:border-amber-500/40 text-stone-300 hover:text-amber-300 cursor-pointer'}`}
+                >
+                  <span>{preset.icon}</span>
+                  <span>{preset.label}</span>
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -310,6 +363,11 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
               </option>
             ))}
           </select>
+          {blendHint && (
+            <p className="text-[9px] text-stone-500 leading-relaxed pt-1" title="Blend modes composite with layers beneath — on a single opaque fullscreen layer they have no visible effect">
+              {blendHint}
+            </p>
+          )}
         </div>
       </div>
     </div>
