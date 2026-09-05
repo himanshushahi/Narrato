@@ -2,6 +2,25 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
 import { callApi } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
+import { getCleanAudioKey } from './useAudioWaveform';
+
+/** Clip-list equality ignoring the `&t=` cache-buster (clip files are uuid-named,
+ *  never overwritten in place, so identical fields mean identical bytes). */
+function sameClips(a: Array<Record<string, any>>, b: Array<Record<string, any>>): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i] || {};
+    const y = b[i] || {};
+    const keys = new Set([...Object.keys(x), ...Object.keys(y)]);
+    for (const k of keys) {
+      const vx = k === 'audio_url' ? getCleanAudioKey(x[k]) : x[k];
+      const vy = k === 'audio_url' ? getCleanAudioKey(y[k]) : y[k];
+      if (vx !== vy) return false;
+    }
+  }
+  return true;
+}
 
 import { estimateTextDuration, calculateSubVisualTimings } from '../../../utils/duration';
 import { MusicClip, SfxClip } from '../../../components/video/NitishRajputComposition';
@@ -284,7 +303,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const selectedProject = useProjectStore((s) => s.selectedProject);
   const updateProject = useProjectStore((s) => s.updateProject);
 
-  const musicClips = useMemo<MusicClip[]>(() => {
+  const musicClipsRaw = useMemo<MusicClip[]>(() => {
     if (!selectedProject) return [];
     const totalFrames = sceneTimings.length > 0 ? sceneTimings[sceneTimings.length - 1].end : 300;
 
@@ -328,6 +347,17 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     }));
   }, [selectedProject?.music_clips, selectedProject?.bg_music_path, selectedProject?.bg_music_volume, reloadKey, sceneTimings]);
 
+  // Referential stabilization: identical clip content (ignoring cache-buster)
+  // returns the PREVIOUS array so the preview player and timeline memo-skip.
+  const prevMusicRef = useRef<MusicClip[]>([]);
+  const musicClips = useMemo(() => {
+    if (sameClips(prevMusicRef.current, musicClipsRaw)) {
+      return prevMusicRef.current;
+    }
+    prevMusicRef.current = musicClipsRaw;
+    return musicClipsRaw;
+  }, [musicClipsRaw]);
+
   const updateMusicClips = useCallback(async (newClips: MusicClip[]) => {
     if (!projectId) return false;
     const cleanClips = (newClips || []).map(c => {
@@ -343,7 +373,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     return success;
   }, [projectId, updateProject]);
 
-  const sfxClips = useMemo<SfxClip[]>(() => {
+  const sfxClipsRaw = useMemo<SfxClip[]>(() => {
     if (!selectedProject) return [];
     let clips: SfxClip[] | null = null;
     if ((selectedProject as any).sfx_clips !== undefined && (selectedProject as any).sfx_clips !== null) {
@@ -361,6 +391,15 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
       audio_url: c.audio_path ? `${getMediaUrlSync(c.audio_path)}&t=${reloadKey}` : '',
     }));
   }, [(selectedProject as any)?.sfx_clips, reloadKey]);
+
+  const prevSfxRef = useRef<SfxClip[]>([]);
+  const sfxClips = useMemo(() => {
+    if (sameClips(prevSfxRef.current, sfxClipsRaw)) {
+      return prevSfxRef.current;
+    }
+    prevSfxRef.current = sfxClipsRaw;
+    return sfxClipsRaw;
+  }, [sfxClipsRaw]);
 
   const updateSfxClips = useCallback(async (newClips: SfxClip[]) => {
     if (!projectId) return false;

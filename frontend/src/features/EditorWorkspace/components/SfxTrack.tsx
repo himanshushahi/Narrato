@@ -278,8 +278,13 @@ export const SfxTrack: React.FC<SfxTrackProps> = React.memo(({
     let latestClips = effectiveClipsRef.current;
     let didMove = false;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startMouseX;
+    // Coalesce mousemove bursts to one state update per frame — a 100Hz
+    // mouse otherwise re-renders the lane and repaints canvases per tick.
+    let rafPending = 0;
+    let lastEvent: MouseEvent | null = null;
+
+    const applyDrag = (ev: MouseEvent) => {
+      const deltaX = ev.clientX - startMouseX;
       if (Math.abs(deltaX) > 2) {
         didMove = true;
         isDraggingRef.current = true;
@@ -330,9 +335,33 @@ export const SfxTrack: React.FC<SfxTrackProps> = React.memo(({
       setLocalClipsOverride(updated);
     };
 
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      lastEvent = moveEvent;
+      if (!rafPending) {
+        rafPending = requestAnimationFrame(() => {
+          rafPending = 0;
+          if (lastEvent) {
+            const ev = lastEvent;
+            lastEvent = null;
+            applyDrag(ev);
+          }
+        });
+      }
+    };
+
     const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      // Flush the final position synchronously so the commit sees it.
+      if (rafPending) {
+        cancelAnimationFrame(rafPending);
+        rafPending = 0;
+      }
+      if (lastEvent) {
+        const ev = lastEvent;
+        lastEvent = null;
+        applyDrag(ev);
+      }
       if (didMove && latestClips) {
         // Keep optimistic state locked until new props arrive
         setLocalClipsOverride(latestClips);
