@@ -548,3 +548,30 @@ def test_16_agent_runner_tool_normalization_and_visual_completion(monkeypatch):
     assert turn_counter == 2
 
 
+def test_17_all_pipeline_fstrings_have_valid_formatting():
+    """Regression test: verifies that no f-string in backend/pipeline contains unescaped JSON curlies."""
+    import ast
+    import os
+
+    pipeline_dir = Path(__file__).resolve().parent.parent / "backend" / "pipeline"
+    errors = []
+    for f in pipeline_dir.glob("*.py"):
+        tree = ast.parse(f.read_text(encoding="utf-8"), filename=str(f))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.JoinedStr):
+                for v in node.values:
+                    if isinstance(v, ast.FormattedValue):
+                        if v.format_spec:
+                            spec_str = "".join(
+                                str(part.value)
+                                for part in v.format_spec.values
+                                if isinstance(part, ast.Constant)
+                            )
+                            if any(c in spec_str for c in ['"', "'", "{", "}"]):
+                                errors.append(f"{f.name}:{v.lineno} Invalid format specifier in f-string: {spec_str!r}")
+                        if isinstance(v.value, ast.Constant) and isinstance(v.value.value, str):
+                            errors.append(f"{f.name}:{v.lineno} Constant string inside f-string curly braces: {v.value.value!r}")
+
+    assert not errors, f"Found unescaped f-string formatting bugs: {errors}"
+
+
