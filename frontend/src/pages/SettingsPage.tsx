@@ -12,7 +12,7 @@ import { motion } from 'framer-motion';
 import { EDGE_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS, WHISPER_MODEL_OPTIONS } from '../features/Settings/voiceConstants';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
-  VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscMusic, VscFolderOpened, VscTrash
+  VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscFolderOpened, VscTrash
 } from 'react-icons/vsc';
 import { MdOutlineMovie } from 'react-icons/md';
 import { callApi } from '../utils/call-api';
@@ -1031,30 +1031,6 @@ const SettingsPage: React.FC = () => {
                     onChange={(e) => setFormData((prev: SettingsType) => ({ ...prev, sfx_volume: e.target.value }))}
                   />
                 </div>
-              </div>
-            </GlassCard>
-          </div>
-
-          {/* Pexels API Key */}
-          <div>
-            <GlassCard className="p-6 space-y-6">
-              <h2 className="text-sm font-bold text-stone-200 flex items-center gap-3 border-l-4 border-[var(--color-accent-primary)] pl-3 uppercase tracking-wider">
-                <VscMusic className="text-base text-[var(--color-accent-primary)]" />
-                Pexels Stock Overlays
-              </h2>
-              <div className="space-y-4">
-                <p className="text-xs text-stone-400">
-                  Configure your Pexels authorization key to download matching stock photos and B-roll video assets automatically when visual type layers are selected.
-                </p>
-                <CustomInput
-                  label="Pexels Authorization Key"
-                  type="password"
-                  name="pexels_api_key"
-                  value={formData.pexels_api_key || ''}
-                  onChange={handleInputChange}
-                  placeholder="Enter Pexels API Key..."
-                  icon={<VscKey />}
-                />
               </div>
             </GlassCard>
           </div>
