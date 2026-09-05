@@ -11,10 +11,11 @@ import { VideoTrack, TRANSITION_OPTIONS } from './components/VideoTrack';
 import { OverlaysTrack } from './components/OverlaysTrack';
 import { VoiceTrack } from './components/VoiceTrack';
 import { MusicTrack } from './components/MusicTrack';
+import { SfxTrack } from './components/SfxTrack';
 import { SubtitleTrack } from './components/SubtitleTrack';
 import { VideoAudioTrack } from './components/VideoAudioTrack';
 import { GlobalOverlayItem } from '../../components/video/GlobalOverlaysRenderer';
-import { MusicClip } from '../../components/video/NitishRajputComposition';
+import { MusicClip, SfxClip } from '../../components/video/NitishRajputComposition';
 import {
   Scissors, Copy, Trash2, VolumeX, Volume2, Music, Edit3,
   Layers, ChevronRight, Check, AlertTriangle
@@ -30,6 +31,9 @@ interface TimelineProps {
   musicClips?: MusicClip[];
   onUpdateMusicClips?: (clips: MusicClip[]) => Promise<boolean | void>;
   onUploadMusicClip?: (startFrame?: number) => Promise<void>;
+  sfxClips?: SfxClip[];
+  onUpdateSfxClips?: (clips: SfxClip[]) => Promise<boolean | void>;
+  onUploadSfxClip?: (startFrame?: number) => Promise<void>;
   onSeek: (frame: number) => void;
   onDeleteScene?: (index: number) => void;
   onResizeSubVisual?: (sceneIndex: number, newRatios: number[]) => void;
@@ -73,6 +77,9 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   musicClips = [],
   onUpdateMusicClips,
   onUploadMusicClip,
+  sfxClips = [],
+  onUpdateSfxClips,
+  onUploadSfxClip,
   onSeek,
   onDeleteScene,
   onResizeSubVisual,
@@ -778,6 +785,26 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
                     musicClips={musicClips}
                     onUpdateMusicClips={onUpdateMusicClips}
                     onUploadMusicClip={onUploadMusicClip}
+                  />
+                );
+
+              case 'sfx':
+                return (
+                  <SfxTrack
+                    key="sfx"
+                    index={index}
+                    isDragOver={isDragOver}
+                    onDragStart={handleTrackDragStart}
+                    onDragOver={handleTrackDragOver}
+                    onDrop={handleTrackDrop}
+                    onDragEnd={handleTrackDragEnd}
+                    totalDuration={totalDuration}
+                    timelineZoom={timelineZoom}
+                    trackMuted={trackMuted}
+                    toggleTrackMute={toggleTrackMute}
+                    sfxClips={sfxClips}
+                    onUpdateSfxClips={onUpdateSfxClips}
+                    onUploadSfxClip={onUploadSfxClip}
                   />
                 );
 
