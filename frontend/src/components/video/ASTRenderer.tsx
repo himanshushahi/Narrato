@@ -97,6 +97,7 @@ const LAYOUT_PROPS = new Set([
   // Static transform (Layout tab): consumed below into a `transform` string —
   // never spread raw (would double-apply as CSS individual properties).
   'rotate', 'scale',
+  'aspectRatio',
 ]);
 
 /**
@@ -158,6 +159,32 @@ function splitStyles(style?: React.CSSProperties): {
   }
 
   return { containerStyle, contentStyle };
+}
+
+/**
+ * Normalizes raw borderRadius strings or numbers to valid CSS values (e.g. 24 -> '24px').
+ * Strips zero-forms to undefined so empty/reset styles don't leave dead styling.
+ */
+function normalizeBorderRadius(val: any): string | undefined {
+  if (val === undefined || val === null) return undefined;
+  if (typeof val === 'number') {
+    return Number.isFinite(val) && val > 0 ? `${val}px` : undefined;
+  }
+  const s = String(val).trim();
+  if (!s || s === '0' || s === '0px' || s === '0%') return undefined;
+  if (/^[-\d.]+$/.test(s)) {
+    const num = parseFloat(s);
+    return Number.isFinite(num) && num > 0 ? `${num}px` : undefined;
+  }
+  if (s.endsWith('px')) {
+    const num = parseFloat(s.slice(0, -2));
+    return Number.isFinite(num) && num > 0 ? `${num}px` : undefined;
+  }
+  if (s.endsWith('%')) {
+    const num = parseFloat(s.slice(0, -1));
+    return Number.isFinite(num) && num > 0 ? `${Math.min(50, num)}%` : undefined;
+  }
+  return s;
 }
 
 /**
@@ -290,19 +317,36 @@ export const ASTRenderer: React.FC<{
         // Check if this layer has custom positioning (not fullscreen)
         const hasCustomLayout = contentStyle && (
           contentStyle.width || contentStyle.height ||
-          contentStyle.top || contentStyle.left || contentStyle.right || contentStyle.bottom
+          contentStyle.top || contentStyle.left || contentStyle.right || contentStyle.bottom ||
+          (contentStyle as any).aspectRatio
         );
         
         let node = null;
+        const effectiveRadius = normalizeBorderRadius(layoutStyle.borderRadius || innerStyle.borderRadius);
         if ((content.type === 'Image' || content.type === 'Video') && content.local_path) {
           // For positioned layers, media fills its container; for fullscreen, apply content styles directly
-          const mediaStyle = hasCustomLayout
-            ? { objectFit: innerStyle.objectFit || 'cover' as const }
-            : innerStyle;
+          const mediaStyle: React.CSSProperties = hasCustomLayout
+            ? {
+                objectFit: innerStyle.objectFit || ('cover' as const),
+                ...(effectiveRadius ? { borderRadius: effectiveRadius } : null),
+              }
+            : {
+                ...innerStyle,
+                ...(effectiveRadius ? { borderRadius: effectiveRadius } : null),
+              };
           node = <MediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} loop={content.loop} />;
         } else if (content.type === 'Image' || content.type === 'Video') {
           // Procedural fallback when local media is missing/downloading
-          node = <ProceduralCanvasFallback query={(content as any).query} type={content.type} style={innerStyle} />;
+          node = (
+            <ProceduralCanvasFallback
+              query={(content as any).query}
+              type={content.type}
+              style={{
+                ...innerStyle,
+                ...(effectiveRadius ? { borderRadius: effectiveRadius } : null),
+              }}
+            />
+          );
         } else if (content.type === 'Text') {
           node = (
             <KineticText
@@ -400,24 +444,36 @@ export const ASTRenderer: React.FC<{
         // Static transform (Layout tab) applies to every layer — positioned or
         // fullscreen — on the container, independent of animated transforms.
         const staticTransform = parseStaticTransform(layoutStyle as Record<string, any>);
-        // Strip raw rotate/scale so they never leak as CSS individual
-        // properties alongside the composed `transform` below.
-        const { rotate: _rot, scale: _scl, ...layoutRest } = layoutStyle as Record<string, any>;
+        // Strip raw rotate/scale/borderRadius so they never leak as CSS individual
+        // properties alongside the composed transform/normalized radius below.
+        const { rotate: _rot, scale: _scl, borderRadius: _br, ...layoutRest } = layoutStyle as Record<string, any>;
+
+        const hasRadius = !!effectiveRadius;
+        const effectiveOverflow = layoutRest.overflow || (hasCustomLayout || hasRadius ? 'hidden' : undefined);
 
         // Build the container style: positioned layers get custom layout,
-        // fullscreen layers use the legacy 100%x100% default
+        // fullscreen layers use the legacy 100%x100% default with layout styling preserved
         const containerBaseStyle: React.CSSProperties = hasCustomLayout
           ? {
               position: 'absolute',
               zIndex: z_index,
-              overflow: 'hidden',
               ...layoutRest,
+              ...(layoutRest.aspectRatio ? { height: undefined } : {}),
+              ...(effectiveRadius ? { borderRadius: effectiveRadius } : {}),
+              overflow: effectiveOverflow,
             }
           : {
               width: '100%',
               height: '100%',
               position: 'absolute',
               zIndex: z_index,
+              ...layoutRest,
+              // Strip padding & boxSizing on fullscreen branch so stale card padding doesn't inset full frame
+              padding: undefined,
+              boxSizing: undefined,
+              ...(layoutRest.aspectRatio ? { height: undefined } : {}),
+              ...(effectiveRadius ? { borderRadius: effectiveRadius } : {}),
+              ...(effectiveOverflow ? { overflow: effectiveOverflow } : {}),
             };
 
         // Clamp expensive backdrop-blur radii to the Settings cap and isolate

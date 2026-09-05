@@ -1,9 +1,11 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { BsLayoutSplit, BsSliders } from 'react-icons/bs';
 
 interface AstLayoutControlsProps {
   style?: React.CSSProperties;
   onChange: (style: React.CSSProperties) => void;
+  /** True for Image / Video layers — enables Media Fit Mode (Cover/Contain) and Shape helpers. */
+  isMedia?: boolean;
   /** When set, the card-surface section + glass presets are disabled (values preserved). */
   surfaceDisabledReason?: string | null;
   /** Info banner shown above the card-surface section without disabling (limited tier). */
@@ -142,6 +144,15 @@ const SHADOW_PRESETS = [  { label: 'None', value: 'none' },
   { label: 'Crimson Alert', value: '0 0 35px rgba(239, 68, 68, 0.4), 0 10px 40px rgba(0, 0, 0, 0.6)' },
 ];
 
+const RADIUS_PRESETS: { label: string; value: string; displaySuffix?: string }[] = [
+  { label: 'Sharp', value: '0px' },
+  { label: 'Subtle', value: '16px', displaySuffix: '16px' },
+  { label: 'Smooth', value: '32px', displaySuffix: '32px' },
+  { label: 'Round', value: '64px', displaySuffix: '64px' },
+  { label: 'Pill', value: '9999px' },
+  { label: 'Circle', value: '50%' },
+];
+
 /** Derive a native-picker-safe #rrggbb swatch from any CSS color string. */
 const cssToSwatchHex = (val: any): string => {
   if (typeof val === 'string') {
@@ -182,6 +193,7 @@ const isPickerSafeSolid = (val: any): boolean => {
 const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
   style = {},
   onChange,
+  isMedia = false,
   surfaceDisabledReason = null,
   surfaceNote = null,
   dimensionsNote = null,
@@ -223,6 +235,11 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
     // handleUpdate) so a preset can't leave both keys set with a stale
     // gradient winning over the preset's solid.
     const merged = { ...currentStyle, ...presetStyle };
+    for (const [k, v] of Object.entries(presetStyle)) {
+      if (v === undefined) {
+        delete (merged as any)[k];
+      }
+    }
     if ('backgroundColor' in presetStyle) delete merged.background;
     if ('background' in presetStyle) delete merged.backgroundColor;
     onChange(merged);
@@ -247,6 +264,84 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
 
   // Extract borderRadius value (e.g. "20px" or 20 -> 20)
   const radiusVal = parseNum(currentStyle.borderRadius, 0);
+  const rawRadius =
+    currentStyle.borderRadius !== undefined &&
+    currentStyle.borderRadius !== null &&
+    String(currentStyle.borderRadius).trim() !== ''
+      ? String(currentStyle.borderRadius)
+      : '0px';
+
+  const isPercentRadius = rawRadius.trim().endsWith('%');
+
+  // Local text input draft for corner radius to allow fluid typing without cursor jump
+  const [draftRadius, setDraftRadius] = useState<string>(
+    rawRadius === '0px' ? '' : rawRadius
+  );
+
+  useEffect(() => {
+    setDraftRadius(rawRadius === '0px' ? '' : rawRadius);
+  }, [rawRadius]);
+
+  const commitRadius = (val: string) => {
+    const t = val.trim();
+    if (!t || t === '0' || t === '0px' || t === '0%') {
+      handleUpdate('borderRadius', undefined);
+      setDraftRadius('');
+      return;
+    }
+    // Unitless bare number: "24", "-10", etc.
+    if (/^[-\d.]+$/.test(t)) {
+      const num = parseFloat(t);
+      if (!Number.isFinite(num) || num <= 0) {
+        handleUpdate('borderRadius', undefined);
+        setDraftRadius('');
+        return;
+      }
+      const formatted = `${num}px`;
+      handleUpdate('borderRadius', formatted);
+      setDraftRadius(formatted);
+      return;
+    }
+    // Ends with %
+    if (t.endsWith('%')) {
+      const num = parseFloat(t.slice(0, -1));
+      if (!Number.isFinite(num) || num <= 0) {
+        handleApplyPreset({ borderRadius: undefined });
+        setDraftRadius('');
+        return;
+      }
+      const clamped = Math.min(50, num);
+      const formatted = `${clamped}%`;
+      if (clamped === 50 && isMedia) {
+        handleApplyPreset({
+          borderRadius: '50%',
+          aspectRatio: '1 / 1',
+          height: undefined,
+          objectFit: currentStyle.objectFit || 'cover',
+        });
+      } else {
+        handleUpdate('borderRadius', formatted);
+      }
+      setDraftRadius(formatted);
+      return;
+    }
+    // Ends with px
+    if (t.endsWith('px')) {
+      const num = parseFloat(t.slice(0, -2));
+      if (!Number.isFinite(num) || num <= 0) {
+        handleUpdate('borderRadius', undefined);
+        setDraftRadius('');
+        return;
+      }
+      const formatted = `${num}px`;
+      handleUpdate('borderRadius', formatted);
+      setDraftRadius(formatted);
+      return;
+    }
+    // Fallback: any other valid CSS string
+    handleUpdate('borderRadius', t);
+    setDraftRadius(t);
+  };
 
   // Parse border: "1px solid rgba(...)"
   const borderMatch = (currentStyle.border || '').match(/(\d+)px\s+([a-zA-Z]+)\s+(.+)/);
@@ -394,18 +489,171 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           <div className="space-y-1">
             <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
               <span>Height</span>
-              <span className="text-amber-400 font-mono">{heightVal}%</span>
+              <span className="text-amber-400 font-mono">
+                {currentStyle.aspectRatio ? `${currentStyle.aspectRatio} (Auto)` : `${heightVal}%`}
+              </span>
             </div>
             <input
               type="range"
               min="10"
               max="100"
               value={heightVal}
-              onChange={e => handleUpdate('height', `${e.target.value}%`)}
+              onChange={e => {
+                handleApplyPreset({
+                  height: `${e.target.value}%`,
+                  aspectRatio: undefined,
+                });
+              }}
               className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+              title={currentStyle.aspectRatio ? `Aspect ratio locked at ${currentStyle.aspectRatio} — drag to unlock custom height` : undefined}
             />
           </div>
         </div>
+
+        {/* Quick Shape Presets & Media Fit Mode — gated to Image/Video layers */}
+        {isMedia && (
+          <>
+            <div className="flex items-center gap-1 pt-1 flex-wrap">
+              <span className="text-[9px] text-stone-500 uppercase font-semibold">Shape:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (widthVal >= 95 && heightVal >= 95) {
+                    handleApplyPreset({
+                      left: '30%',
+                      top: '30%',
+                      width: '40%',
+                      height: undefined,
+                      aspectRatio: '1 / 1',
+                    });
+                  } else {
+                    handleApplyPreset({
+                      aspectRatio: '1 / 1',
+                      height: undefined,
+                    });
+                  }
+                }}
+                className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors cursor-pointer ${
+                  currentStyle.aspectRatio === '1 / 1' || currentStyle.aspectRatio === '1'
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
+                    : 'bg-black/50 border-white/10 text-stone-400 hover:text-stone-200'
+                }`}
+                title="Make width and height equal in pixels (perfect 1:1 square or circular avatar) — centers if fullscreen"
+              >
+                1:1 Square
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (widthVal >= 95 && heightVal >= 95) {
+                    handleApplyPreset({
+                      left: '25%',
+                      top: '25%',
+                      width: '50%',
+                      height: undefined,
+                      aspectRatio: '4 / 3',
+                    });
+                  } else {
+                    handleApplyPreset({
+                      aspectRatio: '4 / 3',
+                      height: undefined,
+                    });
+                  }
+                }}
+                className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors cursor-pointer ${
+                  currentStyle.aspectRatio === '4 / 3'
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
+                    : 'bg-black/50 border-white/10 text-stone-400 hover:text-stone-200'
+                }`}
+                title="Set 4:3 photo frame in pixels — centers if fullscreen"
+              >
+                4:3 Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (widthVal >= 95 && heightVal >= 95) {
+                    handleApplyPreset({
+                      left: '10%',
+                      top: '25%',
+                      width: '80%',
+                      height: undefined,
+                      aspectRatio: '16 / 9',
+                    });
+                  } else {
+                    handleApplyPreset({
+                      aspectRatio: '16 / 9',
+                      height: undefined,
+                    });
+                  }
+                }}
+                className={`px-1.5 py-0.5 rounded text-[9px] border transition-colors cursor-pointer ${
+                  currentStyle.aspectRatio === '16 / 9'
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
+                    : 'bg-black/50 border-white/10 text-stone-400 hover:text-stone-200'
+                }`}
+                title="Set 16:9 widescreen frame in pixels — centers if fullscreen"
+              >
+                16:9 Cinema
+              </button>
+              {currentStyle.aspectRatio && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleApplyPreset({
+                      aspectRatio: undefined,
+                      height: `${widthVal}%`,
+                    });
+                  }}
+                  className="px-1.5 py-0.5 rounded text-[9px] bg-black/50 border border-white/10 text-stone-500 hover:text-red-400 cursor-pointer"
+                  title="Unlock freeform width & height sliders"
+                >
+                  Unlock Freeform
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-white/5">
+              <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                <span>Media Fit Mode (Image / Video Scaling)</span>
+                <span className="text-amber-400 font-mono">{currentStyle.objectFit || 'cover'}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleUpdate('objectFit', 'cover')}
+                  className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    (currentStyle.objectFit || 'cover') === 'cover'
+                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
+                      : 'bg-black/50 border-white/10 text-stone-400 hover:text-stone-200'
+                  }`}
+                  title="Fills the entire card shape from edge to edge — rounded corners shape the image directly without empty letterboxing"
+                >
+                  <span>🖼️</span>
+                  <span>Cover (Fill Card)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpdate('objectFit', 'contain')}
+                  className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    currentStyle.objectFit === 'contain'
+                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
+                      : 'bg-black/50 border-white/10 text-stone-400 hover:text-stone-200'
+                  }`}
+                  title="Scales image to fit completely inside the card without cropping (leaves empty space if card aspect ratio differs)"
+                >
+                  <span>📐</span>
+                  <span>Contain (Full Image)</span>
+                </button>
+              </div>
+              <p className="text-[9px] text-stone-500 leading-relaxed">
+                {(currentStyle.objectFit || 'cover') === 'cover'
+                  ? '✨ Cover: The image fills the entire card edge-to-edge. Corner radius directly rounds the photo!'
+                  : 'ℹ️ Contain: Fits the full photo without cropping. If the card has a different shape (e.g. tall rectangle), the photo sits in the center with letterboxing. Switch to Cover or adjust Width & Height to round the photo itself.'}
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* 3. Transform (Rotate & Scale) */}
@@ -561,42 +809,168 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           </div>
         </div>
 
-        {/* Sliders: Glass Blur & Corner Radius */}
-        <div className="grid grid-cols-2 gap-3 pt-1">
-          <div className="space-y-1">
-            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
-              <span>Glass Blur</span>
-              <span className="text-amber-400 font-mono">{blurVal}px</span>
-            </div>
+        {/* Glass Blur Slider */}
+        <div className="space-y-1 pt-1">
+          <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+            <span>Glass Blur (Backdrop)</span>
+            <span className="text-amber-400 font-mono">{blurVal}px</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="40"
+            step="2"
+            value={blurVal}
+            onChange={e => {
+              const b = parseInt(e.target.value, 10);
+              handleUpdate('backdropFilter', b > 0 ? `blur(${b}px)` : undefined);
+            }}
+            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+          />
+        </div>
+
+        {/* Corner Radius Controls */}
+        <div className="space-y-1.5 pt-2 border-t border-white/5">
+          <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+            <span>Corner Radius / Rounding</span>
+            <span className="text-amber-400 font-mono">{rawRadius}</span>
+          </div>
+
+          {/* Quick Presets */}
+          <div className="flex flex-wrap gap-1">
+            {RADIUS_PRESETS.map(p => {
+              const isActive =
+                rawRadius === p.value ||
+                (p.value.endsWith('px') &&
+                  radiusVal === parseNum(p.value, -1) &&
+                  !rawRadius.includes('%'));
+              return (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    if (p.value === '0px') {
+                      handleApplyPreset({ borderRadius: undefined });
+                      setDraftRadius('');
+                    } else if (p.label === 'Circle') {
+                      // Circle preset: A circle mathematically requires 1:1 aspect ratio!
+                      // On non-square video canvases (9:16 or 16:9), equal percentages or
+                      // unequal dimensions result in an oval/ellipse. Setting aspectRatio: '1 / 1'
+                      // forces exact equal pixel width & height.
+                      const updates: Record<string, any> = {
+                        borderRadius: '50%',
+                        aspectRatio: '1 / 1',
+                        height: undefined,
+                        objectFit: currentStyle.objectFit || 'cover',
+                      };
+                      if (widthVal >= 95 && heightVal >= 95) {
+                        updates.left = '30%';
+                        updates.top = '30%';
+                        updates.width = '40%';
+                      }
+                      handleApplyPreset(updates);
+                      setDraftRadius('50%');
+                    } else {
+                      handleUpdate('borderRadius', p.value);
+                      setDraftRadius(p.value);
+                    }
+                  }}
+                  className={`px-2 py-0.5 rounded text-[9px] font-medium border transition-colors cursor-pointer ${
+                    isActive
+                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
+                      : 'bg-black/50 border-white/10 text-stone-400 hover:text-stone-200'
+                  }`}
+                >
+                  {p.label}
+                  {p.displaySuffix ? ` (${p.displaySuffix})` : ''}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Slider & Custom Input */}
+          <div className="flex items-center gap-2 pt-0.5">
             <input
               type="range"
               min="0"
-              max="40"
-              step="2"
-              value={blurVal}
+              max={isPercentRadius ? 50 : 200}
+              step={isPercentRadius ? 1 : 2}
+              value={isPercentRadius ? Math.min(50, Math.max(0, radiusVal)) : Math.min(200, Math.max(0, radiusVal))}
               onChange={e => {
-                const b = parseInt(e.target.value, 10);
-                handleUpdate('backdropFilter', b > 0 ? `blur(${b}px)` : undefined);
+                const v = parseInt(e.target.value, 10);
+                if (!Number.isFinite(v) || v <= 0) {
+                  handleApplyPreset({ borderRadius: undefined });
+                  setDraftRadius('');
+                } else if (isPercentRadius) {
+                  const formatted = `${v}%`;
+                  if (v === 50 && isMedia) {
+                    handleApplyPreset({
+                      borderRadius: '50%',
+                      aspectRatio: '1 / 1',
+                      height: undefined,
+                      objectFit: currentStyle.objectFit || 'cover',
+                    });
+                  } else {
+                    handleUpdate('borderRadius', formatted);
+                  }
+                  setDraftRadius(formatted);
+                } else {
+                  const formatted = `${v}px`;
+                  handleUpdate('borderRadius', formatted);
+                  setDraftRadius(formatted);
+                }
               }}
-              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+              className="flex-1 accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+              title={
+                isPercentRadius
+                  ? 'Corner Radius slider (0 to 50%)'
+                  : radiusVal > 200
+                    ? `Pill mode active (${rawRadius}) — slider adjusts up to 200px`
+                    : 'Corner Radius slider (0 to 200px)'
+              }
+            />
+            <input
+              type="text"
+              value={draftRadius}
+              placeholder="0px"
+              onChange={e => {
+                // Draft-only on keystroke: never commit mid-typing (prevents cursor jump, 2px4, -px)
+                setDraftRadius(e.target.value);
+              }}
+              onBlur={() => commitRadius(draftRadius)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  commitRadius(draftRadius);
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              className="w-16 bg-black/60 border border-white/10 text-stone-200 text-xs font-mono rounded px-1.5 py-0.5 text-center focus:outline-none focus:border-amber-500/50"
+              title="Direct CSS corner radius (e.g. 24, 24px, 50%, 9999px) — press Enter or click away to apply"
             />
           </div>
 
-          <div className="space-y-1">
-            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
-              <span>Corner Radius</span>
-              <span className="text-amber-400 font-mono">{radiusVal}px</span>
+          {rawRadius === '50%' && !currentStyle.aspectRatio && isMedia && (
+            <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[10px] leading-relaxed text-amber-200/90 flex items-center justify-between gap-2">
+              <span>⚠️ 50% radius on a rectangle creates an oval. Lock 1:1 aspect ratio to make it a perfect circle.</span>
+              <button
+                type="button"
+                onClick={() => {
+                  handleApplyPreset({
+                    aspectRatio: '1 / 1',
+                    height: undefined,
+                    objectFit: currentStyle.objectFit || 'cover',
+                  });
+                }}
+                className="px-2 py-0.5 bg-amber-500 text-black font-bold text-[9px] rounded hover:bg-amber-400 cursor-pointer shrink-0"
+              >
+                Make 1:1 Circle
+              </button>
             </div>
-            <input
-              type="range"
-              min="0"
-              max="36"
-              step="2"
-              value={radiusVal}
-              onChange={e => handleUpdate('borderRadius', `${e.target.value}px`)}
-              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
-            />
-          </div>
+          )}
+
+          <p className="text-[9px] text-stone-500 leading-relaxed">
+            💡 Tip: On full-frame layers, corner rounding trims outer canvas corners. For visible cards, insets, or circular badges, select a Layout Preset above or resize Width &amp; Height.
+          </p>
         </div>
 
         {/* Border Controls */}

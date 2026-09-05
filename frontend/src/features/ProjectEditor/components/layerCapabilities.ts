@@ -41,7 +41,7 @@ const PARTICLES_GLASS =
 const MAP_GLASS =
   'Card surface is disabled for Map: the map renders full-canvas and ignores inner sizing, so a small card only crops a corner of the world map. Use Fullscreen position instead.';
 const MEDIA_GLASS =
-  'Note: glass blur (backdrop-filter) has no visible effect on opaque fullscreen media — it blurs what is behind the layer. A tinted background darkens the media itself.';
+  'Note: glass blur (backdrop-filter) has no visible effect on opaque fullscreen media — it blurs what is behind the layer. Corner radius, borders, shadows, and tinted backgrounds apply directly to the media.';
 const LOTTIE_GLASS =
   'Note: card background/border clips the vector animation to the card box. Usually Lottie looks best Fullscreen or on a transparent card.';
 const PARTICLES_FILTER =

@@ -434,7 +434,7 @@ export const AstGraphicalEditor = ({
             const val = styleObj[k];
             if (val === undefined || val === null || val === '' || val === 'none') return false;
             if ((k === 'backgroundColor' || k === 'background') && val === 'transparent') return false;
-            if (k === 'borderRadius' && (val === '0px' || val === 0 || val === '0')) return false;
+            if (k === 'borderRadius' && (val === '0px' || val === 0 || val === '0' || val === '0%')) return false;
             if (k === 'boxShadow' && val === 'none') return false;
             if ((k === 'backdropFilter' || k === 'WebkitBackdropFilter') && val === 'none') return false;
             return true;
@@ -1162,6 +1162,7 @@ export const AstGraphicalEditor = ({
                     <AstLayoutControls
                       style={content.style || EMPTY_STYLE}
                       onChange={layerCallbacks[idx].onStyleChange}
+                      isMedia={layerKind === 'Image' || layerKind === 'Video'}
                       surfaceDisabledReason={surfaceDisabled ? layerCap.glassNote ?? null : null}
                       surfaceNote={!surfaceDisabled && layerCap.glass === 'limited' ? layerCap.glassNote ?? null : null}
                       dimensionsNote={layerCap.dimensionsNote ?? null}
