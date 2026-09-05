@@ -549,6 +549,7 @@ class ApiBridge:
             return {"success": False, "path": None, "error": str(e)}
 
     def _probe_audio_duration_seconds(self, file_path: str) -> float:
+        import subprocess
         try:
             from backend.core.config import get_startupinfo, get_ffprobe_path
             ffprobe_bin = get_ffprobe_path()
@@ -737,6 +738,108 @@ class ApiBridge:
             return {"success": True}
         except Exception as e:
             logger.error(f"update_music_clips error: {e}")
+            return {"success": False, "error": str(e)}
+
+    # ── SFX track (mirrors music_clips, stored in projects.sfx_clips) ──
+    def search_sfx(self, query: str, limit: int = 10, sort: str = "downloads_desc",
+                   license_filter: str = "") -> dict:
+        try:
+            from backend.pipeline.sfx import search_sfx as _search
+            return {"success": True, **_search(query, limit=int(limit or 10),
+                                              sort=sort or "downloads_desc",
+                                              license_filter=license_filter or "")}
+        except Exception as e:
+            logger.error(f"search_sfx error: {e}")
+            return {"success": False, "query": query, "sfx": [], "error": str(e)}
+
+    def upload_sfx_clip(self, project_id: str, start_frame: int = 0) -> dict:
+        logger.info(f"Bridge API: upload_sfx_clip called for project {project_id} at frame {start_frame}")
+        import webview
+        import uuid
+        window = self._get_window()
+        if not window:
+            return {"success": False, "error": "No window"}
+        try:
+            result = window.create_file_dialog(
+                dialog_type=webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=('Audio Files (*.mp3;*.wav;*.ogg;*.flac;*.m4a)', 'All Files (*.*)')
+            )
+            if not result:
+                return {"success": False, "error": "No file selected"}
+            file_path = result[0]
+        except Exception as e:
+            logger.error(f"upload_sfx_clip dialog error: {e}")
+            return {"success": False, "error": str(e)}
+        return self.add_sfx_clip_from_path(project_id, file_path, start_frame)
+
+    def add_sfx_clip_from_path(self, project_id: str, file_path: str, start_frame: int = 0) -> dict:
+        logger.info(f"Bridge API: add_sfx_clip_from_path called for project {project_id} from {file_path}")
+        import uuid
+        import shutil
+        from backend.core.config import get_storage_dir
+        src = Path(file_path)
+        if not src.exists():
+            return {"success": False, "error": f"File does not exist: {file_path}"}
+        proj_dir = get_storage_dir() / project_id
+        sfx_dir = proj_dir / "sfx"
+        sfx_dir.mkdir(parents=True, exist_ok=True)
+        ext = src.suffix.lower() or ".mp3"
+        clip_id = f"sfx_{uuid.uuid4().hex[:8]}"
+        dest = sfx_dir / f"{clip_id}{ext}"
+        try:
+            if src.resolve() != dest.resolve():
+                shutil.copy(str(src), str(dest))
+            dur_sec = self._probe_audio_duration_seconds(str(dest))
+            dur_frames = max(6, int(round(dur_sec * 30)))
+            # Fixed per-clip default; sfx_volume setting is master gain at mix time.
+            sfx_vol = 0.5
+            proj = get_project(project_id) or {}
+            raw = proj.get("sfx_clips")
+            clips = []
+            if raw:
+                try:
+                    clips = json.loads(raw) if isinstance(raw, str) else list(raw)
+                except Exception:
+                    clips = []
+            new_clip = {
+                "id": clip_id,
+                "name": src.name,
+                "audio_path": str(dest),
+                "start_frame": max(0, int(start_frame or 0)),
+                "duration_frames": dur_frames,
+                "source_start_seconds": 0.0,
+                "source_duration_seconds": dur_sec,
+                "volume": sfx_vol,
+                "loop": False,
+                "fade_in_seconds": 0.0,
+                "fade_out_seconds": 0.0,
+                "is_muted": False,
+            }
+            clips.append(new_clip)
+            update_project(project_id, sfx_clips=json.dumps(clips))
+            return {"success": True, "clip": new_clip, "clips": clips}
+        except Exception as e:
+            logger.error(f"add_sfx_clip_from_path error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def download_sfx_to_project(self, project_id: str, audio_url: str, name: str = "sfx",
+                                start_frame: int = 0) -> dict:
+        logger.info(f"Bridge API: download_sfx_to_project called for project {project_id} url={audio_url[:80]}")
+        try:
+            from backend.pipeline.sfx import download_preview_to_project
+            return download_preview_to_project(project_id, audio_url, name=name, start_frame=int(start_frame or 0))
+        except Exception as e:
+            logger.error(f"download_sfx_to_project error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def update_sfx_clips(self, project_id: str, clips: list) -> dict:
+        try:
+            clips_json = json.dumps(clips) if not isinstance(clips, str) else clips
+            update_project(project_id, sfx_clips=clips_json)
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"update_sfx_clips error: {e}")
             return {"success": False, "error": str(e)}
 
     def db_get_projects(self) -> list:
