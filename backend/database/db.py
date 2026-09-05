@@ -53,6 +53,7 @@ def init_db():
                 bg_music_path TEXT,
                 bg_music_volume REAL DEFAULT 0.15,
                 music_clips TEXT,
+                sfx_clips TEXT,
                 project_settings TEXT,
                 export_folder TEXT
             )
@@ -66,6 +67,11 @@ def init_db():
 
         try:
             cursor.execute("ALTER TABLE projects ADD COLUMN music_clips TEXT")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE projects ADD COLUMN sfx_clips TEXT")
         except sqlite3.OperationalError:
             pass # Column already exists
             
@@ -143,6 +149,8 @@ def init_db():
             "xtts_reference_voice": "", # XTTS reference clip path for voice cloning
             "bg_music_path": "",
             "bg_music_volume": "0.15",
+            "sfx_volume": "0.5",
+            "freesound_api_key": "", # User's Freesound API Key (free at freesound.org/apiv2/apply)
             "pexels_api_key": "", # User's Pexels API Key
             "pixabay_api_key": "", # User's Pixabay API Key
             "use_pexels": True,
