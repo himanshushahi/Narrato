@@ -251,6 +251,8 @@ def compute_audio_hash(props_dict, render_settings):
                 })
     audio_props["videoAudioSources"] = video_audio_sources
     audio_props["musicClips"] = props_dict.get("musicClips", [])
+    audio_props["sfxClips"] = props_dict.get("sfxClips", [])
+    audio_props["sfxVolume"] = props_dict.get("sfxVolume", 0.5)
 
     # Per-sub-visual audio cut flags (mute_voiceover / mute_bg_music) — toggling
     # them must invalidate the cached audio mix.
@@ -287,6 +289,14 @@ def compute_audio_hash(props_dict, render_settings):
             mc_id = mc.get('id', 'clip')
             audio_props[f"mc_{mc_id}_mtime"] = stat.st_mtime
             audio_props[f"mc_{mc_id}_size"] = stat.st_size
+
+    for sc in audio_props.get("sfxClips", []):
+        spath = sc.get("audio_path")
+        if spath and os.path.exists(spath):
+            stat = os.stat(spath)
+            sc_id = sc.get('id', 'sfx')
+            audio_props[f"sfx_{sc_id}_mtime"] = stat.st_mtime
+            audio_props[f"sfx_{sc_id}_size"] = stat.st_size
 
     for vas in video_audio_sources:
         path_str = vas["path"]
@@ -585,6 +595,7 @@ def prepare_render_props_and_settings(project_dict, project_dir):
     render_track_overrides = {
         "muteVoice": project_settings.get("render_mute_voice", False),
         "muteMusic": project_settings.get("render_mute_music", False),
+        "muteSfx": project_settings.get("render_mute_sfx", False),
         "muteVideoAudio": project_settings.get("render_mute_video_audio", False),
         "hideSubtitles": project_settings.get("render_hide_subtitles", False),
         "hideOverlays": project_settings.get("render_hide_overlays", False),
@@ -619,8 +630,29 @@ def prepare_render_props_and_settings(project_dict, project_dir):
             mc_copy["audio_url"] = clean_media_path(mc_copy["audio_path"])
             cleaned_music_clips.append(mc_copy)
 
+    raw_sfx_clips = project_dict.get("sfx_clips")
+    parsed_sfx_clips = []
+    if raw_sfx_clips:
+        try:
+            parsed_sfx_clips = json.loads(raw_sfx_clips) if isinstance(raw_sfx_clips, str) else raw_sfx_clips
+        except Exception:
+            parsed_sfx_clips = []
+
+    cleaned_sfx_clips = []
+    for sc in parsed_sfx_clips:
+        if isinstance(sc, dict) and sc.get("audio_path"):
+            sc_copy = dict(sc)
+            sc_copy["audio_url"] = clean_media_path(sc_copy["audio_path"])
+            cleaned_sfx_clips.append(sc_copy)
+
     bg_vol_val = _safe_float(project_dict.get("bg_music_volume"), default=0.15)
     voice_vol_val = _safe_float(project_settings.get("voiceover_volume"), default=1.0)
+    try:
+        from backend.database.db import get_setting as _get_setting
+        sfx_vol_default = float(_get_setting("sfx_volume") or 0.5)
+    except Exception:
+        sfx_vol_default = 0.5
+    sfx_vol_val = _safe_float(project_settings.get("sfx_volume"), default=sfx_vol_default)
 
     # ── Visual-effects quality policy (Settings → Rendering Engine) ──────
     # Validated here so a corrupt DB value can never break the renderer.
@@ -638,6 +670,8 @@ def prepare_render_props_and_settings(project_dict, project_dir):
         "bgMusicUrl": bg_music_url,
         "bgMusicVolume": bg_vol_val,
         "musicClips": cleaned_music_clips,
+        "sfxClips": cleaned_sfx_clips,
+        "sfxVolume": sfx_vol_val,
         "voiceoverVolume": voice_vol_val,
         "muteVideoAudio": False,
         "scenes": scenes,
@@ -660,6 +694,10 @@ def prepare_render_props_and_settings(project_dict, project_dir):
         props["bgMusicUrl"] = ""
         props["musicClips"] = []
         logger.info("Smart Resume: Background music muted by track override.")
+    if render_track_overrides["muteSfx"]:
+        props["sfxVolume"] = 0.0
+        props["sfxClips"] = []
+        logger.info("Smart Resume: SFX muted by track override.")
     if render_track_overrides["muteVideoAudio"]:
         props["muteVideoAudio"] = True
         logger.info("Smart Resume: Video audio muted by track override.")
@@ -683,7 +721,7 @@ def prepare_render_props_and_settings(project_dict, project_dir):
         "timeout": timeout_ms,
     }
 
-    return (props, render_settings, scenes, transcript, audio_path, render_track_overrides, project_settings, cleaned_music_clips)
+    return (props, render_settings, scenes, transcript, audio_path, render_track_overrides, project_settings, cleaned_music_clips, cleaned_sfx_clips)
 
 
 def is_render_stale(project_dict, project_dir) -> bool:
@@ -780,7 +818,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
     project_dir = Path(project_dir)
     (
         props, render_settings, scenes, transcript, audio_path,
-        render_track_overrides, project_settings, cleaned_music_clips
+        render_track_overrides, project_settings, cleaned_music_clips,
+        cleaned_sfx_clips
     ) = prepare_render_props_and_settings(project_dict, project_dir)
 
     fps = render_settings["fps"]
@@ -1207,11 +1246,15 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
         
         voice_vol = float(project_settings.get("voiceover_volume")) if project_settings.get("voiceover_volume") is not None else 1.0
         bg_vol = float(project_dict.get("bg_music_volume")) if project_dict.get("bg_music_volume") is not None else 0.15
-        
+        sfx_master = _safe_float(project_settings.get("sfx_volume"),
+                                 _safe_float(props.get("sfxVolume"), 0.5))
+
         if render_track_overrides.get("muteVoice"):
             voice_vol = 0.0
         if render_track_overrides.get("muteMusic"):
             bg_vol = 0.0
+        if render_track_overrides.get("muteSfx"):
+            sfx_master = 0.0
         mute_video_audio = render_track_overrides.get("muteVideoAudio", False)
 
         # ── Collect video audio sources from sub-visuals ──────────────────
@@ -1270,6 +1313,22 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
                 cmd_audio.extend(["-stream_loop", "-1", "-i", mpath])
             else:
                 cmd_audio.extend(["-i", mpath])
+            input_count += 1
+
+        # ── Collect SFX clip inputs (one-shots, no loop) ───────────────────
+        sfx_clip_inputs = []
+        if not render_track_overrides.get("muteSfx"):
+            for sc in (cleaned_sfx_clips or []):
+                spath = sc.get("audio_path")
+                if spath and Path(spath).exists() and not sc.get("is_muted"):
+                    sfx_clip_inputs.append(sc)
+
+        sfx_clip_start_idx = input_count
+        for sc in sfx_clip_inputs:
+            if sc.get("loop"):
+                cmd_audio.extend(["-stream_loop", "-1", "-i", sc["audio_path"]])
+            else:
+                cmd_audio.extend(["-i", sc["audio_path"]])
             input_count += 1
 
         # Probe audio streams for each video track using ffprobe
@@ -1351,6 +1410,40 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
 
             filter_parts.append(f"[{in_idx}:a]" + ",".join(mc_filters) + f"[bgc{idx}]")
             mix_inputs.append(f"[bgc{idx}]")
+
+        # SFX clips (same trim/fade/delay chain as music, no loop, no bg-cut ducking)
+        for idx, sc in enumerate(sfx_clip_inputs):
+            in_idx = sfx_clip_start_idx + idx
+            start_sec = max(0.0, _safe_float(sc.get("start_frame"), 0.0) / 30.0)
+            dur_sec = max(0.1, _safe_float(sc.get("duration_frames"), 30.0) / 30.0)
+            src_start = max(0.0, _safe_float(sc.get("source_start_seconds"), 0.0))
+            fade_in = max(0.0, _safe_float(sc.get("fade_in_seconds"), 0.0))
+            fade_out = max(0.0, _safe_float(sc.get("fade_out_seconds"), 0.0))
+            # Clamp fades to half the clip: overlapping in+out ramps would
+            # cancel each other and silence short SFX in the export.
+            max_fade = dur_sec / 2.0
+            fade_in = min(fade_in, max_fade)
+            fade_out = min(fade_out, max_fade)
+            clip_vol = max(0.0, _safe_float(sc.get("volume"), 0.5))
+
+            sfx_filters = []
+            if src_start > 0:
+                sfx_filters.append(f"atrim=start={src_start:.3f}:duration={dur_sec:.3f},asetpts=PTS-STARTPTS")
+            else:
+                sfx_filters.append(f"atrim=duration={dur_sec:.3f},asetpts=PTS-STARTPTS")
+            if fade_in > 0:
+                sfx_filters.append(f"afade=t=in:st=0:d={min(fade_in, dur_sec):.3f}")
+            if fade_out > 0:
+                st_out = max(0.0, dur_sec - fade_out)
+                sfx_filters.append(f"afade=t=out:st={st_out:.3f}:d={min(fade_out, dur_sec):.3f}")
+            master_mult = (sfx_master / 0.5) if sfx_master is not None and sfx_master >= 0 else 1.0
+            sfx_filters.append(f"volume={max(0.0, clip_vol * master_mult):.3f}")
+            delay_ms = int(start_sec * 1000)
+            if delay_ms > 0:
+                sfx_filters.append(f"adelay={delay_ms}:all=1")
+
+            filter_parts.append(f"[{in_idx}:a]" + ",".join(sfx_filters) + f"[sfx{idx}]")
+            mix_inputs.append(f"[sfx{idx}]")
 
         # Video audio tracks
         for i, vat in enumerate(video_audio_inputs):
