@@ -14,6 +14,8 @@ interface AstLayoutControlsProps {
   hasStaleCardStyle?: boolean;
   /** Removes leftover card-surface keys (called from the disabled-section banner). */
   onClearCardStyle?: () => void;
+  /** Info note for the Transform section (rotation exposes canvas edges). */
+  transformNote?: string | null;
 }
 
 const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> }[] = [
@@ -185,6 +187,7 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
   dimensionsNote = null,
   hasStaleCardStyle = false,
   onClearCardStyle,
+  transformNote = null,
 }) => {
   const currentStyle = (style || {}) as Record<string, any>;
 
@@ -258,6 +261,32 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
       handleUpdate('border', `${w}px ${s} ${c}`);
     }
   };
+
+  // Parse static transform (Layout tab): rotate in degrees, scale as multiplier.
+  // Accepts numbers (15, 1.2) or strings ('15deg', '120%') for AI-authored JSON.
+  const parseRotate = (val: any): number => {
+    if (typeof val === 'number' && Number.isFinite(val)) return val;
+    if (typeof val === 'string') {
+      const n = parseFloat(val);
+      if (Number.isFinite(n)) return n;
+    }
+    return 0;
+  };
+  const parseScale = (val: any): number => {
+    // Negative scale mirrors (flip) — surfaced from AI-authored JSON; the
+    // slider below only produces 10–200%, Reset restores 100%.
+    if (typeof val === 'number' && Number.isFinite(val) && val !== 0) return val;
+    if (typeof val === 'string') {
+      const t = val.trim();
+      const n = t.endsWith('%') ? parseFloat(t) / 100 : parseFloat(t);
+      if (Number.isFinite(n) && n !== 0) return n;
+    }
+    return 1;
+  };
+  const rotateVal = parseRotate(currentStyle.rotate);
+  const scaleVal = parseScale(currentStyle.scale);
+  const scalePct = Math.round(scaleVal * 100);
+  const hasTransform = rotateVal !== 0 || scaleVal !== 1;
 
   return (
     <div className="space-y-3.5">
@@ -379,7 +408,80 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
         </div>
       </div>
 
-      {/* 3. Card Surface & Glassmorphism */}
+      {/* 3. Transform (Rotate & Scale) */}
+      <div className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+            ⟳ Transform (Rotate &amp; Scale)
+          </span>
+          {hasTransform && (
+            <button
+              type="button"
+              onClick={() => {
+                const updated = { ...currentStyle };
+                delete updated.rotate;
+                delete updated.scale;
+                onChange(updated);
+              }}
+              className="text-[9px] text-stone-500 hover:text-red-400 transition-colors uppercase font-semibold cursor-pointer"
+              title="Remove static rotation and scale (back to 0° / 100%)"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+        {transformNote && (
+          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
+            ℹ️ {transformNote}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+              <span>Rotation</span>
+              <span className="text-amber-400 font-mono">{rotateVal}°</span>
+            </div>
+            <input
+              type="range"
+              min="-180"
+              max="180"
+              step="1"
+              value={Math.max(-180, Math.min(180, rotateVal))}
+              onChange={e => handleUpdate('rotate', parseFloat(e.target.value) || 0)}
+              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+              title="Static 2D rotation in degrees (pivot: Motion FX anchor when set, else center)"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+              <span>Scale</span>
+              <span className="text-amber-400 font-mono">{scalePct}%</span>
+            </div>
+            <input
+              type="range"
+              min="10"
+              max="200"
+              step="5"
+              value={Math.max(10, Math.min(200, scalePct))}
+              onChange={e => handleUpdate('scale', (parseFloat(e.target.value) || 100) / 100)}
+              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+              title="Static uniform scale (100% = natural size). Composes with animation keyframes."
+            />
+            {scaleVal < 0 && (
+              <p className="text-[9px] text-amber-300/90 leading-relaxed">
+                Mirrored (negative scale from JSON) — move the slider or Reset to restore.
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="text-[9px] text-stone-500 leading-relaxed">
+          Static transform on the layer container — composes with Animations keyframes. Pivot: Motion FX → Transform Origin when set, else center.
+        </p>
+      </div>
+
+      {/* 4. Card Surface & Glassmorphism */}
       {surfaceDisabledReason ? (
         <div
           className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[10px] leading-relaxed text-amber-200/90 space-y-1.5"

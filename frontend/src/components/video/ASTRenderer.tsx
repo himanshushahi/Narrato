@@ -94,7 +94,47 @@ const LAYOUT_PROPS = new Set([
   'border', 'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
   'borderWidth', 'borderStyle', 'borderColor',
   'backgroundColor', 'background', 'backdropFilter', 'WebkitBackdropFilter',
+  // Static transform (Layout tab): consumed below into a `transform` string —
+  // never spread raw (would double-apply as CSS individual properties).
+  'rotate', 'scale',
 ]);
+
+/**
+ * Static rotate/scale from the Layout tab (`content.style.rotate` in degrees,
+ * `content.style.scale` as a multiplier or percent string). Applied on the
+ * layer *container*, separate from ASTAnimator's animated transform wrapper
+ * so the two compose instead of clobbering each other.
+ */
+function parseStaticTransform(layoutStyle: Record<string, any>): string | undefined {
+  const parts: string[] = [];
+
+  const rawRotate = layoutStyle.rotate;
+  const deg =
+    typeof rawRotate === 'number'
+      ? rawRotate
+      : typeof rawRotate === 'string'
+        ? parseFloat(rawRotate)
+        : NaN;
+  if (Number.isFinite(deg) && deg !== 0) {
+    parts.push(`rotate(${deg}deg)`);
+  }
+
+  const rawScale = layoutStyle.scale;
+  let s: number = NaN;
+  if (typeof rawScale === 'number') {
+    s = rawScale;
+  } else if (typeof rawScale === 'string') {
+    const t = rawScale.trim();
+    s = t.endsWith('%') ? parseFloat(t) / 100 : parseFloat(t);
+  }
+  // Negative scale mirrors (flip) — preserve the sign, clamp magnitude only.
+  if (Number.isFinite(s) && s !== 0 && s !== 1) {
+    const mag = Math.max(0.01, Math.abs(s));
+    parts.push(`scale(${s < 0 ? -mag : mag})`);
+  }
+
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
 
 /**
  * Splits a content style object into layout styles (for the container div)
@@ -355,6 +395,15 @@ export const ASTRenderer: React.FC<{
 
         if (!node) return null;
 
+        const { motion_blur, shutter_angle, camera_shake, transform_origin, floating } = layer as any;
+
+        // Static transform (Layout tab) applies to every layer — positioned or
+        // fullscreen — on the container, independent of animated transforms.
+        const staticTransform = parseStaticTransform(layoutStyle as Record<string, any>);
+        // Strip raw rotate/scale so they never leak as CSS individual
+        // properties alongside the composed `transform` below.
+        const { rotate: _rot, scale: _scl, ...layoutRest } = layoutStyle as Record<string, any>;
+
         // Build the container style: positioned layers get custom layout,
         // fullscreen layers use the legacy 100%x100% default
         const containerBaseStyle: React.CSSProperties = hasCustomLayout
@@ -362,7 +411,7 @@ export const ASTRenderer: React.FC<{
               position: 'absolute',
               zIndex: z_index,
               overflow: 'hidden',
-              ...layoutStyle,
+              ...layoutRest,
             }
           : {
               width: '100%',
@@ -382,6 +431,11 @@ export const ASTRenderer: React.FC<{
             ? optimizeBackdropFilter((layoutStyle as any).WebkitBackdropFilter as string, glassCap)
             : (layoutStyle as any).WebkitBackdropFilter;
         const hasGlass = !!optimizedBackdrop || !!optimizedWebkitBackdrop;
+        // Compose static Layout transform with the glass compositor hack —
+        // a single `transform` key so neither overwrites the other.
+        const containerTransform = [staticTransform, hasGlass ? 'translateZ(0)' : null]
+          .filter(Boolean)
+          .join(' ') || undefined;
 
         const inner = (
           <div style={{
@@ -395,14 +449,15 @@ export const ASTRenderer: React.FC<{
             filter: filterStyle,
             // Isolation + own compositor layer confines the backdrop-blur
             // readback instead of re-rasterizing overlapping siblings.
-            ...(hasGlass ? { isolation: 'isolate' as const, transform: 'translateZ(0)' } : null),
+            ...(hasGlass ? { isolation: 'isolate' as const } : null),
+            ...(containerTransform ? { transform: containerTransform } : null),
+            // Honor the Motion FX anchor for static rotation when set.
+            ...(containerTransform && transform_origin ? { transformOrigin: transform_origin } : null),
             ...blendStyle,
           }}>
             {node}
           </div>
         );
-
-        const { motion_blur, shutter_angle, camera_shake, transform_origin, floating } = layer as any;
 
         const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin || !!floating) ? (
           <ASTAnimator

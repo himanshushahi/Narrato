@@ -30,6 +30,8 @@ export interface LayerCapability {
   filterNote?: string;
   /** Note for the Coordinates & Dimensions section (resize crops rather than refits). */
   dimensionsNote?: string;
+  /** Note for the Transform section (rotation exposes canvas edges). */
+  transformNote?: string;
   /** When true, SVG url(#fx-*) look presets are disabled (transparent canvas). */
   disableSvgLooks?: boolean;
 }
@@ -48,6 +50,8 @@ const PARTICLES_DIMS =
   'Note: resizing crops the fixed full-frame emitter field instead of refitting it — Fullscreen is recommended for Particles.';
 const MAP_DIMS =
   'Note: the map renders full-canvas and ignores inner sizing — shrinking this layer crops the world map instead of fitting it. Fullscreen is recommended for Map.';
+const CANVAS_ROTATE =
+  'Note: rotation turns the whole full-frame canvas and exposes the composition background at the corners — prefer small angles for full-frame layers.';
 
 export function normalizeLayerKind(raw: unknown): LayerKind {
   const s = String(raw ?? '').trim().toLowerCase();
@@ -96,10 +100,11 @@ export function getLayerCapability(kind: LayerKind): LayerCapability {
         glassNote: PARTICLES_GLASS,
         filterNote: PARTICLES_FILTER,
         dimensionsNote: PARTICLES_DIMS,
+        transformNote: CANVAS_ROTATE,
         disableSvgLooks: true,
       };
     case 'Map':
-      return { glass: 'poor', glassNote: MAP_GLASS, dimensionsNote: MAP_DIMS };
+      return { glass: 'poor', glassNote: MAP_GLASS, dimensionsNote: MAP_DIMS, transformNote: CANVAS_ROTATE };
     case 'Unknown':
     default:
       return { glass: 'full' };

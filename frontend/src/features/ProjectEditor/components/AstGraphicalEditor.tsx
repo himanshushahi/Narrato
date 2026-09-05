@@ -1107,6 +1107,7 @@ export const AstGraphicalEditor = ({
                       surfaceDisabledReason={surfaceDisabled ? layerCap.glassNote ?? null : null}
                       surfaceNote={!surfaceDisabled && layerCap.glass === 'limited' ? layerCap.glassNote ?? null : null}
                       dimensionsNote={layerCap.dimensionsNote ?? null}
+                      transformNote={layerCap.transformNote ?? null}
                       hasStaleCardStyle={hasStaleCardStyle}
                       onClearCardStyle={() => {
                         const next = { ...(content.style || {}) };
