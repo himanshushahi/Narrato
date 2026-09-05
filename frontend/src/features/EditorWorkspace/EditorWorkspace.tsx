@@ -445,9 +445,22 @@ const EditorWorkspace: React.FC = () => {
   }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
 
   // ── Timeline: Overlays Management ─────────────────────────────────────────
+  // Flusher for debounced Overlays-tab edits (registered by OverlaysTab;
+  // null when another tab is active). Lets Ctrl+S / TopBar saves and
+  // Timeline interactions flush in-flight slider/keystroke ticks.
+  const overlaysFlushRef = useRef<((persist?: boolean) => any) | null>(null);
+  const handleRegisterOverlaysFlush = useCallback((flush: ((persist?: boolean) => any) | null) => {
+    overlaysFlushRef.current = flush;
+  }, []);
+
   const handleUpdateOverlay = useCallback(async (target: number | string, updates: Partial<GlobalOverlayItem>) => {
-    if (!scriptDataRef.current || !selectedProject?.script_path) return;
-    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    // Merge (don't re-read): the flush pushes state without persisting, so
+    // the ref below is still pre-flush — building on it would drop the
+    // flushed keystrokes in the save that follows.
+    const flushed = overlaysFlushRef.current?.(false) as GlobalOverlayItem[] | null | undefined;
+    const base = scriptDataRef.current;
+    if (!base || !selectedProject?.script_path) return;
+    const scriptCopy = JSON.parse(JSON.stringify(flushed ? { ...base, overlays: flushed } : base));
     if (!Array.isArray(scriptCopy.overlays)) return;
 
     const idx = typeof target === 'string'
@@ -467,8 +480,10 @@ const EditorWorkspace: React.FC = () => {
   }, [selectedProject, enqueueSave, setScriptData]);
 
   const handleToggleOverlayEnabled = useCallback(async (target: number | string) => {
-    if (!scriptDataRef.current || !selectedProject?.script_path) return;
-    const scriptCopy = JSON.parse(JSON.stringify(scriptDataRef.current));
+    const flushed = overlaysFlushRef.current?.(false) as GlobalOverlayItem[] | null | undefined;
+    const base = scriptDataRef.current;
+    if (!base || !selectedProject?.script_path) return;
+    const scriptCopy = JSON.parse(JSON.stringify(flushed ? { ...base, overlays: flushed } : base));
     if (!Array.isArray(scriptCopy.overlays)) return;
 
     const idx = typeof target === 'string'
@@ -680,10 +695,19 @@ const EditorWorkspace: React.FC = () => {
       // Flush debounced Visuals-tab ticks first (color drags, scrubs) and
       // hand the exact document to the save pipeline.
       const flushed = visualsFlushRef.current?.();
+      // Same for Overlays-tab trailing ticks — an edit session can stay open
+      // while the user types in the Overlays tab, so merge here instead of
+      // dropping the last 250ms of overlay input. persist=false: the flush
+      // updates state only, this card save is the single disk write.
+      const flushedOverlays = overlaysFlushRef.current?.(false) as GlobalOverlayItem[] | null | undefined;
+      let latest: any = flushed ?? undefined;
+      if (flushedOverlays) {
+        latest = { ...((flushed as any) ?? scriptDataRef.current), overlays: flushedOverlays };
+      }
       const idx = editingCard.key.startsWith('scene_')
         ? parseInt(editingCard.key.replace('scene_', ''))
         : undefined;
-      void enqueueSave(() => handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx, flushed ?? undefined))
+      void enqueueSave(() => handleSaveCard(editingCard.key === 'intro' ? 'introduction' : editingCard.key, idx, latest))
         .then(() => {
           if (useEditorStore.getState().inspectorTab === 'subtitle') {
             const flushedSub = subtitleFlushRef.current?.();
@@ -695,7 +719,14 @@ const EditorWorkspace: React.FC = () => {
       const flushedSub = subtitleFlushRef.current?.();
       void enqueueSave(() => handleSaveTranscription(flushedSub ?? undefined));
     } else if (id && scriptData && selectedProject?.script_path) {
-      void enqueueSave(() => handleSaveCard());
+      // Overlays tab keeps a 250ms trailing draft — flush it so Ctrl+S
+      // persists a document with the latest keystrokes and triggers feedback.
+      // persist=false: state only, the card save below is the single write.
+      const flushedOverlays = overlaysFlushRef.current?.(false) as GlobalOverlayItem[] | null | undefined;
+      const docToSave = (tab === 'overlays' && flushedOverlays)
+        ? { ...scriptDataRef.current, overlays: flushedOverlays }
+        : undefined;
+      void enqueueSave(() => handleSaveCard(undefined, undefined, docToSave));
     }
   }, [editingCard, handleSaveCard, id, scriptData, selectedProject, handleSaveTranscription, enqueueSave]);
 
@@ -1192,6 +1223,7 @@ const EditorWorkspace: React.FC = () => {
           onSaveTranscription={handleSaveTranscription}
           onResetTranscription={handleResetTranscription}
           onRegisterSubtitleFlush={handleRegisterSubtitleFlush}
+          onRegisterOverlaysFlush={handleRegisterOverlaysFlush}
 
           onSeek={handleSeek}
         />

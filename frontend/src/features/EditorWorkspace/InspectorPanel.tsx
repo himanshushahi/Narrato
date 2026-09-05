@@ -73,6 +73,7 @@ interface InspectorPanelProps {
   onSaveTranscription: (doc?: any) => void;
   onResetTranscription: () => void;
   onRegisterSubtitleFlush?: (flush: (() => any) | null) => void;
+  onRegisterOverlaysFlush?: (flush: (() => any) | null) => void;
 
   // Navigation
   onSeek: (frame: number) => void;
@@ -100,6 +101,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
   onRegisterSubtitleFlush,
+  onRegisterOverlaysFlush,
   onSeek,
 }) => {
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
@@ -213,6 +215,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             projectId={projectId}
             onSetScriptData={onSetScriptData}
             onSaveOverlays={onSaveOverlays}
+            onRegisterFlush={onRegisterOverlaysFlush}
           />
         );
       case 'export':

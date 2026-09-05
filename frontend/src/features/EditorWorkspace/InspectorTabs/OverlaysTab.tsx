@@ -22,7 +22,13 @@ interface OverlaysTabProps {
   projectId?: string;
   onSetScriptData: (data: any) => void;
   onSaveOverlays?: (overlays: GlobalOverlayItem[]) => void;
+  /** Registers a synchronous flush so Ctrl+S / TopBar Save never miss trailing ticks. */
+  onRegisterFlush?: (flush: (() => any) | null) => void;
 }
+
+/** Trailing-edge debounce so keystrokes/slider ticks stay local and the
+ *  workspace (player, timeline, liveScenes recompute) only updates ~4x/sec. */
+const COMMIT_DEBOUNCE_MS = 250;
 
 const POSITION_OPTIONS = [
   { value: 'top_right', label: 'Top Right' },
@@ -50,96 +56,284 @@ const RADIUS_OPTIONS = [
   { value: '0px', label: 'Sharp Rectangle' },
 ];
 
+/** Derive a native-picker-safe #rrggbb swatch from any CSS color string. */
+const cssToSwatchHex = (val: any, fallback = '#ffffff'): string => {
+  if (typeof val === 'string') {
+    const v = val.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+    const hex8 = v.match(/^#([0-9a-fA-F]{6})[0-9a-fA-F]{2}$/);
+    if (hex8) return `#${hex8[1]}`;
+    const short = v.match(/^#([0-9a-fA-F]{3})$/);
+    if (short) {
+      const [r, g, b] = short[1].split('');
+      return `#${r}${r}${g}${g}${b}${b}`;
+    }
+    const hex4 = v.match(/^#([0-9a-fA-F]{3})[0-9a-fA-F]$/);
+    if (hex4) {
+      const [r, g, b] = hex4[1].split('');
+      return `#${r}${r}${g}${g}${b}${b}`;
+    }
+    const rgb = v.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+    if (rgb) {
+      const toHex = (n: string) => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0');
+      return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
+    }
+  }
+  return fallback;
+};
+
+/** Alpha channel of a CSS color (1 when opaque/unparsable). */
+const cssAlpha = (val: any): number => {
+  if (typeof val === 'string') {
+    const v = val.trim();
+    const hex8 = v.match(/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})$/);
+    if (hex8) {
+      return Math.round((parseInt(hex8[1], 16) / 255) * 100) / 100;
+    }
+    const hex4 = v.match(/^#[0-9a-fA-F]{3}([0-9a-fA-F])$/);
+    if (hex4) {
+      return Math.round((parseInt(hex4[1] + hex4[1], 16) / 255) * 100) / 100;
+    }
+    const m = v.match(/^rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*([\d.]+)\s*\)$/i);
+    if (m) {
+      const a = parseFloat(m[1]);
+      if (Number.isFinite(a)) return Math.max(0, Math.min(1, a));
+    }
+  }
+  return 1;
+};
+
+/** Picker change → hex, preserving the field's existing translucency. */
+const pickColor = (current: any, hex: string): string => {
+  const a = cssAlpha(current);
+  if (a >= 1) return hex;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+};
+
+/** Honest tooltip: transparent/empty can't be represented by the swatch. */
+const pickerTitle = (current: any, label: string): string => {
+  if (typeof current !== 'string' || current.trim() === '') {
+    return `${label}: currently empty — picking sets an opaque color`;
+  }
+  if (current.trim().toLowerCase() === 'transparent') {
+    return `${label}: currently transparent — picking sets an opaque color (clear the text to go back)`;
+  }
+  const a = cssAlpha(current);
+  return a < 1
+    ? `Picker keeps current ${Math.round(a * 100)}% opacity — edit text for exact alpha`
+    : label;
+};
+
+/** Cheap content signature for echo detection (arrays are tiny). */
+const safeJson = (v: any): string | null => {
+  try { return JSON.stringify(v ?? null); } catch { return null; }
+};
+
+const isBanner = (item: any): boolean => (item?.type as string) === 'banner';
+
 export const OverlaysTab: React.FC<OverlaysTabProps> = ({
   scriptData,
   projectId,
   onSetScriptData,
   onSaveOverlays,
+  onRegisterFlush,
 }) => {
   // Filter out any legacy banner entries if they existed
   const rawOverlays: GlobalOverlayItem[] = scriptData?.overlays || [];
-  const overlays = rawOverlays.filter((item) => (item.type as string) !== 'banner');
-  const [expandedId, setExpandedId] = useState<string | null>(overlays[0]?.id || null);
-  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
+  const initialOverlays = rawOverlays.filter((item) => (item.type as string) !== 'banner');
+  const [expandedId, setExpandedId] = useState<string | null>(initialOverlays[0]?.id || null);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const activeUploadIdxRef = useRef<number | null>(null);
-  const saveDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const activeUploadIdRef = useRef<string | null>(null);
 
-  const updateOverlays = useCallback((newOverlays: GlobalOverlayItem[], immediate: boolean = false) => {
-    // 1. Immediately update React state for live video player preview
-    onSetScriptData({
-      ...scriptData,
-      overlays: newOverlays,
-    });
+  // ── Local draft + debounced upstream commit ──────────────────────────
+  // Every keystroke/slider tick used to call onSetScriptData synchronously,
+  // re-rendering the whole workspace (liveScenes recompute, Player, Timeline)
+  // per keystroke. Now inputs write to `draft` (tab-local render only) and a
+  // trailing edge pushes ONE update upstream. Same pattern as SubtitleTab.
+  const [draft, setDraft] = useState<GlobalOverlayItem[]>(initialOverlays);
+  const draftRef = useRef(draft);
+  // Last raw array adopted from props or pushed upstream — reference check
+  // distinguishes our own echo (ignore) from external changes (adopt).
+  const baseRawRef = useRef<GlobalOverlayItem[] | null>(rawOverlays);
+  // Content signature: the parent deep-clones on unrelated edits, so identity
+  // alone can't recognize our echo — compare contents, adopt only on real change.
+  const lastJsonRef = useRef<string | null>(safeJson(initialOverlays));
+  const expandedIdRef = useRef<string | null>(initialOverlays[0]?.id || null);
+  const setExpanded = useCallback((id: string | null) => {
+    expandedIdRef.current = id;
+    setExpandedId(id);
+  }, []);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scriptDataRef = useRef(scriptData);
+  scriptDataRef.current = scriptData;
+  const onSetScriptDataRef = useRef(onSetScriptData);
+  onSetScriptDataRef.current = onSetScriptData;
+  const onSaveOverlaysRef = useRef(onSaveOverlays);
+  onSaveOverlaysRef.current = onSaveOverlays;
 
-    // 2. Persist to disk with debounce for continuous inputs (sliders/text)
-    if (saveDebounceRef.current) {
-      clearTimeout(saveDebounceRef.current);
-      saveDebounceRef.current = null;
-    }
-
-    if (immediate) {
-      onSaveOverlays?.(newOverlays);
-    } else {
-      saveDebounceRef.current = setTimeout(() => {
-        onSaveOverlays?.(newOverlays);
-      }, 350);
-    }
-  }, [scriptData, onSetScriptData, onSaveOverlays]);
-
-  const latestOverlaysRef = useRef(overlays);
-  latestOverlaysRef.current = overlays;
-
+  // Adopt external changes (project load, save reload, other-tab edits)
+  // without clobbering in-flight typing — pending timer means our newer
+  // draft wins. Content-compare: the parent deep-clones the doc on every
+  // edit, so a new identity with identical contents must not reset the draft
+  // (extra render + focus loss risk). Stale expandedId is re-validated here.
   useEffect(() => {
-    return () => {
-      if (saveDebounceRef.current) {
-        clearTimeout(saveDebounceRef.current);
-        onSaveOverlays?.(latestOverlaysRef.current);
-      }
-    };
-  }, [onSaveOverlays]);
+    const raw: GlobalOverlayItem[] = scriptData?.overlays || [];
+    if (commitTimerRef.current) return;
+    const filtered = raw.filter((item) => !isBanner(item));
+    const json = safeJson(filtered);
+    if (raw === baseRawRef.current || json === lastJsonRef.current) {
+      baseRawRef.current = raw;
+      return;
+    }
+    baseRawRef.current = raw;
+    lastJsonRef.current = json;
+    draftRef.current = filtered;
+    setDraft(filtered);
+    if (expandedIdRef.current && !filtered.some((o) => o.id === expandedIdRef.current)) {
+      setExpanded(filtered[0]?.id ?? null);
+    }
+  }, [scriptData, setExpanded]);
 
-  const handleUpdateItem = (index: number, field: keyof GlobalOverlayItem, value: any) => {
-    const next = [...overlays];
-    next[index] = {
-      ...next[index],
-      [field]: value,
-    };
-    updateOverlays(next, false);
-  };
+  /** Push the draft upstream. Banner entries (hidden from the editor) ride
+   *  along untouched so saving while this tab is open never deletes them.
+   *  persist=false updates state only — save pipelines persist themselves.
+   *  Returns the full upstream array (banners included) for save merges. */
+  const pushUpstream = useCallback((next: GlobalOverlayItem[], persist: boolean) => {
+    const doc = scriptDataRef.current;
+    const banners = ((doc as any)?.overlays || []).filter(isBanner);
+    const out = banners.length > 0
+      ? [...next, ...banners.filter((b: any) => !next.some((n) => n.id === b.id))]
+      : next;
+    baseRawRef.current = out;
+    lastJsonRef.current = safeJson(next);
+    onSetScriptDataRef.current({ ...doc, overlays: out });
+    if (persist) onSaveOverlaysRef.current?.(out);
+    return out;
+  }, []);
 
-  const handleToggleEnabled = (index: number, e: React.MouseEvent) => {
+  /** Push the draft upstream (state + disk) — single debounced exit point. */
+  const commitDraft = useCallback((next: GlobalOverlayItem[]) => {
+    return pushUpstream(next, true);
+  }, [pushUpstream]);
+
+  /** Synchronously flush any pending commit. Returns the full upstream array
+   *  (banners included) only when a pending timer actually fired (null =
+   *  nothing outstanding), so callers never mistake "no edits" for edits. */
+  const commitPending = useCallback((persist: boolean = true): GlobalOverlayItem[] | null => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+      return pushUpstream(draftRef.current, persist);
+    }
+    return null;
+  }, [pushUpstream]);
+
+  // Flush on unmount / tab switch so no tick is ever lost.
+  useEffect(() => () => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+      commitDraft(draftRef.current);
+    }
+  }, [commitDraft]);
+
+  // Ctrl+S / TopBar Save flush hookup (mirrors SubtitleTab/VisualsTab).
+  useEffect(() => {
+    if (!onRegisterFlush) return;
+    onRegisterFlush(commitPending);
+    return () => onRegisterFlush(null);
+  }, [onRegisterFlush, commitPending]);
+
+  const overlays = draft;
+
+  /** High-frequency inputs (text / number / sliders / color): draft + debounce. */
+  const handleUpdateItem = useCallback((index: number, field: keyof GlobalOverlayItem, value: any) => {
+    const base = draftRef.current;
+    if (index < 0 || index >= base.length) return;
+    const next = [...base];
+    next[index] = { ...next[index], [field]: value };
+    draftRef.current = next;
+    setDraft(next);
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = setTimeout(() => {
+      commitTimerRef.current = null;
+      commitDraft(draftRef.current);
+    }, COMMIT_DEBOUNCE_MS);
+  }, [commitDraft]);
+
+  /** Discrete one-shot actions (eye-toggle / add / duplicate / delete / uploads):
+   *  fold pending ticks in, then commit synchronously. Plain selects and
+   *  checkboxes stay on the debounced path — the draft updates instantly so
+   *  dependent UI (e.g. custom-time sub-form) reacts at once; only preview +
+   *  disk trail by 250ms. */
+  const commitImmediate = useCallback((next: GlobalOverlayItem[]) => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+    draftRef.current = next;
+    setDraft(next);
+    commitDraft(next);
+    return next;
+  }, [commitDraft]);
+
+  const handleToggleEnabled = useCallback((index: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    const next = [...overlays];
+    const base = draftRef.current;
+    if (index < 0 || index >= base.length) return;
+    const next = [...base];
     next[index] = {
       ...next[index],
       enabled: next[index].enabled === false ? true : false,
     };
-    updateOverlays(next, true);
-  };
+    commitImmediate(next);
+  }, [commitImmediate]);
 
-  const handleDelete = (index: number, e: React.MouseEvent) => {
+  const handleDelete = useCallback((index: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    const next = overlays.filter((_, i) => i !== index);
-    updateOverlays(next, true);
-  };
+    const base = draftRef.current;
+    const target = base[index];
+    const remaining = base.filter((_, i) => i !== index);
+    if (target && expandedIdRef.current === target.id) {
+      setExpanded(remaining[0]?.id ?? null);
+    }
+    commitImmediate(remaining);
+  }, [commitImmediate, setExpanded]);
 
-  const handleDuplicate = (index: number, e: React.MouseEvent) => {
+  const handleDuplicate = useCallback((index: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    const item = overlays[index];
+    const base = draftRef.current;
+    if (index < 0 || index >= base.length) return;
+    const item = base[index];
     const duplicate: GlobalOverlayItem = {
       ...item,
-      id: `${item.type}_${Date.now().toString(36)}`,
+      id: `${item.type}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     };
-    const next = [...overlays.slice(0, index + 1), duplicate, ...overlays.slice(index + 1)];
-    updateOverlays(next, true);
-    setExpandedId(duplicate.id);
-  };
+    commitImmediate([...base.slice(0, index + 1), duplicate, ...base.slice(index + 1)]);
+    setExpanded(duplicate.id);
+  }, [commitImmediate, setExpanded]);
 
   // ── Image Upload Handling (Native Dialog + Web Input Fallback) ─────────────
+  // Async upload landing after unmount/tab-switch is harmless: the unmount
+  // flush only fires when a debounce timer is pending, and uploads commit
+  // immediately (no pending timer), so ordering is preserved.
+  const setLogoUrl = useCallback((index: number, logoUrl: string) => {
+    const base = draftRef.current;
+    if (index < 0 || index >= base.length) return;
+    const next = [...base];
+    next[index] = { ...next[index], logo_url: logoUrl };
+    commitImmediate(next);
+  }, [commitImmediate]);
+
   const handleUploadImage = async (index: number) => {
-    activeUploadIdxRef.current = index;
-    setUploadingIdx(index);
+    const item = draftRef.current[index];
+    if (!item) return;
+    activeUploadIdRef.current = item.id;
+    setUploadingId(item.id);
 
     try {
       if (projectId) {
@@ -148,10 +342,12 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
           projectId
         );
         if (res?.success && res.asset_path) {
-          const next = [...overlays];
-          next[index] = { ...next[index], logo_url: res.asset_path };
-          updateOverlays(next, true);
-          setUploadingIdx(null);
+          const curIdx = draftRef.current.findIndex((o) => o.id === item.id);
+          if (curIdx !== -1) {
+            setLogoUrl(curIdx, res.asset_path);
+          }
+          activeUploadIdRef.current = null;
+          setUploadingId(null);
           return;
         }
       }
@@ -159,16 +355,22 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
       // Fallback to web file picker
     }
     fileInputRef.current?.click();
-    setUploadingIdx(null);
+    setUploadingId(null);
   };
 
   const handleHtmlFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    const targetIdx = activeUploadIdxRef.current;
-    if (!file || targetIdx === null || targetIdx === undefined) return;
+    const targetId = activeUploadIdRef.current;
+    // Consume immediately — the async onload below captured targetId, so a
+    // stale ref can never leak into a later upload.
+    activeUploadIdRef.current = null;
+    if (!file || !targetId) return;
+
+    const initialIdx = draftRef.current.findIndex((o) => o.id === targetId);
+    if (initialIdx === -1) return;
 
     try {
-      setUploadingIdx(targetIdx);
+      setUploadingId(targetId);
       const reader = new FileReader();
       reader.onload = async () => {
         if (typeof reader.result === 'string') {
@@ -188,15 +390,21 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
               console.warn('[OverlaysTab] Failed to save overlay image to disk, falling back to data URL:', err);
             }
           }
-          const next = [...overlays];
-          next[targetIdx] = { ...next[targetIdx], logo_url: savedPath };
-          updateOverlays(next, true);
+          const next = [...draftRef.current];
+          const resolvedIdx = next.findIndex((o) => o.id === targetId);
+          if (resolvedIdx === -1) {
+            // Target deleted while the file picker was open — drop the upload.
+            setUploadingId(null);
+            return;
+          }
+          next[resolvedIdx] = { ...next[resolvedIdx], logo_url: savedPath };
+          commitImmediate(next);
         }
-        setUploadingIdx(null);
+        setUploadingId(null);
       };
       reader.readAsDataURL(file);
     } catch {
-      setUploadingIdx(null);
+      setUploadingId(null);
     } finally {
       e.target.value = '';
     }
@@ -204,7 +412,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
 
   const handleAddOverlay = (type: GlobalOverlayItem['type']) => {
     let newItem: GlobalOverlayItem;
-    const uid = `${type}_${Date.now().toString(36)}`;
+    const uid = `${type}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
     switch (type) {
       case 'watermark':
@@ -293,9 +501,9 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
         break;
     }
 
-    const next = [...overlays, newItem];
-    updateOverlays(next, true);
-    setExpandedId(newItem.id);
+    const next = [...draftRef.current, newItem];
+    commitImmediate(next);
+    setExpanded(newItem.id);
   };
 
   return (
@@ -384,7 +592,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
               >
                 {/* Overlay Header Bar */}
                 <div
-                  onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                  onClick={() => setExpanded(isExpanded ? null : item.id)}
                   className="flex items-center justify-between p-3 cursor-pointer select-none gap-2"
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -499,7 +707,10 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                               type="number"
                               className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-amber-500/50"
                               value={item.from_seconds ?? 0}
-                              onChange={(e) => handleUpdateItem(idx, 'from_seconds', parseFloat(e.target.value) || 0)}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                handleUpdateItem(idx, 'from_seconds', isNaN(v) ? 0 : v);
+                              }}
                               placeholder="0"
                             />
                           </div>
@@ -511,7 +722,17 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                               type="number"
                               className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-amber-500/50"
                               value={item.duration_seconds ?? 15}
-                              onChange={(e) => handleUpdateItem(idx, 'duration_seconds', parseFloat(e.target.value) || 1)}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                // Allow 0 mid-typing (e.g. "0." → 0.5); the
+                                // minimum is enforced on blur instead.
+                                handleUpdateItem(idx, 'duration_seconds', isNaN(v) ? 0 : Math.max(0, v));
+                              }}
+                              onBlur={(e) => {
+                                const v = parseFloat(e.target.value);
+                                // A 0s overlay never shows — floor to 1s on commit.
+                                if (!isNaN(v) && v <= 0) handleUpdateItem(idx, 'duration_seconds', 1);
+                              }}
                               placeholder="15"
                             />
                           </div>
@@ -533,7 +754,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                                 <div className="relative group w-12 h-12 rounded-full overflow-hidden border border-white/20 shrink-0 bg-black/50">
                                   <img src={getMediaUrlSync(item.logo_url)} alt="Logo" className="w-full h-full object-cover" />
                                   <button
-                                    onClick={() => handleUpdateItem(idx, 'logo_url', '')}
+                                    onClick={() => setLogoUrl(idx, '')}
                                     className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-rose-400 cursor-pointer"
                                     title="Remove Logo Image"
                                   >
@@ -551,15 +772,15 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                                 <div className="flex items-center gap-2">
                                   <button
                                     onClick={() => handleUploadImage(idx)}
-                                    disabled={uploadingIdx === idx}
+                                    disabled={uploadingId === item.id}
                                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 text-xs font-semibold transition-colors cursor-pointer"
                                   >
-                                    {uploadingIdx === idx ? <VscLoading className="animate-spin" /> : <VscCloudUpload />}
+                                    {uploadingId === item.id ? <VscLoading className="animate-spin" /> : <VscCloudUpload />}
                                     Upload Logo File
                                   </button>
                                   {item.logo_url && (
                                     <button
-                                      onClick={() => handleUpdateItem(idx, 'logo_url', '')}
+                                      onClick={() => setLogoUrl(idx, '')}
                                       className="px-2.5 py-1.5 rounded-md bg-zinc-800/60 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 border border-zinc-700/40 text-xs font-semibold transition-colors cursor-pointer"
                                     >
                                       Clear
@@ -642,15 +863,17 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                               <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50">
                                 <input
                                   type="color"
-                                  value={item.color?.startsWith('#') && item.color.length === 7 ? item.color : '#f59e0b'}
-                                  onChange={(e) => handleUpdateItem(idx, 'color', e.target.value)}
+                                  value={cssToSwatchHex(item.color, '#f59e0b')}
+                                  onChange={(e) => handleUpdateItem(idx, 'color', pickColor(item.color, e.target.value))}
                                   className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                                  title={pickerTitle(item.color, 'Pick bar color')}
                                 />
                                 <input
                                   type="text"
                                   className="w-full bg-transparent text-xs text-zinc-200 focus:outline-none font-mono"
-                                  value={item.color || '#f59e0b'}
+                                  value={item.color ?? ''}
                                   onChange={(e) => handleUpdateItem(idx, 'color', e.target.value)}
+                                  placeholder="#f59e0b"
                                 />
                               </div>
                             </div>
@@ -659,13 +882,22 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                               <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
                                 Track Background Color
                               </label>
-                              <input
-                                type="text"
-                                className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1 text-xs text-zinc-200 font-mono focus:outline-none"
-                                value={item.track_color || 'rgba(255, 255, 255, 0.1)'}
-                                onChange={(e) => handleUpdateItem(idx, 'track_color', e.target.value)}
-                                placeholder="rgba(255, 255, 255, 0.1)"
-                              />
+                              <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50">
+                                <input
+                                  type="color"
+                                  value={cssToSwatchHex(item.track_color, '#ffffff')}
+                                  onChange={(e) => handleUpdateItem(idx, 'track_color', pickColor(item.track_color, e.target.value))}
+                                  className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                                  title={pickerTitle(item.track_color, 'Pick track color')}
+                                />
+                                <input
+                                  type="text"
+                                  className="w-full bg-transparent text-xs text-zinc-200 font-mono focus:outline-none"
+                                  value={item.track_color ?? ''}
+                                  onChange={(e) => handleUpdateItem(idx, 'track_color', e.target.value)}
+                                  placeholder="rgba(255, 255, 255, 0.1)"
+                                />
+                              </div>
                             </div>
                           </div>
 
@@ -717,7 +949,10 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                               type="number"
                               className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none"
                               value={item.chapter_number ?? 1}
-                              onChange={(e) => handleUpdateItem(idx, 'chapter_number', parseInt(e.target.value) || 1)}
+                              onChange={(e) => {
+                                const v = parseInt(e.target.value, 10);
+                                handleUpdateItem(idx, 'chapter_number', isNaN(v) ? 1 : v);
+                              }}
                               placeholder="1"
                             />
                           </div>
@@ -764,12 +999,13 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                           <div className="grid grid-cols-3 gap-2">
                             <div className="space-y-1">
                               <label className="text-[9px] text-zinc-500 block">Text / Accent</label>
-                              <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded px-1.5 py-1">
+                              <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded px-1.5 py-1 focus-within:border-amber-500/50">
                                 <input
                                   type="color"
-                                  value={item.color?.startsWith('#') && item.color.length === 7 ? item.color : '#ffffff'}
-                                  onChange={(e) => handleUpdateItem(idx, 'color', e.target.value)}
+                                  value={cssToSwatchHex(item.color, '#ffffff')}
+                                  onChange={(e) => handleUpdateItem(idx, 'color', pickColor(item.color, e.target.value))}
                                   className="w-3.5 h-3.5 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                                  title={pickerTitle(item.color, 'Pick accent color')}
                                 />
                                 <input
                                   type="text"
@@ -783,13 +1019,22 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
 
                             <div className="space-y-1">
                               <label className="text-[9px] text-zinc-500 block">Background</label>
-                              <input
-                                type="text"
-                                className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-[10px] text-zinc-200 font-mono focus:outline-none"
-                                value={item.bg_color || ''}
-                                onChange={(e) => handleUpdateItem(idx, 'bg_color', e.target.value)}
-                                placeholder="rgba(15,23,42,0.7)"
-                              />
+                              <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded px-1.5 py-1 focus-within:border-amber-500/50">
+                                <input
+                                  type="color"
+                                  value={cssToSwatchHex(item.bg_color, '#0f172a')}
+                                  onChange={(e) => handleUpdateItem(idx, 'bg_color', pickColor(item.bg_color, e.target.value))}
+                                  className="w-3.5 h-3.5 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                                  title={pickerTitle(item.bg_color, 'Pick background color')}
+                                />
+                                <input
+                                  type="text"
+                                  className="w-full bg-transparent text-[10px] text-zinc-200 font-mono focus:outline-none"
+                                  value={item.bg_color || ''}
+                                  onChange={(e) => handleUpdateItem(idx, 'bg_color', e.target.value)}
+                                  placeholder="rgba(15,23,42,0.7)"
+                                />
+                              </div>
                             </div>
 
                             <div className="space-y-1">
