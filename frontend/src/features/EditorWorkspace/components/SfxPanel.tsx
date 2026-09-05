@@ -3,6 +3,7 @@ import { VscSearch, VscMusic, VscTrash, VscCloudDownload, VscAdd } from 'react-i
 import { callApi } from '../../../utils/call-api';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { usePlaybackStore } from '../../../store/usePlaybackStore';
+import { useSettingsStore } from '../../../store/useSettingsStore';
 import type { SfxClip } from '../../../components/video/NitishRajputComposition';
 
 interface SfxResult {
@@ -40,10 +41,21 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
   const [addingManual, setAddingManual] = useState(false);
   const selectedSfxClipId = useEditorStore((s) => s.selectedSfxClipId);
   const setSelectedSfxClipId = useEditorStore((s) => s.setSelectedSfxClipId);
+  const settings = useSettingsStore((s) => s.settings);
+  const saveSettings = useSettingsStore((s) => s.saveSettings);
+  const masterVol = parseFloat(settings.sfx_volume || '0.5') || 0;
+  const [masterDraft, setMasterDraft] = useState<number | null>(null);
+  const commitMasterDraft = useCallback((v: number | null) => {
+    setMasterDraft(null);
+    if (v === null) return;
+    const cur = useSettingsStore.getState().settings;
+    saveSettings({ ...cur, sfx_volume: String(v) });
+  }, [saveSettings]);
 
-  const doSearch = useCallback(async () => {
-    const q = query.trim();
+  const doSearch = useCallback(async (override?: string) => {
+    const q = (override ?? query).trim();
     if (!q || searching) return;
+    if (override !== undefined) setQuery(override);
     setSearching(true);
     setSearchError('');
     try {
@@ -65,6 +77,8 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
       setSearching(false);
     }
   }, [query, searching]);
+
+  const EXAMPLE_QUERIES = useMemo(() => ['whoosh', 'applause', 'rain', 'riser', 'impact'], []);
 
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
 
@@ -149,6 +163,18 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
           <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Sound Effects</h3>
           <span className="text-[9px] font-mono text-zinc-600">{sfxClips.length} on timeline</span>
         </div>
+        <label className="flex items-center gap-2 text-[10px] text-zinc-400" title="Master SFX gain applied at preview and export">
+          Master
+          <input
+            type="range" min={0} max={1} step={0.01}
+            value={masterDraft ?? masterVol}
+            onChange={(e) => setMasterDraft(parseFloat(e.target.value))}
+            onPointerUp={(e) => commitMasterDraft(parseFloat((e.target as HTMLInputElement).value))}
+            onKeyUp={(e) => commitMasterDraft(parseFloat((e.target as HTMLInputElement).value))}
+            className="flex-1 h-1 accent-amber-500"
+          />
+          <span className="font-mono w-10 text-right">{Math.round((masterDraft ?? masterVol) * 100)}%</span>
+        </label>
         <div className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 bg-zinc-900/60 border border-zinc-800/40">
           <VscSearch className="text-zinc-500 text-xs shrink-0" />
           <input
@@ -159,8 +185,17 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
             onKeyDown={(e) => { if (e.key === 'Enter') doSearch(); }}
             className="bg-transparent text-[11px] text-zinc-300 placeholder-zinc-600 outline-none w-full"
           />
+          {query && (
+            <button
+              onClick={() => { setQuery(''); setResults([]); setSearchError(''); }}
+              className="text-zinc-600 hover:text-zinc-400 text-xs shrink-0 cursor-pointer"
+              title="Clear search"
+            >
+              &times;
+            </button>
+          )}
           <button
-            onClick={doSearch}
+            onClick={() => doSearch()}
             disabled={searching}
             className="text-[10px] font-bold text-amber-400 hover:text-amber-300 disabled:opacity-50 cursor-pointer"
           >
@@ -196,13 +231,36 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1">
-        {results.map((r) => (
+        {results.length === 0 && !searching && !searchError && (
+          <div className="text-center py-6 px-4">
+            <p className="text-[11px] text-zinc-500 mb-2">Search trending sound effects, or try:</p>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {EXAMPLE_QUERIES.map((ex) => (
+                <button
+                  key={ex}
+                  onClick={() => doSearch(ex)}
+                  className="text-[10px] font-mono px-2 py-1 rounded-md bg-amber-600/15 text-amber-300 border border-amber-700/40 hover:bg-amber-600/30 cursor-pointer"
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {results.map((r) => {
+          const isCC0 = /zero|creative commons 0/i.test(r.license || '');
+          return (
           <div key={`${r.source}-${r.id}`} className="rounded-lg border border-zinc-800/50 bg-zinc-900/40 p-2">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold text-zinc-200 truncate">{r.name}</p>
+                <p className="text-[11px] font-semibold text-zinc-200 truncate">
+                  {r.name}{' '}
+                  <span className={`text-[8px] font-mono px-1 py-px rounded border ${isCC0 ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-zinc-500 bg-zinc-800/60 border-zinc-700/60'}`}>
+                    {isCC0 ? 'CC0' : r.source}
+                  </span>
+                </p>
                 <p className="text-[9px] font-mono text-zinc-500">
-                  {r.duration.toFixed(1)}s · ⬇{r.downloads} · {r.author} · {/zero|creative commons 0/i.test(r.license || '') ? 'CC0' : r.source}
+                  {(r.duration || 0).toFixed(1)}s · ⬇{r.downloads} · {r.author || 'unknown'}
                 </p>
               </div>
               <button
@@ -215,12 +273,18 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
               </button>
             </div>
             {r.preview_url && (
-              <audio controls preload="none" src={r.preview_url} className="w-full h-7 mt-1.5 opacity-80" />
+              <audio controls controlsList="nodownload" preload="none" src={r.preview_url} className="w-full h-7 mt-1.5 opacity-80" />
             )}
           </div>
-        ))}
+          );
+        })}
 
         {/* Timeline clips — manual edit */}
+        {sfxClips.length === 0 && (
+          <p className="text-[10px] text-zinc-600 text-center py-3">
+            Timeline empty — USE a result above or upload a file.
+          </p>
+        )}
         {sfxClips.length > 0 && (
           <div className="pt-2">
             <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 px-1 pb-1">On timeline</p>
@@ -234,19 +298,11 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
                   <div className="flex items-center gap-1.5 min-w-0">
                     <VscMusic className="text-amber-400 text-xs shrink-0" />
                     <span className="text-[11px] text-zinc-200 truncate">{c.name}</span>
+                    <span className="text-[9px] font-mono text-zinc-500 shrink-0">
+                      @{((c.start_frame || 0) / 30).toFixed(1)}s · {((c.duration_frames || 0) / 30).toFixed(1)}s
+                    </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    {c.audio_url && (
-                      <a
-                        href={c.audio_url}
-                        download={c.name}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-zinc-500 hover:text-amber-300 text-xs px-1"
-                        title="Download clip audio"
-                      >
-                        <VscCloudDownload />
-                      </a>
-                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }}
                       className="text-zinc-500 hover:text-red-400 text-xs px-1 cursor-pointer"
@@ -257,7 +313,7 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
                   </div>
                 </div>
                 {c.audio_url && (
-                  <audio controls preload="none" src={c.audio_url} className="w-full h-7 mt-1 opacity-80" onClick={(e) => e.stopPropagation()} />
+                  <audio controls controlsList="nodownload" preload="none" src={c.audio_url} className="w-full h-7 mt-1 opacity-80" onClick={(e) => e.stopPropagation()} />
                 )}
                 {selectedSfxClipId === c.id && (
                   <div className="mt-1.5 space-y-1" onClick={(e) => e.stopPropagation()}>

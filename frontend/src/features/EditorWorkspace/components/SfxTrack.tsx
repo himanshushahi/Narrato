@@ -168,9 +168,9 @@ const SfxClipBlock: React.FC<{
         <div className="w-[2px] h-full bg-amber-400 shadow-sm" />
       </div>
 
-      {/* Draggable Top-Left Fade In Handle */}
+      {/* Draggable Top-Left Fade In Handle (oversized hitbox, small visual) */}
       <div
-        className="absolute top-0 w-3 h-3 z-30 cursor-crosshair opacity-0 group-hover/clip:opacity-100 flex items-start justify-start transition-opacity"
+        className="absolute top-0 w-5 h-5 z-30 cursor-crosshair opacity-0 group-hover/clip:opacity-100 flex items-start justify-start transition-opacity"
         style={{ left: Math.max(6, fadeInPx - 3) }}
         onMouseDown={(e) => {
           e.stopPropagation();
@@ -181,9 +181,9 @@ const SfxClipBlock: React.FC<{
         <div className="w-2 h-2 rounded-none bg-amber-300 border border-amber-600 shadow" />
       </div>
 
-      {/* Draggable Top-Right Fade Out Handle */}
+      {/* Draggable Top-Right Fade Out Handle (oversized hitbox, small visual) */}
       <div
-        className="absolute top-0 w-3 h-3 z-30 cursor-crosshair opacity-0 group-hover/clip:opacity-100 flex items-start justify-end transition-opacity"
+        className="absolute top-0 w-5 h-5 z-30 cursor-crosshair opacity-0 group-hover/clip:opacity-100 flex items-start justify-end transition-opacity"
         style={{ right: Math.max(6, fadeOutPx - 3) }}
         onMouseDown={(e) => {
           e.stopPropagation();
@@ -518,6 +518,15 @@ export const SfxTrack: React.FC<SfxTrackProps> = React.memo(({
           onStartDrag={handleStartDrag}
         />
       ))}
+
+      {/* Empty-lane hint (pointer-events-none so double-click upload still lands) */}
+      {effectiveClips.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="text-[9px] font-mono text-zinc-700 border border-dashed border-zinc-800 rounded-none px-2 py-0.5 ml-40">
+            Double-click to upload SFX
+          </span>
+        </div>
+      )}
 
       {/* Floating High-Z Context Menu for SFX Clip */}
       {activeContextMenu && targetClip && (
