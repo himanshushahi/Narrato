@@ -1277,6 +1277,79 @@ def test_ast_layer_transform_origin_and_sub_visual_defaults():
     assert sv.transition == "cut"
 
 
+def test_finalize_upload_asset_layer_aware(tmp_path, monkeypatch):
+    """Verifies that finalize_upload_asset supports layer_index:
+    1. layer_index >= 0 produces asset_XXX_YY_ZZ.ext.
+    2. Multiple layers in the same cut do not overwrite or delete each other.
+    3. Overwriting a layer cleans up conflicting extensions for that layer only.
+    4. Layer 0 cleans up legacy asset_XXX_YY.ext naming as well.
+    5. Legacy layer_index = -1 retains asset_XXX_YY.ext naming.
+    """
+    from backend.core.bridge import ApiBridge
+    from pathlib import Path
+
+    fake_storage = tmp_path / "storage"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: fake_storage)
+
+    bridge = ApiBridge()
+    project_id = "proj-test-finalize"
+    proj_assets = fake_storage / project_id / "assets"
+    previews_dir = proj_assets / "previews"
+    previews_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Finalize Layer 0 (Image)
+    p0 = previews_dir / "upload_000.jpg"
+    p0.write_bytes(b"image_layer_0")
+    res0 = bridge.finalize_upload_asset(project_id, str(p0), 1, 2, layer_index=0)
+    assert res0["success"] is True
+    dest0 = Path(res0["visual_path"])
+    assert dest0.name == "asset_001_02_00.jpg"
+    assert dest0.exists()
+    assert dest0.read_bytes() == b"image_layer_0"
+
+    # 2. Finalize Layer 1 (Video) in the same cut - must not touch Layer 0
+    p1 = previews_dir / "upload_111.mp4"
+    p1.write_bytes(b"video_layer_1")
+    res1 = bridge.finalize_upload_asset(project_id, str(p1), 1, 2, layer_index=1)
+    assert res1["success"] is True
+    dest1 = Path(res1["visual_path"])
+    assert dest1.name == "asset_001_02_01.mp4"
+    assert dest1.exists()
+    assert dest0.exists(), "Layer 0 asset must NOT be deleted when Layer 1 is finalized!"
+    assert dest1.read_bytes() == b"video_layer_1"
+
+    # 3. Replace Layer 1 with a PNG - should remove .mp4 on Layer 1 only, keep Layer 0 intact
+    p1_new = previews_dir / "upload_222.png"
+    p1_new.write_bytes(b"image_layer_1_new")
+    res1_new = bridge.finalize_upload_asset(project_id, str(p1_new), 1, 2, layer_index=1)
+    assert res1_new["success"] is True
+    dest1_new = Path(res1_new["visual_path"])
+    assert dest1_new.name == "asset_001_02_01.png"
+    assert dest1_new.exists()
+    assert not dest1.exists(), "Old .mp4 on Layer 1 must be deleted when replaced with .png"
+    assert dest0.exists(), "Layer 0 must remain completely intact"
+
+    # 4. Layer 0 cleans up legacy asset_001_02.png if it existed
+    legacy_file = proj_assets / "asset_001_02.mp4"
+    legacy_file.write_bytes(b"legacy")
+    assert legacy_file.exists()
+    p0_new = previews_dir / "upload_333.png"
+    p0_new.write_bytes(b"image_layer_0_new")
+    res0_new = bridge.finalize_upload_asset(project_id, str(p0_new), 1, 2, layer_index=0)
+    assert res0_new["success"] is True
+    assert not legacy_file.exists(), "Legacy file must be removed when layer 0 is finalized"
+    assert not dest0.exists(), "Old .jpg on layer 0 must be removed when replaced with .png"
+    assert dest1_new.exists(), "Layer 1 must still exist"
+
+    # 5. Legacy call (layer_index = -1)
+    p_legacy = previews_dir / "upload_legacy.jpg"
+    p_legacy.write_bytes(b"legacy_call")
+    res_legacy = bridge.finalize_upload_asset(project_id, str(p_legacy), 2, 0, layer_index=-1)
+    assert res_legacy["success"] is True
+    assert Path(res_legacy["visual_path"]).name == "asset_002_00.jpg"
+
+
+
 
 
 

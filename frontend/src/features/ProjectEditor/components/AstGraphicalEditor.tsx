@@ -146,8 +146,8 @@ export const AstGraphicalEditor = ({
 }: {
   initialValue: any;
   onChange: (val: any) => void;
-  onUploadSubVisual?: (visualType?: string) => Promise<string | undefined> | void;
-  onPreviewSubVisual?: (query: string) => Promise<string | undefined> | void;
+  onUploadSubVisual?: (visualType?: string, layerIdx?: number) => Promise<string | undefined> | void;
+  onPreviewSubVisual?: (query: string, layerIdx?: number) => Promise<string | undefined> | void;
   uploadingSubVisual?: string | null;
 }) => {
   const [composition, setComposition] = useState(() => {
@@ -158,6 +158,7 @@ export const AstGraphicalEditor = ({
   });
 
   const [previewingIdx, setPreviewingIdx] = useState<number | null>(null);
+  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
   const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'filters' | 'motion'>>({});
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
@@ -277,7 +278,7 @@ export const AstGraphicalEditor = ({
     if (!queryToSearch || !onPreviewRef.current) return;
     setPreviewingIdx(idx);
     try {
-      const p = await onPreviewRef.current(queryToSearch);
+      const p = await onPreviewRef.current(queryToSearch, idx);
       if (p) {
         updateContent(idx, 'local_path', p);
       }
@@ -471,17 +472,22 @@ export const AstGraphicalEditor = ({
                       {onUploadSubVisual && (
                         <button
                           type="button"
-                          disabled={uploadingSubVisual !== null}
+                          disabled={uploadingIdx !== null || uploadingSubVisual !== null}
                           onClick={async () => {
-                            const p = await onUploadSubVisual(cType === 'Image' ? 'image' : cType === 'Video' ? 'video' : 'ast');
-                            if (p) {
-                              updateContentFields(idx, { local_path: p, source: 'upload' });
+                            setUploadingIdx(idx);
+                            try {
+                              const p = await onUploadSubVisual(cType === 'Image' ? 'image' : cType === 'Video' ? 'video' : 'ast', idx);
+                              if (p) {
+                                updateContentFields(idx, { local_path: p, source: 'upload' });
+                              }
+                            } finally {
+                              setUploadingIdx(null);
                             }
                           }}
                           className="px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
                           title="Upload media file"
                         >
-                          {uploadingSubVisual !== null ? <div className="w-2.5 h-2.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" /> : <BsUpload size={10} />}
+                          {uploadingIdx === idx ? <div className="w-2.5 h-2.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" /> : <BsUpload size={10} />}
                           <span>Upload</span>
                         </button>
                       )}

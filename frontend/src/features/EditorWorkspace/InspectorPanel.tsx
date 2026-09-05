@@ -48,8 +48,8 @@ interface InspectorPanelProps {
   onSetSceneToDelete: (idx: number | null) => void;
   onSetScriptData: (data: any) => void;
   onSaveOverlays?: (overlays: any[]) => void;
-  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any) => Promise<string | undefined>;
-  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
   onRegisterFlush?: (flush: (() => any) | null) => void;
 

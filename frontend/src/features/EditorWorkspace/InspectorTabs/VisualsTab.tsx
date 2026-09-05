@@ -69,8 +69,8 @@ interface VisualsTabProps {
   onRegisterFlush?: (flush: (() => any) | null) => void;
   onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<any | undefined> | void;
   onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<any | undefined>;
-  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any) => Promise<string | undefined>;
-  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any) => Promise<string | undefined>;
+  onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
 }
 
@@ -567,9 +567,9 @@ export const VisualsTab = React.memo(function VisualsTab({
     full[target] = cut;
     applyAiSubs(r, full, doc);
   };
-  const withFlushUpload = (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string) => {
+  const withFlushUpload = (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, layerIdx?: number) => {
     const flushed = commitPending();
-    return onUploadSubVisual!(sceneIdx, sectionType, subIdx, visualType, flushed ?? undefined);
+    return onUploadSubVisual!(sceneIdx, sectionType, subIdx, visualType, flushed ?? undefined, layerIdx);
   };
   const withFlushRewriteSection = async (type: string, index: number) => {
     const flushed = commitPending();
@@ -590,9 +590,9 @@ export const VisualsTab = React.memo(function VisualsTab({
       setSelectedSubVisualIndex(Math.min(selSubIdxRef.current, Math.max(0, aiSubs.length - 1)));
     }
   };
-  const withFlushPreview = (sceneIdx: number, sectionType: string, subIdx: number, query: string) => {
+  const withFlushPreview = (sceneIdx: number, sectionType: string, subIdx: number, query: string, layerIdx?: number) => {
     const flushed = commitPending();
-    return onPreviewSubVisual!(sceneIdx, sectionType, subIdx, query, flushed ?? undefined);
+    return onPreviewSubVisual!(sceneIdx, sectionType, subIdx, query, flushed ?? undefined, layerIdx);
   };
 
   return (
@@ -697,8 +697,8 @@ export const VisualsTab = React.memo(function VisualsTab({
                   activeIdx={sel.sceneIdx === activeSceneIdx && activeSubIdx === actualSubIdx ? 0 : -1}
                   onSeek={onSeek}
                   onRewriteSubVisual={(_, prompt) => withFlushRewriteSub(handlerSceneIdx, resolved.sectionType, actualSubIdx, prompt)}
-                  onUploadSubVisual={onUploadSubVisual ? (_, visualType) => withFlushUpload(handlerSceneIdx, resolved.sectionType, actualSubIdx, visualType) : undefined}
-                  onPreviewSubVisual={onPreviewSubVisual ? (_, query) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query) : undefined}
+                  onUploadSubVisual={onUploadSubVisual ? (_, visualType, layerIdx) => withFlushUpload(handlerSceneIdx, resolved.sectionType, actualSubIdx, visualType, layerIdx) : undefined}
+                  onPreviewSubVisual={onPreviewSubVisual ? (_, query, layerIdx) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query, layerIdx) : undefined}
                   uploadingSubVisual={uploadingSubVisual}
                   singleCut
                   cutNumber={actualSubIdx + 1}

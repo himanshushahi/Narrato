@@ -2072,8 +2072,8 @@ class ApiBridge:
             logger.error(f"save_uploaded_overlay_data error: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
-    def finalize_upload_asset(self, project_id: str, preview_path: str, manifest_scene_index: int, sub_visual_index: int) -> dict:
-        logger.info(f"Bridge API: finalize_upload_asset for project {project_id} [{manifest_scene_index}:{sub_visual_index}]")
+    def finalize_upload_asset(self, project_id: str, preview_path: str, manifest_scene_index: int, sub_visual_index: int, layer_index: int = -1) -> dict:
+        logger.info(f"Bridge API: finalize_upload_asset for project {project_id} [{manifest_scene_index}:{sub_visual_index}] layer_index={layer_index}")
         src = Path(preview_path)
         if not src.exists():
             return {"success": False, "error": "Preview file not found"}
@@ -2087,21 +2087,30 @@ class ApiBridge:
         assets_dir = get_storage_dir() / project_id / "assets"
         assets_dir.mkdir(parents=True, exist_ok=True)
 
-        dest_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{ext}"
+        if layer_index >= 0:
+            dest_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}_{layer_index:02d}{ext}"
+            prefix = f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}_{layer_index:02d}"
+            legacy_prefix = f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}"
+            # Mirror pipeline/assets.py:689: layer 0 cleans up both layer-0 and legacy cut-level conflicts
+            prefixes = [prefix, legacy_prefix] if layer_index == 0 else [prefix]
+        else:
+            dest_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{ext}"
+            prefixes = [f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}"]
 
         # Clean up old asset with a different extension at this position —
         # cover every extension that was ever uploadable, including legacy
         # .mov/.avi files uploaded before they were restricted.
         for old_ext in (".mp4", ".webm", ".mov", ".avi", ".jpg", ".jpeg", ".png", ".webp", ".gif"):
-            if old_ext == ext:
-                continue
-            old_file = assets_dir / f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}{old_ext}"
-            if old_file.exists():
-                try:
-                    old_file.unlink()
-                    logger.info(f"Removed old asset: {old_file}")
-                except Exception as e:
-                    logger.warning(f"Could not delete old asset {old_file}: {e}")
+            for pfx in prefixes:
+                if pfx == dest_file.stem and old_ext == ext:
+                    continue
+                old_file = assets_dir / f"{pfx}{old_ext}"
+                if old_file.exists():
+                    try:
+                        old_file.unlink()
+                        logger.info(f"Removed old asset: {old_file}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete old asset {old_file}: {e}")
 
         try:
             shutil.copy2(str(src), str(dest_file))

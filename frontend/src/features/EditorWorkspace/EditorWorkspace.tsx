@@ -583,31 +583,69 @@ const EditorWorkspace: React.FC = () => {
         } else {
           key = `scene_${sceneCounter}_${sIdx}`;
         }
-        const preview = previewAssets[key];
-        if (!preview) return sv;
+        const cutPreview = previewAssets[key];
 
         let updatedComposition = sv.composition;
         if (sv.composition && Array.isArray(sv.composition.children)) {
-          const updatedChildren = sv.composition.children.map((layer: any) => {
-            if (layer?.content && (layer.content.type === 'Image' || layer.content.type === 'Video')) {
+          let layerChanged = false;
+          const mediaLayers = sv.composition.children.filter((l: any) => l?.content?.type === 'Image' || l?.content?.type === 'Video');
+          const updatedChildren = sv.composition.children.map((layer: any, lIdx: number) => {
+            if (!layer?.content) return layer;
+            const isMedia = layer.content.type === 'Image' || layer.content.type === 'Video';
+            const layerKey = `${key}_${lIdx}`;
+            const layerPreview = previewAssets[layerKey];
+
+            // 1. Explicit layer-specific preview
+            if (layerPreview?.visual_path) {
+              layerChanged = true;
               return {
                 ...layer,
                 content: {
                   ...layer.content,
-                  local_path: preview.visual_path
+                  local_path: layerPreview.visual_path
                 }
               };
             }
+
+            // 2. Cut-level preview fallback: only applies if this layer explicitly matches,
+            // or if it already had this preview path, or if this is the only media layer in the cut
+            const isSingleMediaLayer = mediaLayers.length === 1 && isMedia;
+            const isTargetLayer = isMedia && (
+              cutPreview?.layerIdx !== undefined
+                ? cutPreview.layerIdx === lIdx
+                : (layer.content.local_path === cutPreview?.visual_path || isSingleMediaLayer)
+            );
+
+            if (cutPreview?.visual_path && isTargetLayer) {
+              layerChanged = true;
+              return {
+                ...layer,
+                content: {
+                  ...layer.content,
+                  local_path: cutPreview.visual_path
+                }
+              };
+            }
+
             return layer;
           });
-          updatedComposition = { ...sv.composition, children: updatedChildren };
+
+          if (layerChanged) {
+            updatedComposition = { ...sv.composition, children: updatedChildren };
+          }
         }
 
-        return {
-          ...sv,
-          visual_url: preview.visual_url,
-          composition: updatedComposition
-        };
+        if (cutPreview) {
+          return {
+            ...sv,
+            visual_url: cutPreview.visual_url,
+            composition: updatedComposition
+          };
+        }
+
+        return updatedComposition !== sv.composition
+          ? { ...sv, composition: updatedComposition }
+          : sv;
       });
       if (type === 'scene') sceneCounter++;
       return { ...scene, sub_visuals };

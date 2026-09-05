@@ -61,7 +61,7 @@ const AstJsonEditor = ({ initialValue, onChange }: { initialValue: object, onCha
   );
 };
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, singleCut = false, cutNumber, aiDisabled = false, promptDraftKey, loadPromptDraft, savePromptDraft }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string) => Promise<string | undefined> | void, uploadingSubVisual?: string | null, singleCut?: boolean, cutNumber?: number, aiDisabled?: boolean, promptDraftKey?: string, loadPromptDraft?: (key: string) => string, savePromptDraft?: (key: string, text: string) => void }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual, singleCut = false, cutNumber, aiDisabled = false, promptDraftKey, loadPromptDraft, savePromptDraft }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string, layerIdx?: number) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string, layerIdx?: number) => Promise<string | undefined> | void, uploadingSubVisual?: string | null, singleCut?: boolean, cutNumber?: number, aiDisabled?: boolean, promptDraftKey?: string, loadPromptDraft?: (key: string) => string, savePromptDraft?: (key: string, text: string) => void }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
@@ -401,8 +401,8 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                   <AstGraphicalEditor
                     initialValue={(sv ?? latestSubVisualsRef.current[idx])?.composition || EMPTY_COMPOSITION}
                     onChange={(parsed) => handleUpdate(idx, 'composition', parsed)}
-                    onUploadSubVisual={onUploadSubVisual ? (visualType) => onUploadSubVisual(idx, visualType) : undefined}
-                    onPreviewSubVisual={onPreviewSubVisual ? (query) => onPreviewSubVisual(idx, query) : undefined}
+                    onUploadSubVisual={onUploadSubVisual ? (visualType, layerIdx) => onUploadSubVisual(idx, visualType, layerIdx) : undefined}
+                    onPreviewSubVisual={onPreviewSubVisual ? (query, layerIdx) => onPreviewSubVisual(idx, query, layerIdx) : undefined}
                     uploadingSubVisual={uploadingSubVisual}
                   />
                 )}
