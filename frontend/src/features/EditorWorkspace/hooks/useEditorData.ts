@@ -4,7 +4,7 @@ import { callApi } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 
 import { estimateTextDuration, calculateSubVisualTimings } from '../../../utils/duration';
-import { MusicClip } from '../../../components/video/NitishRajputComposition';
+import { MusicClip, SfxClip } from '../../../components/video/NitishRajputComposition';
 
 /** Frame-value equality for timing records (numbers only — cheap). */
 function sameTimings(
@@ -40,6 +40,8 @@ interface UseEditorDataReturn {
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
   musicClips: MusicClip[];
   updateMusicClips: (clips: MusicClip[]) => Promise<boolean>;
+  sfxClips: SfxClip[];
+  updateSfxClips: (clips: SfxClip[]) => Promise<boolean>;
   loadFiles: (projId: string) => Promise<void>;
   getAudioSourceUrl: (projectId: string) => string;
   getBGMUrl: () => string;
@@ -341,6 +343,38 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     return success;
   }, [projectId, updateProject]);
 
+  const sfxClips = useMemo<SfxClip[]>(() => {
+    if (!selectedProject) return [];
+    let clips: SfxClip[] | null = null;
+    if ((selectedProject as any).sfx_clips !== undefined && (selectedProject as any).sfx_clips !== null) {
+      try {
+        const raw = (selectedProject as any).sfx_clips;
+        clips = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch (e) {
+        clips = [];
+      }
+    } else {
+      clips = [];
+    }
+    return (clips || []).map((c: SfxClip) => ({
+      ...c,
+      audio_url: c.audio_path ? `${getMediaUrlSync(c.audio_path)}&t=${reloadKey}` : '',
+    }));
+  }, [(selectedProject as any)?.sfx_clips, reloadKey]);
+
+  const updateSfxClips = useCallback(async (newClips: SfxClip[]) => {
+    if (!projectId) return false;
+    const cleanClips = (newClips || []).map(c => {
+      const { audio_url, ...rest } = c;
+      return rest;
+    });
+    const success = await updateProject(projectId, { sfx_clips: cleanClips } as any);
+    if (success) {
+      setReloadKey(k => k + 1);
+    }
+    return success;
+  }, [projectId, updateProject]);
+
   const getAudioSourceUrl = useCallback(() => {
     const project = useProjectStore.getState().selectedProject;
     if (project?.audio_path) {
@@ -365,6 +399,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     loadingScript, reloadKey,
     liveScenes, sceneTimings,
     musicClips, updateMusicClips,
+    sfxClips, updateSfxClips,
     loadFiles,
     getAudioSourceUrl, getBGMUrl
   };

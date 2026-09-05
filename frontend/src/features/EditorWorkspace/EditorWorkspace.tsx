@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback, useEffect, useMemo, useDeferredVa
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useProjectStore } from '../../store/useProjectStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
 import { useUIStore } from '../../store/useUIStore';
@@ -27,6 +28,7 @@ const EMPTY_ARRAY: any[] = [];
 const EditorWorkspace: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const selectedProject = useProjectStore((s) => s.selectedProject);
+  const sfxMasterVolume = useSettingsStore((s) => parseFloat(s.settings.sfx_volume || '0.5') || 0.5);
   const [projectReady, setProjectReady] = useState(false);
 
   // Mark project as ready when selectedProject is set from the store
@@ -77,6 +79,7 @@ const EditorWorkspace: React.FC = () => {
     transcriptionData, setTranscriptionData,
     liveScenes, sceneTimings, reloadKey,
     musicClips, updateMusicClips,
+    sfxClips, updateSfxClips,
     loadFiles
   } = useEditorData(id);
 
@@ -100,6 +103,22 @@ const EditorWorkspace: React.FC = () => {
     if (!id) return;
     await updateProject(id, { bg_music_volume: vol });
   }, [id, updateProject]);
+
+  const handleUploadSfxClip = useCallback(async (startFrame?: number) => {
+    if (!id) return;
+    try {
+      const res = await callApi<{ success: boolean; clip?: any; clips?: any[]; error?: string }>('upload_sfx_clip', id, startFrame);
+      if (res && res.success) {
+        await loadFiles(id);
+        if (res.clip?.id) {
+          useEditorStore.getState().setSelectedSfxClipId(res.clip.id);
+          useEditorStore.getState().setLeftPanelTab('sfx');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to upload sfx clip:', e);
+    }
+  }, [id, loadFiles]);
 
   const [activeTimings, setActiveTimings] = useState(sceneTimings);
   useEffect(() => {
@@ -1140,6 +1159,10 @@ const EditorWorkspace: React.FC = () => {
           onUploadMusicClip={handleUploadMusicClip}
           bgMusicVolume={safeProject.bg_music_volume}
           onBgMusicVolumeChange={handleBgMusicVolumeChange}
+          sfxClips={sfxClips}
+          onUpdateSfxClips={updateSfxClips}
+          onUploadSfxClip={handleUploadSfxClip}
+          onRefreshSfx={async () => { if (id) await loadFiles(id); }}
         />
         <ResizeHandle direction="vertical" target="leftPanel" side="right" min={300} />
       </div>
@@ -1154,6 +1177,8 @@ const EditorWorkspace: React.FC = () => {
           bgMusicUrl={bgMusicUrl}
           bgMusicVolume={safeProject.bg_music_volume}
           musicClips={musicClips}
+          sfxClips={sfxClips}
+          sfxVolume={sfxMasterVolume}
           voiceoverVolume={parseFloat(localProjectSettings?.voiceover_volume || '1.0')}
           styleType={safeProject.style}
           language={safeProject.language}
@@ -1242,6 +1267,9 @@ const EditorWorkspace: React.FC = () => {
           musicClips={musicClips}
           onUpdateMusicClips={updateMusicClips}
           onUploadMusicClip={handleUploadMusicClip}
+          sfxClips={sfxClips}
+          onUpdateSfxClips={updateSfxClips}
+          onUploadSfxClip={handleUploadSfxClip}
           onSeek={handleSeek}
           onDeleteScene={handleDeleteSceneTimeline}
           onResizeSubVisual={handleResizeSubVisual}
