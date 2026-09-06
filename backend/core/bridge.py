@@ -109,17 +109,69 @@ def _sweep_stale_uploads(project_id: str, max_age_seconds: int = 3600):
     by an app close without save, or by an upload that was cancelled before the
     edit was committed, would otherwise linger forever — with multi-hundred-MB
     video uploads that is real disk churn. Anything older than max_age_seconds
-    is presumed abandoned (an active session finalizes within minutes)."""
+    is presumed abandoned (an active session finalizes within minutes).
+
+    Files still referenced by the saved script / visual manifest / voiceover
+    manifest are NEVER swept, even when old: saves that predate preview
+    promotion (or future promotion failures) may legitimately point at
+    previews/ paths, and deleting them is exactly the "image gone on revisit"
+    data-loss bug. If a manifest exists but cannot be read (partial write,
+    lock, corrupt JSON), the sweep aborts instead of risking deletion of a
+    file that may be referenced."""
     import time
     from backend.core.config import get_storage_dir
     preview_dir = get_storage_dir() / project_id / "assets" / "previews"
     if not preview_dir.exists():
         return
+    # Build the referenced-paths set from every on-disk doc that can point at
+    # previews/ files. A candidate that exists but fails to load aborts the
+    # whole sweep: without a complete reference set we cannot prove any file
+    # is abandoned.
+    referenced = set()
+    try:
+        import json as _json
+        import os as _os
+        from pathlib import Path as _Path
+        from backend.pipeline.assets import _collect_local_paths as _collect
+        project_dir = get_storage_dir() / project_id
+        for candidate in (
+            project_dir / "script.json",
+            project_dir / "assets" / "assets_manifest.json",
+            project_dir / "voiceover" / "manifest.json",
+        ):
+            if not candidate.exists():
+                continue
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    doc = _json.load(f)
+            except Exception as e:
+                logger.warning(f"Stale-upload sweep aborted, unreadable manifest {candidate}: {e}")
+                return
+            try:
+                paths = []
+                _collect(doc, paths)
+                for p in paths:
+                    if p and isinstance(p, str):
+                        try:
+                            referenced.add(_os.path.normcase(str(_Path(p).resolve())))
+                        except Exception:
+                            referenced.add(_os.path.normcase(p))
+            except Exception:
+                logger.warning(f"Stale-upload sweep aborted, unreadable manifest {candidate}")
+                return
+    except Exception:
+        return
     now = time.time()
     for f in preview_dir.iterdir():
         try:
-            if not f.name.startswith("upload_"):
+            if not (f.name.startswith("upload_") or f.name.startswith("preview_")):
                 continue
+            try:
+                import os as _os2
+                if _os2.path.normcase(str(f.resolve())) in referenced:
+                    continue
+            except Exception:
+                pass
             if now - f.stat().st_mtime > max_age_seconds:
                 f.unlink()
                 logger.info(f"Swept stale preview upload: {f}")
@@ -2131,7 +2183,11 @@ class ApiBridge:
 
     def save_project_with_cleanup(self, project_id: str, script_data: dict, manifest_data: dict) -> dict:
         from backend.database.db import get_project, update_project
-        from backend.pipeline.assets import cleanup_removed_assets, compute_script_content_hash
+        from backend.pipeline.assets import (
+            cleanup_removed_assets,
+            compute_script_content_hash,
+            promote_preview_paths_to_assets,
+        )
         from backend.core.config import get_storage_dir
 
         result = {"success": True, "script_saved": False, "cleanup_result": None}
@@ -2139,6 +2195,20 @@ class ApiBridge:
             project = get_project(project_id)
             if not project:
                 return {"success": False, "error": "Project not found", "script_saved": False}
+            # Promote transient previews/ references (preview_*/upload_*) into
+            # assets/ BEFORE persisting. Visual editors write preview paths
+            # straight into AST layer local_path for instant playback; without
+            # promotion the saved project points at temp files that stale
+            # sweeps / preview cleanup later delete — the image renders while
+            # editing but is gone on revisit. Mutates script_data/manifest_data
+            # in place so every downstream write sees final paths.
+            try:
+                promo = promote_preview_paths_to_assets(project_id, script_data, manifest_data)
+                if promo.get("count"):
+                    result["promoted_assets"] = promo["promoted"]
+                    logger.info(f"Promoted {promo['count']} preview asset(s) to assets/ for {project_id}")
+            except Exception as e:
+                logger.warning(f"Preview promotion failed, saving with original paths: {e}")
             if project.get('script_path'):
                 script_success = self.save_json_file(project['script_path'], script_data)
                 result["script_saved"] = script_success
@@ -2197,6 +2267,22 @@ class ApiBridge:
             # Update project to point to the visual manifest for future operations
             if cleanup_result.get("success"):
                 update_project(project_id, assets_manifest_path=str(visual_manifest_path))
+
+            # Promptly remove the promoted previews/ originals. At this point
+            # script.json, the visual manifest, and (above) the voiceover
+            # manifest all carry the promoted assets/ paths, so the sources are
+            # true orphans — leaving them for the 1h age-out would keep
+            # video-size duplicates on disk after every save. Guarded on the
+            # script save: if it failed, on-disk docs may still reference the
+            # sources, and the reference-guarded sweep keeps them safe instead.
+            if result.get("script_saved") and result.get("promoted_assets"):
+                for _src, _dest in list(result["promoted_assets"].items()):
+                    try:
+                        if _src and _dest and _src != _dest and Path(_src).exists():
+                            Path(_src).unlink()
+                            logger.info(f"Removed promoted preview original: {_src}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove promoted preview original {_src}: {e}")
 
             if not cleanup_result.get("success"):
                 logger.warning("Asset cleanup failed, but script was saved")

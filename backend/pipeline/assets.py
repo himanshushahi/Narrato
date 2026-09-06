@@ -92,6 +92,156 @@ def _collect_local_paths(node, paths):
         for v in node:
             _collect_local_paths(v, paths)
 
+def _is_preview_temp_path(path_str):
+    """True when a stored path points at a transient previews/ file.
+
+    The visual editors (AstGraphicalEditor) write the preview/downloaded file
+    path straight into ``composition.content.local_path`` for instant playback.
+    Those ``assets/previews/{preview_*,upload_*}`` files are transient: stale
+    sweeps and post-save preview cleanup delete them. Anything still pointing
+    there at save time must be promoted into ``assets/`` first, otherwise the
+    image renders while editing but is gone on revisit.
+    """
+    if not path_str or not isinstance(path_str, str):
+        return False
+    lower = path_str.replace("\\", "/").lower()
+    if "/previews/" not in lower:
+        return False
+    base = lower.rsplit("/", 1)[-1]
+    return base.startswith("preview_") or base.startswith("upload_")
+
+
+def promote_preview_paths_to_assets(project_id, script_data=None, manifest_data=None):
+    """Copy transient previews/ files into the project assets/ dir.
+
+    Walks ``script_data`` (AST ``local_path``) and ``manifest_data``
+    (``visual_path``/``local_path``), copies every existing file that still
+    lives under ``assets/previews/`` into ``assets/`` with a stable
+    ``asset_<orig_stem>.<ext>`` name, and rewrites the reference in place.
+
+    Idempotent: the same source always maps to the same destination, so repeat
+    saves and duplicated cuts sharing one preview converge on one file.
+    Returns ``{"promoted": {src: dest}, "count": n}``.
+    """
+    import shutil
+    from backend.core.config import get_storage_dir
+
+    promoted = {}
+    try:
+        project_dir = get_storage_dir() / project_id
+        assets_dir = project_dir / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"Preview promotion skipped, assets dir unavailable: {e}")
+        return {"promoted": promoted, "count": 0}
+
+    def _same_content(a: Path, b: Path) -> bool:
+        """Content equality without hashing gigabytes on the happy path."""
+        try:
+            if a.stat().st_size != b.stat().st_size:
+                return False
+        except OSError:
+            return False
+        # Same size is not same content: compare chunked hashes. Sizes match
+        # here, so this only runs on the rare name-collision path.
+        try:
+            import hashlib as _hl
+            ha, hb = _hl.sha256(), _hl.sha256()
+            with open(a, "rb") as fa, open(b, "rb") as fb:
+                while True:
+                    ca, cb = fa.read(1024 * 1024), fb.read(1024 * 1024)
+                    if not ca and not cb:
+                        break
+                    ha.update(ca)
+                    hb.update(cb)
+            return ha.digest() == hb.digest()
+        except OSError:
+            return False
+
+    def _dest_for(src_path: Path) -> Path:
+        stem = src_path.stem  # e.g. upload_d87ff738 / preview_ab12cd34
+        if stem.startswith("asset_"):
+            dest_name = src_path.name
+        else:
+            dest_name = f"asset_{stem}{src_path.suffix.lower()}"
+        dest = assets_dir / dest_name
+        if dest.exists() and _same_content(dest, src_path):
+            return dest
+        if not dest.exists():
+            return dest
+        counter = 1
+        while True:
+            alt = assets_dir / f"{dest.stem}_{counter}{dest.suffix}"
+            if not alt.exists() or _same_content(alt, src_path):
+                return alt
+            counter += 1
+            if counter > 100:
+                return alt
+
+    # Resolve once: promotion is strictly contained to this project's
+    # previews/ directory. Stored paths arrive from the frontend, so a mere
+    # substring check would let a crafted absolute path pointing at a foreign
+    # previews/ dir trigger an arbitrary-file copy into assets/.
+    try:
+        _preview_dir_resolved = (assets_dir / "previews").resolve()
+    except Exception:
+        _preview_dir_resolved = None
+
+    def _promote_one(path_str):
+        if not _is_preview_temp_path(path_str):
+            return path_str
+        # Already-promoted in this pass (e.g. duplicated cut sharing a preview)
+        if path_str in promoted:
+            return promoted[path_str]
+        try:
+            src = Path(path_str)
+        except Exception:
+            return path_str
+        if _preview_dir_resolved is None:
+            return path_str
+        try:
+            inside = src.resolve().relative_to(_preview_dir_resolved)
+            _ = inside
+        except Exception:
+            return path_str
+        if not src.exists():
+            # Dangling reference (swept preview) — leave as-is; caller renders
+            # fallback rather than pointing at a file we cannot materialize.
+            logger.warning(f"Preview promotion: source missing, keeping dangling ref: {path_str}")
+            return path_str
+        try:
+            dest = _dest_for(src)
+            if not dest.exists():
+                shutil.copy2(str(src), str(dest))
+                logger.info(f"Promoted preview asset {src.name} -> {dest.name}")
+            promoted[path_str] = str(dest)
+            return str(dest)
+        except Exception as e:
+            logger.warning(f"Preview promotion failed for {path_str}: {e}")
+            return path_str
+
+    def _walk(node):
+        if isinstance(node, dict):
+            for key in ("local_path", "visual_path"):
+                if node.get(key):
+                    node[key] = _promote_one(node[key])
+            for v in node.values():
+                _walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                _walk(v)
+
+    try:
+        if script_data is not None:
+            _walk(script_data)
+        if manifest_data is not None:
+            _walk(manifest_data)
+    except Exception as e:
+        logger.warning(f"Preview promotion walk failed: {e}")
+
+    return {"promoted": promoted, "count": len(promoted)}
+
+
 def is_assets_stale(project_dict, project_dir):
     """Check if the sub-visual structure in script.json differs from manifest, or if files are missing."""
     script_path = project_dir / "script.json"
@@ -1286,29 +1436,81 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
     deleted_files = []
     preserved_files = []
 
+    def _managed_stem(stem: str) -> bool:
+        return (
+            stem.startswith("asset_")
+            or stem.startswith("preview_")
+            or stem.startswith("upload_")
+        )
+
+    def _reconcile_file(file_path, deleted_files, preserved_files):
+        try:
+            resolved_norm = os.path.normcase(str(file_path.resolve()))
+        except Exception:
+            resolved_norm = os.path.normcase(str(file_path))
+
+        if resolved_norm in kept_paths_set:
+            preserved_files.append(str(file_path))
+        else:
+            if file_path.suffix.lower() in KNOWN_MEDIA_EXTENSIONS:
+                try:
+                    file_path.unlink()
+                    deleted_files.append(str(file_path))
+                    logger.info(f"Deleted orphaned asset: {file_path.name}")
+                except Exception as e:
+                    logger.warning(f"Could not delete {file_path}: {e}")
+
     if assets_dir.exists():
         for file_path in assets_dir.iterdir():
             if not file_path.is_file():
                 continue
-            # Only clean up files matching asset_* or preview_* pattern
-            if not file_path.stem.startswith("asset_") and not file_path.stem.startswith("preview_"):
+            # Only clean up managed files (promoted assets, legacy previews,
+            # upload copies) — never touch overlays, fonts, or user files.
+            if not _managed_stem(file_path.stem):
                 continue
-                
-            try:
-                resolved_norm = os.path.normcase(str(file_path.resolve()))
-            except Exception:
-                resolved_norm = os.path.normcase(str(file_path))
+            _reconcile_file(file_path, deleted_files, preserved_files)
 
-            if resolved_norm in kept_paths_set:
-                preserved_files.append(str(file_path))
-            else:
+        # Reconcile transient previews/ copies too: after promotion the
+        # originals are unreferenced and would otherwise linger (videos can be
+        # hundreds of MB). Referenced previews are always preserved; only
+        # unreferenced files older than the abandonment window are removed so
+        # in-flight editing previews (not yet saved to disk, hence invisible
+        # to the kept-paths set) are never deleted mid-edit.
+        previews_dir = assets_dir / "previews"
+        if previews_dir.exists():
+            import time as _time
+            _now = _time.time()
+            for file_path in previews_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                if not _managed_stem(file_path.stem):
+                    continue
+                try:
+                    resolved_norm = os.path.normcase(str(file_path.resolve()))
+                except Exception:
+                    resolved_norm = os.path.normcase(str(file_path))
+                if resolved_norm in kept_paths_set:
+                    preserved_files.append(str(file_path))
+                    continue
+                try:
+                    if _now - file_path.stat().st_mtime < 3600:
+                        preserved_files.append(str(file_path))
+                        continue
+                except OSError:
+                    pass
                 if file_path.suffix.lower() in KNOWN_MEDIA_EXTENSIONS:
                     try:
                         file_path.unlink()
                         deleted_files.append(str(file_path))
-                        logger.info(f"Deleted orphaned asset: {file_path.name}")
+                        logger.info(f"Deleted orphaned preview asset: {file_path.name}")
                     except Exception as e:
                         logger.warning(f"Could not delete {file_path}: {e}")
+            try:
+                if not any(previews_dir.iterdir()):
+                    previews_dir.rmdir()
+                    logger.info(f"Removed empty previews directory: {previews_dir}")
+            except Exception:
+                pass
 
     # Embed content hash into each manifest entry for change detection on pipeline resume
     if content_hash:

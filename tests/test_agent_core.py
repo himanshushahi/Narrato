@@ -1349,6 +1349,214 @@ def test_finalize_upload_asset_layer_aware(tmp_path, monkeypatch):
     assert Path(res_legacy["visual_path"]).name == "asset_002_00.jpg"
 
 
+def test_promote_preview_paths_to_assets(tmp_path, monkeypatch):
+    """Saving a cut whose AST layers point at previews/upload_* must promote
+    the files into assets/ and rewrite local_path (the reported data-loss bug:
+    image visible while editing, gone on revisit after the temp file is swept).
+    """
+    from pathlib import Path
+    from backend.pipeline.assets import promote_preview_paths_to_assets
+
+    proj_id = "proj-test-promote"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+
+    proj_assets = tmp_path / proj_id / "assets"
+    previews_dir = proj_assets / "previews"
+    previews_dir.mkdir(parents=True, exist_ok=True)
+
+    up = previews_dir / "upload_d87ff738.png"
+    up.write_bytes(b"png-bytes")
+    pv = previews_dir / "preview_ab12cd34.jpg"
+    pv.write_bytes(b"jpg-bytes")
+    main = proj_assets / "asset_005_02_00.mp4"
+    main.write_bytes(b"mp4-bytes")
+
+    script_data = {
+        "scenes": [
+            {
+                "narration": "x",
+                "sub_visuals": [
+                    {
+                        "composition": {
+                            "type": "Sequence",
+                            "children": [
+                                {"type": "Layer", "content": {"type": "Video", "local_path": str(main)}},
+                                {"type": "Layer", "content": {"type": "Image", "query": "GitHub", "source": "upload", "local_path": str(up)}},
+                                {"type": "Layer", "content": {"type": "Image", "query": "Twitter", "source": "upload", "local_path": str(pv)}},
+                            ],
+                        }
+                    }
+                ],
+            }
+        ]
+    }
+    manifest_data = [
+        {"section_type": "scene", "sub_visuals": [{"visual_path": str(up), "composition": script_data["scenes"][0]["sub_visuals"][0]["composition"]}]}
+    ]
+
+    res = promote_preview_paths_to_assets(proj_id, script_data, manifest_data)
+    assert res["count"] == 2
+
+    layers = script_data["scenes"][0]["sub_visuals"][0]["composition"]["children"]
+    assert layers[0]["content"]["local_path"] == str(main)  # non-preview untouched
+    for layer in layers[1:]:
+        new_path = layer["content"]["local_path"]
+        assert "previews" not in new_path.replace("\\", "/")
+        assert Path(new_path).exists()
+    assert manifest_data[0]["sub_visuals"][0]["visual_path"] == layers[1]["content"]["local_path"]
+    assert Path(layers[1]["content"]["local_path"]).read_bytes() == b"png-bytes"
+    assert Path(layers[2]["content"]["local_path"]).read_bytes() == b"jpg-bytes"
+
+    # Idempotent: second pass finds nothing to promote
+    res2 = promote_preview_paths_to_assets(proj_id, script_data, manifest_data)
+    assert res2["count"] == 0
+
+
+def test_sweep_stale_uploads_skips_referenced(tmp_path, monkeypatch):
+    """_sweep_stale_uploads must never delete a preview still referenced by the
+    saved script, even when older than the abandonment window."""
+    import json
+    import os
+    import time
+    from backend.core import bridge as bridge_mod
+
+    proj_id = "proj-test-sweep"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+
+    proj_dir = tmp_path / proj_id
+    previews_dir = proj_dir / "assets" / "previews"
+    previews_dir.mkdir(parents=True, exist_ok=True)
+
+    ref = previews_dir / "upload_referenced.png"
+    ref.write_bytes(b"referenced")
+    orphan = previews_dir / "upload_orphan.png"
+    orphan.write_bytes(b"orphan")
+    old = time.time() - 7200
+    os.utime(ref, (old, old))
+    os.utime(orphan, (old, old))
+
+    (proj_dir / "script.json").write_text(json.dumps({
+        "scenes": [{
+            "sub_visuals": [{
+                "composition": {
+                    "type": "Sequence",
+                    "children": [
+                        {"type": "Layer", "content": {"type": "Image", "local_path": str(ref)}},
+                    ],
+                },
+            }],
+        }],
+    }))
+
+    bridge_mod._sweep_stale_uploads(proj_id)
+    assert ref.exists(), "Referenced preview must NOT be swept!"
+    assert not orphan.exists(), "Unreferenced stale preview should be swept"
+
+
+def test_cleanup_preserves_inflight_previews(tmp_path, monkeypatch):
+    """cleanup_removed_assets must not delete fresh, unsaved previews/ files
+    (mid-edit state invisible to the on-disk kept-paths set)."""
+    from backend.pipeline.assets import cleanup_removed_assets
+
+    proj_id = "test-proj-inflight"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: {"id": pid, "assets_manifest_path": str(tmp_path / pid / "assets_manifest.json")})
+
+    proj_dir = tmp_path / proj_id
+    assets_dir = proj_dir / "assets"
+    previews_dir = assets_dir / "previews"
+    previews_dir.mkdir(parents=True, exist_ok=True)
+
+    inflight = previews_dir / "upload_inflight.png"
+    inflight.write_bytes(b"mid-edit preview")
+
+    res = cleanup_removed_assets(proj_id, [{"section_type": "scene", "sub_visuals": []}])
+    assert res["success"] is True
+    assert inflight.exists(), "Fresh in-flight preview must survive reconciliation!"
+
+
+def test_sweep_aborts_on_unreadable_manifest(tmp_path, monkeypatch):
+    """A corrupt-but-present manifest must abort the sweep, never fall back to
+    age-only deletion of possibly-referenced files."""
+    import os
+    import time
+    from pathlib import Path
+    from backend.core import bridge as bridge_mod
+
+    proj_id = "proj-test-sweep-abort"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+
+    proj_dir = tmp_path / proj_id
+    previews_dir = proj_dir / "assets" / "previews"
+    previews_dir.mkdir(parents=True, exist_ok=True)
+
+    orphan = previews_dir / "upload_orphan2.png"
+    orphan.write_bytes(b"orphan")
+    old = time.time() - 7200
+    os.utime(orphan, (old, old))
+    (proj_dir / "script.json").write_text("{ not valid json")
+
+    bridge_mod._sweep_stale_uploads(proj_id)
+    assert orphan.exists(), "Sweep must abort when a manifest is unreadable!"
+    assert Path(proj_dir / "script.json").exists()
+
+
+def test_promote_rejects_foreign_preview_path(tmp_path, monkeypatch):
+    """A stored path that merely contains a previews/ segment but lives outside
+    this project's previews/ dir must not be copied into assets/."""
+    from pathlib import Path
+    from backend.pipeline.assets import promote_preview_paths_to_assets
+
+    proj_id = "proj-test-foreign"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    (tmp_path / proj_id / "assets").mkdir(parents=True, exist_ok=True)
+
+    foreign_dir = tmp_path / "elsewhere" / "previews"
+    foreign_dir.mkdir(parents=True, exist_ok=True)
+    foreign = foreign_dir / "upload_evil.png"
+    foreign.write_bytes(b"foreign-bytes")
+
+    script_data = {"scenes": [{"sub_visuals": [{"composition": {"type": "Sequence", "children": [
+        {"type": "Layer", "content": {"type": "Image", "local_path": str(foreign)}},
+    ]}}]}]}
+
+    res = promote_preview_paths_to_assets(proj_id, script_data, None)
+    assert res["count"] == 0
+    layer = script_data["scenes"][0]["sub_visuals"][0]["composition"]["children"][0]
+    assert layer["content"]["local_path"] == str(foreign)
+    assert not (tmp_path / proj_id / "assets" / "asset_upload_evil.png").exists()
+
+
+def test_promote_name_collision_keeps_both_contents(tmp_path, monkeypatch):
+    """Same-size/different-content collision on the stable dest name must not
+    alias the wrong image: the newcomer gets a suffixed file."""
+    from pathlib import Path
+    from backend.pipeline.assets import promote_preview_paths_to_assets
+
+    proj_id = "proj-test-collision"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+
+    assets_dir = tmp_path / proj_id / "assets"
+    previews_dir = assets_dir / "previews"
+    previews_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = assets_dir / "asset_upload_same.png"
+    existing.write_bytes(b"0123456789abcdef")  # 16 bytes
+    src = previews_dir / "upload_same.png"
+    src.write_bytes(b"fedcba9876543210")  # 16 bytes, different content
+
+    script_data = {"scenes": [{"sub_visuals": [{"composition": {"type": "Sequence", "children": [
+        {"type": "Layer", "content": {"type": "Image", "local_path": str(src)}},
+    ]}}]}]}
+
+    res = promote_preview_paths_to_assets(proj_id, script_data, None)
+    assert res["count"] == 1
+    new_path = script_data["scenes"][0]["sub_visuals"][0]["composition"]["children"][0]["content"]["local_path"]
+    assert new_path != str(existing)
+    assert Path(new_path).read_bytes() == b"fedcba9876543210"
+    assert existing.read_bytes() == b"0123456789abcdef"
+
+
 
 
 

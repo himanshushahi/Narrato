@@ -459,7 +459,34 @@ export function useScriptEditing(
         return { ...manifestScene, duration: sceneDuration, sub_visuals: mergedSubVisuals };
       }));
 
-      await callApi<any>('save_project_with_cleanup', projectId, working ?? data, liveManifest);
+      const saveResult = await callApi<any>('save_project_with_cleanup', projectId, working ?? data, liveManifest);
+
+      // The backend promotes transient previews/ refs into assets/ during the
+      // save (in its own copy) and returns the src -> dest mapping. Mirror
+      // that mapping into the local `working` / `liveManifest` snapshots
+      // BEFORE patchCompositions below — otherwise the patch writes stale
+      // previews/ local_paths back into React state, reverting the just-saved
+      // promoted paths while the preview files are being deleted.
+      const promotedMap = saveResult?.promoted_assets;
+      if (promotedMap && typeof promotedMap === 'object' && Object.keys(promotedMap).length > 0) {
+        const rewritePromotedRefs = (node: any): void => {
+          if (Array.isArray(node)) {
+            node.forEach(rewritePromotedRefs);
+            return;
+          }
+          if (node && typeof node === 'object') {
+            for (const key of ['local_path', 'visual_path']) {
+              const v = (node as any)[key];
+              if (typeof v === 'string' && typeof promotedMap[v] === 'string') {
+                (node as any)[key] = promotedMap[v];
+              }
+            }
+            for (const v of Object.values(node)) rewritePromotedRefs(v);
+          }
+        };
+        if (working) rewritePromotedRefs(working);
+        rewritePromotedRefs(liveManifest);
+      }
 
       // Fetch assets only for genuinely new/changed sub-visuals
       const origManifest = originalManifestData && originalManifestData.length > 0 ? originalManifestData : manifestData;
