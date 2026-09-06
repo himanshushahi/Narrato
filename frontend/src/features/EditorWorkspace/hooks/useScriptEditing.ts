@@ -309,11 +309,17 @@ export function useScriptEditing(
     const success = await callApi<boolean>('save_json_file', selectedProject.script_path, data);
     if (success) {
       // Build live manifest
+      // NOTE: sceneCounter is only valid during the synchronous map phase
+      // below. Each per-scene callback awaits (finalize calls), so any read
+      // of sceneCounter AFTER an await sees the fully-incremented total, not
+      // this scene's index. Per-callback logic must use the synchronously
+      // captured currentSceneIdx instead.
       let sceneCounter = 0;
       const liveManifest = await Promise.all(manifestData.map(async (manifestScene: any, mIdx: number) => {
         const type = manifestScene.section_type;
         let liveSubVisuals: any[] = [];
         let assetKeyPrefix: string;
+        let currentSceneIdx = -1;
         if (type === 'introduction' && data?.introduction) {
           liveSubVisuals = data.introduction?.sub_visuals || [];
           assetKeyPrefix = 'intro';
@@ -321,10 +327,10 @@ export function useScriptEditing(
           liveSubVisuals = data.conclusion?.sub_visuals || [];
           assetKeyPrefix = 'conclusion';
         } else if (type === 'scene' && Array.isArray(data?.scenes)) {
-          const currentIdx = sceneCounter++;
-          const scriptScene = data.scenes[currentIdx];
+          currentSceneIdx = sceneCounter++;
+          const scriptScene = data.scenes[currentSceneIdx];
           if (scriptScene) liveSubVisuals = scriptScene?.sub_visuals || [];
-          assetKeyPrefix = `scene_${currentIdx}`;
+          assetKeyPrefix = `scene_${currentSceneIdx}`;
         } else {
           assetKeyPrefix = '';
         }
@@ -423,8 +429,7 @@ export function useScriptEditing(
             } else if (type === 'conclusion' && doc?.conclusion?.sub_visuals?.[sIdx]) {
               doc.conclusion.sub_visuals[sIdx] = { ...doc.conclusion.sub_visuals[sIdx], composition: updatedComposition };
             } else if (type === 'scene' && Array.isArray(doc?.scenes)) {
-              const currentSceneIdx = sceneCounter - 1;
-              if (doc.scenes[currentSceneIdx]?.sub_visuals?.[sIdx]) {
+              if (currentSceneIdx >= 0 && doc.scenes[currentSceneIdx]?.sub_visuals?.[sIdx]) {
                 doc.scenes[currentSceneIdx].sub_visuals[sIdx] = { ...doc.scenes[currentSceneIdx].sub_visuals[sIdx], composition: updatedComposition };
               }
             }
@@ -453,7 +458,7 @@ export function useScriptEditing(
 
         const sceneText = type === 'introduction' ? data?.introduction?.hook
           : type === 'conclusion' ? data?.conclusion?.summary
-            : data?.scenes?.[sceneCounter - 1]?.narration;
+            : (currentSceneIdx >= 0 ? data?.scenes?.[currentSceneIdx]?.narration : undefined);
         const sceneDuration = manifestScene.duration > 0 ? manifestScene.duration : estimateTextDuration(sceneText);
 
         return { ...manifestScene, duration: sceneDuration, sub_visuals: mergedSubVisuals };
