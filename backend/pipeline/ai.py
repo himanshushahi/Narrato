@@ -1491,7 +1491,7 @@ AGENT TOOL USE:
 - The tools web_search, get_skill, read_project_file, list_project_files and project_status_report are enabled for this scene.
 - Use web_search BEFORE writing if this scene needs up-to-date or specific facts (stats, dates, names) not already given in the prompt.
 - Use get_skill('scriptwriter') if you need a reminder of the writing rules.
-- To use a tool, emit EXACTLY ONE tool block, receive the result in the next message, then output ONLY the final JSON.
+- To use tools, emit one or more tool blocks (or a JSON array of tool calls). You will receive all tool results in the next message, then output ONLY the final JSON.
 
 SPEAKING VISUALIZATION:
 Think about how this narration will sound when spoken:

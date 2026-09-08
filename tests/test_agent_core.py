@@ -713,6 +713,208 @@ def test_run_with_tools_executes_bare_json_tool_block(monkeypatch):
     assert calls["n"] == 2
 
 
+def test_extract_tool_blocks_json_array():
+    from backend.agent.agent_engine import _extract_tool_blocks
+    text = """
+    Thinking process: <think>we need both assets</think>
+    ```tool
+    [
+        {"name": "search_pexels_photo", "arguments": {"query": "mountains"}},
+        {"name": "search_pixabay_photo", "arguments": {"query": "icon", "image_type": "illustration"}}
+    ]
+    ```
+    """
+    blocks = _extract_tool_blocks(text)
+    assert len(blocks) == 2
+    assert blocks[0] == {"name": "search_pexels_photo", "arguments": {"query": "mountains"}}
+    assert blocks[1] == {"name": "search_pixabay_photo", "arguments": {"query": "icon", "image_type": "illustration"}}
+
+
+def test_extract_tool_blocks_multiple_fenced_blocks():
+    from backend.agent.agent_engine import _extract_tool_blocks
+    text = """
+    ```tool
+    {"name": "web_search", "arguments": {"query": "Apple revenue"}}
+    ```
+    Some text between
+    ```json
+    {"name": "get_skill", "arguments": {"name": "declarative-ast"}}
+    ```
+    """
+    blocks = _extract_tool_blocks(text)
+    assert len(blocks) == 2
+    assert blocks[0] == {"name": "web_search", "arguments": {"query": "Apple revenue"}}
+    assert blocks[1] == {"name": "get_skill", "arguments": {"name": "declarative-ast"}}
+
+
+def test_run_with_tools_executes_multiple_tools_concurrently(monkeypatch):
+    import backend.agent.agent_engine as ae
+    from backend.agent.agent_engine import AgentRunner
+
+    calls = {"n": 0}
+    executed = []
+
+    def fake_call(system, user, schema, cancel_event, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return (
+                '```tool\n'
+                '[\n'
+                '  {"name": "search_pexels_photo", "arguments": {"query": "sky"}},\n'
+                '  {"name": "search_pixabay_photo", "arguments": {"query": "coin"}}\n'
+                ']\n'
+                '```\n'
+            )
+        assert "Tool 'search_pexels_photo' result:\npexels_url" in user
+        assert "Tool 'search_pixabay_photo' result:\npixabay_url" in user
+        return '{"final": true}'
+
+    def fake_execute(name, args):
+        executed.append((name, args))
+        if name == "search_pexels_photo":
+            return "pexels_url"
+        return "pixabay_url"
+
+    monkeypatch.setattr(ae, "_call_llm_json", fake_call)
+    monkeypatch.setattr(ae, "execute_tool", fake_execute)
+
+    result = AgentRunner().run_with_tools("system", "prompt", {"type": "object"})
+    assert result == {"final": True}
+    assert len(executed) == 2
+    assert calls["n"] == 2
+
+
+def test_run_with_tools_multi_tool_partial_disallowed(monkeypatch):
+    import backend.agent.agent_engine as ae
+    from backend.agent.agent_engine import AgentRunner
+
+    calls = {"n": 0}
+    executed = []
+
+    def fake_call(system, user, schema, cancel_event, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return (
+                '```tool\n'
+                '[\n'
+                '  {"name": "allowed_tool", "arguments": {"q": "1"}},\n'
+                '  {"name": "disallowed_tool", "arguments": {"q": "2"}}\n'
+                ']\n'
+                '```\n'
+            )
+        assert "is not available in this context" in user
+        assert "Tool 'allowed_tool' result:\nok" in user
+        return '{"final": true}'
+
+    def fake_execute(name, args):
+        executed.append(name)
+        return "ok"
+
+    monkeypatch.setattr(ae, "_call_llm_json", fake_call)
+    monkeypatch.setattr(ae, "execute_tool", fake_execute)
+
+    result = AgentRunner().run_with_tools(
+        "system", "prompt", {"type": "object"},
+        allowed_tools=["allowed_tool"]
+    )
+    assert result == {"final": True}
+    assert executed == ["allowed_tool"]
+
+
+def test_extract_tool_blocks_container_expansion():
+    from backend.agent.agent_engine import _extract_tool_blocks
+    text = """
+    ```tool
+    {"tools": [
+        {"name": "search_pexels_photo", "arguments": {"query": "sea"}},
+        {"name": "search_pixabay_photo", "arguments": {"query": "wave"}}
+    ]}
+    ```
+    """
+    blocks = _extract_tool_blocks(text)
+    assert len(blocks) == 2
+    assert blocks[0]["name"] == "search_pexels_photo"
+    assert blocks[1]["name"] == "search_pixabay_photo"
+
+
+def test_run_with_tools_caps_max_tools_per_turn(monkeypatch):
+    import json
+    import backend.agent.agent_engine as ae
+    from backend.agent.agent_engine import AgentRunner, MAX_TOOLS_PER_TURN
+
+    calls = {"n": 0}
+    executed = []
+
+    def fake_call(system, user, schema, cancel_event, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            tools_list = [{"name": f"tool_{i}", "arguments": {}} for i in range(MAX_TOOLS_PER_TURN + 3)]
+            return f"```tool\n{json.dumps(tools_list)}\n```"
+        assert f"3 tool call(s) were dropped (max {MAX_TOOLS_PER_TURN} per turn)." in user
+        return '{"final": true}'
+
+    def fake_execute(name, args):
+        executed.append(name)
+        return "ok"
+
+    monkeypatch.setattr(ae, "_call_llm_json", fake_call)
+    monkeypatch.setattr(ae, "execute_tool", fake_execute)
+
+    result = AgentRunner().run_with_tools("system", "prompt", {"type": "object"})
+    assert result == {"final": True}
+    assert len(executed) == MAX_TOOLS_PER_TURN
+
+
+def test_run_with_tools_all_disallowed_tools(monkeypatch):
+    import backend.agent.agent_engine as ae
+    from backend.agent.agent_engine import AgentRunner
+
+    calls = {"n": 0}
+
+    def fake_call(system, user, schema, cancel_event, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return '```tool\n[{"name": "bad1", "arguments": {}}, {"name": "bad2", "arguments": {}}]\n```'
+        assert "tool 'bad1' is not available" in user
+        assert "tool 'bad2' is not available" in user
+        assert "Tool 'bad1' result" not in user
+        return '{"final": true}'
+
+    monkeypatch.setattr(ae, "_call_llm_json", fake_call)
+    monkeypatch.setattr(ae, "execute_tool", lambda name, args: "unreachable")
+
+    result = AgentRunner().run_with_tools(
+        "system", "prompt", {"type": "object"},
+        allowed_tools=["only_good_tool"]
+    )
+    assert result == {"final": True}
+    assert calls["n"] == 2
+
+
+def test_run_with_tools_single_and_multi_error_handling_consistency(monkeypatch):
+    import backend.agent.agent_engine as ae
+    from backend.agent.agent_engine import AgentRunner
+
+    calls = {"n": 0}
+
+    def fake_call(system, user, schema, cancel_event, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return '```tool\n{"name": "crash_tool", "arguments": {}}\n```'
+        assert "Tool 'crash_tool' result:\nError executing tool: simulated tool error" in user
+        return '{"final": true}'
+
+    def fake_execute(name, args):
+        raise ValueError("simulated tool error")
+
+    monkeypatch.setattr(ae, "_call_llm_json", fake_call)
+    monkeypatch.setattr(ae, "execute_tool", fake_execute)
+
+    result = AgentRunner().run_with_tools("system", "prompt", {"type": "object"})
+    assert result == {"final": True}
+    assert calls["n"] == 2
+
+
 # ---------------------------------------------------------------------------
 # Telemetry: args + result preservation, skill read context labels
 # ---------------------------------------------------------------------------

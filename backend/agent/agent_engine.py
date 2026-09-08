@@ -1,5 +1,6 @@
 import json
 import re
+import concurrent.futures
 from typing import Dict, Any, Callable, Union
 from backend.core.logger import logger
 from backend.agent.tools import get_tools_schema, execute_tool
@@ -105,9 +106,10 @@ def _looks_like_tool_call(call) -> bool:
 
 def _extract_tool_blocks(text: str) -> list:
     """Extract tool-call objects from model output across all common formats:
-    ```tool``` fenced blocks, ```json```-fenced blocks, plain ``` fences, and
-    bare JSON objects shaped like {"name": ..., "arguments": ...} or {"tool": ...}.
-    Deduplicates identical calls (same name + same arguments).
+    ```tool``` fenced blocks, ```json```-fenced blocks, plain ``` fences,
+    bare JSON objects shaped like {"name": ..., "arguments": ...} or {"tool": ...},
+    and JSON arrays containing multiple tool calls.
+    Deduplicates identical calls (same name + same arguments) while preserving order.
     """
     # Strip <think>...</think> blocks from reasoning models before extracting tools
     text = re.sub(r'<think>.*?(?:</think>|$)', '', text, flags=re.DOTALL | re.IGNORECASE)
@@ -116,6 +118,16 @@ def _extract_tool_blocks(text: str) -> list:
     seen = set()
 
     def _add(raw_obj):
+        if isinstance(raw_obj, list):
+            for item in raw_obj:
+                _add(item)
+            return
+        if isinstance(raw_obj, dict) and not _normalize_tool_call(raw_obj):
+            for container_key in ("tools", "tool_calls", "calls"):
+                if container_key in raw_obj and isinstance(raw_obj[container_key], list):
+                    for item in raw_obj[container_key]:
+                        _add(item)
+                    return
         norm = _normalize_tool_call(raw_obj)
         if not norm:
             return
@@ -125,11 +137,28 @@ def _extract_tool_blocks(text: str) -> list:
             found.append(norm)
 
     for match in FENCED_BLOCK_RE.finditer(text):
+        block_content = match.group(1).strip()
+        # First attempt to parse the entire fenced block as JSON (e.g. array or object)
+        try:
+            parsed_block = json.loads(block_content)
+            _add(parsed_block)
+            continue
+        except (json.JSONDecodeError, ValueError):
+            pass
+
         for obj in _try_extract_json_objects(match.group(1)):
             try:
                 _add(json.loads(obj))
             except (json.JSONDecodeError, ValueError):
                 continue
+
+    # Also check the raw text for bare JSON arrays outside of fenced blocks
+    trimmed_text = text.strip()
+    if trimmed_text.startswith("[") and trimmed_text.endswith("]"):
+        try:
+            _add(json.loads(trimmed_text))
+        except (json.JSONDecodeError, ValueError):
+            pass
 
     for obj in _try_extract_json_objects(text):
         try:
@@ -142,6 +171,7 @@ def _extract_tool_blocks(text: str) -> list:
 # Budget: tool turns + one final strict-schema turn. Kept small so interactive
 # editor rewrites don't stall the UI thread for minutes.
 MAX_AGENT_TURNS = 4
+MAX_TOOLS_PER_TURN = 8
 
 # Pipeline-only budgets: the bulk generation loops are not blocking the UI, so
 # they get extra headroom to research before finalizing.
@@ -219,12 +249,12 @@ class AgentRunner:
         lines.append("")
         lines.append(
             "If you need external data (web facts, declarative AST schemas, project files, "
-            "design settings) to produce a correct result, BEFORE outputting the final JSON "
-            "emit EXACTLY ONE tool call block:\n"
-            '```tool\n{"name": "tool_name", "arguments": {"param": "value"}}\n```\n'
-            "You will receive the tool result in the next message. "
-            "CRITICAL: Before making a tool call or outputting the final JSON, you MUST think step-by-step "
-            "and wrap your entire reasoning inside <think>...</think> tags. "
+            "media assets, design settings) to produce a correct result, BEFORE outputting the final JSON "
+            "emit one or more tool call blocks (you may call multiple tools in a single turn if you need multiple pieces of data):\n"
+            '```tool\n[\n  {"name": "tool_name_1", "arguments": {"param": "value"}},\n  {"name": "tool_name_2", "arguments": {"param": "value"}}\n]\n```\n'
+            "Or emit multiple separate ```tool``` blocks. You will receive all tool results in the next message.\n"
+            "CRITICAL: Before making tool calls or outputting the final JSON, you MUST think step-by-step "
+            "and wrap your entire reasoning inside <think>...</think> tags.\n"
             "After you have all the data you need, output ONLY the final JSON matching the "
             "requested schema — no tool block, no markdown, no extra text."
         )
@@ -264,6 +294,7 @@ class AgentRunner:
 
             tool_blocks = _extract_tool_blocks(raw)
             if tool_blocks:
+                valid_calls = []
                 for call in tool_blocks:
                     self._check_cancel()
                     name = call.get("name")
@@ -273,9 +304,60 @@ class AgentRunner:
                     if allowed_tools and name not in allowed_tools:
                         current_user_prompt += f"\n\n[System: tool '{name}' is not available in this context. Use only the documented tools.]"
                         continue
-                    self._emit_progress(f"Agent: Executing tool {name}...")
-                    result_str = execute_tool(name, args)
-                    current_user_prompt += f"\n\nTool '{name}' result:\n{result_str}"
+                    valid_calls.append((name, args))
+
+                # Cap AFTER allowed_tools filtering so disallowed calls can't
+                # crowd out allowed ones.
+                if len(valid_calls) > MAX_TOOLS_PER_TURN:
+                    dropped = len(valid_calls) - MAX_TOOLS_PER_TURN
+                    valid_calls = valid_calls[:MAX_TOOLS_PER_TURN]
+                    current_user_prompt += (
+                        f"\n\n[System: {dropped} tool call(s) were dropped "
+                        f"(max {MAX_TOOLS_PER_TURN} per turn).]"
+                    )
+
+                if valid_calls:
+                    if len(valid_calls) == 1:
+                        name, args = valid_calls[0]
+                        self._emit_progress(f"Agent: Executing tool {name}...")
+                        try:
+                            result_str = execute_tool(name, args)
+                        except (InterruptedError, concurrent.futures.CancelledError):
+                            raise
+                        except Exception as e:
+                            result_str = f"Error executing tool: {e}"
+                        current_user_prompt += f"\n\nTool '{name}' result:\n{result_str}"
+                    else:
+                        names_summary = ", ".join(name for name, _ in valid_calls)
+                        self._emit_progress(f"Agent: Executing {len(valid_calls)} tools in parallel ({names_summary})...")
+                        # Manual pool lifecycle (no `with`): the context manager's
+                        # __exit__ calls shutdown(wait=True), which blocks cancel
+                        # until the slowest tool finishes. wait=False keeps
+                        # cancellation responsive; as_completed already joins all
+                        # futures on the success path.
+                        pool = concurrent.futures.ThreadPoolExecutor(max_workers=min(len(valid_calls), 5))
+                        try:
+                            future_to_idx = {
+                                pool.submit(execute_tool, name, args): i
+                                for i, (name, args) in enumerate(valid_calls)
+                            }
+                            results = [None] * len(valid_calls)
+                            for future in concurrent.futures.as_completed(future_to_idx):
+                                self._check_cancel()
+                                idx = future_to_idx[future]
+                                try:
+                                    results[idx] = future.result()
+                                except (InterruptedError, concurrent.futures.CancelledError):
+                                    pool.shutdown(wait=False, cancel_futures=True)
+                                    raise
+                                except Exception as e:
+                                    results[idx] = f"Error executing tool: {e}"
+                        finally:
+                            pool.shutdown(wait=False, cancel_futures=True)
+
+                        for (name, _), result_str in zip(valid_calls, results):
+                            current_user_prompt += f"\n\nTool '{name}' result:\n{result_str}"
+
                 continue  # give the model a turn to act on the results or rejection notices
 
             # No tool block: try to parse the loose response as the final JSON.
