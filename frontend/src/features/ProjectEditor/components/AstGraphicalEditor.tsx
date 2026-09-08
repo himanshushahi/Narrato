@@ -657,10 +657,8 @@ export const AstGraphicalEditor = ({
                     >
                       <option value="static">Static Text</option>
                       <option value="words_stagger">Words Stagger (Pop-in)</option>
-                      <option value="character_stagger">Letter Stagger (Cinematic Blur)</option>
                       <option value="typewriter">Typewriter (Caret)</option>
                       <option value="marker_highlight">Marker Highlight</option>
-                      <option value="counter">Number Counter (Ticker)</option>
                     </select>
                   </div>
 

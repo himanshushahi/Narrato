@@ -15,7 +15,7 @@ Apply these aesthetic recipes, responsive geometries, and motion grammar rules t
 ## 1. Card Layout Presets & Spatial Geometries
 
 Use these standard responsive percentage coordinates for multi-element compositions.
-Emit only base position boxes (`position`, `left`, `top`, `width`, `height`, `borderRadius`) — never `scale`, `scaleX` or `scaleY`. Manual resizing is Scale X/Y in the Layout tab.
+Prefer base position boxes (`position`, `left`, `top`, `width`, `height`, `borderRadius`) for layout. Static `style` transforms (`rotate` deg, `scale`/`scaleX`/`scaleY` multiplier, negative mirrors e.g. `scaleX: -1` for H-flip, `aspectRatio` e.g. `"1 / 1"` for circles, `bottom` anchor for lower-thirds) are allowed sparingly for emphasis — they compose with keyframe animations. Pivot via layer `transform_origin` (default `center center`).
 
 ### A. Full-Width Centered Card (Single Focus)
 ```json
@@ -72,11 +72,21 @@ Gentle continuous motion over the cut's full duration:
 ```
 
 ### D. Physical Camera Shutter Motion Blur
-Use `motion_blur: true` on fast spring reveals or sliding cards:
+Use `motion_blur: true` on fast spring reveals or sliding cards (no-op without spatial motion — needs a keyframe, `floating: true`, or `camera_shake`):
 ```json
 "motion_blur": true,
 "shutter_angle": 180
 ```
+`shutter_angle`: `45`–`360` (`90` crisp, `180` cinematic, `360` dreamy). `floating: true` adds slow harmonic bob and counts as motion. `transform_origin` sets the scale/rotate pivot.
+
+### D2. Rack-Focus & Flash Keyframes (non-spatial fades)
+```json
+"animations": [
+  { "property": "blur", "from": 10, "to": 0, "duration": 0.6, "easing": "ease-out" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "easing": "ease-out" }
+]
+```
+`blur` (px) and `brightness` (multiplier) fade without triggering shutter blur — pair with opacity for reveals.
 
 ### E. Procedural Perlin Camera Shake (Documentary Drift & Shockwave)
 Use `camera_shake` on atmospheric background layers:
@@ -89,7 +99,8 @@ Unlike entrance animations, `emphasis` marks fire mid-cut — sudden zoom snap +
 ```json
 "emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }]
 ```
-0–2 marks per cut, cuts ≥ 2s only, `scale` 1.02–1.6. Pair with the 2026 FX pack (`filters`: Thermal/Night-Vision/duotones) and a single topmost `Particles` layer for maximum-impact beats.
+ 0–2 marks per cut, cuts ≥ 2s only, `scale` 1.02–1.6. Pair with the 2026 FX pack (`filters`: Thermal/Night-Vision/duotones) and a single topmost `Particles` layer for maximum-impact beats.
+* `filters` blend note: `"mix-blend-mode: overlay/screen/multiply/..."` composites with layers beneath — invisible on a single opaque fullscreen layer, so only use on stacked cuts.
 
 ---
 

@@ -12,6 +12,37 @@ VALID_TRANSITIONS = {
 }
 
 
+# Mirrors frontend spatialMotion.ts: only spatial keyframes produce shutter motion.
+# Opacity/blur/brightness fades are spatially identical subframes (no-op for blur).
+SPATIAL_ANIMATION_PROPS = frozenset({
+    "scale", "translateX", "translateY", "rotate", "rotateX", "rotateY",
+})
+
+
+def _is_spatial_animation(anim: Any) -> bool:
+    if not isinstance(anim, dict):
+        return False
+    if anim.get("property") not in SPATIAL_ANIMATION_PROPS:
+        return False
+    try:
+        duration = float(anim.get("duration"))
+        float(anim.get("from"))
+        float(anim.get("to"))
+    except (ValueError, TypeError):
+        return False
+    return duration == duration  # finite check (NaN fails)
+
+
+def _has_spatial_motion(layer: Dict[str, Any]) -> bool:
+    if layer.get("floating"):
+        return True
+    shake = layer.get("camera_shake")
+    if isinstance(shake, str) and shake != "none":
+        return True
+    anims = layer.get("animations") or []
+    return any(_is_spatial_animation(a) for a in anims) if isinstance(anims, list) else False
+
+
 def _safe_float(val, default: float = 0.0) -> float:
     """Safely convert a value to float, returning default on failure."""
     if val is None:
@@ -111,6 +142,23 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             entry["visual_path"] = v["visual_path"]
         if "visual_url" in v:
             entry["visual_url"] = v["visual_url"]
+
+        # Motion-blur sanity: mirror the editor's Motion FX warning. Blur is a
+        # no-op on static layers (renderer bypasses it), so warn instead of
+        # failing — values are preserved for when motion is added.
+        try:
+            comp = entry.get("composition") or {}
+            children = comp.get("children") if isinstance(comp, dict) else None
+            if isinstance(children, list):
+                for layer in children:
+                    if isinstance(layer, dict) and layer.get("motion_blur") and not _has_spatial_motion(layer):
+                        logger.warning(
+                            "validate_sub_visuals: motion_blur armed on static layer "
+                            "(no spatial keyframe/floating/shake) — renderer will bypass it."
+                        )
+                        break
+        except Exception:
+            pass
         
         try:
             validated = SubVisualAST.model_validate(entry)

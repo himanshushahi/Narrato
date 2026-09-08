@@ -15,7 +15,8 @@ Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.
 
 The sub_visual has: { "composition": { "type": "Sequence", "children": [...] }, "duration": float }
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT place static chapter title badges or temporary header pills inside sub_visual cuts. Root overlays manage continuous chapter branding.
-- STYLE: Use the `style` property on layers for positioning and corner-radius styling.
+- STYLE: Use the `style` box on layers (`position` + `left/top/bottom/width/height` as `%`, `objectFit`, `borderRadius`, `aspectRatio`; static `rotate`/`scale`/`scaleX`/`scaleY` sparingly, negative mirrors).
+- ADVANCED FX (optional but encouraged): `animations` keyframes (`scale/opacity/translateX/translateY/rotate/rotateX/rotateY` spatial + `blur` rack-focus / `brightness` flash fades); `floating: true` harmonic drift; `motion_blur: true` + `shutter_angle: 180` (needs motion or no-op); `camera_shake: handheld/shockwave/glitch`; `transform_origin` pivot; `filters` 2026 pack incl. single `url(#fx-*)` SVG look max + `mix-blend-mode` (needs layer beneath); `emphasis: [{at, scale 1.02-1.6, duration}]` 0-2 marks on cuts >=2s; one topmost `Particles` layer max; `animation_data` inline Lottie JSON override when no CDN fits.
 - DEPTH: Construct visually rich compositions with Background (0-9), Midground Motion Primitives (10-29), and Foreground Typography (30-39).
 
 {visual_rules}

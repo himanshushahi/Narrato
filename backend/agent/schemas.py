@@ -137,13 +137,14 @@ class DesignSystemResponse(AppBaseModel):
 # ============================================================================
 
 AnimationProperty = Literal[
-    "scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY"
+    "scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY",
+    "blur", "brightness",
 ]
 EasingType = Literal["linear", "spring", "ease-in", "ease-out", "ease-in-out"]
 
 class AnimationNode(AppBaseModel):
     """Keyframe animation instruction for an AST Layer."""
-    property: Literal["scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY"] = Field(..., description="Animatable property")
+    property: Literal["scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY", "blur", "brightness"] = Field(..., description="Animatable property (spatial: scale/translate/rotate for shutter motion; blur px rack-focus; brightness multiplier flash)")
     from_: float = Field(..., alias="from", description="Initial value")
     to: float = Field(..., description="Target value")
     duration: float = Field(..., gt=0, description="Duration of the animation in seconds")
@@ -204,6 +205,7 @@ class LayerContent(AppBaseModel):
     
     # Lottie / Video playback properties
     lottie_url: Optional[str] = Field(default=None, description="Remote CDN URL (e.g. LottieFiles) or local path for vector motion graphics (if Lottie)")
+    animation_data: Optional[Dict[str, Any]] = Field(default=None, description="Inline Lottie JSON override (if Lottie). Takes precedence over lottie_url fetch; use for bespoke micro-animations.")
     loop: Optional[bool] = Field(default=None, description="Playback loop behavior (for Video: default false, freezes on last frame if video ends before cut duration; set true to loop. For Lottie: default true)")
     playback_rate: Optional[float] = Field(default=None, description="Speed multiplier for Lottie animation (default 1.0)")
     lottie_direction: Optional[str] = Field(default=None, description="Playback direction for Lottie (default 'forward')", json_schema_extra={"enum": ["forward", "backward"]})
@@ -224,7 +226,7 @@ class LayerContent(AppBaseModel):
     image_type: Optional[str] = Field(default=None, description="Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons.", json_schema_extra={"enum": ["all", "photo", "illustration", "vector"]})
     yt_start_offset: Optional[float] = Field(default=None, description="Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15.")
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
-    style: Optional[Dict[str, Any]] = Field(default=None, description="CSS style attributes (e.g. width, height, top, left, borderRadius, objectFit, scaleX, scaleY, mixBlendMode, fontSize) to position and design this layer. Prefer base position boxes; manual resizing is Scale X/Y in the Layout tab.")
+    style: Optional[Dict[str, Any]] = Field(default=None, description="CSS layout box: position/left/top/bottom/width/height (% strings), objectFit, borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors), fontSize/textAlign/textShadow/fontStyle, mixBlendMode (needs layer beneath). Prefer base boxes; static scale/rotate for emphasis only.")
 
     @model_validator(mode="after")
     def sanitize_shape_and_content(self) -> LayerContent:
@@ -246,12 +248,13 @@ class ASTLayerNode(AppBaseModel):
     type: Literal["Layer"] = Field(default="Layer", description="Layer node identifier", json_schema_extra={"const": "Layer"})
     z_index: int = Field(default=0, description="Z-index stack order (0-9 bg, 10-29 mid, 30-39 fg)")
     content: Union[LayerContent, Dict[str, Any]] = Field(..., description="Layer content specification")
-    animations: Optional[List[Union[AnimationNode, Dict[str, Any]]]] = Field(default_factory=list, description="Keyframe animation list")
-    motion_blur: Optional[bool] = Field(default=None, description="Whether to apply physical camera shutter motion blur to moving elements")
-    shutter_angle: Optional[float] = Field(default=None, description="Camera shutter angle in degrees for motion blur (default 180)")
+    animations: Optional[List[Union[AnimationNode, Dict[str, Any]]]] = Field(default_factory=list, description="Keyframe animation list (spatial props drive shutter blur; blur/brightness are non-spatial fades)")
+    floating: Optional[bool] = Field(default=None, description="Harmonic floating drift (slow organic bob). Counts as spatial motion for shutter blur.")
+    motion_blur: Optional[bool] = Field(default=None, description="Whether to apply physical camera shutter motion blur to moving elements (needs spatial motion: keyframe/floating/shake, else no-op)")
+    shutter_angle: Optional[float] = Field(default=None, description="Camera shutter angle in degrees for motion blur (45-360, default 180; 90 crisp, 180 cinematic, 360 dreamy)")
     camera_shake: Optional[str] = Field(default=None, description="Procedural noise camera motion effect", json_schema_extra={"enum": ["none", "handheld", "shockwave", "glitch"]})
-    transform_origin: Optional[str] = Field(default=None, description="CSS transform-origin (e.g. 'center center', 'top left', 'bottom center')")
-    filters: Optional[List[str]] = Field(default_factory=list, description="CSS filters like brightness(0.6) or blur(2px)")
+    transform_origin: Optional[str] = Field(default=None, description="CSS transform-origin pivot for scale/rotate (e.g. 'center center', 'top left'); only visible with motion")
+    filters: Optional[List[str]] = Field(default_factory=list, description="CSS/SVG filter strings (brightness/contrast/saturate/hue-rotate/blur/drop-shadow/url(#fx-*) or 'mix-blend-mode: X' — blend needs a layer beneath)")
 
 
 class SequenceComposition(AppBaseModel):

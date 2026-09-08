@@ -100,6 +100,7 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 * `loop`: `true` | `false` (default `true`)
 * `playback_rate`: Speed multiplier (e.g. `1.0`, `1.5`)
 * `direction`: `"forward"` | `"backward"`
+* `animation_data`: Inline Lottie JSON override (takes precedence over `lottie_url`). Use for bespoke micro-animations when no CDN asset fits.
 
 ### 4. `Text` (Kinetic Typography & Lower-Thirds)
 * `text`: Content string
@@ -135,8 +136,14 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 
 ### Universal Layer Motion Modifiers
 Every `Layer` can additionally specify:
-* `motion_blur: true` — Applies realistic camera shutter motion blur to moving elements and fast spring entrances (`shutter_angle: 180`).
+* `motion_blur: true` — Applies realistic camera shutter motion blur to moving elements and fast spring entrances (`shutter_angle: 180`). No-op on static layers — needs spatial motion (keyframe, `floating`, or `camera_shake`).
+* `shutter_angle`: `45`–`360` (default `180`; `90` crisp, `180` cinematic 24fps, `360` dreamy). Only visible when `motion_blur` + motion are both active.
+* `floating: true` — Slow harmonic bob drift. Counts as spatial motion, activates `motion_blur`. Best for midground cards, badges, icons over a static canvas.
+* `transform_origin`: Pivot for scale/rotate (e.g. `"center center"` default, `"top left"`, `"bottom center"`). Only visible with motion.
 * `camera_shake: "handheld" | "shockwave" | "glitch"` — Procedural Perlin noise camera drift or impact shock.
+* Keyframe props: `scale`, `opacity`, `translateX`, `translateY`, `rotate`, `rotateX`, `rotateY` (spatial — drive shutter blur) plus `blur` (px rack-focus, e.g. `10 -> 0`) and `brightness` (multiplier flash, e.g. `0.3 -> 1.0`) which are non-spatial fades and do NOT trigger shutter blur alone.
+* `style` layout box (optional but powerful): `position` + `left/top/bottom/width/height` (`%` strings), `objectFit`, `borderRadius`, `aspectRatio` (e.g. `"1 / 1"` for circles), `rotate` (deg static tilt), `scale`/`scaleX`/`scaleY` (multiplier; negative mirrors, e.g. `scaleX: -1` flips H). Prefer base boxes for layout; use static scale/rotate sparingly for emphasis. Text extras: `fontSize`, `textAlign`, `textShadow`, `fontStyle`.
+* `mixBlendMode` via `filters` (e.g. `"mix-blend-mode: overlay"`) composites with layers beneath — no visible change on a single opaque fullscreen layer.
 * `emphasis: [...]` — **Sub-visual level** (sibling of `transition`, NOT inside layers): mid-cut punch-in zooms for MrBeast-style energy. Each mark `{"at": <seconds into cut>, "scale": <1.02–1.6 peak zoom>, "duration": <0.2–2s>}` snaps the whole cut to `scale` then settles back. Example: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]`. RULES: 0–2 marks per cut, only on cuts ≥2s, `at` + `duration` must fit inside the cut duration, place marks on the single most shocking word/stat of the narration beat — never on every cut.
 * `filters: [...]` — 2026 FX pack color-grade / look applied to the layer (array of CSS/SVG filter strings, combine freely):
   * Cinematic CSS looks: `Neon Glow Pop` → `["drop-shadow(0 0 22px rgba(255,0,200,0.75))", "saturate(1.5)", "contrast(1.2)"]`; `Cyberpunk` → `["hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)"]`; `Golden Hour` → `["sepia(0.45)", "saturate(1.6)", "brightness(1.05)"]`; `Bleach Bypass` → `["grayscale(0.4)", "contrast(1.5)"]`; `Night Vision` → `["sepia(1)", "hue-rotate(70deg)", "saturate(3)", "contrast(1.2)"]`; `Thermal False-Color` → `["grayscale(1)", "invert(1)", "hue-rotate(190deg)", "saturate(4)"]`; `Noir Hard` → `["grayscale(1)", "contrast(1.8)"]`; `Dream Blur` → `["blur(1.5px)", "brightness(1.15)", "saturate(1.3)"]`.
