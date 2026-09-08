@@ -281,6 +281,11 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
     return next;
   }, [commitDraft]);
 
+  // Film grain defaults ON via the legacy PaperOverlay fallback while no
+  // film_grain item exists (see NitishRajputComposition). It is surfaced as
+  // a virtual row below — no phantom writes; Customize/Disable materialize
+  // a real item. Deleting that item restores the default-on state.
+
   const handleToggleEnabled = useCallback((index: number, e: React.MouseEvent) => {
     e.stopPropagation();
     const base = draftRef.current;
@@ -499,12 +504,48 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
           nudge_y: 0,
         };
         break;
+      case 'film_grain':
+        newItem = {
+          id: uid,
+          type: 'film_grain',
+          enabled: true,
+          timing: 'full',
+          opacity: 1,
+          grain_enabled: true,
+          sepia_enabled: true,
+          dust_enabled: true,
+          grain_opacity: 0.8,
+          sepia_opacity: 0.02,
+        } as GlobalOverlayItem;
+        break;
     }
 
     const next = [...draftRef.current, newItem];
     commitImmediate(next);
     setExpanded(newItem.id);
   };
+
+  /** Materialize the default-on film grain as a real item (customize vs off). */
+  const handleMaterializeGrain = (enabled: boolean) => {
+    const uid = `film_grain_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    const newItem: GlobalOverlayItem = {
+      id: uid,
+      type: 'film_grain',
+      enabled,
+      timing: 'full',
+      opacity: 1,
+      grain_enabled: true,
+      sepia_enabled: true,
+      dust_enabled: true,
+      grain_opacity: 0.8,
+      sepia_opacity: 0.02,
+    } as GlobalOverlayItem;
+    const next = [...draftRef.current, newItem];
+    commitImmediate(next);
+    if (enabled) setExpanded(newItem.id);
+  };
+
+  const hasFilmGrainItem = draft.some((o) => o?.type === 'film_grain');
 
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-4">
@@ -536,7 +577,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
         </div>
 
         <p className="text-[11px] text-zinc-400 leading-relaxed">
-          Add, scale, recolor, or remove full-video watermarks, progress bars, and chapter pills with live preview.
+          Add, scale, recolor, or remove full-video watermarks, progress bars, chapter pills, and film grain with live preview. Scene/cut visuals are edited in the Visuals tab — overlays here are manual-only (AI has no access).
         </p>
 
         {/* Add Preset Buttons */}
@@ -565,8 +606,46 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
           >
             <VscAdd className="text-amber-400 text-xs" /> Custom Text
           </button>
+          <button
+            onClick={() => handleAddOverlay('film_grain')}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-zinc-800/70 hover:bg-zinc-700/80 text-zinc-200 text-[10px] font-semibold border border-zinc-700/40 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+          >
+            <VscAdd className="text-amber-400 text-xs" /> Film Grain
+          </button>
         </div>
       </div>
+
+      {/* ── Default-on film grain (no item yet → legacy fallback renders it) ── */}
+      {!hasFilmGrainItem && (
+        <div className="bg-zinc-900/80 rounded-xl border border-purple-500/30 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="shrink-0 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                film grain
+              </span>
+              <span className="text-xs font-semibold text-zinc-200 truncate">Film Grain & Texture</span>
+              <span className="text-[10px] text-emerald-400 font-bold shrink-0">● Default ON</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-zinc-500 leading-relaxed">
+            Cinematic texture is currently applied with default settings. Customize it or turn it off:
+          </p>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => handleMaterializeGrain(true)}
+              className="px-2.5 py-1.5 rounded-md bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase transition-colors cursor-pointer"
+            >
+              Customize
+            </button>
+            <button
+              onClick={() => handleMaterializeGrain(false)}
+              className="px-2.5 py-1.5 rounded-md bg-zinc-800/60 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 border border-zinc-700/40 text-[10px] font-bold uppercase transition-colors cursor-pointer"
+            >
+              Turn Off
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Overlay List ── */}
       {overlays.length === 0 ? (
@@ -608,6 +687,8 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                           ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                           : item.type === 'chapter_pill'
                           ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : item.type === 'film_grain'
+                          ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                           : 'bg-zinc-700/40 text-zinc-300 border border-zinc-600/40'
                       }`}
                     >
@@ -619,6 +700,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                       {item.type === 'progress_bar' && 'Video Progress Bar'}
                       {item.type === 'chapter_pill' && (item.chapter_title || 'Chapter Marker')}
                       {item.type === 'custom_text' && (item.text || 'Custom Text')}
+                      {item.type === 'film_grain' && 'Film Grain & Texture'}
                     </span>
                   </div>
 
@@ -678,6 +760,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                           </select>
                         </div>
 
+                        {item.type !== 'film_grain' && (
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
                             Anchor Position
@@ -694,6 +777,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                             ))}
                           </select>
                         </div>
+                        )}
                       </div>
 
                       {/* Custom Time Inputs */}
@@ -990,8 +1074,74 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                         </div>
                       )}
 
-                      {/* 3. Deep Color & Background Customization */}
-                      {item.type !== 'progress_bar' && (
+                      {/* ── Film Grain Controls (fullscreen texture, no position) ── */}
+                      {item.type === 'film_grain' && (
+                        <div className="space-y-3 pt-1">
+                          <p className="text-[11px] text-zinc-500 leading-relaxed">
+                            Cinematic texture over the full canvas. Disable the eye-toggle to remove it entirely.
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={item.grain_enabled !== false}
+                                onChange={(e) => handleUpdateItem(idx, 'grain_enabled', e.target.checked)}
+                                className="rounded accent-amber-500 cursor-pointer"
+                              />
+                              Paper Grain Texture
+                            </label>
+                            <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={item.sepia_enabled !== false}
+                                onChange={(e) => handleUpdateItem(idx, 'sepia_enabled', e.target.checked)}
+                                className="rounded accent-amber-500 cursor-pointer"
+                              />
+                              Sepia Wash
+                            </label>
+                            <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={item.dust_enabled !== false}
+                                onChange={(e) => handleUpdateItem(idx, 'dust_enabled', e.target.checked)}
+                                className="rounded accent-amber-500 cursor-pointer"
+                              />
+                              Film Dust Particles
+                            </label>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+                              Grain Intensity ({Math.round((item.grain_opacity ?? 0.8) * 100)}%)
+                            </label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={item.grain_opacity ?? 0.8}
+                              onChange={(e) => handleUpdateItem(idx, 'grain_opacity', parseFloat(e.target.value))}
+                              className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+                              Sepia Strength ({Math.round((item.sepia_opacity ?? 0.02) * 100)}%)
+                            </label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="0.2"
+                              step="0.01"
+                              value={item.sepia_opacity ?? 0.02}
+                              onChange={(e) => handleUpdateItem(idx, 'sepia_opacity', parseFloat(e.target.value))}
+                              className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. Deep Color & Background Customization (not for bars / fullscreen grain) */}
+                      {item.type !== 'progress_bar' && item.type !== 'film_grain' && (
                         <div className="space-y-2.5 pt-2 border-t border-zinc-800/40">
                           <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                             Colors & Shape Styling
@@ -1055,7 +1205,8 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                         </div>
                       )}
 
-                      {/* 4. Fine-Tune Position Nudging & Overall Scale */}
+                      {/* 4. Fine-Tune Position Nudging & Overall Scale (not for fullscreen grain) */}
+                      {item.type !== 'film_grain' && (
                       <div className="space-y-2 pt-2 border-t border-zinc-800/40">
                         <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                           Scale & Manual Position Adjust
@@ -1113,12 +1264,13 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                           </div>
                         </div>
                       </div>
+                      )}
 
-                      {/* 5. Opacity & Entrance Animation */}
+                      {/* 5. Opacity (& Entrance Animation — not for fullscreen grain) */}
                       <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-zinc-800/40">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
-                            Opacity ({Math.round((item.opacity ?? 0.85) * 100)}%)
+                            Opacity ({Math.round((item.opacity ?? (item.type === 'film_grain' ? 1 : 0.85)) * 100)}%)
                           </label>
                           <div className="h-[34px] flex items-center px-1">
                             <input
@@ -1126,13 +1278,14 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                               min="0.1"
                               max="1"
                               step="0.05"
-                              value={item.opacity ?? 0.85}
+                              value={item.opacity ?? (item.type === 'film_grain' ? 1 : 0.85)}
                               onChange={(e) => handleUpdateItem(idx, 'opacity', parseFloat(e.target.value))}
                               className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                             />
                           </div>
                         </div>
 
+                        {item.type !== 'film_grain' && (
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
                             Entrance Animation
@@ -1149,6 +1302,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                             ))}
                           </select>
                         </div>
+                        )}
                       </div>
                     </motion.div>
                   )}

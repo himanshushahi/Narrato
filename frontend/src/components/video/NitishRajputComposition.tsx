@@ -521,10 +521,16 @@ export const NitishRajputComposition: React.FC<Props> = ({
         </div>
       )}
 
-      {/* 5. Paper Overlay Layer */}
-      <div style={{ position: 'absolute', inset: 0, zIndex: 110, pointerEvents: 'none' }}>
-        <PaperOverlay />
-      </div>
+      {/* 5. Film Grain / Paper Overlay — managed in Global Overlays tab.
+          Legacy projects without a film_grain item keep the classic look
+          (default ON). Add + disable the Film Grain overlay to remove it.
+          Scene/cut visuals stay in AstGraphicalEditor; global overlays are
+          manual-only (no AI tool writes overlays[]). */}
+      {!(overlays || []).some((o: any) => o?.type === 'film_grain') && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 110, pointerEvents: 'none' }}>
+          <PaperOverlay />
+        </div>
+      )}
     </>
   );
 

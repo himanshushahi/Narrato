@@ -5,7 +5,7 @@ import { QualityMode, QualityPolicy, parseQuality, getGlassBlurCap } from './ren
 
 export interface GlobalOverlayItem {
   id: string;
-  type: 'watermark' | 'progress_bar' | 'chapter_pill' | 'custom_text';
+  type: 'watermark' | 'progress_bar' | 'chapter_pill' | 'custom_text' | 'film_grain';
   enabled: boolean;
 
   // Timing
@@ -51,6 +51,15 @@ export interface GlobalOverlayItem {
 
   // 4. Custom Text
   text?: string;
+
+  // 5. Film Grain (paper texture + sepia wash + dust) — managed in OverlaysTab.
+  // NOTE: Global overlays are intentionally NOT exposed to AI tools
+  // (no backend tool writes overlays[]). Manual-only via OverlaysTab.
+  grain_enabled?: boolean;
+  sepia_enabled?: boolean;
+  dust_enabled?: boolean;
+  grain_opacity?: number;
+  sepia_opacity?: number;
 }
 
 export interface GlobalOverlaysProps {
@@ -309,6 +318,61 @@ const CustomTextComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) =>
   );
 };
 
+const FILM_GRAIN_TEXTURE = `url("data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.08 0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>'
+)}")`;
+
+const FilmGrainComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) => {
+  const frame = useCurrentFrame();
+  const master = item.opacity ?? 1;
+  const showGrain = item.grain_enabled !== false;
+  const showSepia = item.sepia_enabled !== false;
+  const showDust = item.dust_enabled !== false;
+  const grainOpacity = (item.grain_opacity ?? 0.8) * master;
+  const sepiaOpacity = (item.sepia_opacity ?? 0.02) * master;
+
+  const dust: React.ReactNode[] = [];
+  if (showDust) {
+    for (let i = 0; i < 3; i++) {
+      const t = (frame + i * 150) * 0.02;
+      const x = `${((Math.sin(t * 0.7 + i) * 0.5 + 0.5) * 100).toFixed(2)}%`;
+      const y = `${((Math.cos(t * 0.5 + i * 2) * 0.5 + 0.5) * 100).toFixed(2)}%`;
+      const size = 2 + (i % 2);
+      const opacity = (0.06 + Math.sin(t * 1.5 + i) * 0.03) * master;
+      dust.push(
+        <div
+          key={i}
+          style={{
+            position: 'absolute', left: x, top: y, width: size, height: size,
+            borderRadius: '50%', backgroundColor: '#d6d3d1', opacity, pointerEvents: 'none',
+          }}
+        />
+      );
+    }
+  }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'translateZ(0)' }}>
+      {showGrain && (
+        <div style={{
+          position: 'absolute', inset: 0, backgroundImage: FILM_GRAIN_TEXTURE,
+          backgroundRepeat: 'repeat', backgroundSize: '200px 200px',
+          opacity: grainOpacity, mixBlendMode: 'overlay', pointerEvents: 'none',
+        }} />
+      )}
+      {showSepia && (
+        <div style={{
+          position: 'absolute', inset: 0, backgroundColor: '#78350f',
+          opacity: sepiaOpacity, mixBlendMode: 'color-burn', pointerEvents: 'none',
+        }} />
+      )}
+      {showDust && (
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>{dust}</div>
+      )}
+    </div>
+  );
+};
+
 // ── Master Global Overlays Renderer ─────────────────────────────────────────
 
 export const GlobalOverlaysRenderer: React.FC<GlobalOverlaysProps> = ({
@@ -340,6 +404,17 @@ export const GlobalOverlaysRenderer: React.FC<GlobalOverlaysProps> = ({
           : Math.max(1, Math.min(totalDurationInFrames - fromFrame, Math.round((item.duration_seconds || 10) * fps)));
 
         const positionStyle = getPositionStyle(item.position, item.nudge_x || 0, item.nudge_y || 0);
+
+        // Film grain is fullscreen — no anchor positioning.
+        if (item.type === 'film_grain') {
+          return (
+            <Sequence key={item.id} from={fromFrame} durationInFrames={durationFrames}>
+              <div style={{ position: 'absolute', inset: 0 }}>
+                <FilmGrainComponent item={item} />
+              </div>
+            </Sequence>
+          );
+        }
 
         return (
           <Sequence key={item.id} from={fromFrame} durationInFrames={durationFrames}>
