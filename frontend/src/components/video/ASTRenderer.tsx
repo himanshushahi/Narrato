@@ -96,13 +96,14 @@ const LAYOUT_PROPS = new Set([
   'backgroundColor', 'background', 'backdropFilter', 'WebkitBackdropFilter',
   // Static transform (Layout tab): consumed below into a `transform` string —
   // never spread raw (would double-apply as CSS individual properties).
-  'rotate', 'scale',
+  'rotate', 'scale', 'scaleX', 'scaleY',
   'aspectRatio',
 ]);
 
 /**
  * Static rotate/scale from the Layout tab (`content.style.rotate` in degrees,
- * `content.style.scale` as a multiplier or percent string). Applied on the
+ * `content.style.scale` as a uniform multiplier, `scaleX`/`scaleY` per axis).
+ * Per-axis values win over legacy uniform `scale` when present. Applied on the
  * layer *container*, separate from ASTAnimator's animated transform wrapper
  * so the two compose instead of clobbering each other.
  */
@@ -120,18 +121,34 @@ function parseStaticTransform(layoutStyle: Record<string, any>): string | undefi
     parts.push(`rotate(${deg}deg)`);
   }
 
-  const rawScale = layoutStyle.scale;
-  let s: number = NaN;
-  if (typeof rawScale === 'number') {
-    s = rawScale;
-  } else if (typeof rawScale === 'string') {
-    const t = rawScale.trim();
-    s = t.endsWith('%') ? parseFloat(t) / 100 : parseFloat(t);
-  }
+  const parseAxis = (raw: any): number => {
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw !== 0) return raw;
+    if (typeof raw === 'string') {
+      const t = raw.trim();
+      const n = t.endsWith('%') ? parseFloat(t) / 100 : parseFloat(t);
+      if (Number.isFinite(n) && n !== 0) return n;
+    }
+    return NaN;
+  };
+  // Legacy uniform scale is the fallback for axes the panel hasn't split yet.
+  const legacy = parseAxis(layoutStyle.scale);
+  const sxRaw = parseAxis(layoutStyle.scaleX);
+  const syRaw = parseAxis(layoutStyle.scaleY);
+  const sx = Number.isFinite(sxRaw) ? sxRaw : legacy;
+  const sy = Number.isFinite(syRaw) ? syRaw : legacy;
+  const norm = (v: number): number => {
+    const mag = Math.max(0.01, Math.abs(v));
+    return v < 0 ? -mag : mag;
+  };
   // Negative scale mirrors (flip) — preserve the sign, clamp magnitude only.
-  if (Number.isFinite(s) && s !== 0 && s !== 1) {
-    const mag = Math.max(0.01, Math.abs(s));
-    parts.push(`scale(${s < 0 ? -mag : mag})`);
+  if (Number.isFinite(sx) && Number.isFinite(sy)) {
+    if (sx !== 1 || sy !== 1) {
+      parts.push(sx === sy ? `scale(${norm(sx)})` : `scale(${norm(sx)}, ${norm(sy)})`);
+    }
+  } else if (Number.isFinite(sx) && sx !== 1) {
+    parts.push(`scale(${norm(sx)}, 1)`);
+  } else if (Number.isFinite(sy) && sy !== 1) {
+    parts.push(`scale(1, ${norm(sy)})`);
   }
 
   return parts.length > 0 ? parts.join(' ') : undefined;
@@ -444,9 +461,9 @@ export const ASTRenderer: React.FC<{
         // Static transform (Layout tab) applies to every layer — positioned or
         // fullscreen — on the container, independent of animated transforms.
         const staticTransform = parseStaticTransform(layoutStyle as Record<string, any>);
-        // Strip raw rotate/scale/borderRadius so they never leak as CSS individual
-        // properties alongside the composed transform/normalized radius below.
-        const { rotate: _rot, scale: _scl, borderRadius: _br, ...layoutRest } = layoutStyle as Record<string, any>;
+        // Strip raw rotate/scale/scaleX/scaleY/borderRadius so they never leak
+        // as CSS individual properties alongside the composed transform below.
+        const { rotate: _rot, scale: _scl, scaleX: _sx, scaleY: _sy, borderRadius: _br, ...layoutRest } = layoutStyle as Record<string, any>;
 
         const hasRadius = !!effectiveRadius;
         const effectiveOverflow = layoutRest.overflow || (hasCustomLayout || hasRadius ? 'hidden' : undefined);

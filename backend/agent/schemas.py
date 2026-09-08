@@ -224,7 +224,7 @@ class LayerContent(AppBaseModel):
     image_type: Optional[str] = Field(default=None, description="Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons.", json_schema_extra={"enum": ["all", "photo", "illustration", "vector"]})
     yt_start_offset: Optional[float] = Field(default=None, description="Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15.")
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
-    style: Optional[Dict[str, Any]] = Field(default=None, description="CSS style attributes (e.g. width, height, top, left, borderRadius, objectFit, mixBlendMode, fontSize) to position and design this layer.")
+    style: Optional[Dict[str, Any]] = Field(default=None, description="CSS style attributes (e.g. width, height, top, left, borderRadius, objectFit, scaleX, scaleY, mixBlendMode, fontSize) to position and design this layer. Prefer base position boxes; manual resizing is Scale X/Y in the Layout tab.")
 
     @model_validator(mode="after")
     def sanitize_shape_and_content(self) -> LayerContent:

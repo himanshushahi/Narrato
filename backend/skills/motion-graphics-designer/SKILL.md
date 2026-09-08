@@ -14,7 +14,8 @@ Apply these aesthetic recipes, responsive geometries, and motion grammar rules t
 
 ## 1. Card Layout Presets & Spatial Geometries
 
-Use these standard responsive percentage coordinates for multi-element compositions:
+Use these standard responsive percentage coordinates for multi-element compositions.
+Emit only base position boxes (`position`, `left`, `top`, `width`, `height`, `borderRadius`) — never `scale`, `scaleX` or `scaleY`. Manual resizing is Scale X/Y in the Layout tab.
 
 ### A. Full-Width Centered Card (Single Focus)
 ```json
