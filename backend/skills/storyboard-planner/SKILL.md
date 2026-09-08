@@ -47,7 +47,7 @@ When planning sub-visual beats, architect spatial variety across the scene. Mix 
 
 ### 1. Data Revelation Beat (`Chart` / Split-Screen HUD)
 * **When to Use**: Comparisons, growth statistics, financial numbers, percentages, or valuations.
-* **Visual Direction**: Left 45% glassmorphic container with an animated chart; Right 45% high-contrast media inset with rounded corners; Foreground kinetic headline or large callout badge.
+* **Visual Direction**: Left 45% container with an animated chart; Right 45% high-contrast media inset with rounded corners; Foreground kinetic headline or large callout badge.
 
 ### 2. Documentary Evidence Beat (`HTML` Leaked Memo / Dossier)
 * **When to Use**: Leaks, secret audit memos, newspaper headlines, public tweets, lawsuit filings, or confidential statements.
@@ -79,7 +79,7 @@ When planning sub-visual beats, architect spatial variety across the scene. Mix 
 
 ### 9. Corporate / Brand Spotlight Beat (`Image` Logo from Wikipedia + `HTML` Market Ticker)
 * **When to Use**: Introducing or analyzing a major corporation, tech giant, bank, regulatory agency, or brand (e.g. Apple, Google, Tesla, OpenAI, Nvidia, SEBI, RBI).
-* **Visual Direction**: Darkened corporate B-roll background + official transparent vector logo inset (`source: "wikipedia"`) with physics spring entrance + glassmorphic market capitalization / ticker data card + kinetic headline.
+* **Visual Direction**: Darkened corporate B-roll background + official transparent vector logo inset (`source: "wikipedia"`) with physics spring entrance + market capitalization / ticker data card + kinetic headline.
 
 ### 10. Cinematic Ambient Motion Beat (`Video` / `Image` with grading)
 * **When to Use**: Emotional pauses, contemplative narration shifts, or establishing sweeping geographical mood.

@@ -200,7 +200,7 @@ def test_7_visuals_pipeline_skill_composition(test_project_data):
     motion_designer = _skill_content("motion-graphics-designer")
     
     assert "Declarative AST" in visual_rules
-    assert "Glassmorphic Card Presets" in motion_designer
+    assert "Card Layout Presets" in motion_designer
     assert "Kinetic Typography Recipes" in motion_designer
     assert "Multi-Layer Depth Rules" in motion_designer
     assert len(visual_director) > 50

@@ -15,7 +15,7 @@ Return ONLY valid JSON matching the sub_visual schema. No markdown backticks.
 
 The sub_visual has: { "composition": { "type": "Sequence", "children": [...] }, "duration": float }
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT place static chapter title badges or temporary header pills inside sub_visual cuts. Root overlays manage continuous chapter branding.
-- STYLE: Use the `style` property on layers for positioning and glassmorphism styling.
+- STYLE: Use the `style` property on layers for positioning and corner-radius styling.
 - DEPTH: Construct visually rich compositions with Background (0-9), Midground Motion Primitives (10-29), and Foreground Typography (30-39).
 
 {visual_rules}

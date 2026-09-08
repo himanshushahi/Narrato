@@ -1,8 +1,7 @@
 /** Per-layer-type capability rules for the Advanced tabs (Layout / Filters / Motion FX).
  *
  * Rendering itself is universal (container + ASTAnimator wrapper apply to every
- * type), so these rules only drive *editor* gating: disable-with-tooltip, never
- * data loss. Disabled controls keep their stored values untouched.
+ * type), so these rules only drive *editor* hints: info notes, never data loss.
  */
 
 import { hasSpatialMotion } from '../../../components/video/spatialMotion';
@@ -19,13 +18,7 @@ export type LayerKind =
   | 'Map'
   | 'Unknown';
 
-export type GlassSupport = 'full' | 'limited' | 'poor';
-
 export interface LayerCapability {
-  /** Card-surface styling (background, glass blur, border, shadow) support. */
-  glass: GlassSupport;
-  /** Tooltip shown on the disabled card-surface section (poor) or as a note (limited). */
-  glassNote?: string;
   /** Hint shown in the Filters tab for this type, if any. */
   filterNote?: string;
   /** Note for the Coordinates & Dimensions section (resize crops rather than refits). */
@@ -36,14 +29,6 @@ export interface LayerCapability {
   disableSvgLooks?: boolean;
 }
 
-const PARTICLES_GLASS =
-  'Card surface is disabled for Particles: the emitter canvas is fixed full-frame, so a small card only crops/scales the particle field. Use Fullscreen position instead.';
-const MAP_GLASS =
-  'Card surface is disabled for Map: the map renders full-canvas and ignores inner sizing, so a small card only crops a corner of the world map. Use Fullscreen position instead.';
-const MEDIA_GLASS =
-  'Note: glass blur (backdrop-filter) has no visible effect on opaque fullscreen media — it blurs what is behind the layer. Corner radius, borders, shadows, and tinted backgrounds apply directly to the media.';
-const LOTTIE_GLASS =
-  'Note: card background/border clips the vector animation to the card box. Usually Lottie looks best Fullscreen or on a transparent card.';
 const PARTICLES_FILTER =
   'Note: SVG duotone/thermal looks expect opaque pixels — on the sparse transparent particle canvas they can look empty. CSS grades (brightness/contrast) work fine.';
 const PARTICLES_DIMS =
@@ -76,8 +61,6 @@ export function normalizeLayerKind(raw: unknown): LayerKind {
     case '':
       return 'Image';
     default:
-      // Unknown/typo types: don't mislabel as Image (which carries a media
-      // glass note). 'Unknown' maps to full/unrestricted capability below.
       return 'Unknown';
   }
 }
@@ -88,26 +71,22 @@ export function getLayerCapability(kind: LayerKind): LayerCapability {
     case 'Chart':
     case 'HTML':
     case 'Shape':
-      return { glass: 'full' };
     case 'Image':
     case 'Video':
-      return { glass: 'limited', glassNote: MEDIA_GLASS };
     case 'Lottie':
-      return { glass: 'limited', glassNote: LOTTIE_GLASS };
+      return {};
     case 'Particles':
       return {
-        glass: 'poor',
-        glassNote: PARTICLES_GLASS,
         filterNote: PARTICLES_FILTER,
         dimensionsNote: PARTICLES_DIMS,
         transformNote: CANVAS_ROTATE,
         disableSvgLooks: true,
       };
     case 'Map':
-      return { glass: 'poor', glassNote: MAP_GLASS, dimensionsNote: MAP_DIMS, transformNote: CANVAS_ROTATE };
+      return { dimensionsNote: MAP_DIMS, transformNote: CANVAS_ROTATE };
     case 'Unknown':
     default:
-      return { glass: 'full' };
+      return {};
   }
 }
 
@@ -140,20 +119,6 @@ export function getMotionState(opts: {
   }
   return { hasMotion, shutterDisabled: false };
 }
-
-/** Card-surface keys owned by the disabled section — used for stale-style detection/clear.
- * Includes padding/boxSizing because glass presets inject them alongside bg/border. */
-export const CARD_SURFACE_KEYS = [
-  'backgroundColor',
-  'background',
-  'backdropFilter',
-  'WebkitBackdropFilter',
-  'borderRadius',
-  'border',
-  'boxShadow',
-  'padding',
-  'boxSizing',
-] as const;
 
 /** True for SVG-filter look tokens (emboss / sharpen / posterize / duotones / thermal). */
 export const isSvgLookToken = (filter: string): boolean =>

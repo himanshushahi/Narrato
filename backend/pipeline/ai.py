@@ -1870,7 +1870,7 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
 - STANDARDIZED Z-INDEX HIERARCHY:
   * 0 - 9: Background canvas — ANY suitable full-screen base: darkened Video footage, vector Maps, high-contrast Images, HTML gradient/pattern backgrounds, or styled solid-color canvases. Add continuous camera drift (`animations: [{{"property": "scale", "from": 1.0, "to": 1.06, "duration": ..., "easing": "linear"}}]`). VARY your background type — do NOT default to Video for every sub-visual.
-  * 10 - 29: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with glassmorphism styling (`backgroundColor: "rgba(15, 23, 42, 0.85)"`, `backdropFilter: "blur(20px)"`, `borderRadius: "20px"`, `border: "1px solid rgba(255, 255, 255, 0.15)"`) + spring entrance (`delay: 0.15`, `easing: "spring"`)
+  * 10 - 29: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with corner rounding (`borderRadius: "20px"`) + spring entrance (`delay: 0.15`, `easing: "spring"`)
   * 30 - 39: Foreground typography / callouts (respect subtitle safe area) with staggered reveal (`delay: 0.45` to `0.7`)
 
 === NO STATIC CHAPTER TITLE CARDS IN SUB-VISUALS ===
@@ -1982,21 +1982,21 @@ Construct depth across 3 standardized Z-index layers on every visual beat:
    - **HTML**: CSS gradient canvas, technical grid pattern, or colored slate. Best for data-heavy, tech, financial, and infographic beats without distracting footage.
    - **Map**: Vector globe with animated route trajectory. Best when geography/travel is central to the narration.
    ⚠️ VARIETY RULE: Do NOT use the same background type for consecutive sub-visuals. If cut #1 used Video, switch to Image, HTML Gradient/Grid, or Map for cut #2.
-2. **Z-Index 10–29 (Graphic Subject / Midground)**: Data charts (`Chart`), glassmorphic cards, vector shapes & icons (`Shape`), bespoke HTML evidence memos (`HTML`), or split-screen insets. Enter via physics spring (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out"}}]`).
-   * 💡 **Chart Placement Rule**: Charts MUST live in Z-Index 10–29 over an HTML gradient canvas or darkened video, styled with glassmorphism or proper padding. Never render a raw naked chart at z-index 0.
+2. **Z-Index 10–29 (Graphic Subject / Midground)**: Data charts (`Chart`), cards, vector shapes & icons (`Shape`), bespoke HTML evidence memos (`HTML`), or split-screen insets. Enter via physics spring (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out"}}]`).
+    * 💡 **Chart Placement Rule**: Charts MUST live in Z-Index 10–29 over an HTML gradient canvas or darkened video. Never render a raw naked chart at z-index 0.
 3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (respecting subtitle safe area: `bottom > 18%` for landscape).
 
 === MASTER VISUAL ARCHETYPES ===
 Vary your spatial layouts across cuts using these master blueprints:
-- **Split-Screen Data HUD**: Darkened Video/HTML background + Left 45% glassmorphic chart card + Right 45% media inset.
+- **Split-Screen Data HUD**: Darkened Video/HTML background + Left 45% chart card + Right 45% media inset.
 - **Investigative Dossier**: Dark background + custom HTML leaked document memo with confidential stamp + glowing marker highlight quote.
-- **Macro Metric Callout**: Dark background + large glass badge with dynamic metric or progress bar (`Chart`).
+- **Macro Metric Callout**: Dark background + large badge with dynamic metric or progress bar (`Chart`).
 - **Geographic Route / Map**: Dark vector map with city pins + glowing animated SVG trajectory path (`preset_path: "route_arch"`).
 - **Technical Blueprint / HUD**: Grid background (HTML at z_index 0) + transparent vector diagram + glowing corner brackets (`preset_path: "corner_brackets"`).
 - **Bespoke Infographic Card**: HTML gradient background + high-production HTML/SVG comparison table, radar chart, or UI mockup.
 - **Cinematic Atmosphere Beat**: Graded high-contrast ambient footage with continuous Ken Burns drift (when narrative calls for a breather).
-- **Entity Spotlight**: Darkened full-screen Image (portrait/evidence photo at z_index 0 with `brightness(0.35)`) + glassmorphic bio card overlay + kinetic text.
-- **Data Infographic Showcase**: High-tech HTML gradient background (z_index 0) + glassmorphic Chart card (z_index 15) + floating kinetic headline callout (z_index 30).
+- **Entity Spotlight**: Darkened full-screen Image (portrait/evidence photo at z_index 0 with `brightness(0.35)`) + bio card overlay + kinetic text.
+- **Data Infographic Showcase**: High-tech HTML gradient background (z_index 0) + Chart card (z_index 15) + floating kinetic headline callout (z_index 30).
 
 RULES:
 - COUNT: One sub-visual per visual beat

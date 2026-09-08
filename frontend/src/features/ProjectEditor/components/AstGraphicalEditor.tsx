@@ -14,7 +14,7 @@ import { AstChartDataEditor } from './AstChartDataEditor';
 import { AstMapLocationsEditor } from './AstMapLocationsEditor';
 import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
 import { AstParticlesEditor } from './AstParticlesEditor';
-import { normalizeLayerKind, getLayerCapability, getMotionState, CARD_SURFACE_KEYS, isSvgLookToken } from './layerCapabilities';
+import { normalizeLayerKind, getLayerCapability, getMotionState, isSvgLookToken } from './layerCapabilities';
 
 const SUPPORTED_FONTS = [
   {
@@ -424,21 +424,6 @@ export const AstGraphicalEditor = ({
           floating: !!layer.floating,
           cameraShake: layer.camera_shake,
         });
-        const surfaceDisabled = layerCap.glass === 'poor';
-        const styleObj = (content.style || {}) as Record<string, any>;
-        // Fullscreen preset injects neutral values (transparent bg, 0px radius)
-        // that must not count as stale card styling.
-        const hasStaleCardStyle =
-          surfaceDisabled &&
-          CARD_SURFACE_KEYS.some((k) => {
-            const val = styleObj[k];
-            if (val === undefined || val === null || val === '' || val === 'none') return false;
-            if ((k === 'backgroundColor' || k === 'background') && val === 'transparent') return false;
-            if (k === 'borderRadius' && (val === '0px' || val === 0 || val === '0' || val === '0%')) return false;
-            if (k === 'boxShadow' && val === 'none') return false;
-            if ((k === 'backdropFilter' || k === 'WebkitBackdropFilter') && val === 'none') return false;
-            return true;
-          });
 
         return (
           <div
@@ -1157,22 +1142,14 @@ export const AstGraphicalEditor = ({
                     })}
                   </div>
 
-                  {/* Tab 1: Layout & Cards */}
+                  {/* Tab 1: Layout */}
                   {(!advancedTab[idx] || advancedTab[idx] === 'layout') && (
                     <AstLayoutControls
                       style={content.style || EMPTY_STYLE}
                       onChange={layerCallbacks[idx].onStyleChange}
                       isMedia={layerKind === 'Image' || layerKind === 'Video'}
-                      surfaceDisabledReason={surfaceDisabled ? layerCap.glassNote ?? null : null}
-                      surfaceNote={!surfaceDisabled && layerCap.glass === 'limited' ? layerCap.glassNote ?? null : null}
                       dimensionsNote={layerCap.dimensionsNote ?? null}
                       transformNote={layerCap.transformNote ?? null}
-                      hasStaleCardStyle={hasStaleCardStyle}
-                      onClearCardStyle={() => {
-                        const next = { ...(content.style || {}) };
-                        for (const k of CARD_SURFACE_KEYS) delete next[k];
-                        api.updateContent(idx, 'style', next);
-                      }}
                     />
                   )}
 

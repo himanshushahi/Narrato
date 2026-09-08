@@ -22,10 +22,10 @@ Every sub-visual should feel like an intentional, high-production composite with
    - **Map**: Vector globe with animated route (geography-central narration).
    - **HTML**: CSS gradient/grid canvas (tech/data/infographic beats without distracting footage).
    ⚠️ VARIETY: Do NOT use the same base type for consecutive cuts. Alternate between Video, Image, HTML Gradients, and Maps.
-2. **Z-Index 10–29 (Graphic Subject / Midground)**: Data charts (`Chart`), glassmorphic cards, vector shapes, vintage newspaper cutouts, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
+2. **Z-Index 10–29 (Graphic Subject / Midground)**: Data charts (`Chart`), cards, vector shapes, vintage newspaper cutouts, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
    * 💡 Speed Differential: Fast spring entrance on midground + slow linear drift on background creates a cinematic 3D parallax effect!
    * 💡 Set `motion_blur: true` on fast midground entrances for physical camera shutter blur.
-   * 💡 Charts MUST sit in Z-Index 10–29 inside glass cards or over HTML gradients. Never render a bare full-screen chart at z-index 0.
+   * 💡 Charts MUST sit in Z-Index 10–29 over HTML gradients or darkened video. Never render a bare full-screen chart at z-index 0.
 3. **Z-Index 30–39 (Typography & Accents / Foreground)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (staying above `bottom: 18%` safe area).
 
 === VALID CONTENT TYPES (USE ONLY THESE 9) ===

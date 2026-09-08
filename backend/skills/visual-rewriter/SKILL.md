@@ -15,6 +15,6 @@ CRITICAL RULES:
 - IMPORTANT: Every sub_visual must have a 'composition' object (AST format) and a 'duration' (in seconds).
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
 - VARIETY: Ensure your new visual layout is distinctly different from surrounding sub-visuals to maintain engagement.
-- STYLE: Use the `style` property on layers for positioning and glassmorphism styling.
+- STYLE: Use the `style` property on layers for positioning and corner-radius styling.
 
 {visual_rules}

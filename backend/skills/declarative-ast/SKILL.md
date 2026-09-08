@@ -38,7 +38,7 @@ Great motion graphics are defined by **depth, hierarchy, and contrast**. Every s
 | Layer Range | Z-Index | Classification | Role & Motion Grammar |
 |---|---|---|---|
 | **Layer 1** | **0 – 9** | **Atmospheric Canvas (Background)** | Full-screen base layer. Choose the BEST type for the narrative moment: darkened Video footage, high-contrast Images (portraits, evidence, textures), vector Maps, or HTML gradient/grid canvases. Apply cinematic filters (`brightness(0.35)`, `contrast(1.15)`) and continuous camera drift (`scale: 1.0 -> 1.06`). ⚠️ VARY: Do NOT default to Video — alternate between Video, Image, HTML Gradients, and Maps across consecutive cuts. |
-| **Layer 2** | **10 – 29** | **Graphic Subject (Midground)** | Glassmorphic cards, animated charts (`Chart` over HTML gradient or darkened video), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
+| **Layer 2** | **10 – 29** | **Graphic Subject (Midground)** | Animated charts (`Chart` over HTML gradient or darkened video), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
 | **Layer 3** | **30 – 39** | **Typography & Accents (Foreground)** | Kinetic callouts (`marker_highlight`, `words_stagger`, `typewriter`), indicator arrows/pointers, data badges. Staggered reveal entering after the midground card (respecting subtitle safe area). |
 
 ---
@@ -188,11 +188,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "top": "16%",
             "width": "42%",
             "height": "66%",
-            "backgroundColor": "rgba(15, 23, 42, 0.85)",
-            "backdropFilter": "blur(20px)",
-            "borderRadius": "20px",
-            "border": "1px solid rgba(0, 212, 255, 0.3)",
-            "boxShadow": "0 20px 50px rgba(0, 0, 0, 0.6)"
+            "borderRadius": "20px"
           }
         },
         "animations": [{ "property": "translateY", "from": 40, "to": 0, "duration": 0.6, "easing": "spring" }]
@@ -210,9 +206,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "top": "16%",
             "width": "42%",
             "height": "66%",
-            "borderRadius": "20px",
-            "border": "1px solid rgba(255, 255, 255, 0.15)",
-            "boxShadow": "0 20px 50px rgba(0, 0, 0, 0.6)"
+            "borderRadius": "20px"
           }
         },
         "animations": [{ "property": "translateY", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" }]
@@ -551,10 +545,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "top": "54%",
             "width": "88%",
             "height": "26%",
-            "backgroundColor": "rgba(15, 23, 42, 0.85)",
-            "backdropFilter": "blur(18px)",
-            "borderRadius": "18px",
-            "border": "1px solid rgba(255, 255, 255, 0.12)"
+            "borderRadius": "18px"
           }
         },
         "animations": [{ "property": "translateY", "from": 30, "to": 0, "duration": 0.7, "easing": "spring" }]

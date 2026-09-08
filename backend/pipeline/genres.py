@@ -22,7 +22,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
         "design_system": {
             "theme_suggestions": ["Cinematic Dossier", "Oceanic Deep Investigation", "Archival Chronicle"],
             "palette_guide": "Background: #0a0e17 (deep dark navy), Primary: #facc15 (vintage gold), Secondary: #38bdf8 (sky blue), Accent: #ef4444 (alert crimson), Text: #f8fafc (crisp off-white).",
-            "css_guidelines": "Dark glassmorphic panels with subtle cyan/amber borders (rgba(250, 204, 21, 0.15)), 12px rounded corners, atmospheric vignettes.",
+            "css_guidelines": "Dark panels with 12px rounded corners, atmospheric vignettes.",
         },
         "visual_archetypes": [
             "Geographic Route Map with animated trajectory arch and city pins",
@@ -31,7 +31,7 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
             "Split-Screen Data HUD with financial chart and contextual footage inset",
             "Cinematic High-Contrast B-Roll Beat for atmospheric reflection",
             "Entity Spotlight with darkened full-screen Image and bio card overlay",
-            "Data Infographic Showcase with HTML gradient background, glassmorphic chart card, and floating callout"
+            "Data Infographic Showcase with HTML gradient background, chart card, and floating callout"
         ],
         "primitive_weights": ["HTML", "Image", "Video", "Chart", "Map", "Shape", "Text", "Particles"],
         "motion_defaults": {
