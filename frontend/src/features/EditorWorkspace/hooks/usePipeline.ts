@@ -21,7 +21,7 @@ interface UsePipelineReturn {
 
 export function usePipeline(
   projectId: string | undefined,
-  loadFiles: (projId: string) => Promise<void>
+  loadFiles: (projId: string) => Promise<{ script: any; manifest: any[] }>
 ): UsePipelineReturn {
   const { tasks, queue, startPipeline, cancelPipeline, selectedProject, updateProject } = useProjectStore();
   const { addToast } = useUIStore();

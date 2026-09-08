@@ -61,7 +61,7 @@ interface UseEditorDataReturn {
   updateMusicClips: (clips: MusicClip[]) => Promise<boolean>;
   sfxClips: SfxClip[];
   updateSfxClips: (clips: SfxClip[]) => Promise<boolean>;
-  loadFiles: (projId: string) => Promise<void>;
+  loadFiles: (projId: string) => Promise<{ script: any; manifest: any[] }>;
   getAudioSourceUrl: (projectId: string) => string;
   getBGMUrl: () => string;
 }
@@ -77,14 +77,17 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const [reloadKey, setReloadKey] = useState(0);
 
   // Read generated JSON assets from Python server static bridges
-  const loadFiles = useCallback(async (projId: string) => {
+  const loadFiles = useCallback(async (projId: string): Promise<{ script: any; manifest: any[] }> => {
     setLoadingScript(true);
+    let reloadedScript: any = null;
+    let reloadedManifest: any[] = [];
     try {
       const project = await callApi<any>('db_get_project', projId);
       if (project) {
         if (project.script_path) {
           const script = await callApi<any>('read_json_file', project.script_path);
           setScriptData(script);
+          reloadedScript = script;
           const designPath = project.script_path.replace(/script\.json$/, 'design.json');
           const design = await callApi<any>('read_json_file', designPath);
           setDesignData(design);
@@ -107,6 +110,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             };
           });
           setManifestData(enrichedManifest);
+          reloadedManifest = enrichedManifest;
         }
         if (project.transcription_path) {
           const transcript = await callApi<any>('read_json_file', project.transcription_path);
@@ -123,6 +127,9 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     } finally {
       setLoadingScript(false);
     }
+    // Returned so save tails can distinguish their own reload landing in
+    // shared state from genuine mid-save user edits (see handleSaveCard).
+    return { script: reloadedScript, manifest: reloadedManifest };
   }, []);
 
   // Load project detail on mount — sequence: fetch detail first, then files,
