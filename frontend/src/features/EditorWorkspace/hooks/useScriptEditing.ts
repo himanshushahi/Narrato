@@ -684,6 +684,8 @@ export function useScriptEditing(
                 const result = await callApi<any>('finalize_upload_asset', projectId, cutPreview.visual_path, mIdx, sIdx, -1);
                 if (result?.success && result.visual_path) {
                   finalCutPath = result.visual_path;
+                } else {
+                  console.warn(`[useScriptEditing] finalize cut preview failed for ${assetKeyPrefix}_${sIdx}:`, result?.error || 'unknown error', cutPreview.visual_path);
                 }
               }
               cutVisualPath = finalCutPath;
@@ -719,6 +721,8 @@ export function useScriptEditing(
                   const result = await callApi<any>('finalize_upload_asset', projectId, currentPath, mIdx, sIdx, lIdx);
                   if (result?.success && result.visual_path) {
                     currentPath = result.visual_path;
+                  } else {
+                    console.warn(`[useScriptEditing] finalize layer failed for ${layerAssetKey}:`, result?.error || 'unknown error', currentPath);
                   }
                 }
 

@@ -1650,7 +1650,9 @@ def test_sweep_stale_uploads_skips_referenced(tmp_path, monkeypatch):
         }],
     }))
 
-    bridge_mod._sweep_stale_uploads(proj_id)
+    # Sleep briefly to ensure clock advances past NTFS creation timer tick resolution (~15.6ms)
+    time.sleep(0.02)
+    bridge_mod._sweep_stale_uploads(proj_id, max_age_seconds=0)
     assert ref.exists(), "Referenced preview must NOT be swept!"
     assert not orphan.exists(), "Unreferenced stale preview should be swept"
 

@@ -102,14 +102,14 @@ def _probe_video_codec(path_str: str):
         return False, "unknown"
 
 
-def _sweep_stale_uploads(project_id: str, max_age_seconds: int = 3600):
+def _sweep_stale_uploads(project_id: str, max_age_seconds: int = 43200):
     """Delete abandoned preview uploads for a project.
 
     Every upload copies a fresh previews/upload_<uuid>.<ext> file. Files orphaned
     by an app close without save, or by an upload that was cancelled before the
     edit was committed, would otherwise linger forever — with multi-hundred-MB
     video uploads that is real disk churn. Anything older than max_age_seconds
-    is presumed abandoned (an active session finalizes within minutes).
+    (default 12h session window) is presumed abandoned.
 
     Files still referenced by the saved script / visual manifest / voiceover
     manifest are NEVER swept, even when old: saves that predate preview
@@ -117,7 +117,14 @@ def _sweep_stale_uploads(project_id: str, max_age_seconds: int = 3600):
     previews/ paths, and deleting them is exactly the "image gone on revisit"
     data-loss bug. If a manifest exists but cannot be read (partial write,
     lock, corrupt JSON), the sweep aborts instead of risking deletion of a
-    file that may be referenced."""
+    file that may be referenced.
+
+    Age is measured against max(st_mtime, st_ctime): shutil.copy2 preserves
+    the source file's original mtime (often years old), which previously made
+    a just-uploaded preview look ancient and caused multi-layer uploads to
+    delete each other's in-flight previews. ctime (creation/change time) is
+    always "now" for a fresh copy, so in-flight previews are protected even
+    if mtime metadata is stale."""
     import time
     from backend.core.config import get_storage_dir
     preview_dir = get_storage_dir() / project_id / "assets" / "previews"
@@ -172,7 +179,16 @@ def _sweep_stale_uploads(project_id: str, max_age_seconds: int = 3600):
                     continue
             except Exception:
                 pass
-            if now - f.stat().st_mtime > max_age_seconds:
+            try:
+                st = f.stat()
+                # copy2 preserves the source's original mtime (often years
+                # old) — a just-uploaded preview would otherwise look ancient.
+                # ctime is creation time (Windows) / metadata-change time
+                # (POSIX), always ~now for a fresh copy.
+                file_time = max(st.st_mtime, getattr(st, "st_ctime", st.st_mtime))
+            except OSError:
+                continue
+            if now - file_time > max_age_seconds:
                 f.unlink()
                 logger.info(f"Swept stale preview upload: {f}")
         except OSError:
@@ -1966,7 +1982,7 @@ class ApiBridge:
             logger.error(f"upload_sub_visual_media file dialog error: {e}")
             return {"success": False, "error": str(e)}
 
-        _sweep_stale_uploads(project_id)
+        _sweep_stale_uploads(project_id, max_age_seconds=43200)
 
         ext = src_path.suffix.lower()
         if ext not in allowed_exts:
@@ -2009,7 +2025,19 @@ class ApiBridge:
         dest_file = preview_dir / f"upload_{preview_id}{ext}"
 
         try:
-            shutil.copy2(str(src_path), str(dest_file))
+            # Use copy (not copy2): copy2 preserves the source file's original
+            # mtime (often months/years old), which made a just-uploaded
+            # preview look ancient to _sweep_stale_uploads and caused
+            # multi-layer uploads to delete each other's in-flight previews.
+            # Stamp the destination with the current upload time.
+            import time as _time
+            shutil.copy(str(src_path), str(dest_file))
+            _now = _time.time()
+            try:
+                import os as _os_utime
+                _os_utime.utime(dest_file, (_now, _now))
+            except OSError:
+                pass
             logger.info(f"Uploaded media preview to {dest_file}")
         except Exception as e:
             logger.error(f"Failed to copy uploaded file: {e}")
@@ -2061,7 +2089,14 @@ class ApiBridge:
         dest_file = assets_dir / filename
 
         try:
-            shutil.copy2(str(src_path), str(dest_file))
+            import time as _time2
+            shutil.copy(str(src_path), str(dest_file))
+            _now2 = _time2.time()
+            try:
+                import os as _os_utime2
+                _os_utime2.utime(dest_file, (_now2, _now2))
+            except OSError:
+                pass
             logger.info(f"Uploaded overlay asset to {dest_file}")
         except Exception as e:
             logger.error(f"Failed to copy overlay file: {e}")
@@ -2165,7 +2200,14 @@ class ApiBridge:
                         logger.warning(f"Could not delete old asset {old_file}: {e}")
 
         try:
-            shutil.copy2(str(src), str(dest_file))
+            import time as _time3
+            shutil.copy(str(src), str(dest_file))
+            _now3 = _time3.time()
+            try:
+                import os as _os_utime3
+                _os_utime3.utime(dest_file, (_now3, _now3))
+            except OSError:
+                pass
             logger.info(f"Finalized upload asset to {dest_file}")
         except Exception as e:
             logger.error(f"Failed to finalize upload asset: {e}")

@@ -212,7 +212,13 @@ def promote_preview_paths_to_assets(project_id, script_data=None, manifest_data=
         try:
             dest = _dest_for(src)
             if not dest.exists():
-                shutil.copy2(str(src), str(dest))
+                import time as _ptime
+                shutil.copy(str(src), str(dest))
+                _pnow = _ptime.time()
+                try:
+                    os.utime(dest, (_pnow, _pnow))
+                except OSError:
+                    pass
                 logger.info(f"Promoted preview asset {src.name} -> {dest.name}")
             promoted[path_str] = str(dest)
             return str(dest)
@@ -1493,7 +1499,13 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
                     preserved_files.append(str(file_path))
                     continue
                 try:
-                    if _now - file_path.stat().st_mtime < 3600:
+                    # Use max(mtime, ctime): uploaded copies may carry the
+                    # source file's original (years-old) mtime; ctime is the
+                    # actual copy time. Prevents deleting in-flight previews
+                    # mid-edit during save reconciliation.
+                    _st = file_path.stat()
+                    _file_time = max(_st.st_mtime, getattr(_st, "st_ctime", _st.st_mtime))
+                    if _now - _file_time < 3600:
                         preserved_files.append(str(file_path))
                         continue
                 except OSError:
