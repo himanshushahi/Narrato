@@ -74,6 +74,7 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 * `chart_type`: `"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`
 * `data`: Array of objects `[{"label": "2021", "value": 45, "color": "#f59e0b"}, ...]`
 * `title` (optional): Chart headline string
+* Theme overrides (optional): `title_size` (default `28`), `bar_radius` (`10`), `bar_gap` (`16`), `bar_max_width` (`90`), `bar_glow` (`true`). Line color via `style.color`.
 
 ### 2. `Shape` (Vector Shapes, Paths, Icons & Callouts)
 * `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`

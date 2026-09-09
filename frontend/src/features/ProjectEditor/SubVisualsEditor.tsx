@@ -287,6 +287,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     <option value="whip_pan">Whip Pan (Motion Blur)</option>
                     <option value="glitch">Glitch Jitter</option>
                     <option value="crossfade">Crossfade</option>
+                    <option value="dissolve">Dissolve</option>
                     <option value="fade">Fade</option>
                   </select>
                 </div>

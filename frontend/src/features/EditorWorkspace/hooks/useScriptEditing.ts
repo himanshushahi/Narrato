@@ -1893,7 +1893,7 @@ export function useScriptEditing(
       audio_path: "", audio_file: "", audio_url: "",
       sub_visuals: (newScene.sub_visuals || []).map((sv: any) => ({
         visual_type: sv.visual_type || "scene", visual_cue: sv.visual_cue || "",
-        transition_type: sv.transition_type || sv.transition || "subtle_slide",
+        transition_type: sv.transition_type || sv.transition || "cut",
         visual_meta: sv.visual_meta || {}, visual_path: "", visual_url: ""
       }))
     };

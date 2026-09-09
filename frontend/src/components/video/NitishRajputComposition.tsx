@@ -159,7 +159,8 @@ const SubVisualTransitionWrapper: React.FC<{
   let style: React.CSSProperties = { width: '100%', height: '100%' };
 
   switch (transition) {
-    case 'slide_left': {
+    case 'slide_left':
+    case 'subtle_slide': {
       const x = interpolate(frame, [0, transFrames], [100, 0], {
         ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -213,6 +214,22 @@ const SubVisualTransitionWrapper: React.FC<{
       style = { ...style, transform: `scale(${scale})`, opacity };
       break;
     }
+    case 'whip_pan': {
+      // Fast directional whip: short high-velocity slide + scale punch +
+      // motion streak. Shorter travel than slide (60% vs 100%) with an
+      // ease-in attack so it reads as a whip, not a glide.
+      const x = interpolate(frame, [0, transFrames], [60, 0], {
+        ...clampBoth,
+        easing: Easing.in(Easing.quad),
+      });
+      const scale = interpolate(frame, [0, transFrames], [1.18, 1], {
+        ...clampBoth,
+        easing: Easing.out(Easing.cubic),
+      });
+      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, transform: `translateX(${x}%) scale(${scale})`, opacity };
+      break;
+    }
     case 'glitch': {
       const isGlitching = frame < Math.min(8, transFrames);
       const glitchX = isGlitching ? (frame % 2 === 0 ? (frame % 4 === 0 ? 15 : -15) : 0) : 0;
@@ -225,7 +242,8 @@ const SubVisualTransitionWrapper: React.FC<{
       };
       break;
     }
-    case 'crossfade': {
+    case 'crossfade':
+    case 'dissolve': {
       const opacity = interpolate(frame, [0, transFrames], [MIN_OPACITY, 1], {
         ...clampBoth,
         easing: Easing.inOut(Easing.quad),

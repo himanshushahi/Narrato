@@ -8,6 +8,7 @@ interface AstParticlesEditorProps {
   speed?: number;
   opacity?: number;
   direction?: string;
+  colors?: string[];
   onChange: (updates: Record<string, any>) => void;
 }
 
@@ -48,6 +49,7 @@ const AstParticlesEditorInner: React.FC<AstParticlesEditorProps> = ({
   speed,
   opacity = 0.9,
   direction,
+  colors,
   onChange,
 }) => {
   const def = PARTICLE_PRESETS[(preset as ParticlePreset)] ?? PARTICLE_PRESETS.confetti;
@@ -55,6 +57,8 @@ const AstParticlesEditorInner: React.FC<AstParticlesEditorProps> = ({
   const [sizeMin, sizeMax] = size ?? def.size;
   const effSpeed = speed ?? 1;
   const effDirection = direction ?? def.direction;
+  const effColors = colors && colors.length > 0 ? colors : def.colors;
+  const isCustomPalette = !!colors && colors.length > 0;
 
   const applyPreset = (p: ParticlePreset) => {
     const d = PARTICLE_PRESETS[p];
@@ -65,6 +69,7 @@ const AstParticlesEditorInner: React.FC<AstParticlesEditorProps> = ({
       particle_speed: 1,
       particle_opacity: 0.9,
       particle_direction: d.direction,
+      particle_colors: undefined,
     });
   };
 
@@ -121,6 +126,85 @@ const AstParticlesEditorInner: React.FC<AstParticlesEditorProps> = ({
             <option value="outward">Burst Outward</option>
             <option value="twinkle">Twinkle In Place</option>
           </select>
+        </div>
+        <div className="space-y-1.5 pt-1 border-t border-white/5">
+          <div className="flex items-center justify-between">
+            <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400">
+              Palette {isCustomPalette ? '(Custom)' : '(Preset)'}
+            </label>
+            {isCustomPalette ? (
+              <button
+                type="button"
+                onClick={() => onChange({ particle_colors: undefined })}
+                className="text-[9px] text-stone-500 hover:text-red-400 transition-colors uppercase font-semibold cursor-pointer"
+                title="Revert to preset palette"
+              >
+                Reset
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onChange({ particle_colors: [...def.colors] })}
+                className="text-[9px] text-stone-500 hover:text-amber-300 transition-colors uppercase font-semibold cursor-pointer"
+                title="Override preset palette with custom colors"
+              >
+                Customize
+              </button>
+            )}
+          </div>
+          {isCustomPalette ? (
+            <div className="space-y-1.5">
+              {effColors.map((c, i) => (
+                <div key={i} className="flex items-center gap-1.5 bg-black/60 border border-white/10 rounded px-1.5 py-1">
+                  <input
+                    type="color"
+                    value={/^#[0-9a-fA-F]{6}$/.test(c) ? c : '#ffffff'}
+                    onChange={e => {
+                      const next = [...effColors];
+                      next[i] = e.target.value;
+                      onChange({ particle_colors: next });
+                    }}
+                    className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                  />
+                  <input
+                    type="text"
+                    value={c}
+                    onChange={e => {
+                      const next = [...effColors];
+                      next[i] = e.target.value;
+                      onChange({ particle_colors: next });
+                    }}
+                    className="w-full bg-transparent text-[11px] text-stone-200 focus:outline-none font-mono"
+                    placeholder="#ffffff"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = effColors.filter((_, j) => j !== i);
+                      onChange({ particle_colors: next.length > 0 ? next : undefined });
+                    }}
+                    className="text-[10px] text-stone-500 hover:text-red-400 transition-colors cursor-pointer shrink-0 px-1"
+                    title="Remove color"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => onChange({ particle_colors: [...effColors, '#ffffff'] })}
+                className="w-full py-1 text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 text-stone-400 hover:text-amber-300 rounded transition-colors cursor-pointer"
+              >
+                + Add Color
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-1 flex-wrap">
+              {effColors.map((c, i) => (
+                <div key={i} title={c} className="w-5 h-5 rounded border border-white/20" style={{ backgroundColor: c }} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

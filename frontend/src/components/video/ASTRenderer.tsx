@@ -56,6 +56,11 @@ interface ASTLayerContent {
   chart_type?: 'bar' | 'line' | 'pie' | 'donut' | 'progress';
   data?: ChartDataItem[];
   title?: string;
+  title_size?: number;
+  bar_radius?: number;
+  bar_gap?: number;
+  bar_max_width?: number;
+  bar_glow?: boolean;
 
   // Kinetic Typography props
   animation_mode?: 'static' | 'words_stagger' | 'typewriter' | 'marker_highlight';
@@ -387,6 +392,11 @@ export const ASTRenderer: React.FC<{
               data={content.data}
               title={content.title}
               style={innerStyle}
+              title_size={content.title_size}
+              bar_radius={content.bar_radius}
+              bar_gap={content.bar_gap}
+              bar_max_width={content.bar_max_width}
+              bar_glow={content.bar_glow}
             />
           );
         } else if (content.type === 'Shape') {

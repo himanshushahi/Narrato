@@ -202,6 +202,11 @@ class LayerContent(AppBaseModel):
     chart_type: Optional[str] = Field(default=None, description="Type of infographic chart (if Chart)", json_schema_extra={"enum": ["bar", "line", "pie", "donut", "progress"]})
     data: Optional[List[Union[ChartDataPoint, Dict[str, Any]]]] = Field(default=None, description="Array of data points (if Chart)")
     title: Optional[str] = Field(default=None, description="Title or headline for Chart")
+    title_size: Optional[float] = Field(default=None, description="Title font size px (if Chart, default 28)")
+    bar_radius: Optional[float] = Field(default=None, description="Bar corner radius px (if Chart bar, default 10)")
+    bar_gap: Optional[float] = Field(default=None, description="Gap between bars px (if Chart bar, default 16)")
+    bar_max_width: Optional[float] = Field(default=None, description="Bar max width px (if Chart bar, default 90)")
+    bar_glow: Optional[bool] = Field(default=None, description="Neon glow on bars/fills (if Chart, default true)")
     
     # Lottie / Video playback properties
     lottie_url: Optional[str] = Field(default=None, description="Remote CDN URL (e.g. LottieFiles) or local path for vector motion graphics (if Lottie)")
@@ -267,7 +272,7 @@ class SubVisualAST(AppBaseModel):
     """A single sub-visual beat/cut in a scene."""
     duration: float = Field(..., gt=0, description="Precise duration in seconds")
     composition: Union[SequenceComposition, Dict[str, Any]] = Field(..., description="Declarative AST composition")
-    transition: Optional[str] = Field(default="cut", description="Transition into this cut (cut, fade, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none)")
+    transition: Optional[str] = Field(default="cut", description="Transition into this cut (cut, fade, crossfade, dissolve, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, whip_pan, glitch, none)")
     emphasis: Optional[List[Dict[str, Any]]] = Field(default=None, description="Mid-cut punch-in zooms: [{at: seconds sub-relative, scale: peak zoom 1.02-1.6, duration: seconds 0.2-2}]")
     subtitle_position: Optional[str] = Field(default=None, description="Subtitle placement override (bottom/top/hidden)")
     visual_path: Optional[str] = Field(default=None, description="Resolved local media file path")

@@ -13,7 +13,7 @@ Every sub-visual should feel like an intentional, high-production composite with
 - **Hook Velocity (Intro Scene, first 0–10s)**: High-speed cuts (**2.0s – 2.8s per sub-visual beat**) with intense kinetic typography and shockwave/glitch reveals.
 - **Deep Dive (Middle Scenes)**: Balanced rhythm (**3.2s – 4.5s per sub-visual beat**) for data charts and leaked document analysis.
 - The sum of all sub-visual durations MUST exactly equal the Total Scene Duration.
-- Vary transitions across cuts: `subtle_slide`, `fade`, `slide_left`, `slide_right`, `slide_up`, `slide_down`, `zoom_in`, `zoom_out`, `glitch`, `none`.
+- Vary transitions across cuts: `fade`, `crossfade`, `dissolve`, `slide_left`, `slide_right`, `slide_up`, `slide_down`, `zoom_in`, `zoom_out`, `whip_pan` (fast directional whip for high-energy beats), `glitch`, `none`.
 
 === 3-LAYER FAUX-3D PARALLAX DEPTH STANDARD ===
 1. **Z-Index 0–9 (Atmospheric Canvas / Background)**: Full-screen base layer — choose the BEST type for the narrative moment:

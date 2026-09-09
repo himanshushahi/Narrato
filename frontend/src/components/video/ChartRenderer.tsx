@@ -13,6 +13,16 @@ export interface ChartProps {
   title?: string;
   style?: React.CSSProperties;
   durationInFrames?: number;
+  /** Title font size px (default 28). */
+  title_size?: number;
+  /** Bar corner radius px (default 10). */
+  bar_radius?: number;
+  /** Bar gap px (default 16). */
+  bar_gap?: number;
+  /** Bar max width px (default 90). */
+  bar_max_width?: number;
+  /** Neon glow on bars/fills (default true). */
+  bar_glow?: boolean;
 }
 
 const DEFAULT_PALETTE = ['#00d4ff', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#3b82f6', '#f97316'];
@@ -23,9 +33,22 @@ export const ChartRenderer: React.FC<ChartProps> = ({
   title,
   style = {},
   durationInFrames = 90,
+  title_size,
+  bar_radius,
+  bar_gap,
+  bar_max_width,
+  bar_glow,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+
+  // Null-safe normalization (hand-edited JSON can carry explicit nulls,
+  // which bypass destructuring defaults and would render as "nullpx").
+  const safeTitleSize = Math.max(0, title_size ?? 28);
+  const safeBarRadius = Math.max(0, bar_radius ?? 10);
+  const safeBarGap = Math.max(0, bar_gap ?? 16);
+  const safeBarMaxWidth = Math.max(0, bar_max_width ?? 90);
+  const safeBarGlow = bar_glow ?? true;
 
   // Normalize fallback data if none supplied
   const items = useMemo(() => {
@@ -75,7 +98,7 @@ export const ChartRenderer: React.FC<ChartProps> = ({
       {title && (
         <div
           style={{
-            fontSize: '28px',
+            fontSize: `${safeTitleSize}px`,
             fontWeight: 800,
             color: '#ffffff',
             marginBottom: '20px',
@@ -92,7 +115,7 @@ export const ChartRenderer: React.FC<ChartProps> = ({
 
       <div style={{ width: '100%', flex: 1, minHeight: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {chart_type === 'bar' && (
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', gap: '16px', paddingBottom: '32px' }}>
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', gap: `${safeBarGap}px`, paddingBottom: '32px' }}>
             {items.map((item, idx) => {
               const itemDelay = idx * 4;
               const barSpring = spring({
@@ -128,11 +151,11 @@ export const ChartRenderer: React.FC<ChartProps> = ({
                   <div
                     style={{
                       width: '100%',
-                      maxWidth: '90px',
+                      maxWidth: `${safeBarMaxWidth}px`,
                       height: `${currentHeightPercent}%`,
                       background: `linear-gradient(to top, ${color}33, ${color})`,
-                      borderRadius: '10px 10px 4px 4px',
-                      boxShadow: `0 0 25px ${color}66, 0 8px 20px rgba(0,0,0,0.5)`,
+                      borderRadius: `${safeBarRadius}px ${safeBarRadius}px 4px 4px`,
+                      boxShadow: safeBarGlow ? `0 0 25px ${color}66, 0 8px 20px rgba(0,0,0,0.5)` : '0 8px 20px rgba(0,0,0,0.5)',
                       border: '1px solid rgba(255,255,255,0.25)',
                       borderBottom: 'none',
                     }}
@@ -328,7 +351,7 @@ export const ChartRenderer: React.FC<ChartProps> = ({
                         height: '100%',
                         background: `linear-gradient(to right, ${color}88, ${color})`,
                         borderRadius: '8px',
-                        boxShadow: `0 0 16px ${color}aa`,
+                        boxShadow: safeBarGlow ? `0 0 16px ${color}aa` : undefined,
                       }}
                     />
                   </div>

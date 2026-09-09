@@ -6,7 +6,7 @@ import {
   Image as ImageIcon, Map as MapIcon, Layers,
   BarChart3, Shapes, Type, Video as VideoIcon,
   Code, Sparkles, Sparkle, Zap, ZoomIn, ZoomOut, MoveRight,
-  Minus
+  Minus, Wind
 } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
 import { FPS, HEADER_WIDTH } from '../timelineConstants';
@@ -33,8 +33,10 @@ export const TRANSITION_OPTIONS = [
   { id: 'slide_down', label: 'Slide Down', icon: MoveRight, desc: 'Push from top to bottom' },
   { id: 'zoom_in', label: 'Zoom In', icon: ZoomIn, desc: 'Dramatic punch-in scale' },
   { id: 'zoom_out', label: 'Zoom Out', icon: ZoomOut, desc: 'Reveal scale-down' },
+  { id: 'whip_pan', label: 'Whip Pan', icon: Wind, desc: 'Fast directional whip' },
   { id: 'glitch', label: 'Glitch Shift', icon: Zap, desc: 'Digital chromatic glitch' },
   { id: 'crossfade', label: 'Crossfade', icon: Sparkles, desc: 'Seamless layer blend' },
+  { id: 'dissolve', label: 'Dissolve', icon: Sparkles, desc: 'Soft film dissolve' },
   { id: 'none', label: 'None', icon: Minus, desc: 'Instant frame cut' },
 ];
 

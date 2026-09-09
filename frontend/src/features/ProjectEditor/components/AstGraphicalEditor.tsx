@@ -573,6 +573,20 @@ export const AstGraphicalEditor = ({
                   )}
                 </div>
 
+                {/* Object Fit (how media fills its layout box) */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Object Fit</label>
+                  <select
+                    className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                    value={content.style?.objectFit || 'cover'}
+                    onChange={e => api.updateContent(idx, 'style', { ...(content.style || {}), objectFit: e.target.value })}
+                  >
+                    <option value="cover">Cover (fill box, crop edges)</option>
+                    <option value="contain">Contain (fit inside, letterbox)</option>
+                    <option value="fill">Fill (stretch to box)</option>
+                  </select>
+                </div>
+
                 {/* Video Volume & Playback Controls */}
                 {cType === 'Video' && (
                   <div className="space-y-2 pt-2">
@@ -682,7 +696,7 @@ export const AstGraphicalEditor = ({
                   </div>
                 </div>
 
-                {content.animation_mode === 'marker_highlight' && (
+                {(content.animation_mode === 'marker_highlight' || content.animation_mode === 'words_stagger') && (
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Highlight Words (comma separated)</label>
                     <input
@@ -813,6 +827,63 @@ export const AstGraphicalEditor = ({
                     onChange={layerCallbacks[idx].onChartDataChange}
                   />
                 </div>
+
+                {/* Chart Theme Overrides */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Title Size (px)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.title_size ?? ''}
+                      onChange={e => updateContent(idx, 'title_size', e.target.value ? Math.max(0, parseFloat(e.target.value)) : undefined)}
+                      placeholder="28"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Bar Radius (px)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.bar_radius ?? ''}
+                      onChange={e => updateContent(idx, 'bar_radius', e.target.value ? Math.max(0, parseFloat(e.target.value)) : undefined)}
+                      placeholder="10"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Bar Gap (px)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.bar_gap ?? ''}
+                      onChange={e => updateContent(idx, 'bar_gap', e.target.value ? Math.max(0, parseFloat(e.target.value)) : undefined)}
+                      placeholder="16"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Bar Max W (px)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.bar_max_width ?? ''}
+                      onChange={e => updateContent(idx, 'bar_max_width', e.target.value ? Math.max(0, parseFloat(e.target.value)) : undefined)}
+                      placeholder="90"
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={content.bar_glow !== false}
+                    onChange={e => updateContent(idx, 'bar_glow', e.target.checked)}
+                    className="rounded accent-amber-500 cursor-pointer"
+                  />
+                  Neon Bar Glow
+                </label>
               </div>
             )}
 
@@ -827,6 +898,7 @@ export const AstGraphicalEditor = ({
                     speed={content.particle_speed}
                     opacity={content.particle_opacity ?? 0.9}
                     direction={content.particle_direction}
+                    colors={content.particle_colors}
                     onChange={layerCallbacks[idx].onParticlesChange}
                   />
                 </div>
@@ -888,6 +960,72 @@ export const AstGraphicalEditor = ({
                         value={content.icon_name || ''}
                         onChange={e => updateContent(idx, 'icon_name', e.target.value)}
                         placeholder="e.g. trending-up, shield-alert"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {content.shape_type === 'rectangle' && (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-3 gap-2.5">
+                    <div className="space-y-1 min-w-0">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Width (px)</label>
+                      <input
+                        type="number"
+                        className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                        value={content.width ?? ''}
+                        onChange={e => updateContent(idx, 'width', e.target.value ? parseFloat(e.target.value) : undefined)}
+                        placeholder="auto"
+                      />
+                    </div>
+                    <div className="space-y-1 min-w-0">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Height (px)</label>
+                      <input
+                        type="number"
+                        className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                        value={content.height ?? ''}
+                        onChange={e => updateContent(idx, 'height', e.target.value ? parseFloat(e.target.value) : undefined)}
+                        placeholder="auto"
+                      />
+                    </div>
+                    <div className="space-y-1 min-w-0">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Corner R (px)</label>
+                      <input
+                        type="number"
+                        className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                        value={content.corner_radius ?? 16}
+                        onChange={e => updateContent(idx, 'corner_radius', parseFloat(e.target.value) || 0)}
+                        placeholder="16"
+                      />
+                    </div>
+                    </div>
+                    <p className="text-[9px] text-stone-500">Set both Width + Height for fixed size, else fills layer.</p>
+                  </div>
+                )}
+
+                {(content.shape_type === 'arrow' || content.shape_type === 'triangle') && (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1 min-w-0">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Direction</label>
+                      <select
+                        className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                        value={content.direction || (content.shape_type === 'arrow' ? 'right' : 'up')}
+                        onChange={e => updateContent(idx, 'direction', e.target.value)}
+                      >
+                        <option value="up">Up</option>
+                        <option value="down">Down</option>
+                        <option value="left">Left</option>
+                        <option value="right">Right</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1 min-w-0">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Angle (deg)</label>
+                      <input
+                        type="number"
+                        className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                        value={content.angle ?? ''}
+                        onChange={e => updateContent(idx, 'angle', e.target.value ? parseFloat(e.target.value) : undefined)}
+                        placeholder="0"
                       />
                     </div>
                   </div>
@@ -993,14 +1131,44 @@ export const AstGraphicalEditor = ({
                 </div>
 
                 {content.shape_type === 'path' && (
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">SVG Path Data (d attribute)</label>
-                    <textarea
-                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 font-mono focus:outline-none focus:border-amber-500/50 min-h-[50px]"
-                      value={content.path_d || ''}
-                      onChange={e => updateContent(idx, 'path_d', e.target.value)}
-                      placeholder="M 10,50 Q 50,10 90,50..."
-                    />
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="space-y-1 min-w-0">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Path Preset</label>
+                        <select
+                          className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                          value={content.preset_path || ''}
+                          onChange={e => updateContent(idx, 'preset_path', e.target.value || undefined)}
+                        >
+                          <option value="">Custom (path_d below)</option>
+                          <option value="route_arch">Route Arch (maps/trajectories)</option>
+                          <option value="horizontal_line">Horizontal Line (dividers)</option>
+                          <option value="pointer_curve">Pointer Curve (callouts)</option>
+                          <option value="corner_brackets">Corner Brackets (HUD frame)</option>
+                          <option value="wave_pulse">Wave Pulse (waveform)</option>
+                          <option value="circle_reticle">Circle Reticle (target)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">View Box</label>
+                        <input
+                          type="text"
+                          className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                          value={content.view_box || ''}
+                          onChange={e => updateContent(idx, 'view_box', e.target.value || undefined)}
+                          placeholder="0 0 1920 1080"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">SVG Path Data (d attribute)</label>
+                      <textarea
+                        className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 font-mono focus:outline-none focus:border-amber-500/50 min-h-[50px]"
+                        value={content.path_d || ''}
+                        onChange={e => updateContent(idx, 'path_d', e.target.value)}
+                        placeholder="M 10,50 Q 50,10 90,50..."
+                      />
+                    </div>
                   </div>
                 )}
               </div>

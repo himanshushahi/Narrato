@@ -8,7 +8,8 @@ logger = logging.getLogger(__name__)
 # get_shared_visual_rules). Keep in sync with backend/pipeline/ai.py.
 VALID_TRANSITIONS = {
     "none", "cut", "fade", "crossfade", "slide_left", "slide_right", 
-    "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "dissolve"
+    "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "dissolve",
+    "whip_pan",
 }
 
 
@@ -61,8 +62,11 @@ def normalize_transition(transition: str) -> str:
     t = str(transition or "cut").lower().strip().replace("-", "_").replace(" ", "_")
     if t in VALID_TRANSITIONS:
         return t
-    for key in ("subtle_slide", "slide_left", "slide_right", "slide_up",
-                "slide_down", "zoom_in", "zoom_out", "glitch", "crossfade", "dissolve", "cut", "none"):
+    # Legacy alias: old AI/manual value, maps to slide_left (same motion).
+    if "subtle_slide" in t:
+        return "slide_left"
+    for key in ("slide_left", "slide_right", "slide_up",
+                "slide_down", "zoom_in", "zoom_out", "whip_pan", "glitch", "crossfade", "dissolve", "cut", "none"):
         if key in t:
             return key
     if "fade" in t:
