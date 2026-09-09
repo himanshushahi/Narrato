@@ -470,12 +470,19 @@ export const VisualsTab = React.memo(function VisualsTab({
       return applyRatios(kept, ratios);
     });
     if (full) setSelectedSubVisualIndex(Math.min(subIdx, full.length - 1));
+    useEditorStore.getState().setSelectedLayerIndex(null);
   };
 
   const selectCut = (idx: number) => {
     if (cutCount === 0) return;
     commitPending();
-    setSelectedSubVisualIndex(Math.max(0, Math.min(cutCount - 1, idx)));
+    const nextIdx = Math.max(0, Math.min(cutCount - 1, idx));
+    setSelectedSubVisualIndex(nextIdx);
+    useEditorStore.getState().setSelectedLayerIndex(null);
+    const cutTiming = (resolved?.sceneTiming as any)?.subs?.[nextIdx];
+    if (cutTiming?.start !== undefined) {
+      onSeek(cutTiming.start);
+    }
   };
 
   const goCut = (delta: number) => {

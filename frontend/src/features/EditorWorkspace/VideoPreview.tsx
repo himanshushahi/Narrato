@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { VscPlay, VscDebugPause, VscScreenFull, VscScreenNormal, VscLoading } from 'react-icons/vsc';
 import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../../components/video/RemotionVideoPlayer';
+import { CanvasOverlay } from './components/CanvasOverlay';
 import { MusicClip, SfxClip } from '../../components/video/NitishRajputComposition';
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
@@ -288,8 +289,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
           >
             {/* Outer monitor chrome */}
             <div className="rounded-lg overflow-hidden shadow-2xl shadow-black/60 border border-zinc-800/40 bg-black">
-              {/* Inner screen bezel */}
-              <div className="rounded-[3px] overflow-hidden">
+              {/* Inner screen bezel — relative so the canvas overlay aligns with the player */}
+              <div className="relative rounded-[3px] overflow-hidden">
                 <MemoizedRemotionPlayer
                   ref={playerRef}
                   audioUrl={audioUrl}
@@ -311,7 +312,9 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   compositionScale={previewQuality === 'full' ? 1 : 0.5}
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}
-                />
+                >
+                  <CanvasOverlay scenes={liveScenes} />
+                </MemoizedRemotionPlayer>
               </div>
             </div>
           </motion.div>

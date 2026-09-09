@@ -693,6 +693,7 @@ const EditorWorkspace: React.FC = () => {
     const st = useEditorStore.getState();
     st.setSelectedSceneIndex(sceneIdx);
     st.setSelectedSubVisualIndex(subIdx);
+    st.setSelectedLayerIndex(null);
   }, []);
 
   // ── Visuals editor: select + snapshot + open the Visuals tab ──────────────

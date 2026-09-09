@@ -17,6 +17,7 @@ interface EditorStore {
   // Selection
   selectedSceneIndex: number | null;
   selectedSubVisualIndex: number | null;
+  selectedLayerIndex: number | null;
   selectedMusicClipId: string | null;
   selectedSfxClipId: string | null;
 
@@ -45,6 +46,7 @@ interface EditorStore {
   setInspectorTab: (tab: InspectorTab) => void;
   setSelectedSceneIndex: (idx: number | null) => void;
   setSelectedSubVisualIndex: (idx: number | null) => void;
+  setSelectedLayerIndex: (idx: number | null) => void;
   setSelectedMusicClipId: (id: string | null) => void;
   setSelectedSfxClipId: (id: string | null) => void;
   setCommandPaletteOpen: (open: boolean) => void;
@@ -132,6 +134,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   inspectorTab: persisted.inspectorTab ?? defaults.inspectorTab,
   selectedSceneIndex: null,
   selectedSubVisualIndex: null,
+  selectedLayerIndex: null,
   selectedMusicClipId: null,
   selectedSfxClipId: null,
   commandPaletteOpen: false,
@@ -148,8 +151,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setTimelineHeight: (h) => set((s) => { const next = { ...s, timelineHeight: h }; saveLayout(next); return next; }),
   setLeftPanelTab: (tab) => set((s) => { const next = { ...s, leftPanelTab: tab }; saveLayout(next); return next; }),
   setInspectorTab: (tab) => set((s) => { const next = { ...s, inspectorTab: tab }; saveLayout(next); return next; }),
-  setSelectedSceneIndex: (idx) => set({ selectedSceneIndex: idx }),
-  setSelectedSubVisualIndex: (idx) => set({ selectedSubVisualIndex: idx }),
+  setSelectedSceneIndex: (idx) => set({ selectedSceneIndex: idx, selectedLayerIndex: null }),
+  setSelectedSubVisualIndex: (idx) => set({ selectedSubVisualIndex: idx, selectedLayerIndex: null }),
+  setSelectedLayerIndex: (idx) => set({ selectedLayerIndex: idx }),
   setSelectedMusicClipId: (id) => set({ selectedMusicClipId: id }),
   setSelectedSfxClipId: (id) => set({ selectedSfxClipId: id }),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),

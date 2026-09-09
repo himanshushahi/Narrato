@@ -26,6 +26,7 @@ interface Props {
   compositionScale?: number;
   onFrameUpdate?: (frame: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
+  children?: React.ReactNode;
 }
 
 export interface RemotionVideoPlayerRef {
@@ -57,7 +58,8 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   overlays = [],
   compositionScale = 0.5,
   onFrameUpdate,
-  onPlayStateChange
+  onPlayStateChange,
+  children,
 }, ref) => {
 
   const playerRef = useRef<PlayerRef>(null);
@@ -217,6 +219,8 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
           </div>
         )}
       />
+
+      {children}
 
       <div className="absolute top-4 right-4 bg-zinc-950/80 backdrop-blur-md px-3 py-1 rounded text-xs font-mono text-zinc-300 z-20 border border-zinc-800 pointer-events-none">
         {(durationInFrames / 30).toFixed(1)}s / {((durationInFrames / 30) / 60).toFixed(2)}m
