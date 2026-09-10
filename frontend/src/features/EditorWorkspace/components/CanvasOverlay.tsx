@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState, useRef } from 'react';
+import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { usePlaybackStore } from '../../../store/usePlaybackStore';
 import { shallowEqualStyles } from '../visualSelection';
@@ -588,6 +588,395 @@ function commitStyleFromDrag(
 }
 
 /**
+ * P4: client point → percent-space deltas for a drag session. Resizes run
+ * through the layer's local axes when rotated, then unmirror for flip signs
+ * (moves stay screen-space — the grab point must track the cursor).
+ * Module-scope (no component closure) so gesture callbacks stay referentially
+ * stable across renders.
+ */
+function sessionDeltas(s: DragSession, clientX: number, clientY: number) {
+  let dxPx = clientX - s.startX;
+  let dyPx = clientY - s.startY;
+  if (s.rotDeg !== 0 && s.mode !== 'move') {
+    const local = toLocalDelta(dxPx, dyPx, s.rotDeg);
+    dxPx = local.x;
+    dyPx = local.y;
+  }
+  if (s.mode !== 'move') {
+    if (s.flipX) dxPx = -dxPx;
+    if (s.flipY) dyPx = -dyPx;
+  }
+  return { dxPct: (dxPx / s.rectW) * 100, dyPct: (dyPx / s.rectH) * 100 };
+}
+
+/** P4 Alt-corner scale preview/commit values (sign-preserving, 10–500%). */
+function sessionScale(s: DragSession, dxPct: number, dyPct: number) {
+  const { fx, fy } = scaleFactors(s.init, s.corner, dxPct, dyPct);
+  return scaleValues(s.init.style, fx, fy);
+}
+
+/** P4: pointer position around the box center → snapped rotation degrees. */
+function rotateDegFor(r: RotateSession, clientX: number, clientY: number) {
+  const pointer = (Math.atan2(clientY - r.cy, clientX - r.cx) * 180) / Math.PI;
+  return Math.round(snapRotate(norm180(pointer - r.offset)));
+}
+
+interface LayerBoxProps {
+  layer: any;
+  idx: number;
+  box: Box;
+  compW: number;
+  compH: number;
+  selected: boolean;
+  locked: boolean;
+  /** Live geometric drag state for THIS layer only (null for all others). */
+  liveDrag: { left: number; top: number; width: number; height: number } | null;
+  /** Live non-geometric preview (Alt-scale multipliers) for this layer. */
+  liveScale: Record<string, any> | null;
+  /** Live rotate degrees for this layer. */
+  liveRotateDeg: number | null;
+  /** Dropped-style override rendered during the commit debounce window. */
+  pendingStyle: Record<string, any> | null;
+  /** True while this layer is being dragged or rotated. */
+  gesturingThis: boolean;
+  /** True when the N/S-edge aspect unlock preview applies to this layer. */
+  aspectUnlocking: boolean;
+  suppressRef: React.MutableRefObject<boolean>;
+  onSelect: (layerIdx: number) => void;
+  onBeginDrag: (
+    e: React.PointerEvent,
+    layerIdx: number,
+    box: Box,
+    layer: any,
+    mode: DragMode,
+    dir: DragCorner | EdgeDir | null
+  ) => void;
+  onMove: (e: React.PointerEvent) => void;
+  onEndDrag: (e: React.PointerEvent, commit: boolean) => void;
+  onBeginRotate: (e: React.PointerEvent, layerIdx: number, box: Box, layer: any) => void;
+  onRotateMove: (e: React.PointerEvent) => void;
+  onEndRotate: (e: React.PointerEvent, commit: boolean) => void;
+}
+
+/**
+ * One layer hit-box. Memoized so per-frame parent updates (playhead ticks at
+ * ~20 Hz, drag previews at 60 Hz) only re-render the layer whose props
+ * actually changed — previously every tick reconciled every box and its
+ * handles, which is what made scrubbing/dragging feel laggy.
+ */
+const LayerBox: React.FC<LayerBoxProps> = React.memo(({
+  layer, idx, box, compW, compH, selected, locked,
+  liveDrag, liveScale, liveRotateDeg, pendingStyle, gesturingThis,
+  aspectUnlocking, suppressRef,
+  onSelect, onBeginDrag, onMove, onEndDrag, onBeginRotate, onRotateMove, onEndRotate,
+}) => {
+  const cType = layer?.content?.type || 'Image';
+  const baseStyle: Record<string, any> = layer?.content?.style || {};
+
+  // Live overrides: geometric drag session wins; else non-geometric
+  // previews (Alt-scale multipliers, rotate degrees) and the dropped-style
+  // override (debounce window) recompute through layerToBox; else the
+  // committed box.
+  const effBox: Box = useMemo(() => {
+    if (liveDrag) {
+      // Aspect-locked layers keep deriving height from width — except N/S
+      // edge drags, which unlock mid-gesture and render the live freeform
+      // height instead of the stale derived one.
+      const keepAspect = !!box.aspectRatio && !aspectUnlocking;
+      return {
+        ...box,
+        leftPct: liveDrag.left,
+        rightPct: null,
+        topPct: liveDrag.top,
+        bottomPct: null,
+        widthPct: liveDrag.width,
+        heightPct: keepAspect ? null : liveDrag.height,
+        aspectRatio: keepAspect ? box.aspectRatio : null,
+      };
+    }
+    if (liveScale ?? (liveRotateDeg !== null)) {
+      const liveStyle: Record<string, any> =
+        liveScale ?? { rotate: `${liveRotateDeg as number}deg` };
+      return layerToBox(
+        { ...layer, content: { ...(layer?.content || {}), style: { ...baseStyle, ...liveStyle } } },
+        compW,
+        compH
+      );
+    }
+    if (pendingStyle) {
+      return layerToBox(
+        { ...layer, content: { ...(layer?.content || {}), style: pendingStyle } },
+        compW,
+        compH
+      );
+    }
+    return box;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [box, liveDrag, liveScale, liveRotateDeg, pendingStyle, aspectUnlocking, compW, compH, layer]);
+
+  const posStyle: React.CSSProperties = useMemo(() => {
+    if (effBox.fullscreen) return { left: 0, top: 0, width: '100%', height: '100%' };
+    return {
+      ...(effBox.leftPct !== null ? { left: `${effBox.leftPct}%` } : {}),
+      ...(effBox.leftPct === null && effBox.rightPct !== null ? { right: `${effBox.rightPct}%` } : {}),
+      width: `${effBox.widthPct}%`,
+      ...(effBox.topPct !== null ? { top: `${effBox.topPct}%` } : {}),
+      ...(effBox.topPct === null && effBox.bottomPct !== null ? { bottom: `${effBox.bottomPct}%` } : {}),
+      ...(effBox.aspectRatio
+        ? { aspectRatio: effBox.aspectRatio }
+        : effBox.heightPct !== null
+          ? { height: `${effBox.heightPct}%` }
+          : {}),
+    };
+  }, [effBox]);
+
+  // Fullscreen layers stay behind non-fullscreen layers even when selected,
+  // so smaller foreground layers are never trapped beneath them.
+  const z = box.fullscreen
+    ? (selected ? 15 : 10 + box.zIndex)
+    : (selected ? 100 : 20 + box.zIndex);
+
+  // Keep label badges visible inside container when box is near the top edge
+  const isNearTop = effBox.topPct !== null && effBox.topPct < 4 && !effBox.fullscreen;
+  const badgeTop = isNearTop ? 4 : -22;
+  const badgeLeft = isNearTop ? 4 : 0;
+  // Effective rotation drives the badge counter-rotation (live during spins)
+  const effRotateDeg = liveRotateDeg ?? effBox.rotateDeg;
+  const counterRotate = effRotateDeg ? `rotate(${-effRotateDeg}deg)` : undefined;
+  // Handles counter-scale against the layer's own scale so they stay
+  // grabbable at 10–500% (badges/borders keep scaling as feedback).
+  const mergedScaleStyle = liveScale ?? pendingStyle ?? baseStyle;
+  const invHandles = handleInverseScale(mergedScaleStyle);
+
+  // P3: body drag moves (anchor-preserving commit). Fullscreen layers
+  // are select-only — a 100×100 box has no position to drag.
+  // P4: corners work rotated too (local axes); edges do single-axis;
+  // the lollipop spins.
+  const draggable = !box.fullscreen && !locked;
+  const showHandles = selected && !box.fullscreen && !locked;
+
+  const handleBoxDown = useCallback((e: React.PointerEvent) => {
+    onBeginDrag(e, idx, box, layer, 'move', null);
+  }, [onBeginDrag, idx, box, layer]);
+  const handleBoxUp = useCallback((e: React.PointerEvent) => {
+    onEndDrag(e, true);
+  }, [onEndDrag]);
+  const handleBoxCancel = useCallback((e: React.PointerEvent) => {
+    onEndDrag(e, false);
+  }, [onEndDrag]);
+  const handleBoxClick = useCallback((e: React.MouseEvent) => {
+    // Pointerdown already selected (drag path suppresses this);
+    // this is the backstop for select-only boxes (fullscreen).
+    if (suppressRef.current) {
+      suppressRef.current = false;
+      return;
+    }
+    e.stopPropagation();
+    onSelect(idx);
+  }, [onSelect, idx, suppressRef]);
+  const makeHandleDown = useCallback((mode: DragMode, dir: DragCorner | EdgeDir) => (e: React.PointerEvent) => {
+    onBeginDrag(e, idx, box, layer, mode, dir);
+  }, [onBeginDrag, idx, box, layer]);
+  const handleRotateDown = useCallback((e: React.PointerEvent) => {
+    onBeginRotate(e, idx, box, layer);
+  }, [onBeginRotate, idx, box, layer]);
+  const handleRotateUp = useCallback((e: React.PointerEvent) => {
+    onEndRotate(e, true);
+  }, [onEndRotate]);
+  const handleRotateCancel = useCallback((e: React.PointerEvent) => {
+    onEndRotate(e, false);
+  }, [onEndRotate]);
+  const consumeClick = useCallback((e: React.MouseEvent) => {
+    // Consume the suppressed compat click of the drag gesture
+    // (and stop it reaching the box backstop below).
+    e.stopPropagation();
+    suppressRef.current = false;
+  }, [suppressRef]);
+
+  const cornerDown = useMemo(() => ({
+    se: makeHandleDown('corner', 'se'),
+    sw: makeHandleDown('corner', 'sw'),
+    ne: makeHandleDown('corner', 'ne'),
+    nw: makeHandleDown('corner', 'nw'),
+  }), [makeHandleDown]);
+  const edgeDown = useMemo(() => ({
+    n: makeHandleDown('edge', 'n'),
+    s: makeHandleDown('edge', 's'),
+    e: makeHandleDown('edge', 'e'),
+    w: makeHandleDown('edge', 'w'),
+  }), [makeHandleDown]);
+
+  return (
+    <div
+      onPointerDown={handleBoxDown}
+      onPointerMove={onMove}
+      onPointerUp={handleBoxUp}
+      onPointerCancel={handleBoxCancel}
+      onClick={handleBoxClick}
+      title={`Layer ${idx + 1} · ${cType}${box.fullscreen ? ' (fullscreen)' : ''}${locked ? ' — AI rewriting…' : ''}`}
+      style={{
+        ...posStyle,
+        position: 'absolute',
+        pointerEvents: locked ? 'none' : 'auto',
+        cursor: locked ? 'default' : gesturingThis ? 'grabbing' : draggable ? 'move' : 'pointer',
+        touchAction: draggable ? 'none' : undefined,
+        zIndex: z,
+        borderRadius: box.borderRadius || 2,
+        transform: effBox.transform,
+        transformOrigin: effBox.transformOrigin || 'center',
+      }}
+      className={`group/box transition-colors ${
+        selected
+          ? 'border-2 border-amber-500 bg-amber-500/10 shadow-[0_0_14px_rgba(245,158,11,0.25)]'
+          : 'border border-dashed border-transparent hover:border-amber-500/70 hover:bg-amber-500/5'
+      }`}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: badgeTop,
+          left: badgeLeft,
+          pointerEvents: 'none',
+          fontSize: 10,
+          fontWeight: 700,
+          whiteSpace: 'nowrap',
+          padding: '1px 6px',
+          borderRadius: 6,
+          background: selected ? 'rgba(245,158,11,0.95)' : 'rgba(0,0,0,0.75)',
+          color: selected ? '#000' : '#fcd34d',
+          opacity: selected ? 1 : 0,
+          transform: counterRotate,
+          transformOrigin: 'top left',
+        }}
+        className="group-hover/box:opacity-100 transition-opacity"
+      >
+        {`L${idx + 1} · ${cType}`}
+      </span>
+      {/* P3/P4 corner resize handles (aspect-aware; rotated layers resize
+          in local axes). Hold Alt to scale multipliers instead. */}
+      {showHandles &&
+        (['se', 'sw', 'ne', 'nw'] as DragCorner[]).map((c) => (
+          <div
+            key={c}
+            onPointerDown={cornerDown[c]}
+            onPointerMove={onMove}
+            onPointerUp={handleBoxUp}
+            onPointerCancel={handleBoxCancel}
+            onClick={consumeClick}
+            title={
+              box.aspectRatio
+                ? 'Resize (aspect locked — width drives height; Alt: scale)'
+                : 'Resize corner (Alt: scale)'
+            }
+            style={{
+              position: 'absolute',
+              width: 10,
+              height: 10,
+              left: c === 'sw' || c === 'nw' ? -5 : undefined,
+              right: c === 'se' || c === 'ne' ? -5 : undefined,
+              top: c === 'ne' || c === 'nw' ? -5 : undefined,
+              bottom: c === 'se' || c === 'sw' ? -5 : undefined,
+              borderRadius: 2,
+              background: 'rgba(245,158,11,0.95)',
+              border: '1px solid rgba(0,0,0,0.6)',
+              cursor: cornerCursor(c, effRotateDeg),
+              transform: invHandles,
+              zIndex: 1,
+              touchAction: 'none',
+            }}
+          />
+        ))}
+      {/* P4 edge resize handles (N/S unlock aspect; rotated use local axes). */}
+      {showHandles &&
+        (['n', 's', 'e', 'w'] as EdgeDir[]).map((d) => (
+          <div
+            key={d}
+            onPointerDown={edgeDown[d]}
+            onPointerMove={onMove}
+            onPointerUp={handleBoxUp}
+            onPointerCancel={handleBoxCancel}
+            onClick={consumeClick}
+            title={
+              d === 'n' || d === 's'
+                ? box.aspectRatio
+                  ? 'Adjust height (unlocks aspect ratio)'
+                  : 'Adjust height'
+                : box.aspectRatio
+                  ? 'Adjust width (aspect locked)'
+                  : 'Adjust width'
+            }
+            style={{
+              position: 'absolute',
+              width: d === 'n' || d === 's' ? 14 : 10,
+              height: d === 'n' || d === 's' ? 10 : 14,
+              left: d === 'n' || d === 's' ? '50%' : d === 'w' ? -5 : undefined,
+              right: d === 'e' ? -5 : undefined,
+              top: d === 'e' || d === 'w' ? '50%' : d === 'n' ? -5 : undefined,
+              bottom: d === 's' ? -5 : undefined,
+              marginLeft: d === 'n' || d === 's' ? -7 : undefined,
+              marginTop: d === 'e' || d === 'w' ? -7 : undefined,
+              borderRadius: 2,
+              background: 'rgba(245,158,11,0.95)',
+              border: '1px solid rgba(0,0,0,0.6)',
+              cursor: edgeCursor(d, effRotateDeg),
+              transform: invHandles,
+              zIndex: 1,
+              touchAction: 'none',
+            }}
+          />
+        ))}
+      {/* P4 rotate lollipop — orbits with the box (no counter-rotation:
+          the knob is symmetric and the stem must stay glued to the top
+          edge). Lifted clear of the North handle's hitbox. */}
+      {showHandles && (
+        <div
+          onPointerDown={handleRotateDown}
+          onPointerMove={onRotateMove}
+          onPointerUp={handleRotateUp}
+          onPointerCancel={handleRotateCancel}
+          onClick={consumeClick}
+          title="Rotate — drag to spin (snaps to 45°)"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: -38,
+            width: 16,
+            height: 30,
+            marginLeft: -8,
+            cursor: 'grab',
+            transform: invHandles,
+            zIndex: 2,
+            touchAction: 'none',
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                background: 'rgba(245,158,11,0.95)',
+                border: '1px solid rgba(0,0,0,0.6)',
+              }}
+            />
+            <div style={{ width: 1, height: 15, background: 'rgba(245,158,11,0.7)' }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+LayerBox.displayName = 'LayerBox';
+
+/**
  * P1 read-only canvas overlay: renders hit-boxes for composition layers of the
  * selected cut on top of the Remotion player.
  * Supports landscape/portrait, aspect-ratio lock, bottom-anchored text, and rotation.
@@ -639,42 +1028,65 @@ export const CanvasOverlay: React.FC<{
   // Capture-loss fallback (see effect below): render closures are mirrored
   // here so window listeners always call the latest handlers.
   const handlePointerMoveRef = useRef<(e: React.PointerEvent) => void>(() => {});
-  const finishDragRef = useRef<(commit: boolean) => (e: React.PointerEvent) => void>(() => () => {});
+  const finishDragRef = useRef<(e: React.PointerEvent, commit: boolean) => void>(() => {});
   // P4 rotate gesture: live degree preview + handler-live session.
   const [rotatePreview, setRotatePreview] = useState<{ layerIdx: number; deg: number } | null>(null);
   const rotateRef = useRef<RotateSession | null>(null);
   const rotateMoveRef = useRef<{ x: number; y: number } | null>(null);
   const handleRotateMoveRef = useRef<(e: React.PointerEvent) => void>(() => {});
-  const handleRotateEndRef = useRef<(commit: boolean) => (e: React.PointerEvent) => void>(() => () => {});
+  const handleRotateEndRef = useRef<(e: React.PointerEvent, commit: boolean) => void>(() => {});
+
+  // Prop mirrors: gesture callbacks and global listeners stay referentially
+  // stable while always reading the latest values, so window listeners
+  // register once and memoized children never re-render from callback churn.
+  const lockedRef = useRef(isLocked);
+  const sceneTimingsRef = useRef(sceneTimings);
+  const scenesRef = useRef(scenes);
+  const onSelectLayerRef = useRef(onSelectLayer);
+  const onStyleCommitRef = useRef(onStyleCommit);
+  useEffect(() => { lockedRef.current = isLocked; }, [isLocked]);
+  useEffect(() => { sceneTimingsRef.current = sceneTimings; }, [sceneTimings]);
+  useEffect(() => { scenesRef.current = scenes; }, [scenes]);
+  useEffect(() => { onSelectLayerRef.current = onSelectLayer; }, [onSelectLayer]);
+  useEffect(() => { onStyleCommitRef.current = onStyleCommit; }, [onStyleCommit]);
 
   // Route a layer click into the Visuals tab. Targets the playhead's cut
   // (the boxes on screen), not necessarily the selected cut — scrubbing the
   // playhead never moves the selection, but clicking a box adopts the
   // previewed cut. Prefers the parent callback (select + edit session +
   // conditional seek); falls back to store-only routing when standalone.
-  const routeToLayer = (layerIdx: number) => {
-    if (isLocked) return;
-    if (selectedSceneIndex === null || selectedSceneIndex === undefined) return;
-    if (selectedSubVisualIndex === null || selectedSubVisualIndex === undefined) return;
-    const playheadSub = getPlayheadSubIdx(sceneTimings, selectedSceneIndex, currentFrame);
-    const targetSub = playheadSub >= 0 ? playheadSub : selectedSubVisualIndex;
-    if (onSelectLayer) {
-      onSelectLayer(selectedSceneIndex, targetSub, layerIdx);
+  // Stable identity (refs + getState only) so memoized boxes don't re-render
+  // when the parent does.
+  const routeToLayer = useCallback((layerIdx: number) => {
+    if (lockedRef.current) return;
+    const st = useEditorStore.getState();
+    const selScene = st.selectedSceneIndex;
+    const selSub = st.selectedSubVisualIndex;
+    if (selScene === null || selScene === undefined) return;
+    if (selSub === null || selSub === undefined) return;
+    const frame = usePlaybackStore.getState().currentFrame;
+    const playheadSub = getPlayheadSubIdx(sceneTimingsRef.current, selScene, frame);
+    const targetSub = playheadSub >= 0 ? playheadSub : selSub;
+    const cb = onSelectLayerRef.current;
+    if (cb) {
+      cb(selScene, targetSub, layerIdx);
       return;
     }
-    const st = useEditorStore.getState();
     if (st.inspectorTab !== 'visuals') st.setInspectorTab('visuals');
     // Sub-set clears the layer in the store — order matters.
     if (targetSub !== st.selectedSubVisualIndex) st.setSelectedSubVisualIndex(targetSub);
     useEditorStore.getState().setSelectedLayerIndex(layerIdx);
-  };
+  }, []);
 
   // Deselect on Escape; cycle layer selection with `[` / `]`.
   // Runs before any early return so hook order stays constant. Reads live
-  // selection via getState + props (never render-scope children) for the same
-  // reason. Escape matches P1 semantics (works even while playing or in
-  // inputs) but is inert while locked so all deselect paths agree; `[`/`]`
-  // stay gated on playback and text inputs. Escape mid-drag cancels the drag.
+  // selection via getState + refs (never render-scope values) and registers
+  // exactly once — re-registering on every scenes change churned
+  // add/removeEventListener on each keystroke/slider tick while capturing a
+  // stale large scenes array in the closure. Escape matches P1 semantics
+  // (works even while playing or in inputs) but is inert while locked so all
+  // deselect paths agree; `[`/`]` stay gated on playback and text inputs.
+  // Escape mid-drag cancels the drag.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const st = useEditorStore.getState();
@@ -691,7 +1103,7 @@ export const CanvasOverlay: React.FC<{
           setRotatePreview(null);
           return;
         }
-        if (isLocked) return;
+        if (lockedRef.current) return;
         if (st.selectedLayerIndex !== null) st.setSelectedLayerIndex(null);
         return;
       }
@@ -706,7 +1118,7 @@ export const CanvasOverlay: React.FC<{
       if (e.key !== '[' && e.key !== ']') return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.repeat) return;
-      if (isLocked) return;
+      if (lockedRef.current) return;
       const sceneIdx = st.selectedSceneIndex;
       const selSubIdx = st.selectedSubVisualIndex;
       if (sceneIdx === null || sceneIdx === undefined) return;
@@ -714,19 +1126,21 @@ export const CanvasOverlay: React.FC<{
 
       // Only cycle when the playhead is currently displaying this scene's overlay
       const frame = usePlaybackStore.getState().currentFrame;
-      if (getActiveSceneIdx(scenes, frame) !== sceneIdx) return;
+      const liveScenes = scenesRef.current;
+      if (getActiveSceneIdx(liveScenes, frame) !== sceneIdx) return;
 
       // Cycle the previewed cut's layers (adopts the cut on selection, like clicks)
-      const playheadSub = getPlayheadSubIdx(sceneTimings, sceneIdx, frame);
+      const playheadSub = getPlayheadSubIdx(sceneTimingsRef.current, sceneIdx, frame);
       const subIdx = playheadSub >= 0 ? playheadSub : selSubIdx;
-      const kids: any[] = scenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.composition?.children || [];
+      const kids: any[] = liveScenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.composition?.children || [];
       if (kids.length === 0) return;
       const delta = e.key === ']' ? 1 : -1;
       const cur = st.selectedLayerIndex ?? (delta > 0 ? -1 : 0);
       const next = wrapIdx(cur, delta, kids.length);
       e.preventDefault();
-      if (onSelectLayer) {
-        onSelectLayer(sceneIdx, subIdx, next);
+      const cb = onSelectLayerRef.current;
+      if (cb) {
+        cb(sceneIdx, subIdx, next);
       } else {
         if (st.inspectorTab !== 'visuals') st.setInspectorTab('visuals');
         if (subIdx !== st.selectedSubVisualIndex) st.setSelectedSubVisualIndex(subIdx);
@@ -735,7 +1149,7 @@ export const CanvasOverlay: React.FC<{
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [scenes, sceneTimings, isLocked, onSelectLayer]);
+  }, []);
 
   // P4: Alt toggles scale mode mid-corner-drag (Figma-style). The geometric
   // preview resets on switch so dimensions and multipliers never mix; the
@@ -804,12 +1218,12 @@ export const CanvasOverlay: React.FC<{
       handleRotateMoveRef.current(compat(e));
     };
     const onUp = (e: PointerEvent) => {
-      finishDragRef.current(true)(compat(e));
-      handleRotateEndRef.current(true)(compat(e));
+      finishDragRef.current(compat(e), true);
+      handleRotateEndRef.current(compat(e), true);
     };
     const onCancel = (e: PointerEvent) => {
-      finishDragRef.current(false)(compat(e));
-      handleRotateEndRef.current(false)(compat(e));
+      finishDragRef.current(compat(e), false);
+      handleRotateEndRef.current(compat(e), false);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -820,6 +1234,17 @@ export const CanvasOverlay: React.FC<{
       window.removeEventListener('pointercancel', onCancel);
     };
   }, [gestureActive]);
+
+  // Narrow re-trigger for the commit bridge below: only the committed
+  // layer's style matters, not the whole scenes tree. Serializing one flat
+  // style record per render is trivial; depending on `scenes` re-armed the
+  // backstop timer and re-ran the comparison on every unrelated keystroke.
+  const pendingCatchupKey = pendingCommit
+    ? JSON.stringify(
+        scenes?.[pendingCommit.sceneIdx]?.sub_visuals?.[pendingCommit.subIdx]
+          ?.composition?.children?.[pendingCommit.layerIdx]?.content?.style ?? null
+      )
+    : null;
 
   // P3 commit bridge: clear the dropped-style override once scriptData catches
   // up (order-independent shallow compare — key order can shift across
@@ -835,14 +1260,14 @@ export const CanvasOverlay: React.FC<{
     }
     const frame = usePlaybackStore.getState().currentFrame;
     const playheadSub = st.selectedSceneIndex !== null && st.selectedSceneIndex !== undefined
-      ? getPlayheadSubIdx(sceneTimings, st.selectedSceneIndex, frame)
+      ? getPlayheadSubIdx(sceneTimingsRef.current, st.selectedSceneIndex, frame)
       : -1;
     const viewingSub = playheadSub >= 0 ? playheadSub : st.selectedSubVisualIndex;
     if (viewingSub !== pendingCommit.subIdx) {
       setPendingCommit(null);
       return;
     }
-    const curStyle = scenes?.[pendingCommit.sceneIdx]?.sub_visuals?.[pendingCommit.subIdx]
+    const curStyle = scenesRef.current?.[pendingCommit.sceneIdx]?.sub_visuals?.[pendingCommit.subIdx]
       ?.composition?.children?.[pendingCommit.layerIdx]?.content?.style;
     if (shallowEqualStyles(curStyle ?? {}, pendingCommit.style)) {
       setPendingCommit(null);
@@ -850,7 +1275,8 @@ export const CanvasOverlay: React.FC<{
     }
     const t = window.setTimeout(() => setPendingCommit(null), 2000);
     return () => window.clearTimeout(t);
-  }, [scenes, sceneTimings, pendingCommit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCommit, pendingCatchupKey]);
 
   // Self-heal a stale layer index (e.g. an AI rewrite shrank the cut's layer
   // count): clear it instead of merely masking it in the UI, so the editor
@@ -891,51 +1317,34 @@ export const CanvasOverlay: React.FC<{
       ? getPlayheadSubIdx(sceneTimings, selectedSceneIndex, currentFrame)
       : -1;
 
-  // Performance: Hide overlay entirely while video is playing.
-  // Eliminates 30–60 FPS style churn and allows full GPU bandwidth for playback.
-  if (isPlaying) return null;
-
-  // A cut must be open in the Visuals tab, and the playhead must be inside
-  // that scene — otherwise the boxes would describe a cut the player isn't showing.
-  if (selectedSceneIndex === null || selectedSceneIndex === undefined) return null;
-  if (selectedSubVisualIndex === null || selectedSubVisualIndex === undefined) return null;
-  if (selectedSceneIndex !== activeSceneIdx) return null;
-
-  const scene = scenes[selectedSceneIndex];
-  const subVisuals: any[] = scene?.sub_visuals || [];
-  if (selectedSubVisualIndex < 0 || selectedSubVisualIndex >= subVisuals.length) return null;
-  const displaySubIdx =
-    playheadSubIdx >= 0 && playheadSubIdx < subVisuals.length
-      ? playheadSubIdx
-      : selectedSubVisualIndex;
-  const isViewingSelectedCut = displaySubIdx === selectedSubVisualIndex;
-  const children: any[] = subVisuals[displaySubIdx]?.composition?.children || [];
-  if (children.length === 0) return null;
-
-  // Paint order: background layers first, non-fullscreen on top.
-  const ordered = children
-    .map((layer, idx) => ({ layer, idx }))
-    .sort((a, b) => (a.layer?.z_index ?? 0) - (b.layer?.z_index ?? 0));
-
-  // The stored layer index belongs to the selected cut — only meaningful
-  // while viewing that cut. On a scrubbed cut the overlay shows boxes without
-  // highlight until a click/cycle adopts it.
-  const hasValidSelection =
-    isViewingSelectedCut &&
-    selectedLayerIndex !== null &&
-    selectedLayerIndex !== undefined &&
-    selectedLayerIndex >= 0 &&
-    selectedLayerIndex < children.length;
-
-  // P2 chip cycling: wraps around the previewed cut's layers, routes through
-  // the same Visuals-tab path as a box click so the editor card follows the canvas.
-  const cycleLayer = (delta: number) => {
-    if (isLocked || children.length === 0) return;
-    const cur = isViewingSelectedCut
-      ? (selectedLayerIndex ?? (delta > 0 ? -1 : 0))
-      : (delta > 0 ? -1 : 0);
-    routeToLayer(wrapIdx(cur, delta, children.length));
-  };
+  // Committed box geometry for the displayed cut, memoized so playhead ticks
+  // and drag previews (which don't touch committed data) reuse the previous
+  // array — per-layer memoization in <LayerBox> then skips every untouched
+  // box instead of reconciling the whole overlay each frame.
+  const view = useMemo(() => {
+    if (selectedSceneIndex === null || selectedSceneIndex === undefined) return null;
+    if (selectedSubVisualIndex === null || selectedSubVisualIndex === undefined) return null;
+    if (selectedSceneIndex !== activeSceneIdx) return null;
+    const scene = scenes[selectedSceneIndex];
+    const subVisuals: any[] = scene?.sub_visuals || [];
+    if (selectedSubVisualIndex < 0 || selectedSubVisualIndex >= subVisuals.length) return null;
+    const displaySubIdx =
+      playheadSubIdx >= 0 && playheadSubIdx < subVisuals.length
+        ? playheadSubIdx
+        : selectedSubVisualIndex;
+    const children: any[] = subVisuals[displaySubIdx]?.composition?.children || [];
+    if (children.length === 0) return null;
+    // Paint order: background layers first, non-fullscreen on top.
+    const ordered = children
+      .map((layer, idx) => ({ layer, idx, box: layerToBox(layer, compW, compH) }))
+      .sort((a, b) => (a.layer?.z_index ?? 0) - (b.layer?.z_index ?? 0));
+    return {
+      displaySubIdx,
+      isViewingSelectedCut: displaySubIdx === selectedSubVisualIndex,
+      children,
+      ordered,
+    };
+  }, [scenes, selectedSceneIndex, selectedSubVisualIndex, activeSceneIdx, playheadSubIdx, compW, compH]);
 
   // ── P3/P4 direct manipulation ─────────────────────────────────────
   // Pointerdown selects immediately (click and drag share one path; the
@@ -946,7 +1355,10 @@ export const CanvasOverlay: React.FC<{
   // P4: `edge` handles do single-axis resizes (N/S unlock aspect),
   // Alt+corner scales multipliers instead of dimensions, and rotated layers
   // resize in local axes via the inverse rotation.
-  const beginDrag = (
+  // Stable identity (refs + getState only) so memoized boxes keep their
+  // handlers across parent renders — recreating them per render would
+  // defeat <LayerBox>'s memo on every playhead tick.
+  const beginDrag = useCallback((
     e: React.PointerEvent,
     layerIdx: number,
     box: Box,
@@ -954,7 +1366,7 @@ export const CanvasOverlay: React.FC<{
     mode: DragMode,
     dir: DragCorner | EdgeDir | null
   ) => {
-    if (isLocked || isPlaying) return;
+    if (lockedRef.current || useEditorStore.getState().isPlaying) return;
     if (box.fullscreen) return;
     e.stopPropagation();
     // NOTE: no preventDefault here — suppressing the compat click would strand
@@ -1002,47 +1414,23 @@ export const CanvasOverlay: React.FC<{
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch { /* capture unavailable — window fallback covers the gesture */ }
-  };
-
-  // P4: client point → percent-space deltas. Resizes run through the layer's
-  // local axes when rotated, then unmirror for flip signs (moves stay
-  // screen-space — the grab point must track the cursor).
-  const deltasFor = (s: DragSession, clientX: number, clientY: number) => {
-    let dxPx = clientX - s.startX;
-    let dyPx = clientY - s.startY;
-    if (s.rotDeg !== 0 && s.mode !== 'move') {
-      const local = toLocalDelta(dxPx, dyPx, s.rotDeg);
-      dxPx = local.x;
-      dyPx = local.y;
-    }
-    if (s.mode !== 'move') {
-      if (s.flipX) dxPx = -dxPx;
-      if (s.flipY) dyPx = -dyPx;
-    }
-    return { dxPct: (dxPx / s.rectW) * 100, dyPct: (dyPx / s.rectH) * 100 };
-  };
-
-  // P4 Alt-corner scale preview/commit values (sign-preserving, 10–500%).
-  const scaleFor = (s: DragSession, dxPct: number, dyPct: number) => {
-    const { fx, fy } = scaleFactors(s.init, s.corner, dxPct, dyPct);
-    return scaleValues(s.init.style, fx, fy);
-  };
+  }, [routeToLayer]);
 
   // Shared rAF tick: coalesces high-frequency pointermove streams (gaming
   // mice run 500–1000 Hz; the window fallback can double-deliver) into one
   // state update per frame for both drag and rotate gestures.
-  const scheduleTick = () => {
+  const scheduleTick = useCallback(() => {
     if (rafRef.current) return;
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = 0;
       const cur = dragRef.current;
       const m = moveRef.current;
       if (cur && m) {
-        const { dxPct, dyPct } = deltasFor(cur, m.x, m.y);
+        const { dxPct, dyPct } = sessionDeltas(cur, m.x, m.y);
         let next = cur.cur;
         let preview: Record<string, any> | null = null;
         if (cur.scaleMode && cur.mode === 'corner') {
-          const { scaleX, scaleY } = scaleFor(cur, dxPct, dyPct);
+          const { scaleX, scaleY } = sessionScale(cur, dxPct, dyPct);
           preview = { scaleX, scaleY };
         } else {
           const raw = computeDrag(cur.init, cur.mode, cur.corner, cur.edge, dxPct, dyPct);
@@ -1063,17 +1451,17 @@ export const CanvasOverlay: React.FC<{
         setRotatePreview({ layerIdx: r.layerIdx, deg: rotateDegFor(r, rm.x, rm.y) });
       }
     });
-  };
+  }, []);
 
-  const handlePointerMove = (e: React.PointerEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const s = dragRef.current;
     if (!s || e.pointerId !== s.pointerId) return;
     if (Math.hypot(e.clientX - s.startX, e.clientY - s.startY) < 4 && !s.moved) return;
     moveRef.current = { x: e.clientX, y: e.clientY };
     scheduleTick();
-  };
+  }, [scheduleTick]);
 
-  const finishDrag = (commit: boolean) => (e: React.PointerEvent) => {
+  const handleDragEnd = useCallback((e: React.PointerEvent, commit: boolean) => {
     const s = dragRef.current;
     if (!s || e.pointerId !== s.pointerId) return;
     if (rafRef.current) {
@@ -1090,13 +1478,13 @@ export const CanvasOverlay: React.FC<{
       return;
     }
     if (!s.moved) return; // plain click — selection already applied on pointerdown
-    const { dxPct, dyPct } = deltasFor(s, e.clientX, e.clientY);
+    const { dxPct, dyPct } = sessionDeltas(s, e.clientX, e.clientY);
     let style: Record<string, any>;
     if (s.scaleMode && s.mode === 'corner') {
       // P4 Alt-drag: multipliers replace dimensions. Legacy `scale` is split
       // exactly like the Layout sliders (deleted, not undefined — undefined
       // would linger in key order and strand the commit bridge).
-      const { scaleX, scaleY } = scaleFor(s, dxPct, dyPct);
+      const { scaleX, scaleY } = sessionScale(s, dxPct, dyPct);
       style = { ...s.init.style, scaleX, scaleY };
       delete style.scale;
     } else {
@@ -1118,15 +1506,15 @@ export const CanvasOverlay: React.FC<{
       return;
     }
     setPendingCommit({ sceneIdx, subIdx, layerIdx: s.layerIdx, style });
-    onStyleCommit?.(sceneIdx, subIdx, s.layerIdx, style);
-  };
+    onStyleCommitRef.current?.(sceneIdx, subIdx, s.layerIdx, style);
+  }, []);
 
   // ── P4 rotate ─────────────────────────────────────────────────────
   // Lollipop drag: rotation follows the pointer around the box's layout
   // center (the default transform pivot; custom transform_origin pivots will
   // be approximately right). Snaps to 45° multiples within 3°.
-  const beginRotate = (e: React.PointerEvent, layerIdx: number, box: Box, layer: any) => {
-    if (isLocked || isPlaying) return;
+  const beginRotate = useCallback((e: React.PointerEvent, layerIdx: number, box: Box, layer: any) => {
+    if (lockedRef.current || useEditorStore.getState().isPlaying) return;
     if (box.fullscreen) return;
     e.stopPropagation();
     suppressClickRef.current = true;
@@ -1152,14 +1540,9 @@ export const CanvasOverlay: React.FC<{
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch { /* window fallback covers the gesture */ }
-  };
+  }, [routeToLayer]);
 
-  const rotateDegFor = (r: RotateSession, clientX: number, clientY: number) => {
-    const pointer = (Math.atan2(clientY - r.cy, clientX - r.cx) * 180) / Math.PI;
-    return Math.round(snapRotate(norm180(pointer - r.offset)));
-  };
-
-  const handleRotateMove = (e: React.PointerEvent) => {
+  const handleRotateMove = useCallback((e: React.PointerEvent) => {
     const r = rotateRef.current;
     if (!r || e.pointerId !== r.pointerId) return;
     // Deadband mirrors the drag path — a plain lollipop click must not dirty
@@ -1168,9 +1551,9 @@ export const CanvasOverlay: React.FC<{
     r.moved = true;
     rotateMoveRef.current = { x: e.clientX, y: e.clientY };
     scheduleTick();
-  };
+  }, [scheduleTick]);
 
-  const handleRotateEnd = (commit: boolean) => (e: React.PointerEvent) => {
+  const handleRotateEnd = useCallback((e: React.PointerEvent, commit: boolean) => {
     const r = rotateRef.current;
     if (!r || e.pointerId !== r.pointerId) return;
     rotateRef.current = null;
@@ -1192,16 +1575,45 @@ export const CanvasOverlay: React.FC<{
       return;
     }
     setPendingCommit({ sceneIdx, subIdx, layerIdx: r.layerIdx, style });
-    onStyleCommit?.(sceneIdx, subIdx, r.layerIdx, style);
-  };
+    onStyleCommitRef.current?.(sceneIdx, subIdx, r.layerIdx, style);
+  }, []);
 
-  // Mirror render closures for the window fallback above (same discipline as
-  // EditorWorkspace's latest-state refs: handlers read these, never stale
-  // render scope, when the gesture outlives the element).
+  // Mirror stable handlers for the window fallback above (same discipline as
+  // EditorWorkspace's latest-state refs: the callbacks themselves never go
+  // stale because they read refs/getState, so the assignment is idempotent).
   handlePointerMoveRef.current = handlePointerMove;
-  finishDragRef.current = finishDrag;
+  finishDragRef.current = handleDragEnd;
   handleRotateMoveRef.current = handleRotateMove;
   handleRotateEndRef.current = handleRotateEnd;
+
+  // ── Early returns AFTER all hooks (hook order must stay constant) ──
+  // Performance: hide overlay entirely while video is playing.
+  // Eliminates 30–60 FPS style churn and allows full GPU bandwidth for playback.
+  if (isPlaying) return null;
+
+  // A cut must be open in the Visuals tab, and the playhead must be inside
+  // that scene — otherwise the boxes would describe a cut the player isn't showing.
+  if (!view) return null;
+
+  // The stored layer index belongs to the selected cut — only meaningful
+  // while viewing that cut. On a scrubbed cut the overlay shows boxes without
+  // highlight until a click/cycle adopts it.
+  const hasValidSelection =
+    view.isViewingSelectedCut &&
+    selectedLayerIndex !== null &&
+    selectedLayerIndex !== undefined &&
+    selectedLayerIndex >= 0 &&
+    selectedLayerIndex < view.children.length;
+
+  // P2 chip cycling: wraps around the previewed cut's layers, routes through
+  // the same Visuals-tab path as a box click so the editor card follows the canvas.
+  const cycleLayer = (delta: number) => {
+    if (isLocked || view.children.length === 0) return;
+    const cur = view.isViewingSelectedCut
+      ? (selectedLayerIndex ?? (delta > 0 ? -1 : 0))
+      : (delta > 0 ? -1 : 0);
+    routeToLayer(wrapIdx(cur, delta, view.children.length));
+  };
 
   return (
     <div
@@ -1218,280 +1630,49 @@ export const CanvasOverlay: React.FC<{
         />
       )}
 
-      {ordered.map(({ layer, idx }) => {
-        const box = layerToBox(layer, compW, compH);
-        const selected = isViewingSelectedCut && selectedLayerIndex === idx;
-        const cType = layer?.content?.type || 'Image';
-
-        // Live overrides: geometric drag session wins; else non-geometric
-        // previews (Alt-scale multipliers, rotate degrees) and the dropped-style
-        // override (debounce window) recompute through layerToBox; else the
-        // committed box.
+      {view.ordered.map(({ layer, idx, box }) => {
+        // Live overrides are per-layer: only the gesturing/dropped layer gets
+        // non-null props, so memoized siblings skip the re-render entirely.
         const liveSession = drag && drag.layerIdx === idx ? drag : null;
-        const liveDrag = liveSession && !liveSession.scaleMode ? liveSession.cur : null;
-        const liveScale = liveSession?.preview ?? null;
-        const liveRotateDeg =
-          rotatePreview && rotatePreview.layerIdx === idx ? rotatePreview.deg : null;
-        const baseStyle: Record<string, any> = layer?.content?.style || {};
-        const liveStyle: Record<string, any> | null =
-          liveScale ?? (liveRotateDeg !== null ? { rotate: `${liveRotateDeg}deg` } : null);
-        const pendingStyle: Record<string, any> | null =
-          !liveSession &&
-          liveRotateDeg === null &&
-          pendingCommit !== null &&
-          pendingCommit.sceneIdx === selectedSceneIndex &&
-          pendingCommit.subIdx === displaySubIdx &&
-          pendingCommit.layerIdx === idx
-            ? pendingCommit.style
-            : null;
-        // N/S edge drags on aspect-locked layers unlock mid-gesture: render
-        // the live freeform height instead of the stale derived one.
-        const liveAspect = !!box.aspectRatio && !liveSession?.init.dropAspect;
-        const effBox: Box = liveDrag
-          ? {
-              ...box,
-              leftPct: liveDrag.left,
-              rightPct: null,
-              topPct: liveDrag.top,
-              bottomPct: null,
-              widthPct: liveDrag.width,
-              heightPct: liveAspect ? null : liveDrag.height,
-              aspectRatio: liveAspect ? box.aspectRatio : null,
-            }
-          : liveStyle
-            ? layerToBox({ ...layer, content: { ...(layer?.content || {}), style: { ...baseStyle, ...liveStyle } } }, compW, compH)
-            : pendingStyle
-              ? layerToBox({ ...layer, content: { ...(layer?.content || {}), style: pendingStyle } }, compW, compH)
-              : box;
-
-        const posStyle: React.CSSProperties = effBox.fullscreen
-          ? { left: 0, top: 0, width: '100%', height: '100%' }
-          : {
-              ...(effBox.leftPct !== null ? { left: `${effBox.leftPct}%` } : {}),
-              ...(effBox.leftPct === null && effBox.rightPct !== null ? { right: `${effBox.rightPct}%` } : {}),
-              width: `${effBox.widthPct}%`,
-              ...(effBox.topPct !== null ? { top: `${effBox.topPct}%` } : {}),
-              ...(effBox.topPct === null && effBox.bottomPct !== null ? { bottom: `${effBox.bottomPct}%` } : {}),
-              ...(effBox.aspectRatio
-                ? { aspectRatio: effBox.aspectRatio }
-                : (effBox.heightPct !== null ? { height: `${effBox.heightPct}%` } : {})),
-            };
-
-        // Fullscreen layers stay behind non-fullscreen layers even when selected,
-        // so smaller foreground layers are never trapped beneath them.
-        const z = box.fullscreen
-          ? (selected ? 15 : 10 + box.zIndex)
-          : (selected ? 100 : 20 + box.zIndex);
-
-        // Keep label badges visible inside container when box is near the top edge
-        const isNearTop = effBox.topPct !== null && effBox.topPct < 4 && !effBox.fullscreen;
-        const badgeTop = isNearTop ? 4 : -22;
-        const badgeLeft = isNearTop ? 4 : 0;
-        // Effective rotation drives the badge counter-rotation (live during spins)
-        const effRotateDeg = liveRotateDeg ?? effBox.rotateDeg;
-        const counterRotate = effRotateDeg ? `rotate(${-effRotateDeg}deg)` : undefined;
-        // Handles counter-scale against the layer's own scale so they stay
-        // grabbable at 10–500% (badges/borders keep scaling as feedback).
-        const mergedScaleStyle = liveStyle ? { ...baseStyle, ...liveStyle } : (pendingStyle ?? baseStyle);
-        const invHandles = handleInverseScale(mergedScaleStyle);
-
-        // P3: body drag moves (anchor-preserving commit). Fullscreen layers
-        // are select-only — a 100×100 box has no position to drag.
-        // P4: corners work rotated too (local axes); edges do single-axis;
-        // the lollipop spins.
-        const draggable = !box.fullscreen && !isLocked;
-        const gesturingThis =
-          (drag !== null && drag.layerIdx === idx) ||
-          (rotatePreview !== null && rotatePreview.layerIdx === idx);
-        const showHandles = selected && !box.fullscreen && !isLocked;
-
         return (
-          <div
+          <LayerBox
             key={idx}
-            onPointerDown={(e) => beginDrag(e, idx, box, layer, 'move', null)}
-            onPointerMove={handlePointerMove}
-            onPointerUp={finishDrag(true)}
-            onPointerCancel={finishDrag(false)}
-            onClick={(e) => {
-              // Pointerdown already selected (drag path suppresses this);
-              // this is the backstop for select-only boxes (fullscreen).
-              if (suppressClickRef.current) {
-                suppressClickRef.current = false;
-                return;
-              }
-              e.stopPropagation();
-              routeToLayer(idx);
-            }}
-            title={`Layer ${idx + 1} · ${cType}${box.fullscreen ? ' (fullscreen)' : ''}${isLocked ? ' — AI rewriting…' : ''}`}
-            style={{
-              ...posStyle,
-              position: 'absolute',
-              pointerEvents: isLocked ? 'none' : 'auto',
-              cursor: isLocked ? 'default' : gesturingThis ? 'grabbing' : draggable ? 'move' : 'pointer',
-              touchAction: draggable ? 'none' : undefined,
-              zIndex: z,
-              borderRadius: box.borderRadius || 2,
-              transform: effBox.transform,
-              transformOrigin: effBox.transformOrigin || 'center',
-            }}
-            className={`group/box transition-colors ${
-              selected
-                ? 'border-2 border-amber-500 bg-amber-500/10 shadow-[0_0_14px_rgba(245,158,11,0.25)]'
-                : 'border border-dashed border-transparent hover:border-amber-500/70 hover:bg-amber-500/5'
-            }`}
-          >
-            <span
-              style={{
-                position: 'absolute',
-                top: badgeTop,
-                left: badgeLeft,
-                pointerEvents: 'none',
-                fontSize: 10,
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-                padding: '1px 6px',
-                borderRadius: 6,
-                background: selected ? 'rgba(245,158,11,0.95)' : 'rgba(0,0,0,0.75)',
-                color: selected ? '#000' : '#fcd34d',
-                opacity: selected ? 1 : 0,
-                transform: counterRotate,
-                transformOrigin: 'top left',
-              }}
-              className="group-hover/box:opacity-100 transition-opacity"
-            >
-              {`L${idx + 1} · ${cType}`}
-            </span>
-            {/* P3/P4 corner resize handles (aspect-aware; rotated layers resize
-                in local axes). Hold Alt to scale multipliers instead. */}
-            {showHandles &&
-              (['se', 'sw', 'ne', 'nw'] as DragCorner[]).map((c) => (
-                <div
-                  key={c}
-                  onPointerDown={(e) => beginDrag(e, idx, box, layer, 'corner', c)}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={finishDrag(true)}
-                  onPointerCancel={finishDrag(false)}
-                  onClick={(e) => {
-                    // Consume the suppressed compat click of the drag gesture
-                    // (and stop it reaching the box backstop below).
-                    e.stopPropagation();
-                    suppressClickRef.current = false;
-                  }}
-                  title={
-                    box.aspectRatio
-                      ? 'Resize (aspect locked — width drives height; Alt: scale)'
-                      : 'Resize corner (Alt: scale)'
-                  }
-                  style={{
-                    position: 'absolute',
-                    width: 10,
-                    height: 10,
-                    left: c === 'sw' || c === 'nw' ? -5 : undefined,
-                    right: c === 'se' || c === 'ne' ? -5 : undefined,
-                    top: c === 'ne' || c === 'nw' ? -5 : undefined,
-                    bottom: c === 'se' || c === 'sw' ? -5 : undefined,
-                    borderRadius: 2,
-                    background: 'rgba(245,158,11,0.95)',
-                    border: '1px solid rgba(0,0,0,0.6)',
-                    cursor: cornerCursor(c, effRotateDeg),
-                    transform: invHandles,
-                    zIndex: 1,
-                    touchAction: 'none',
-                  }}
-                />
-              ))}
-            {/* P4 edge resize handles (N/S unlock aspect; rotated use local axes). */}
-            {showHandles &&
-              (['n', 's', 'e', 'w'] as EdgeDir[]).map((d) => (
-                <div
-                  key={d}
-                  onPointerDown={(e) => beginDrag(e, idx, box, layer, 'edge', d)}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={finishDrag(true)}
-                  onPointerCancel={finishDrag(false)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    suppressClickRef.current = false;
-                  }}
-                  title={
-                    d === 'n' || d === 's'
-                      ? box.aspectRatio
-                        ? 'Adjust height (unlocks aspect ratio)'
-                        : 'Adjust height'
-                      : box.aspectRatio
-                        ? 'Adjust width (aspect locked)'
-                        : 'Adjust width'
-                  }
-                  style={{
-                    position: 'absolute',
-                    width: d === 'n' || d === 's' ? 14 : 10,
-                    height: d === 'n' || d === 's' ? 10 : 14,
-                    left: d === 'n' || d === 's' ? '50%' : d === 'w' ? -5 : undefined,
-                    right: d === 'e' ? -5 : undefined,
-                    top: d === 'e' || d === 'w' ? '50%' : d === 'n' ? -5 : undefined,
-                    bottom: d === 's' ? -5 : undefined,
-                    marginLeft: d === 'n' || d === 's' ? -7 : undefined,
-                    marginTop: d === 'e' || d === 'w' ? -7 : undefined,
-                    borderRadius: 2,
-                    background: 'rgba(245,158,11,0.95)',
-                    border: '1px solid rgba(0,0,0,0.6)',
-                    cursor: edgeCursor(d, effRotateDeg),
-                    transform: invHandles,
-                    zIndex: 1,
-                    touchAction: 'none',
-                  }}
-                />
-              ))}
-            {/* P4 rotate lollipop — orbits with the box (no counter-rotation:
-                the knob is symmetric and the stem must stay glued to the top
-                edge). Lifted clear of the North handle's hitbox. */}
-            {showHandles && (
-              <div
-                onPointerDown={(e) => beginRotate(e, idx, box, layer)}
-                onPointerMove={handleRotateMove}
-                onPointerUp={handleRotateEnd(true)}
-                onPointerCancel={handleRotateEnd(false)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  suppressClickRef.current = false;
-                }}
-                title="Rotate — drag to spin (snaps to 45°)"
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: -38,
-                  width: 16,
-                  height: 30,
-                  marginLeft: -8,
-                  cursor: 'grab',
-                  transform: invHandles,
-                  zIndex: 2,
-                  touchAction: 'none',
-                }}
-              >
-                <div
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: '50%',
-                      background: 'rgba(245,158,11,0.95)',
-                      border: '1px solid rgba(0,0,0,0.6)',
-                    }}
-                  />
-                  <div style={{ width: 1, height: 15, background: 'rgba(245,158,11,0.7)' }} />
-                </div>
-              </div>
-            )}
-          </div>
+            layer={layer}
+            idx={idx}
+            box={box}
+            compW={compW}
+            compH={compH}
+            selected={view.isViewingSelectedCut && selectedLayerIndex === idx}
+            locked={isLocked}
+            liveDrag={liveSession && !liveSession.scaleMode ? liveSession.cur : null}
+            liveScale={liveSession?.preview ?? null}
+            liveRotateDeg={
+              rotatePreview && rotatePreview.layerIdx === idx ? rotatePreview.deg : null
+            }
+            pendingStyle={
+              !liveSession &&
+              !(rotatePreview && rotatePreview.layerIdx === idx) &&
+              pendingCommit !== null &&
+              pendingCommit.sceneIdx === selectedSceneIndex &&
+              pendingCommit.subIdx === view.displaySubIdx &&
+              pendingCommit.layerIdx === idx
+                ? pendingCommit.style
+                : null
+            }
+            gesturingThis={
+              (drag !== null && drag.layerIdx === idx) ||
+              (rotatePreview !== null && rotatePreview.layerIdx === idx)
+            }
+            aspectUnlocking={!!liveSession?.init.dropAspect}
+            suppressRef={suppressClickRef}
+            onSelect={routeToLayer}
+            onBeginDrag={beginDrag}
+            onMove={handlePointerMove}
+            onEndDrag={handleDragEnd}
+            onBeginRotate={beginRotate}
+            onRotateMove={handleRotateMove}
+            onEndRotate={handleRotateEnd}
+          />
         );
       })}
 
@@ -1521,15 +1702,15 @@ export const CanvasOverlay: React.FC<{
             e.stopPropagation();
             cycleLayer(-1);
           }}
-          disabled={isLocked || children.length === 0}
+          disabled={isLocked || view.children.length === 0}
           title="Previous layer ([)"
           aria-label="Previous layer"
           className="hover:bg-amber-500/20 active:bg-amber-500/30 transition-colors disabled:hover:bg-transparent text-amber-400 disabled:text-amber-400/40 select-none"
           style={{
             padding: '0 6px',
             borderRadius: 6,
-            cursor: isLocked || children.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: isLocked || children.length === 0 ? 0.4 : 1,
+            cursor: isLocked || view.children.length === 0 ? 'not-allowed' : 'pointer',
+            opacity: isLocked || view.children.length === 0 ? 0.4 : 1,
             background: 'transparent',
             border: 'none',
           }}
@@ -1537,7 +1718,7 @@ export const CanvasOverlay: React.FC<{
           {'<'}
         </button>
         <span style={{ padding: '0 4px', whiteSpace: 'nowrap' }}>
-          {`Cut ${displaySubIdx + 1} · ${children.length} layer${children.length === 1 ? '' : 's'}${
+          {`Cut ${view.displaySubIdx + 1} · ${view.children.length} layer${view.children.length === 1 ? '' : 's'}${
             hasValidSelection ? ` · L${selectedLayerIndex + 1} selected` : ''
           }${isLocked ? ' · AI rewriting…' : ''}`}
         </span>
@@ -1547,15 +1728,15 @@ export const CanvasOverlay: React.FC<{
             e.stopPropagation();
             cycleLayer(1);
           }}
-          disabled={isLocked || children.length === 0}
+          disabled={isLocked || view.children.length === 0}
           title="Next layer (])"
           aria-label="Next layer"
           className="hover:bg-amber-500/20 active:bg-amber-500/30 transition-colors disabled:hover:bg-transparent text-amber-400 disabled:text-amber-400/40 select-none"
           style={{
             padding: '0 6px',
             borderRadius: 6,
-            cursor: isLocked || children.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: isLocked || children.length === 0 ? 0.4 : 1,
+            cursor: isLocked || view.children.length === 0 ? 'not-allowed' : 'pointer',
+            opacity: isLocked || view.children.length === 0 ? 0.4 : 1,
             background: 'transparent',
             border: 'none',
           }}

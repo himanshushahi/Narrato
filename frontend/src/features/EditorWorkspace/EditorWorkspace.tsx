@@ -1,6 +1,8 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
+import { shallow } from 'zustand/shallow';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -70,8 +72,16 @@ const EditorWorkspace: React.FC = () => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
-  const canvasSceneIdx = useEditorStore((s) => s.selectedSceneIndex);
-  const canvasSubIdx = useEditorStore((s) => s.selectedSubVisualIndex);
+  // Single shallow-compared subscription for the canvas lock inputs: two
+  // separate selectors would re-render this entire workspace (preview,
+  // timeline, inspector) on every cut navigation.
+  const canvasSel = useStoreWithEqualityFn(
+    useEditorStore,
+    (s) => ({ scene: s.selectedSceneIndex, sub: s.selectedSubVisualIndex }),
+    shallow,
+  );
+  const canvasSceneIdx = canvasSel.scene;
+  const canvasSubIdx = canvasSel.sub;
   const updateProject = useProjectStore((s) => s.updateProject);
 
   // === Hooks ===

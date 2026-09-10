@@ -176,7 +176,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  const toggleFullscreen = async () => {
+  const toggleFullscreen = React.useCallback(async () => {
     if (!containerRef.current) return;
     try {
       if (document.fullscreenElement) {
@@ -187,7 +187,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     } catch {
       // fullscreen may be denied or unavailable — silently no-op
     }
-  };
+  }, []);
 
   React.useEffect(() => {
     if (fullscreenToggleRef) {
@@ -251,6 +251,24 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
       playerRef.current.seekTo(frame);
     }
   }, [playerRef]);
+
+  // Memoize the overlay element: it is passed as `children` to the memoized
+  // player, and an inline element would be a new reference on every
+  // VideoPreview render — defeating the memo and re-rendering Remotion's
+  // <Player> on unrelated updates (play toggles, mute switches, etc).
+  const canvasOverlay = React.useMemo(
+    () => (
+      <CanvasOverlay
+        scenes={liveScenes}
+        locked={canvasLocked}
+        onSelectLayer={onCanvasSelectLayer}
+        onStyleCommit={onCanvasStyleCommit}
+        sceneTimings={sceneTimings}
+        compositionSize={compositionSize}
+      />
+    ),
+    [liveScenes, canvasLocked, onCanvasSelectLayer, onCanvasStyleCommit, sceneTimings, compositionSize]
+  );
 
   return (
     <div
@@ -332,7 +350,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}
                 >
-                  <CanvasOverlay scenes={liveScenes} locked={canvasLocked} onSelectLayer={onCanvasSelectLayer} onStyleCommit={onCanvasStyleCommit} sceneTimings={sceneTimings} compositionSize={compositionSize} />
+                  {canvasOverlay}
                 </MemoizedRemotionPlayer>
               </div>
             </div>

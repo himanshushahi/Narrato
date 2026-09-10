@@ -185,8 +185,12 @@ export const AstGraphicalEditor = ({
     internalClickRef.current = null;
     setExpandedAdvanced((prev) => (prev[selectedLayerIndex] ? prev : { ...prev, [selectedLayerIndex]: true }));
     setAdvancedTab((prev) => (prev[selectedLayerIndex] ? prev : { ...prev, [selectedLayerIndex]: 'layout' }));
+    // Reveal without smooth scrolling: `behavior: 'smooth'` runs a main-thread
+    // animation that janks rapid selection changes (canvas clicks, `[`/`]`
+    // cycling) and fights the user's own scroll. `block: 'nearest'` already
+    // no-ops when the card is visible, so this only jumps when needed.
     requestAnimationFrame(() => {
-      document.querySelector(`[data-layer-idx="${selectedLayerIndex}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      document.querySelector(`[data-layer-idx="${selectedLayerIndex}"]`)?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
     });
   }, [selectedLayerIndex]);
 
