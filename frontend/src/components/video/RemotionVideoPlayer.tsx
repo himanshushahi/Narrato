@@ -1,9 +1,50 @@
-import { useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
+import { useMemo, forwardRef, useImperativeHandle, useRef, useEffect, Component, ReactNode } from 'react';
 import { Player, PlayerRef } from '@remotion/player';
 import { NitishRajputComposition, Scene, Transcription, MusicClip, SfxClip } from './NitishRajputComposition';
 import { GlobalOverlayItem } from './GlobalOverlaysRenderer';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { parseQuality } from './renderQuality';
+
+/**
+ * Player-level safety net: a throw anywhere in the composition tree
+ * (scene math, global overlays, subtitles) previously left a bare black
+ * canvas. Now it surfaces the error message with a retry instead.
+ */
+class PlayerErrorBoundary extends Component<
+  { resetKey: string; children: ReactNode },
+  { hasError: boolean; message: string }
+> {
+  state = { hasError: false, message: '' };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error?.message || String(error) };
+  }
+  componentDidCatch(error: Error) {
+    console.warn('[RemotionVideoPlayer] Composition render error:', error);
+  }
+  componentDidUpdate(prevProps: { resetKey: string }) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false, message: '' });
+    }
+  }
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black p-6 text-center">
+        <div className="text-3xl">⚠️</div>
+        <div className="text-sm font-bold text-amber-400">Preview failed to render this cut</div>
+        <div className="max-w-full overflow-auto rounded bg-zinc-900 px-3 py-2 font-mono text-[11px] text-zinc-300">
+          {this.state.message}
+        </div>
+        <button
+          className="rounded bg-amber-600/20 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-600/40"
+          onClick={() => this.setState({ hasError: false, message: '' })}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+}
 
 interface Props {
   audioUrl: string;
@@ -202,6 +243,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
     // `max-h` cap lets width win and silently breaks aspect-ratio, letterboxing
     // the video inside a wide box that the % overlay can never match.
     <div className={`bg-black rounded-lg overflow-hidden border border-zinc-800 shadow-2xl relative ${videoFormat === 'portrait' ? 'aspect-[9/16] w-full max-w-[39.375vh] mx-auto' : 'aspect-video w-full'}`}>
+      <PlayerErrorBoundary resetKey={`${scenes?.length ?? 0}:${durationInFrames}:${videoFormat}`}>
       <Player
         ref={playerRef}
         component={NitishRajputComposition}
@@ -224,6 +266,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
           </div>
         )}
       />
+      </PlayerErrorBoundary>
 
       {children}
 

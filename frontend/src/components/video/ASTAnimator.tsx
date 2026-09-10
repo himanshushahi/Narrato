@@ -15,6 +15,8 @@ import {
 export interface ASTAnimation {
   property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
   from: number;
+  /** Backend pydantic schema serializes the `from` alias as `from_` — accept both. */
+  from_?: number;
   to: number;
   duration: number; // in seconds
   delay?: number; // in seconds (optional)
@@ -62,14 +64,18 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     
     // 1. Compute AST keyframe & spring transforms
     for (const anim of animations) {
-      if (typeof anim.duration !== 'number' || typeof anim.from !== 'number' || typeof anim.to !== 'number') {
+      // `from` is the editor contract; `from_` is what the backend LLM schema
+      // serializes (pydantic alias). Accept both — otherwise AI-generated
+      // motion is silently skipped and cuts render static.
+      const animFrom = typeof anim.from === 'number' ? anim.from : (anim as any).from_;
+      if (typeof anim.duration !== 'number' || typeof animFrom !== 'number' || typeof anim.to !== 'number') {
         continue;
       }
-      
+
       const delayFrames = Math.max(0, Math.round((anim.delay || 0) * fps));
       const durationFrames = Math.max(1, Math.round(anim.duration * fps));
-      let val = anim.from;
-      
+      let val = animFrom;
+
       if (anim.easing === 'spring') {
         const spr = spring({
           frame: Math.max(0, frame - delayFrames),
@@ -77,7 +83,7 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
           config: { damping: 14, stiffness: 100, mass: 0.9 },
           durationInFrames: durationFrames,
         });
-        val = anim.from + (anim.to - anim.from) * spr;
+        val = animFrom + (anim.to - animFrom) * spr;
       } else {
         // Easing curves
         let easingFn = Easing.linear;
@@ -85,7 +91,7 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
         else if (anim.easing === 'ease-out') easingFn = Easing.out(Easing.ease);
         else if (anim.easing === 'ease-in-out') easingFn = Easing.inOut(Easing.ease);
 
-        val = interpolate(frame, [delayFrames, delayFrames + durationFrames], [anim.from, anim.to], {
+        val = interpolate(frame, [delayFrames, delayFrames + durationFrames], [animFrom, anim.to], {
           extrapolateRight: 'clamp',
           extrapolateLeft: 'clamp',
           easing: easingFn,

@@ -225,8 +225,16 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                       type="number"
                       step="any"
                       className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1 text-xs text-stone-200 focus:outline-none font-mono"
-                      value={anim.from}
-                      onChange={e => handleUpdate(idx, 'from', parseFloat(e.target.value) || 0)}
+                      value={(anim as any).from ?? (anim as any).from_ ?? 0}
+                      onChange={e => {
+                        // Self-heal backend-serialized `from_` into the editor `from` contract.
+                        const v = parseFloat(e.target.value) || 0;
+                        const updated = [...animations];
+                        const next: any = { ...updated[idx], from: v };
+                        delete next.from_;
+                        updated[idx] = next;
+                        onChange(updated);
+                      }}
                     />
                   </div>
 
