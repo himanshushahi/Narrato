@@ -15,6 +15,7 @@ import { AstMapLocationsEditor } from './AstMapLocationsEditor';
 import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
 import { AstParticlesEditor } from './AstParticlesEditor';
 import { normalizeLayerKind, getLayerCapability, getMotionState, isSvgLookToken } from './layerCapabilities';
+import { useEditorStore } from '../../../store/useEditorStore';
 import { inferMediaType, isImageFile, isVideoFile } from '../../../utils/mediaExtensions';
 
 const SUPPORTED_FONTS = [
@@ -168,6 +169,32 @@ export const AstGraphicalEditor = ({
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
   const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'filters' | 'motion'>>({});
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
+  // Shared canvas selection (preview overlay <-> editor). Clicking a layer card
+  // selects it for the preview highlight; clicking a preview box selects +
+  // scrolls to the card here (effect below).
+  const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
+  const internalClickRef = useRef<number | null>(null);
+
+  // When selection arrives from the preview overlay, reveal the card: expand
+  // Advanced + jump to Layout tab + scroll into view. Clicks originated from inside
+  // this editor skip the jump/scroll to preserve the user's active sub-tab.
+  useEffect(() => {
+    if (selectedLayerIndex === null || selectedLayerIndex === undefined) return;
+    if (internalClickRef.current === selectedLayerIndex) {
+      internalClickRef.current = null;
+      return;
+    }
+    internalClickRef.current = null;
+    setExpandedAdvanced((prev) => (prev[selectedLayerIndex] ? prev : { ...prev, [selectedLayerIndex]: true }));
+    setAdvancedTab((prev) => (prev[selectedLayerIndex] ? prev : { ...prev, [selectedLayerIndex]: 'layout' }));
+    // Reveal without smooth scrolling: `behavior: 'smooth'` runs a main-thread
+    // animation that janks rapid selection changes (canvas clicks, `[`/`]`
+    // cycling) and fights the user's own scroll. `block: 'nearest'` already
+    // no-ops when the card is visible, so this only jumps when needed.
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-layer-idx="${selectedLayerIndex}"]`)?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+    });
+  }, [selectedLayerIndex]);
 
   // Identity of the last composition we sent upstream. Parent propagation is
   // synchronous in the common path, so our own echo arrives with this exact
@@ -276,6 +303,13 @@ export const AstGraphicalEditor = ({
     setPreviewingIdx(prev => (prev === null ? null : prev === idx ? null : prev > idx ? prev - 1 : prev));
     setUploadingIdx(prev => (prev === null ? null : prev === idx ? null : prev > idx ? prev - 1 : prev));
     setIconPickerIdx(prev => (prev === null ? null : prev === idx ? null : prev > idx ? prev - 1 : prev));
+    // Keep canvas selection valid across delete (same shift pattern as above).
+    try {
+      const sel = useEditorStore.getState().selectedLayerIndex;
+      if (sel !== null && sel !== undefined) {
+        useEditorStore.getState().setSelectedLayerIndex(sel === idx ? null : sel > idx ? sel - 1 : sel);
+      }
+    } catch { /* store unavailable in isolation */ }
     setExpandedAdvanced(prev => {
       const next: Record<number, boolean> = {};
       for (const [k, v] of Object.entries(prev)) {
@@ -307,6 +341,13 @@ export const AstGraphicalEditor = ({
     setPreviewingIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
     setUploadingIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
     setIconPickerIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
+    // Shift selection across duplicate (+1 for elements after the duplicated index).
+    try {
+      const sel = useEditorStore.getState().selectedLayerIndex;
+      if (sel !== null && sel !== undefined) {
+        useEditorStore.getState().setSelectedLayerIndex(sel === idx ? idx + 1 : sel > idx ? sel + 1 : sel);
+      }
+    } catch { /* store unavailable in isolation */ }
     setExpandedAdvanced(prev => {
       const next: Record<number, boolean> = {};
       for (const [k, v] of Object.entries(prev)) {
@@ -456,7 +497,12 @@ export const AstGraphicalEditor = ({
             // so focus and per-layer drafts survive; type-specific sub-panels
             // are different component types and remount on their own.
             key={idx}
-            className="p-3 bg-zinc-900/70 border border-zinc-800/90 rounded-xl space-y-3 relative group/layer hover:border-zinc-700/80 transition-all shadow-sm w-full min-w-0"
+            data-layer-idx={idx}
+            onClick={() => {
+              internalClickRef.current = idx;
+              useEditorStore.getState().setSelectedLayerIndex(idx);
+            }}
+            className={`p-3 bg-zinc-900/70 border rounded-xl space-y-3 relative group/layer transition-all shadow-sm w-full min-w-0 cursor-pointer ${selectedLayerIndex === idx ? 'border-amber-500/60 shadow-[0_0_18px_rgba(245,158,11,0.12)]' : 'border-zinc-800/90 hover:border-zinc-700/80'}`}
           >
             {/* Header: Layer Title, Z-Index, and Action Buttons */}
             <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/5">
@@ -475,7 +521,10 @@ export const AstGraphicalEditor = ({
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
-                  onClick={() => handleDuplicateLayer(idx)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDuplicateLayer(idx);
+                  }}
                   className="p-1.5 text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer shrink-0"
                   title="Duplicate Layer"
                 >
@@ -483,7 +532,10 @@ export const AstGraphicalEditor = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleDeleteLayer(idx)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteLayer(idx);
+                  }}
                   className="p-1.5 text-red-400/80 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-md transition-colors cursor-pointer shrink-0"
                   title="Delete Layer"
                 >

@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { VscPlay, VscDebugPause, VscScreenFull, VscScreenNormal, VscLoading } from 'react-icons/vsc';
 import RemotionVideoPlayer, { RemotionVideoPlayerRef } from '../../components/video/RemotionVideoPlayer';
+import { CanvasOverlay } from './components/CanvasOverlay';
 import { MusicClip, SfxClip } from '../../components/video/NitishRajputComposition';
 import { useEditorStore } from '../../store/useEditorStore';
 import { usePlaybackStore } from '../../store/usePlaybackStore';
@@ -27,6 +28,14 @@ interface VideoPreviewProps {
   isPipelineRunning?: boolean;
   pipelineProgress?: number;
   fullscreenToggleRef?: React.MutableRefObject<(() => void) | null>;
+  /** P2: overlay inert while the selected cut has an AI rewrite in flight. */
+  canvasLocked?: boolean;
+  /** P2: overlay layer click routing (ensures Visuals tab + edit session). */
+  onCanvasSelectLayer?: (sceneIdx: number, subIdx: number, layerIdx: number) => void;
+  /** P3: overlay drag commit — exactly one call per drag (pointer-up). */
+  onCanvasStyleCommit?: (sceneIdx: number, subIdx: number, layerIdx: number, style: Record<string, any>) => void;
+  /** Cut timings (frames) so the overlay can follow the playhead's cut within a scene. */
+  sceneTimings?: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
 }
 
 // Player re-renders only when its props actually change (scenes, media URLs,
@@ -137,7 +146,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   playerRef, liveScenes, transcriptionData,
   audioUrl, bgMusicUrl, bgMusicVolume, musicClips = [], sfxClips = [], sfxVolume = 0.5, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
   designSystem, overlays = [],
-  onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef
+  onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef,
+  canvasLocked, onCanvasSelectLayer, onCanvasStyleCommit, sceneTimings
 }) => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
@@ -147,6 +157,16 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   const [showOverlay, setShowOverlay] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  // Composition pixel size backing the % overlay math (px-authored styles
+  // resolve against composition space, which scales with preview quality).
+  const isPortraitFormat = (videoFormat || 'landscape') === 'portrait';
+  const compositionSize = React.useMemo(() => {
+    const s = previewQuality === 'full' ? 1 : 0.5;
+    return {
+      w: Math.round((isPortraitFormat ? 1080 : 1920) * s),
+      h: Math.round((isPortraitFormat ? 1920 : 1080) * s),
+    };
+  }, [isPortraitFormat, previewQuality]);
   const trackMuted = useEditorStore((s) => s.trackMuted);
   const trackHidden = useEditorStore((s) => s.trackHidden);
 
@@ -156,7 +176,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  const toggleFullscreen = async () => {
+  const toggleFullscreen = React.useCallback(async () => {
     if (!containerRef.current) return;
     try {
       if (document.fullscreenElement) {
@@ -167,7 +187,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     } catch {
       // fullscreen may be denied or unavailable — silently no-op
     }
-  };
+  }, []);
 
   React.useEffect(() => {
     if (fullscreenToggleRef) {
@@ -232,6 +252,24 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     }
   }, [playerRef]);
 
+  // Memoize the overlay element: it is passed as `children` to the memoized
+  // player, and an inline element would be a new reference on every
+  // VideoPreview render — defeating the memo and re-rendering Remotion's
+  // <Player> on unrelated updates (play toggles, mute switches, etc).
+  const canvasOverlay = React.useMemo(
+    () => (
+      <CanvasOverlay
+        scenes={liveScenes}
+        locked={canvasLocked}
+        onSelectLayer={onCanvasSelectLayer}
+        onStyleCommit={onCanvasStyleCommit}
+        sceneTimings={sceneTimings}
+        compositionSize={compositionSize}
+      />
+    ),
+    [liveScenes, canvasLocked, onCanvasSelectLayer, onCanvasStyleCommit, sceneTimings, compositionSize]
+  );
+
   return (
     <div
       ref={containerRef}
@@ -288,8 +326,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
           >
             {/* Outer monitor chrome */}
             <div className="rounded-lg overflow-hidden shadow-2xl shadow-black/60 border border-zinc-800/40 bg-black">
-              {/* Inner screen bezel */}
-              <div className="rounded-[3px] overflow-hidden">
+              {/* Inner screen bezel — relative so the canvas overlay aligns with the player */}
+              <div className="relative rounded-[3px] overflow-hidden">
                 <MemoizedRemotionPlayer
                   ref={playerRef}
                   audioUrl={audioUrl}
@@ -311,7 +349,9 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   compositionScale={previewQuality === 'full' ? 1 : 0.5}
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}
-                />
+                >
+                  {canvasOverlay}
+                </MemoizedRemotionPlayer>
               </div>
             </div>
           </motion.div>

@@ -1,6 +1,8 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
+import { shallow } from 'zustand/shallow';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -21,7 +23,8 @@ import { Timeline } from './Timeline';
 import { InspectorPanel } from './InspectorPanel';
 import { GlobalOverlayItem } from '../../components/video/GlobalOverlaysRenderer';
 import { FPS } from './timelineConstants';
-import { manifestToScriptSceneIndex } from './visualSelection';
+import { manifestToScriptSceneIndex, resolveVisualSelection, shallowEqualStyles } from './visualSelection';
+import { readSectionSubs, writeSectionSubs } from './InspectorTabs/VisualsTab';
 
 const EMPTY_ARRAY: any[] = [];
 
@@ -69,6 +72,16 @@ const EditorWorkspace: React.FC = () => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+  // Single shallow-compared subscription for the canvas lock inputs: two
+  // separate selectors would re-render this entire workspace (preview,
+  // timeline, inspector) on every cut navigation.
+  const canvasSel = useStoreWithEqualityFn(
+    useEditorStore,
+    (s) => ({ scene: s.selectedSceneIndex, sub: s.selectedSubVisualIndex }),
+    shallow,
+  );
+  const canvasSceneIdx = canvasSel.scene;
+  const canvasSubIdx = canvasSel.sub;
   const updateProject = useProjectStore((s) => s.updateProject);
 
   // === Hooks ===
@@ -677,6 +690,12 @@ const EditorWorkspace: React.FC = () => {
   const handleRegisterVisualsFlush = useCallback((flush: (() => any) | null) => {
     visualsFlushRef.current = flush;
   }, []);
+  // P3 canvas-style applier (registered by VisualsTab; null when another tab
+  // is active). Single-style commits ride the lens debounce — see VisualsTab.
+  const canvasStyleApplierRef = useRef<((layerIdx: number, style: Record<string, any>) => void) | null>(null);
+  const handleRegisterCanvasStyle = useCallback((fn: ((layerIdx: number, style: Record<string, any>) => void) | null) => {
+    canvasStyleApplierRef.current = fn;
+  }, []);
   // Flusher for debounced Subtitle-tab edits (registered by SubtitleTab itself;
   // null when another tab is active). Lets Ctrl+S / TopBar saves include
   // in-flight debounced subtitle edits without waiting for the 400ms timer.
@@ -693,6 +712,7 @@ const EditorWorkspace: React.FC = () => {
     const st = useEditorStore.getState();
     st.setSelectedSceneIndex(sceneIdx);
     st.setSelectedSubVisualIndex(subIdx);
+    st.setSelectedLayerIndex(null);
   }, []);
 
   // ── Visuals editor: select + snapshot + open the Visuals tab ──────────────
@@ -734,6 +754,95 @@ const EditorWorkspace: React.FC = () => {
       handleSeek(timing.start);
     }
   }, [handleSelectSubVisual, handleStartEdit, setInspectorTab, sceneTimings, handleSeek]);
+
+  // ── P2 canvas overlay: lockout + routing ─────────────────────────────
+  // Lockout: overlay boxes go inert (pointer-events: none) while an AI
+  // rewrite touches the selected cut — same lens gate as VisualsTab
+  // (isSectionRewriting || isSubRewriting). Navigation/seek stays free.
+  const canvasLocked = useMemo(() => {
+    if (canvasSceneIdx === null || canvasSceneIdx === undefined) return false;
+    if (canvasSubIdx === null || canvasSubIdx === undefined) return false;
+    const key = cardKeyForScene(canvasSceneIdx);
+    if (!key) return false;
+    return isSectionRewriting(key) || isSubRewriting(key, canvasSubIdx);
+  }, [canvasSceneIdx, canvasSubIdx, cardKeyForScene, isSectionRewriting, isSubRewriting]);
+
+  // Routing: overlay layer click lands in the Visuals tab for that cut.
+  // Same-cut clicks ensure an active visuals edit session and flip the tab
+  // + layer (no seek jump); cross-cut clicks ride handleOpenVisualEditor
+  // (select + edit session + seek).
+  // Flush in-flight debounced writes first so pending slider ticks land cleanly.
+  const handleCanvasSelectLayer = useCallback((sceneIdx: number, subIdx: number, layerIdx: number) => {
+    // Defense in depth: the overlay already blocks selection while locked,
+    // but any direct/future caller lands here too — never flip tabs or start
+    // an edit session under an in-flight rewrite for the target cut.
+    const lockKey = cardKeyForScene(sceneIdx);
+    if (lockKey && (isSectionRewriting(lockKey) || isSubRewriting(lockKey, subIdx))) return;
+    // Playhead already inside the target cut (e.g. a box click after scrubbing
+    // the preview): adopt the cut silently instead of yanking the playhead
+    // back to the cut start like a timeline cut click would.
+    const cf = usePlaybackStore.getState().currentFrame;
+    const targetTiming = sceneTimings[sceneIdx]?.subs?.[subIdx];
+    if (targetTiming && cf >= targetTiming.start && cf < targetTiming.end) {
+      visualsFlushRef.current?.();
+      handleSelectSubVisual(sceneIdx, subIdx);
+      const adoptKey = cardKeyForScene(sceneIdx);
+      if (adoptKey) {
+        handleStartEdit(adoptKey, 'visuals');
+      }
+      const updated = useEditorStore.getState();
+      if (updated.inspectorTab !== 'visuals') updated.setInspectorTab('visuals');
+      updated.setSelectedLayerIndex(layerIdx);
+      return;
+    }
+    visualsFlushRef.current?.();
+    const st = useEditorStore.getState();
+    if (st.selectedSceneIndex === sceneIdx && st.selectedSubVisualIndex === subIdx) {
+      const cardKey = cardKeyForScene(sceneIdx);
+      if (cardKey) {
+        handleStartEdit(cardKey, 'visuals');
+      }
+      if (st.inspectorTab !== 'visuals') st.setInspectorTab('visuals');
+      st.setSelectedLayerIndex(layerIdx);
+      return;
+    }
+    handleOpenVisualEditor(sceneIdx, subIdx);
+    const updated = useEditorStore.getState();
+    if (updated.selectedSceneIndex === sceneIdx && updated.selectedSubVisualIndex === subIdx) {
+      updated.setSelectedLayerIndex(layerIdx);
+    }
+  }, [handleOpenVisualEditor, handleSelectSubVisual, cardKeyForScene, handleStartEdit, isSectionRewriting, isSubRewriting, sceneTimings]);
+
+  // P3 canvas drag commit: exactly one call per drag (pointer-up). Prefers the
+  // registered VisualsTab applier (flushes pending ticks, rides the 150 ms
+  // lens debounce). Falls back to a direct section merge only when the applier
+  // is unregistered (VisualsTab unmounted ⇒ its unmount already flushed, so no
+  // pending ticks can be clobbered).
+  const handleCanvasStyleCommit = useCallback((sceneIdx: number, subIdx: number, layerIdx: number, style: Record<string, any>) => {
+    const lockKey = cardKeyForScene(sceneIdx);
+    if (lockKey && (isSectionRewriting(lockKey) || isSubRewriting(lockKey, subIdx))) return;
+    const applier = canvasStyleApplierRef.current;
+    if (applier) {
+      applier(layerIdx, style);
+      return;
+    }
+    const flushed = visualsFlushRef.current?.();
+    const doc = flushed ?? scriptDataRef.current;
+    const r = resolveVisualSelection(doc, manifestDataRef.current, sceneTimings, { sceneIdx, subIdx });
+    if (!r) return;
+    const subs = readSectionSubs(doc, r);
+    if (subIdx < 0 || subIdx >= subs.length) return;
+    const cut = subs[subIdx] ?? {};
+    const kids = cut?.composition?.children ?? [];
+    if (layerIdx < 0 || layerIdx >= kids.length) return;
+    if (shallowEqualStyles(kids[layerIdx]?.content?.style ?? {}, style)) return;
+    const composition = { ...(cut.composition || { type: 'Sequence' }) };
+    composition.children = kids.map((l: any, i: number) =>
+      i === layerIdx ? { ...l, content: { ...(l?.content || {}), style } } : l);
+    const full = [...subs];
+    full[subIdx] = { ...cut, composition };
+    setScriptData(writeSectionSubs(doc, r, full));
+  }, [cardKeyForScene, isSectionRewriting, isSubRewriting, sceneTimings, setScriptData]);
 
   const handleSave = useCallback(() => {
     // Whole-document save is locked while ANY AI rewrite is in flight: it
@@ -1229,6 +1338,10 @@ const EditorWorkspace: React.FC = () => {
           onFrameUpdate={handleFrameUpdate}
           isPipelineRunning={isRunning}
           fullscreenToggleRef={fullscreenToggleRef}
+          canvasLocked={canvasLocked}
+          onCanvasSelectLayer={handleCanvasSelectLayer}
+          onCanvasStyleCommit={handleCanvasStyleCommit}
+          sceneTimings={sceneTimings}
         />
       </div>
 
@@ -1272,6 +1385,7 @@ const EditorWorkspace: React.FC = () => {
           onDuplicateLayerSubVisual={handleDuplicateLayerAsset}
           onDeleteCutSubVisual={handleDeleteCutAsset}
           onRegisterFlush={handleRegisterVisualsFlush}
+          onRegisterCanvasStyle={handleRegisterCanvasStyle}
 
           tasks={tasks}
           queue={queue}

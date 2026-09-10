@@ -26,6 +26,7 @@ interface Props {
   compositionScale?: number;
   onFrameUpdate?: (frame: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
+  children?: React.ReactNode;
 }
 
 export interface RemotionVideoPlayerRef {
@@ -57,7 +58,8 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   overlays = [],
   compositionScale = 0.5,
   onFrameUpdate,
-  onPlayStateChange
+  onPlayStateChange,
+  children,
 }, ref) => {
 
   const playerRef = useRef<PlayerRef>(null);
@@ -194,7 +196,12 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   }
 
   return (
-    <div className={`w-full bg-black rounded-lg overflow-hidden border border-zinc-800 shadow-2xl relative ${videoFormat === 'portrait' ? 'aspect-[9/16] w-auto mx-auto max-h-[70vh]' : 'aspect-video'}`}>
+    // Portrait stays width-driven like landscape (height always derives from
+    // the ratio, so it can never break): `w-full` capped so the 9:16 height
+    // fits the viewport (70vh tall → 39.375vh wide). A bare `w-full` +
+    // `max-h` cap lets width win and silently breaks aspect-ratio, letterboxing
+    // the video inside a wide box that the % overlay can never match.
+    <div className={`bg-black rounded-lg overflow-hidden border border-zinc-800 shadow-2xl relative ${videoFormat === 'portrait' ? 'aspect-[9/16] w-full max-w-[39.375vh] mx-auto' : 'aspect-video w-full'}`}>
       <Player
         ref={playerRef}
         component={NitishRajputComposition}
@@ -217,6 +224,8 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
           </div>
         )}
       />
+
+      {children}
 
       <div className="absolute top-4 right-4 bg-zinc-950/80 backdrop-blur-md px-3 py-1 rounded text-xs font-mono text-zinc-300 z-20 border border-zinc-800 pointer-events-none">
         {(durationInFrames / 30).toFixed(1)}s / {((durationInFrames / 30) / 60).toFixed(2)}m
