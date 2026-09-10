@@ -223,10 +223,10 @@ export const CanvasOverlay: React.FC<{ scenes: any[] }> = ({ scenes }) => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // Performance: Hide overlay entirely while video is playing.
-  // Eliminates 30–60 FPS style churn and allows full GPU bandwidth for playback.
-  if (isPlaying) return null;
-
+  // NOTE: All hooks must run unconditionally before any early return.
+  // Previously useMemo(activeSceneIdx) sat after `if (isPlaying) return null`,
+  // so toggling play / clicking preview changed the hook count and React threw
+  // "Rendered fewer hooks than expected" inside <CanvasOverlay>.
   // Active scene resolution
   const activeSceneIdx = useMemo(() => {
     let offset = 0;
@@ -237,6 +237,10 @@ export const CanvasOverlay: React.FC<{ scenes: any[] }> = ({ scenes }) => {
     }
     return -1;
   }, [scenes, currentFrame]);
+
+  // Performance: Hide overlay entirely while video is playing.
+  // Eliminates 30–60 FPS style churn and allows full GPU bandwidth for playback.
+  if (isPlaying) return null;
 
   // Only the selected cut gets boxes, and only while the playhead is inside
   // that scene — otherwise the boxes would describe a cut the player isn't showing.
