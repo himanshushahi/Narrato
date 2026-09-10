@@ -137,6 +137,12 @@ def compute_granular_frame_hashes(props_dict, render_settings):
     transcription = props_dict.get("transcription", {})
     segments = transcription.get("segments", []) if isinstance(transcription, dict) else []
 
+    # When subtitles are hidden they contribute zero pixels: word-timing
+    # changes (e.g. after a voice re-run) must not invalidate cached frames.
+    _subtitle_settings = props_dict.get("subtitleSettings", {})
+    if isinstance(_subtitle_settings, dict) and _subtitle_settings.get("hide_subtitles"):
+        segments = []
+
     fps = props_dict.get("fps") or 30
     scene_records = []
 
@@ -819,9 +825,11 @@ def is_render_stale(project_dict, project_dir) -> bool:
 def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=False):
     """Compiles the React Remotion canvas into an MP4 file using resumable frame rendering.
 
-    force=True (explicit stage re-run via start_processing_pipeline) invalidates
-    the frame/audio caches so every frame is re-rendered instead of skipped.
-    force=False (smart resume via resume_processing_pipeline) keeps granular reuse.
+    The queue manager always calls this with force=False: multi-domain content
+    hashes (frame_hash, audio_hash, mux_hash) decide which caches to reuse and
+    which to invalidate.  force=True is retained for direct/test invocations but
+    is deliberately never triggered from the pipeline (see §3b of the Smart
+    Resume architecture doc).
     """
     logger.info(f"Preparing Remotion compilation properties for project: {project_dict['name']}")
     progress_cb(5.0, "Preparing compilation properties...")

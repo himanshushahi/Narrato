@@ -24,35 +24,39 @@ The video creation pipeline consists of 6 sequential, computationally intensive 
 ```mermaid
 flowchart TD
     Start(["User triggers 'Resume Pipeline' or 'Resume from Stage'"]) --> QM["QueueManager (backend/pipeline/queue.py)"]
+    QM --> Eval["Evaluate EVERY stage with its own is_*_stale()<br/>No blanket downstream invalidation"]
     
     subgraph S1 ["Stage 1: Script & Design System"]
-        QM --> C1{"is_script_stale()?<br/>Checks _project_hash"}
+        Eval --> C1{"is_script_stale()?<br/>Checks _project_hash"}
         C1 -- "Changed / Missing" --> RunS1["Execute: generate_script_pipeline<br/>(Outline + Scene Writer + Art Director)"]
         C1 -- "Unchanged" --> C2
     end
 
     subgraph S2 ["Stage 2: Voiceover Speech Synthesis"]
-        RunS1 --> ForceS2["Mark Downstream Stale"]
-        ForceS2 --> RunS2["Execute: generate_voiceover_pipeline<br/>(TTS Audio Synthesis + Stitching)"]
+        RunS1 --> PropV["Propagate: script regen invalidates all downstream"]
+        PropV --> RunS2["Execute: generate_voiceover_pipeline<br/>(Per-section TTS resume + Stitching<br/>+ in-place visual duration resync)"]
         C2{"is_voiceover_stale()?<br/>Checks _content_hash & TTS Engine/Voice/Mtime"}
         C2 -- "Changed / Audio Missing" --> RunS2
         C2 -- "Unchanged" --> C3
     end
 
     subgraph S3 ["Stage 3: Whisper Forced Alignment"]
-        RunS2 --> ForceS3["Mark Downstream Stale"]
-        ForceS3 --> RunS3["Execute: transcribe_pipeline<br/>(Word-level Alignment)"]
+        RunS2 --> PropT["Propagate: new audio forces transcribe + render ONLY<br/>(visuals & assets NOT invalidated)"]
+        PropT --> RunS3["Execute: transcribe_pipeline<br/>(Word-level Alignment)"]
         C3{"is_transcribe_stale()?<br/>Checks _transcribe_hash & JSON exist"}
         C3 -- "Changed / JSON Missing" --> RunS3
         C3 -- "Unchanged" --> C4
     end
 
     subgraph S4 ["Stage 4: AST Visuals & Smart Preservation"]
-        RunS3 --> ForceS4["Mark Downstream Stale"]
-        ForceS4 --> RunS4["Execute: generate_visuals_pipeline"]
-        C4{"is_visuals_stale()?<br/>Checks sub_visuals in script.json"}
-        C4 -- "Visuals Missing" --> RunS4
-        C4 -- "Visuals Present" --> C5
+        RunS3 --> PropR1["Propagate: new word timings force render ONLY"]
+        PropR1 --> C6
+        RunS1 --> PropV4["Propagate: new narration forces visuals + assets + render"]
+        PropV4 --> RunS4["Execute: generate_visuals_pipeline"]
+        C4{"is_visuals_stale()?<br/>sub_visuals present AND narration/design hashes match"}
+        C4 -- "Missing / Narration Changed / Design Changed" --> RunS4
+        C4 -- "Present & Hashes Match (pure voice re-run)" --> SkipV["SKIP visuals entirely<br/>(0s, 0 LLM tokens)"]
+        SkipV --> C5
         
         RunS4 --> SP{"Per-Scene Smart Preservation<br/>(_narr_hash & _design_hash)"}
         SP -- "Narration / Design Unchanged" --> Preserve["Scale sub-visual durations<br/>Skip LLM storyboard/AST call"]
@@ -60,12 +64,13 @@ flowchart TD
     end
 
     subgraph S5 ["Stage 5: Media Asset Resolution"]
-        Preserve --> ForceS5["Mark Downstream Stale"]
+        Preserve --> ForceS5["Mark assets+render stale (new AST queries)"]
         LLM --> ForceS5
         ForceS5 --> RunS5["Execute: fetch_assets_pipeline<br/>(Pexels / Media Downloader + Cleanup)"]
-        C5{"is_assets_stale()?<br/>Checks media file presence & manifest diff"}
-        C5 -- "Files Missing / AST Differ" --> RunS5
-        C5 -- "Unchanged" --> C6
+        C5{"is_assets_stale()?<br/>Duration-agnostic AST match + file presence"}
+        C5 -- "Files Missing / AST Structure Differ" --> RunS5
+        C5 -- "Unchanged (duration-only diffs ignored)" --> SkipA["SKIP asset downloads"]
+        SkipA --> C6
     end
 
     subgraph S6 ["Stage 6: Multi-Domain Incremental Render"]
@@ -92,11 +97,44 @@ Each pipeline stage defines a deterministic staleness checking function that val
 | Stage | Checker Function | Source File | Hash / Validation Keys | Trigger Condition for Invalidation |
 |---|---|---|---|---|
 | **1. `generate_script`** | `is_script_stale()` | [`backend/pipeline/ai.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `_project_hash` | `script.json` missing, or changes to topic prompt, language, target duration, or format. |
-| **2. `generate_voiceover`** | `is_voiceover_stale()` | [`backend/pipeline/tts.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/tts.py) | `_content_hash`, `_voiceover_engine`, `_voiceover_voice`, `_voiceover_voice_mtime` | `voiceover.wav` missing, narration text modified, TTS engine switched, or reference cloning clip replaced. |
+| **2. `generate_voiceover`** | `is_voiceover_stale()` | [`backend/pipeline/tts.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/tts.py) | `_content_hash`, `_voiceover_engine`, `_voiceover_voice`, `_voiceover_voice_mtime` | `voiceover.wav` missing, narration text modified, TTS engine switched, or reference cloning clip replaced. **Per-section resume inside the run**: sections whose text AND voice settings match the previous manifest (`find_reusable_voice_segment`, matched by `(section_type, text)` so reorders still reuse) skip TTS entirely and reuse `segment_NNN.wav` — a one-scene script edit re-pays TTS for that scene only. |
 | **3. `transcribe`** | `is_transcribe_stale()` | [`backend/pipeline/transcribe.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/transcribe.py) | `_transcribe_hash` (`whisper.hash.txt`) | `subtitles/transcription.json` missing, or Whisper model size/device/language changed in settings. |
-| **4. `generate_visuals`** | `is_visuals_stale()` | [`backend/pipeline/assets.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `sub_visuals` array completeness in `script.json` | Any scene in `script.json` lacks valid `sub_visuals` entries. |
-| **5. `fetch_assets`** | `is_assets_stale()` | [`backend/pipeline/assets.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | Stripped AST structure match (`strip_local_paths`) + local file existence | Any referenced image/video file missing on disk, or visual layer types/cues modified in `script.json`. |
+| **4. `generate_visuals`** | `is_visuals_stale()` | [`backend/pipeline/assets.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `sub_visuals` completeness + per-section `_narr_hash` vs script narration + `_design_hash` vs `design.json` | Any scene lacks `sub_visuals`, narration text changed since visuals were built (manifest text/`_narr_hash` mismatch), section order/count changed, or `design.json` regenerated/missing. A pure voiceover re-run (same text, new audio) is **NOT stale** — the stage is skipped entirely. |
+| **5. `fetch_assets`** | `is_assets_stale()` | [`backend/pipeline/assets.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | Duration-agnostic AST structure match (`strip_volatile_ast_keys`: ignores `local_path`, `asset_url` provenance + top-level sub-visual `duration`) + local file existence | Any referenced image/video file missing on disk, or visual layer types/queries modified in `script.json`. Duration-only diffs (voiceover resync, timeline trims) never trigger re-downloads. **Per-layer resume inside the run**: existing `local_path` ⇒ skip; otherwise the layer's stored `asset_url` is re-downloaded first (deterministic — stock top-results rotate, so a fresh search could silently swap the visual), falling back to a fresh provider search only if that URL fails. |
 | **6. `render`** | `is_render_stale()` / Multi-Domain Hashes | [`backend/pipeline/render.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/render.py) | `frame.hash.txt`, `audio.hash.txt`, `mux.hash.txt` | Target MP4 missing, AST layer style/animation changed, background music tracks/volumes/trims/cuts modified, track volume/mute overridden, or resolution changed. |
+
+---
+
+## 3b. Content-Aware Downstream Propagation (no blanket cascade)
+
+Smart Resume evaluates **every** stage with its own checker. A queued upstream
+stage pulls in only the downstream stages that consume its output
+(`queue.py::_PROPAGATE` + `resolve_steps_to_queue` fixpoint over the requested
+step range). **Forced runs ("Resume from Stage") and Smart Resume share this
+single evaluation**: the explicitly requested first stage of a forced run is
+treated as forced-stale, everything else — including downstream stages of a
+forced run — is decided by its own checker plus propagation. A forced
+voiceover re-run therefore skips visuals/assets entirely instead of running
+them as no-ops, and an explicit render re-run reuses valid caches (fast-mux
+when nothing changed) instead of wiping them. There is deliberately no
+cache-wiping "force" path anymore — to truly redo everything, delete the
+stage artifacts on disk.
+
+| Queued upstream stage | Forced downstream stages | Deliberately NOT forced |
+|---|---|---|
+| `generate_script` | voiceover, transcribe, visuals, assets, render (new narration invalidates everything) | — |
+| `generate_voiceover` | transcribe (new audio ⇒ new word timings), render (new mix) | **visuals, assets** — ASTs are narration-driven; durations are rescaled in place (see §4b) |
+| `transcribe` | render (new word timings affect subtitles) | **visuals, assets** |
+| `generate_visuals` | assets (new queries need downloads), render | — |
+| `fetch_assets` | render | — |
+
+**Forced re-runs** (`start_processing_pipeline`, e.g. "Resume from Stage") mark
+only the explicitly requested first stage as forced-stale; downstream stages
+in the same run are resolved by the same content-aware evaluation above
+(`resolve_steps_to_queue`). Requesting "re-run from voiceover" therefore
+re-synthesizes changed sections' audio + word timings and then skips straight
+to an incremental render when narration is unchanged — visuals and asset
+downloads are skipped, not merely run as no-ops.
 
 ---
 
@@ -137,6 +175,28 @@ if not force and existing_sub_visuals and not is_default and not narration_chang
     return entry  # Preserved without calling LLM!
 ```
 
+> **Note on `force`:** per-scene preservation applies **regardless** of `force`
+> (`backend/pipeline/ai.py`). Content hashes fully decide what needs LLM work:
+> an explicitly re-requested visuals run regenerates only scenes whose
+> narration/design actually changed and preserves the rest. To force a full
+> stylistic regen, change the design (genre/format) or clear the scene's
+> `sub_visuals` first. Likewise `render_pipeline` always runs with
+> `force=False`, so an explicit render re-run reuses valid frame/audio caches.
+
+### 4b. Post-Voiceover Duration Resync (no visuals run needed)
+
+`generate_voiceover_pipeline` ( [`tts.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/tts.py) ) ends with two bookkeeping steps so skipping
+stages 4–5 stays timing-correct:
+
+1. **Hash carry-over** — `_narr_hash` / `_design_hash` are copied from the old
+   manifest entry to the rebuilt entry when the section text is unchanged, so
+   `is_visuals_stale` can still verify AST validity after the rewrite.
+2. **`sync_visual_durations_after_voiceover`** ( [`assets.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) ) — rescales every
+   section's `sub_visuals` durations to the fresh audio durations in **both**
+   `voiceover/manifest.json` and `script.json`. No-op rescales (identical
+   durations) are skipped so file mtimes — and therefore render hashes — stay
+   stable on byte-identical re-runs.
+
 ---
 
 ## 5. Multi-Domain Render Hash Engine
@@ -167,6 +227,14 @@ flowchart TD
 2. **`Frames-only re-render`**: Visual AST changed (e.g. text edit, chart animation), but audio tracks remain identical. Cached `render_cache/audio.wav` is reused immediately.
 3. **`Audio-only re-render`**: Visuals untouched, but a track override was toggled (e.g. background music muted). Re-uses 100% of cached `.webp` frames; only FFmpeg audio mix and fast mux execute (~1-2 seconds total).
 4. **`Fast mux only`**: Both frame cache and audio cache are 100% valid, but output MP4 was deleted or moved. Instant multiplexing without frame or audio recalculation.
+
+Per-scene frame hashes (`compute_granular_frame_hashes`) cover the scene AST,
+its frame boundaries, overlapping subtitle segments, and referenced file
+mtimes — so a duration change in scene N re-renders scenes N..end (absolute
+frame numbering shifts downstream boundaries; structural, not a bug). When
+subtitles are hidden (`hide_subtitles`), subtitle segments contribute zero
+pixels and are excluded from the scene hash, so new word timings alone never
+invalidate cached frames.
 
 ---
 
@@ -210,7 +278,8 @@ sequenceDiagram
 | **Sub-Visual Ratio Resize** | `script.json`, `assets_manifest.json` | `frame_hash` changed; `_content_hash` unchanged. | Stages 1–5 skipped. **Stage 6**: Frames-only re-render. |
 | **Scene Boundary Resize** | `script.json`, `assets_manifest.json` | `frame_hash` changed; `_content_hash` unchanged. | Stages 1–5 skipped. **Stage 6**: Frames-only re-render. |
 | **Split Cut at Playhead (`C`)** | `script.json`, `assets_manifest.json` | `frame_hash` changed; `_content_hash` unchanged. | Stages 1–5 skipped. **Stage 6**: Frames-only re-render. |
-| **Script Narration Edit** | `script.json` | `_content_hash` mismatch; `_narr_hash` mismatch. | **Stages 2–6**: TTS synthesizes new audio; untouched scenes preserved in AST stage. |
+| **Script Narration Edit** | `script.json` | `_content_hash` mismatch; `_narr_hash` mismatch. | **Stages 2–6**: TTS synthesizes new audio; visuals stage runs but only the edited scene hits the LLM (untouched scenes preserved). |
+| **Voiceover Re-run (voice/engine/speed change, script unchanged)** | TTS settings / `voiceover.wav` | `_content_hash` unchanged; audio mtime changed. | **Stages 2–3 + 6 only**: changed sections re-synthesized (per-section TTS resume; a settings change re-synthesizes all sections, a one-scene text edit only that scene) + transcription re-run; durations rescaled in place; **visuals and asset downloads skipped**; render reuses frames when visuals untouched (audio-only / fast-mux scope). |
 | **Track Mute Toggle** | `project_settings` in DB | `audio_hash` mismatch; `frame_hash` unchanged. | Stages 1–5 skipped. **Stage 6**: Audio-only re-render (instant). |
 | **Hide Subtitles Toggle** | `project_settings` in DB | `frame_hash` mismatch (subtitle overlay disabled). | Stages 1–5 skipped. **Stage 6**: Frames-only re-render. |
 

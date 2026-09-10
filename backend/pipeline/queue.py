@@ -9,6 +9,88 @@ from backend.database.db import (
 )
 from backend.core.power import power_manager
 
+# ── Content-aware Smart Resume propagation ─────────────────────────────
+# An upstream (re-)run pulls in only the downstream stages that consume its
+# output — never a blanket invalidation:
+#   script        -> voiceover, transcribe, visuals, assets, render
+#                    (new narration invalidates everything)
+#   voiceover     -> transcribe, render
+#                    (new audio => new word timings + new mix. Visual ASTs are
+#                    narration-driven, so visuals and asset downloads are NOT
+#                    invalidated; sub-visual durations are rescaled in place by
+#                    the voiceover pipeline instead.)
+#   transcribe    -> render (new word timings affect subtitles)
+#   visuals       -> assets, render (new queries need downloads)
+#   assets        -> render (new files affect frames/audio)
+_PROPAGATE = {
+    'generate_script': {'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render'},
+    'generate_voiceover': {'transcribe', 'render'},
+    'transcribe': {'render'},
+    'generate_visuals': {'fetch_assets', 'render'},
+    'fetch_assets': {'render'},
+    'render': set(),
+}
+
+
+def resolve_steps_to_queue(pipeline_steps, completed_steps, is_stale_fn, forced_steps=None):
+    """Pure step-resolution for Smart Resume (unit-testable, no DB/file IO).
+
+    A step is queued when it was never completed, is explicitly forced
+    (first stage of a forced re-run), or its own staleness checker reports
+    stale — plus fixpoint propagation of content-dependent downstream steps
+    via _PROPAGATE. Returns the queued steps in pipeline order.
+    """
+    forced_steps = forced_steps or set()
+    stale_steps = set(forced_steps)
+    for step in pipeline_steps:
+        if step in stale_steps:
+            continue
+        if step not in completed_steps:
+            stale_steps.add(step)
+        elif is_stale_fn(step):
+            stale_steps.add(step)
+
+    queued = set()
+    changed = True
+    while changed:
+        changed = False
+        for step in pipeline_steps:
+            if step in queued:
+                continue
+            if step in stale_steps or any(
+                step in _PROPAGATE.get(q, set()) for q in queued
+            ):
+                queued.add(step)
+                changed = True
+    return [step for step in pipeline_steps if step in queued]
+
+
+def _check_step_stale(proj, proj_dir, step):
+    """Run the owning staleness checker for one stage. True on error (safe)."""
+    try:
+        if step == 'generate_script':
+            from backend.pipeline.ai import is_script_stale
+            return is_script_stale(proj, proj_dir)
+        elif step == 'generate_voiceover':
+            from backend.pipeline.tts import is_voiceover_stale
+            return is_voiceover_stale(proj, proj_dir)
+        elif step == 'transcribe':
+            from backend.pipeline.transcribe import is_transcribe_stale
+            return is_transcribe_stale(proj, proj_dir)
+        elif step == 'generate_visuals':
+            from backend.pipeline.assets import is_visuals_stale
+            return is_visuals_stale(proj, proj_dir)
+        elif step == 'fetch_assets':
+            from backend.pipeline.assets import is_assets_stale
+            return is_assets_stale(proj, proj_dir)
+        elif step == 'render':
+            from backend.pipeline.render import is_render_stale
+            return is_render_stale(proj, proj_dir)
+    except Exception as e:
+        logger.error(f"Error checking staleness for {step}: {e}")
+        return True
+    return True
+
 class QueueManager:
     def __init__(self):
         self._running = False
@@ -63,63 +145,41 @@ class QueueManager:
         # Update database project status
         update_project(project_id, status='queued')
         
-        # Determine steps to execute
-        if is_resume:
+        # Determine steps to execute.
+        # Forced runs ("Resume from Stage") and Smart Resume share ONE
+        # content-aware evaluation: the explicitly requested first stage of a
+        # forced run is treated as forced-stale, everything else — including
+        # downstream stages of a forced run — is decided by its own checker
+        # plus _PROPAGATE. A forced voiceover re-run therefore still skips
+        # visuals/assets entirely instead of running them as no-ops.
+        all_steps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']
+        pipeline_steps = steps if steps else (list(all_steps) if is_resume else [])
+
+        proj = get_project(project_id)
+        from backend.core.config import get_storage_dir
+        proj_dir = get_storage_dir() / project_id
+
+        if pipeline_steps:
             tasks = get_project_tasks(project_id)
             completed_steps = {t['step'] for t in tasks if t['status'] == 'completed'}
-            
-            pipeline_steps = steps if steps else ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']
-            
-            proj = get_project(project_id)
-            from backend.core.config import get_storage_dir
-            proj_dir = get_storage_dir() / project_id
-            
-            is_downstream_stale = False
-            remaining_steps = []
-            
-            for step in pipeline_steps:
-                is_stale = False
-                
-                if step not in completed_steps:
-                    is_stale = True
-                elif not is_downstream_stale:
-                    try:
-                        if step == 'generate_script':
-                            from backend.pipeline.ai import is_script_stale
-                            is_stale = is_script_stale(proj, proj_dir)
-                        elif step == 'generate_voiceover':
-                            from backend.pipeline.tts import is_voiceover_stale
-                            is_stale = is_voiceover_stale(proj, proj_dir)
-                        elif step == 'transcribe':
-                            from backend.pipeline.transcribe import is_transcribe_stale
-                            is_stale = is_transcribe_stale(proj, proj_dir)
-                        elif step == 'generate_visuals':
-                            from backend.pipeline.assets import is_visuals_stale
-                            is_stale = is_visuals_stale(proj, proj_dir)
-                        elif step == 'fetch_assets':
-                            from backend.pipeline.assets import is_assets_stale
-                            is_stale = is_assets_stale(proj, proj_dir)
-                        elif step == 'render':
-                            from backend.pipeline.render import is_render_stale
-                            is_stale = is_render_stale(proj, proj_dir)
-                    except Exception as e:
-                        logger.error(f"Error checking staleness for {step}: {e}")
-                        is_stale = True
-                
-                if is_stale or is_downstream_stale:
-                    is_downstream_stale = True
-                    remaining_steps.append(step)
-                    
-            if not remaining_steps and 'render' in pipeline_steps:
+
+            forced_steps = set() if is_resume else {pipeline_steps[0]}
+            steps_to_queue = resolve_steps_to_queue(
+                pipeline_steps,
+                completed_steps,
+                lambda s: _check_step_stale(proj, proj_dir, s),
+                forced_steps,
+            )
+
+            if not steps_to_queue and 'render' in pipeline_steps:
                 from backend.pipeline.render import is_render_stale
                 if is_render_stale(proj, proj_dir):
-                    remaining_steps = ['render']
-                
-            steps_to_queue = remaining_steps
+                    steps_to_queue = ['render']
         else:
-            steps_to_queue = steps
+            steps_to_queue = []
+
+        if not is_resume:
             # Reset tasks for downstream stages not included in this forced run
-            all_steps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render']
             if steps_to_queue:
                 try:
                     first_step_idx = all_steps.index(steps_to_queue[0])
@@ -228,7 +288,7 @@ class QueueManager:
                         # Run the specific pipeline step
                         from backend.pipeline.ai import usage_tracking_context
                         with usage_tracking_context(task_id):
-                            self._execute_step(project_id, step, cancel_event, is_resume)
+                            self._execute_step(project_id, step, cancel_event)
                         
                         update_task(task_id, status='completed', progress=100.0, message='Step completed.')
                         self._broadcast_task_progress(project_id, step, 100.0, 'Step completed.', 'completed')
@@ -270,8 +330,17 @@ class QueueManager:
             self._active_project_id = None
             self._broadcast_queue_status()
 
-    def _execute_step(self, project_id, step, cancel_event, is_resume=False):
-        """Router to execute pipeline steps."""
+    def _execute_step(self, project_id, step, cancel_event):
+        """Router to execute pipeline steps.
+
+        Every stage runs in smart mode: content hashes decide what is
+        (re-)generated, so even an explicitly re-requested stage reuses
+        whatever is still valid (unchanged voiceover segments, unchanged
+        visual scenes, existing asset files, cached frames/audio). The only
+        exception is a stage whose own checker reports stale — then it runs
+        fully. There is deliberately no cache-wiping "force" path anymore:
+        to truly redo everything, delete the stage artifacts on disk.
+        """
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
 
@@ -311,12 +380,16 @@ class QueueManager:
             
         elif step == 'generate_visuals':
             from backend.pipeline.ai import generate_visuals_pipeline
-            generate_visuals_pipeline(proj, proj_dir, progress_cb, cancel_event, force=not is_resume)
-            
+            # force=False: per-scene preservation decides LLM regen scene by
+            # scene, even for an explicitly re-requested visuals run.
+            generate_visuals_pipeline(proj, proj_dir, progress_cb, cancel_event, force=False)
+
         elif step == 'render':
             logger.info(f"Smart Resume: Starting render step — cache hashes will determine incremental scope.")
             from backend.pipeline.render import render_pipeline
-            render_pipeline(proj, proj_dir, progress_cb, cancel_event, force=not is_resume)
+            # force=False: an explicit render re-run reuses valid frame/audio
+            # caches (fast-mux when nothing changed) instead of wiping them.
+            render_pipeline(proj, proj_dir, progress_cb, cancel_event, force=False)
             
         else:
             raise ValueError(f"Unknown pipeline step: {step}")

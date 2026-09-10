@@ -44,21 +44,95 @@ def compute_script_content_hash(script_data):
     return hashlib.sha256(content_str.encode("utf-8")).hexdigest()
 
 def strip_local_paths(data):
+    # "asset_url" is provenance metadata (which remote URL a file came from),
+    # not visual structure — never a staleness signal.
     if isinstance(data, dict):
-        return {k: strip_local_paths(v) for k, v in data.items() if k != "local_path"}
+        return {k: strip_local_paths(v) for k, v in data.items() if k not in ("local_path", "asset_url")}
     elif isinstance(data, list):
         return [strip_local_paths(v) for v in data]
     return data
 
+def strip_volatile_ast_keys(data):
+    """Like strip_local_paths but also ignores sub-visual 'duration'.
+
+    Asset downloads depend on the AST structure (queries, layer types) and
+    not on timing: rescaling sub-visual durations to a new voiceover (or a
+    timeline trim) must NOT mark assets stale and trigger re-downloads.
+    Only the top-level 'duration' of each sub_visual entry is ignored —
+    nested animation durations inside compositions are preserved so real
+    motion changes still invalidate.
+    """
+    if isinstance(data, dict):
+        return {k: strip_volatile_ast_keys(v) for k, v in data.items() if k not in ("local_path", "asset_url")}
+    elif isinstance(data, list):
+        normalized = []
+        for v in data:
+            if isinstance(v, dict) and "composition" in v:
+                v = {k: v[k] for k in v if k != "duration"}
+            normalized.append(strip_volatile_ast_keys(v))
+        return normalized
+    return data
+
+def _resolve_manifest_path(project_dict, project_dir):
+    """Resolve the active visual manifest (assets_manifest or voiceover manifest)."""
+    manifest_path_str = project_dict.get('assets_manifest_path') if project_dict else None
+    manifest_path = Path(manifest_path_str) if manifest_path_str and Path(manifest_path_str).exists() else None
+    if not manifest_path:
+        for candidate in [project_dir / "voiceover" / "manifest.json", project_dir / "assets" / "assets_manifest.json"]:
+            if candidate.exists():
+                manifest_path = candidate
+                break
+    return manifest_path
+
+def _section_texts_from_script(script_data):
+    """Extract per-section narration texts in manifest order: intro, scenes..., conclusion.
+
+    Mirrors the section flattening in generate_voiceover_pipeline (tts.py)
+    so manifest entries align 1:1 with script sections.
+    """
+    texts = []
+    intro = script_data.get("introduction")
+    if intro and isinstance(intro, dict) and "hook" in intro:
+        texts.append(("introduction", intro.get("hook") or ""))
+    for scene in script_data.get("scenes", []) or []:
+        if isinstance(scene, dict):
+            texts.append(("scene", scene.get("narration") or ""))
+    conclusion = script_data.get("conclusion")
+    if conclusion and isinstance(conclusion, dict):
+        texts.append(("conclusion", f"{conclusion.get('summary') or ''} {conclusion.get('cta') or ''}".strip()))
+    return texts
+
+def _current_design_hash(project_dir):
+    """Hash of the cached design.json, matching generate_visuals_pipeline's scheme."""
+    design_path = Path(project_dir) / "design.json"
+    if not design_path.exists():
+        return None
+    try:
+        with open(design_path, "r", encoding="utf-8") as f:
+            design_system = json.load(f)
+        if not isinstance(design_system, dict) or not design_system.get("theme_name"):
+            return None
+        return hashlib.md5(json.dumps(design_system, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    except Exception:
+        return None
+
 def is_visuals_stale(project_dict, project_dir):
-    """Check if the sub-visuals in script.json are missing or empty."""
+    """Check if visuals need (re-)generation.
+
+    Returns True when sub-visuals are missing/empty (first run), when any
+    section's narration text differs from what the visuals were built for
+    (manifest text or _narr_hash mismatch), or when the design system
+    changed (design.json hash vs stored _design_hash).  A pure voiceover
+    re-run (new audio, same narration) is NOT stale — durations are
+    rescaled in place without any LLM call.
+    """
     script_path = project_dir / "script.json"
     if not script_path.exists():
         return True
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             script_data = json.load(f)
-            
+
         def has_visuals(section):
             if not section: return False
             return len(section.get('sub_visuals', [])) > 0
@@ -67,14 +141,54 @@ def is_visuals_stale(project_dict, project_dir):
             return True
         if not has_visuals(script_data.get('conclusion')):
             return True
-            
+
         scenes = script_data.get('scenes', [])
         if not scenes:
             return True
         for scene in scenes:
             if not has_visuals(scene):
                 return True
-                
+
+        # Content check: narration / design changed since visuals were built?
+        manifest_path = _resolve_manifest_path(project_dict, project_dir)
+        if not manifest_path:
+            return True
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            assets_manifest = json.load(f)
+        if not isinstance(assets_manifest, list) or not assets_manifest:
+            return True
+
+        script_texts = _section_texts_from_script(script_data)
+        manifest_entries = [m for m in assets_manifest if isinstance(m, dict)]
+        if len(manifest_entries) != len(script_texts):
+            logger.info(f"visuals stale: section count mismatch (manifest={len(manifest_entries)}, script={len(script_texts)})")
+            return True
+
+        current_design_hash = _current_design_hash(project_dir)
+        if current_design_hash is None:
+            logger.info("visuals stale: design.json missing or invalid (design will be regenerated)")
+            return True
+
+        for manifest_entry, (sec_type, script_text) in zip(manifest_entries, script_texts):
+            if manifest_entry.get("section_type") != sec_type:
+                logger.info(f"visuals stale: section type/order changed ({manifest_entry.get('section_type')} vs {sec_type})")
+                return True
+            narration_hash = hashlib.md5((script_text or "").encode("utf-8")).hexdigest()[:12]
+            stored_narr = manifest_entry.get("_narr_hash") or ""
+            if stored_narr:
+                if stored_narr != narration_hash:
+                    logger.info(f"visuals stale: narration changed for section {sec_type}")
+                    return True
+            else:
+                manifest_text = (manifest_entry.get("text") or "").strip()
+                if manifest_text != (script_text or "").strip():
+                    logger.info(f"visuals stale: narration text changed for section {sec_type}")
+                    return True
+            stored_design = manifest_entry.get("_design_hash") or ""
+            if stored_design and stored_design != current_design_hash:
+                logger.info(f"visuals stale: design system changed for section {sec_type}")
+                return True
+
         return False
     except Exception as e:
         logger.warning(f"Failed to check visuals staleness: {e}")
@@ -249,18 +363,18 @@ def promote_preview_paths_to_assets(project_id, script_data=None, manifest_data=
 
 
 def is_assets_stale(project_dict, project_dir):
-    """Check if the sub-visual structure in script.json differs from manifest, or if files are missing."""
+    """Check if the sub-visual structure in script.json differs from manifest, or if files are missing.
+
+    Duration-only differences are IGNORED: rescaling sub-visual timings to a
+    new voiceover (or a timeline trim) never requires re-downloading media.
+    Only structural changes (layer types, queries, counts) or missing files
+    mark assets stale.
+    """
     script_path = project_dir / "script.json"
     if not script_path.exists():
         return True
 
-    manifest_path_str = project_dict.get('assets_manifest_path') if project_dict else None
-    manifest_path = Path(manifest_path_str) if manifest_path_str and Path(manifest_path_str).exists() else None
-    if not manifest_path:
-        for candidate in [project_dir / "voiceover" / "manifest.json", project_dir / "assets" / "assets_manifest.json"]:
-            if candidate.exists():
-                manifest_path = candidate
-                break
+    manifest_path = _resolve_manifest_path(project_dict, project_dir)
 
     if not manifest_path:
         return True
@@ -321,9 +435,11 @@ def is_assets_stale(project_dict, project_dir):
                 scene_counter += 1
                 
             orig_sub_visuals = manifest_scene.get("sub_visuals", [])
-            
-            relevant_live = strip_local_paths(live_sub_visuals)
-            relevant_orig = strip_local_paths(orig_sub_visuals)
+
+            # Duration-agnostic: timing rescaling (voiceover re-run with the
+            # same narration, timeline trims) must not trigger re-downloads.
+            relevant_live = strip_volatile_ast_keys(live_sub_visuals)
+            relevant_orig = strip_volatile_ast_keys(orig_sub_visuals)
             
             if relevant_live != relevant_orig:
                 logger.info(f"assets stale: sub_visuals changed for section {sec_type}")
@@ -337,6 +453,112 @@ def is_assets_stale(project_dict, project_dir):
     except Exception as e:
         logger.warning(f"Failed to check assets staleness: {e}")
         return True
+
+
+def _scale_sub_visual_durations(sub_visuals, target_duration):
+    """Rescale sub-visual durations proportionally so they sum to target_duration."""
+    if not isinstance(sub_visuals, list) or not sub_visuals:
+        return False
+    try:
+        target = float(target_duration)
+    except (TypeError, ValueError):
+        return False
+    if target <= 0:
+        return False
+    old_total = 0.0
+    for v in sub_visuals:
+        try:
+            old_total += float(v.get("duration", 0)) if isinstance(v, dict) else 0.0
+        except (TypeError, ValueError):
+            pass
+    if old_total > 0:
+        scale = target / old_total
+        # Skip no-op rescales so file mtimes (and render hashes) stay stable
+        # when the voiceover re-run produced identical durations.
+        if abs(scale - 1.0) < 1e-6:
+            return False
+        for v in sub_visuals:
+            if isinstance(v, dict):
+                try:
+                    v["duration"] = round(float(v.get("duration", 0)) * scale, 2)
+                except (TypeError, ValueError):
+                    pass
+    else:
+        per = round(target / len(sub_visuals), 2)
+        for v in sub_visuals:
+            if isinstance(v, dict):
+                v["duration"] = per
+    return True
+
+
+def sync_visual_durations_after_voiceover(project_dir):
+    """Rescale existing sub-visual durations to fresh voiceover audio durations.
+
+    Called at the end of generate_voiceover_pipeline so a voice re-run with
+    UNCHANGED narration keeps every timing consistent without running the
+    visuals stage at all (no LLM calls) and without invalidating assets
+    (duration-only diffs are ignored by is_assets_stale).
+
+    Updates both voiceover/manifest.json and the mirrored sub_visuals in
+    script.json.  Returns the number of sections rescaled.
+    """
+    project_dir = Path(project_dir)
+    manifest_path = project_dir / "voiceover" / "manifest.json"
+    script_path = project_dir / "script.json"
+    if not manifest_path.exists() or not script_path.exists():
+        return 0
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+    except Exception as e:
+        logger.warning(f"Duration resync skipped, could not read manifest/script: {e}")
+        return 0
+    if not isinstance(manifest, list) or not isinstance(script, dict):
+        return 0
+
+    script_scenes = script.get("scenes", []) if isinstance(script.get("scenes"), list) else []
+    scene_counter = 0
+    rescaled = 0
+    try:
+        for entry in manifest:
+            if not isinstance(entry, dict):
+                continue
+            sec_type = entry.get("section_type")
+            sub_visuals = entry.get("sub_visuals")
+            if not _has_meaningful_sub_visuals(sub_visuals):
+                if sec_type == "scene":
+                    scene_counter += 1
+                continue
+            if _scale_sub_visual_durations(sub_visuals, entry.get("duration", 0)):
+                rescaled += 1
+                logger.info(f"Rescaled sub-visual durations for {sec_type} to {entry.get('duration')}s (no LLM regen).")
+            # Mirror into script.json so manifest and script stay in sync
+            try:
+                if sec_type == "introduction" and isinstance(script.get("introduction"), dict):
+                    script["introduction"]["sub_visuals"] = sub_visuals
+                elif sec_type == "conclusion" and isinstance(script.get("conclusion"), dict):
+                    script["conclusion"]["sub_visuals"] = sub_visuals
+                elif sec_type == "scene":
+                    if 0 <= scene_counter < len(script_scenes):
+                        script_scenes[scene_counter]["sub_visuals"] = sub_visuals
+                    scene_counter += 1
+            except Exception:
+                if sec_type == "scene":
+                    scene_counter += 1
+    except Exception as e:
+        logger.warning(f"Duration resync walk failed: {e}")
+        return rescaled
+
+    try:
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(script, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"Duration resync write-back failed: {e}")
+    return rescaled
 
 
 def _resolve_pexels_orientation(video_format=None):
@@ -857,18 +1079,66 @@ def _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, ke
                     logger.warning(f"Could not remove old asset file {old_f}: {e}")
 
 
+def _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, layer_idx, cancel_event):
+    """Download asset_url into the canonical asset file and link it on the layer.
+
+    Persists the proven URL as content["asset_url"] so a later re-download
+    (deleted file, moved project) fetches the SAME remote file instead of
+    re-searching stock providers — whose top results rotate and would
+    otherwise silently swap the visual. Returns True on success.
+    """
+    content = layer.get("content", {})
+    content_type = content.get("type", "")
+    ext = ".mp4" if content_type == "Video" else ".jpg"
+    if asset_url:
+        # Sniff the real extension from the URL to correctly handle Pixabay PNGs,
+        # Wikipedia images (which may be .jpg, .png, .svg, .webp, .avif, .bmp...), etc.
+        if content_type != "Video":
+            from backend.core.media_types import IMAGE_EXTS as _IMG_EXTS
+            url_path = asset_url.split("?")[0].split("#")[0].lower()
+            matched = next((e for e in _IMG_EXTS if url_path.endswith(e)), None)
+            ext = matched if matched else ".jpg"
+        dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}{ext}"
+        if download_asset(asset_url, dest_file, cancel_event=cancel_event):
+            _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=dest_file)
+            if content_type == "Video":
+                dest_file = Path(normalize_video_asset(dest_file))
+            content["local_path"] = str(dest_file)
+            content["asset_url"] = asset_url
+            # STRICT: keep the declared content.type — stock search already
+            # fetched type-specific results (photo vs video). Warn on mismatch
+            # instead of silently flipping, so pipeline output stays predictable.
+            from backend.core.media_types import infer_media_type as _infer
+            sniffed = _infer(dest_file, content.get("type", ""))
+            if sniffed != content.get("type"):
+                logger.warning(f"Downloaded {dest_file} looks like '{sniffed}' but layer declares '{content.get('type')}' — keeping declared type.")
+            logger.info(f"Saved AST asset to {dest_file} (type: {content.get('type')})")
+            return True
+    return False
+
+
 def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format):
     """Downloads media for a single AST layer if it is Image or Video."""
     content = layer.get("content", {})
     content_type = content.get("type", "")
-    
+
     if content_type not in ["Image", "Video"]:
         return layer
-        
+
     existing_path = content.get("local_path", "")
     if existing_path and Path(existing_path).exists():
         logger.info(f"Asset already exists for layer [{seg_idx}:{sub_idx}:{layer_idx}] '{existing_path}', skipping download.")
         return layer
+
+    # Deterministic resume: re-download the exact URL this layer used before
+    # (stock top-results rotate; a fresh search could swap the visual).
+    # Signed/expiring CDN links simply fail here and fall through to search.
+    stored_url = content.get("asset_url", "")
+    if stored_url:
+        logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] re-downloading proven asset URL (deterministic resume).")
+        if _save_asset_url_to_layer(stored_url, layer, assets_dir, seg_idx, sub_idx, layer_idx, cancel_event):
+            return layer
+        logger.info(f"Stored asset URL failed for layer [{seg_idx}:{sub_idx}:{layer_idx}], falling back to fresh search.")
         
     query = content.get("query", "")
     source = content.get("source", "pexels").lower()
@@ -877,8 +1147,6 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
         return layer
         
     asset_url = None
-    # Determine default extension — will be refined once we have the actual URL.
-    ext = ".mp4" if content_type == "Video" else ".jpg"
 
     logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] AST search: '{query}' (source: {source}, type: {content_type})")
 
@@ -948,28 +1216,8 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
             asset_url = search_pexels_photo(query, api_key, video_format)
 
     if asset_url:
-        # Sniff the real extension from the URL to correctly handle Pixabay PNGs,
-        # Wikipedia images (which may be .jpg, .png, .svg, .webp, .avif, .bmp...), etc.
-        if content_type != "Video":
-            from backend.core.media_types import IMAGE_EXTS as _IMG_EXTS
-            url_path = asset_url.split("?")[0].split("#")[0].lower()
-            matched = next((e for e in _IMG_EXTS if url_path.endswith(e)), None)
-            ext = matched if matched else ".jpg"
-        dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}{ext}"
-        if download_asset(asset_url, dest_file, cancel_event=cancel_event):
-            _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=dest_file)
-            if content_type == "Video":
-                dest_file = Path(normalize_video_asset(dest_file))
-            content["local_path"] = str(dest_file)
-            # STRICT: keep the declared content.type — stock search already
-            # fetched type-specific results (photo vs video). Warn on mismatch
-            # instead of silently flipping, so pipeline output stays predictable.
-            from backend.core.media_types import infer_media_type as _infer
-            sniffed = _infer(dest_file, content.get("type", ""))
-            if sniffed != content.get("type"):
-                logger.warning(f"Downloaded {dest_file} looks like '{sniffed}' but layer declares '{content.get('type')}' — keeping declared type.")
-            logger.info(f"Saved AST asset to {dest_file} (type: {content.get('type')})")
-            
+        _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, layer_idx, cancel_event)
+
     return layer
 
 

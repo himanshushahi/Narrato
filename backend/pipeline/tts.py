@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import shutil
 import asyncio
 import subprocess
 import urllib.request
@@ -291,6 +292,76 @@ def is_voiceover_stale(project_dict, project_dir):
         
     return False
 
+def _normalize_pitch_value(val: str) -> int:
+    """Normalize pitch values that may carry an 'Hz' suffix or '+' sign."""
+    v = str(val).replace("Hz", "").replace("+", "").strip()
+    return int(float(v))
+
+
+def _tts_entry_settings_match(old_entry, engine, speed, pitch, voice):
+    """True when a previous manifest entry was synthesized with identical TTS settings.
+
+    Mirrors the comparisons in is_voiceover_stale so the per-section resume
+    decision stays consistent with stage-level staleness detection.
+    """
+    if not isinstance(old_entry, dict):
+        return False
+    if old_entry.get("_voiceover_engine") != engine:
+        return False
+    if old_entry.get("_voiceover_voice") != voice:
+        return False
+    try:
+        if float(old_entry.get("_voiceover_speed", 1.0)) != float(speed):
+            return False
+    except (ValueError, TypeError):
+        if str(old_entry.get("_voiceover_speed", "1.0")) != str(speed):
+            return False
+    try:
+        if _normalize_pitch_value(old_entry.get("_voiceover_pitch", "0")) != _normalize_pitch_value(pitch):
+            return False
+    except (ValueError, TypeError):
+        if str(old_entry.get("_voiceover_pitch", "0")) != str(pitch):
+            return False
+    # A reference clip replaced in place keeps the same path — compare mtime.
+    if engine == "xtts" and voice and Path(voice).exists():
+        try:
+            if float(old_entry.get("_voiceover_voice_mtime", -1)) != os.path.getmtime(voice):
+                return False
+        except (OSError, ValueError, TypeError):
+            pass
+    return True
+
+
+def find_reusable_voice_segment(sec_type, text, old_manifest, engine, speed, pitch, voice):
+    """Per-section TTS Smart Resume lookup.
+
+    Returns (audio_path_str, duration) of a previously synthesized segment
+    whose narration text AND TTS settings are identical, or (None, None)
+    when the section must be (re-)synthesized. Matching is by
+    (section_type, text) so scene insertions, deletions and reorders still
+    reuse every surviving section instead of re-paying TTS for all of them.
+    """
+    if not isinstance(old_manifest, list):
+        return None, None
+    key = (sec_type, (text or "").strip())
+    for old_entry in old_manifest:
+        if not isinstance(old_entry, dict):
+            continue
+        if (old_entry.get("section_type"), (old_entry.get("text") or "").strip()) != key:
+            continue
+        if not _tts_entry_settings_match(old_entry, engine, speed, pitch, voice):
+            continue
+        old_audio = old_entry.get("audio_path") or ""
+        if old_audio and Path(old_audio).exists():
+            try:
+                duration = float(old_entry.get("duration", 0))
+            except (TypeError, ValueError):
+                duration = 0.0
+            if duration > 0:
+                return old_audio, duration
+    return None, None
+
+
 def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     """Generates voiceover audio for each section (intro, scenes, conclusion)."""
     script_path = project_dir / "script.json"
@@ -340,48 +411,81 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     manifest_entries = []
     total_sections = len(sections)
 
+    # Per-section resume: index the previous manifest so sections whose text
+    # AND voice settings are unchanged reuse their already-synthesized audio
+    # instead of paying TTS again (e.g. a one-scene script edit).
+    old_manifest = []
+    _old_manifest_path = voice_dir / "manifest.json"
+    if _old_manifest_path.exists():
+        try:
+            with open(_old_manifest_path, "r", encoding="utf-8") as f:
+                _loaded = json.load(f)
+            if isinstance(_loaded, list):
+                old_manifest = _loaded
+        except Exception as e:
+            logger.warning(f"Could not read previous voiceover manifest for per-section resume: {e}")
+
+    reused_count = 0
     for idx, sec in enumerate(sections):
         if cancel_event.is_set():
             raise InterruptedError("Cancelled")
 
-        logger.info(f"Synthesizing section {idx+1}/{total_sections}: {sec['title']}")
         seg_file = voice_dir / f"segment_{idx:03d}.wav"
-        
-        # Synthesize audio segment
-        import concurrent.futures
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        try:
-            if engine == "xtts":
-                from backend.xtts import generate_xtts_tts
-                future = executor.submit(
-                    generate_xtts_tts, sec['text'], str(seg_file),
-                    speaker_wav=voice, language=language, speed=speed,
-                    cancel_event=cancel_event,
-                )
-            else:
-                future = executor.submit(
-                    generate_edge_tts, sec['text'], str(seg_file),
-                    voice=voice, speed=str(speed), pitch=pitch,
-                    cancel_event=cancel_event,
-                )
 
-            while not future.done():
-                if cancel_event.is_set():
-                    # Do NOT call shutdown(wait=True) here — it would block
-                    # until the running synthesis finishes. Cancel the queued
-                    # future and let the worker thread abort at its next chunk
-                    # boundary (both engines check cancel_event per chunk).
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    raise InterruptedError("Cancelled")
-                import time
-                time.sleep(0.5)
-            future.result()
-        finally:
-            # Safe: after a cancel the worker has already seen the event and is
-            # exiting (chunk-granular), so this wait is short.
-            executor.shutdown(wait=True)
+        # ── Per-section Smart Resume: reuse identical audio, skip TTS ──
+        reused = False
+        duration = 0.0
+        reused_audio, reused_duration = find_reusable_voice_segment(
+            sec["type"], sec["text"], old_manifest, engine, speed, pitch, voice)
+        if reused_audio:
+            try:
+                if str(Path(reused_audio)) != str(seg_file):
+                    shutil.copy(str(reused_audio), str(seg_file))
+                duration = reused_duration
+                reused = True
+                reused_count += 1
+                logger.info(f"Reusing voiceover segment {idx+1}/{total_sections}: {sec['title']} (text+voice unchanged, no TTS call).")
+            except Exception as e:
+                logger.warning(f"Segment reuse failed for '{sec['title']}': {e}. Re-synthesizing.")
+                reused = False
 
-        duration = get_audio_duration(str(seg_file))
+        if not reused:
+            logger.info(f"Synthesizing section {idx+1}/{total_sections}: {sec['title']}")
+            # Synthesize audio segment
+            import concurrent.futures
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                if engine == "xtts":
+                    from backend.xtts import generate_xtts_tts
+                    future = executor.submit(
+                        generate_xtts_tts, sec['text'], str(seg_file),
+                        speaker_wav=voice, language=language, speed=speed,
+                        cancel_event=cancel_event,
+                    )
+                else:
+                    future = executor.submit(
+                        generate_edge_tts, sec['text'], str(seg_file),
+                        voice=voice, speed=str(speed), pitch=pitch,
+                        cancel_event=cancel_event,
+                    )
+
+                while not future.done():
+                    if cancel_event.is_set():
+                        # Do NOT call shutdown(wait=True) here — it would block
+                        # until the running synthesis finishes. Cancel the queued
+                        # future and let the worker thread abort at its next chunk
+                        # boundary (both engines check cancel_event per chunk).
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise InterruptedError("Cancelled")
+                    import time
+                    time.sleep(0.5)
+                future.result()
+            finally:
+                # Safe: after a cancel the worker has already seen the event and is
+                # exiting (chunk-granular), so this wait is short.
+                executor.shutdown(wait=True)
+
+            duration = get_audio_duration(str(seg_file))
         temp_files.append(str(seg_file))
 
         # Add manifest details
@@ -397,7 +501,8 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             sub_visuals = script["conclusion"].get("sub_visuals", [])
         else:
             # Match scene list index
-            scene_idx = idx - (1 if "introduction" in script else 0)
+            has_intro = (script.get("introduction") and isinstance(script["introduction"], dict) and "hook" in script["introduction"])
+            scene_idx = idx - (1 if has_intro else 0)
             if 0 <= scene_idx < len(script.get("scenes", [])):
                 orig_scene = script["scenes"][scene_idx]
                 sub_visuals = orig_scene.get("sub_visuals", [])
@@ -416,10 +521,13 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             "sub_visuals": sub_visuals
         })
 
-        progress_cb(10.0 + (idx + 1) / total_sections * 70.0, f"Synthesizing voiceover... {idx + 1}/{total_sections}") # progress ranges 10% -> 80%
+        progress_cb(10.0 + (idx + 1) / total_sections * 70.0, f"{'Reused' if reused else 'Synthesized'} voiceover... {idx + 1}/{total_sections}") # progress ranges 10% -> 80%
 
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
+
+    if reused_count:
+        logger.info(f"Voiceover per-section Smart Resume: reused {reused_count}/{total_sections} segments, synthesized {total_sections - reused_count}.")
 
     # Merge into a single audio track
     merged_audio_path = project_dir / "voiceover.wav"
@@ -467,6 +575,14 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                 k = (new_entry.get("section_type"), (new_entry.get("text") or "").strip())
                 old_entry = old_by_key.get(k)
                 if old_entry and isinstance(old_entry, dict):
+                    # Carry over narration/design hashes for unchanged sections so
+                    # is_visuals_stale can verify the AST is still valid after a
+                    # pure voice re-run (same text, new audio).  A changed text
+                    # misses the key lookup, leaving hashes absent — the text
+                    # comparison in is_visuals_stale then flags visuals stale.
+                    for _hk in ("_narr_hash", "_design_hash"):
+                        if old_entry.get(_hk) and not new_entry.get(_hk):
+                            new_entry[_hk] = old_entry[_hk]
                     new_sub_visuals = new_entry.get("sub_visuals", [])
                     old_sub_visuals = old_entry.get("sub_visuals", [])
                     for j, nsv in enumerate(new_sub_visuals):
@@ -543,6 +659,15 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     manifest_path = voice_dir / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_entries, f, indent=2, ensure_ascii=False)
+
+    # Rescale existing sub-visual durations to the fresh audio durations so a
+    # voice re-run with unchanged narration needs neither the visuals stage
+    # (no LLM regen) nor asset re-downloads (duration-only diffs are ignored).
+    try:
+        from backend.pipeline.assets import sync_visual_durations_after_voiceover
+        sync_visual_durations_after_voiceover(project_dir)
+    except Exception as e:
+        logger.warning(f"Post-voiceover duration resync failed: {e}")
 
     # Post-completion cleanup:
     # 1. Purge excess segment audio files beyond total_sections from previous longer runs

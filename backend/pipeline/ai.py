@@ -2120,7 +2120,12 @@ ERROR PREVENTION:
         stored_design_hash = entry.get("_design_hash", "")
         design_changed = (stored_design_hash and stored_design_hash != current_design_hash)
 
-        if not force and existing_sub_visuals and not is_default and not narration_changed and not design_changed and not is_new_design:
+        # NOTE: preservation applies regardless of `force`. Content hashes fully
+        # decide what needs LLM work: an explicitly re-requested visuals run
+        # regenerates only scenes whose narration/design actually changed.
+        # To force a full stylistic regen, change the design (genre/format) or
+        # clear the scene's sub_visuals first.
+        if existing_sub_visuals and not is_default and not narration_changed and not design_changed and not is_new_design:
             logger.info(f"Preserving existing sub-visuals for scene '{scene_title}'. Scaling durations to new total {duration}s.")
             old_total = sum([float(v.get("duration", 0)) for v in existing_sub_visuals])
             if old_total > 0:
