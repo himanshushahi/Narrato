@@ -11,6 +11,7 @@ from pathlib import Path
 from backend.database.db import get_setting, update_project
 from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir, get_startupinfo, is_production
 from backend.core.logger import logger
+from backend.core.media_types import VIDEO_EXTS, infer_media_type
 from backend.pipeline.assets import normalize_video_asset
 
 def clean_media_path(path_str):
@@ -562,8 +563,18 @@ def prepare_render_props_and_settings(project_dict, project_dir):
             if isinstance(comp, dict) and comp.get("type") == "Sequence":
                 for layer in comp.get("children", []):
                     content = layer.get("content", {})
-                    if content.get("type") == "Video" and content.get("local_path"):
-                        content["local_path"] = normalize_video_asset(content["local_path"])
+                    lp = content.get("local_path")
+                    if lp:
+                        # STRICT: never mutate content.type at render time.
+                        # Warn on legacy mismatches — ASTRenderer's display-time
+                        # effectiveType already handles playback safely.
+                        sniffed = infer_media_type(lp, content.get("type", ""))
+                        if sniffed != content.get("type") and content.get("type") in ("Image", "Video"):
+                            logger.warning(f"Render: layer declares '{content.get('type')}' but file looks like '{sniffed}': {lp} — keeping declared type.")
+                        # Normalize by actual file extension (not declared type)
+                        # so a legacy video-under-Image-label still gets remuxed.
+                        if Path(str(lp).split("?")[0].split("#")[0]).suffix.lower() in VIDEO_EXTS:
+                            content["local_path"] = normalize_video_asset(content["local_path"])
         
         sc["sub_visuals"] = sub_visuals
 

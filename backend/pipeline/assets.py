@@ -828,7 +828,8 @@ def download_asset(url, dest_path, cancel_event=None):
         logger.error(f"Failed to download stock asset from {url}: {e}")
     return False
 
-KNOWN_MEDIA_EXTENSIONS = [".mp4", ".webm", ".mov", ".avi", ".jpg", ".jpeg", ".png", ".webp", ".gif"]
+from backend.core.media_types import IMAGE_EXTS, VIDEO_EXTS
+KNOWN_MEDIA_EXTENSIONS = sorted(IMAGE_EXTS | VIDEO_EXTS)
 
 
 def _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=None):
@@ -948,24 +949,26 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
 
     if asset_url:
         # Sniff the real extension from the URL to correctly handle Pixabay PNGs,
-        # Wikipedia images (which may be .jpg, .png, .svg, or .webp), etc.
+        # Wikipedia images (which may be .jpg, .png, .svg, .webp, .avif, .bmp...), etc.
         if content_type != "Video":
-            url_path = asset_url.split("?")[0].lower()
-            if url_path.endswith(".png"):
-                ext = ".png"
-            elif url_path.endswith(".webp"):
-                ext = ".webp"
-            elif url_path.endswith(".gif"):
-                ext = ".gif"
-            else:
-                ext = ".jpg"
+            from backend.core.media_types import IMAGE_EXTS as _IMG_EXTS
+            url_path = asset_url.split("?")[0].split("#")[0].lower()
+            matched = next((e for e in _IMG_EXTS if url_path.endswith(e)), None)
+            ext = matched if matched else ".jpg"
         dest_file = assets_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}{ext}"
         if download_asset(asset_url, dest_file, cancel_event=cancel_event):
             _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=dest_file)
             if content_type == "Video":
                 dest_file = Path(normalize_video_asset(dest_file))
             content["local_path"] = str(dest_file)
-            logger.info(f"Saved AST asset to {dest_file}")
+            # STRICT: keep the declared content.type — stock search already
+            # fetched type-specific results (photo vs video). Warn on mismatch
+            # instead of silently flipping, so pipeline output stays predictable.
+            from backend.core.media_types import infer_media_type as _infer
+            sniffed = _infer(dest_file, content.get("type", ""))
+            if sniffed != content.get("type"):
+                logger.warning(f"Downloaded {dest_file} looks like '{sniffed}' but layer declares '{content.get('type')}' — keeping declared type.")
+            logger.info(f"Saved AST asset to {dest_file} (type: {content.get('type')})")
             
     return layer
 
@@ -1259,7 +1262,7 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index)
     return {"success": True, "segment": segment, "sub_visual": sub_visual}
 
 
-def preview_asset_download(project_id, query):
+def preview_asset_download(project_id, query, visual_type="image"):
     """
     Downloads a single asset for preview without modifying manifest or script.
     Saves to assets/previews/ directory with a unique temp name.
@@ -1287,7 +1290,7 @@ def preview_asset_download(project_id, query):
     preview_dir = assets_dir / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
-    content_type = "Image" # Default to image for simple previews
+    content_type = "Video" if (visual_type or "").lower() == "video" else "Image"
     source = "pexels"
 
     # Mock AST Layer for preview fetching

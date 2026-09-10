@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.core.logger import logger, register_log_callback
+from backend.core.media_types import IMAGE_EXTS, VIDEO_EXTS
 from backend.database.db import (
     get_all_projects, get_project, delete_project, create_project, update_project,
     get_project_tasks, get_all_settings, update_settings, get_setting
@@ -1934,11 +1935,11 @@ class ApiBridge:
             logger.error(f"Failed to fetch single scene asset: {e}")
             return {"success": False, "error": str(e)}
 
-    def preview_asset_download(self, project_id: str, query: str) -> dict:
-        logger.info(f"Bridge API: preview_asset_download for project {project_id} (query: {query})")
+    def preview_asset_download(self, project_id: str, query: str, visual_type: str = "image") -> dict:
+        logger.info(f"Bridge API: preview_asset_download for project {project_id} (query: {query}, visual_type: {visual_type})")
         from backend.pipeline.assets import preview_asset_download as preview_fn
         try:
-            return preview_fn(project_id, query)
+            return preview_fn(project_id, query, visual_type)
         except Exception as e:
             logger.error(f"Failed to preview asset: {e}")
             return {"success": False, "error": str(e)}
@@ -1960,14 +1961,17 @@ class ApiBridge:
             return {"success": False, "error": "No window available for file dialog"}
 
         if visual_type == "video":
-            file_types = ('Video Files (*.mp4;*.webm)',)
-            allowed_exts = (".mp4", ".webm")
+            allowed_exts = tuple(sorted(VIDEO_EXTS))
+            exts_str = ";".join(f"*{e}" for e in allowed_exts)
+            file_types = (f'Video Files ({exts_str})',)
         elif visual_type == "image":
-            file_types = ('Image Files (*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
-            allowed_exts = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+            allowed_exts = tuple(sorted(IMAGE_EXTS))
+            exts_str = ";".join(f"*{e}" for e in allowed_exts)
+            file_types = (f'Image Files ({exts_str})',)
         else:
-            file_types = ('Media Files (*.mp4;*.webm;*.jpg;*.jpeg;*.png;*.webp;*.gif)',)
-            allowed_exts = (".mp4", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".gif")
+            allowed_exts = tuple(sorted(IMAGE_EXTS | VIDEO_EXTS))
+            exts_str = ";".join(f"*{e}" for e in allowed_exts)
+            file_types = (f'Media Files ({exts_str})',)
 
         try:
             result = window.create_file_dialog(
@@ -1986,9 +1990,9 @@ class ApiBridge:
 
         ext = src_path.suffix.lower()
         if ext not in allowed_exts:
-            return {"success": False, "error": f"Unsupported file extension '{ext}'. Please upload a valid media file ({'; '.join(allowed_exts)})."}
+            return {"success": False, "error": f"Unsupported file extension '{ext}' for '{visual_type}' layer. Please upload a valid media file ({'; '.join(allowed_exts)}). If you need the other media type, change the layer type first."}
 
-        is_video = ext in (".mp4", ".webm")
+        is_video = ext in VIDEO_EXTS
 
         # Container extensions lie: a .mp4 can hold HEVC/H.265 (iPhone/GoPro/DJI
         # default), which WebView2 previews fine but the headless-Chrome export
@@ -2166,7 +2170,7 @@ class ApiBridge:
             return {"success": False, "error": "Preview file not found"}
 
         ext = src.suffix.lower()
-        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm"):
+        if ext not in (IMAGE_EXTS | VIDEO_EXTS):
             return {"success": False, "error": f"Unsupported extension: {ext}"}
 
         from backend.core.config import get_storage_dir
@@ -2185,9 +2189,8 @@ class ApiBridge:
             prefixes = [f"asset_{manifest_scene_index:03d}_{sub_visual_index:02d}"]
 
         # Clean up old asset with a different extension at this position —
-        # cover every extension that was ever uploadable, including legacy
-        # .mov/.avi files uploaded before they were restricted.
-        for old_ext in (".mp4", ".webm", ".mov", ".avi", ".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        # cover every extension that was ever uploadable.
+        for old_ext in tuple(sorted(IMAGE_EXTS | VIDEO_EXTS)):
             for pfx in prefixes:
                 if pfx == dest_file.stem and old_ext == ext:
                     continue
