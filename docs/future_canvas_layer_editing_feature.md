@@ -1,10 +1,10 @@
 # Future: Canvas Layer Highlight + Visual Transform Editing
 
-Status: In progress.
+Status: Complete.
 - **P1 (read-only highlight/selection):** Completed with geometry parity fixes on branch `feature/canvas-layer-highlight-manipulation`.
 - **P2 (preview → editor routing & discoverability):** Completed on branch `feature/canvas-layer-highlight-manipulation`.
 - **P3 (move & corner resize):** Completed on branch `feature/canvas-layer-highlight-manipulation`.
-- **P4:** Pending.
+- **P4 (rotate, edge resize & scale mode):** Completed on branch `feature/canvas-layer-highlight-manipulation`.
 
 Goal: click any layer in the sub-visual editor → highlight it in the preview
 player; visually move / resize (box) / scale / rotate layers directly on the
@@ -163,8 +163,8 @@ setSelectedLayerIndex: (idx: number | null) => void
   commit (`right`/`bottom` stay anchored, stale opposite key deleted so the box
   can never stretch). Snaps box edges/center to 0 % / 50 % / 100 % within 1 %.
   Positions clamp to 0–100 % (Layout-slider parity).
-- [x] **Corner resize:** 4 handles on the selected box (hidden when rotated —
-  P4 owns rotated resize, and on fullscreen/locked boxes). Aspect-locked drags
+- [x] **Corner resize:** 4 handles on the selected box (hidden when locked or
+  fullscreen; rotated layers resize in local axes since P4). Aspect-locked drags
   update width only and drop `height` (renderer keeps deriving it); north
   handles pin the bottom edge (height backed out from width × container aspect
   × ratio — exact and rotation-safe, incl. bottom-anchored layers). Freeform
@@ -178,24 +178,29 @@ setSelectedLayerIndex: (idx: number | null) => void
   so it can never strand); stale layer indices self-heal per the index-keyed
   convention.
 
-### P4 — Rotate, Edge Resize & Scale Mode
-- **Rotate Handle Math:**
-  - Position a rotation lollipop handle at `top: -32px` centered horizontally.
-  - On drag, compute angle using `Math.atan2(pointerY - centerY, pointerX - centerX)` in degrees.
-  - Snap to 0°, 45°, 90°, 180° when within 3°.
-  - Update `content.style.rotate = `${Math.round(deg)}deg``.
-- **Edge Resize:**
-  - Top/Bottom handles update height (disables `aspectRatio`).
-  - Left/Right handles update width.
-  - For rotated layers, transform pointer delta by the inverse rotation angle before applying:
-    ```ts
-    const rad = -deg * Math.PI / 180;
-    const localDeltaX = deltaX * Math.cos(rad) - deltaY * Math.sin(rad);
-    const localDeltaY = deltaX * Math.sin(rad) + deltaY * Math.cos(rad);
-    ```
-- **Scale Mode (Alt-drag):**
-  - Holding `Alt` while dragging corners scales `scaleX` and `scaleY` (10%–500%) instead of
-    changing box dimensions, preserving flip sign.
+### P4 — Rotate, Edge Resize & Scale Mode (DONE)
+- [x] **Rotate handle:** lollipop above the selected box (orbits rigidly with it —
+  no counter-rotation, so the stem never detaches; lifted clear of the North
+  handle hitbox). Angle from `atan2(pointer − center)` around the layout center
+  with grab-offset capture (no jump on grab), normalized to −180…180°, snapped
+  to 45° multiples within 3°, committed as `content.style.rotate = "Ndeg"`.
+  Deadbanded clicks never dirty the doc; shared rAF tick keeps spins smooth.
+  Live transform preview during the spin; same single-commit lens pipeline +
+  `pendingCommit` bridge.
+- [x] **Edge resize:** N/S/E/W mid-edge handles (single-axis, same clamps;
+  rotation-aware cursors). N/S go freeform and release the aspect lock (like
+  the Layout tab's Unlock, with live freeform preview mid-drag); E/W keep it
+  width-only. Deltas run through the inverse rotation for rotated layers, and
+  the stationary edge re-pins through the world transform (rotation + mirror),
+  so opposite edges never swing and handles track the cursor.
+- [x] **Scale mode (Alt-drag):** Alt+corner-drag scales `scaleX`/`scaleY`
+  (10–500 %) instead of dimensions — sign-preserving (flip-safe, handle
+  directions unmirror), uniform on aspect-locked media (dominant drag axis),
+  legacy `scale` deleted exactly like the sliders. Toggleable mid-drag
+  (Figma-style). Handles counter-scale so they stay grabbable at extremes;
+  live transform preview, same commit pipeline.
+- [x] **Commit safety:** sessions capture cut identity at dragstart; a
+  mid-gesture selection change voids the commit instead of miswriting.
 
 ---
 
@@ -214,3 +219,9 @@ Run this matrix after each phase:
 | **Stacking** | Fullscreen background + small foreground logo | Clicking logo selects logo; clicking empty space deselects; fullscreen does not trap clicks. |
 | **Playback** | Video playing at 30 FPS | Overlay unmounts during playback; zero frame drops or style churn. |
 | **Persistence** | Card save (`Ctrl+S` or Save button) | Values committed to `scriptData` and disk cleanly. |
+| **Rotated Resize** | Drag East handle on a layer with `rotate: 45deg` | Opposite edge stays pinned in screen space; box grows along its local axis without drifting; handle tracks the cursor. |
+| **Aspect Edge Unlock** | Drag North handle on media with `aspectRatio: '16/9'` | Box height updates smoothly in real time during the drag; aspect releases on drop and the Layout tab shows freeform height. |
+| **Alt-Scale Aspect** | Alt + corner drag on 1:1 square media | Layer scales uniformly (`scaleX === scaleY`), preserving square proportion. |
+| **Lollipop Click** | Click rotate lollipop without dragging | No style commit occurs; layer stays selected without dirtying the document. |
+| **Lollipop Visual** | Rotate layer to 90° or 180° | Lollipop stem stays attached and perpendicular to the box's top edge. |
+| **Flipped Resize** | Drag East handle on a layer with negative `scaleX` | Grabbed (screen-east) edge follows the cursor outward; box grows instead of shrinking. |
