@@ -199,29 +199,130 @@ function layerToBox(layer: any): Box {
   };
 }
 
+function getActiveSceneIdx(scenes: any[], frame: number): number {
+  let offset = 0;
+  for (let i = 0; i < (scenes || []).length; i++) {
+    const dur = Math.max(30, Math.ceil(((scenes[i] as any)?.duration || 0) * 30));
+    // Exclusive end — same resolver as PreviewActiveSceneBadge so the overlay
+    // and the badge never disagree past the total duration.
+    if (frame >= offset && frame < offset + dur) return i;
+    offset += dur;
+  }
+  return -1;
+}
+
+const wrapIdx = (cur: number, delta: number, len: number) => {
+  if (len <= 0) return 0;
+  return ((cur + delta) % len + len) % len;
+};
+
 /**
  * P1 read-only canvas overlay: renders hit-boxes for composition layers of the
  * selected cut on top of the Remotion player.
  * Supports landscape/portrait, aspect-ratio lock, bottom-anchored text, and rotation.
+ * P2: preview → editor routing (ensures Visuals tab), AI-rewrite lockout guard,
+ * and prev/next layer chip controls (+ `[` / `]` keyboard cycling).
  */
-export const CanvasOverlay: React.FC<{ scenes: any[] }> = ({ scenes }) => {
+export const CanvasOverlay: React.FC<{
+  scenes: any[];
+  /** P2 lockout: true while an AI rewrite touches the selected cut (boxes go inert). */
+  locked?: boolean;
+  /** P2 routing: layer click lands in the Visuals tab for that cut. Falls back to store-only routing when absent. */
+  onSelectLayer?: (sceneIdx: number, subIdx: number, layerIdx: number) => void;
+}> = ({ scenes, locked, onSelectLayer }) => {
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
   const setSelectedLayerIndex = useEditorStore((s) => s.setSelectedLayerIndex);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
+  const isLocked = locked === true;
 
-  // Deselect on Escape key
+  // Route a layer click into the Visuals tab. Prefers the parent callback
+  // (select + edit session + conditional seek); falls back to store-only
+  // routing (tab flip + layer) when the overlay is used standalone.
+  const routeToLayer = (layerIdx: number) => {
+    if (isLocked) return;
+    if (selectedSceneIndex === null || selectedSceneIndex === undefined) return;
+    if (selectedSubVisualIndex === null || selectedSubVisualIndex === undefined) return;
+    if (onSelectLayer) {
+      onSelectLayer(selectedSceneIndex, selectedSubVisualIndex, layerIdx);
+      return;
+    }
+    const st = useEditorStore.getState();
+    if (st.inspectorTab !== 'visuals') st.setInspectorTab('visuals');
+    st.setSelectedLayerIndex(layerIdx);
+  };
+
+  // Deselect on Escape; cycle layer selection with `[` / `]`.
+  // Runs before any early return so hook order stays constant. Reads live
+  // selection via getState + props (never render-scope children) for the same
+  // reason. Escape matches P1 semantics (works even while playing or in
+  // inputs) but is inert while locked so all deselect paths agree; `[`/`]`
+  // stay gated on playback and text inputs.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && useEditorStore.getState().selectedLayerIndex !== null) {
-        useEditorStore.getState().setSelectedLayerIndex(null);
+      const st = useEditorStore.getState();
+      if (e.key === 'Escape') {
+        if (isLocked) return;
+        if (st.selectedLayerIndex !== null) st.setSelectedLayerIndex(null);
+        return;
+      }
+      if (st.isPlaying) return;
+
+      // Do not hijack hotkeys while typing in inputs, textareas, selects, or editable areas
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+
+      if (e.key !== '[' && e.key !== ']') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.repeat) return;
+      if (isLocked) return;
+      const sceneIdx = st.selectedSceneIndex;
+      const subIdx = st.selectedSubVisualIndex;
+      if (sceneIdx === null || sceneIdx === undefined) return;
+      if (subIdx === null || subIdx === undefined) return;
+
+      // Only cycle when the playhead is currently displaying this scene's overlay
+      const frame = usePlaybackStore.getState().currentFrame;
+      if (getActiveSceneIdx(scenes, frame) !== sceneIdx) return;
+
+      const kids: any[] = scenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.composition?.children || [];
+      if (kids.length === 0) return;
+      const delta = e.key === ']' ? 1 : -1;
+      const cur = st.selectedLayerIndex ?? (delta > 0 ? -1 : 0);
+      const next = wrapIdx(cur, delta, kids.length);
+      e.preventDefault();
+      if (onSelectLayer) {
+        onSelectLayer(sceneIdx, subIdx, next);
+      } else {
+        if (st.inspectorTab !== 'visuals') st.setInspectorTab('visuals');
+        st.setSelectedLayerIndex(next);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [scenes, isLocked, onSelectLayer]);
+
+  // Self-heal a stale layer index (e.g. an AI rewrite shrank the cut's layer
+  // count): clear it instead of merely masking it in the UI, so the editor
+  // card highlight can't stick to a phantom layer after the lock lifts.
+  // Guarded on the entry existing so transient empty liveScenes can't wipe a
+  // valid pending selection.
+  useEffect(() => {
+    const st = useEditorStore.getState();
+    const sel = st.selectedLayerIndex;
+    if (sel === null || sel === undefined || sel < 0) return;
+    const sceneIdx = st.selectedSceneIndex;
+    const subIdx = st.selectedSubVisualIndex;
+    if (sceneIdx === null || sceneIdx === undefined) return;
+    if (subIdx === null || subIdx === undefined) return;
+    const entry = scenes?.[sceneIdx]?.sub_visuals?.[subIdx];
+    if (!entry) return;
+    const kids: any[] = entry?.composition?.children || [];
+    if (sel >= kids.length) st.setSelectedLayerIndex(null);
+  }, [scenes, selectedSceneIndex, selectedSubVisualIndex, selectedLayerIndex]);
 
   // NOTE: All hooks must run unconditionally before any early return.
   // Previously useMemo(activeSceneIdx) sat after `if (isPlaying) return null`,
@@ -229,13 +330,7 @@ export const CanvasOverlay: React.FC<{ scenes: any[] }> = ({ scenes }) => {
   // "Rendered fewer hooks than expected" inside <CanvasOverlay>.
   // Active scene resolution
   const activeSceneIdx = useMemo(() => {
-    let offset = 0;
-    for (let i = 0; i < (scenes || []).length; i++) {
-      const dur = Math.max(30, Math.ceil(((scenes[i] as any)?.duration || 0) * 30));
-      if (currentFrame >= offset && currentFrame < offset + dur) return i;
-      offset += dur;
-    }
-    return -1;
+    return getActiveSceneIdx(scenes, currentFrame);
   }, [scenes, currentFrame]);
 
   // Performance: Hide overlay entirely while video is playing.
@@ -259,13 +354,27 @@ export const CanvasOverlay: React.FC<{ scenes: any[] }> = ({ scenes }) => {
     .map((layer, idx) => ({ layer, idx }))
     .sort((a, b) => (a.layer?.z_index ?? 0) - (b.layer?.z_index ?? 0));
 
+  const hasValidSelection =
+    selectedLayerIndex !== null &&
+    selectedLayerIndex !== undefined &&
+    selectedLayerIndex >= 0 &&
+    selectedLayerIndex < children.length;
+
+  // P2 chip cycling: wraps around the cut's layers, routes through the same
+  // Visuals-tab path as a box click so the editor card follows the canvas.
+  const cycleLayer = (delta: number) => {
+    if (isLocked || children.length === 0) return;
+    const cur = selectedLayerIndex ?? (delta > 0 ? -1 : 0);
+    routeToLayer(wrapIdx(cur, delta, children.length));
+  };
+
   return (
     <div
       className="absolute inset-0 z-20"
       style={{ pointerEvents: 'none' }}
     >
       {/* Backdrop: Clicking empty canvas space deselects the current layer */}
-      {selectedLayerIndex !== null && (
+      {hasValidSelection && !isLocked && (
         <div
           className="absolute inset-0 z-0 cursor-default"
           style={{ pointerEvents: 'auto' }}
@@ -308,14 +417,14 @@ export const CanvasOverlay: React.FC<{ scenes: any[] }> = ({ scenes }) => {
             key={idx}
             onClick={(e) => {
               e.stopPropagation();
-              setSelectedLayerIndex(idx);
+              routeToLayer(idx);
             }}
-            title={`Layer ${idx + 1} · ${cType}${box.fullscreen ? ' (fullscreen)' : ''}`}
+            title={`Layer ${idx + 1} · ${cType}${box.fullscreen ? ' (fullscreen)' : ''}${isLocked ? ' — AI rewriting…' : ''}`}
             style={{
               ...posStyle,
               position: 'absolute',
-              pointerEvents: 'auto',
-              cursor: 'pointer',
+              pointerEvents: isLocked ? 'none' : 'auto',
+              cursor: isLocked ? 'default' : 'pointer',
               zIndex: z,
               borderRadius: box.borderRadius || 2,
               transform: box.transform,
@@ -352,16 +461,19 @@ export const CanvasOverlay: React.FC<{ scenes: any[] }> = ({ scenes }) => {
         );
       })}
 
-      {/* Selected Cut Info Chip */}
+      {/* Selected Cut Info Chip + P2 prev/next layer controls */}
       <div
         style={{
           position: 'absolute',
           left: 8,
           bottom: 8,
           pointerEvents: 'auto',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
           fontSize: 10,
           fontWeight: 700,
-          padding: '2px 8px',
+          padding: '2px 4px',
           borderRadius: 8,
           background: 'rgba(0,0,0,0.75)',
           color: '#fcd34d',
@@ -369,9 +481,53 @@ export const CanvasOverlay: React.FC<{ scenes: any[] }> = ({ scenes }) => {
           zIndex: 110,
         }}
       >
-        {`Cut ${selectedSubVisualIndex + 1} · ${children.length} layer${children.length === 1 ? '' : 's'}${
-          selectedLayerIndex !== null && selectedLayerIndex !== undefined ? ` · L${selectedLayerIndex + 1} selected` : ''
-        }`}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            cycleLayer(-1);
+          }}
+          disabled={isLocked || children.length === 0}
+          title="Previous layer ([)"
+          aria-label="Previous layer"
+          className="hover:bg-amber-500/20 active:bg-amber-500/30 transition-colors disabled:hover:bg-transparent text-amber-400 disabled:text-amber-400/40 select-none"
+          style={{
+            padding: '0 6px',
+            borderRadius: 6,
+            cursor: isLocked || children.length === 0 ? 'not-allowed' : 'pointer',
+            opacity: isLocked || children.length === 0 ? 0.4 : 1,
+            background: 'transparent',
+            border: 'none',
+          }}
+        >
+          {'<'}
+        </button>
+        <span style={{ padding: '0 4px', whiteSpace: 'nowrap' }}>
+          {`Cut ${selectedSubVisualIndex + 1} · ${children.length} layer${children.length === 1 ? '' : 's'}${
+            hasValidSelection ? ` · L${selectedLayerIndex + 1} selected` : ''
+          }${isLocked ? ' · AI rewriting…' : ''}`}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            cycleLayer(1);
+          }}
+          disabled={isLocked || children.length === 0}
+          title="Next layer (])"
+          aria-label="Next layer"
+          className="hover:bg-amber-500/20 active:bg-amber-500/30 transition-colors disabled:hover:bg-transparent text-amber-400 disabled:text-amber-400/40 select-none"
+          style={{
+            padding: '0 6px',
+            borderRadius: 6,
+            cursor: isLocked || children.length === 0 ? 'not-allowed' : 'pointer',
+            opacity: isLocked || children.length === 0 ? 0.4 : 1,
+            background: 'transparent',
+            border: 'none',
+          }}
+        >
+          {'>'}
+        </button>
       </div>
     </div>
   );

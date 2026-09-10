@@ -69,6 +69,8 @@ const EditorWorkspace: React.FC = () => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+  const canvasSceneIdx = useEditorStore((s) => s.selectedSceneIndex);
+  const canvasSubIdx = useEditorStore((s) => s.selectedSubVisualIndex);
   const updateProject = useProjectStore((s) => s.updateProject);
 
   // === Hooks ===
@@ -736,6 +738,47 @@ const EditorWorkspace: React.FC = () => {
     }
   }, [handleSelectSubVisual, handleStartEdit, setInspectorTab, sceneTimings, handleSeek]);
 
+  // ── P2 canvas overlay: lockout + routing ─────────────────────────────
+  // Lockout: overlay boxes go inert (pointer-events: none) while an AI
+  // rewrite touches the selected cut — same lens gate as VisualsTab
+  // (isSectionRewriting || isSubRewriting). Navigation/seek stays free.
+  const canvasLocked = useMemo(() => {
+    if (canvasSceneIdx === null || canvasSceneIdx === undefined) return false;
+    if (canvasSubIdx === null || canvasSubIdx === undefined) return false;
+    const key = cardKeyForScene(canvasSceneIdx);
+    if (!key) return false;
+    return isSectionRewriting(key) || isSubRewriting(key, canvasSubIdx);
+  }, [canvasSceneIdx, canvasSubIdx, cardKeyForScene, isSectionRewriting, isSubRewriting]);
+
+  // Routing: overlay layer click lands in the Visuals tab for that cut.
+  // Same-cut clicks ensure an active visuals edit session and flip the tab
+  // + layer (no seek jump); cross-cut clicks ride handleOpenVisualEditor
+  // (select + edit session + seek).
+  // Flush in-flight debounced writes first so pending slider ticks land cleanly.
+  const handleCanvasSelectLayer = useCallback((sceneIdx: number, subIdx: number, layerIdx: number) => {
+    // Defense in depth: the overlay already blocks selection while locked,
+    // but any direct/future caller lands here too — never flip tabs or start
+    // an edit session under an in-flight rewrite for the target cut.
+    const lockKey = cardKeyForScene(sceneIdx);
+    if (lockKey && (isSectionRewriting(lockKey) || isSubRewriting(lockKey, subIdx))) return;
+    visualsFlushRef.current?.();
+    const st = useEditorStore.getState();
+    if (st.selectedSceneIndex === sceneIdx && st.selectedSubVisualIndex === subIdx) {
+      const cardKey = cardKeyForScene(sceneIdx);
+      if (cardKey) {
+        handleStartEdit(cardKey, 'visuals');
+      }
+      if (st.inspectorTab !== 'visuals') st.setInspectorTab('visuals');
+      st.setSelectedLayerIndex(layerIdx);
+      return;
+    }
+    handleOpenVisualEditor(sceneIdx, subIdx);
+    const updated = useEditorStore.getState();
+    if (updated.selectedSceneIndex === sceneIdx && updated.selectedSubVisualIndex === subIdx) {
+      updated.setSelectedLayerIndex(layerIdx);
+    }
+  }, [handleOpenVisualEditor, cardKeyForScene, handleStartEdit, isSectionRewriting, isSubRewriting]);
+
   const handleSave = useCallback(() => {
     // Whole-document save is locked while ANY AI rewrite is in flight: it
     // would persist a pre-AI doc and wipe every card baseline. Covers Ctrl+S,
@@ -1230,6 +1273,8 @@ const EditorWorkspace: React.FC = () => {
           onFrameUpdate={handleFrameUpdate}
           isPipelineRunning={isRunning}
           fullscreenToggleRef={fullscreenToggleRef}
+          canvasLocked={canvasLocked}
+          onCanvasSelectLayer={handleCanvasSelectLayer}
         />
       </div>
 

@@ -2,7 +2,8 @@
 
 Status: In progress.
 - **P1 (read-only highlight/selection):** Completed with geometry parity fixes on branch `feature/canvas-layer-highlight-manipulation`.
-- **P2–P4:** Pending.
+- **P2 (preview → editor routing & discoverability):** Completed on branch `feature/canvas-layer-highlight-manipulation`.
+- **P3–P4:** Pending.
 
 Goal: click any layer in the sub-visual editor → highlight it in the preview
 player; visually move / resize (box) / scale / rotate layers directly on the
@@ -127,13 +128,18 @@ setSelectedLayerIndex: (idx: number | null) => void
 - [x] Selective tab auto-open and scroll only on canvas clicks (`internalClickRef`).
 - [x] Auto-seek playhead to cut start on cut selection.
 
-### P2 — Preview → Editor Routing & Discoverability
-- **Routing:** Overlay click should check if `inspectorTab !== 'visuals'`; if not, switch to
-  `setInspectorTab('visuals')` and call `handleOpenVisualEditor(sceneIdx, subIdx)`.
-- **Lockout guards:** Disable overlay interaction when `isSectionRewriting` or `isSubRewriting`
-  is true for that card/cut (`pointer-events: none`).
-- **Prev / Next Layer Chip Controls:** In the bottom chip (`Cut N · M layers · Lx selected`),
-  add `<` and `>` buttons to cycle layer selection via keyboard or buttons.
+### P2 — Preview → Editor Routing & Discoverability (DONE)
+- [x] **Routing:** Overlay click routes into the Visuals tab via `handleCanvasSelectLayer`
+  (`EditorWorkspace.tsx`) → `handleOpenVisualEditor(sceneIdx, subIdx)` for cross-cut clicks
+  (select + edit session + seek), tab-flip + layer only for same-cut clicks (no seek jump).
+  Store-only fallback inside `CanvasOverlay` when no callback is wired.
+- [x] **Lockout guards:** `canvasLocked` (`isSectionRewriting || isSubRewriting` for the
+  selected cut, same lens gate as `VisualsTab`) flows `EditorWorkspace → VideoPreview →
+  CanvasOverlay`; boxes go `pointer-events: none`, backdrop hidden, chip shows
+  `AI rewriting…` with disabled controls.
+- [x] **Prev / Next Layer Chip Controls:** Bottom chip (`Cut N · M layers · Lx selected`)
+  is a flex row with `<` / `>` wrap-around cycling through the same routing path;
+  `[` / `]` keyboard cycling (skips inputs, inert while locked).
 
 ### P3 — Move & Corner Resize (Core Direct Manipulation)
 - **Coordinate Space Math:**
