@@ -72,7 +72,7 @@ interface VisualsTabProps {
   onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<any | undefined> | void;
   onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<any | undefined>;
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
-  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
+  onPreviewSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number, visualType?: string) => Promise<string | undefined>;
   uploadingSubVisual?: string | null;
   onDeleteLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
   onDuplicateLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
@@ -649,9 +649,9 @@ export const VisualsTab = React.memo(function VisualsTab({
       setSelectedSubVisualIndex(Math.min(selSubIdxRef.current, Math.max(0, aiSubs.length - 1)));
     }
   };
-  const withFlushPreview = (sceneIdx: number, sectionType: string, subIdx: number, query: string, layerIdx?: number) => {
+  const withFlushPreview = (sceneIdx: number, sectionType: string, subIdx: number, query: string, layerIdx?: number, visualType?: string) => {
     const flushed = commitPending();
-    return onPreviewSubVisual!(sceneIdx, sectionType, subIdx, query, flushed ?? undefined, layerIdx);
+    return onPreviewSubVisual!(sceneIdx, sectionType, subIdx, query, flushed ?? undefined, layerIdx, visualType);
   };
   const withFlushDeleteLayer = (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => {
     commitPending();
@@ -769,7 +769,7 @@ export const VisualsTab = React.memo(function VisualsTab({
                   onSeek={onSeek}
                   onRewriteSubVisual={(_, prompt) => withFlushRewriteSub(handlerSceneIdx, resolved.sectionType, actualSubIdx, prompt)}
                   onUploadSubVisual={onUploadSubVisual ? (_, visualType, layerIdx) => withFlushUpload(handlerSceneIdx, resolved.sectionType, actualSubIdx, visualType, layerIdx) : undefined}
-                  onPreviewSubVisual={onPreviewSubVisual ? (_, query, layerIdx) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query, layerIdx) : undefined}
+                  onPreviewSubVisual={onPreviewSubVisual ? (_, query, layerIdx, visualType) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query, layerIdx, visualType) : undefined}
                   onDeleteLayer={onDeleteLayerSubVisual ? (_, layerIdx) => withFlushDeleteLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, layerIdx) : undefined}
                   onDuplicateLayer={onDuplicateLayerSubVisual ? (_, layerIdx) => withFlushDuplicateLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, layerIdx) : undefined}
                   uploadingSubVisual={uploadingSubVisual}

@@ -11,6 +11,7 @@ import { CameraShakeType } from './CameraNoise';
 import { ASTErrorBoundary } from './ASTErrorBoundary';
 import { FxFilterDefs } from './FxFilterDefs';
 import { getMediaUrlSync } from '../../utils/mediaUrl';
+import { inferMediaType } from '../../utils/mediaExtensions';
 
 interface ASTLayerContent {
   type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Shape' | 'Lottie' | 'Particles';
@@ -292,13 +293,33 @@ const MediaNode: React.FC<{
   loop?: boolean;
 }> = ({ type, localPath, style, volume, loop = false }) => {
   const url = getMediaUrlSync(localPath);
+  // If <Video> fails at runtime (corrupt file, 404, zero-byte, unknown codec),
+  // fall back to <Img> so the render doesn't crash entirely.
+  // Display-only fallback: never mutates layer data. Reset on path change so
+  // a fixed path recovers instead of sticking on <Img> forever.
+  const [videoFailed, setVideoFailed] = React.useState(false);
+  React.useEffect(() => { setVideoFailed(false); }, [localPath]);
   if (!url) return null;
 
   const defaultStyle: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'cover' };
   const mergedStyle = { ...defaultStyle, ...style };
 
-  if (type === 'Image') {
-    return <Img src={url} style={mergedStyle} />;
+  // Display-only sniffing (no data mutation): if a legacy layer has
+  // type='Video' but the file is an image, or type='Image' but the file is a
+  // video, pick the true format to avoid FFmpegDemuxer errors / broken <img>.
+  // New mismatches cannot be created — the editor rejects them strictly.
+  const effectiveType = videoFailed ? 'Image' : inferMediaType(localPath, type);
+
+  if (effectiveType === 'Image') {
+    return (
+      <Img
+        src={url}
+        style={mergedStyle}
+        onError={(e) => {
+          console.warn(`[ASTRenderer] Image load error on ${localPath}:`, e);
+        }}
+      />
+    );
   }
 
   return (
@@ -308,6 +329,10 @@ const MediaNode: React.FC<{
       muted={volume === 0 || volume === undefined}
       volume={volume ?? 0}
       loop={loop}
+      onError={(e) => {
+        console.warn(`[ASTRenderer] Video playback error on ${localPath}, falling back to <Img>:`, e);
+        setVideoFailed(true);
+      }}
     />
   );
 };

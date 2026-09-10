@@ -3,6 +3,7 @@ import { useProjectStore } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { callApi, callApiOrThrow } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
+import { inferMediaType } from '../../../utils/mediaExtensions';
 
 import { estimateTextDuration } from '../../../utils/duration';
 
@@ -106,7 +107,7 @@ interface UseScriptEditingReturn {
   handleSettingsUpdate: (newSettings: any) => void;
   handleSaveTranscription: (overrideDoc?: any) => Promise<void>;
   handleResetTranscription: () => void;
-  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
+  handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number, visualType?: string) => Promise<string | undefined>;
   handleDeleteLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
   handleDuplicateLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
   handleDeleteCutAsset: (sceneIdx: number, sectionType: string, subIdx: number) => void;
@@ -723,6 +724,22 @@ export function useScriptEditing(
                     currentPath = result.visual_path;
                   } else {
                     console.warn(`[useScriptEditing] finalize layer failed for ${layerAssetKey}:`, result?.error || 'unknown error', currentPath);
+                  }
+                }
+
+                // STRICT: save only persists local_path changes. Never silently
+                // flip content.type here — uploads/previews are validated at the
+                // editor (AstGraphicalEditor) and at the backend dialog. A
+                // mismatch here means legacy/manual-JSON data: keep the declared
+                // type so the change is visible, let ASTRenderer's display-time
+                // effectiveType handle playback without mutating user data.
+                if (isMedia && currentPath) {
+                  const sniffed = inferMediaType(currentPath, layer.content.type);
+                  if (sniffed !== layer.content.type) {
+                    console.warn(
+                      `[useScriptEditing] type mismatch kept as '${layer.content.type}' (file looks like '${sniffed}'): ${currentPath}. ` +
+                      `Change the layer type instead of relying on auto-flip.`
+                    );
                   }
                 }
 
@@ -1631,7 +1648,7 @@ export function useScriptEditing(
     }
   }, [projectId, selectedProject, addToast, manifestData, previewAssets]);
   
-  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, query: string, _latestData?: any, layerIdx?: number) => {
+  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, query: string, _latestData?: any, layerIdx?: number, visualType?: string) => {
     if (!projectId) return undefined;
     // Same project-identity rule as uploads: the download await can span a
     // switch, and the old project's preview must not land in the new one.
@@ -1648,7 +1665,7 @@ export function useScriptEditing(
 
     try {
       const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
-        'preview_asset_download', projectId, query
+        'preview_asset_download', projectId, query, visualType || 'image'
       );
       if (isPreviewStale()) return undefined;
       if (result?.success && result.visual_path) {

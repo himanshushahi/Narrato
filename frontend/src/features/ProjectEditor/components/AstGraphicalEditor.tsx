@@ -16,6 +16,7 @@ import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
 import { AstParticlesEditor } from './AstParticlesEditor';
 import { normalizeLayerKind, getLayerCapability, getMotionState, isSvgLookToken } from './layerCapabilities';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { inferMediaType, isImageFile, isVideoFile } from '../../../utils/mediaExtensions';
 
 const SUPPORTED_FONTS = [
   {
@@ -150,7 +151,7 @@ export const AstGraphicalEditor = ({
   initialValue: any;
   onChange: (val: any) => void;
   onUploadSubVisual?: (visualType?: string, layerIdx?: number) => Promise<string | undefined> | void;
-  onPreviewSubVisual?: (query: string, layerIdx?: number) => Promise<string | undefined> | void;
+  onPreviewSubVisual?: (query: string, layerIdx?: number, visualType?: string) => Promise<string | undefined> | void;
   onDeleteLayer?: (layerIdx: number) => void;
   onDuplicateLayer?: (layerIdx: number) => void;
   uploadingSubVisual?: string | null;
@@ -164,6 +165,7 @@ export const AstGraphicalEditor = ({
 
   const [previewingIdx, setPreviewingIdx] = useState<number | null>(null);
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
+  const [mediaError, setMediaError] = useState<Record<number, string | null>>({});
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
   const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'filters' | 'motion'>>({});
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
@@ -369,11 +371,32 @@ export const AstGraphicalEditor = ({
 
   const handlePreviewQuery = async (idx: number, queryToSearch: string) => {
     if (!queryToSearch || !onPreviewRef.current) return;
+    const currentLayer = compositionRef.current?.children?.[idx];
+    const currentType = currentLayer?.content?.type || 'Image';
+    const isMediaLayer = currentType === 'Image' || currentType === 'Video';
+    const vType = currentType === 'Video' ? 'video' : 'image';
     setPreviewingIdx(idx);
+    setMediaError(prev => ({ ...prev, [idx]: null }));
     try {
-      const p = await onPreviewRef.current(queryToSearch, idx);
+      const p = await onPreviewRef.current(queryToSearch, idx, vType);
       if (p) {
-        updateContent(idx, 'local_path', p);
+        // STRICT: reject mismatched preview instead of silently flipping type.
+        // Non-media layers (Text/Shape/...) may adopt either type explicitly.
+        if (isMediaLayer) {
+          const ok = currentType === 'Video' ? isVideoFile(p) : isImageFile(p);
+          if (!ok) {
+            const msg = currentType === 'Video'
+              ? `Preview returned an image but this layer is Video — rejected. Change layer type to Image first.`
+              : `Preview returned a video but this layer is Image — rejected. Change layer type to Video first.`;
+            console.warn(`[AstGraphicalEditor] ${msg} path=${p}`);
+            setMediaError(prev => ({ ...prev, [idx]: msg }));
+            return;
+          }
+          updateContent(idx, 'local_path', p);
+        } else {
+          const newType = inferMediaType(p, currentType);
+          updateContentFields(idx, { local_path: p, type: newType });
+        }
       }
     } catch (e) {
       console.error('Preview error:', e);
@@ -400,6 +423,7 @@ export const AstGraphicalEditor = ({
     setAdvancedTab: (idx, tab) => setAdvancedTab(prev => ({ ...prev, [idx]: tab })),
     openIconPicker: (idx) => { iconPickerIdxRef.current = idx; setIconPickerIdx(idx); },
     changeType: (idx, newType) => {
+      setMediaError(prev => ({ ...prev, [idx]: null }));
       const comp = compositionRef.current;
       const copy = { ...comp };
       copy.children = [...(copy.children || [])];
@@ -564,10 +588,29 @@ export const AstGraphicalEditor = ({
                           disabled={uploadingIdx !== null || uploadingSubVisual !== null}
                           onClick={async () => {
                             setUploadingIdx(idx);
+                            setMediaError(prev => ({ ...prev, [idx]: null }));
                             try {
                               const p = await onUploadSubVisual(cType === 'Image' ? 'image' : cType === 'Video' ? 'video' : 'ast', idx);
                               if (p) {
-                                updateContentFields(idx, { local_path: p, source: 'upload' });
+                                // STRICT: Image layers accept images only, Video layers videos only.
+                                // Never silently flip content.type — reject with an inline error.
+                                const isMediaLayer = cType === 'Image' || cType === 'Video';
+                                if (isMediaLayer) {
+                                  const ok = cType === 'Video' ? isVideoFile(p) : isImageFile(p);
+                                  if (!ok) {
+                                    const msg = cType === 'Video'
+                                      ? `That file is an image — Video layer rejected it. Change layer type to Image first.`
+                                      : `That file is a video — Image layer rejected it. Change layer type to Video first.`;
+                                    console.warn(`[AstGraphicalEditor] ${msg} path=${p}`);
+                                    setMediaError(prev => ({ ...prev, [idx]: msg }));
+                                    return;
+                                  }
+                                  updateContentFields(idx, { local_path: p, source: 'upload' });
+                                } else {
+                                  const newType = inferMediaType(p, cType);
+                                  const extra = newType === 'Video' ? { volume: 0 } : {};
+                                  updateContentFields(idx, { local_path: p, source: 'upload', type: newType, ...extra });
+                                }
                               }
                             } finally {
                               setUploadingIdx(null);
@@ -589,6 +632,11 @@ export const AstGraphicalEditor = ({
                     onChange={e => updateContent(idx, 'query', e.target.value)}
                     placeholder="e.g. cinematic cityscape, futuristic neon..."
                   />
+                  {mediaError[idx] && (
+                    <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-2 py-1.5">
+                      {mediaError[idx]}
+                    </p>
+                  )}
                 </div>
 
                 {/* Source & Image Type in a clean grid */}
