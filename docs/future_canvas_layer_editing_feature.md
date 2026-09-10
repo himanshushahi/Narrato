@@ -162,7 +162,8 @@ setSelectedLayerIndex: (idx: number | null) => void
   `%`-space deltas from the overlay root rect (zoom-proof). Anchor-preserving
   commit (`right`/`bottom` stay anchored, stale opposite key deleted so the box
   can never stretch). Snaps box edges/center to 0 % / 50 % / 100 % within 1 %.
-  Positions clamp to 0–100 % (Layout-slider parity).
+  Symmetric off-canvas bounds (fully out on all four sides, e.g. slide-in
+  offsets) — committed raw, sliders display-clamp but preserve the value.
 - [x] **Corner resize:** 4 handles on the selected box (hidden when locked or
   fullscreen; rotated layers resize in local axes since P4). Aspect-locked drags
   update width only and drop `height` (renderer keeps deriving it); north
@@ -225,3 +226,4 @@ Run this matrix after each phase:
 | **Lollipop Click** | Click rotate lollipop without dragging | No style commit occurs; layer stays selected without dirtying the document. |
 | **Lollipop Visual** | Rotate layer to 90° or 180° | Lollipop stem stays attached and perpendicular to the box's top edge. |
 | **Flipped Resize** | Drag East handle on a layer with negative `scaleX` | Grabbed (screen-east) edge follows the cursor outward; box grows instead of shrinking. |
+| **Off-Canvas Move** | Drag a box out past each of the four canvas edges | Box exits symmetrically on all sides (partially or fully); Layout tab preserves the value while display-clamping. |

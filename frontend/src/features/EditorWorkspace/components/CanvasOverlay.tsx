@@ -452,11 +452,12 @@ interface RotateSession {
 }
 
 /**
- * Drag geometry in left/top percent space. Move snaps edges/center; resize
- * pins the opposite edge (corners) or axis (edges). Aspect-locked layers
- * resize width-only with bottom-edge pinning for north handles — N/S edge
- * handles instead unlock via `dropAspect` (freeform path). Size mirrors the
- * Layout sliders (10–100%), positions clamp to 0–100%.
+ * Drag geometry in left/top percent space. Move snaps edges/center and may
+ * leave the canvas on any side (symmetric bounds: fully out in every
+ * direction, e.g. slide-in offsets); resize pins the opposite edge (corners)
+ * or axis (edges). Aspect-locked layers resize width-only with bottom-edge
+ * pinning for north handles — N/S edge handles instead unlock via
+ * `dropAspect` (freeform path). Size mirrors the Layout sliders (10–100%).
  */
 function computeDrag(
   init: DragInit,
@@ -468,8 +469,8 @@ function computeDrag(
 ): { left: number; top: number; width: number; height: number } {
   if (mode === 'move') {
     return {
-      left: clampN(snapPos(init.left + dxPct, init.width), 0, 100),
-      top: clampN(snapPos(init.top + dyPct, init.height), 0, 100),
+      left: clampN(snapPos(init.left + dxPct, init.width), -init.width, 100),
+      top: clampN(snapPos(init.top + dyPct, init.height), -init.height, 100),
       width: init.width,
       height: init.height,
     };
@@ -484,8 +485,8 @@ function computeDrag(
     // north handles pin the bottom edge instead of growing the box downward.
     const height = init.width > 0 ? (init.height * width) / init.width : init.height;
     return {
-      left: clampN(east || (!west && !east) ? init.left : init.left + init.width - width, 0, 100),
-      top: south || (!north && !south) ? init.top : clampN(init.top + init.height - height, 0, 100),
+      left: clampN(east || (!west && !east) ? init.left : init.left + init.width - width, -width, 100),
+      top: south || (!north && !south) ? init.top : clampN(init.top + init.height - height, -height, 100),
       width,
       height,
     };
@@ -493,8 +494,8 @@ function computeDrag(
   const width = east || west ? clampN(init.width + (east ? dxPct : -dxPct), 10, 100) : init.width;
   const height = south || north ? clampN(init.height + (south ? dyPct : -dyPct), 10, 100) : init.height;
   return {
-    left: clampN(west ? init.left + init.width - width : init.left, 0, 100),
-    top: clampN(north ? init.top + init.height - height : init.top, 0, 100),
+    left: clampN(west ? init.left + init.width - width : init.left, -width, 100),
+    top: clampN(north ? init.top + init.height - height : init.top, -height, 100),
     width,
     height,
   };
@@ -553,15 +554,17 @@ function commitStyleFromDrag(
 ): Record<string, any> {
   const s: Record<string, any> = { ...init.style };
   if (mode === 'move') {
+    // Off-canvas positions pass through unclamped (what you drag is what you
+    // get) — the Layout sliders display-clamp to 0–100 but preserve the value.
     if (init.useRight) {
-      s.right = pct(clampN(100 - cur.left - cur.width, 0, 100));
+      s.right = pct(100 - cur.left - cur.width);
       delete s.left;
     } else {
       s.left = pct(cur.left);
       delete s.right;
     }
     if (init.useBottom) {
-      s.bottom = pct(clampN(100 - cur.top - cur.height, 0, 100));
+      s.bottom = pct(100 - cur.top - cur.height);
       delete (s as any).top;
     } else {
       s.top = pct(cur.top);
