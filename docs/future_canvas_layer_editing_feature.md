@@ -51,6 +51,15 @@ Conventions (repo-learned, must follow):
   This ensures that both the video player and the canvas overlay share the exact same
   container bounding box, aspect ratio, letterboxing, and `motion.div` zoom scale
   in both landscape (`aspect-video w-full`) and portrait (`aspect-[9/16] w-auto mx-auto max-h-[70vh]`).
+- **Portrait container contract:** the player root must resolve to an exact 9:16 box —
+  it stays width-driven like landscape (height always derives from the ratio, so
+  it can never break): `w-full` capped with `max-w-[39.375vh]` so the height fits
+  the viewport. A bare `w-full` + `max-h` cap lets width win and silently breaks
+  `aspect-ratio`, letterboxing the video inside a wide container the % overlay
+  can never match (likewise, `h-full` chains have no definite anchor under the
+  centered flex ancestors and collapse). px-authored styles resolve
+  against live composition dims (`compositionSize`: format × preview quality),
+  never hardcoded 1920×1080.
 
 ---
 

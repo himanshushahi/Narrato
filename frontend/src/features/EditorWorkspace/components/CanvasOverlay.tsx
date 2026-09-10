@@ -4,7 +4,9 @@ import { usePlaybackStore } from '../../../store/usePlaybackStore';
 import { shallowEqualStyles } from '../visualSelection';
 
 /**
- * Parse a CSS value (% or px or raw number) to percent space relative to 1920x1080.
+ * Parse a CSS value (% or px or raw number) to percent space.
+ * px/raw-pixel values resolve against composition space (which scales with
+ * preview quality and differs per orientation) — never a hardcoded 1920x1080.
  * Mirrors AstLayoutControls and ASTRenderer layout semantics.
  */
 function parsePct(
@@ -119,7 +121,7 @@ interface Box {
 }
 
 /** Mirror of ASTRenderer layout resolution in percent space. */
-function layerToBox(layer: any): Box {
+function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080): Box {
   const style: Record<string, any> = layer?.content?.style || {};
   const cType = layer?.content?.type || 'Image';
   const isText = cType === 'Text';
@@ -150,7 +152,7 @@ function layerToBox(layer: any): Box {
   }
 
   const aspect = parseAspect(style);
-  const widthPct = parsePct(style.width, 100, false);
+  const widthPct = parsePct(style.width, 100, false, baseWidth, baseHeight);
 
   const rawLeft = style.left;
   const rawRight = style.right;
@@ -171,7 +173,7 @@ function layerToBox(layer: any): Box {
     // the browser derives it natively via CSS aspectRatio to avoid non-square distortion.
     heightPct = null;
   } else if (hasHeight) {
-    heightPct = parsePct(rawHeight, 100, true);
+    heightPct = parsePct(rawHeight, 100, true, baseWidth, baseHeight);
   } else if (isText) {
     // Kinetic text without explicit height: default to a tidy 15% lower-third box
     // so bottom-anchored text doesn't stretch 100% across the whole screen.
@@ -179,14 +181,14 @@ function layerToBox(layer: any): Box {
   } else if (!hasTop && hasBottom) {
     heightPct = 25;
   } else {
-    heightPct = parsePct(style.height, 100, true);
+    heightPct = parsePct(style.height, 100, true, baseWidth, baseHeight);
   }
 
   return {
-    leftPct: hasLeft || !hasRight ? parsePct(rawLeft, 0, false) : null,
-    rightPct: !hasLeft && hasRight ? parsePct(rawRight, 0, false) : null,
-    topPct: hasTop || !hasBottom ? parsePct(rawTop, 0, true) : null,
-    bottomPct: !hasTop && hasBottom ? parsePct(rawBottom, 0, true) : null,
+    leftPct: hasLeft || !hasRight ? parsePct(rawLeft, 0, false, baseWidth, baseHeight) : null,
+    rightPct: !hasLeft && hasRight ? parsePct(rawRight, 0, false, baseWidth, baseHeight) : null,
+    topPct: hasTop || !hasBottom ? parsePct(rawTop, 0, true, baseWidth, baseHeight) : null,
+    bottomPct: !hasTop && hasBottom ? parsePct(rawBottom, 0, true, baseWidth, baseHeight) : null,
     widthPct,
     heightPct,
     aspectRatio: aspect,
@@ -607,7 +609,9 @@ export const CanvasOverlay: React.FC<{
   onStyleCommit?: (sceneIdx: number, subIdx: number, layerIdx: number, style: Record<string, any>) => void;
   /** Cut timings (frames) so the overlay follows the playhead's cut within a scene. */
   sceneTimings?: CanvasSceneTimings;
-}> = ({ scenes, locked, onSelectLayer, onStyleCommit, sceneTimings }) => {
+  /** Composition pixel size backing px→% resolution (scales with quality/orientation). */
+  compositionSize?: { w: number; h: number };
+}> = ({ scenes, locked, onSelectLayer, onStyleCommit, sceneTimings, compositionSize }) => {
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
@@ -615,6 +619,8 @@ export const CanvasOverlay: React.FC<{
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const isLocked = locked === true;
+  const compW = compositionSize?.w ?? 1920;
+  const compH = compositionSize?.h ?? 1080;
 
   // P3 drag state: `drag` renders the live box; `dragRef` is the handler-live
   // session (refs are never written during render). `pendingCommit` keeps the
@@ -1213,7 +1219,7 @@ export const CanvasOverlay: React.FC<{
       )}
 
       {ordered.map(({ layer, idx }) => {
-        const box = layerToBox(layer);
+        const box = layerToBox(layer, compW, compH);
         const selected = isViewingSelectedCut && selectedLayerIndex === idx;
         const cType = layer?.content?.type || 'Image';
 
@@ -1253,9 +1259,9 @@ export const CanvasOverlay: React.FC<{
               aspectRatio: liveAspect ? box.aspectRatio : null,
             }
           : liveStyle
-            ? layerToBox({ ...layer, content: { ...(layer?.content || {}), style: { ...baseStyle, ...liveStyle } } })
+            ? layerToBox({ ...layer, content: { ...(layer?.content || {}), style: { ...baseStyle, ...liveStyle } } }, compW, compH)
             : pendingStyle
-              ? layerToBox({ ...layer, content: { ...(layer?.content || {}), style: pendingStyle } })
+              ? layerToBox({ ...layer, content: { ...(layer?.content || {}), style: pendingStyle } }, compW, compH)
               : box;
 
         const posStyle: React.CSSProperties = effBox.fullscreen

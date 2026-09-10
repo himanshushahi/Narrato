@@ -157,6 +157,16 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   const [showOverlay, setShowOverlay] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  // Composition pixel size backing the % overlay math (px-authored styles
+  // resolve against composition space, which scales with preview quality).
+  const isPortraitFormat = (videoFormat || 'landscape') === 'portrait';
+  const compositionSize = React.useMemo(() => {
+    const s = previewQuality === 'full' ? 1 : 0.5;
+    return {
+      w: Math.round((isPortraitFormat ? 1080 : 1920) * s),
+      h: Math.round((isPortraitFormat ? 1920 : 1080) * s),
+    };
+  }, [isPortraitFormat, previewQuality]);
   const trackMuted = useEditorStore((s) => s.trackMuted);
   const trackHidden = useEditorStore((s) => s.trackHidden);
 
@@ -322,7 +332,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}
                 >
-                  <CanvasOverlay scenes={liveScenes} locked={canvasLocked} onSelectLayer={onCanvasSelectLayer} onStyleCommit={onCanvasStyleCommit} sceneTimings={sceneTimings} />
+                  <CanvasOverlay scenes={liveScenes} locked={canvasLocked} onSelectLayer={onCanvasSelectLayer} onStyleCommit={onCanvasStyleCommit} sceneTimings={sceneTimings} compositionSize={compositionSize} />
                 </MemoizedRemotionPlayer>
               </div>
             </div>
