@@ -768,6 +768,23 @@ const EditorWorkspace: React.FC = () => {
     // an edit session under an in-flight rewrite for the target cut.
     const lockKey = cardKeyForScene(sceneIdx);
     if (lockKey && (isSectionRewriting(lockKey) || isSubRewriting(lockKey, subIdx))) return;
+    // Playhead already inside the target cut (e.g. a box click after scrubbing
+    // the preview): adopt the cut silently instead of yanking the playhead
+    // back to the cut start like a timeline cut click would.
+    const cf = usePlaybackStore.getState().currentFrame;
+    const targetTiming = sceneTimings[sceneIdx]?.subs?.[subIdx];
+    if (targetTiming && cf >= targetTiming.start && cf < targetTiming.end) {
+      visualsFlushRef.current?.();
+      handleSelectSubVisual(sceneIdx, subIdx);
+      const adoptKey = cardKeyForScene(sceneIdx);
+      if (adoptKey) {
+        handleStartEdit(adoptKey, 'visuals');
+      }
+      const updated = useEditorStore.getState();
+      if (updated.inspectorTab !== 'visuals') updated.setInspectorTab('visuals');
+      updated.setSelectedLayerIndex(layerIdx);
+      return;
+    }
     visualsFlushRef.current?.();
     const st = useEditorStore.getState();
     if (st.selectedSceneIndex === sceneIdx && st.selectedSubVisualIndex === subIdx) {
@@ -784,7 +801,7 @@ const EditorWorkspace: React.FC = () => {
     if (updated.selectedSceneIndex === sceneIdx && updated.selectedSubVisualIndex === subIdx) {
       updated.setSelectedLayerIndex(layerIdx);
     }
-  }, [handleOpenVisualEditor, cardKeyForScene, handleStartEdit, isSectionRewriting, isSubRewriting]);
+  }, [handleOpenVisualEditor, handleSelectSubVisual, cardKeyForScene, handleStartEdit, isSectionRewriting, isSubRewriting, sceneTimings]);
 
   // P3 canvas drag commit: exactly one call per drag (pointer-up). Prefers the
   // registered VisualsTab applier (flushes pending ticks, rides the 150 ms
@@ -1314,6 +1331,7 @@ const EditorWorkspace: React.FC = () => {
           canvasLocked={canvasLocked}
           onCanvasSelectLayer={handleCanvasSelectLayer}
           onCanvasStyleCommit={handleCanvasStyleCommit}
+          sceneTimings={sceneTimings}
         />
       </div>
 

@@ -108,9 +108,15 @@ setSelectedLayerIndex: (idx: number | null) => void
 - **Preview → Editor:** Clicking a layer box on the canvas sets `selectedLayerIndex`, which
   automatically expands the Advanced section, switches to the Layout tab, and smooth-scrolls
   the layer card into view.
+- **Overlay follows the playhead's cut:** Within the selected scene, the boxes always
+  describe the cut under the playhead (`sceneTimings` sub-ranges, same convention as the
+  timeline) — scrubbing the timeline/preview bar swaps the overlay without moving the
+  editor selection. Clicking/`[`/`]`/dragging a box adopts the previewed cut; highlight,
+  backdrop deselect, and chip suffix only apply while viewing the selected cut.
 - **Cut Selection Auto-Seek:** When switching cuts in `VisualsTab.tsx` (`selectCut`), the
   player automatically seeks to `resolved.sceneTiming.subs[nextIdx].start` so the preview
-  and overlay are always showing the active cut.
+  and overlay are always showing the active cut. Canvas adoption (`handleCanvasSelectLayer`)
+  skips the seek when the playhead is already inside the target cut.
 
 ---
 

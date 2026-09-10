@@ -217,6 +217,27 @@ const wrapIdx = (cur: number, delta: number, len: number) => {
   return ((cur + delta) % len + len) % len;
 };
 
+export type CanvasSceneTimings = Array<{
+  start: number;
+  end: number;
+  subs: Array<{ start: number; end: number }>;
+}>;
+
+/**
+ * Cut under the playhead within a scene (frame space, exclusive end — same
+ * convention as the timeline and InspectorPanel). Returns -1 when unknown so
+ * callers fall back to the selected cut.
+ */
+function getPlayheadSubIdx(
+  sceneTimings: CanvasSceneTimings | undefined,
+  sceneIdx: number,
+  frame: number
+): number {
+  const subs = sceneTimings?.[sceneIdx]?.subs;
+  if (!subs || subs.length === 0) return -1;
+  return subs.findIndex((s) => frame >= s.start && frame < s.end);
+}
+
 // ── P3 direct-manipulation helpers ─────────────────────────────────────
 
 const clampN = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -379,7 +400,9 @@ export const CanvasOverlay: React.FC<{
   onSelectLayer?: (sceneIdx: number, subIdx: number, layerIdx: number) => void;
   /** P3 drag commit: exactly one call per drag (pointer-up) with the final `content.style`. */
   onStyleCommit?: (sceneIdx: number, subIdx: number, layerIdx: number, style: Record<string, any>) => void;
-}> = ({ scenes, locked, onSelectLayer, onStyleCommit }) => {
+  /** Cut timings (frames) so the overlay follows the playhead's cut within a scene. */
+  sceneTimings?: CanvasSceneTimings;
+}> = ({ scenes, locked, onSelectLayer, onStyleCommit, sceneTimings }) => {
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
@@ -407,20 +430,26 @@ export const CanvasOverlay: React.FC<{
   const handlePointerMoveRef = useRef<(e: React.PointerEvent) => void>(() => {});
   const finishDragRef = useRef<(commit: boolean) => (e: React.PointerEvent) => void>(() => () => {});
 
-  // Route a layer click into the Visuals tab. Prefers the parent callback
-  // (select + edit session + conditional seek); falls back to store-only
-  // routing (tab flip + layer) when the overlay is used standalone.
+  // Route a layer click into the Visuals tab. Targets the playhead's cut
+  // (the boxes on screen), not necessarily the selected cut — scrubbing the
+  // playhead never moves the selection, but clicking a box adopts the
+  // previewed cut. Prefers the parent callback (select + edit session +
+  // conditional seek); falls back to store-only routing when standalone.
   const routeToLayer = (layerIdx: number) => {
     if (isLocked) return;
     if (selectedSceneIndex === null || selectedSceneIndex === undefined) return;
     if (selectedSubVisualIndex === null || selectedSubVisualIndex === undefined) return;
+    const playheadSub = getPlayheadSubIdx(sceneTimings, selectedSceneIndex, currentFrame);
+    const targetSub = playheadSub >= 0 ? playheadSub : selectedSubVisualIndex;
     if (onSelectLayer) {
-      onSelectLayer(selectedSceneIndex, selectedSubVisualIndex, layerIdx);
+      onSelectLayer(selectedSceneIndex, targetSub, layerIdx);
       return;
     }
     const st = useEditorStore.getState();
     if (st.inspectorTab !== 'visuals') st.setInspectorTab('visuals');
-    st.setSelectedLayerIndex(layerIdx);
+    // Sub-set clears the layer in the store — order matters.
+    if (targetSub !== st.selectedSubVisualIndex) st.setSelectedSubVisualIndex(targetSub);
+    useEditorStore.getState().setSelectedLayerIndex(layerIdx);
   };
 
   // Deselect on Escape; cycle layer selection with `[` / `]`.
@@ -459,14 +488,17 @@ export const CanvasOverlay: React.FC<{
       if (e.repeat) return;
       if (isLocked) return;
       const sceneIdx = st.selectedSceneIndex;
-      const subIdx = st.selectedSubVisualIndex;
+      const selSubIdx = st.selectedSubVisualIndex;
       if (sceneIdx === null || sceneIdx === undefined) return;
-      if (subIdx === null || subIdx === undefined) return;
+      if (selSubIdx === null || selSubIdx === undefined) return;
 
       // Only cycle when the playhead is currently displaying this scene's overlay
       const frame = usePlaybackStore.getState().currentFrame;
       if (getActiveSceneIdx(scenes, frame) !== sceneIdx) return;
 
+      // Cycle the previewed cut's layers (adopts the cut on selection, like clicks)
+      const playheadSub = getPlayheadSubIdx(sceneTimings, sceneIdx, frame);
+      const subIdx = playheadSub >= 0 ? playheadSub : selSubIdx;
       const kids: any[] = scenes?.[sceneIdx]?.sub_visuals?.[subIdx]?.composition?.children || [];
       if (kids.length === 0) return;
       const delta = e.key === ']' ? 1 : -1;
@@ -477,12 +509,13 @@ export const CanvasOverlay: React.FC<{
         onSelectLayer(sceneIdx, subIdx, next);
       } else {
         if (st.inspectorTab !== 'visuals') st.setInspectorTab('visuals');
-        st.setSelectedLayerIndex(next);
+        if (subIdx !== st.selectedSubVisualIndex) st.setSelectedSubVisualIndex(subIdx);
+        useEditorStore.getState().setSelectedLayerIndex(next);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [scenes, isLocked, onSelectLayer]);
+  }, [scenes, sceneTimings, isLocked, onSelectLayer]);
 
   // Orphaned-drag guard: playback/cut switches unmount the boxes mid-gesture
   // (capture dies with the node), and blur can strand a session with no
@@ -527,12 +560,22 @@ export const CanvasOverlay: React.FC<{
 
   // P3 commit bridge: clear the dropped-style override once scriptData catches
   // up (order-independent shallow compare — key order can shift across
-  // save/load round-trips) or the selection moves on. A timeout backstop
-  // guarantees the override can never strand a layer's rendered geometry.
+  // save/load round-trips) or the preview/selection moves off its cut.
+  // A timeout backstop guarantees the override can never strand a layer's
+  // rendered geometry.
   useEffect(() => {
     if (!pendingCommit) return;
     const st = useEditorStore.getState();
-    if (st.selectedSceneIndex !== pendingCommit.sceneIdx || st.selectedSubVisualIndex !== pendingCommit.subIdx) {
+    if (st.selectedSceneIndex !== pendingCommit.sceneIdx) {
+      setPendingCommit(null);
+      return;
+    }
+    const frame = usePlaybackStore.getState().currentFrame;
+    const playheadSub = st.selectedSceneIndex !== null && st.selectedSceneIndex !== undefined
+      ? getPlayheadSubIdx(sceneTimings, st.selectedSceneIndex, frame)
+      : -1;
+    const viewingSub = playheadSub >= 0 ? playheadSub : st.selectedSubVisualIndex;
+    if (viewingSub !== pendingCommit.subIdx) {
       setPendingCommit(null);
       return;
     }
@@ -544,7 +587,7 @@ export const CanvasOverlay: React.FC<{
     }
     const t = window.setTimeout(() => setPendingCommit(null), 2000);
     return () => window.clearTimeout(t);
-  }, [scenes, pendingCommit]);
+  }, [scenes, sceneTimings, pendingCommit]);
 
   // Self-heal a stale layer index (e.g. an AI rewrite shrank the cut's layer
   // count): clear it instead of merely masking it in the UI, so the editor
@@ -574,11 +617,22 @@ export const CanvasOverlay: React.FC<{
     return getActiveSceneIdx(scenes, currentFrame);
   }, [scenes, currentFrame]);
 
+  // Boxes describe the cut under the playhead — scrubbing the timeline or
+  // preview bar swaps the overlay without moving the editor selection (the
+  // selection only adopts the previewed cut on click/cycle/drag). Falls back
+  // to the selected cut when timings are unavailable.
+  const playheadSubIdx =
+    selectedSceneIndex !== null &&
+    selectedSceneIndex !== undefined &&
+    selectedSceneIndex === activeSceneIdx
+      ? getPlayheadSubIdx(sceneTimings, selectedSceneIndex, currentFrame)
+      : -1;
+
   // Performance: Hide overlay entirely while video is playing.
   // Eliminates 30–60 FPS style churn and allows full GPU bandwidth for playback.
   if (isPlaying) return null;
 
-  // Only the selected cut gets boxes, and only while the playhead is inside
+  // A cut must be open in the Visuals tab, and the playhead must be inside
   // that scene — otherwise the boxes would describe a cut the player isn't showing.
   if (selectedSceneIndex === null || selectedSceneIndex === undefined) return null;
   if (selectedSubVisualIndex === null || selectedSubVisualIndex === undefined) return null;
@@ -587,7 +641,12 @@ export const CanvasOverlay: React.FC<{
   const scene = scenes[selectedSceneIndex];
   const subVisuals: any[] = scene?.sub_visuals || [];
   if (selectedSubVisualIndex < 0 || selectedSubVisualIndex >= subVisuals.length) return null;
-  const children: any[] = subVisuals[selectedSubVisualIndex]?.composition?.children || [];
+  const displaySubIdx =
+    playheadSubIdx >= 0 && playheadSubIdx < subVisuals.length
+      ? playheadSubIdx
+      : selectedSubVisualIndex;
+  const isViewingSelectedCut = displaySubIdx === selectedSubVisualIndex;
+  const children: any[] = subVisuals[displaySubIdx]?.composition?.children || [];
   if (children.length === 0) return null;
 
   // Paint order: background layers first, non-fullscreen on top.
@@ -595,17 +654,23 @@ export const CanvasOverlay: React.FC<{
     .map((layer, idx) => ({ layer, idx }))
     .sort((a, b) => (a.layer?.z_index ?? 0) - (b.layer?.z_index ?? 0));
 
+  // The stored layer index belongs to the selected cut — only meaningful
+  // while viewing that cut. On a scrubbed cut the overlay shows boxes without
+  // highlight until a click/cycle adopts it.
   const hasValidSelection =
+    isViewingSelectedCut &&
     selectedLayerIndex !== null &&
     selectedLayerIndex !== undefined &&
     selectedLayerIndex >= 0 &&
     selectedLayerIndex < children.length;
 
-  // P2 chip cycling: wraps around the cut's layers, routes through the same
-  // Visuals-tab path as a box click so the editor card follows the canvas.
+  // P2 chip cycling: wraps around the previewed cut's layers, routes through
+  // the same Visuals-tab path as a box click so the editor card follows the canvas.
   const cycleLayer = (delta: number) => {
     if (isLocked || children.length === 0) return;
-    const cur = selectedLayerIndex ?? (delta > 0 ? -1 : 0);
+    const cur = isViewingSelectedCut
+      ? (selectedLayerIndex ?? (delta > 0 ? -1 : 0))
+      : (delta > 0 ? -1 : 0);
     routeToLayer(wrapIdx(cur, delta, children.length));
   };
 
@@ -748,17 +813,18 @@ export const CanvasOverlay: React.FC<{
 
       {ordered.map(({ layer, idx }) => {
         const box = layerToBox(layer);
-        const selected = selectedLayerIndex === idx;
+        const selected = isViewingSelectedCut && selectedLayerIndex === idx;
         const cType = layer?.content?.type || 'Image';
 
         // P3 live geometry: active drag session wins; else the dropped-style
-        // override (debounce window); else the committed box.
+        // override (debounce window) on the cut it was committed to; else the
+        // committed box.
         const liveDrag = drag && drag.layerIdx === idx ? drag.cur : null;
         const pendingStyle: Record<string, any> | null =
           !liveDrag &&
           pendingCommit !== null &&
           pendingCommit.sceneIdx === selectedSceneIndex &&
-          pendingCommit.subIdx === selectedSubVisualIndex &&
+          pendingCommit.subIdx === displaySubIdx &&
           pendingCommit.layerIdx === idx
             ? pendingCommit.style
             : null;
@@ -946,7 +1012,7 @@ export const CanvasOverlay: React.FC<{
           {'<'}
         </button>
         <span style={{ padding: '0 4px', whiteSpace: 'nowrap' }}>
-          {`Cut ${selectedSubVisualIndex + 1} · ${children.length} layer${children.length === 1 ? '' : 's'}${
+          {`Cut ${displaySubIdx + 1} · ${children.length} layer${children.length === 1 ? '' : 's'}${
             hasValidSelection ? ` · L${selectedLayerIndex + 1} selected` : ''
           }${isLocked ? ' · AI rewriting…' : ''}`}
         </span>

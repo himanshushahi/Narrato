@@ -34,6 +34,8 @@ interface VideoPreviewProps {
   onCanvasSelectLayer?: (sceneIdx: number, subIdx: number, layerIdx: number) => void;
   /** P3: overlay drag commit — exactly one call per drag (pointer-up). */
   onCanvasStyleCommit?: (sceneIdx: number, subIdx: number, layerIdx: number, style: Record<string, any>) => void;
+  /** Cut timings (frames) so the overlay can follow the playhead's cut within a scene. */
+  sceneTimings?: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
 }
 
 // Player re-renders only when its props actually change (scenes, media URLs,
@@ -145,7 +147,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   audioUrl, bgMusicUrl, bgMusicVolume, musicClips = [], sfxClips = [], sfxVolume = 0.5, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
   designSystem, overlays = [],
   onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef,
-  canvasLocked, onCanvasSelectLayer, onCanvasStyleCommit
+  canvasLocked, onCanvasSelectLayer, onCanvasStyleCommit, sceneTimings
 }) => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
@@ -320,7 +322,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   onFrameUpdate={onFrameUpdate}
                   onPlayStateChange={setIsPlaying}
                 >
-                  <CanvasOverlay scenes={liveScenes} locked={canvasLocked} onSelectLayer={onCanvasSelectLayer} onStyleCommit={onCanvasStyleCommit} />
+                  <CanvasOverlay scenes={liveScenes} locked={canvasLocked} onSelectLayer={onCanvasSelectLayer} onStyleCommit={onCanvasStyleCommit} sceneTimings={sceneTimings} />
                 </MemoizedRemotionPlayer>
               </div>
             </div>
