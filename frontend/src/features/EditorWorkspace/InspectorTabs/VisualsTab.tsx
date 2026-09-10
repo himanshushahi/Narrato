@@ -8,10 +8,10 @@ import { useEditorStore } from '../../../store/useEditorStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { SubVisualsEditor } from '../../ProjectEditor/SubVisualsEditor';
 import { formatTime } from '../../ProjectEditor/constants';
-import { resolveVisualSelection, type ResolvedVisual } from '../visualSelection';
+import { resolveVisualSelection, shallowEqualStyles, type ResolvedVisual } from '../visualSelection';
 
 /** Read the edited section's sub-visuals array out of a script document. */
-function readSectionSubs(doc: any, r: ResolvedVisual): any[] {
+export function readSectionSubs(doc: any, r: ResolvedVisual): any[] {
   if (!doc) return [];
   if (r.sectionType === 'introduction') return doc.introduction?.sub_visuals || [];
   if (r.sectionType === 'conclusion') return doc.conclusion?.sub_visuals || [];
@@ -19,7 +19,7 @@ function readSectionSubs(doc: any, r: ResolvedVisual): any[] {
 }
 
 /** Immutably replace the edited section's sub-visuals array in a document. */
-function writeSectionSubs(doc: any, r: ResolvedVisual, fullSubs: any[]): any {
+export function writeSectionSubs(doc: any, r: ResolvedVisual, fullSubs: any[]): any {
   const copy = { ...doc };
   if (r.sectionType === 'introduction') {
     copy.introduction = { ...copy.introduction, sub_visuals: fullSubs };
@@ -67,6 +67,8 @@ interface VisualsTabProps {
   onSetScriptData: (data: any) => void;
   /** Registers this tab's pending-edit flusher (for Ctrl+S / TopBar saves). */
   onRegisterFlush?: (flush: (() => any) | null) => void;
+  /** Registers the canvas single-style applier (P3 direct manipulation commits). */
+  onRegisterCanvasStyle?: (fn: ((layerIdx: number, style: Record<string, any>) => void) | null) => void;
   onRewriteSection: (type: string, index: number, latestData?: any, modeOverride?: 'script' | 'visuals') => Promise<any | undefined> | void;
   onRewriteSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, prompt: string, latestData?: any) => Promise<any | undefined>;
   onUploadSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, visualType?: string, latestData?: any, layerIdx?: number) => Promise<string | undefined>;
@@ -90,7 +92,7 @@ export const VisualsTab = React.memo(function VisualsTab({
   onSeek, onSaveCard, onCancelEdit, onStartEdit, onSetScriptData,
   onRewriteSection, onRewriteSubVisual, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
   onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onDeleteCutSubVisual,
-  onRegisterFlush,
+  onRegisterFlush, onRegisterCanvasStyle,
 }: VisualsTabProps) {
   // Session cancel stays parent-owned (InspectorPanel/EditorWorkspace); Revert
   // restores the section baseline and stays in-tab, so this is intentionally
@@ -252,6 +254,49 @@ export const VisualsTab = React.memo(function VisualsTab({
       onRegisterFlushRef.current?.(null);
     };
   }, [commitPending]);
+
+  /**
+   * P3 canvas commit: replace one layer's `content.style` on the selected cut.
+   * Folds in-flight slider ticks first, then rides the same 150 ms trailing
+   * debounce as every other lens edit — never a per-pointermove store write.
+   * The overlay calls this exactly once per drag (pointer-up). NOTE: lives
+   * above the early returns — hooks cannot run conditionally.
+   */
+  const applyCanvasStyle = useCallback((layerIdx: number, style: Record<string, any>) => {
+    commitPending();
+    const cur = resolvedRef.current;
+    const subIdx = selSubIdxRef.current;
+    if (!cur || subIdx < 0) return;
+    // commitPending() just flushed, so no pending array survives — read the
+    // section fresh from the store (never the lens closure, which can lag).
+    const base = readSectionSubs(scriptDataRef.current, cur);
+    if (subIdx >= base.length) return;
+    const cut = base[subIdx] ?? {};
+    const kids = cut?.composition?.children ?? [];
+    if (layerIdx < 0 || layerIdx >= kids.length) return;
+    const target = kids[layerIdx];
+    // No-op guard: identical style skips the debounce + echo entirely
+    // (order-independent — key order can shift across save/load round-trips).
+    if (shallowEqualStyles(target?.content?.style ?? {}, style)) return;
+    const composition = { ...(cut.composition || { type: 'Sequence' }) };
+    composition.children = kids.map((l: any, i: number) =>
+      i === layerIdx ? { ...l, content: { ...(l?.content || {}), style } } : l);
+    const full = [...base];
+    full[subIdx] = { ...cut, composition };
+    scheduleWriteBack(full);
+  }, [commitPending, scheduleWriteBack]);
+
+  // Expose the applier for canvas drag commits; unregisters on unmount (the
+  // parent falls back to a direct section merge only when no pending ticks
+  // can exist — unmount already flushed them).
+  const onRegisterCanvasStyleRef = useRef(onRegisterCanvasStyle);
+  useEffect(() => { onRegisterCanvasStyleRef.current = onRegisterCanvasStyle; }, [onRegisterCanvasStyle]);
+  useEffect(() => {
+    onRegisterCanvasStyleRef.current?.(applyCanvasStyle);
+    return () => {
+      onRegisterCanvasStyleRef.current?.(null);
+    };
+  }, [applyCanvasStyle]);
 
   // Self-heal a stale sub-index (e.g. AI rewrite shrank the section, or the
   // section was emptied elsewhere): clamp into range so downstream readers of

@@ -137,3 +137,21 @@ export function resolveVisualSelection(
 
   return null;
 }
+
+/**
+ * Order-independent shallow equality for flat style records. JSON key order
+ * can shift across save/load round-trips while values stay identical, so
+ * commit-bridge comparisons must not depend on serialization order.
+ */
+export function shallowEqualStyles(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    if (!(k in b)) return false;
+    if (String((a as any)[k]) !== String((b as any)[k])) return false;
+  }
+  return true;
+}

@@ -3,7 +3,8 @@
 Status: In progress.
 - **P1 (read-only highlight/selection):** Completed with geometry parity fixes on branch `feature/canvas-layer-highlight-manipulation`.
 - **P2 (preview → editor routing & discoverability):** Completed on branch `feature/canvas-layer-highlight-manipulation`.
-- **P3–P4:** Pending.
+- **P3 (move & corner resize):** Completed on branch `feature/canvas-layer-highlight-manipulation`.
+- **P4:** Pending.
 
 Goal: click any layer in the sub-visual editor → highlight it in the preview
 player; visually move / resize (box) / scale / rotate layers directly on the
@@ -141,25 +142,35 @@ setSelectedLayerIndex: (idx: number | null) => void
   is a flex row with `<` / `>` wrap-around cycling through the same routing path;
   `[` / `]` keyboard cycling (skips inputs, inert while locked).
 
-### P3 — Move & Corner Resize (Core Direct Manipulation)
-- **Coordinate Space Math:**
-  - Pointer events must attach pointer capture (`setPointerCapture`) on pointer-down.
-  - Compute deltas relative to the player box rect:
-    ```ts
-    const rect = playerBoxRef.current.getBoundingClientRect();
-    const deltaXPct = (e.clientX - startX) / rect.width * 100;
-    const deltaYPct = (e.clientY - startY) / rect.height * 100;
-    ```
-  - **Anchor Preservation:**
-    - If layer uses `bottom` (e.g. `bottomPct !== null` and `topPct === null`), moving along Y
-      must update `bottom` (`newBottom = initialBottom - deltaYPct`), never switch to `top`.
-    - If layer uses `right`, moving along X updates `right` (`newRight = initialRight - deltaXPct`).
-  - **Aspect-Locked Corner Resize:**
-    - Corner dragging updates `widthPct`.
-    - Leave `height: undefined` and let CSS `aspectRatio` drive the vertical dimension.
-  - **Snapping:** Snap to canvas center (50%) and edges (0%, 100%) when within 1% threshold.
-  - **Commit Pipeline:** Local React state during drag + `requestAnimationFrame`; on pointer-up,
-    call `updateLayer(idx, 'style', finalStyle)` to ride the 150ms debounce into `scriptData`.
+### P3 — Move & Corner Resize (DONE)
+- [x] **Commit pipeline:** `VisualsTab.applyCanvasStyle` (registered via
+  `onRegisterCanvasStyle`, mirroring `onRegisterFlush`) flushes pending slider
+  ticks then rides the 150 ms `scheduleWriteBack` debounce — exactly one call
+  per drag (pointer-up), never per pointermove. `EditorWorkspace`
+  (`handleCanvasStyleCommit`) prefers the applier and falls back to a direct
+  section merge only when `VisualsTab` is unmounted (unmount already flushed,
+  so nothing can be clobbered). Plumbs `VisualsTab → InspectorPanel →
+  EditorWorkspace → VideoPreview → CanvasOverlay`.
+- [x] **Move:** body-drag on any non-fullscreen box, pointer capture (+ window
+  pointer fallback if capture is lost) with rAF-coalesced local state,
+  `%`-space deltas from the overlay root rect (zoom-proof). Anchor-preserving
+  commit (`right`/`bottom` stay anchored, stale opposite key deleted so the box
+  can never stretch). Snaps box edges/center to 0 % / 50 % / 100 % within 1 %.
+  Positions clamp to 0–100 % (Layout-slider parity).
+- [x] **Corner resize:** 4 handles on the selected box (hidden when rotated —
+  P4 owns rotated resize, and on fullscreen/locked boxes). Aspect-locked drags
+  update width only and drop `height` (renderer keeps deriving it); north
+  handles pin the bottom edge (height backed out from width × container aspect
+  × ratio — exact and rotation-safe, incl. bottom-anchored layers). Freeform
+  drags set width + height (10–100 % slider parity). All resizes normalize both
+  axes to `left`/`top` so the grabbed edge is the one that moves.
+- [x] **Interaction guards:** `<4 px` stays a click (shared pointerdown-select
+  path with click suppression); `Escape` cancels mid-drag (and resets the
+  suppression flag); pointercancel/blur/unmount drop the session without a
+  partial commit. Dropped style stays visible as a `pendingCommit` override
+  across the debounce window (order-independent shallow compare + 2 s backstop
+  so it can never strand); stale layer indices self-heal per the index-keyed
+  convention.
 
 ### P4 — Rotate, Edge Resize & Scale Mode
 - **Rotate Handle Math:**

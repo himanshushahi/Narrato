@@ -21,7 +21,8 @@ import { Timeline } from './Timeline';
 import { InspectorPanel } from './InspectorPanel';
 import { GlobalOverlayItem } from '../../components/video/GlobalOverlaysRenderer';
 import { FPS } from './timelineConstants';
-import { manifestToScriptSceneIndex } from './visualSelection';
+import { manifestToScriptSceneIndex, resolveVisualSelection, shallowEqualStyles } from './visualSelection';
+import { readSectionSubs, writeSectionSubs } from './InspectorTabs/VisualsTab';
 
 const EMPTY_ARRAY: any[] = [];
 
@@ -679,6 +680,12 @@ const EditorWorkspace: React.FC = () => {
   const handleRegisterVisualsFlush = useCallback((flush: (() => any) | null) => {
     visualsFlushRef.current = flush;
   }, []);
+  // P3 canvas-style applier (registered by VisualsTab; null when another tab
+  // is active). Single-style commits ride the lens debounce — see VisualsTab.
+  const canvasStyleApplierRef = useRef<((layerIdx: number, style: Record<string, any>) => void) | null>(null);
+  const handleRegisterCanvasStyle = useCallback((fn: ((layerIdx: number, style: Record<string, any>) => void) | null) => {
+    canvasStyleApplierRef.current = fn;
+  }, []);
   // Flusher for debounced Subtitle-tab edits (registered by SubtitleTab itself;
   // null when another tab is active). Lets Ctrl+S / TopBar saves include
   // in-flight debounced subtitle edits without waiting for the 400ms timer.
@@ -778,6 +785,37 @@ const EditorWorkspace: React.FC = () => {
       updated.setSelectedLayerIndex(layerIdx);
     }
   }, [handleOpenVisualEditor, cardKeyForScene, handleStartEdit, isSectionRewriting, isSubRewriting]);
+
+  // P3 canvas drag commit: exactly one call per drag (pointer-up). Prefers the
+  // registered VisualsTab applier (flushes pending ticks, rides the 150 ms
+  // lens debounce). Falls back to a direct section merge only when the applier
+  // is unregistered (VisualsTab unmounted ⇒ its unmount already flushed, so no
+  // pending ticks can be clobbered).
+  const handleCanvasStyleCommit = useCallback((sceneIdx: number, subIdx: number, layerIdx: number, style: Record<string, any>) => {
+    const lockKey = cardKeyForScene(sceneIdx);
+    if (lockKey && (isSectionRewriting(lockKey) || isSubRewriting(lockKey, subIdx))) return;
+    const applier = canvasStyleApplierRef.current;
+    if (applier) {
+      applier(layerIdx, style);
+      return;
+    }
+    const flushed = visualsFlushRef.current?.();
+    const doc = flushed ?? scriptDataRef.current;
+    const r = resolveVisualSelection(doc, manifestDataRef.current, sceneTimings, { sceneIdx, subIdx });
+    if (!r) return;
+    const subs = readSectionSubs(doc, r);
+    if (subIdx < 0 || subIdx >= subs.length) return;
+    const cut = subs[subIdx] ?? {};
+    const kids = cut?.composition?.children ?? [];
+    if (layerIdx < 0 || layerIdx >= kids.length) return;
+    if (shallowEqualStyles(kids[layerIdx]?.content?.style ?? {}, style)) return;
+    const composition = { ...(cut.composition || { type: 'Sequence' }) };
+    composition.children = kids.map((l: any, i: number) =>
+      i === layerIdx ? { ...l, content: { ...(l?.content || {}), style } } : l);
+    const full = [...subs];
+    full[subIdx] = { ...cut, composition };
+    setScriptData(writeSectionSubs(doc, r, full));
+  }, [cardKeyForScene, isSectionRewriting, isSubRewriting, sceneTimings, setScriptData]);
 
   const handleSave = useCallback(() => {
     // Whole-document save is locked while ANY AI rewrite is in flight: it
@@ -1275,6 +1313,7 @@ const EditorWorkspace: React.FC = () => {
           fullscreenToggleRef={fullscreenToggleRef}
           canvasLocked={canvasLocked}
           onCanvasSelectLayer={handleCanvasSelectLayer}
+          onCanvasStyleCommit={handleCanvasStyleCommit}
         />
       </div>
 
@@ -1318,6 +1357,7 @@ const EditorWorkspace: React.FC = () => {
           onDuplicateLayerSubVisual={handleDuplicateLayerAsset}
           onDeleteCutSubVisual={handleDeleteCutAsset}
           onRegisterFlush={handleRegisterVisualsFlush}
+          onRegisterCanvasStyle={handleRegisterCanvasStyle}
 
           tasks={tasks}
           queue={queue}

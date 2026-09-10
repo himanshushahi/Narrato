@@ -1,6 +1,7 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { usePlaybackStore } from '../../../store/usePlaybackStore';
+import { shallowEqualStyles } from '../visualSelection';
 
 /**
  * Parse a CSS value (% or px or raw number) to percent space relative to 1920x1080.
@@ -216,12 +217,159 @@ const wrapIdx = (cur: number, delta: number, len: number) => {
   return ((cur + delta) % len + len) % len;
 };
 
+// ── P3 direct-manipulation helpers ─────────────────────────────────────
+
+const clampN = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Format a percent-space number as a style value (`"12.5%"`), rounding float noise. */
+function pct(v: number): string {
+  const r = Math.round(v * 100) / 100;
+  return `${Object.is(r, -0) ? 0 : r}%`;
+}
+
+/** Snap a box position so its edges/center land on canvas edges (0/100) or center (50%) within 1%. */
+function snapPos(pos: number, size: number): number {
+  const cands = [0, 50 - size / 2, 100 - size];
+  for (const c of cands) {
+    if (Math.abs(pos - c) <= 1) return Math.round(c * 100) / 100;
+  }
+  return pos;
+}
+
+type DragCorner = 'se' | 'sw' | 'ne' | 'nw';
+
+/** Parse a normalized aspect string (`"16 / 9"` or `"1"`) to a w/h ratio. */
+function parseAspectRatio(aspect: string | null): number | null {
+  if (!aspect) return null;
+  const parts = aspect
+    .split('/')
+    .map((p) => parseFloat(p))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (parts.length === 2 && parts[1] > 0) return parts[0] / parts[1];
+  if (parts.length === 1 && parts[0] > 0) return parts[0];
+  return null;
+}
+
+interface DragInit {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  aspect: string | null;
+  useRight: boolean;
+  useBottom: boolean;
+  style: Record<string, any>;
+}
+
+interface DragSession {
+  layerIdx: number;
+  mode: 'move' | 'resize';
+  corner: DragCorner | null;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  rectW: number;
+  rectH: number;
+  init: DragInit;
+  cur: { left: number; top: number; width: number; height: number };
+  moved: boolean;
+}
+
+/**
+ * Drag geometry in left/top percent space. Move snaps edges/center; resize
+ * pins the opposite edge (west/north handles shift position). Aspect-locked
+ * layers resize width-only — height stays derived. Size mirrors the Layout
+ * sliders (10–100%), positions clamp to 0–100%.
+ */
+function computeDrag(
+  init: DragInit,
+  mode: 'move' | 'resize',
+  corner: DragCorner | null,
+  dxPct: number,
+  dyPct: number
+): { left: number; top: number; width: number; height: number } {
+  if (mode === 'move') {
+    return {
+      left: clampN(snapPos(init.left + dxPct, init.width), 0, 100),
+      top: clampN(snapPos(init.top + dyPct, init.height), 0, 100),
+      width: init.width,
+      height: init.height,
+    };
+  }
+  const east = corner === 'se' || corner === 'ne';
+  const south = corner === 'se' || corner === 'sw';
+  if (init.aspect) {
+    const width = clampN(init.width + (east ? dxPct : -dxPct), 10, 100);
+    // Height scales linearly with width (fixed ratio, fixed container), so
+    // north handles pin the bottom edge instead of growing the box downward.
+    const height = init.width > 0 ? (init.height * width) / init.width : init.height;
+    return {
+      left: clampN(east ? init.left : init.left + init.width - width, 0, 100),
+      top: south ? init.top : clampN(init.top + init.height - height, 0, 100),
+      width,
+      height,
+    };
+  }
+  const width = clampN(init.width + (east ? dxPct : -dxPct), 10, 100);
+  const height = clampN(init.height + (south ? dyPct : -dyPct), 10, 100);
+  return {
+    left: clampN(east ? init.left : init.left + init.width - width, 0, 100),
+    top: clampN(south ? init.top : init.top + init.height - height, 0, 100),
+    width,
+    height,
+  };
+}
+
+/**
+ * Build the committed `content.style`: move preserves the author's anchor
+ * (right/bottom vs left/top) while deleting any stale opposite key so the box
+ * can never stretch between both. Resize sets explicit bounds and always
+ * normalizes both axes to left/top — an east-handle drag on a right-anchored
+ * layer must move the grabbed edge, not the opposite one. Aspect-locked
+ * commits drop `height` so the renderer/overlay keep deriving it from width.
+ */
+function commitStyleFromDrag(
+  init: DragInit,
+  cur: { left: number; top: number; width: number; height: number },
+  mode: 'move' | 'resize'
+): Record<string, any> {
+  const s: Record<string, any> = { ...init.style };
+  if (mode === 'move') {
+    if (init.useRight) {
+      s.right = pct(clampN(100 - cur.left - cur.width, 0, 100));
+      delete s.left;
+    } else {
+      s.left = pct(cur.left);
+      delete s.right;
+    }
+    if (init.useBottom) {
+      s.bottom = pct(clampN(100 - cur.top - cur.height, 0, 100));
+      delete (s as any).top;
+    } else {
+      s.top = pct(cur.top);
+      delete (s as any).bottom;
+    }
+    return s;
+  }
+  s.left = pct(cur.left);
+  delete s.right;
+  s.top = pct(cur.top);
+  delete (s as any).bottom;
+  s.width = pct(cur.width);
+  if (init.aspect) delete s.height;
+  else s.height = pct(cur.height);
+  return s;
+}
+
 /**
  * P1 read-only canvas overlay: renders hit-boxes for composition layers of the
  * selected cut on top of the Remotion player.
  * Supports landscape/portrait, aspect-ratio lock, bottom-anchored text, and rotation.
  * P2: preview → editor routing (ensures Visuals tab), AI-rewrite lockout guard,
  * and prev/next layer chip controls (+ `[` / `]` keyboard cycling).
+ * P3: direct manipulation — body-drag move (anchor-preserving + snap) and
+ * corner-handle resize (aspect-aware), committed once per drag through the
+ * VisualsTab lens debounce.
  */
 export const CanvasOverlay: React.FC<{
   scenes: any[];
@@ -229,7 +377,9 @@ export const CanvasOverlay: React.FC<{
   locked?: boolean;
   /** P2 routing: layer click lands in the Visuals tab for that cut. Falls back to store-only routing when absent. */
   onSelectLayer?: (sceneIdx: number, subIdx: number, layerIdx: number) => void;
-}> = ({ scenes, locked, onSelectLayer }) => {
+  /** P3 drag commit: exactly one call per drag (pointer-up) with the final `content.style`. */
+  onStyleCommit?: (sceneIdx: number, subIdx: number, layerIdx: number, style: Record<string, any>) => void;
+}> = ({ scenes, locked, onSelectLayer, onStyleCommit }) => {
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
@@ -237,6 +387,25 @@ export const CanvasOverlay: React.FC<{
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const isLocked = locked === true;
+
+  // P3 drag state: `drag` renders the live box; `dragRef` is the handler-live
+  // session (refs are never written during render). `pendingCommit` keeps the
+  // dropped style visible across the 150 ms debounce window so the box never
+  // snaps back before scriptData catches up.
+  const [drag, setDrag] = useState<DragSession | null>(null);
+  const [pendingCommit, setPendingCommit] = useState<{
+    sceneIdx: number; subIdx: number; layerIdx: number;
+    style: Record<string, any>;
+  } | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<DragSession | null>(null);
+  const moveRef = useRef<{ x: number; y: number } | null>(null);
+  const rafRef = useRef<number>(0);
+  const suppressClickRef = useRef(false);
+  // Capture-loss fallback (see effect below): render closures are mirrored
+  // here so window listeners always call the latest handlers.
+  const handlePointerMoveRef = useRef<(e: React.PointerEvent) => void>(() => {});
+  const finishDragRef = useRef<(commit: boolean) => (e: React.PointerEvent) => void>(() => () => {});
 
   // Route a layer click into the Visuals tab. Prefers the parent callback
   // (select + edit session + conditional seek); falls back to store-only
@@ -259,15 +428,25 @@ export const CanvasOverlay: React.FC<{
   // selection via getState + props (never render-scope children) for the same
   // reason. Escape matches P1 semantics (works even while playing or in
   // inputs) but is inert while locked so all deselect paths agree; `[`/`]`
-  // stay gated on playback and text inputs.
+  // stay gated on playback and text inputs. Escape mid-drag cancels the drag.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const st = useEditorStore.getState();
       if (e.key === 'Escape') {
+        if (dragRef.current) {
+          if (rafRef.current) cancelAnimationFrame(rafRef.current);
+          rafRef.current = 0;
+          dragRef.current = null;
+          moveRef.current = null;
+          suppressClickRef.current = false;
+          setDrag(null);
+          return;
+        }
         if (isLocked) return;
         if (st.selectedLayerIndex !== null) st.setSelectedLayerIndex(null);
         return;
       }
+      if (dragRef.current) return; // no layer cycling mid-drag
       if (st.isPlaying) return;
 
       // Do not hijack hotkeys while typing in inputs, textareas, selects, or editable areas
@@ -304,6 +483,68 @@ export const CanvasOverlay: React.FC<{
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [scenes, isLocked, onSelectLayer]);
+
+  // Orphaned-drag guard: playback/cut switches unmount the boxes mid-gesture
+  // (capture dies with the node), and blur can strand a session with no
+  // pointerup ever arriving. Drop the session silently — never commit a
+  // partial drag.
+  useEffect(() => {
+    const cancel = () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+      dragRef.current = null;
+      moveRef.current = null;
+      suppressClickRef.current = false;
+      setDrag(null);
+    };
+    window.addEventListener('blur', cancel);
+    return () => {
+      window.removeEventListener('blur', cancel);
+      cancel();
+    };
+  }, []);
+
+  // Capture-loss fallback: if setPointerCapture throws, the element-level
+  // handlers go deaf outside the 10 px handle and mouse-up is lost. Window
+  // listeners cover the gesture while a session is live; every path funnels
+  // through dragRef, so double-fire with the element handlers no-ops.
+  const dragActive = drag !== null;
+  useEffect(() => {
+    if (!dragActive) return;
+    const compat = (e: PointerEvent) => e as unknown as React.PointerEvent;
+    const onMove = (e: PointerEvent) => handlePointerMoveRef.current(compat(e));
+    const onUp = (e: PointerEvent) => finishDragRef.current(true)(compat(e));
+    const onCancel = (e: PointerEvent) => finishDragRef.current(false)(compat(e));
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+    };
+  }, [dragActive]);
+
+  // P3 commit bridge: clear the dropped-style override once scriptData catches
+  // up (order-independent shallow compare — key order can shift across
+  // save/load round-trips) or the selection moves on. A timeout backstop
+  // guarantees the override can never strand a layer's rendered geometry.
+  useEffect(() => {
+    if (!pendingCommit) return;
+    const st = useEditorStore.getState();
+    if (st.selectedSceneIndex !== pendingCommit.sceneIdx || st.selectedSubVisualIndex !== pendingCommit.subIdx) {
+      setPendingCommit(null);
+      return;
+    }
+    const curStyle = scenes?.[pendingCommit.sceneIdx]?.sub_visuals?.[pendingCommit.subIdx]
+      ?.composition?.children?.[pendingCommit.layerIdx]?.content?.style;
+    if (shallowEqualStyles(curStyle ?? {}, pendingCommit.style)) {
+      setPendingCommit(null);
+      return;
+    }
+    const t = window.setTimeout(() => setPendingCommit(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [scenes, pendingCommit]);
 
   // Self-heal a stale layer index (e.g. an AI rewrite shrank the cut's layer
   // count): clear it instead of merely masking it in the UI, so the editor
@@ -368,8 +609,131 @@ export const CanvasOverlay: React.FC<{
     routeToLayer(wrapIdx(cur, delta, children.length));
   };
 
+  // ── P3 direct manipulation ──────────────────────────────────────────
+  // Pointerdown selects immediately (click and drag share one path; the
+  // follow-up click is suppressed) and opens a drag session. A <4 px nudge
+  // stays a click; beyond that the box follows the pointer with rAF
+  // coalescing. Pointer-up commits exactly once via onStyleCommit, which
+  // rides the VisualsTab 150 ms debounce — never a per-move store write.
+  const beginDrag = (
+    e: React.PointerEvent,
+    layerIdx: number,
+    box: Box,
+    layer: any,
+    mode: 'move' | 'resize',
+    corner: DragCorner | null
+  ) => {
+    if (isLocked || isPlaying) return;
+    if (box.fullscreen) return;
+    if (mode === 'resize' && box.rotateDeg !== 0) return; // P4 owns rotated resize
+    e.stopPropagation();
+    // NOTE: no preventDefault here — suppressing the compat click would strand
+    // suppressClickRef when the gesture ends without one (pointercancel/blur).
+    // Text selection is already off via `select-none` on the preview root.
+    suppressClickRef.current = true;
+    routeToLayer(layerIdx);
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+    const style: Record<string, any> = { ...(layer?.content?.style || {}) };
+    // Resolve the rendered height in % space. Aspect-locked layers derive it
+    // from width (never from the style), so back it out via the container
+    // aspect — exact, rotation-safe, and correct for bottom-anchored layers
+    // (whose top is derived from bottom + height below).
+    let height: number;
+    if (box.aspectRatio) {
+      const ratio = parseAspectRatio(box.aspectRatio);
+      height =
+        ratio && ratio > 0
+          ? (box.widthPct * (rect.width / rect.height)) / ratio
+          : (box.heightPct ?? 15);
+    } else {
+      height = box.heightPct ?? 15;
+    }
+    const left = box.leftPct !== null ? box.leftPct : 100 - (box.rightPct ?? 0) - box.widthPct;
+    const top = box.topPct !== null ? box.topPct : 100 - (box.bottomPct ?? 0) - height;
+    const session: DragSession = {
+      layerIdx, mode, corner, pointerId: e.pointerId,
+      startX: e.clientX, startY: e.clientY,
+      rectW: rect.width, rectH: rect.height,
+      init: {
+        left, top, width: box.widthPct, height,
+        aspect: box.aspectRatio,
+        useRight: box.leftPct === null && box.rightPct !== null,
+        useBottom: box.topPct === null && box.bottomPct !== null,
+        style,
+      },
+      cur: { left, top, width: box.widthPct, height },
+      moved: false,
+    };
+    dragRef.current = session;
+    setDrag(session);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch { /* capture unavailable — drag still tracks while inside */ }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const s = dragRef.current;
+    if (!s || e.pointerId !== s.pointerId) return;
+    if (Math.hypot(e.clientX - s.startX, e.clientY - s.startY) < 4 && !s.moved) return;
+    moveRef.current = { x: e.clientX, y: e.clientY };
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = 0;
+      const cur = dragRef.current;
+      const m = moveRef.current;
+      if (!cur || !m) return;
+      const next = computeDrag(
+        cur.init, cur.mode, cur.corner,
+        ((m.x - cur.startX) / cur.rectW) * 100,
+        ((m.y - cur.startY) / cur.rectH) * 100
+      );
+      const updated: DragSession = { ...cur, cur: next, moved: true };
+      dragRef.current = updated;
+      setDrag(updated);
+    });
+  };
+
+  const finishDrag = (commit: boolean) => (e: React.PointerEvent) => {
+    const s = dragRef.current;
+    if (!s || e.pointerId !== s.pointerId) return;
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    }
+    dragRef.current = null;
+    moveRef.current = null;
+    setDrag(null);
+    // Cancelled gestures fire no click — reset the suppress flag here so it
+    // can't leak into the next gesture's backstop click.
+    if (!commit) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (!s.moved) return; // plain click — selection already applied on pointerdown
+    const final = computeDrag(
+      s.init, s.mode, s.corner,
+      ((e.clientX - s.startX) / s.rectW) * 100,
+      ((e.clientY - s.startY) / s.rectH) * 100
+    );
+    const style = commitStyleFromDrag(s.init, final, s.mode);
+    const st = useEditorStore.getState();
+    const sceneIdx = st.selectedSceneIndex;
+    const subIdx = st.selectedSubVisualIndex;
+    if (sceneIdx === null || sceneIdx === undefined || subIdx === null || subIdx === undefined) return;
+    setPendingCommit({ sceneIdx, subIdx, layerIdx: s.layerIdx, style });
+    onStyleCommit?.(sceneIdx, subIdx, s.layerIdx, style);
+  };
+
+  // Mirror render closures for the window fallback above (same discipline as
+  // EditorWorkspace's latest-state refs: handlers read these, never stale
+  // render scope, when the gesture outlives the element).
+  handlePointerMoveRef.current = handlePointerMove;
+  finishDragRef.current = finishDrag;
+
   return (
     <div
+      ref={rootRef}
       className="absolute inset-0 z-20"
       style={{ pointerEvents: 'none' }}
     >
@@ -387,17 +751,42 @@ export const CanvasOverlay: React.FC<{
         const selected = selectedLayerIndex === idx;
         const cType = layer?.content?.type || 'Image';
 
-        const posStyle: React.CSSProperties = box.fullscreen
+        // P3 live geometry: active drag session wins; else the dropped-style
+        // override (debounce window); else the committed box.
+        const liveDrag = drag && drag.layerIdx === idx ? drag.cur : null;
+        const pendingStyle: Record<string, any> | null =
+          !liveDrag &&
+          pendingCommit !== null &&
+          pendingCommit.sceneIdx === selectedSceneIndex &&
+          pendingCommit.subIdx === selectedSubVisualIndex &&
+          pendingCommit.layerIdx === idx
+            ? pendingCommit.style
+            : null;
+        const effBox: Box = liveDrag
+          ? {
+              ...box,
+              leftPct: liveDrag.left,
+              rightPct: null,
+              topPct: liveDrag.top,
+              bottomPct: null,
+              widthPct: liveDrag.width,
+              heightPct: box.aspectRatio ? null : liveDrag.height,
+            }
+          : pendingStyle
+            ? layerToBox({ ...layer, content: { ...(layer?.content || {}), style: pendingStyle } })
+            : box;
+
+        const posStyle: React.CSSProperties = effBox.fullscreen
           ? { left: 0, top: 0, width: '100%', height: '100%' }
           : {
-              ...(box.leftPct !== null ? { left: `${box.leftPct}%` } : {}),
-              ...(box.leftPct === null && box.rightPct !== null ? { right: `${box.rightPct}%` } : {}),
-              width: `${box.widthPct}%`,
-              ...(box.topPct !== null ? { top: `${box.topPct}%` } : {}),
-              ...(box.topPct === null && box.bottomPct !== null ? { bottom: `${box.bottomPct}%` } : {}),
-              ...(box.aspectRatio
-                ? { aspectRatio: box.aspectRatio }
-                : (box.heightPct !== null ? { height: `${box.heightPct}%` } : {})),
+              ...(effBox.leftPct !== null ? { left: `${effBox.leftPct}%` } : {}),
+              ...(effBox.leftPct === null && effBox.rightPct !== null ? { right: `${effBox.rightPct}%` } : {}),
+              width: `${effBox.widthPct}%`,
+              ...(effBox.topPct !== null ? { top: `${effBox.topPct}%` } : {}),
+              ...(effBox.topPct === null && effBox.bottomPct !== null ? { bottom: `${effBox.bottomPct}%` } : {}),
+              ...(effBox.aspectRatio
+                ? { aspectRatio: effBox.aspectRatio }
+                : (effBox.heightPct !== null ? { height: `${effBox.heightPct}%` } : {})),
             };
 
         // Fullscreen layers stay behind non-fullscreen layers even when selected,
@@ -407,15 +796,31 @@ export const CanvasOverlay: React.FC<{
           : (selected ? 100 : 20 + box.zIndex);
 
         // Keep label badges visible inside container when box is near the top edge
-        const isNearTop = box.topPct !== null && box.topPct < 4 && !box.fullscreen;
+        const isNearTop = effBox.topPct !== null && effBox.topPct < 4 && !effBox.fullscreen;
         const badgeTop = isNearTop ? 4 : -22;
         const badgeLeft = isNearTop ? 4 : 0;
         const counterRotate = box.rotateDeg ? `rotate(${-box.rotateDeg}deg)` : undefined;
 
+        // P3: body drag moves (anchor-preserving commit). Fullscreen layers
+        // are select-only — a 100×100 box has no position to drag.
+        const draggable = !box.fullscreen && !isLocked;
+        const draggingThis = drag !== null && drag.layerIdx === idx;
+        const showHandles = selected && !box.fullscreen && !isLocked && box.rotateDeg === 0;
+
         return (
           <div
             key={idx}
+            onPointerDown={(e) => beginDrag(e, idx, box, layer, 'move', null)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={finishDrag(true)}
+            onPointerCancel={finishDrag(false)}
             onClick={(e) => {
+              // Pointerdown already selected (drag path suppresses this);
+              // this is the backstop for select-only boxes (fullscreen).
+              if (suppressClickRef.current) {
+                suppressClickRef.current = false;
+                return;
+              }
               e.stopPropagation();
               routeToLayer(idx);
             }}
@@ -424,7 +829,8 @@ export const CanvasOverlay: React.FC<{
               ...posStyle,
               position: 'absolute',
               pointerEvents: isLocked ? 'none' : 'auto',
-              cursor: isLocked ? 'default' : 'pointer',
+              cursor: isLocked ? 'default' : draggingThis ? 'grabbing' : draggable ? 'move' : 'pointer',
+              touchAction: draggable ? 'none' : undefined,
               zIndex: z,
               borderRadius: box.borderRadius || 2,
               transform: box.transform,
@@ -457,6 +863,43 @@ export const CanvasOverlay: React.FC<{
             >
               {`L${idx + 1} · ${cType}`}
             </span>
+            {/* P3 corner resize handles (aspect-aware; hidden when rotated — P4). */}
+            {showHandles &&
+              (['se', 'sw', 'ne', 'nw'] as DragCorner[]).map((c) => (
+                <div
+                  key={c}
+                  onPointerDown={(e) => beginDrag(e, idx, box, layer, 'resize', c)}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={finishDrag(true)}
+                  onPointerCancel={finishDrag(false)}
+                  onClick={(e) => {
+                    // Consume the suppressed compat click of the drag gesture
+                    // (and stop it reaching the box backstop below).
+                    e.stopPropagation();
+                    suppressClickRef.current = false;
+                  }}
+                  title={
+                    box.aspectRatio
+                      ? 'Resize (aspect locked — width drives height)'
+                      : 'Resize corner'
+                  }
+                  style={{
+                    position: 'absolute',
+                    width: 10,
+                    height: 10,
+                    left: c === 'sw' || c === 'nw' ? -5 : undefined,
+                    right: c === 'se' || c === 'ne' ? -5 : undefined,
+                    top: c === 'ne' || c === 'nw' ? -5 : undefined,
+                    bottom: c === 'se' || c === 'sw' ? -5 : undefined,
+                    borderRadius: 2,
+                    background: 'rgba(245,158,11,0.95)',
+                    border: '1px solid rgba(0,0,0,0.6)',
+                    cursor: c === 'se' || c === 'nw' ? 'nwse-resize' : 'nesw-resize',
+                    zIndex: 1,
+                    touchAction: 'none',
+                  }}
+                />
+              ))}
           </div>
         );
       })}
