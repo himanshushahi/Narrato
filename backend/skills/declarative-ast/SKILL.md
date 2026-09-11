@@ -18,7 +18,7 @@ The engine constructs visuals using an **Abstract Syntax Tree (AST)**. Each sub-
 ```
 Root Video Composition (NitishRajputComposition)
 ├── Scene Sequences (Scene 1, Scene 2, ... cuts)
-│   └── Sub-Visual AST Compositions (Charts, Mockups, B-Roll, Kinetic Text) [z-index: 0–39]
+│   └── Sub-Visual AST Compositions (children[0]=bottom ... children[N-1]=top, NEVER emit z_index)
 ├── Global Overlays & Branding Track (Watermarks, Progress Bars, Chapter Pills) [z-index: 95]
 └── Kinetic Subtitles Track (Word-level animated captions) [z-index: 100]
 ```
@@ -31,15 +31,15 @@ Root Video Composition (NitishRajputComposition)
 
 ---
 
-## 2. Standardized Z-Index Hierarchy & 3-Layer Depth Standard
+## 2. Standardized Layer Order & 3-Layer Depth Standard
 
-Great motion graphics are defined by **depth, hierarchy, and contrast**. Every sub-visual cut should construct depth across 3 standardized layers:
+Great motion graphics are defined by **depth, hierarchy, and contrast**. Every sub-visual cut should construct depth across 3 ordered layers (stacking = children array order, children[0]=bottom ... children[N-1]=top — NEVER emit z_index):
 
-| Layer Range | Z-Index | Classification | Role & Motion Grammar |
+| Layer | Order | Classification | Role & Motion Grammar |
 |---|---|---|---|
-| **Layer 1** | **0 – 9** | **Atmospheric Canvas (Background)** | Full-screen base layer. Choose the BEST type for the narrative moment: darkened Video footage, high-contrast Images (portraits, evidence, textures), vector Maps, or HTML gradient/grid canvases. Apply cinematic filters (`brightness(0.35)`, `contrast(1.15)`) and continuous camera drift (`scale: 1.0 -> 1.06`). ⚠️ VARY: Do NOT default to Video — alternate between Video, Image, HTML Gradients, and Maps across consecutive cuts. |
-| **Layer 2** | **10 – 29** | **Graphic Subject (Midground)** | Animated charts (`Chart` over HTML gradient or darkened video), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
-| **Layer 3** | **30 – 39** | **Typography & Accents (Foreground)** | Kinetic callouts (`marker_highlight`, `words_stagger`, `typewriter`), indicator arrows/pointers, data badges. Staggered reveal entering after the midground card (respecting subtitle safe area). |
+| **Layer 1** | **first child (bottom)** | **Atmospheric Canvas (Background)** | Full-screen base layer. Choose the BEST type for the narrative moment: darkened Video footage, high-contrast Images (portraits, evidence, textures), vector Maps, or HTML gradient/grid canvases. Apply cinematic filters (`brightness(0.35)`, `contrast(1.15)`) and continuous camera drift (`scale: 1.0 -> 1.06`). ⚠️ VARY: Do NOT default to Video — alternate between Video, Image, HTML Gradients, and Maps across consecutive cuts. |
+| **Layer 2** | **middle children** | **Graphic Subject (Midground)** | Animated charts (`Chart` over HTML gradient or darkened video), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
+| **Layer 3** | **last children (top)** | **Typography & Accents (Foreground)** | Kinetic callouts (`marker_highlight`, `words_stagger`, `typewriter`), indicator arrows/pointers, data badges. Staggered reveal entering after the midground card (respecting subtitle safe area). |
 
 ---
 
@@ -48,7 +48,7 @@ Great motion graphics are defined by **depth, hierarchy, and contrast**. Every s
 Every layer should move with purpose according to its role, creating a tactile **3D multi-plane parallax camera space**:
 
 1. **Faux-3D Parallax Depth Standard**:
-   * **Opposing / Multi-Speed Camera Drift**: When the midground graphic subject (Z: 15) enters with a fast spring translation (`translateY: 50 -> 0`, `easing: "spring"`), the background canvas (Z: 0) MUST have a slow, continuous linear scale drift (`scale: 1.0 -> 1.06`, `duration: total_cut_duration`).
+   * **Opposing / Multi-Speed Camera Drift**: When the midground graphic subject (middle child) enters with a fast spring translation (`translateY: 50 -> 0`, `easing: "spring"`), the background canvas (first child) MUST have a slow, continuous linear scale drift (`scale: 1.0 -> 1.06`, `duration: total_cut_duration`).
    * This speed differential between background and midground creates a cinematic parallax effect identical to high-end After Effects camera rigs.
 2. **Backgrounds (Atmospheric Drift)**:
    * Always apply subtle continuous movement over the full cut duration so the canvas never looks dead or frozen:
@@ -131,7 +131,7 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 ### 9. `Particles` (Canvas Confetti, Embers, Dust, Money Rain, Snow & Stars)
 * `particle_preset`: `"confetti"` (celebrations) | `"embers"` (fire/energy/crisis, rises) | `"dust"` (ambient depth) | `"money_rain"` (finance/profits) | `"snow"` | `"stars"` (twinkling night sky).
 * Optional tuning: `particle_count` (10–300), `particle_colors` (hex palette override), `particle_size` ([min_px, max_px] at 1080p), `particle_speed` (multiplier), `particle_direction` ("up"/"down"/"left"/"right"/"outward"/"twinkle"), `particle_opacity` (0–1).
-* RULES: exactly ONE Particles layer per cut, always topmost (`z_index` 30–39), pointer-transparent overlay — it decorates, never covers key content. Match the preset to the emotion of the narration beat (profits → money_rain, scandal → embers, victory → confetti).
+* RULES: exactly ONE Particles layer per cut, always LAST child (topmost), pointer-transparent overlay — it decorates, never covers key content. Match the preset to the emotion of the narration beat (profits → money_rain, scandal → embers, victory → confetti).
 
 ---
 
@@ -167,7 +167,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "Video",
           "query": "underwater server data center lights",
@@ -180,7 +180,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "Chart",
           "chart_type": "bar",
@@ -203,7 +203,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "Image",
           "query": "fiber optic cable cross section macro",
@@ -221,7 +221,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 30,
+
         "content": {
           "type": "Text",
           "text": "GLOBAL DATA TRAFFIC EXPANSION",
@@ -259,7 +259,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "Video",
           "query": "dark office desk shadows ambient",
@@ -271,7 +271,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.9);backdrop-filter:blur(20px);border-radius:20px;border:1px solid rgba(239,68,68,0.4);box-shadow:0 30px 60px rgba(0,0,0,0.8),0 0 30px rgba(239,68,68,0.2);padding:28px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;'><div style='display:flex;justify-content:space-between;align-items:center;'><span style='background:#ef4444;color:#fff;font-size:12px;font-weight:900;padding:4px 10px;border-radius:6px;letter-spacing:1.5px;'>CONFIDENTIAL</span><span style='color:#94a3b8;font-size:13px;font-family:monospace;'>MEMO #88</span></div><div><div style='color:#f8fafc;font-size:22px;font-weight:800;margin-bottom:8px;'>TELECOM SUBSEA ROUTE SURVEY</div><div style='color:#cbd5e1;font-size:15px;line-height:1.5;'>Seabed seismic activity detected along Section 4B. Emergency rerouting mandated to avoid trench collapse.</div></div><div style='font-size:12px;color:#ef4444;font-weight:700;'>AUTH: DEPT OF MARITIME OPERATIONS</div></div>",
@@ -290,7 +290,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 30,
+
         "content": {
           "type": "Text",
           "text": "\"EMERGENCY REROUTING MANDATED\"",
@@ -326,7 +326,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "Video",
           "query": "ocean cargo ship aerial storm waves",
@@ -339,7 +339,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(24px);border-radius:24px;border:1px solid rgba(0,212,255,0.35);box-shadow:0 25px 60px rgba(0,0,0,0.7),0 0 40px rgba(0,212,255,0.25);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;'><div style='font-size:72px;font-weight:900;color:#00d4ff;letter-spacing:-1px;text-shadow:0 0 30px rgba(0,212,255,0.6);'>$1.4B</div><div style='font-size:18px;font-weight:700;color:#f8fafc;margin-top:8px;text-align:center;text-transform:uppercase;letter-spacing:1px;'>Total Infrastructure Investment Required</div></div>",
@@ -373,7 +373,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 5,
+
         "content": {
           "type": "Map",
           "map_style": "modern_dark",
@@ -387,7 +387,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "Shape",
           "shape_type": "path",
@@ -401,7 +401,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 30,
+
         "content": {
           "type": "Text",
           "text": "TRANS-ATLANTIC TRANSIT TIME: 58 MILLISECONDS",
@@ -437,7 +437,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background-color:#0b1120;background-image:linear-gradient(rgba(0,212,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.06) 1px, transparent 1px);background-size:40px 40px;'></div>"
@@ -445,7 +445,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 12,
+
         "content": {
           "type": "Image",
           "query": "optical cable layer structure diagram cross section",
@@ -463,7 +463,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 20,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(18px);border-radius:20px;border:1px solid rgba(255,255,255,0.14);padding:22px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-around;'><div style='color:#00d4ff;font-size:14px;font-weight:800;letter-spacing:1px;text-transform:uppercase;'>ARMORED PROTECTION LAYERS</div><div style='display:flex;gap:12px;align-items:center;'><span style='background:#00d4ff;color:#0b1120;font-size:11px;font-weight:900;padding:2px 8px;border-radius:4px;'>L1</span><span style='color:#f8fafc;font-size:14px;font-weight:600;'>Polyethylene Sheath (Waterproof)</span></div><div style='display:flex;gap:12px;align-items:center;'><span style='background:#38bdf8;color:#0b1120;font-size:11px;font-weight:900;padding:2px 8px;border-radius:4px;'>L2</span><span style='color:#f8fafc;font-size:14px;font-weight:600;'>Galvanized Steel Wires (Pressure)</span></div><div style='display:flex;gap:12px;align-items:center;'><span style='background:#ffb703;color:#0b1120;font-size:11px;font-weight:900;padding:2px 8px;border-radius:4px;'>L3</span><span style='color:#f8fafc;font-size:14px;font-weight:600;'>Copper Conductor Tube (Power)</span></div></div>",
@@ -494,7 +494,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "Video",
           "query": "factory manufacturing high tech robotics",
@@ -506,7 +506,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(18px);border-radius:18px;border:1px solid rgba(0,212,255,0.3);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;'><div style='font-size:48px;font-weight:900;color:#00d4ff;'>99%</div><div style='font-size:12px;font-weight:700;color:#94a3b8;text-align:center;text-transform:uppercase;'>Global Internet Traffic</div></div>",
@@ -522,7 +522,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(18px);border-radius:18px;border:1px solid rgba(255,183,3,0.3);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;'><div style='font-size:48px;font-weight:900;color:#ffb703;'>1.4M km</div><div style='font-size:12px;font-weight:700;color:#94a3b8;text-align:center;text-transform:uppercase;'>Submarine Cable Laid</div></div>",
@@ -538,7 +538,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "Chart",
           "chart_type": "progress",
@@ -575,7 +575,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "Image",
           "query": "historical leader portrait formal",
@@ -587,7 +587,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(20px);border-radius:20px;border:1px solid rgba(250,204,21,0.3);box-shadow:0 25px 60px rgba(0,0,0,0.7);padding:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;'><div style='font-size:14px;font-weight:800;color:#facc15;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;'>KEY FIGURE</div><div style='font-size:28px;font-weight:900;color:#f8fafc;margin-bottom:6px;'>Admiral James Monroe</div><div style='font-size:15px;color:#cbd5e1;line-height:1.5;'>Chief architect of the trans-oceanic defense network. Oversaw 14 cable deployments across hostile waters between 1998–2006.</div></div>",
@@ -606,7 +606,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 30,
+
         "content": {
           "type": "Text",
           "text": "THE ARCHITECT OF DEEP SEA DEFENSE",
@@ -643,7 +643,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:linear-gradient(135deg, #0a0e17 0%, #0f172a 50%, #1e1b4b 100%);'></div>"
@@ -652,7 +652,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "Chart",
           "chart_type": "line",
@@ -678,7 +678,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 30,
+
         "content": {
           "type": "Text",
           "text": "CAPACITY GREW 44x IN 16 YEARS",
@@ -714,7 +714,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "Video",
           "query": "corporate headquarters glass skyscraper aerial",
@@ -727,7 +727,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "Image",
           "query": "Apple Inc.",
@@ -749,7 +749,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 18,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:rgba(15,23,42,0.85);backdrop-filter:blur(20px);border-radius:20px;border:1px solid rgba(255,255,255,0.15);box-shadow:0 25px 60px rgba(0,0,0,0.7);padding:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;'><div style='font-size:13px;font-weight:800;color:#38bdf8;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;'>NASDAQ: AAPL</div><div style='font-size:36px;font-weight:900;color:#f8fafc;margin-bottom:4px;'>$3.2 TRILLION</div><div style='font-size:14px;color:#94a3b8;'>Market Capitalization • World's Largest Tech Firm</div></div>",
@@ -768,7 +768,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 30,
+
         "content": {
           "type": "Text",
           "text": "DOMINATING GLOBAL HARDWARE ECOSYSTEMS",
@@ -804,7 +804,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "Video",
           "query": "printing press newspaper printing machine motion",
@@ -817,7 +817,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:#f4ebd0;border:1px solid #d4c5a9;box-shadow:0 30px 70px rgba(0,0,0,0.8), 0 0 0 8px rgba(0,0,0,0.3);padding:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;transform:rotate(-1.5deg);'><div style='border-bottom:2px solid #1c1917;padding-bottom:6px;display:flex;justify-content:space-between;align-items:center;'><span style='font-family:Georgia,serif;font-size:14px;font-weight:900;letter-spacing:2px;color:#1c1917;'>THE FINANCIAL CHRONICLE</span><span style='font-size:11px;font-weight:700;color:#78716c;'>SPECIAL EDITION</span></div><div style='font-family:Georgia,serif;font-size:32px;font-weight:900;color:#0c0a09;line-height:1.15;letter-spacing:-0.5px;margin:12px 0;'><mark style='background:#facc15;color:#000;padding:2px 6px;'>SECRET ACCOUNTS UNCOVERED</mark> IN OFFSHORE PROBE</div><div style='font-family:Georgia,serif;font-size:13px;color:#44403c;line-height:1.4;'>Federal investigators confirm multiple shell corporations were used to move $400M across international borders undetected.</div></div>",
@@ -837,7 +837,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 30,
+
         "content": {
           "type": "Text",
           "text": "THE EVIDENCE WENT PUBLIC",
@@ -873,7 +873,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "Video",
           "query": "dark surveillance office monitors",
@@ -886,7 +886,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:#1e293b;border:1px solid rgba(255,255,255,0.15);border-radius:16px;box-shadow:0 30px 70px rgba(0,0,0,0.8);padding:24px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;'><div style='display:flex;justify-content:space-between;align-items:center;'><span style='background:#ef4444;color:#fff;font-size:11px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px;'>CLASSIFIED // TOP SECRET</span><span style='color:#94a3b8;font-size:12px;font-family:monospace;'>DOC-ID: #8849-B</span></div><div style='color:#f8fafc;font-size:18px;line-height:1.6;font-family:monospace;'>\"The internal audit discovered <span style='background:#000;color:#000;padding:2px 14px;border-radius:2px;'>REDACTED</span> transactions unauthorized by the board of directors.\"</div><div style='border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;display:flex;justify-content:space-between;color:#64748b;font-size:11px;'><span>INTERNAL AUDIT DIVISION</span><span>VERIFIED COMPLIANCE</span></div></div>",
@@ -920,7 +920,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
     "children": [
       {
         "type": "Layer",
-        "z_index": 0,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;background:linear-gradient(135deg, #090d16 0%, #0f172a 100%);'></div>"
@@ -928,7 +928,7 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
       },
       {
         "type": "Layer",
-        "z_index": 15,
+
         "content": {
           "type": "HTML",
           "html_content": "<div style='width:100%;height:100%;display:flex;flex-direction:column;gap:14px;justify-content:center;padding:16px;box-sizing:border-box;'><div style='align-self:flex-start;max-width:70%;background:#1e293b;border:1px solid rgba(255,255,255,0.1);padding:14px 18px;border-radius:18px 18px 18px 4px;color:#f8fafc;font-size:16px;box-shadow:0 10px 25px rgba(0,0,0,0.5);'><span style='font-size:11px;font-weight:700;color:#38bdf8;display:block;margin-bottom:4px;'>Executive VP • 11:42 PM</span>Has the transfer been executed before the market opens?</div><div style='align-self:flex-end;max-width:70%;background:#0284c7;color:#fff;padding:14px 18px;border-radius:18px 18px 4px 18px;font-size:16px;box-shadow:0 10px 25px rgba(2,132,199,0.3);'><span style='font-size:11px;font-weight:700;color:#e0f2fe;display:block;margin-bottom:4px;'>Chief Financial Officer • 11:44 PM</span>Done. No traces left in the primary ledger.</div></div>",

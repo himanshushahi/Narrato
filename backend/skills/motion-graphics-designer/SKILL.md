@@ -113,7 +113,6 @@ Accentuates 1–3 punchy keywords with the design system accent color:
 ```json
 {
   "type": "Layer",
-  "z_index": 30,
   "content": {
     "type": "Text",
     "text": "OVER 99% OF ALL GLOBAL INTERNET DATA",
@@ -140,7 +139,6 @@ Accentuates 1–3 punchy keywords with the design system accent color:
 ```json
 {
   "type": "Layer",
-  "z_index": 30,
   "content": {
     "type": "Text",
     "text": "\"The fiber optic cables survive over 8,000 atmospheres of crushing pressure.\"",
@@ -166,10 +164,10 @@ Accentuates 1–3 punchy keywords with the design system accent color:
 
 ## 4. Multi-Layer Depth Rules & Design System Binding
 
-Always apply the project's generated **Art Director Design System** (`design.json`) tokens across the 3 standardized Z-index layers:
-1. **Z-Index 0–9 (Atmospheric Canvas)**: Full-screen base — darkened Video footage, Images, HTML gradient canvases, or Maps + camera drift (`scale: 1.0 -> 1.06`). Vary the base type across cuts.
-2. **Z-Index 10–29 (Graphic Subject)**: Cards, charts, vector shapes, or bespoke HTML evidence UI with spring physics.
-3. **Z-Index 30–39 (Typography & Accents)**: Kinetic text and indicator pointers respecting subtitle safe area (`bottom > 18%` for landscape).
+Always apply the project's generated **Art Director Design System** (`design.json`) tokens across the 3 ordered layers (children[0]=bottom, NEVER emit z_index):
+1. **Background (Atmospheric Canvas, first child)**: Full-screen base — darkened Video footage, Images, HTML gradient canvases, or Maps + camera drift (`scale: 1.0 -> 1.06`). Vary the base type across cuts.
+2. **Midground (Graphic Subject, middle children)**: Cards, charts, vector shapes, or bespoke HTML evidence UI with spring physics.
+3. **Foreground (Typography & Accents, last children)**: Kinetic text and indicator pointers respecting subtitle safe area (`bottom > 18%` for landscape).
 
 * **Primary Color (`color_palette.primary`)**: Apply to main chart bars, indicator paths, and key glowing borders.
 * **Accent Color (`color_palette.accent`)**: Apply to highlight marker text, alert callout badges, and contrasting chart bars.
@@ -186,7 +184,6 @@ Use `Shape` layers with `preset_path` for broadcast-grade motion graphics:
 ```json
 {
   "type": "Layer",
-  "z_index": 18,
   "content": {
     "type": "Shape",
     "shape_type": "path",
@@ -204,7 +201,6 @@ Use `Shape` layers with `preset_path` for broadcast-grade motion graphics:
 ```json
 {
   "type": "Layer",
-  "z_index": 22,
   "content": {
     "type": "Shape",
     "shape_type": "path",
@@ -222,7 +218,6 @@ Use `Shape` layers with `preset_path` for broadcast-grade motion graphics:
 ```json
 {
   "type": "Layer",
-  "z_index": 25,
   "content": {
     "type": "Shape",
     "shape_type": "arrow",

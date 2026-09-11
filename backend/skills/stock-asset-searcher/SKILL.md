@@ -37,7 +37,7 @@ when_to_use: "When crafting search queries for stock media (Pexels photos/videos
 Example AST layer for a YouTube clip:
 ```json
 {
-  "type": "Layer", "z_index": 1,
+  "type": "Layer",
   "content": {
     "type": "Video",
     "query": "city timelapse night cinematic",
@@ -60,7 +60,7 @@ Example AST layer for a YouTube clip:
 Example AST layer for a transparent icon overlay:
 ```json
 {
-  "type": "Layer", "z_index": 20,
+  "type": "Layer",
   "content": {
     "type": "Image",
     "query": "rupee coin gold",
