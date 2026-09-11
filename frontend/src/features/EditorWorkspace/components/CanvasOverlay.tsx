@@ -120,8 +120,8 @@ interface Box {
   isText: boolean;
 }
 
-/** Mirror of ASTRenderer layout resolution in percent space. */
-function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080): Box {
+/** Mirror of ASTRenderer layout resolution in percent space. Order-based stacking: orderIdx=array index (0=bottom). */
+function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080, orderIdx = 0): Box {
   const style: Record<string, any> = layer?.content?.style || {};
   const cType = layer?.content?.type || 'Image';
   const isText = cType === 'Text';
@@ -146,7 +146,7 @@ function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080): Box {
       transformOrigin: layer?.transform_origin,
       rotateDeg,
       borderRadius: style.borderRadius,
-      zIndex: layer?.z_index ?? 0,
+      zIndex: orderIdx,
       isText,
     };
   }
@@ -197,7 +197,7 @@ function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080): Box {
     transformOrigin: layer?.transform_origin,
     rotateDeg,
     borderRadius: style.borderRadius,
-    zIndex: layer?.z_index ?? 0,
+    zIndex: orderIdx,
     isText,
   };
 }
@@ -700,14 +700,16 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
       return layerToBox(
         { ...layer, content: { ...(layer?.content || {}), style: { ...baseStyle, ...liveStyle } } },
         compW,
-        compH
+        compH,
+        idx
       );
     }
     if (pendingStyle) {
       return layerToBox(
         { ...layer, content: { ...(layer?.content || {}), style: pendingStyle } },
         compW,
-        compH
+        compH,
+        idx
       );
     }
     return box;
@@ -1334,10 +1336,20 @@ export const CanvasOverlay: React.FC<{
         : selectedSubVisualIndex;
     const children: any[] = subVisuals[displaySubIdx]?.composition?.children || [];
     if (children.length === 0) return null;
-    // Paint order: background layers first, non-fullscreen on top.
-    const ordered = children
-      .map((layer, idx) => ({ layer, idx, box: layerToBox(layer, compW, compH) }))
-      .sort((a, b) => (a.layer?.z_index ?? 0) - (b.layer?.z_index ?? 0));
+    // Paint order = children array order (children[0]=bottom). Legacy docs
+    // with z_index are display-sorted once for continuity; saves strip the key.
+    const parseZ = (v: any): number | null => {
+      if (v === undefined || v === null || v === '') return null;
+      const n = Number(v);
+      return isNaN(n) ? null : n;
+    };
+    const hasLegacyZ = children.some((l) => parseZ(l?.z_index) !== null);
+    const source = hasLegacyZ
+      ? [...children]
+          .map((layer, idx) => ({ layer, idx }))
+          .sort((a, b) => (parseZ(a.layer?.z_index) ?? 0) - (parseZ(b.layer?.z_index) ?? 0))
+      : children.map((layer, idx) => ({ layer, idx }));
+    const ordered = source.map(({ layer, idx }, orderIdx) => ({ layer, idx, box: layerToBox(layer, compW, compH, orderIdx) }));
     return {
       displaySubIdx,
       isViewingSelectedCut: displaySubIdx === selectedSubVisualIndex,

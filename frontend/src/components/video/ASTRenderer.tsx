@@ -80,7 +80,8 @@ interface ASTLayerContent {
 
 export interface ASTLayer {
   type: 'Layer';
-  z_index: number;
+  /** @deprecated stacking is array order (children[0]=bottom). Kept for old projects, ignored by renderer. */
+  z_index?: number;
   content: ASTLayerContent;
   animations?: ASTAnimation[];
   motion_blur?: boolean;
@@ -363,14 +364,30 @@ export const ASTRenderer: React.FC<{
   const mode: QualityMode =
     qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
   const glassCap = getGlassBlurCap(mode, policy);
+  // Order-based stacking: children[0]=bottom ... children[N-1]=top.
+  // Legacy projects may still carry z_index: stable-sort once so preview,
+  // canvas overlay, and export agree (backend strips the key on next write).
+  const parseZ = (v: any): number | null => {
+    if (v === undefined || v === null || v === '') return null;
+    const n = Number(v);
+    return isNaN(n) ? null : n;
+  };
+  const orderedChildren = React.useMemo(() => {
+    const kids = composition.children || [];
+    if (!kids.some((l: any) => parseZ(l?.z_index) !== null)) return kids;
+    return [...kids].sort((a: any, b: any) => (parseZ(a?.z_index) ?? 0) - (parseZ(b?.z_index) ?? 0));
+  }, [composition.children]);
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#0c0a09' }}>
       {/* 2026 FX pack: static SVG filter defs referenced via url(#fx-*) tokens
           in layer `filters` arrays. Rendered once per composition. */}
       <FxFilterDefs />
-      {composition.children.map((layer, idx) => {
-        const { content, animations, filters, z_index } = layer;
+      {orderedChildren.map((layer, idx) => {
+        const { content, animations, filters } = layer;
+        // Order-based stacking: children[0]=bottom ... children[N-1]=top.
+        // Derived z stays under GlobalOverlays (95) / Subtitles (100).
+        const zIndex = idx + 1;
         const contentStyle = (content as any).style as React.CSSProperties | undefined;
         const { containerStyle: layoutStyle, contentStyle: innerStyle } = splitStyles(contentStyle);
         const { filterStyle, blendStyle } = parseFilters(filters);
@@ -522,7 +539,7 @@ export const ASTRenderer: React.FC<{
         const containerBaseStyle: React.CSSProperties = hasCustomLayout
           ? {
               position: 'absolute',
-              zIndex: z_index,
+              zIndex,
               ...layoutRest,
               ...(layoutRest.aspectRatio ? { height: undefined } : {}),
               ...(effectiveRadius ? { borderRadius: effectiveRadius } : {}),
@@ -532,7 +549,7 @@ export const ASTRenderer: React.FC<{
               width: '100%',
               height: '100%',
               position: 'absolute',
-              zIndex: z_index,
+              zIndex,
               ...layoutRest,
               // Strip padding & boxSizing on fullscreen branch so stale card padding doesn't inset full frame
               padding: undefined,
@@ -610,7 +627,12 @@ export const ASTRenderer: React.FC<{
               />
             }
           >
-            {renderedLayer}
+            {/* Outer stacking wrapper: sibling paint order is explicit here so
+                inner transforms/filters (which create local stacking contexts)
+                can never reorder layers. DOM order matches as backstop. */}
+            <div style={{ position: 'absolute', inset: 0, zIndex }}>
+              {renderedLayer}
+            </div>
           </ASTErrorBoundary>
         );
       })}
