@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from backend.agent.schemas import SubVisualAST
 
 logger = logging.getLogger(__name__)
@@ -82,16 +82,16 @@ def _dummy_visual(target_duration: float) -> List[Dict[str, Any]]:
     }]
 
 
-def _html_gradient_placeholder(z_index: int = 0) -> Dict[str, Any]:
+def _html_gradient_placeholder() -> Dict[str, Any]:
     """Fallback layer guaranteeing a cut always renders *something*.
 
     Used when sanitization removes every media layer of a cut (e.g. the LLM
     hallucinated Image/Video layers without a search query). A full-canvas
     gradient can never fail to download, decode, or paint.
+    Stacking is array order — placeholder is appended/inserted at index 0 (bottom).
     """
     return {
         "type": "Layer",
-        "z_index": z_index,
         "content": {
             "type": "HTML",
             "html_content": (
@@ -266,6 +266,46 @@ def normalize_sub_visuals_sources(sub_visuals: Any) -> int:
     return total
 
 
+def _safe_z(val: Any) -> Optional[float]:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def normalize_layer_order(children: List[Any]) -> int:
+    """One-time migration: order-based stacking, drop legacy z_index.
+
+    Stacking is children array order (children[0]=bottom ... children[N-1]=top).
+    If any layer still carries a legacy ``z_index``, stable-sort by it once so
+    old projects keep their visual result, then strip the key. Returns number
+    of layers migrated. Supports both numeric and numeric-string values.
+    """
+    if not isinstance(children, list) or not children:
+        return 0
+    has_legacy = any(
+        isinstance(l, dict) and _safe_z(l.get("z_index")) is not None
+        for l in children
+    )
+    if has_legacy:
+        # Stable sort preserves DOM tie-break for equal z (e.g. three z:30 layers).
+        try:
+            children.sort(
+                key=lambda l: _safe_z(l.get("z_index")) if isinstance(l, dict) and _safe_z(l.get("z_index")) is not None else 0.0
+            )
+        except Exception:
+            pass
+    stripped = 0
+    for layer in children:
+        if isinstance(layer, dict) and "z_index" in layer:
+            layer.pop("z_index", None)
+            stripped += 1
+    return stripped
+
+
+
 def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[List[Any], int]:
     """Drops Image/Video layers that carry no search query.
 
@@ -281,6 +321,7 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
     if not isinstance(children, list):
         return [], 0
     normalize_hallucinated_sources(children)
+    normalize_layer_order(children)
     clean = [layer for layer in children if not _is_queryless_media(layer)]
     dropped = len(children) - len(clean)
     if dropped:
@@ -299,12 +340,7 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
                 if isinstance(lp, str) and not lp.strip():
                     content.pop("local_path", None)
     if not clean and children:
-        z = 0
-        try:
-            z = int(children[0].get("z_index", 0)) if isinstance(children[0], dict) else 0
-        except (ValueError, TypeError):
-            z = 0
-        clean = [_html_gradient_placeholder(z)]
+        clean = [_html_gradient_placeholder()]
         logger.warning(
             f"validate_sub_visuals: {cut_label or 'cut'} left layer-less after sanitization — "
             f"inserted HTML gradient placeholder."

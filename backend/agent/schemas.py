@@ -280,7 +280,7 @@ class LayerContent(AppBaseModel):
 class ASTLayerNode(AppBaseModel):
     """A single renderable layer in an AST Sequence composition."""
     type: Literal["Layer"] = Field(default="Layer", description="Layer node identifier", json_schema_extra={"const": "Layer"})
-    z_index: int = Field(default=0, description="Z-index stack order (0-9 bg, 10-29 mid, 30-39 fg)")
+    z_index: Optional[int] = Field(default=None, description="DEPRECATED: stacking is children array order (children[0]=bottom). Ignored by renderer; kept only to parse old projects.")
     content: Union[LayerContent, Dict[str, Any]] = Field(..., description="Layer content specification")
     animations: Optional[List[Union[AnimationNode, Dict[str, Any]]]] = Field(default_factory=list, description="Keyframe animation list (spatial props drive shutter blur; blur/brightness are non-spatial fades)")
     floating: Optional[bool] = Field(default=None, description="Harmonic floating drift (slow organic bob). Counts as spatial motion for shutter blur.")
