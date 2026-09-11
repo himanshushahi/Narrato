@@ -156,11 +156,53 @@ export const AstGraphicalEditor = ({
   onDuplicateLayer?: (layerIdx: number) => void;
   uploadingSubVisual?: string | null;
 }) => {
+  // New layers must be manipulable on the canvas immediately. A layer with
+  // no content.style resolves to fullscreen in layerToBox (CanvasOverlay +
+  // ASTRenderer), and fullscreen boxes are select-only by design
+  // (draggable = showHandles = !box.fullscreen). Query-less Image/Video also
+  // renders as a fallback and would be dropped by backend sanitize.
+  // Default to a centered HTML card so handles appear on first select.
+  const DEFAULT_NEW_LAYER_STYLE = {
+    position: 'absolute',
+    left: '15%',
+    top: '20%',
+    width: '70%',
+    height: '50%',
+    borderRadius: '20px',
+  };
+  const DEFAULT_NEW_LAYER_HTML =
+    "<div style='width:100%;height:100%;background:linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);border-radius:20px;border:1px solid rgba(255,255,255,0.12);'></div>";
+  const hasLayoutBox = (style: any) => !!(
+    style && (style.width || style.height || style.top || style.left || style.right || style.bottom || style.aspectRatio)
+  );
+  const isBrokenFullscreenMedia = (layer: any) => {
+    const content = layer?.content;
+    if (!content || (content.type !== 'Image' && content.type !== 'Video')) return false;
+    if (hasLayoutBox(content.style)) return false;
+    const query = content.query;
+    const hasQuery = typeof query === 'string' ? query.trim() !== '' : !!query;
+    const localPath = content.local_path;
+    const hasAsset = typeof localPath === 'string' ? localPath.trim() !== '' : !!localPath;
+    return !hasQuery && !hasAsset;
+  };
+  const repairBrokenLayers = (comp: any) => {
+    if (!comp || typeof comp !== 'object' || !Array.isArray(comp.children)) return comp;
+    let changed = false;
+    const children = comp.children.map((l: any) => {
+      if (isBrokenFullscreenMedia(l)) {
+        changed = true;
+        return { ...l, content: { ...l.content, style: { ...DEFAULT_NEW_LAYER_STYLE } } };
+      }
+      return l;
+    });
+    return changed ? { ...comp, children } : comp;
+  };
+
   const [composition, setComposition] = useState(() => {
     if (!initialValue || !initialValue.type) {
       return { type: 'Sequence', children: [] };
     }
-    return initialValue;
+    return repairBrokenLayers(initialValue);
   });
 
   const [previewingIdx, setPreviewingIdx] = useState<number | null>(null);
@@ -216,27 +258,6 @@ export const AstGraphicalEditor = ({
     }
   };
 
-  useEffect(() => {
-    if (!initialValue) return;
-    if (initialValue === lastSentRef.current) return;
-    // Own echo, just cloned upstream: adopt the new reference, keep local draft.
-    if (lastSentJsonRef.current !== null) {
-      const incomingJson = safeStringify(initialValue);
-      if (incomingJson !== null && incomingJson === lastSentJsonRef.current) {
-        lastSentRef.current = initialValue;
-        return;
-      }
-    }
-    // No-op when the parent is already showing what we render.
-    const incomingStr = safeStringify(initialValue);
-    const currentStr = safeStringify(compositionRef.current);
-    if (incomingStr !== null && currentStr !== null && incomingStr === currentStr) {
-      lastSentRef.current = initialValue;
-      return;
-    }
-    setComposition(initialValue);
-  }, [initialValue]);
-
   // Latest-value refs so every mutator below reads current state even when
   // called through the stable api object (memoized panels, async handlers).
   // Synced in effects/events only — never during render (concurrent-mode tear).
@@ -265,6 +286,32 @@ export const AstGraphicalEditor = ({
     onChangeRef.current(newComp);
   };
 
+  useEffect(() => {
+    if (!initialValue) return;
+    if (initialValue === lastSentRef.current) return;
+    // Own echo, just cloned upstream: adopt the new reference, keep local draft.
+    if (lastSentJsonRef.current !== null) {
+      const incomingJson = safeStringify(initialValue);
+      if (incomingJson !== null && incomingJson === lastSentJsonRef.current) {
+        lastSentRef.current = initialValue;
+        return;
+      }
+    }
+    // No-op when the parent is already showing what we render.
+    const incomingStr = safeStringify(initialValue);
+    const currentStr = safeStringify(compositionRef.current);
+    if (incomingStr !== null && currentStr !== null && incomingStr === currentStr) {
+      lastSentRef.current = initialValue;
+      return;
+    }
+    const repaired = repairBrokenLayers(initialValue);
+    if (repaired !== initialValue) {
+      triggerChange(repaired);
+    } else {
+      setComposition(repaired);
+    }
+  }, [initialValue]);
+
   const updateLayer = (idx: number, field: string, val: any) => {
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
@@ -287,12 +334,23 @@ export const AstGraphicalEditor = ({
   const handleAddLayer = () => {
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
+    const newIdx = newComp.children.length;
     newComp.children.push({
       type: 'Layer',
       z_index: newComp.children.length > 0 ? (newComp.children[newComp.children.length - 1].z_index || 0) + 5 : 0,
-      content: { type: 'Image', query: '', source: 'pexels' }
+      content: { type: 'HTML', html_content: DEFAULT_NEW_LAYER_HTML, style: { ...DEFAULT_NEW_LAYER_STYLE } }
     });
     triggerChange(newComp);
+    // Reveal the new card and select it on the canvas so handles show at once.
+    internalClickRef.current = newIdx;
+    setExpandedAdvanced((prev) => ({ ...prev, [newIdx]: true }));
+    setAdvancedTab((prev) => ({ ...prev, [newIdx]: 'layout' }));
+    try {
+      useEditorStore.getState().setSelectedLayerIndex(newIdx);
+    } catch { /* store unavailable in isolation */ }
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-layer-idx="${newIdx}"]`)?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+    });
   };
 
   const handleDeleteLayer = (idx: number) => {
@@ -429,6 +487,9 @@ export const AstGraphicalEditor = ({
       copy.children = [...(copy.children || [])];
       const oldLayer = copy.children[idx] || {};
       const newContent = { ...(oldLayer.content || {}), type: newType };
+      if (newType !== 'HTML' && oldLayer.content?.type === 'HTML') {
+        delete newContent.html_content;
+      }
       if (newType === 'Video') {
         newContent.volume = 0;
       }

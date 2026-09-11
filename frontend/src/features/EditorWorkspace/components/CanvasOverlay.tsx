@@ -1294,7 +1294,12 @@ export const CanvasOverlay: React.FC<{
     const entry = scenes?.[sceneIdx]?.sub_visuals?.[subIdx];
     if (!entry) return;
     const kids: any[] = entry?.composition?.children || [];
-    if (sel >= kids.length) st.setSelectedLayerIndex(null);
+    // Tolerate sel === kids.length as a pending add: AstGraphicalEditor sets
+    // selection to the new index immediately, while scenes (liveScenes) arrive
+    // via the trailing write-back debounce. Clearing on >= would wipe the
+    // highlight before the new box exists. Delete/AI-shrink paths shift/null
+    // explicitly, and UI masks out-of-range via hasValidSelection anyway.
+    if (sel > kids.length) st.setSelectedLayerIndex(null);
   }, [scenes, selectedSceneIndex, selectedSubVisualIndex, selectedLayerIndex]);
 
   // NOTE: All hooks must run unconditionally before any early return.
