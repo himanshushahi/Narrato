@@ -76,6 +76,8 @@ interface VisualsTabProps {
   uploadingSubVisual?: string | null;
   onDeleteLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
   onDuplicateLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  onMoveLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
+  onReorderLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
   onDeleteCutSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
 }
 
@@ -91,7 +93,7 @@ export const VisualsTab = React.memo(function VisualsTab({
   isAnyRewriting, isSectionRewriting, isSubRewriting, isSectionLocked, invalidateRewrites,
   onSeek, onSaveCard, onCancelEdit, onStartEdit, onSetScriptData,
   onRewriteSection, onRewriteSubVisual, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
-  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onDeleteCutSubVisual,
+  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onMoveLayerSubVisual, onReorderLayerSubVisual, onDeleteCutSubVisual,
   onRegisterFlush, onRegisterCanvasStyle,
 }: VisualsTabProps) {
   // Session cancel stays parent-owned (InspectorPanel/EditorWorkspace); Revert
@@ -661,6 +663,14 @@ export const VisualsTab = React.memo(function VisualsTab({
     commitPending();
     onDuplicateLayerSubVisual?.(sceneIdx, sectionType, subIdx, layerIdx);
   };
+  const withFlushMoveLayer = (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => {
+    commitPending();
+    onMoveLayerSubVisual?.(sceneIdx, sectionType, subIdx, fromIdx, toIdx);
+  };
+  const withFlushReorderLayer = (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => {
+    commitPending();
+    onReorderLayerSubVisual?.(sceneIdx, sectionType, subIdx, fromIdx, toIdx);
+  };
   const withFlushDeleteCut = (sceneIdx: number, sectionType: string, subIdx: number) => {
     commitPending();
     onDeleteCutSubVisual?.(sceneIdx, sectionType, subIdx);
@@ -772,6 +782,8 @@ export const VisualsTab = React.memo(function VisualsTab({
                   onPreviewSubVisual={onPreviewSubVisual ? (_, query, layerIdx, visualType) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query, layerIdx, visualType) : undefined}
                   onDeleteLayer={onDeleteLayerSubVisual ? (_, layerIdx) => withFlushDeleteLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, layerIdx) : undefined}
                   onDuplicateLayer={onDuplicateLayerSubVisual ? (_, layerIdx) => withFlushDuplicateLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, layerIdx) : undefined}
+                  onMoveLayer={onMoveLayerSubVisual ? (_, fromIdx, toIdx) => withFlushMoveLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, fromIdx, toIdx) : undefined}
+                  onReorderLayer={onReorderLayerSubVisual ? (_, fromIdx, toIdx) => withFlushReorderLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, fromIdx, toIdx) : undefined}
                   uploadingSubVisual={uploadingSubVisual}
                   singleCut
                   cutNumber={actualSubIdx + 1}

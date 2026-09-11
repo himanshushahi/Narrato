@@ -53,6 +53,8 @@ interface InspectorPanelProps {
   uploadingSubVisual?: string | null;
   onDeleteLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
   onDuplicateLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  onMoveLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
+  onReorderLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
   onDeleteCutSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
   onRegisterFlush?: (flush: (() => any) | null) => void;
   onRegisterCanvasStyle?: (fn: ((layerIdx: number, style: Record<string, any>) => void) | null) => void;
@@ -101,7 +103,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   onSaveCard, onStartEdit, onCancelEdit, onOpenVisuals, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete,   onSetScriptData, onSaveOverlays,
   onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
-  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onDeleteCutSubVisual, onRegisterFlush, onRegisterCanvasStyle,
+  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onMoveLayerSubVisual, onReorderLayerSubVisual, onDeleteCutSubVisual, onRegisterFlush, onRegisterCanvasStyle,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
@@ -190,6 +192,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             uploadingSubVisual={uploadingSubVisual}
             onDeleteLayerSubVisual={onDeleteLayerSubVisual}
             onDuplicateLayerSubVisual={onDuplicateLayerSubVisual}
+            onMoveLayerSubVisual={onMoveLayerSubVisual}
+            onReorderLayerSubVisual={onReorderLayerSubVisual}
             onDeleteCutSubVisual={onDeleteCutSubVisual}
             onRegisterFlush={onRegisterFlush}
             onRegisterCanvasStyle={onRegisterCanvasStyle}

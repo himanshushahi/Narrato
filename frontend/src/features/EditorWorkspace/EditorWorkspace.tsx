@@ -150,7 +150,7 @@ const EditorWorkspace: React.FC = () => {
     invalidateRewrites, invalidateAllRewrites,
     savingCardKey, sceneToDelete, localProjectSettings, isSavingSubtitles,
     previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
-    handleDeleteLayerAsset, handleDuplicateLayerAsset, handleDeleteCutAsset,
+    handleDeleteLayerAsset, handleDuplicateLayerAsset, handleMoveLayerAsset, handleReorderLayerAsset, handleDeleteCutAsset,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
     handleSettingsUpdate, handleSaveTranscription, handleResetTranscription
@@ -1383,6 +1383,8 @@ const EditorWorkspace: React.FC = () => {
           uploadingSubVisual={uploadingSubVisual}
           onDeleteLayerSubVisual={handleDeleteLayerAsset}
           onDuplicateLayerSubVisual={handleDuplicateLayerAsset}
+          onMoveLayerSubVisual={handleMoveLayerAsset}
+          onReorderLayerSubVisual={handleReorderLayerAsset}
           onDeleteCutSubVisual={handleDeleteCutAsset}
           onRegisterFlush={handleRegisterVisualsFlush}
           onRegisterCanvasStyle={handleRegisterCanvasStyle}

@@ -110,6 +110,8 @@ interface UseScriptEditingReturn {
   handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number, visualType?: string) => Promise<string | undefined>;
   handleDeleteLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
   handleDuplicateLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  handleMoveLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
+  handleReorderLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
   handleDeleteCutAsset: (sceneIdx: number, sectionType: string, subIdx: number) => void;
 }
 
@@ -1813,6 +1815,47 @@ export function useScriptEditing(
   }, []);
 
   /**
+   * When a layer moves from one index to another within the same cut,
+   * re-key layer preview entries so cached assets follow their layer.
+   * Pure index permutation — no file cleanup (no assets evicted).
+   */
+  const handleMoveLayerAsset = useCallback((sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx) return;
+    const normalizedType = normalizeSectionType(sectionType);
+    const sectionKey = normalizedType === 'introduction' ? 'intro'
+      : normalizedType === 'conclusion' ? 'conclusion'
+      : `scene_${sceneIdx}`;
+    const prefix = `${sectionKey}_${subIdx}_`;
+    const cutKey = `${sectionKey}_${subIdx}`;
+
+    setPreviewAssets(prev => {
+      const next: typeof prev = {};
+      const remap = (i: number) => {
+        if (i === fromIdx) return toIdx;
+        if (fromIdx < toIdx) return i > fromIdx && i <= toIdx ? i - 1 : i;
+        return i >= toIdx && i < fromIdx ? i + 1 : i;
+      };
+      for (const [k, v] of Object.entries(prev)) {
+        if (k.startsWith(prefix)) {
+          const lIdx = parseInt(k.slice(prefix.length), 10);
+          if (!isNaN(lIdx)) {
+            const nIdx = remap(lIdx);
+            next[`${prefix}${nIdx}`] = { ...v, layerIdx: nIdx };
+            continue;
+          }
+        } else if (k === cutKey) {
+          if (v.layerIdx !== undefined) {
+            next[k] = { ...v, layerIdx: remap(v.layerIdx) };
+            continue;
+          }
+        }
+        next[k] = v;
+      }
+      return next;
+    });
+  }, []);
+
+  /**
    * When a cut is deleted at subIdx, evict its cut and layer previews (with cleanup),
    * and shift down subsequent cut keys (> subIdx).
    */
@@ -2087,7 +2130,7 @@ export function useScriptEditing(
     savingCardKey, sceneToDelete,
     localProjectSettings, isSavingSubtitles,
     previewAssets, uploadingSubVisual, handleUploadSubVisual, handlePreviewSubVisual,
-    handleDeleteLayerAsset, handleDuplicateLayerAsset, handleDeleteCutAsset,
+    handleDeleteLayerAsset, handleDuplicateLayerAsset, handleMoveLayerAsset, handleReorderLayerAsset: handleMoveLayerAsset, handleDeleteCutAsset,
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,
