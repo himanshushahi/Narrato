@@ -161,3 +161,146 @@ def test_meaningful_matching_visuals_stay_fresh(tmp_path):
     (tmp_path / "voiceover" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     proj = {"assets_manifest_path": str(tmp_path / "voiceover" / "manifest.json")}
     assert is_visuals_stale(proj, tmp_path) is False
+
+
+# ── Hallucinated sources normalization & rewrite preview tests ────────
+
+def test_normalize_hallucinated_sources_hoists_query_and_strips_urls():
+    from backend.agent.validators import normalize_hallucinated_sources
+    children = [
+        {
+            "type": "Layer",
+            "content": {
+                "type": "Image",
+                "sources": [{"query": "golden gate bridge", "url": "https://example.com/gate.jpg", "source": "PEXELS"}],
+                "url": "https://example.com/gate.jpg",
+                "asset_url": "https://example.com/gate.jpg",
+                "local_path": "/assets/asset_001.jpg",  # copied from prompt, not a preview
+            }
+        }
+    ]
+    repaired = normalize_hallucinated_sources(children)
+    assert repaired == 1
+    content = children[0]["content"]
+    assert content["query"] == "golden gate bridge"
+    assert content["source"] == "pexels"
+    assert "sources" not in content
+    assert "url" not in content
+    assert "asset_url" not in content
+    assert "local_path" not in content
+
+
+def test_normalize_sub_visuals_sources_handles_shapes_and_cleans_root():
+    from backend.agent.validators import normalize_sub_visuals_sources
+    # Test wrapper dict shape
+    wrapped = {
+        "sub_visuals": [
+            {
+                "visual_url": "https://old-link.com",
+                "visual_path": "/assets/asset_old.mp4",
+                "composition": {
+                    "type": "Sequence",
+                    "children": [
+                        {
+                            "type": "Layer",
+                            "content": {
+                                "type": "Video",
+                                "sources": [{"query": "timelapse traffic", "url": "https://vid.com"}]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    repaired = normalize_sub_visuals_sources(wrapped)
+    assert repaired == 1
+    cut = wrapped["sub_visuals"][0]
+    assert "visual_url" not in cut
+    assert "visual_path" not in cut
+    content = cut["composition"]["children"][0]["content"]
+    assert content["query"] == "timelapse traffic"
+    assert "sources" not in content
+
+
+def test_layer_content_hoists_sources_and_rejects_queryless():
+    from backend.agent.schemas import LayerContent, VisualsArrayResponse
+    import pytest
+
+    # Queryless Image raises ValueError
+    with pytest.raises(ValueError):
+        LayerContent.model_validate({"type": "Image"})
+
+    # Sources with query hoists query and passes
+    c = LayerContent.model_validate({
+        "type": "Image",
+        "sources": [{"query": "neon city", "source": "pexels"}]
+    })
+    assert c.query == "neon city"
+    assert c.source == "pexels"
+
+    # VisualsArrayResponse accepts cuts with sources-only queries
+    res = VisualsArrayResponse.model_validate({
+        "sub_visuals": [{
+            "duration": 3.0,
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "content": {
+                            "type": "Image",
+                            "sources": [{"query": "neon city"}]
+                        }
+                    }
+                ]
+            }
+        }]
+    })
+    assert len(res.sub_visuals) == 1
+
+
+def test_materialize_rewrite_previews_downloads_and_sets_preview_path(tmp_path, monkeypatch):
+    from pathlib import Path
+    from backend.pipeline.assets import materialize_rewrite_previews
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.pipeline.assets.get_setting", lambda k: "dummy_key")
+
+    proj_id = "test_proj_preview"
+    (tmp_path / proj_id / "assets" / "previews").mkdir(parents=True, exist_ok=True)
+
+    # Mock _fetch_ast_layer_asset to simulate writing a temporary file
+    def mock_fetch(layer, preview_dir, seg_idx, sub_idx, layer_idx, *args, **kwargs):
+        content = layer.get("content", {})
+        temp_file = preview_dir / f"asset_{seg_idx:03d}_{sub_idx:02d}_{layer_idx:02d}.jpg"
+        temp_file.write_text("mock image data", encoding="utf-8")
+        content["local_path"] = str(temp_file)
+        return layer
+
+    monkeypatch.setattr("backend.pipeline.assets._fetch_ast_layer_asset", mock_fetch)
+
+    cut = {
+        "composition": {
+            "type": "Sequence",
+            "children": [
+                {
+                    "type": "Layer",
+                    "content": {
+                        "type": "Image",
+                        "query": "ocean sunset"
+                    }
+                }
+            ]
+        }
+    }
+
+    res = materialize_rewrite_previews(proj_id, cut)
+    assert res["downloaded"] == 1
+    assert res["failed"] == 0
+
+    lp = cut["composition"]["children"][0]["content"].get("local_path")
+    assert lp is not None
+    assert Path(lp).exists()
+    assert "preview_" in Path(lp).name
+    assert Path(lp).name.startswith("preview_")
+

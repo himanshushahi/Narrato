@@ -116,7 +116,154 @@ def _is_queryless_media(layer: Any) -> bool:
     if content.get("type") not in ("Image", "Video"):
         return False
     q = content.get("query")
-    return not isinstance(q, str) or not q.strip()
+    if isinstance(q, str) and q.strip():
+        return False
+    # The model sometimes nests the query inside a hallucinated
+    # ``sources: [{query, url, ...}]`` array (see sub-visual rewrites).
+    # That still counts as a usable query — it gets hoisted by
+    # normalize_hallucinated_sources() before this check matters.
+    sources = content.get("sources")
+    if isinstance(sources, list):
+        for entry in sources:
+            if isinstance(entry, dict):
+                sq = entry.get("query")
+                if isinstance(sq, str) and sq.strip():
+                    return False
+    return True
+
+
+def normalize_hallucinated_sources(children: List[Any]) -> int:
+    """Hoist query/source out of hallucinated ``sources[{url,query}]`` shapes.
+
+    The AST contract is ``content: {type, query, source}`` — the pipeline
+    downloads the asset itself. The model (after seeing search-tool URLs)
+    sometimes emits ``content: {type, sources: [{url, query, source}]}``
+    with a hardcoded remote URL instead. That URL is never downloaded,
+    never expires safely, and the frontend renderer (which only reads
+    ``content.local_path``) ignores it — so the cut renders as a blank
+    procedural fallback.
+
+    This normalizer, applied before any other check:
+    - hoists the first usable ``query``/``source`` from ``sources[]`` up to
+      ``content.query``/``content.source`` when the top level lacks them,
+    - drops ``sources``, ``url``, ``asset_url`` and ``visual_url`` keys so a
+      stale remote link can never persist into preview/save,
+    - clears a ``local_path`` that points at nothing on disk (dangling ref
+      from a copied cut), letting the preview fetcher re-download.
+    Returns the number of layers repaired.
+    """
+    if not isinstance(children, list):
+        return 0
+    repaired = 0
+    for layer in children:
+        if not isinstance(layer, dict):
+            continue
+        content = layer.get("content")
+        if not isinstance(content, dict):
+            continue
+        if content.get("type") not in ("Image", "Video"):
+            continue
+        touched = False
+        sources = content.get("sources")
+        if isinstance(sources, list) and sources:
+            first_query = None
+            first_source = None
+            for entry in sources:
+                if not isinstance(entry, dict):
+                    continue
+                eq = entry.get("query")
+                if isinstance(eq, str) and eq.strip() and not first_query:
+                    first_query = eq.strip()
+                es = entry.get("source")
+                if isinstance(es, str) and es.strip() and not first_source:
+                    first_source = es.strip().lower()
+            if first_query and (not isinstance(content.get("query"), str) or not content["query"].strip()):
+                content["query"] = first_query
+                touched = True
+            if first_source and (not isinstance(content.get("source"), str) or not content["source"].strip()):
+                content["source"] = first_source
+                touched = True
+            content.pop("sources", None)
+            touched = True
+        for stale_key in ("url", "asset_url", "visual_url"):
+            if stale_key in content:
+                content.pop(stale_key, None)
+                touched = True
+        lp = content.get("local_path")
+        if isinstance(lp, str) and lp.strip():
+            # A valid local_path in a rewrite can only be an already-downloaded
+            # preview file in previews/. Any other path (e.g. copied from the
+            # prompt's original cut in assets/) is stripped so the fresh query
+            # is downloaded instead of showing the old asset.
+            lower_lp = lp.replace("\\", "/").lower()
+            if "/previews/" not in lower_lp:
+                content.pop("local_path", None)
+                touched = True
+            else:
+                try:
+                    from pathlib import Path as _Path
+                    if not _Path(lp).exists():
+                        content.pop("local_path", None)
+                        touched = True
+                except Exception:
+                    pass
+        elif isinstance(lp, str):
+            content.pop("local_path", None)
+            touched = True
+        if touched:
+            repaired += 1
+    if repaired:
+        logger.warning(
+            f"normalize_hallucinated_sources: repaired {repaired} media layer(s) "
+            f"(stripped hardcoded sources[]/url, kept query-only contract)."
+        )
+    return repaired
+
+
+def normalize_sub_visuals_sources(sub_visuals: Any) -> int:
+    """Apply normalize_hallucinated_sources to every cut's children.
+
+    Works on single-cut dicts ({composition:{children}}), lists, and dicts
+    wrapping a list ({sub_visuals:[...]}). Also strips top-level visual_url
+    and non-preview visual_path from cuts. Returns total layers repaired.
+    """
+    total = 0
+    if isinstance(sub_visuals, dict):
+        if "sub_visuals" in sub_visuals and isinstance(sub_visuals["sub_visuals"], list):
+            cuts = sub_visuals["sub_visuals"]
+        else:
+            cuts = [sub_visuals]
+    elif isinstance(sub_visuals, list):
+        cuts = sub_visuals
+    else:
+        return 0
+
+    for sv in cuts:
+        if not isinstance(sv, dict):
+            continue
+        # Clean any top-level visual_url or non-preview/dangling visual_path on the cut
+        for stale_key in ("visual_url", "url"):
+            if stale_key in sv:
+                sv.pop(stale_key, None)
+        vp = sv.get("visual_path")
+        if isinstance(vp, str) and vp.strip():
+            lower_vp = vp.replace("\\", "/").lower()
+            if "/previews/" not in lower_vp:
+                sv.pop("visual_path", None)
+            else:
+                try:
+                    from pathlib import Path as _Path
+                    if not _Path(vp).exists():
+                        sv.pop("visual_path", None)
+                except Exception:
+                    pass
+        elif isinstance(vp, str):
+            sv.pop("visual_path", None)
+
+        comp = sv.get("composition")
+        if isinstance(comp, dict) and isinstance(comp.get("children"), list):
+            total += normalize_hallucinated_sources(comp["children"])
+    return total
 
 
 def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[List[Any], int]:
@@ -133,6 +280,7 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
     """
     if not isinstance(children, list):
         return [], 0
+    normalize_hallucinated_sources(children)
     clean = [layer for layer in children if not _is_queryless_media(layer)]
     dropped = len(children) - len(clean)
     if dropped:

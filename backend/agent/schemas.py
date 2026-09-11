@@ -233,6 +233,21 @@ class LayerContent(AppBaseModel):
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
     style: Optional[Dict[str, Any]] = Field(default=None, description="CSS layout box: position/left/top/bottom/width/height (% strings), objectFit, borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors), fontSize/textAlign/textShadow/fontStyle, mixBlendMode (needs layer beneath). Prefer base boxes; static scale/rotate for emphasis only.")
 
+    @model_validator(mode="before")
+    @classmethod
+    def hoist_sources_query(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("query"):
+                sources = data.get("sources")
+                if isinstance(sources, list):
+                    for entry in sources:
+                        if isinstance(entry, dict) and entry.get("query"):
+                            data["query"] = str(entry["query"]).strip()
+                            if not data.get("source") and entry.get("source"):
+                                data["source"] = str(entry["source"]).strip()
+                            break
+        return data
+
     @field_validator("query", mode="before")
     @classmethod
     def strip_query(cls, v: Any) -> Any:
@@ -351,7 +366,20 @@ class VisualsArrayResponse(AppBaseModel):
                 if ctype in ("Image", "Video"):
                     q = content.get("query")
                     if not isinstance(q, str) or not q.strip():
-                        offenders.append(f"cut#{cut_idx} layer#{layer_idx} ({ctype})")
+                        # Accept the hallucinated sources[] shape if it carries
+                        # a usable nested query — validators.normalize_* will
+                        # hoist it to content.query and drop the hardcoded URL.
+                        nested_q = None
+                        sources = content.get("sources")
+                        if isinstance(sources, list):
+                            for entry in sources:
+                                entry_d = _as_dict(entry)
+                                eq = entry_d.get("query")
+                                if isinstance(eq, str) and eq.strip():
+                                    nested_q = eq
+                                    break
+                        if not nested_q:
+                            offenders.append(f"cut#{cut_idx} layer#{layer_idx} ({ctype})")
         if offenders:
             raise ValueError(
                 "Media layers missing required search 'query' at "

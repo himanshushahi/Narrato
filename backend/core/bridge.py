@@ -1550,7 +1550,17 @@ class ApiBridge:
                 for v in svs:
                     if isinstance(v, dict):
                         v["duration"] = round(_safe_float(v.get("duration", 1.0), 1.0) / _norm * total_duration, 2)
-            
+
+            # Preview-first: normalize any hardcoded sources[]/url shape back
+            # to the query-only contract, then download each media query into
+            # assets/previews/ so the editor preview plays real footage
+            # instantly. Save promotes them; Revert deletes them.
+            try:
+                from backend.pipeline.assets import materialize_rewrite_previews
+                materialize_rewrite_previews(project_id, svs, video_format=video_format)
+            except Exception as e:
+                logger.warning(f"Rewrite preview materialization skipped: {e}")
+
             result["data"] = {"sub_visuals": svs}
         return result
 
@@ -1629,7 +1639,19 @@ class ApiBridge:
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
-        return _call_llm_safe(system_prompt, user_prompt, SubVisualAST, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
+        result = _call_llm_safe(system_prompt, user_prompt, SubVisualAST, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
+        if result.get("success") and isinstance(result.get("data"), dict):
+            # Same preview-first contract as section rewrites: strip any
+            # hardcoded sources[]/url the model embedded, then download the
+            # query into assets/previews/ so the cut previews real media.
+            try:
+                from backend.agent.validators import normalize_sub_visuals_sources
+                from backend.pipeline.assets import materialize_rewrite_previews
+                normalize_sub_visuals_sources([result["data"]])
+                materialize_rewrite_previews(project_id, [result["data"]], video_format=video_format)
+            except Exception as e:
+                logger.warning(f"Single-cut preview materialization skipped: {e}")
+        return result
 
     def add_scene_with_ai(self, full_script: dict, user_prompt: str, language: str = "hi") -> dict:
         logger.info(f"Bridge API: add_scene_with_ai — user_prompt: '{user_prompt[:80]}...'")

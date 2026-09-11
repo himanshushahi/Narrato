@@ -326,7 +326,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "search_pexels_photo",
-                "description": "Searches Pexels for a stock photo. Returns a URL if found, or None. Useful to verify if a stock photo exists before using it in a visual cue.",
+                "description": "Searches Pexels for a stock photo. Returns a URL if found, or None. VERIFICATION ONLY — never copy the URL into AST JSON; output only query+source and the pipeline downloads the asset.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -341,7 +341,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "search_pexels_video",
-                "description": "Searches Pexels for stock video footage. Returns a URL if found. Useful to verify footage exists.",
+                "description": "Searches Pexels for stock video footage. Returns a URL if found. VERIFICATION ONLY — never copy the URL into AST JSON; output only query+source and the pipeline downloads the asset.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -356,7 +356,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "search_wikipedia_image",
-                "description": "Searches Wikipedia for an entity/person and returns their primary image URL. Excellent for 'portrait' visual types.",
+                "description": "Searches Wikipedia for an entity/person and returns their primary image URL. VERIFICATION ONLY — never copy the URL into AST JSON; output only query+source. Excellent for 'portrait' visual types.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -372,7 +372,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                 "name": "search_pixabay_photo",
                 "description": "Searches Pixabay for a stock photo. Returns a URL if found, or a not-found message. "
                                "Pixabay has a large catalog of illustrations, vectors, and photos — many available as transparent PNG (use image_type='png' for cutouts). "
-                               "Useful to verify a Pixabay asset exists before setting source:'pixabay' in an AST layer.",
+                               "VERIFICATION ONLY — never copy the URL into AST JSON; output only query+source.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -389,7 +389,8 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "function": {
                 "name": "search_pixabay_video",
                 "description": "Searches Pixabay for stock video footage. Returns a URL if found. "
-                               "Pixabay video catalog is smaller than Pexels — prefer Pexels for B-roll, use Pixabay for animation loops or abstract footage.",
+                               "Pixabay video catalog is smaller than Pexels — prefer Pexels for B-roll, use Pixabay for animation loops or abstract footage. "
+                               "VERIFICATION ONLY — never copy the URL into AST JSON.",
                 "parameters": {
                     "type": "object",
                     "properties": {

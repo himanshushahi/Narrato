@@ -1886,6 +1886,12 @@ Example: If "GDP" is spoken at [2.3s], set `delay: 2.3` on the GDP text animatio
 - DO NOT add arbitrary properties that are not supported.
 - `query` in `Image` and `Video` content MUST ALWAYS be in English.
 - All text content MUST be in English.
+- QUERY-ONLY MEDIA CONTRACT (critical): for `Image`/`Video` layers output ONLY
+  `{{"type": ..., "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"wikipedia"|"youtube"}}`.
+  NEVER emit `sources[]`, `url`, `local_path`, `asset_url`, `visual_path` or
+  `visual_url` — no hardcoded remote links. Search-tool URLs are for
+  verification only, never to be copied into the JSON. The pipeline downloads
+  the asset itself; a hardcoded URL is ignored and leaves the cut blank.
 """
 
 

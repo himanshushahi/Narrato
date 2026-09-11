@@ -227,7 +227,7 @@ def _is_preview_temp_path(path_str):
     if "/previews/" not in lower:
         return False
     base = lower.rsplit("/", 1)[-1]
-    return base.startswith("preview_") or base.startswith("upload_")
+    return base.startswith("preview_") or base.startswith("upload_") or base.startswith("asset_")
 
 
 def promote_preview_paths_to_assets(project_id, script_data=None, manifest_data=None):
@@ -1605,6 +1605,125 @@ def preview_asset_download(project_id, query, visual_type="image"):
         return {"success": True, "visual_path": local_path}
     else:
         return {"success": False, "error": "Failed to download asset"}
+
+
+def materialize_rewrite_previews(project_id, sub_visuals, video_format=None, cancel_event=None):
+    """Download preview files for AI-rewritten cut(s) so preview mode plays real media.
+
+    The interactive rewrite path (bridge regenerate_sub_visual /
+    regenerate_visuals_section) is preview-first: the AI JSON lands in local
+    editor state, and nothing is persisted until the user presses Save (which
+    promotes previews/ into assets/ via promote_preview_paths_to_assets) or
+    Revert (which deletes them via cleanup_preview_assets).
+
+    The AI contract is query-only (``content: {type, query, source}``) — it
+    must never embed hardcoded ``sources[].url`` links. This helper:
+    1. normalizes any hallucinated ``sources[]``/``url`` shape back to the
+       query-only contract (keeping the AI's query),
+    2. downloads each Image/Video layer's query into ``assets/previews/``
+       as ``preview_<uuid>.<ext>`` and sets ``content.local_path``,
+    3. leaves layers whose download fails on the procedural fallback (query
+       is kept, so a later Save/fetch can still resolve them).
+
+    Accepts a single sub_visual dict or a list. Returns
+    ``{"downloaded": n, "failed": m}``. Never raises — rewrite must succeed
+    even when stock providers are unreachable.
+    """
+    try:
+        from backend.agent.validators import normalize_sub_visuals_sources
+        normalize_sub_visuals_sources(sub_visuals)
+    except Exception:
+        pass
+
+    if isinstance(sub_visuals, dict):
+        if "sub_visuals" in sub_visuals and isinstance(sub_visuals["sub_visuals"], list):
+            cuts = sub_visuals["sub_visuals"]
+        else:
+            cuts = [sub_visuals]
+    elif isinstance(sub_visuals, list):
+        cuts = sub_visuals
+    else:
+        return {"downloaded": 0, "failed": 0}
+
+    try:
+        project = get_project(project_id)
+    except Exception:
+        project = None
+    if video_format is None:
+        video_format = (project or {}).get("video_format", "landscape")
+
+    try:
+        from backend.core.config import get_storage_dir
+        import uuid as _uuid
+        project_dir = get_storage_dir() / project_id
+        preview_dir = project_dir / "assets" / "previews"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"Rewrite preview download skipped, preview dir unavailable: {e}")
+        return {"downloaded": 0, "failed": 0}
+
+    try:
+        api_key = get_setting("pexels_api_key")
+        pixabay_api_key = get_setting("pixabay_api_key")
+    except Exception:
+        api_key, pixabay_api_key = None, None
+
+    downloaded, failed = 0, 0
+    for sub_idx, sv in enumerate(cuts):
+        if not isinstance(sv, dict):
+            continue
+        comp = sv.get("composition")
+        if not isinstance(comp, dict) or not isinstance(comp.get("children"), list):
+            continue
+        for layer_idx, layer in enumerate(comp["children"]):
+            if not isinstance(layer, dict):
+                continue
+            content = layer.get("content")
+            if not isinstance(content, dict):
+                continue
+            if content.get("type") not in ("Image", "Video"):
+                continue
+            query = content.get("query")
+            if not isinstance(query, str) or not query.strip():
+                continue
+            existing = content.get("local_path")
+            if isinstance(existing, str) and existing.strip() and Path(existing).exists():
+                continue
+            # Fetch into a temp canonical name, then rename to a unique
+            # preview_ id so concurrent rewrites never collide.
+            try:
+                _fetch_ast_layer_asset(
+                    layer, preview_dir, 0, sub_idx, layer_idx,
+                    api_key, pixabay_api_key,
+                    cancel_event=cancel_event, video_format=video_format,
+                )
+            except InterruptedError:
+                raise
+            except Exception as e:
+                logger.warning(f"Rewrite preview fetch failed for '{query}': {e}")
+            tmp_path = content.get("local_path")
+            if isinstance(tmp_path, str) and tmp_path.strip() and Path(tmp_path).exists():
+                ext = Path(tmp_path).suffix or (".mp4" if content.get("type") == "Video" else ".jpg")
+                dest = preview_dir / f"preview_{_uuid.uuid4().hex[:8]}{ext}"
+                try:
+                    Path(tmp_path).replace(dest)
+                    content["local_path"] = str(dest)
+                    downloaded += 1
+                    logger.info(f"Rewrite preview materialized for '{query}' -> {dest.name}")
+                except Exception:
+                    try:
+                        import shutil as _shutil
+                        _shutil.move(str(tmp_path), str(dest))
+                        content["local_path"] = str(dest)
+                        downloaded += 1
+                        logger.info(f"Rewrite preview materialized (via move) for '{query}' -> {dest.name}")
+                    except Exception:
+                        # Rename/move failed but the file itself is usable in place.
+                        downloaded += 1
+            else:
+                content.pop("local_path", None)
+                failed += 1
+    return {"downloaded": downloaded, "failed": failed}
 
 
 def cleanup_preview_assets(project_id, preview_paths):
