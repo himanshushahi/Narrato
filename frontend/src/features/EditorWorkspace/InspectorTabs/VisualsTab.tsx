@@ -139,6 +139,13 @@ export const VisualsTab = React.memo(function VisualsTab({
   /** Selection sub-index mirror (ref, not render closure) so lens writes use
    * the fresh section AND fresh cut together on fast switches. */
   const selSubIdxRef = useRef<number>(selectedSubVisualIndex ?? -1);
+  /** Scroll container for the cut lens — same DOM node persists across cut
+   * switches (only the inner editor remounts by key), so without a reset the
+   * new cut opens at the old scrollTop. Reset to top on scene/cut change. */
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [selectedSceneIndex, selectedSubVisualIndex]);
   /** AI prompt drafts per cut — the lens remounts on cut switch, so drafts
    * live here to survive navigation. Must stay above the early returns. */
   const promptDraftsRef = useRef<Record<string, string>>({});
@@ -677,7 +684,7 @@ export const VisualsTab = React.memo(function VisualsTab({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
       {/* ── Selected cut header ─────────────────────────────────────── */}
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800/60 overflow-hidden">
         <div className="px-4 pt-3 pb-2 border-b border-zinc-800/40">
