@@ -28,7 +28,7 @@ Narrato has evolved beyond rigid hardcoded video templates into a full **Declara
 │        Declarative AST Compositions (Sequence / Layer / Primitives)         │
 │                          │                                                  │
 │                          ▼                                                  │
-│         Remotion Engine (Multi-Layer Z-Index Compositor) ──► MP4            │
+│         Remotion Engine (Order-Based Layer Compositor) ──► MP4            │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -49,10 +49,10 @@ Visuals are represented as a composable, declarative Abstract Syntax Tree rather
   - `Video`: Cinematic B-roll footage, timelapses, and ambient backgrounds.
   - `Map`: Geographic territory visualizations (`modern_dark`, `nautical_blue`, `vintage`).
   - `HTML`: Custom inline SVG and CSS animations.
-- **Standardized Multi-Layer Z-Index Compositor**:
-  - `0 – 9`: Background media, footage, and ambient textures.
-  - `10 – 29`: Midground motion graphics (glassmorphic cards, charts, mockups, counters, timelines).
-  - `30 – 39`: Foreground typography and data callouts (respecting subtitle safe areas).
+- **Order-Based Multi-Layer Compositor**:
+  - **Background (First child)**: Background media, footage, ambient textures, and vector maps.
+  - **Midground (Middle children)**: Motion graphics (glassmorphic cards, charts, mockups, counters, timelines).
+  - **Foreground (Last children)**: Typography and data callouts (respecting subtitle safe areas).
   - `95`: Root Global Overlays (persistent channel watermark, chapter branding, progress bar).
   - `100`: Kinetic Subtitles Track (word-level synced captions).
 - **Anti-Pattern Guardrails**: No flashing static chapter cards inside sub-visual cuts — chapter branding is rendered continuously across scenes at the root composition level.
@@ -67,7 +67,7 @@ All prompt intelligence is decoupled from code into **17 hot-reloadable Markdown
 ### 3. Autonomous Agent Engine & Tool Loop (`backend/agent/`)
 - Multi-turn tool execution loop (`AgentRunner`) enabling models to search the web, query project files, load skill definitions, and fetch stock media before generating final JSON schemas.
 - Real-time telemetry feed (`emit_activity`) tracking tool invocations, skill preloads, file reads, and LLM turns in the UI.
-- Visual correction loop (`validate_and_correct_visuals`) verifying AST schema conformance, duration math, and Z-index boundaries.
+- Visual correction loop (`validate_and_correct_visuals`) verifying AST schema conformance, duration math, and layer order boundaries.
 
 ### 4. Global Design System & Complex Text Layout (CTL) Support
 - **Art Director**: Auto-generates cohesive color palettes, typography rules, and glassmorphism styling presets for each video.
