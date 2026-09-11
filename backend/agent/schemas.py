@@ -168,7 +168,7 @@ class MapLocation(AppBaseModel):
 class LayerContent(AppBaseModel):
     """Rich polymorphic content payload for an AST Layer."""
     type: Literal["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie", "Particles"] = Field(..., description="Content type: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles")
-    query: Optional[str] = Field(default=None, description="Search query for Pexels, Wikipedia, Pixabay, or YouTube (if Image/Video)")
+    query: Optional[str] = Field(default=None, min_length=2, description="REQUIRED when type is Image/Video: 1-3 broad English stock keywords (e.g. 'city skyline night'). Search query for Pexels, Wikipedia, Pixabay, or YouTube. A media layer without a query can never download an asset and breaks the cut — always provide one.")
     source: Optional[str] = Field(default=None, description="Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed.", json_schema_extra={"enum": ["pexels", "wikipedia", "pixabay", "youtube"]})
     text: Optional[str] = Field(default=None, description="Text content (if Text)")
     animation_mode: Optional[str] = Field(default=None, description="Kinetic typography animation mode (if Text)", json_schema_extra={"enum": ["static", "words_stagger", "typewriter", "marker_highlight"]})
@@ -233,6 +233,14 @@ class LayerContent(AppBaseModel):
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
     style: Optional[Dict[str, Any]] = Field(default=None, description="CSS layout box: position/left/top/bottom/width/height (% strings), objectFit, borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors), fontSize/textAlign/textShadow/fontStyle, mixBlendMode (needs layer beneath). Prefer base boxes; static scale/rotate for emphasis only.")
 
+    @field_validator("query", mode="before")
+    @classmethod
+    def strip_query(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            stripped = v.strip()
+            return stripped or None
+        return v
+
     @model_validator(mode="after")
     def sanitize_shape_and_content(self) -> LayerContent:
         """Auto-corrects and sanitizes vector shape and content properties to prevent rendering crashes."""
@@ -245,6 +253,12 @@ class LayerContent(AppBaseModel):
                 self.stroke_width = 2.0
             if self.corner_radius is not None and self.corner_radius < 0:
                 self.corner_radius = 0.0
+        if self.type in ("Image", "Video") and not self.query:
+            raise ValueError(
+                f"Media layer of type '{self.type}' requires a non-empty search "
+                f"'query' (1-3 English stock keywords) — without it no asset can "
+                f"be downloaded and the cut renders broken."
+            )
         return self
 
 
@@ -303,6 +317,49 @@ class VisualsArrayResponse(AppBaseModel):
                 if isinstance(v["data"], dict) and "sub_visuals" in v["data"]:
                     return v["data"]["sub_visuals"]
         return []
+
+    @model_validator(mode="after")
+    def reject_queryless_media(self) -> VisualsArrayResponse:
+        """Strict gate: Image/Video layers MUST carry a search query.
+
+        This runs at the response level (not per-content) deliberately:
+        content fields accept raw dicts as a forward-compat fallback, which
+        would otherwise let a query-less media layer slip past LayerContent
+        validation. Inspect the raw output shape instead so the failure
+        always surfaces to the agent correction loop.
+        """
+        offenders = []
+
+        def _as_dict(node: Any) -> Dict[str, Any]:
+            if isinstance(node, dict):
+                return node
+            if isinstance(node, BaseModel):
+                try:
+                    return node.model_dump()
+                except Exception:
+                    return {}
+            return {}
+
+        for cut_idx, sv in enumerate(self.sub_visuals or []):
+            comp = _as_dict(getattr(sv, "composition", None) if not isinstance(sv, dict) else sv.get("composition"))
+            children = comp.get("children", [])
+            if not isinstance(children, list):
+                continue
+            for layer_idx, layer in enumerate(children):
+                content = _as_dict(layer.get("content") if isinstance(layer, dict) else getattr(layer, "content", None))
+                ctype = content.get("type")
+                if ctype in ("Image", "Video"):
+                    q = content.get("query")
+                    if not isinstance(q, str) or not q.strip():
+                        offenders.append(f"cut#{cut_idx} layer#{layer_idx} ({ctype})")
+        if offenders:
+            raise ValueError(
+                "Media layers missing required search 'query' at "
+                + ", ".join(offenders)
+                + ". Every Image/Video layer needs 1-3 English stock keywords "
+                "so its asset can be downloaded."
+            )
+        return self
 
 
 # ============================================================================

@@ -197,6 +197,37 @@ stages 4–5 stays timing-correct:
    durations) are skipped so file mtimes — and therefore render hashes — stay
    stable on byte-identical re-runs.
 
+### 4c. Strict Media Validation + Sanitizer (no query-less Image/Video ever ships)
+
+Hallucinated media layers (Image/Video without a search `query`) can never
+download an asset, so they are rejected at three independent levels:
+
+1. **LLM guidance** — `LayerContent.query` is documented REQUIRED for
+   Image/Video (minLength in JSON schema) in
+   [`schemas.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/agent/schemas.py).
+2. **Pydantic gate** — `LayerContent` raises on empty query for Image/Video,
+   and `VisualsArrayResponse.reject_queryless_media` re-checks the raw output
+   (the `Union[..., Dict]` forward-compat fallback would otherwise swallow the
+   per-content failure). In agent paths this surfaces into the correction
+   loop with the exact `cut# / layer#` locations.
+3. **Pipeline sanitizer** — `sanitize_media_layers`
+   ([`validators.py`](file:///D:/Real-Life-Projects/remotion_canvas/backend/agent/validators.py)),
+   wired into `validate_sub_visuals`, drops query-less media layers and
+   inserts a deterministic HTML gradient placeholder if a cut would be left
+   layer-less — repaired without burning another LLM call.
+
+Companion rule: `is_visuals_stale` requires *meaningful* sub-visuals (real
+composition children), so a cut that collapsed to a blank default composition
+is regenerated instead of sticking forever.
+
+### 4d. Renderer Failure Cascade (a dead asset degrades, never breaks a cut)
+
+`MediaNode` ([`ASTRenderer.tsx`](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx))
+resolves media in stages: `Video` → on playback error `<Img>` (rescues legacy
+type mismatches) → on image error the animated procedural canvas. A missing,
+corrupt, or unplayable file therefore always ends as a gradient — never as a
+broken-image glyph or black cut.
+
 ---
 
 ## 5. Multi-Domain Render Hash Engine

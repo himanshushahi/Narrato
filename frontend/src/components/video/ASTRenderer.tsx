@@ -291,15 +291,25 @@ const MediaNode: React.FC<{
   style?: React.CSSProperties;
   volume?: number;
   loop?: boolean;
-}> = ({ type, localPath, style, volume, loop = false }) => {
+  query?: string;
+}> = ({ type, localPath, style, volume, loop = false, query }) => {
   const url = getMediaUrlSync(localPath);
-  // If <Video> fails at runtime (corrupt file, 404, zero-byte, unknown codec),
-  // fall back to <Img> so the render doesn't crash entirely.
-  // Display-only fallback: never mutates layer data. Reset on path change so
-  // a fixed path recovers instead of sticking on <Img> forever.
+  // Failure cascade for unplayable media (missing file, 404, zero-byte,
+  // unknown codec): Video falls back to <Img> (rescues legacy layers whose
+  // declared type mismatches the real file), and ANY terminal <Img> failure
+  // falls back to the procedural canvas — so a dead asset degrades to an
+  // animated gradient instead of a broken-image glyph or black cut.
+  // Display-only fallbacks: never mutate layer data. Reset on path change so
+  // a fixed path recovers instead of sticking on a fallback forever.
   const [videoFailed, setVideoFailed] = React.useState(false);
-  React.useEffect(() => { setVideoFailed(false); }, [localPath]);
-  if (!url) return null;
+  const [imgFailed, setImgFailed] = React.useState(false);
+  React.useEffect(() => { setVideoFailed(false); setImgFailed(false); }, [localPath]);
+  // Empty URL means the asset was never downloaded (provider returned 0
+  // results, API key missing, download failed, etc.). Degrade to the
+  // animated procedural canvas instead of rendering nothing (invisible).
+  if (!url) {
+    return <ProceduralCanvasFallback query={query} type={type} style={{ width: '100%', height: '100%', objectFit: 'cover' as const, ...style }} />;
+  }
 
   const defaultStyle: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'cover' };
   const mergedStyle = { ...defaultStyle, ...style };
@@ -311,12 +321,16 @@ const MediaNode: React.FC<{
   const effectiveType = videoFailed ? 'Image' : inferMediaType(localPath, type);
 
   if (effectiveType === 'Image') {
+    if (imgFailed) {
+      return <ProceduralCanvasFallback query={query} type={type} style={mergedStyle} />;
+    }
     return (
       <Img
         src={url}
         style={mergedStyle}
         onError={(e) => {
-          console.warn(`[ASTRenderer] Image load error on ${localPath}:`, e);
+          console.warn(`[ASTRenderer] Image load error on ${localPath}, falling back to procedural canvas:`, e);
+          setImgFailed(true);
         }}
       />
     );
@@ -381,7 +395,7 @@ export const ASTRenderer: React.FC<{
                 ...innerStyle,
                 ...(effectiveRadius ? { borderRadius: effectiveRadius } : null),
               };
-          node = <MediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} loop={content.loop} />;
+          node = <MediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} loop={content.loop} query={(content as any).query} />;
         } else if (content.type === 'Image' || content.type === 'Video') {
           // Procedural fallback when local media is missing/downloading
           node = (
@@ -585,7 +599,17 @@ export const ASTRenderer: React.FC<{
         );
 
         return (
-          <ASTErrorBoundary key={idx} layerType={content?.type}>
+          <ASTErrorBoundary
+            key={idx}
+            layerType={content?.type}
+            fallback={
+              <ProceduralCanvasFallback
+                query={(content as any)?.query}
+                type={content?.type}
+                style={{ width: '100%', height: '100%' }}
+              />
+            }
+          >
             {renderedLayer}
           </ASTErrorBoundary>
         );

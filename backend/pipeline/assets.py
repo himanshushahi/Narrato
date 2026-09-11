@@ -134,8 +134,13 @@ def is_visuals_stale(project_dict, project_dir):
             script_data = json.load(f)
 
         def has_visuals(section):
-            if not section: return False
-            return len(section.get('sub_visuals', [])) > 0
+            # Meaningful (not just present): a cut that collapsed to a blank
+            # default composition (empty children, e.g. after a failed LLM
+            # call or sanitizer pass) must trigger regeneration instead of
+            # sticking forever as an empty render.
+            if not section:
+                return False
+            return _has_meaningful_sub_visuals(section.get('sub_visuals', []))
 
         if not has_visuals(script_data.get('introduction')):
             return True
@@ -1217,6 +1222,34 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
 
     if asset_url:
         _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, layer_idx, cancel_event)
+    else:
+        # ── Cross-provider last-resort fallback ────────────────────────
+        # The primary source (and its in-branch fallback) returned nothing.
+        # Try the other stock provider to maximise the chance of getting
+        # *some* visual rather than leaving the layer empty.
+        tried_pexels = source in ("pexels", "wikipedia", "youtube")
+        tried_pixabay = source == "pixabay"
+        if not tried_pixabay and pixabay_api_key:
+            logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] primary source '{source}' returned nothing — trying Pixabay last-resort.")
+            if content_type == "Video":
+                asset_url = search_pixabay_video(query, pixabay_api_key, video_format)
+            else:
+                asset_url = search_pixabay_photo(query, pixabay_api_key, video_format)
+        elif not tried_pexels and api_key:
+            logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] primary source '{source}' returned nothing — trying Pexels last-resort.")
+            if content_type == "Video":
+                asset_url = search_pexels_video(query, api_key, video_format)
+            else:
+                asset_url = search_pexels_photo(query, api_key, video_format)
+
+        if asset_url:
+            _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, layer_idx, cancel_event)
+        else:
+            logger.warning(
+                f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] ALL providers returned 0 results "
+                f"for query='{query}' (source={source}, type={content_type}). "
+                f"Layer will render as a procedural gradient fallback in the player."
+            )
 
     return layer
 

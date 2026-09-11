@@ -82,6 +82,88 @@ def _dummy_visual(target_duration: float) -> List[Dict[str, Any]]:
     }]
 
 
+def _html_gradient_placeholder(z_index: int = 0) -> Dict[str, Any]:
+    """Fallback layer guaranteeing a cut always renders *something*.
+
+    Used when sanitization removes every media layer of a cut (e.g. the LLM
+    hallucinated Image/Video layers without a search query). A full-canvas
+    gradient can never fail to download, decode, or paint.
+    """
+    return {
+        "type": "Layer",
+        "z_index": z_index,
+        "content": {
+            "type": "HTML",
+            "html_content": (
+                '<div style="width:100%;height:100%;'
+                'background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 55%,#0ea5e9 100%)">'
+                "</div>"
+            ),
+            "style": {"width": "100%", "height": "100%"},
+        },
+        "animations": [],
+        "filters": [],
+    }
+
+
+def _is_queryless_media(layer: Any) -> bool:
+    """True for Image/Video layers with no usable search query."""
+    if not isinstance(layer, dict):
+        return False
+    content = layer.get("content")
+    if not isinstance(content, dict):
+        return False
+    if content.get("type") not in ("Image", "Video"):
+        return False
+    q = content.get("query")
+    return not isinstance(q, str) or not q.strip()
+
+
+def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[List[Any], int]:
+    """Drops Image/Video layers that carry no search query.
+
+    Such layers can never resolve an asset (the fetcher skips them), so they
+    only ever render as broken placeholders. Returns (clean_children,
+    dropped_count). A cut left with zero layers gets a single HTML gradient
+    placeholder so it still paints deterministically.
+
+    Also clears stale empty-string ``local_path`` on surviving media layers
+    so the frontend correctly routes to the ProceduralCanvasFallback branch
+    instead of attempting to load a blank URL.
+    """
+    if not isinstance(children, list):
+        return [], 0
+    clean = [layer for layer in children if not _is_queryless_media(layer)]
+    dropped = len(children) - len(clean)
+    if dropped:
+        logger.warning(
+            f"validate_sub_visuals: dropped {dropped} query-less media layer(s) "
+            f"in {cut_label or 'cut'} (LLM omitted the search query; asset could never download)."
+        )
+    # Scrub stale empty-string local_path from surviving media layers so the
+    # frontend's `content.local_path` truthiness check routes to the
+    # ProceduralCanvasFallback instead of an empty-URL MediaNode.
+    for layer in clean:
+        if isinstance(layer, dict):
+            content = layer.get("content")
+            if isinstance(content, dict) and content.get("type") in ("Image", "Video"):
+                lp = content.get("local_path")
+                if isinstance(lp, str) and not lp.strip():
+                    content.pop("local_path", None)
+    if not clean and children:
+        z = 0
+        try:
+            z = int(children[0].get("z_index", 0)) if isinstance(children[0], dict) else 0
+        except (ValueError, TypeError):
+            z = 0
+        clean = [_html_gradient_placeholder(z)]
+        logger.warning(
+            f"validate_sub_visuals: {cut_label or 'cut'} left layer-less after sanitization — "
+            f"inserted HTML gradient placeholder."
+        )
+    return clean, dropped
+
+
 def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1) -> Tuple[bool, List[Dict[str, Any]], str]:
     """
     Validates a list of AST sub-visuals, ensuring their durations sum up to the
@@ -114,6 +196,18 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             "transition": normalize_transition(v.get("transition", "cut")),
             "duration": dur,
         }
+        # Sanitize hallucinated media layers (Image/Video without a search
+        # query can never download an asset). Dropped layers are repaired,
+        # not retried — burning an LLM correction turn on already-fixed
+        # output would waste the costly call this validator exists to save.
+        try:
+            comp = entry.get("composition") or {}
+            if isinstance(comp, dict) and isinstance(comp.get("children"), list):
+                comp["children"], _ = sanitize_media_layers(
+                    comp["children"], cut_label=f"cut#{len(normalized)}"
+                )
+        except Exception:
+            pass
         # Mid-cut punch-in zooms: [{at, scale, duration}] — sanitize ranges so
         # a bad mark can never break the renderer (clamped again client-side).
         if isinstance(v.get("emphasis"), list):
