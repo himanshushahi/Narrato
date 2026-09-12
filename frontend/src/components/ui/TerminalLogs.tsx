@@ -3,14 +3,18 @@ import { useUIStore } from '../../store/useUIStore';
 import { VscChevronUp, VscChevronDown, VscTrash, VscTerminal } from 'react-icons/vsc';
 
 const TerminalLogs: React.FC = () => {
-  const { logs, clearLogs } = useUIStore();
+  // Fix 5: granular selectors + throttled auto-scroll (smooth scroll per log
+  // line janked during burst logs).
+  const logs = useUIStore((s) => s.logs);
+  const clearLogs = useUIStore((s) => s.clearLogs);
   const [expanded, setExpanded] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto scroll to bottom when new logs stream in
+  // Auto scroll to bottom when new logs stream in — instant (not smooth) and
+  // only when expanded, so burst logs don't queue smooth-scroll animations.
   useEffect(() => {
-    if (logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (expanded && logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
     }
   }, [logs, expanded]);
 

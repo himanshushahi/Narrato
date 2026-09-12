@@ -299,8 +299,12 @@ export const MusicTrack: React.FC<MusicTrackProps> = React.memo(({
 
     let latestClips = effectiveClipsRef.current;
     let didMove = false;
+    // Fix 12: rAF-coalesce (copied from SfxTrack) — previously setState per
+    // raw mousemove + waveform repaint per tick.
+    let rafPending = 0;
+    let lastEvent: MouseEvent | null = null;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    const applyDrag = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startMouseX;
       if (Math.abs(deltaX) > 2) {
         didMove = true;
@@ -352,9 +356,32 @@ export const MusicTrack: React.FC<MusicTrackProps> = React.memo(({
       setLocalClipsOverride(updated);
     };
 
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      lastEvent = moveEvent;
+      if (!rafPending) {
+        rafPending = requestAnimationFrame(() => {
+          rafPending = 0;
+          if (lastEvent) {
+            const ev = lastEvent;
+            lastEvent = null;
+            applyDrag(ev);
+          }
+        });
+      }
+    };
+
     const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      if (rafPending) {
+        cancelAnimationFrame(rafPending);
+        rafPending = 0;
+      }
+      if (lastEvent) {
+        const ev = lastEvent;
+        lastEvent = null;
+        applyDrag(ev);
+      }
       if (didMove && latestClips) {
         // Keep optimistic state locked until new props arrive
         setLocalClipsOverride(latestClips);

@@ -103,8 +103,10 @@ export const KineticText: React.FC<KineticTextProps> = ({
       >
         {words.map((word, idx) => {
           const wordDelay = idx * 2.5;
-          const wordSpr = spring({
-            frame: Math.max(0, frame - wordDelay),
+          // Fix 8: settle-bail — skip spring once word entrance settled.
+          const localF = frame - wordDelay;
+          const wordSpr = localF > 26 ? 1 : spring({
+            frame: Math.max(0, localF),
             fps,
             config: { damping: 12, stiffness: 120, mass: 0.8 },
           });
@@ -148,9 +150,11 @@ export const KineticText: React.FC<KineticTextProps> = ({
           const cleanWord = cleanWordKey(word);
           const isHighlighted = highlightSet.size === 0 || highlightSet.has(cleanWord);
 
-          const sweepProgress = interpolate(
+          const sweepEnd = idx * 2 + 25;
+          // Fix 8: settle-bail marker sweep.
+          const sweepProgress = frame > sweepEnd ? 100 : interpolate(
             frame,
-            [idx * 2 + 10, idx * 2 + 25],
+            [idx * 2 + 10, sweepEnd],
             [0, 100],
             { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) }
           );

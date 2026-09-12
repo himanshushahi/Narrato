@@ -1,6 +1,7 @@
 import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { usePlaybackStore } from '../../../store/usePlaybackStore';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { shallowEqualStyles } from '../visualSelection';
 
 /**
@@ -1008,7 +1009,21 @@ export const CanvasOverlay: React.FC<{
   const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
   const setSelectedLayerIndex = useEditorStore((s) => s.setSelectedLayerIndex);
   const isPlaying = useEditorStore((s) => s.isPlaying);
-  const currentFrame = usePlaybackStore((s) => s.currentFrame);
+  // Fix 12: throttled subscription — previously the whole overlay
+  // re-rendered at 20Hz during playback. While playing, ticks are quantized
+  // to ~10fps (tree is hidden via isPlaying anyway); while paused every
+  // scrub frame still notifies so boxes track the playhead.
+  const currentFrame = useStoreWithEqualityFn(
+    usePlaybackStore,
+    (s) => s.currentFrame,
+    (a, b) => {
+      // Same-frame bail; boundary diffing happens in activeSceneIdx memo.
+      // Coarse quantize to ~10fps while playing (overlay hidden anyway).
+      if (a === b) return true;
+      if (useEditorStore.getState().isPlaying) return Math.floor(a / 3) === Math.floor(b / 3);
+      return false;
+    }
+  );
   const isLocked = locked === true;
   const compW = compositionSize?.w ?? 1920;
   const compH = compositionSize?.h ?? 1080;

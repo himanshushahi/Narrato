@@ -55,6 +55,9 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
+  // Fix 10: quantize floating drift to every 2nd frame (sin/cos + string
+  // rebuild per layer per frame was wasteful for a 4px drift).
+  const qFrameFloat = floating ? Math.floor(frame / 2) * 2 : frame;
   const cameraOffset = useMemo(() => {
     return getCameraNoise(frame, camera_shake);
   }, [frame, camera_shake]);
@@ -119,11 +122,11 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
       }
     }
 
-    // Optional organic harmonic floating drift
+    // Optional organic harmonic floating drift (quantized, see above)
     if (floating) {
-      const floatY = Math.sin(frame * 0.05) * 4;
-      const floatX = Math.cos(frame * 0.035) * 2.5;
-      s.transform += ` translate3d(${floatX}px, ${floatY}px, 0)`;
+      const floatY = Math.sin(qFrameFloat * 0.05) * 4;
+      const floatX = Math.cos(qFrameFloat * 0.035) * 2.5;
+      s.transform += ` translate3d(${floatX.toFixed(2)}px, ${floatY.toFixed(2)}px, 0)`;
     }
 
     // 2. Apply procedural camera noise offset if active
@@ -135,7 +138,7 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     }
     
     return s;
-  }, [animations, cameraOffset, floating, frame, fps, transform_origin]);
+  }, [animations, cameraOffset, floating, frame, qFrameFloat, fps, transform_origin]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
@@ -144,12 +147,13 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   );
 };
 
-export const ASTAnimator: React.FC<ASTAnimatorProps> = ({
+// Fix 10: BlurGate owns the ONLY outer useCurrentFrame, so static /
+// non-blur layers never pay a second 30Hz subscription (previously both
+// ASTAnimator and AnimatedLayer subscribed per layer).
+const BlurGate: React.FC<ASTAnimatorProps> = ({
   animations = [],
-  motion_blur = false,
   shutter_angle = 180,
   camera_shake = 'none',
-  transform_origin,
   floating = false,
   qualityMode,
   quality: qualityInput,
@@ -158,45 +162,12 @@ export const ASTAnimator: React.FC<ASTAnimatorProps> = ({
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const policy = parseQuality(qualityInput);
-  const content = (
-    <AnimatedLayer
-      animations={animations}
-      camera_shake={camera_shake}
-      transform_origin={transform_origin}
-      floating={floating}
-    >
-      {children}
-    </AnimatedLayer>
-  );
-
-  if (!motion_blur) {
-    return content;
-  }
-
   const mode: QualityMode =
     qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
-
-  // 'off' in Settings (or 0 samples) disables the wrapper entirely.
   const samples = getMotionBlurSamples(mode, policy);
-  if (samples <= 0) {
-    return content;
-  }
-
-  // Static layers gain nothing from shutter blur but still pay N samples per
-  // frame — bypass the wrapper entirely (common when AI sets motion_blur on
-  // a layer without animations). Only *spatial* keyframes (scale/slide/rotate)
-  // produce shutter motion; opacity/blur/brightness fades are spatially
-  // identical subframes, so they must not trigger multi-sample rendering.
-  // Rule lives in ./spatialMotion (shared with the editor) — do not duplicate.
+  if (samples <= 0) return <>{children}</>;
   const hasMotion = hasSpatialMotion(animations, floating, camera_shake);
-  if (!hasMotion) {
-    return content;
-  }
-
-  // Bypass blur outside the active animation window (balanced mode only):
-  // once the entrance has settled, shutter samples render (near-)identical
-  // pixels at 2-5x cost. Floating / camera-shake layers move forever, so
-  // they always keep blur. 'full' mode never bypasses (max fidelity).
+  if (!hasMotion) return <>{children}</>;
   const alwaysMoving = floating || (camera_shake && camera_shake !== 'none');
   if (shouldBypassSettledBlur(policy) && !alwaysMoving && animations && animations.length > 0) {
     let windowEnd = 0;
@@ -212,18 +183,38 @@ export const ASTAnimator: React.FC<ASTAnimatorProps> = ({
       Number.isFinite(windowStart) &&
       (frame < windowStart - 2 || frame > windowEnd + MOTION_BLUR_SETTLE_GRACE_FRAMES)
     ) {
-      return content;
+      return <>{children}</>;
     }
   }
-
   const safeShutterAngle = typeof shutter_angle === 'number' && Number.isFinite(shutter_angle)
     ? Math.max(0, Math.min(360, shutter_angle))
     : 180;
-
   return (
     <CameraMotionBlur shutterAngle={safeShutterAngle} samples={samples}>
-      {content}
+      {children}
     </CameraMotionBlur>
   );
+};
+
+export const ASTAnimator: React.FC<ASTAnimatorProps> = (props) => {
+  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, children } = props;
+  const content = (
+    <AnimatedLayer
+      animations={animations}
+      camera_shake={camera_shake}
+      transform_origin={props.transform_origin}
+      floating={floating}
+    >
+      {children}
+    </AnimatedLayer>
+  );
+  // Fast path: no second useCurrentFrame subscription for the common case.
+  if (!motion_blur) return content;
+  if (!hasSpatialMotion(animations, floating, camera_shake)) return content;
+  const policy = parseQuality(props.quality);
+  const mode: QualityMode =
+    props.qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
+  if (getMotionBlurSamples(mode, policy) <= 0) return content;
+  return <BlurGate {...props}>{content}</BlurGate>;
 };
 

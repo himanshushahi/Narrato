@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { useCurrentFrame, useVideoConfig } from 'remotion';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { useCurrentFrame, useVideoConfig, getRemotionEnvironment } from 'remotion';
 
 export type ParticlePreset =
   | 'confetti'
@@ -92,11 +92,45 @@ export const ParticlesRenderer: React.FC<ParticlesRendererProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const def = PARTICLE_PRESETS[preset] ?? PARTICLE_PRESETS.confetti;
-  const n = Math.max(0, Math.min(300, Math.round(count ?? def.count)));
+  // Fix 9: cap particle count in preview (full res kept for export).
+  // Preview canvas is ~960x540; >80 particles adds fill cost, not beauty.
+  const isExport = getRemotionEnvironment().isRendering;
+  const cap = isExport ? 300 : (W < 1920 ? 80 : 150);
+  const n = Math.max(0, Math.min(cap, Math.round(count ?? Math.min(def.count, cap))));
   const palette = colors && colors.length > 0 ? colors : def.colors;
   const [sizeMin, sizeMax] = size ?? def.size;
   const spd = (speed ?? 1) * def.speed;
   const dir = direction ?? def.direction;
+  // Fix 9: quantize slow presets (dust/stars/twinkle) to every 2nd frame.
+  const slowPreset = preset === 'dust' || preset === 'stars' || dir === 'twinkle';
+  const qFrame = slowPreset ? Math.floor(frame / 2) * 2 : frame;
+
+  // Fix 9: precompute per-particle constants once — previously mulberry32 +
+  // 8x rng() ran per particle per frame (300 x 8 x 30/sec).
+  // paletteKey (not the array ref) drives re-seeding so custom color edits
+  // apply immediately without re-rolling seeds on every parent re-render.
+  const paletteKey = (palette || []).join('|');
+  interface Seed { x0: number; y0: number; sz: number; color: string; speedVar: number; phase: number; swayAmp: number; swayFreq: number; rotSpeed: number; }
+  const seeds = useMemo<Seed[]>(() => {
+    const arr: Seed[] = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const rng = mulberry32(i * 7919 + 13);
+      const x0 = rng() * W;
+      const y0 = rng() * H;
+      const sz = sizeMin + rng() * Math.max(0, sizeMax - sizeMin);
+      const color = palette[Math.floor(rng() * palette.length) % palette.length];
+      arr[i] = {
+        x0, y0, sz, color,
+        speedVar: 0.6 + rng() * 0.8,
+        phase: rng(),
+        swayAmp: 20 + rng() * 60,
+        swayFreq: 0.5 + rng() * 1.5,
+        rotSpeed: (rng() - 0.5) * 0.25,
+      };
+    }
+    return arr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [n, W, H, sizeMin, sizeMax, preset, paletteKey]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -109,19 +143,11 @@ export const ParticlesRenderer: React.FC<ParticlesRendererProps> = ({
     const margin = 60;
     if (def.glow) ctx.globalCompositeOperation = 'lighter';
 
-    for (let i = 0; i < n; i++) {
-      const rng = mulberry32(i * 7919 + 13);
-      const x0 = rng() * W;
-      const y0 = rng() * H;
-      const sz = sizeMin + rng() * Math.max(0, sizeMax - sizeMin);
-      const color = palette[Math.floor(rng() * palette.length) % palette.length];
-      const speedVar = 0.6 + rng() * 0.8;
-      const phase = rng();
-      const swayAmp = 20 + rng() * 60;
-      const swayFreq = 0.5 + rng() * 1.5;
-      const rotSpeed = (rng() - 0.5) * 0.25;
+    for (let i = 0; i < seeds.length; i++) {
+      const s = seeds[i];
+      const { x0, y0, sz, color, speedVar, phase, swayAmp, swayFreq, rotSpeed } = s;
 
-      const p = (((frame * spd * speedVar) / 2 + phase * LOOP_FRAMES) % LOOP_FRAMES) / LOOP_FRAMES;
+      const p = (((qFrame * spd * speedVar) / 2 + phase * LOOP_FRAMES) % LOOP_FRAMES) / LOOP_FRAMES;
       const envelope = Math.sin(p * Math.PI); // fade in/out across the loop
       let x = x0;
       let y = y0;
@@ -149,7 +175,7 @@ export const ParticlesRenderer: React.FC<ParticlesRendererProps> = ({
         alpha = opacity * (1 - p);
       } else {
         // twinkle — fixed starfield, oscillating alpha
-        alpha = opacity * (0.25 + 0.75 * Math.abs(Math.sin((frame * spd * 0.05 + phase * 4) * Math.PI)));
+        alpha = opacity * (0.25 + 0.75 * Math.abs(Math.sin((qFrame * spd * 0.05 + phase * 4) * Math.PI)));
       }
 
       ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
@@ -159,7 +185,7 @@ export const ParticlesRenderer: React.FC<ParticlesRendererProps> = ({
         const h = sz * (0.45 + (i % 5) * 0.12);
         ctx.save();
         ctx.translate(x, y);
-        ctx.rotate(phase * TAU + frame * rotSpeed * 0.1);
+        ctx.rotate(phase * TAU + qFrame * rotSpeed * 0.1);
         ctx.fillRect(-w / 2, -h / 2, w, h);
         ctx.restore();
       } else {
@@ -170,7 +196,7 @@ export const ParticlesRenderer: React.FC<ParticlesRendererProps> = ({
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
-  }, [frame, W, H, n, palette, sizeMin, sizeMax, spd, dir, opacity, def.glow, def.shape]);
+  }, [qFrame, W, H, seeds, spd, dir, opacity, def.glow, def.shape]);
 
   return (
     <canvas

@@ -291,8 +291,10 @@ const MediaNode: React.FC<{
   volume?: number;
   loop?: boolean;
   query?: string;
-}> = ({ type, localPath, style, volume, loop = false, query }) => {
-  const url = getMediaUrlSync(localPath);
+}> = React.memo(({ type, localPath, style, volume, loop = false, query }) => {
+  // Hoisted: pure string build is cheap but ran per-layer per-frame before;
+  // memo on [localPath] via parent means this only re-runs when path changes.
+  const url = React.useMemo(() => getMediaUrlSync(localPath), [localPath]);
   // Failure cascade for unplayable media (missing file, 404, zero-byte,
   // unknown codec): Video falls back to <Img> (rescues legacy layers whose
   // declared type mismatches the real file), and ANY terminal <Img> failure
@@ -306,18 +308,17 @@ const MediaNode: React.FC<{
   // Empty URL means the asset was never downloaded (provider returned 0
   // results, API key missing, download failed, etc.). Degrade to the
   // animated procedural canvas instead of rendering nothing (invisible).
-  if (!url) {
-    return <ProceduralCanvasFallback query={query} type={type} style={{ width: '100%', height: '100%', objectFit: 'cover' as const, ...style }} />;
-  }
-
-  const defaultStyle: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'cover' };
-  const mergedStyle = { ...defaultStyle, ...style };
-
-  // Display-only sniffing (no data mutation): if a legacy layer has
-  // type='Video' but the file is an image, or type='Image' but the file is a
-  // video, pick the true format to avoid FFmpegDemuxer errors / broken <img>.
-  // New mismatches cannot be created — the editor rejects them strictly.
+  // Memoize merged style on stable inputs so per-frame parent re-renders
+  // (SubGate ticks 30x/sec) don't redo object spreads. Hooks stay above any
+  // early return to keep hook order stable.
+  const mergedStyle = React.useMemo(
+    () => ({ width: '100%', height: '100%', objectFit: 'cover' as const, ...style }),
+    [style]
+  );
   const effectiveType = videoFailed ? 'Image' : inferMediaType(localPath, type);
+  if (!url) {
+    return <ProceduralCanvasFallback query={query} type={type} style={mergedStyle} />;
+  }
 
   if (effectiveType === 'Image') {
     if (imgFailed) {
@@ -348,70 +349,90 @@ const MediaNode: React.FC<{
       }}
     />
   );
-};
+});
+MediaNode.displayName = 'MediaNode';
 
-export const ASTRenderer: React.FC<{
-  composition: { type: 'Sequence'; children: ASTLayer[] };
-  qualityMode?: QualityMode;
-  quality?: QualityPolicy | unknown;
-}> = ({ composition, qualityMode, quality: qualityInput }) => {
-  if (!composition || composition.type !== 'Sequence' || !composition.children) {
-    return null;
-  }
-  const policy = parseQuality(qualityInput);
-  const mode: QualityMode =
-    qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
-  const glassCap = getGlassBlurCap(mode, policy);
-  // Order-based stacking: children[0]=bottom ... children[N-1]=top.
-  const orderedChildren = React.useMemo(() => {
-    return composition.children || [];
-  }, [composition.children]);
-
-  return (
-    <AbsoluteFill style={{ backgroundColor: '#0c0a09' }}>
-      {/* 2026 FX pack: static SVG filter defs referenced via url(#fx-*) tokens
-          in layer `filters` arrays. Rendered once per composition. */}
-      <FxFilterDefs />
-      {orderedChildren.map((layer, idx) => {
+/**
+ * Fix 1: per-layer memoized view. Previously splitStyles/parseFilters/
+ * normalizeBorderRadius/parseStaticTransform + object spreads ran for every
+ * layer on every frame (parent SubGate ticks 30x/sec). Now static parsing is
+ * memoized on [content.style, filters] and React.memo bails out when the
+ * layer object ref is stable.
+ */
+const ASTLayerView: React.FC<{
+  layer: ASTLayer;
+  zIndex: number;
+  mode: QualityMode;
+  policy: QualityPolicy;
+  glassCap: number;
+}> = React.memo(({ layer, zIndex, mode, policy, glassCap }) => {
         const { content, animations, filters } = layer;
-        // Order-based stacking: children[0]=bottom ... children[N-1]=top.
-        // Derived z stays under GlobalOverlays (95) / Subtitles (100).
-        const zIndex = idx + 1;
         const contentStyle = (content as any).style as React.CSSProperties | undefined;
-        const { containerStyle: layoutStyle, contentStyle: innerStyle } = splitStyles(contentStyle);
-        const { filterStyle, blendStyle } = parseFilters(filters);
+        const { containerStyle: layoutStyle, contentStyle: innerStyle } = React.useMemo(
+          () => splitStyles(contentStyle),
+          [contentStyle]
+        );
+        const { filterStyle, blendStyle } = React.useMemo(() => parseFilters(filters), [filters]);
 
         // Check if this layer has custom positioning (not fullscreen)
-        const hasCustomLayout = contentStyle && (
+        const hasCustomLayout = !!contentStyle && !!(
           contentStyle.width || contentStyle.height ||
           contentStyle.top || contentStyle.left || contentStyle.right || contentStyle.bottom ||
           (contentStyle as any).aspectRatio
         );
-        
-        let node = null;
-        const effectiveRadius = normalizeBorderRadius(layoutStyle.borderRadius || innerStyle.borderRadius);
-        if ((content.type === 'Image' || content.type === 'Video') && content.local_path) {
-          // For positioned layers, media fills its container; for fullscreen, apply content styles directly
-          const mediaStyle: React.CSSProperties = hasCustomLayout
+
+        const effectiveRadius = React.useMemo(
+          () => normalizeBorderRadius((layoutStyle as any).borderRadius || (innerStyle as any).borderRadius),
+          [layoutStyle, innerStyle]
+        );
+        // Static transform (Layout tab) — memoized, only re-parsed on layout change.
+        const staticTransform = React.useMemo(
+          () => parseStaticTransform(layoutStyle as Record<string, any>),
+          [layoutStyle]
+        );
+        // Strip raw rotate/scale/scaleX/scaleY/borderRadius so they never leak
+        // as CSS individual properties alongside the composed transform below.
+        const { rotate: _rot, scale: _scl, scaleX: _sx, scaleY: _sy, borderRadius: _br, ...layoutRest } = layoutStyle as Record<string, any>;
+
+        const hasRadius = !!effectiveRadius;
+        const effectiveOverflow = (layoutRest as any).overflow || (hasCustomLayout || hasRadius ? 'hidden' : undefined);
+
+        const mediaStyle: React.CSSProperties | null = React.useMemo(() => {
+          if (!((content.type === 'Image' || content.type === 'Video') && (content as any).local_path)) return null;
+          return hasCustomLayout
             ? {
-                objectFit: innerStyle.objectFit || ('cover' as const),
+                objectFit: (innerStyle as any).objectFit || ('cover' as const),
                 ...(effectiveRadius ? { borderRadius: effectiveRadius } : null),
               }
             : {
                 ...innerStyle,
                 ...(effectiveRadius ? { borderRadius: effectiveRadius } : null),
               };
-          node = <MediaNode type={content.type} localPath={content.local_path} style={mediaStyle} volume={content.volume} loop={content.loop} query={(content as any).query} />;
+        }, [content, hasCustomLayout, innerStyle, effectiveRadius]);
+
+        const kineticStyle = React.useMemo(() => ({
+          fontSize: hasCustomLayout ? ((innerStyle as any).fontSize || '64px') : '100px',
+          ...innerStyle,
+        }), [hasCustomLayout, innerStyle]);
+
+        const fallbackStyle = React.useMemo(() => ({
+          ...innerStyle,
+          ...(effectiveRadius ? { borderRadius: effectiveRadius } : null),
+        }), [innerStyle, effectiveRadius]);
+
+        const htmlStyle: React.CSSProperties = React.useMemo(() => hasCustomLayout
+          ? { ...innerStyle }
+          : { position: 'absolute', width: '100%', height: '100%', ...innerStyle }, [hasCustomLayout, innerStyle]);
+
+        let node = null;
+        if ((content.type === 'Image' || content.type === 'Video') && content.local_path) {
+          node = <MediaNode type={content.type} localPath={content.local_path} style={mediaStyle as React.CSSProperties} volume={content.volume} loop={(content as any).loop} query={(content as any).query} />;
         } else if (content.type === 'Image' || content.type === 'Video') {
-          // Procedural fallback when local media is missing/downloading
           node = (
             <ProceduralCanvasFallback
               query={(content as any).query}
               type={content.type}
-              style={{
-                ...innerStyle,
-                ...(effectiveRadius ? { borderRadius: effectiveRadius } : null),
-              }}
+              style={fallbackStyle}
             />
           );
         } else if (content.type === 'Text') {
@@ -424,10 +445,7 @@ export const ASTRenderer: React.FC<{
               color={content.color}
               highlight_color={content.highlight_color}
               highlight_words={content.highlight_words}
-              style={{
-                fontSize: hasCustomLayout ? (innerStyle.fontSize || '64px') : '100px',
-                ...innerStyle,
-              }}
+              style={kineticStyle}
             />
           );
         } else if (content.type === 'Chart') {
@@ -470,8 +488,8 @@ export const ASTRenderer: React.FC<{
           );
         } else if (content.type === 'Map') {
           node = (
-            <DataVisualizations 
-              locations={content.locations} 
+            <DataVisualizations
+              locations={content.locations}
               map_style={content.map_style}
               durationInFrames={300}
             />
@@ -501,36 +519,21 @@ export const ASTRenderer: React.FC<{
             />
           );
         } else if (content.type === 'HTML') {
-          const defaultHtmlStyle: React.CSSProperties = hasCustomLayout
-            ? { ...innerStyle }
-            : { position: 'absolute', width: '100%', height: '100%', ...innerStyle };
           node = (
-            <div style={defaultHtmlStyle} dangerouslySetInnerHTML={{ __html: content.html_content || '' }} />
+            <div style={htmlStyle} dangerouslySetInnerHTML={{ __html: content.html_content || '' }} />
           );
         }
 
-        if (!node) return null;
-
         const { motion_blur, shutter_angle, camera_shake, transform_origin, floating } = layer as any;
-
-        // Static transform (Layout tab) applies to every layer — positioned or
-        // fullscreen — on the container, independent of animated transforms.
-        const staticTransform = parseStaticTransform(layoutStyle as Record<string, any>);
-        // Strip raw rotate/scale/scaleX/scaleY/borderRadius so they never leak
-        // as CSS individual properties alongside the composed transform below.
-        const { rotate: _rot, scale: _scl, scaleX: _sx, scaleY: _sy, borderRadius: _br, ...layoutRest } = layoutStyle as Record<string, any>;
-
-        const hasRadius = !!effectiveRadius;
-        const effectiveOverflow = layoutRest.overflow || (hasCustomLayout || hasRadius ? 'hidden' : undefined);
 
         // Build the container style: positioned layers get custom layout,
         // fullscreen layers use the legacy 100%x100% default with layout styling preserved
-        const containerBaseStyle: React.CSSProperties = hasCustomLayout
+        const containerBaseStyle: React.CSSProperties = React.useMemo(() => hasCustomLayout
           ? {
               position: 'absolute',
               zIndex,
               ...layoutRest,
-              ...(layoutRest.aspectRatio ? { height: undefined } : {}),
+              ...((layoutRest as any).aspectRatio ? { height: undefined } : {}),
               ...(effectiveRadius ? { borderRadius: effectiveRadius } : {}),
               overflow: effectiveOverflow,
             }
@@ -540,30 +543,33 @@ export const ASTRenderer: React.FC<{
               position: 'absolute',
               zIndex,
               ...layoutRest,
-              // Strip padding & boxSizing on fullscreen branch so stale card padding doesn't inset full frame
               padding: undefined,
               boxSizing: undefined,
-              ...(layoutRest.aspectRatio ? { height: undefined } : {}),
+              ...((layoutRest as any).aspectRatio ? { height: undefined } : {}),
               ...(effectiveRadius ? { borderRadius: effectiveRadius } : {}),
               ...(effectiveOverflow ? { overflow: effectiveOverflow } : {}),
-            };
+            }, [hasCustomLayout, layoutRest, zIndex, effectiveRadius, effectiveOverflow]);
 
         // Clamp expensive backdrop-blur radii to the Settings cap and isolate
         // the layer so Chromium's backdrop readback stays local.
         const optimizedBackdrop =
-          typeof layoutStyle.backdropFilter === 'string'
-            ? optimizeBackdropFilter(layoutStyle.backdropFilter, glassCap)
-            : layoutStyle.backdropFilter;
+          typeof (layoutStyle as any).backdropFilter === 'string'
+            ? optimizeBackdropFilter((layoutStyle as any).backdropFilter, glassCap)
+            : (layoutStyle as any).backdropFilter;
         const optimizedWebkitBackdrop =
           typeof (layoutStyle as any).WebkitBackdropFilter === 'string'
             ? optimizeBackdropFilter((layoutStyle as any).WebkitBackdropFilter as string, glassCap)
             : (layoutStyle as any).WebkitBackdropFilter;
         const hasGlass = !!optimizedBackdrop || !!optimizedWebkitBackdrop;
-        // Compose static Layout transform with the glass compositor hack —
-        // a single `transform` key so neither overwrites the other.
         const containerTransform = [staticTransform, hasGlass ? 'translateZ(0)' : null]
           .filter(Boolean)
           .join(' ') || undefined;
+
+        // Early return AFTER all hooks: a layer with an unrecognized/empty
+        // content type (e.g. mid-edit in VisualsTab) renders nothing, but the
+        // hook count must stay constant or React throws "Rendered fewer hooks
+        // than expected" and trips the Player error boundary.
+        if (!node) return null;
 
         const inner = (
           <div style={{
@@ -575,11 +581,8 @@ export const ASTRenderer: React.FC<{
               ? { WebkitBackdropFilter: optimizedWebkitBackdrop }
               : null),
             filter: filterStyle,
-            // Isolation + own compositor layer confines the backdrop-blur
-            // readback instead of re-rasterizing overlapping siblings.
             ...(hasGlass ? { isolation: 'isolate' as const } : null),
             ...(containerTransform ? { transform: containerTransform } : null),
-            // Honor the Motion FX anchor for static rotation when set.
             ...(containerTransform && transform_origin ? { transformOrigin: transform_origin } : null),
             ...blendStyle,
           }}>
@@ -606,7 +609,6 @@ export const ASTRenderer: React.FC<{
 
         return (
           <ASTErrorBoundary
-            key={idx}
             layerType={content?.type}
             fallback={
               <ProceduralCanvasFallback
@@ -616,16 +618,62 @@ export const ASTRenderer: React.FC<{
               />
             }
           >
-            {/* Outer stacking wrapper: sibling paint order is explicit here so
-                inner transforms/filters (which create local stacking contexts)
-                can never reorder layers. DOM order matches as backstop. */}
             <div style={{ position: 'absolute', inset: 0, zIndex }}>
               {renderedLayer}
             </div>
           </ASTErrorBoundary>
         );
-      })}
+});
+ASTLayerView.displayName = 'ASTLayerView';
+
+const ASTRendererInner: React.FC<{
+  composition: { type: 'Sequence'; children: ASTLayer[] };
+  qualityMode?: QualityMode;
+  quality?: QualityPolicy | unknown;
+}> = ({ composition, qualityMode, quality: qualityInput }) => {
+  // Hooks above any early return: the same mounted cut can go from a valid
+  // composition to null (asset reload / cut delete) and back while preview
+  // stays mounted — returning before useMemo would throw "Rendered fewer
+  // hooks than expected" and trip the Player error boundary.
+  // Memoize policy: parseQuality returns a fresh object per call, which would
+  // defeat ASTLayerView's React.memo (policy prop always new -> re-render all
+  // layers every frame). Key on the input ref + mode instead.
+  const mode: QualityMode =
+    qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
+  const policy = React.useMemo(() => parseQuality(qualityInput), [qualityInput, mode]);
+  const glassCap = getGlassBlurCap(mode, policy);
+  // Order-based stacking: children[0]=bottom ... children[N-1]=top.
+  const children = composition?.children;
+  const orderedChildren = React.useMemo(() => {
+    return children || [];
+  }, [children]);
+  if (!composition || composition.type !== 'Sequence' || !composition.children) {
+    return null;
+  }
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: '#0c0a09' }}>
+      {/* 2026 FX pack: static SVG filter defs referenced via url(#fx-*) tokens
+          in layer `filters` arrays. Rendered once per composition. */}
+      <FxFilterDefs />
+      {orderedChildren.map((layer, idx) => (
+        <ASTLayerView
+          key={idx}
+          layer={layer}
+          zIndex={idx + 1}
+          mode={mode}
+          policy={policy}
+          glassCap={glassCap}
+        />
+      ))}
     </AbsoluteFill>
   );
 };
+
+export const ASTRenderer: React.FC<{
+  composition: { type: 'Sequence'; children: ASTLayer[] };
+  qualityMode?: QualityMode;
+  quality?: QualityPolicy | unknown;
+}> = React.memo(ASTRendererInner);
+(ASTRenderer as any).displayName = 'ASTRenderer';
 

@@ -114,6 +114,12 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
   const inspectorTab = useEditorStore((s) => s.inspectorTab);
   const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+  // Fix 5: stable tabs array — inline map() created new refs every render,
+  // breaking ScrollableTabBar memo (copy of MediaSidebar scrollTabs pattern).
+  const scrollTabs = React.useMemo(
+    () => tabMeta.map((t) => ({ id: t.id, label: t.label, icon: t.icon })),
+    []
+  );
 
   // Subscribe to active scene/sub index with equality check so InspectorPanel
   // only updates when scene/sub boundaries actually change.
@@ -262,7 +268,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
     <div className="h-full bg-zinc-950/80 border-l border-zinc-800/60 flex flex-col overflow-x-hidden" style={{ width: rightPanelWidth }}>
       {/* Tab bar — scrollable with hover-reveal buttons */}
       <ScrollableTabBar
-        tabs={tabMeta.map(t => ({ id: t.id, label: t.label, icon: t.icon }))}
+        tabs={scrollTabs}
         activeTab={inspectorTab}
         onChange={(id) => setInspectorTab(id as InspectorTab)}
       />

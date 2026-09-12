@@ -125,8 +125,13 @@ export function useScriptEditing(
   _setTranscriptionData: (data: any) => void,
   loadFiles: (projId: string) => Promise<{ script: any; manifest: any[] }>
 ): UseScriptEditingReturn {
-  const { selectedProject, updateProject, downloadFont } = useProjectStore();
-  const { addToast, showConfirm } = useUIStore();
+  // Fix 4: granular selectors — whole-store sub re-ran this hook on every
+  // tasks/queue/logs/toasts change.
+  const selectedProject = useProjectStore((s) => s.selectedProject);
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const downloadFont = useProjectStore((s) => s.downloadFont);
+  const addToast = useUIStore((s) => s.addToast);
+  const showConfirm = useUIStore((s) => s.showConfirm);
 
   const [editingCard, setEditingCard] = useState<{ key: string, mode: 'script' | 'visuals' } | null>(null);
   const [rewritePrompt, setRewritePrompt] = useState('');

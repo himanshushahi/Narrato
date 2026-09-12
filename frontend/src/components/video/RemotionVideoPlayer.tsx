@@ -144,31 +144,58 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
     onPlayStateChangeRef.current = onPlayStateChange;
   });
 
+  // Frame pump: rAF loop (display-synced, auto-pauses in hidden tabs)
+  // driving two consumers at different rates —
+  // - the timeline playhead + seek bar read the player directly in their own
+  //   rAF loops (60fps, zero React renders),
+  // - this loop notifies the playback store at ~10Hz for badge / timecode /
+  //   scene highlight, with immediate emission on seeks (frame jump > 3) and
+  //   on play/pause transitions (never drop the frame the player stopped on).
   useEffect(() => {
     if (!hasScenes) return;
 
+    let raf = 0;
     let lastFrame = -1;
     let lastPlaying: boolean | null = null;
-    const interval = setInterval(() => {
-      if (playerRef.current) {
-        const frame = playerRef.current.getCurrentFrame();
-        if (frame !== lastFrame) {
-          lastFrame = frame;
-          if (onFrameUpdateRef.current) {
-            onFrameUpdateRef.current(frame);
-          }
+    let lastNotify = 0;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const player = playerRef.current;
+      if (!player) return;
+      const isPlaying = player.isPlaying();
+      if (isPlaying !== lastPlaying) {
+        lastPlaying = isPlaying;
+        if (onPlayStateChangeRef.current) {
+          onPlayStateChangeRef.current(isPlaying);
         }
-        const isPlaying = playerRef.current.isPlaying();
-        if (isPlaying !== lastPlaying) {
-          lastPlaying = isPlaying;
-          if (onPlayStateChangeRef.current) {
-            onPlayStateChangeRef.current(isPlaying);
-          }
+        const frame = player.getCurrentFrame();
+        lastFrame = frame;
+        lastNotify = performance.now();
+        if (onFrameUpdateRef.current) {
+          onFrameUpdateRef.current(frame);
         }
+        return;
       }
-    }, 50);
+      const now = performance.now();
+      const frame = player.getCurrentFrame();
+      if (frame === lastFrame) {
+        lastNotify = now;
+        return;
+      }
+      // Seeks jump many frames (>6 ≈ two throttle windows of 30fps
+      // playback): emit immediately so highlight/badge catch up within a
+      // frame instead of waiting out the 100ms throttle.
+      const jumped = Math.abs(frame - lastFrame) > 6;
+      if (!jumped && now - lastNotify < 100) return;
+      lastFrame = frame;
+      lastNotify = now;
+      if (onFrameUpdateRef.current) {
+        onFrameUpdateRef.current(frame);
+      }
+    };
+    raf = requestAnimationFrame(loop);
 
-    return () => clearInterval(interval);
+    return () => cancelAnimationFrame(raf);
   }, [hasScenes]);
 
   const durationInFrames = useMemo(() => {

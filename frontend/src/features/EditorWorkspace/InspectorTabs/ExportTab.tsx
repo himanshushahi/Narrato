@@ -71,7 +71,7 @@ interface ExportTabProps {
   onCancelPipeline: () => void;
 }
 
-export const ExportTab: React.FC<ExportTabProps> = ({
+const ExportTabInner: React.FC<ExportTabProps> = ({
   tasks, isRunning, targetStage, activeTaskStep,
   hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline
@@ -83,11 +83,16 @@ export const ExportTab: React.FC<ExportTabProps> = ({
   const [activityOpen, setActivityOpen] = useState(true);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const { selectedProject } = useProjectStore();
+  // Fix 4: granular selector — previously subscribed to entire project store
+  // (tasks/queue/activeTask) so every render-progress % re-rendered the tab.
+  const selectedProject = useProjectStore((s) => s.selectedProject);
   const agentActivity = useUIStore((s) => s.agentActivity);
   const clearAgentActivity = useUIStore((s) => s.clearAgentActivity);
   const activityCount = agentActivity.length;
-  const runningActivityCount = agentActivity.filter((a) => a.status === 'running').length;
+  const runningActivityCount = useMemo(
+    () => agentActivity.reduce((n, a) => n + (a.status === 'running' ? 1 : 0), 0),
+    [agentActivity]
+  );
 
   const activityCounts = useMemo(() => {
     const counts: Record<Exclude<ActivityFilter, 'all'>, number> = { tools: 0, skills: 0, llms: 0, filesweb: 0 };
@@ -107,7 +112,10 @@ export const ExportTab: React.FC<ExportTabProps> = ({
     setVideoDimensions({ width: video.videoWidth, height: video.videoHeight });
   }, []);
 
-  const videoUrl = selectedProject?.video_path ? getMediaUrlSync(selectedProject.video_path) : null;
+  const videoUrl = useMemo(
+    () => (selectedProject?.video_path ? getMediaUrlSync(selectedProject.video_path) : null),
+    [selectedProject?.video_path]
+  );
 
   // Detect render scope from active task message and latch it so it doesn't flicker
   const [renderScopeLabel, setRenderScopeLabel] = useState<{ label: string; cls: string } | null>(null);
@@ -539,3 +547,6 @@ export const ExportTab: React.FC<ExportTabProps> = ({
     </div>
   );
 };
+
+export const ExportTab: React.FC<ExportTabProps> = React.memo(ExportTabInner);
+(ExportTab as any).displayName = 'ExportTab';

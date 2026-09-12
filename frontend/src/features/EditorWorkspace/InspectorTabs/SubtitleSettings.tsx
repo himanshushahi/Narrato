@@ -146,8 +146,8 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
   const [downloading, setDownloading] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState('');
-  const { downloadFont } = useProjectStore();
-  const { addToast } = useUIStore();
+  const downloadFont = useProjectStore((s) => s.downloadFont);
+  const addToast = useUIStore((s) => s.addToast);
   const { settings: globalSettings, saveSettings } = useSettingsStore();
 
   const presets = globalSettings?.subtitle_presets || [];

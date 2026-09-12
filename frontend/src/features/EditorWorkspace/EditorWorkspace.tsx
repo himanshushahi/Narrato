@@ -676,6 +676,27 @@ const EditorWorkspace: React.FC = () => {
   // itself keeps the urgent (synchronous) value so editors never show stale
   // text. Selection/playhead stay responsive — they live in zustand stores.
   const deferredLiveScenes = useDeferredValue(effectiveLiveScenes);
+  // Fix 13: stabilize overlays by content — previously every JSON.clone save
+  // gave overlays a new ref (even when unchanged), invalidating Player
+  // inputProps useMemo and re-rendering the composition on unrelated edits.
+  // liveScenes already has sameTimings stabilization + deferred value;
+  // overlays gets the same treatment here (overlays are small, stringify ok).
+  const rawOverlays = (scriptData as any)?.overlays || EMPTY_ARRAY;
+  const overlaysRef = useRef<any[]>(rawOverlays);
+  const overlaysKey = (() => {
+    try {
+      return JSON.stringify(rawOverlays);
+    } catch {
+      return null;
+    }
+  })();
+  const prevOverlaysKeyRef = useRef<string | null>(null);
+  if (overlaysKey !== prevOverlaysKeyRef.current) {
+    prevOverlaysKeyRef.current = overlaysKey;
+    overlaysRef.current = rawOverlays;
+  }
+  const stableOverlays = overlaysRef.current;
+  const deferredOverlays = useDeferredValue(stableOverlays);
 
   // === Handlers ===
   const handleSeek = useCallback((frame: number) => {
@@ -683,6 +704,18 @@ const EditorWorkspace: React.FC = () => {
       playerRef.current.seekTo(frame);
     }
   }, []);
+  // Live frame reader for the rAF playhead: reads the player directly at
+  // display rate without touching React state. Stable ref so the memoized
+  // Timeline/Playhead never re-render because of it.
+  const getLiveFrame = useCallback((): number | undefined => {
+    const f = playerRef.current?.getCurrentFrame?.();
+    return typeof f === 'number' ? f : undefined;
+  }, []);
+  // Fix 5: stable callback — inline async arrow broke MediaSidebar memo on
+  // every workspace render (including urgent keystrokes).
+  const handleRefreshSfx = useCallback(async () => {
+    if (id) await loadFiles(id);
+  }, [id, loadFiles]);
   // Flusher for debounced Visuals-tab edits (registered by VisualsTab itself;
   // null when another tab is active). Lets Ctrl+S / TopBar saves include
   // in-flight color-drag / slider ticks.
@@ -1311,7 +1344,7 @@ const EditorWorkspace: React.FC = () => {
           sfxClips={sfxClips}
           onUpdateSfxClips={updateSfxClips}
           onUploadSfxClip={handleUploadSfxClip}
-          onRefreshSfx={async () => { if (id) await loadFiles(id); }}
+          onRefreshSfx={handleRefreshSfx}
         />
         <ResizeHandle direction="vertical" target="leftPanel" side="right" min={300} />
       </div>
@@ -1334,7 +1367,7 @@ const EditorWorkspace: React.FC = () => {
           videoFormat={safeProject.video_format || 'landscape'}
           subtitleSettings={localProjectSettings}
           designSystem={designData}
-          overlays={scriptData?.overlays || EMPTY_ARRAY}
+          overlays={deferredOverlays}
           onFrameUpdate={handleFrameUpdate}
           isPipelineRunning={isRunning}
           fullscreenToggleRef={fullscreenToggleRef}
@@ -1419,7 +1452,8 @@ const EditorWorkspace: React.FC = () => {
         <Timeline
           liveScenes={deferredLiveScenes || EMPTY_ARRAY}
           sceneTimings={sceneTimings}
-          overlays={scriptData?.overlays || EMPTY_ARRAY}
+          getLiveFrame={getLiveFrame}
+          overlays={deferredOverlays}
           transcriptionData={transcriptionData}
           audioUrl={audioUrl}
           bgMusicUrl={bgMusicUrl}

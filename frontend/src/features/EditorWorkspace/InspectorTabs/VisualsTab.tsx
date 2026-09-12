@@ -100,7 +100,7 @@ export const VisualsTab = React.memo(function VisualsTab({
   // restores the section baseline and stays in-tab, so this is intentionally
   // unused here beyond API stability.
   void onCancelEdit;
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const setSelectedSubVisualIndex = useEditorStore((s) => s.setSelectedSubVisualIndex);

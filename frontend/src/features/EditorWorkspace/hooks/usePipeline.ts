@@ -23,8 +23,14 @@ export function usePipeline(
   projectId: string | undefined,
   loadFiles: (projId: string) => Promise<{ script: any; manifest: any[] }>
 ): UsePipelineReturn {
-  const { tasks, queue, startPipeline, cancelPipeline, selectedProject, updateProject } = useProjectStore();
-  const { addToast } = useUIStore();
+  // Fix 4: granular selectors — avoid re-running on unrelated store slices.
+  const tasks = useProjectStore((s) => s.tasks);
+  const queue = useProjectStore((s) => s.queue);
+  const startPipeline = useProjectStore((s) => s.startPipeline);
+  const cancelPipeline = useProjectStore((s) => s.cancelPipeline);
+  const selectedProject = useProjectStore((s) => s.selectedProject);
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const addToast = useUIStore((s) => s.addToast);
 
   const [targetStage, setTargetStageState] = useState('fetch_assets');
 

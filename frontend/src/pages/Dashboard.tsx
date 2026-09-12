@@ -17,7 +17,8 @@ const Dashboard: React.FC = () => {
   const projects = useProjectStore((s) => s.projects);
   const fetchProjects = useProjectStore((s) => s.fetchProjects);
   const deleteProject = useProjectStore((s) => s.deleteProject);
-  const { addToast, showConfirm } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
+  const showConfirm = useUIStore((s) => s.showConfirm);
 
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');

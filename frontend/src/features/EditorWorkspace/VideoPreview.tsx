@@ -83,9 +83,36 @@ PreviewActiveSceneBadge.displayName = 'PreviewActiveSceneBadge';
 const PreviewSeekBar: React.FC<{
   totalFrames: number;
   onSeek: (frame: number) => void;
-}> = React.memo(({ totalFrames, onSeek }) => {
-  const currentFrame = usePlaybackStore((s) => s.currentFrame);
-  const percent = totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0;
+  getLiveFrame: () => number | undefined;
+}> = React.memo(({ totalFrames, onSeek, getLiveFrame }) => {
+  const fillRef = React.useRef<HTMLDivElement>(null);
+  const dotRef = React.useRef<HTMLDivElement>(null);
+  const getterRef = React.useRef(getLiveFrame);
+  getterRef.current = getLiveFrame;
+  const totalRef = React.useRef(totalFrames);
+  totalRef.current = totalFrames;
+
+  // rAF fill: direct width/left writes at display rate, no store
+  // subscription — the bar glides instead of stepping at the ~10Hz store
+  // poll. Skips writes when the percent hasn't visibly moved.
+  React.useEffect(() => {
+    let raf = 0;
+    let lastPct = -1;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const total = totalRef.current;
+      if (total <= 0) return;
+      const live = getterRef.current?.();
+      const frame = live ?? usePlaybackStore.getState().currentFrame;
+      const pct = (frame / total) * 100;
+      if (Math.abs(pct - lastPct) < 0.05) return;
+      lastPct = pct;
+      if (fillRef.current) fillRef.current.style.width = `${pct}%`;
+      if (dotRef.current) dotRef.current.style.left = `${pct}%`;
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (totalFrames <= 0) return;
@@ -105,18 +132,16 @@ const PreviewSeekBar: React.FC<{
         <div className="absolute inset-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-zinc-800/60 overflow-hidden">
           {/* Filled progress */}
           <div
+            ref={fillRef}
             className="h-full bg-linear-to-r from-blue-600 to-cyan-500 rounded-full"
-            style={{ width: `${percent}%` }}
           />
         </div>
         {/* Hover target: larger invisible hit area */}
         <div className="absolute inset-0 -top-2 -bottom-2" />
         {/* Seek handle dot — visible on hover */}
         <div
+          ref={dotRef}
           className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white shadow-md shadow-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-          style={{
-            left: `${percent}%`,
-          }}
         />
       </div>
     </div>
@@ -252,6 +277,13 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     }
   }, [playerRef]);
 
+  // Live frame reader for the rAF seek bar (display-rate, no React state).
+  // playerRef object identity is stable, so this callback is too.
+  const getLiveFrame = React.useCallback((): number | undefined => {
+    const f = playerRef.current?.getCurrentFrame?.();
+    return typeof f === 'number' ? f : undefined;
+  }, [playerRef]);
+
   // Memoize the overlay element: it is passed as `children` to the memoized
   // player, and an inline element would be a new reference on every
   // VideoPreview render — defeating the memo and re-rendering Remotion's
@@ -365,7 +397,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
         animate={{ opacity: showOverlay ? 1 : 0 }}
         transition={{ duration: 0.15 }}
       >
-        <PreviewSeekBar totalFrames={totalFrames} onSeek={handleSeekFromBar} />
+        <PreviewSeekBar totalFrames={totalFrames} onSeek={handleSeekFromBar} getLiveFrame={getLiveFrame} />
       </motion.div>
 
       {/* ███ Bottom controls bar ███ */}

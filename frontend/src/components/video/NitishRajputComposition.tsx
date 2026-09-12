@@ -149,6 +149,16 @@ const SubVisualTransitionWrapper: React.FC<{
 
   // 12-15 frame entrance animation, capped at half the cut duration
   const transFrames = Math.min(14, Math.max(4, Math.floor(durationInFrames / 2)));
+  // Settle-bail WITHOUT unmounting: past transFrames every branch has
+  // converged to opacity 1 + identity transform, so render that final style
+  // directly (no interpolate calls) but KEEP the same wrapper div. Returning
+  // a bare fragment here previously swapped div -> fragment mid-cut, which
+  // made React unmount + remount the whole subtree — destroying loaded
+  // <Video>/<Img> elements ~0.5s into the cut (white/black flash while the
+  // fresh element re-buffered). glitch keeps its own window (handled in case).
+  if (transition !== 'glitch' && frame > transFrames) {
+    return <div style={{ width: '100%', height: '100%', opacity: 1 }}>{children}</div>;
+  }
   // Clamp config shared by every interpolation – prevents black flash during
   // headless export where sub-visuals are non-overlapping and the previous
   // sub-visual is already unmounted when this one starts at opacity 0.
@@ -297,27 +307,43 @@ const EmphasisWrapper: React.FC<{
 }> = ({ emphasis, children }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  if (!emphasis || emphasis.length === 0) return <>{children}</>;
+  // Hooks must stay above any early return — same mounted instance can gain
+  // or lose emphasis via the editor while preview stays mounted, which would
+  // otherwise throw "Rendered more/fewer hooks than expected" and crash the
+  // Player error boundary (exactly the video-cut crash reported).
+  // Fix 8: precompute windows once per emphasis identity; skip marks whose
+  // window doesn't contain frame (no interpolate calls for idle marks).
+  const windows = React.useMemo(() => (emphasis || [])
+    .filter((m) => m && typeof m.at === 'number')
+    .map((m) => {
+      const peak = Math.min(1.6, Math.max(1.02, typeof m.scale === 'number' ? m.scale : 1.12));
+      const dur = Math.min(2, Math.max(0.2, typeof m.duration === 'number' ? m.duration : 0.5));
+      const startF = Math.max(0, Math.round(m.at * fps));
+      const durF = Math.max(2, Math.round(dur * fps));
+      return { startF, durF, peak };
+    }), [emphasis, fps]);
   let total = 1;
-  for (const m of emphasis) {
-    if (!m || typeof m.at !== 'number') continue;
-    const peak = Math.min(1.6, Math.max(1.02, typeof m.scale === 'number' ? m.scale : 1.12));
-    const dur = Math.min(2, Math.max(0.2, typeof m.duration === 'number' ? m.duration : 0.5));
-    const startF = Math.max(0, Math.round(m.at * fps));
-    const durF = Math.max(2, Math.round(dur * fps));
-    const attack = interpolate(frame, [startF, startF + durF * 0.35], [0, 1], {
+  for (const w of windows) {
+    if (frame < w.startF || frame > w.startF + w.durF) continue;
+    const attack = interpolate(frame, [w.startF, w.startF + w.durF * 0.35], [0, 1], {
       extrapolateLeft: 'clamp',
       extrapolateRight: 'clamp',
       easing: Easing.out(Easing.cubic),
     });
-    const release = interpolate(frame, [startF + durF * 0.35, startF + durF], [0, 1], {
+    const release = interpolate(frame, [w.startF + w.durF * 0.35, w.startF + w.durF], [0, 1], {
       extrapolateLeft: 'clamp',
       extrapolateRight: 'clamp',
       easing: Easing.inOut(Easing.ease),
     });
-    total *= 1 + (peak - 1) * attack * (1 - release);
+    total *= 1 + (w.peak - 1) * attack * (1 - release);
   }
-  if (total === 1) return <>{children}</>;
+  // Always render the same wrapper div: swapping div <-> fragment when a mark
+  // window starts/ends used to unmount + remount loaded <Video>/<Img> mid-cut
+  // (same flash class as the transition settle bug). Idle style carries no
+  // transform so pixels are identical to the old fragment path.
+  if (total === 1) {
+    return <div style={{ width: '100%', height: '100%' }}>{children}</div>;
+  }
   return (
     <div style={{ width: '100%', height: '100%', transform: `scale(${total})`, transformOrigin: 'center center' }}>
       {children}
@@ -546,7 +572,8 @@ export const NitishRajputComposition: React.FC<Props> = ({
           manual-only (no AI tool writes overlays[]). */}
       {!(overlays || []).some((o: any) => o?.type === 'film_grain') && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 110, pointerEvents: 'none' }}>
-          <PaperOverlay />
+          {/* Fix 11: drop fullscreen color-burn sepia in preview (export keeps it). */}
+          <PaperOverlay hideSepia={qualityMode === 'preview'} />
         </div>
       )}
     </>
