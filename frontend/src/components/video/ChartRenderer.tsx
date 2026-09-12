@@ -72,12 +72,15 @@ export const ChartRenderer: React.FC<ChartProps> = ({
     return items.reduce((acc, d) => acc + Math.max(0, d.value), 0) || 1;
   }, [items]);
 
-  // Overall entrance spring
-  const entranceSpr = spring({
+  // Fix 8: settle-bail — springs cost per frame; after entrance duration
+  // they are ~1, so skip spring() and shadow churn.
+  const entranceDur = Math.min(45, durationInFrames);
+  const entranceSettled = frame > entranceDur + 6;
+  const entranceSpr = entranceSettled ? 1 : spring({
     frame,
     fps,
     config: { damping: 14, stiffness: 90, mass: 0.9 },
-    durationInFrames: Math.min(45, durationInFrames),
+    durationInFrames: entranceDur,
   });
 
   return (
@@ -118,11 +121,13 @@ export const ChartRenderer: React.FC<ChartProps> = ({
           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', gap: `${safeBarGap}px`, paddingBottom: '32px' }}>
             {items.map((item, idx) => {
               const itemDelay = idx * 4;
-              const barSpring = spring({
+              const barDur = Math.min(40, durationInFrames);
+              const barSettled = frame > itemDelay + barDur + 6;
+              const barSpring = barSettled ? 1 : spring({
                 frame: Math.max(0, frame - itemDelay),
                 fps,
                 config: { damping: 12, stiffness: 100, mass: 0.8 },
-                durationInFrames: Math.min(40, durationInFrames),
+                durationInFrames: barDur,
               });
 
               const targetHeightPercent = (item.value / maxValue) * 100;

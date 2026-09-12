@@ -99,7 +99,8 @@ const WatermarkComponent: React.FC<{ item: GlobalOverlayItem; qualityMode: Quali
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const entrance = item.animation === 'none' ? 1 : spring({
+  // Fix 8: settle-bail overlay entrance after ~30f.
+  const entrance = item.animation === 'none' || frame > 30 ? 1 : spring({
     frame,
     fps,
     config: { damping: 14, stiffness: 90, mass: 0.8 },
@@ -236,7 +237,8 @@ const ChapterPillComponent: React.FC<{ item: GlobalOverlayItem; qualityMode: Qua
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const entrance = item.animation === 'none' ? 1 : spring({
+  // Fix 8: settle-bail overlay entrance after ~30f.
+  const entrance = item.animation === 'none' || frame > 30 ? 1 : spring({
     frame,
     fps,
     config: { damping: 12, stiffness: 100 },
@@ -290,7 +292,8 @@ const CustomTextComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) =>
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const entrance = item.animation === 'none' ? 1 : spring({
+  // Fix 8: settle-bail overlay entrance after ~30f.
+  const entrance = item.animation === 'none' || frame > 30 ? 1 : spring({
     frame,
     fps,
     config: { damping: 14, stiffness: 90 },
@@ -324,6 +327,8 @@ const FILM_GRAIN_TEXTURE = `url("data:image/svg+xml;utf8,${encodeURIComponent(
 
 const FilmGrainComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) => {
   const frame = useCurrentFrame();
+  // Fix 11: quantize dust to every 4th frame; quantized t memoizes positions.
+  const qFrame = Math.floor(frame / 4) * 4;
   const master = item.opacity ?? 1;
   const showGrain = item.grain_enabled !== false;
   const showSepia = item.sepia_enabled !== false;
@@ -334,7 +339,7 @@ const FilmGrainComponent: React.FC<{ item: GlobalOverlayItem }> = ({ item }) => 
   const dust: React.ReactNode[] = [];
   if (showDust) {
     for (let i = 0; i < 3; i++) {
-      const t = (frame + i * 150) * 0.02;
+      const t = (qFrame + i * 150) * 0.02;
       const x = `${((Math.sin(t * 0.7 + i) * 0.5 + 0.5) * 100).toFixed(2)}%`;
       const y = `${((Math.cos(t * 0.5 + i * 2) * 0.5 + 0.5) * 100).toFixed(2)}%`;
       const size = 2 + (i % 2);

@@ -1,6 +1,7 @@
 import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { usePlaybackStore } from '../../../store/usePlaybackStore';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { shallowEqualStyles } from '../visualSelection';
 
 /**
@@ -120,8 +121,8 @@ interface Box {
   isText: boolean;
 }
 
-/** Mirror of ASTRenderer layout resolution in percent space. */
-function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080): Box {
+/** Mirror of ASTRenderer layout resolution in percent space. Order-based stacking: orderIdx=array index (0=bottom). */
+function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080, orderIdx = 0): Box {
   const style: Record<string, any> = layer?.content?.style || {};
   const cType = layer?.content?.type || 'Image';
   const isText = cType === 'Text';
@@ -146,7 +147,7 @@ function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080): Box {
       transformOrigin: layer?.transform_origin,
       rotateDeg,
       borderRadius: style.borderRadius,
-      zIndex: layer?.z_index ?? 0,
+      zIndex: orderIdx,
       isText,
     };
   }
@@ -197,7 +198,7 @@ function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080): Box {
     transformOrigin: layer?.transform_origin,
     rotateDeg,
     borderRadius: style.borderRadius,
-    zIndex: layer?.z_index ?? 0,
+    zIndex: orderIdx,
     isText,
   };
 }
@@ -700,14 +701,16 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
       return layerToBox(
         { ...layer, content: { ...(layer?.content || {}), style: { ...baseStyle, ...liveStyle } } },
         compW,
-        compH
+        compH,
+        idx
       );
     }
     if (pendingStyle) {
       return layerToBox(
         { ...layer, content: { ...(layer?.content || {}), style: pendingStyle } },
         compW,
-        compH
+        compH,
+        idx
       );
     }
     return box;
@@ -1006,7 +1009,21 @@ export const CanvasOverlay: React.FC<{
   const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
   const setSelectedLayerIndex = useEditorStore((s) => s.setSelectedLayerIndex);
   const isPlaying = useEditorStore((s) => s.isPlaying);
-  const currentFrame = usePlaybackStore((s) => s.currentFrame);
+  // Fix 12: throttled subscription — previously the whole overlay
+  // re-rendered at 20Hz during playback. While playing, ticks are quantized
+  // to ~10fps (tree is hidden via isPlaying anyway); while paused every
+  // scrub frame still notifies so boxes track the playhead.
+  const currentFrame = useStoreWithEqualityFn(
+    usePlaybackStore,
+    (s) => s.currentFrame,
+    (a, b) => {
+      // Same-frame bail; boundary diffing happens in activeSceneIdx memo.
+      // Coarse quantize to ~10fps while playing (overlay hidden anyway).
+      if (a === b) return true;
+      if (useEditorStore.getState().isPlaying) return Math.floor(a / 3) === Math.floor(b / 3);
+      return false;
+    }
+  );
   const isLocked = locked === true;
   const compW = compositionSize?.w ?? 1920;
   const compH = compositionSize?.h ?? 1080;
@@ -1339,10 +1356,9 @@ export const CanvasOverlay: React.FC<{
         : selectedSubVisualIndex;
     const children: any[] = subVisuals[displaySubIdx]?.composition?.children || [];
     if (children.length === 0) return null;
-    // Paint order: background layers first, non-fullscreen on top.
-    const ordered = children
-      .map((layer, idx) => ({ layer, idx, box: layerToBox(layer, compW, compH) }))
-      .sort((a, b) => (a.layer?.z_index ?? 0) - (b.layer?.z_index ?? 0));
+    // Paint order = children array order (children[0]=bottom).
+    const source = children.map((layer, idx) => ({ layer, idx }));
+    const ordered = source.map(({ layer, idx }, orderIdx) => ({ layer, idx, box: layerToBox(layer, compW, compH, orderIdx) }));
     return {
       displaySubIdx,
       isViewingSelectedCut: displaySubIdx === selectedSubVisualIndex,

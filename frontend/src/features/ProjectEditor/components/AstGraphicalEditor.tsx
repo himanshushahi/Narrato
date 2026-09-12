@@ -71,6 +71,8 @@ export interface AstLayerApi {
   updateContentFields: (idx: number, updates: Record<string, any>) => void;
   deleteLayer: (idx: number) => void;
   duplicateLayer: (idx: number) => void;
+  moveLayer: (idx: number, dir: -1 | 1) => void;
+  reorderLayer: (from: number, to: number) => void;
   previewQuery: (idx: number, query: string) => void;
   toggleAdvanced: (idx: number) => void;
   setAdvancedTab: (idx: number, tab: 'layout' | 'animations' | 'filters' | 'motion') => void;
@@ -146,6 +148,8 @@ export const AstGraphicalEditor = ({
   onPreviewSubVisual,
   onDeleteLayer,
   onDuplicateLayer,
+  onMoveLayer,
+  onReorderLayer,
   uploadingSubVisual
 }: {
   initialValue: any;
@@ -154,6 +158,8 @@ export const AstGraphicalEditor = ({
   onPreviewSubVisual?: (query: string, layerIdx?: number, visualType?: string) => Promise<string | undefined> | void;
   onDeleteLayer?: (layerIdx: number) => void;
   onDuplicateLayer?: (layerIdx: number) => void;
+  onMoveLayer?: (fromIdx: number, toIdx: number) => void;
+  onReorderLayer?: (fromIdx: number, toIdx: number) => void;
   uploadingSubVisual?: string | null;
 }) => {
   // New layers must be manipulable on the canvas immediately. A layer with
@@ -197,12 +203,14 @@ export const AstGraphicalEditor = ({
     });
     return changed ? { ...comp, children } : comp;
   };
+  // Repair broken fullscreen media with a default positioned box so handles appear.
+  const normalizeComp = (comp: any) => repairBrokenLayers(comp);
 
   const [composition, setComposition] = useState(() => {
     if (!initialValue || !initialValue.type) {
       return { type: 'Sequence', children: [] };
     }
-    return repairBrokenLayers(initialValue);
+    return normalizeComp(initialValue);
   });
 
   const [previewingIdx, setPreviewingIdx] = useState<number | null>(null);
@@ -211,6 +219,11 @@ export const AstGraphicalEditor = ({
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
   const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'filters' | 'motion'>>({});
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
+  // Card collapse (reorder mode): true = header-only compact row for easy dragging.
+  // Default expanded (false) so existing editing flow is unchanged.
+  const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
+  // Drag-over target for drop indicator during HTML5 reorder drags.
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   // Shared canvas selection (preview overlay <-> editor). Clicking a layer card
   // selects it for the preview highlight; clicking a preview box selects +
   // scrolls to the card here (effect below).
@@ -229,6 +242,8 @@ export const AstGraphicalEditor = ({
     internalClickRef.current = null;
     setExpandedAdvanced((prev) => (prev[selectedLayerIndex] ? prev : { ...prev, [selectedLayerIndex]: true }));
     setAdvancedTab((prev) => (prev[selectedLayerIndex] ? prev : { ...prev, [selectedLayerIndex]: 'layout' }));
+    // Un-collapse the card so canvas selection is always visible.
+    setCollapsed((prev) => (prev[selectedLayerIndex] ? { ...prev, [selectedLayerIndex]: false } : prev));
     // Reveal without smooth scrolling: `behavior: 'smooth'` runs a main-thread
     // animation that janks rapid selection changes (canvas clicks, `[`/`]`
     // cycling) and fights the user's own scroll. `block: 'nearest'` already
@@ -266,12 +281,16 @@ export const AstGraphicalEditor = ({
   const onPreviewRef = useRef(onPreviewSubVisual);
   const onDeleteLayerRef = useRef(onDeleteLayer);
   const onDuplicateLayerRef = useRef(onDuplicateLayer);
+  const onMoveLayerRef = useRef(onMoveLayer);
+  const onReorderLayerRef = useRef(onReorderLayer);
   const iconPickerIdxRef = useRef(iconPickerIdx);
   useEffect(() => { compositionRef.current = composition; }, [composition]);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onPreviewRef.current = onPreviewSubVisual; }, [onPreviewSubVisual]);
   useEffect(() => { onDeleteLayerRef.current = onDeleteLayer; }, [onDeleteLayer]);
   useEffect(() => { onDuplicateLayerRef.current = onDuplicateLayer; }, [onDuplicateLayer]);
+  useEffect(() => { onMoveLayerRef.current = onMoveLayer; }, [onMoveLayer]);
+  useEffect(() => { onReorderLayerRef.current = onReorderLayer; }, [onReorderLayer]);
   useEffect(() => { iconPickerIdxRef.current = iconPickerIdx; }, [iconPickerIdx]);
 
   const triggerChange = (newComp: any) => {
@@ -304,7 +323,7 @@ export const AstGraphicalEditor = ({
       lastSentRef.current = initialValue;
       return;
     }
-    const repaired = repairBrokenLayers(initialValue);
+    const repaired = normalizeComp(initialValue);
     if (repaired !== initialValue) {
       triggerChange(repaired);
     } else {
@@ -334,10 +353,12 @@ export const AstGraphicalEditor = ({
   const handleAddLayer = () => {
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
+    // Order-based stacking: appended = top (foreground).
+    // HTML default with a positioned box so the new layer is manipulable on
+    // the canvas immediately (no-style layers are fullscreen select-only).
     const newIdx = newComp.children.length;
     newComp.children.push({
       type: 'Layer',
-      z_index: newComp.children.length > 0 ? (newComp.children[newComp.children.length - 1].z_index || 0) + 5 : 0,
       content: { type: 'HTML', html_content: DEFAULT_NEW_LAYER_HTML, style: { ...DEFAULT_NEW_LAYER_STYLE } }
     });
     triggerChange(newComp);
@@ -351,6 +372,81 @@ export const AstGraphicalEditor = ({
     requestAnimationFrame(() => {
       document.querySelector(`[data-layer-idx="${newIdx}"]`)?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
     });
+  };
+
+  const remapIndexMap = (prev: Record<number, any>, map: (i: number) => number | null) => {
+    const next: Record<number, any> = {};
+    for (const [k, v] of Object.entries(prev)) {
+      const ni = map(Number(k));
+      if (ni !== null) next[ni] = v;
+    }
+    return next;
+  };
+
+  const handleMoveLayer = (idx: number, dir: -1 | 1) => {
+    const kids = [...(compositionRef.current.children || [])];
+    const j = idx + dir;
+    if (idx < 0 || j < 0 || idx >= kids.length || j >= kids.length) return;
+    onMoveLayerRef.current?.(idx, j);
+    const newComp = { ...compositionRef.current };
+    const next = [...kids];
+    const [moved] = next.splice(idx, 1);
+    next.splice(j, 0, moved);
+    newComp.children = next;
+    const map = (i: number) => (i === idx ? j : i === j ? idx : i);
+    setExpandedAdvanced(prev => remapIndexMap(prev, map));
+    setAdvancedTab(prev => remapIndexMap(prev, map));
+    setCollapsed(prev => remapIndexMap(prev, map));
+    setMediaError(prev => remapIndexMap(prev, map));
+    setPreviewingIdx(prev => (prev === null ? null : map(prev) ?? prev));
+    setUploadingIdx(prev => (prev === null ? null : map(prev) ?? prev));
+    setIconPickerIdx(prev => (prev === null ? null : map(prev) ?? prev));
+    try {
+      // Mark as internal so the selection effect doesn't auto-expand the card.
+      internalClickRef.current = j;
+      const sel = useEditorStore.getState().selectedLayerIndex;
+      if (sel !== null && sel !== undefined) {
+        useEditorStore.getState().setSelectedLayerIndex(map(sel) ?? sel);
+      } else {
+        useEditorStore.getState().setSelectedLayerIndex(j);
+      }
+    } catch { /* store unavailable in isolation */ }
+    triggerChange(newComp);
+  };
+
+  const handleReorderLayer = (from: number, to: number) => {
+    const kids = [...(compositionRef.current.children || [])];
+    if (from === to || from < 0 || to < 0 || from >= kids.length || to >= kids.length) return;
+    onReorderLayerRef.current?.(from, to);
+    const newComp = { ...compositionRef.current };
+    const next = [...kids];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    newComp.children = next;
+    const map = (i: number) => {
+      if (i === from) return to;
+      if (from < to) return i > from && i <= to ? i - 1 : i;
+      return i >= to && i < from ? i + 1 : i;
+    };
+    setExpandedAdvanced(prev => remapIndexMap(prev, map));
+    setAdvancedTab(prev => remapIndexMap(prev, map));
+    setCollapsed(prev => remapIndexMap(prev, map));
+    setMediaError(prev => remapIndexMap(prev, map));
+    setPreviewingIdx(prev => (prev === null ? null : map(prev)));
+    setUploadingIdx(prev => (prev === null ? null : map(prev)));
+    setIconPickerIdx(prev => (prev === null ? null : map(prev)));
+    try {
+      // Mark as internal so the selection effect doesn't auto-expand the card.
+      internalClickRef.current = to;
+      const sel = useEditorStore.getState().selectedLayerIndex;
+      if (sel !== null && sel !== undefined) {
+        useEditorStore.getState().setSelectedLayerIndex(map(sel));
+      } else {
+        useEditorStore.getState().setSelectedLayerIndex(to);
+      }
+    } catch { /* store unavailable in isolation */ }
+    setDragOverIdx(null);
+    triggerChange(newComp);
   };
 
   const handleDeleteLayer = (idx: number) => {
@@ -386,6 +482,24 @@ export const AstGraphicalEditor = ({
       }
       return next;
     });
+    setCollapsed(prev => {
+      const next: Record<number, boolean> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i < idx) next[i] = v;
+        else if (i > idx) next[i - 1] = v;
+      }
+      return next;
+    });
+    setMediaError(prev => {
+      const next: Record<number, string | null> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i < idx) next[i] = v;
+        else if (i > idx) next[i - 1] = v;
+      }
+      return next;
+    });
     triggerChange(newComp);
   };
 
@@ -394,7 +508,7 @@ export const AstGraphicalEditor = ({
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     const clone = JSON.parse(JSON.stringify(newComp.children[idx]));
-    clone.z_index = (clone.z_index || 0) + 1;
+    // Order-based stacking: duplicate lands directly above original.
     newComp.children.splice(idx + 1, 0, clone);
     setPreviewingIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
     setUploadingIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
@@ -417,6 +531,24 @@ export const AstGraphicalEditor = ({
     });
     setAdvancedTab(prev => {
       const next: Record<number, any> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i <= idx) next[i] = v;
+        else next[i + 1] = v;
+      }
+      return next;
+    });
+    setCollapsed(prev => {
+      const next: Record<number, boolean> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i <= idx) next[i] = v;
+        else next[i + 1] = v;
+      }
+      return next;
+    });
+    setMediaError(prev => {
+      const next: Record<number, string | null> = {};
       for (const [k, v] of Object.entries(prev)) {
         const i = Number(k);
         if (i <= idx) next[i] = v;
@@ -467,6 +599,21 @@ export const AstGraphicalEditor = ({
     setExpandedAdvanced(prev => ({ ...prev, [idx]: !prev[idx] }));
   };
 
+  const toggleCollapse = (idx: number) => {
+    setCollapsed(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const collapseAll = () => {
+    const count = (compositionRef.current.children || []).length;
+    const next: Record<number, boolean> = {};
+    for (let i = 0; i < count; i++) next[i] = true;
+    setCollapsed(next);
+  };
+
+  const expandAll = () => {
+    setCollapsed({});
+  };
+
   // Stable per-layer API for memoized children: every function reads latest
   // state through refs, so identities never churn across ticks and sibling
   // layers memo-skip while one layer is edited.
@@ -476,6 +623,8 @@ export const AstGraphicalEditor = ({
     updateContentFields: (idx, updates) => updateContentFields(idx, updates),
     deleteLayer: (idx) => handleDeleteLayer(idx),
     duplicateLayer: (idx) => handleDuplicateLayer(idx),
+    moveLayer: (idx, dir) => handleMoveLayer(idx, dir),
+    reorderLayer: (from, to) => handleReorderLayer(from, to),
     previewQuery: (idx, query) => { void handlePreviewQuery(idx, query); },
     toggleAdvanced: (idx) => toggleAdvanced(idx),
     setAdvancedTab: (idx, tab) => setAdvancedTab(prev => ({ ...prev, [idx]: tab })),
@@ -535,13 +684,39 @@ export const AstGraphicalEditor = ({
   }, [api, (composition.children || []).length]);
 
   const layers = composition.children || [];
+  const dragFromRef = useRef<number | null>(null);
 
   return (
     <div className="space-y-3 w-full min-w-0">
-      {layers.map((layer: any, idx: number) => {
-        const content = layer.content || {};
+      {layers.length > 1 && (
+        <div className="flex items-center justify-between gap-2 px-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+            {layers.length} layers · bottom = background, top = foreground
+          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer"
+              title="Collapse all to compact rows for easy drag-reorder"
+            >Collapse all</button>
+            <button
+              type="button"
+              onClick={expandAll}
+              className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer"
+              title="Expand all layer editors"
+            >Expand all</button>
+          </div>
+        </div>
+      )}
+      {/* Photoshop-style: top of stack at top of panel. Data stays children[0]=bottom;
+          only display order is reversed. All handlers keep using the real idx. */}
+      {[...layers.keys()].reverse().map((idx: number) => {
+        const layer = layers[idx];
+        const content = (layer as any).content || {};
         const cType = content.type || 'Image';
         const isAdvancedOpen = !!expandedAdvanced[idx];
+        const isCollapsed = !!collapsed[idx];
         const layerKind = normalizeLayerKind(cType);
         const layerCap = getLayerCapability(layerKind);
         const motionState = getMotionState({
@@ -563,20 +738,60 @@ export const AstGraphicalEditor = ({
               internalClickRef.current = idx;
               useEditorStore.getState().setSelectedLayerIndex(idx);
             }}
-            className={`p-3 bg-zinc-900/70 border rounded-xl space-y-3 relative group/layer transition-all shadow-sm w-full min-w-0 cursor-pointer ${selectedLayerIndex === idx ? 'border-amber-500/60 shadow-[0_0_18px_rgba(245,158,11,0.12)]' : 'border-zinc-800/90 hover:border-zinc-700/80'}`}
+            onDragOver={(e) => { if (dragFromRef.current !== null && dragFromRef.current !== idx) { e.preventDefault(); setDragOverIdx(idx); } }}
+            onDragLeave={() => { setDragOverIdx(prev => (prev === idx ? null : prev)); }}
+            onDrop={(e) => { e.preventDefault(); setDragOverIdx(null); const from = dragFromRef.current; dragFromRef.current = null; if (from !== null && from !== idx) handleReorderLayer(from, idx); }}
+            className={`p-3 bg-zinc-900/70 border rounded-xl ${isCollapsed ? 'space-y-0' : 'space-y-3'} relative group/layer transition-all shadow-sm w-full min-w-0 cursor-pointer ${dragOverIdx === idx ? 'border-sky-400/70 shadow-[0_0_18px_rgba(56,189,248,0.25)]' : selectedLayerIndex === idx ? 'border-amber-500/60 shadow-[0_0_18px_rgba(245,158,11,0.12)]' : 'border-zinc-800/90 hover:border-zinc-700/80'}`}
           >
-            {/* Header: Layer Title, Z-Index, and Action Buttons */}
-            <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/5">
+            {/* Header: Collapse toggle, Layer Title, Order controls, and Action Buttons */}
+            <div className={`flex items-center justify-between gap-2 ${isCollapsed ? '' : 'pb-2 border-b border-white/5'}`}>
               <div className="flex items-center gap-2 min-w-0">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleCollapse(idx); }}
+                  className="p-1 text-stone-400 hover:text-amber-400 transition-colors cursor-pointer shrink-0"
+                  title={isCollapsed ? 'Expand layer editor' : 'Collapse to compact row for drag-reorder'}
+                >
+                  {isCollapsed
+                    ? <BsChevronRight size={12} />
+                    : <BsChevronDown size={12} />}
+                </button>
+                <span
+                  draggable
+                  onDragStart={(e) => { dragFromRef.current = idx; try { e.dataTransfer.setData('text/plain', String(idx)); } catch { /* WebView2 may throw */ } e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverIdx(idx); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverIdx(null); const from = dragFromRef.current; dragFromRef.current = null; if (from !== null && from !== idx) handleReorderLayer(from, idx); }}
+                  onDragEnd={() => { dragFromRef.current = null; setDragOverIdx(null); }}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Drag to reorder (bottom=background, top=foreground)"
+                  className="text-stone-500 hover:text-amber-400 cursor-grab active:cursor-grabbing shrink-0 px-0.5 select-none"
+                >⋮⋮</span>
                 <span className="text-xs font-bold text-amber-400 shrink-0 whitespace-nowrap">Layer {idx + 1}</span>
-                <div className="flex items-center gap-1.5 bg-black/40 px-2 py-0.5 rounded-md border border-white/10 focus-within:border-amber-500/50 shrink-0">
-                  <span className="text-[10px] font-semibold text-stone-400 uppercase whitespace-nowrap">Z:</span>
-                  <input
-                    type="number"
-                    className="bg-transparent w-9 text-xs text-stone-200 focus:outline-none text-center font-mono"
-                    value={layer.z_index ?? 0}
-                    onChange={e => updateLayer(idx, 'z_index', parseInt(e.target.value) || 0)}
-                  />
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-stone-500 shrink-0">
+                  {idx === 0 ? '· bottom' : idx === layers.length - 1 ? '· top' : ''}
+                </span>
+                <span className="text-[10px] font-semibold text-stone-300 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap">{cType}</span>
+                {isCollapsed && (
+                  <span className="text-[11px] text-stone-500 truncate min-w-0">
+                    {(content.text || content.query || content.html_content || content.chart_type || content.shape_type || content.icon_name || '')
+                      .toString().replace(/<[^>]*>/g, '').slice(0, 40)}
+                  </span>
+                )}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={idx === 0}
+                    onClick={(e) => { e.stopPropagation(); handleMoveLayer(idx, -1); }}
+                    className="px-1.5 py-0.5 text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer disabled:opacity-30 text-xs"
+                    title="Move down (toward background)"
+                  >↓</button>
+                  <button
+                    type="button"
+                    disabled={idx === layers.length - 1}
+                    onClick={(e) => { e.stopPropagation(); handleMoveLayer(idx, 1); }}
+                    className="px-1.5 py-0.5 text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer disabled:opacity-30 text-xs"
+                    title="Move up (toward foreground)"
+                  >↑</button>
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -605,6 +820,8 @@ export const AstGraphicalEditor = ({
               </div>
             </div>
 
+            {!isCollapsed && (
+            <>
             {/* Content Type Selector */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block whitespace-nowrap">Type</label>
@@ -1631,6 +1848,8 @@ export const AstGraphicalEditor = ({
                 </div>
               )}
             </div>
+            </>
+            )}
           </div>
         );
       })}

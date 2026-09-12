@@ -50,6 +50,8 @@ interface TimelineProps {
   onSelectOverlay?: (overlayId: string) => void;
   onOpenInspectorScript?: (sceneIdx: number, subIdx: number) => void;
   readOnly?: boolean;
+  /** Live player frame reader for the smooth (rAF) playhead. Stable ref. */
+  getLiveFrame?: () => number | undefined;
 }
 
 interface LocalTiming {
@@ -96,6 +98,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   onSelectOverlay,
   onOpenInspectorScript,
   readOnly = false,
+  getLiveFrame,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -432,7 +435,11 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
       }
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
+    // Fix 12: rAF-coalesce raw mousemove (60-150Hz) to one setLocalTimings
+    // per frame — previously every event triggered full 7-lane diff.
+    let rafPending = 0;
+    let lastEvent: MouseEvent | null = null;
+    const applyResize = (e: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
 
@@ -560,11 +567,38 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
       }
     };
 
+    const handleMouseMove = (ev: MouseEvent) => {
+      lastEvent = ev;
+      if (!rafPending) {
+        rafPending = requestAnimationFrame(() => {
+          rafPending = 0;
+          if (lastEvent) {
+            const e = lastEvent;
+            lastEvent = null;
+            applyResize(e);
+          }
+        });
+      }
+    };
+    const handleMouseUpWrapped = () => {
+      if (rafPending) {
+        cancelAnimationFrame(rafPending);
+        rafPending = 0;
+      }
+      if (lastEvent) {
+        const e = lastEvent;
+        lastEvent = null;
+        applyResize(e);
+      }
+      handleMouseUp();
+    };
+
     document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseup', handleMouseUpWrapped);
     return () => {
+      if (rafPending) cancelAnimationFrame(rafPending);
       document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mouseup', handleMouseUpWrapped);
     };
   }, [dragState, timelineZoom, onResizeSubVisual, onResizeScene]);
 
@@ -595,15 +629,36 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
       return findSnappedFrame(raw);
     };
 
+    // Fix 12: rAF-throttle scrub seeks — getBoundingClientRect + seekTo per
+    // raw mousemove was decode-bound; one seek per frame is enough.
+    let scrubRaf = 0;
+    let lastX = 0;
+    let hasMove = false;
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!isDraggingPlayheadRef.current) return;
-      const frame = getFrameFromMouse(moveEvent.clientX);
-      onSeek(frame);
+      lastX = moveEvent.clientX;
+      hasMove = true;
+      if (!scrubRaf) {
+        scrubRaf = requestAnimationFrame(() => {
+          scrubRaf = 0;
+          if (!isDraggingPlayheadRef.current) return;
+          onSeek(getFrameFromMouse(lastX));
+        });
+      }
     };
 
     const handleMouseUp = () => {
       if (!isDraggingPlayheadRef.current) return;
       isDraggingPlayheadRef.current = false;
+      if (scrubRaf) {
+        cancelAnimationFrame(scrubRaf);
+        scrubRaf = 0;
+      }
+      // Flush the release point: a fast flick-and-release can leave the last
+      // mousemove unapplied when it arrived after the final rAF fired.
+      if (hasMove) {
+        onSeek(getFrameFromMouse(lastX));
+      }
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.cursor = '';
@@ -845,6 +900,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
           <TimelinePlayhead
             timelineZoom={timelineZoom}
             onStartDrag={startPlayheadDrag}
+            getLiveFrame={getLiveFrame}
           />
         </div>
       </div>

@@ -61,7 +61,7 @@ const AstJsonEditor = ({ initialValue, onChange }: { initialValue: object, onCha
   );
 };
 
-export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, onDeleteLayer, onDuplicateLayer, uploadingSubVisual, singleCut = false, cutNumber, aiDisabled = false, promptDraftKey, loadPromptDraft, savePromptDraft }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string, layerIdx?: number) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string, layerIdx?: number, visualType?: string) => Promise<string | undefined> | void, onDeleteLayer?: (cutIdx: number, layerIdx: number) => void, onDuplicateLayer?: (cutIdx: number, layerIdx: number) => void, uploadingSubVisual?: string | null, singleCut?: boolean, cutNumber?: number, aiDisabled?: boolean, promptDraftKey?: string, loadPromptDraft?: (key: string) => string, savePromptDraft?: (key: string, text: string) => void }) => {
+export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onSeek, onRewriteSubVisual, totalDurationFrames = 0, onUploadSubVisual, onPreviewSubVisual, onDeleteLayer, onDuplicateLayer, onMoveLayer, onReorderLayer, uploadingSubVisual, singleCut = false, cutNumber, aiDisabled = false, promptDraftKey, loadPromptDraft, savePromptDraft }: { subVisuals: any[], onChange: (newSubs: any[]) => void, timings?: any[], activeIdx?: number, onSeek?: (frame: number) => void, onRewriteSubVisual?: (idx: number, prompt: string) => Promise<void>, totalDurationFrames?: number, onUploadSubVisual?: (idx: number, visualType?: string, layerIdx?: number) => Promise<string | undefined> | void, onPreviewSubVisual?: (idx: number, query: string, layerIdx?: number, visualType?: string) => Promise<string | undefined> | void, onDeleteLayer?: (cutIdx: number, layerIdx: number) => void, onDuplicateLayer?: (cutIdx: number, layerIdx: number) => void, onMoveLayer?: (cutIdx: number, fromIdx: number, toIdx: number) => void, onReorderLayer?: (cutIdx: number, fromIdx: number, toIdx: number) => void, uploadingSubVisual?: string | null, singleCut?: boolean, cutNumber?: number, aiDisabled?: boolean, promptDraftKey?: string, loadPromptDraft?: (key: string) => string, savePromptDraft?: (key: string, text: string) => void }) => {
   const [aiPromptIdx, setAiPromptIdx] = useState<number | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const [isRewriting, setIsRewriting] = useState(false);
@@ -406,6 +406,8 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     onPreviewSubVisual={onPreviewSubVisual ? (query, layerIdx, visualType) => onPreviewSubVisual(idx, query, layerIdx, visualType) : undefined}
                     onDeleteLayer={onDeleteLayer ? (layerIdx) => onDeleteLayer(idx, layerIdx) : undefined}
                     onDuplicateLayer={onDuplicateLayer ? (layerIdx) => onDuplicateLayer(idx, layerIdx) : undefined}
+                    onMoveLayer={onMoveLayer ? (fromIdx, toIdx) => onMoveLayer(idx, fromIdx, toIdx) : undefined}
+                    onReorderLayer={onReorderLayer ? (fromIdx, toIdx) => onReorderLayer(idx, fromIdx, toIdx) : undefined}
                     uploadingSubVisual={uploadingSubVisual}
                   />
                 )}

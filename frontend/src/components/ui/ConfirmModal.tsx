@@ -4,8 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useUIStore } from '../../store/useUIStore';
 import { VscWarning } from 'react-icons/vsc';
 
-export const ConfirmModal: React.FC = () => {
-  const { confirmState, closeConfirm } = useUIStore();
+export const ConfirmModal: React.FC = React.memo(() => {
+  // Fix 5: granular selectors — previously whole-store sub re-rendered on
+  // every log/toast/agent event even when closed.
+  const confirmState = useUIStore((s) => s.confirmState);
+  const closeConfirm = useUIStore((s) => s.closeConfirm);
 
   const handleConfirm = () => {
     confirmState.onConfirm();
@@ -67,4 +70,5 @@ export const ConfirmModal: React.FC = () => {
     </AnimatePresence>,
     document.body
   );
-};
+});
+(ConfirmModal as any).displayName = 'ConfirmModal';

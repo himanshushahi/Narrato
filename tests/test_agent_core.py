@@ -988,7 +988,7 @@ def test_visual_rules_format_aware_safe_areas():
     assert "15%" in landscape_rules
     assert "18%" in landscape_rules
     assert "CHAPTER TITLE" in landscape_rules
-    assert "STANDARDIZED Z-INDEX HIERARCHY" in landscape_rules
+    assert "STANDARDIZED LAYER ORDER" in landscape_rules
 
     portrait_rules = _visual_rules_safety_net("portrait", "hi")
     assert "25%" in portrait_rules
@@ -1010,13 +1010,13 @@ def test_validate_sub_visuals_preserves_subtitle_position():
     assert "subtitle_position" not in normalized[2]
 
 
-def test_declarative_ast_skill_has_z_index_and_chapter_guidelines():
-    """declarative-ast skill must document standardized Z-indexes and Chapter guidelines."""
+def test_declarative_ast_skill_has_layer_order_and_chapter_guidelines():
+    """declarative-ast skill must document order-based stacking and Chapter guidelines."""
     from backend.agent.skill_loader import skill_loader
     skill = skill_loader.get_skill("declarative-ast")
     assert skill is not None
-    assert "Standardized Z-Index Hierarchy" in skill.content
-    assert "Chapter Guidelines" in skill.content
+    assert "children[0]=bottom" in skill.content or "array order" in skill.content
+    assert "Chapter Guidelines" in skill.content or "NO STATIC CHAPTER" in skill.content
 
 
 # ---------------------------------------------------------------------------
@@ -1247,7 +1247,6 @@ def test_lottie_and_motion_modifiers_validation():
                 "children": [
                     {
                         "type": "Layer",
-                        "z_index": 10,
                         "motion_blur": True,
                         "shutter_angle": 180,
                         "camera_shake": "handheld",
@@ -1463,7 +1462,6 @@ def test_ast_layer_transform_origin_and_sub_visual_defaults():
 
     layer = ASTLayerNode(
         type="Layer",
-        z_index=15,
         content={"type": "HTML", "html_content": "<div>test</div>"},
         transform_origin="top left",
         animations=[{"property": "scale", "from": 1.0, "to": 1.05, "duration": 3.0, "easing": "linear"}]

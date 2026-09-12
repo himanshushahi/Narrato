@@ -53,6 +53,8 @@ interface InspectorPanelProps {
   uploadingSubVisual?: string | null;
   onDeleteLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
   onDuplicateLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  onMoveLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
+  onReorderLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
   onDeleteCutSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
   onRegisterFlush?: (flush: (() => any) | null) => void;
   onRegisterCanvasStyle?: (fn: ((layerIdx: number, style: Record<string, any>) => void) | null) => void;
@@ -101,7 +103,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   onSaveCard, onStartEdit, onCancelEdit, onOpenVisuals, onRewriteSection, onRewriteSubVisual, onInsertScene,
   onSetSceneToDelete,   onSetScriptData, onSaveOverlays,
   onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
-  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onDeleteCutSubVisual, onRegisterFlush, onRegisterCanvasStyle,
+  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onMoveLayerSubVisual, onReorderLayerSubVisual, onDeleteCutSubVisual, onRegisterFlush, onRegisterCanvasStyle,
   tasks, queue, isPipelineRunning, targetStage, activeTaskStep, hasScriptData,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline,
   isSavingSubtitles, onSettingsUpdate, onTranscriptionChange, onSaveTranscription, onResetTranscription,
@@ -112,6 +114,12 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
   const rightPanelWidth = useEditorStore((s) => s.rightPanelWidth);
   const inspectorTab = useEditorStore((s) => s.inspectorTab);
   const setInspectorTab = useEditorStore((s) => s.setInspectorTab);
+  // Fix 5: stable tabs array — inline map() created new refs every render,
+  // breaking ScrollableTabBar memo (copy of MediaSidebar scrollTabs pattern).
+  const scrollTabs = React.useMemo(
+    () => tabMeta.map((t) => ({ id: t.id, label: t.label, icon: t.icon })),
+    []
+  );
 
   // Subscribe to active scene/sub index with equality check so InspectorPanel
   // only updates when scene/sub boundaries actually change.
@@ -190,6 +198,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
             uploadingSubVisual={uploadingSubVisual}
             onDeleteLayerSubVisual={onDeleteLayerSubVisual}
             onDuplicateLayerSubVisual={onDuplicateLayerSubVisual}
+            onMoveLayerSubVisual={onMoveLayerSubVisual}
+            onReorderLayerSubVisual={onReorderLayerSubVisual}
             onDeleteCutSubVisual={onDeleteCutSubVisual}
             onRegisterFlush={onRegisterFlush}
             onRegisterCanvasStyle={onRegisterCanvasStyle}
@@ -258,7 +268,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = React.memo(({
     <div className="h-full bg-zinc-950/80 border-l border-zinc-800/60 flex flex-col overflow-x-hidden" style={{ width: rightPanelWidth }}>
       {/* Tab bar — scrollable with hover-reveal buttons */}
       <ScrollableTabBar
-        tabs={tabMeta.map(t => ({ id: t.id, label: t.label, icon: t.icon }))}
+        tabs={scrollTabs}
         activeTab={inspectorTab}
         onChange={(id) => setInspectorTab(id as InspectorTab)}
       />

@@ -9,8 +9,8 @@ from backend.agent.schemas import LayerContent, VisualsArrayResponse
 from backend.agent.validators import validate_sub_visuals, sanitize_media_layers
 
 
-def _media_layer(ctype="Image", query="city skyline", z=0):
-    layer = {"type": "Layer", "z_index": z,
+def _media_layer(ctype="Image", query="city skyline"):
+    layer = {"type": "Layer",
              "content": {"type": ctype, "query": query, "source": "pexels"},
              "animations": [], "filters": []}
     if query is None:
@@ -57,7 +57,7 @@ def test_response_rejects_raw_dict_queryless_media():
     # the response validator must still catch them.
     bad = {"sub_visuals": [
         _cut(_media_layer("Image", None), _media_layer("Video", "ocean waves")),
-        _cut({"type": "Layer", "z_index": 30,
+        _cut({"type": "Layer",
               "content": {"type": "Text", "text": "hi"}}),
     ]}
     with pytest.raises(ValidationError) as exc:
@@ -77,7 +77,7 @@ def test_response_accepts_valid_media():
 
 def test_sanitize_drops_queryless_media_keeps_rest():
     kids = [_media_layer("Image", None), _media_layer("Video", "waves"),
-            {"type": "Layer", "z_index": 30, "content": {"type": "Text", "text": "hi"}}]
+            {"type": "Layer", "content": {"type": "Text", "text": "hi"}}]
     clean, dropped = sanitize_media_layers(kids, cut_label="cut#0")
     assert dropped == 1
     assert [c["content"]["type"] for c in clean] == ["Video", "Text"]
@@ -92,8 +92,8 @@ def test_sanitize_empty_cut_gets_html_placeholder():
 
 
 def test_validate_sub_visuals_repairs_without_new_llm_call():
-    svs = [_cut(_media_layer("Image", None, z=0), duration=5.0),
-           _cut(_media_layer("Image", "city", z=0), duration=5.0)]
+    svs = [_cut(_media_layer("Image", None), duration=5.0),
+           _cut(_media_layer("Image", "city"), duration=5.0)]
     is_valid, normalized, err = validate_sub_visuals(svs, 10.0)
     assert err == ""
     # First cut: query-less media dropped, HTML placeholder inserted.
@@ -303,4 +303,54 @@ def test_materialize_rewrite_previews_downloads_and_sets_preview_path(tmp_path, 
     assert Path(lp).exists()
     assert "preview_" in Path(lp).name
     assert Path(lp).name.startswith("preview_")
+
+
+# ── Order-based stacking (no legacy support) ──────────────────────────
+
+def test_layer_order_is_children_array_order():
+    kids = [
+        {"type": "Layer", "content": {"type": "HTML", "html_content": "<div/>"}},
+        {"type": "Layer", "content": {"type": "Chart"}},
+        {"type": "Layer", "content": {"type": "Text", "text": "top"}},
+    ]
+    clean, dropped = sanitize_media_layers(kids, cut_label="cut#0")
+    assert dropped == 0
+    assert [c["content"]["type"] for c in clean] == ["HTML", "Chart", "Text"]
+
+
+def test_validate_rejects_z_index_field():
+    from backend.agent.schemas import ASTLayerNode
+    with pytest.raises(Exception):
+        ASTLayerNode.model_validate(
+            {"type": "Layer", "z_index": 10, "content": {"type": "Text", "text": "hi"}}
+        )
+    with pytest.raises(Exception):
+        ASTLayerNode.model_validate(
+            {"type": "Layer", "zIndex": 10, "content": {"type": "Text", "text": "hi"}}
+        )
+
+
+def test_validate_sub_visuals_rejects_z_index():
+    from backend.agent.validators import validate_sub_visuals
+    svs = [{
+        "duration": 5.0,
+        "composition": {"type": "Sequence", "children": [
+            {"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "city", "source": "pexels"}},
+            {"type": "Layer", "z_index": 30, "content": {"type": "Text", "text": "hi"}},
+        ]},
+    }]
+    is_valid, _, err = validate_sub_visuals(svs, 5.0)
+    assert is_valid is False
+    assert "z_index" in err
+
+    svs_camel = [{
+        "duration": 5.0,
+        "composition": {"type": "Sequence", "children": [
+            {"type": "Layer", "zIndex": 10, "content": {"type": "Text", "text": "hi"}},
+        ]},
+    }]
+    is_valid_c, _, err_c = validate_sub_visuals(svs_camel, 5.0)
+    assert is_valid_c is False
+    assert "zIndex" in err_c
+
 

@@ -33,7 +33,7 @@ Conventions (repo-learned, must follow):
 ## 1. Research & Component Architecture
 
 - Layer model: `sub_visual.composition = { type: 'Sequence', children: Layer[] }`,
-  `Layer = { type: 'Layer', z_index, content: { type, style: {...} }, animations,
+  `Layer = { type: 'Layer', content: { type, style: {...} }, animations,
   filters, motion_blur, ... }` (`ASTRenderer.tsx:80-91`).
 - Editor write path: `AstLayoutControls onChange → api.updateContent(idx,'style') →
   triggerChange → SubVisualsEditor handleUpdate → VisualsTab handleLensChange →

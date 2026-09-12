@@ -110,6 +110,37 @@ export const OverlaysTrack: React.FC<OverlaysTrackProps> = React.memo(({
     initialFrom: number;
     initialDuration: number;
   } | null>(null);
+  // Fix 12: optimistic local override — drag updates this via rAF and commits
+  // once on mouseup, instead of hammering parent + Remotion inputProps per
+  // mousemove (120 parent updates/sec before).
+  const [localOverride, setLocalOverride] = useState<Record<string, { from: number; dur: number }>>({});
+  // Reconcile: drop override entries once incoming props catch up to the
+  // committed values (commit flows through deferred scriptData, so props lag
+  // a few frames behind mouseup — clearing synchronously would snap the lane
+  // back to the old position = release flicker).
+  const overlaysForReconcile = overlays;
+  React.useEffect(() => {
+    setLocalOverride((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0) return prev;
+      let changed = false;
+      const next = { ...prev };
+      for (const k of keys) {
+        const o = (overlaysForReconcile || []).find(
+          (item: GlobalOverlayItem, idx: number) => String(item.id ?? idx) === k
+        ) as GlobalOverlayItem | undefined;
+        if (!o) continue;
+        const isFull = o.timing === 'full' || o.from_seconds === undefined;
+        const oFrom = isFull ? 0 : (o.from_seconds || 0);
+        const oDur = isFull ? totalDuration / FPS : (o.duration_seconds || 10);
+        if (Math.abs(oFrom - prev[k].from) < 0.005 && Math.abs(oDur - prev[k].dur) < 0.005) {
+          delete next[k];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [overlaysForReconcile, totalDuration]);
 
   const handleStartDrag = useCallback((
     e: React.MouseEvent,
@@ -130,24 +161,58 @@ export const OverlaysTrack: React.FC<OverlaysTrackProps> = React.memo(({
       initialDuration: durSec,
     });
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    const key = String(itemTarget);
+    let latest: { from: number; dur: number } | null = null;
+    let rafPending = 0;
+    let lastEvent: MouseEvent | null = null;
+    const applyDrag = (moveEvent: MouseEvent) => {
       const dx = moveEvent.clientX - e.clientX;
       const dSec = dx / timelineZoom;
 
       if (mode === 'move') {
         const newFrom = Math.max(0, Math.min(totalSeconds - durSec, Number((fromSec + dSec).toFixed(2))));
-        onUpdateOverlay?.(itemTarget, { from_seconds: newFrom, duration_seconds: durSec, timing: 'custom' });
+        latest = { from: newFrom, dur: durSec };
       } else if (mode === 'trim_left') {
         const proposedFrom = Math.max(0, Math.min(fromSec + durSec - 0.5, Number((fromSec + dSec).toFixed(2))));
         const proposedDur = Math.max(0.5, Number((durSec - (proposedFrom - fromSec)).toFixed(2)));
-        onUpdateOverlay?.(itemTarget, { from_seconds: proposedFrom, duration_seconds: proposedDur, timing: 'custom' });
+        latest = { from: proposedFrom, dur: proposedDur };
       } else if (mode === 'trim_right') {
         const proposedDur = Math.max(0.5, Math.min(totalSeconds - fromSec, Number((durSec + dSec).toFixed(2))));
-        onUpdateOverlay?.(itemTarget, { from_seconds: fromSec, duration_seconds: proposedDur, timing: 'custom' });
+        latest = { from: fromSec, dur: proposedDur };
+      }
+      if (latest) setLocalOverride((prev) => ({ ...prev, [key]: latest as { from: number; dur: number } }));
+    };
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      lastEvent = moveEvent;
+      if (!rafPending) {
+        rafPending = requestAnimationFrame(() => {
+          rafPending = 0;
+          if (lastEvent) {
+            const ev = lastEvent;
+            lastEvent = null;
+            applyDrag(ev);
+          }
+        });
       }
     };
 
     const handleMouseUp = () => {
+      if (rafPending) {
+        cancelAnimationFrame(rafPending);
+        rafPending = 0;
+      }
+      if (lastEvent) {
+        const ev = lastEvent;
+        lastEvent = null;
+        applyDrag(ev);
+      }
+      // Single commit on release. The optimistic override stays locked
+      // until incoming props catch up (see reconcile effect above) — same
+      // pattern as MusicTrack/SfxTrack — so the lane never snaps back.
+      if (latest) {
+        setLocalOverride((prev) => ({ ...prev, [key]: latest as { from: number; dur: number } }));
+        onUpdateOverlay?.(itemTarget, { from_seconds: latest.from, duration_seconds: latest.dur, timing: 'custom' });
+      }
       setDragState(null);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
@@ -198,8 +263,10 @@ export const OverlaysTrack: React.FC<OverlaysTrackProps> = React.memo(({
             const overlayTarget = item.id || targetIdx;
 
             const isFull = item.timing === 'full' || item.from_seconds === undefined;
-            const fromSec = isFull ? 0 : (item.from_seconds || 0);
-            const durSec = isFull ? totalSeconds : (item.duration_seconds || 10);
+            const ovKey = String(item.id || targetIdx);
+            const ov = localOverride[ovKey];
+            const fromSec = ov ? ov.from : (isFull ? 0 : (item.from_seconds || 0));
+            const durSec = ov ? ov.dur : (isFull ? totalSeconds : (item.duration_seconds || 10));
             const x = fromSec * timelineZoom;
             const w = Math.max(8, durSec * timelineZoom);
 

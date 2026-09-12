@@ -30,7 +30,17 @@ export const initializePywebviewListeners = async () => {
       if (!data.status.active) {
         useProjectStore.setState({ activeTask: null });
       }
-      if (projectStore.selectedProject?.id) {
+      // Fix 13: throttle detail refetch — previously every queue event did
+      // full db_get_project + task map, thrashing selectedProject ref and
+      // cascading to TopBar/ExportTab/useScriptEditing. Only refetch on
+      // active-task transitions (start/finish), at most once per 2s.
+      const now = Date.now();
+      const last = (window as any).__lastQueueDetailFetch || 0;
+      const activeChanged =
+        (data.status.active && !projectStore.queue.active) ||
+        (!data.status.active && projectStore.queue.active);
+      if (projectStore.selectedProject?.id && (activeChanged || now - last > 2000)) {
+        (window as any).__lastQueueDetailFetch = now;
         projectStore.fetchProjectDetail(projectStore.selectedProject.id);
       }
       projectStore.fetchProjects();

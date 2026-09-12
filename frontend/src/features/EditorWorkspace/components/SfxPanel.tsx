@@ -80,10 +80,11 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
 
   const EXAMPLE_QUERIES = useMemo(() => ['whoosh', 'applause', 'rain', 'riser', 'impact'], []);
 
-  const currentFrame = usePlaybackStore((s) => s.currentFrame);
-
+  // Fix 12: read frame via getState inside handler — previously whole panel
+  // re-rendered at 20Hz while playing when SFX tab open.
   const handleDownload = useCallback(async (r: SfxResult) => {
     if (!projectId || !r.preview_url || downloadingId) return;
+    const currentFrame = usePlaybackStore.getState().currentFrame;
     setDownloadingId(r.id);
     try {
       const res = await callApi<{ success: boolean; clip?: any; clips?: any[]; error?: string }>(
@@ -100,11 +101,12 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
     } finally {
       setDownloadingId(null);
     }
-  }, [projectId, downloadingId, currentFrame, onUpdateSfxClips, onRefreshSfx, setSelectedSfxClipId]);
+  }, [projectId, downloadingId, onUpdateSfxClips, onRefreshSfx, setSelectedSfxClipId]);
 
   const handleAddManualUrl = useCallback(async () => {
     const url = manualUrl.trim();
     if (!projectId || !url || addingManual) return;
+    const currentFrame = usePlaybackStore.getState().currentFrame;
     setAddingManual(true);
     try {
       const name = url.split('/').pop()?.split('?')[0] || 'manual sfx';
@@ -123,7 +125,7 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
     } finally {
       setAddingManual(false);
     }
-  }, [manualUrl, projectId, addingManual, currentFrame, onUpdateSfxClips, onRefreshSfx, setSelectedSfxClipId]);
+  }, [manualUrl, projectId, addingManual, onUpdateSfxClips, onRefreshSfx, setSelectedSfxClipId]);
 
   const handleDelete = useCallback(async (id: string) => {
     const next = sfxClips.filter((c) => c.id !== id);
@@ -222,7 +224,7 @@ export const SfxPanel: React.FC<SfxPanelProps> = ({
           </button>
         </div>
         <button
-          onClick={() => onUploadSfxClip(currentFrame || 0)}
+          onClick={() => onUploadSfxClip(usePlaybackStore.getState().currentFrame || 0)}
           className="w-full text-[10px] font-bold uppercase tracking-wider py-1.5 rounded-md bg-amber-600/20 text-amber-300 border border-amber-700/40 hover:bg-amber-600/30 cursor-pointer"
         >
           + Upload audio file at playhead

@@ -18,10 +18,13 @@ interface Props {
   durationInFrames: number;
 }
 
-export const DataVisualizations: React.FC<Props> = ({ locations = [], map_style = 'vintage', durationInFrames }) => {
+export const DataVisualizations: React.FC<Props> = React.memo(({ locations = [], map_style = 'vintage', durationInFrames }) => {
   const frame = useCurrentFrame();
   const { width: configWidth, height: configHeight } = useVideoConfig();
   const { width, height } = getLogicalCanvasSize(configWidth, configHeight);
+  // Fix 2: quantize to every 3rd frame — globe rotation is slow; rebuilding
+  // world-110m projected paths 30x/sec was the largest single-frame CPU cost.
+  const qFrame = Math.floor(frame / 3) * 3;
 
   // TopoJSON to GeoJSON (memoized)
   const countries = cachedWorldCountries;
@@ -85,23 +88,31 @@ export const DataVisualizations: React.FC<Props> = ({ locations = [], map_style 
   const endLat = locations.length > 1 ? locations[1].coord[0] : startLat;
 
   const animDuration = durationInFrames > 0 ? durationInFrames * 0.7 : 300;
-  const currentLonRot = interpolate(frame, [0, animDuration], [-startLon, -endLon], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
-  const currentLatRot = interpolate(frame, [0, animDuration], [-startLat, -endLat], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
-
-  let projection = d3Geo.geoOrthographic()
-    .scale(height * 0.42)
-    .translate([width / 2, height / 2])
-    .rotate([currentLonRot, currentLatRot, 0]);
-
-  const pathGenerator = d3Geo.geoPath().projection(projection);
-
-  const routeLine = {
-    type: 'LineString',
-    coordinates: locations.map(loc => [loc.coord[1], loc.coord[0]])
-  } as any;
-
-  const routeLengthTotal = 1000;
-  const currentRouteLength = interpolate(frame, [0, animDuration], [0, routeLengthTotal], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
+  const geo = React.useMemo(() => {
+    const currentLonRot = interpolate(qFrame, [0, animDuration], [-startLon, -endLon], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
+    const currentLatRot = interpolate(qFrame, [0, animDuration], [-startLat, -endLat], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
+    const projection = d3Geo.geoOrthographic()
+      .scale(height * 0.42)
+      .translate([width / 2, height / 2])
+      .rotate([currentLonRot, currentLatRot, 0]);
+    const pathGenerator = d3Geo.geoPath().projection(projection);
+    const routeLine = {
+      type: 'LineString',
+      coordinates: locations.map(loc => [loc.coord[1], loc.coord[0]])
+    } as any;
+    const routeLengthTotal = 1000;
+    const currentRouteLength = interpolate(qFrame, [0, animDuration], [0, routeLengthTotal], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
+    return {
+      projection,
+      sphereD: pathGenerator({ type: 'Sphere' }) || '',
+      graticuleD: pathGenerator(d3Geo.geoGraticule10()) || '',
+      countriesD: pathGenerator(countries as any) || '',
+      routeD: pathGenerator(routeLine) || '',
+      routeLengthTotal,
+      currentRouteLength,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qFrame, animDuration, startLon, startLat, endLon, endLat, width, height, map_style, JSON.stringify(locations)]);
 
   return (
     <div style={{ width: '100%', height: '100%', backgroundColor: theme.bg, position: 'relative' }}>
@@ -115,7 +126,7 @@ export const DataVisualizations: React.FC<Props> = ({ locations = [], map_style 
         </defs>
 
         <path
-          d={pathGenerator({ type: 'Sphere' }) || ''}
+          d={geo.sphereD}
           fill={theme.bg}
           stroke={theme.grid}
           strokeWidth="2"
@@ -123,7 +134,7 @@ export const DataVisualizations: React.FC<Props> = ({ locations = [], map_style 
 
         <g className="graticule">
           <path
-            d={pathGenerator(d3Geo.geoGraticule10()) || ''}
+            d={geo.graticuleD}
             fill="none"
             stroke={theme.grid}
             strokeWidth="0.5"
@@ -133,7 +144,7 @@ export const DataVisualizations: React.FC<Props> = ({ locations = [], map_style 
 
         <g className="landmass">
           <path
-            d={pathGenerator(countries as any) || ''}
+            d={geo.countriesD}
             fill={theme.landFill}
             stroke={theme.landStroke}
             strokeWidth="1"
@@ -141,28 +152,28 @@ export const DataVisualizations: React.FC<Props> = ({ locations = [], map_style 
         </g>
 
         <path
-          d={pathGenerator({ type: 'Sphere' }) || ''}
+          d={geo.sphereD}
           fill="url(#globeShadow)"
           pointerEvents="none"
         />
 
         <g className="route">
           <path
-            d={pathGenerator(routeLine) || ''}
+            d={geo.routeD}
             fill="none"
             stroke={theme.route}
             strokeWidth="4"
-            strokeDasharray={routeLengthTotal}
-            strokeDashoffset={routeLengthTotal - currentRouteLength}
+            strokeDasharray={geo.routeLengthTotal}
+            strokeDashoffset={geo.routeLengthTotal - geo.currentRouteLength}
             strokeLinecap="round"
           />
         </g>
 
         {locations.map((loc, i) => {
-          const projected = projection([loc.coord[1], loc.coord[0]]);
+          const projected = geo.projection([loc.coord[1], loc.coord[0]]);
           if (!projected) return null;
-          
-          const isVisible = interpolate(frame, [0, animDuration * 0.1], [0, 1], { extrapolateRight: 'clamp' });
+
+          const isVisible = interpolate(qFrame, [0, animDuration * 0.1], [0, 1], { extrapolateRight: 'clamp' });
           const [x, y] = projected;
 
           return (
@@ -188,4 +199,5 @@ export const DataVisualizations: React.FC<Props> = ({ locations = [], map_style 
       </svg>
     </div>
   );
-};
+});
+(DataVisualizations as any).displayName = 'DataVisualizations';

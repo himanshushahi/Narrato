@@ -20,6 +20,19 @@ interface Props {
 /** Sentence boundary punctuation for Hindi and English */
 const SENTENCE_END_REGEX = /[।\.\|\?\!]/;
 
+// Fix 3: hoisted from per-word-per-frame closure. Previously re-defined on
+// every render and ran 3x parseInt per word per frame (10 words x 30fps).
+function hexToRgba(hex: string, alpha: number): string {
+  if (!hex || hex[0] !== '#') return `rgba(251, 191, 36, ${alpha})`;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${Number.isFinite(r) ? r : 251}, ${Number.isFinite(g) ? g : 191}, ${Number.isFinite(b) ? b : 36}, ${alpha})`;
+}
+
+// Springs settle to ~1 within ~20 frames; beyond that skip spring() call.
+const SPRING_SETTLE_FRAMES = 20;
+
 interface SentenceGroup {
   words: TranscriptionWord[];
   startTime: number;
@@ -234,10 +247,20 @@ export const KineticSubtitles: React.FC<Props> = ({
     transition: 'none'
   };
 
+  // Precompute glow colors once per render, not per word per frame (was
+  // 3x parseInt x ~10 words x 30fps). Plain consts — NOT useMemo — because
+  // this sits after the `return null` early returns above; hooks here would
+  // throw "Rendered fewer hooks than expected" during subtitle gaps.
+  const activeColor = subtitleSettings.activeColor || themeAccent;
+  const highlightBase = subtitleSettings.highlightBgColor || activeColor;
+  const activeGlow = hexToRgba(activeColor, 0.4);
+  const highlightBg = hexToRgba(highlightBase, 0.4);
+
   if (words.length === 0) {
     const sentenceStartFrame = Math.floor(activeSentence.startTime * fps);
     const localFrame = frame - sentenceStartFrame;
-    const fadeIn = interpolate(localFrame, [0, 8], [0, 1], {
+    // Settle-bail: fade is done after 8 frames, skip interpolate.
+    const fadeIn = localFrame > 8 ? 1 : interpolate(localFrame, [0, 8], [0, 1], {
       extrapolateLeft: 'clamp',
       extrapolateRight: 'clamp'
     });
@@ -295,29 +318,38 @@ export const KineticSubtitles: React.FC<Props> = ({
 
           if (isActive && activeFrames >= 0) {
             const animType = subtitleSettings.activeAnimation || 'bounce';
-            
+            // Settle-bail: after ~20 frames springs are ~1; skip spring() cost.
+            const settled = activeFrames > SPRING_SETTLE_FRAMES;
             if (animType === 'bounce') {
-              const springVal = spring({
+              const springVal = settled ? 1 : spring({
                 frame: activeFrames,
                 fps,
                 config: { damping: 9, mass: 0.25, stiffness: 120 }
               });
               scale = 1.0 + springVal * 0.18; // Bounce from 1.0 to 1.18
             } else if (animType === 'pop') {
-              const springVal = spring({
+              const springVal = settled ? 1 : spring({
                 frame: activeFrames,
                 fps,
                 config: { damping: 12, mass: 0.4, stiffness: 180 }
               });
               scale = 0.5 + springVal * 0.7; // Start at 0.5, pop to 1.2
             } else if (animType === 'jump') {
-              const springVal = spring({
-                frame: activeFrames,
-                fps,
-                config: { damping: 10, mass: 0.3, stiffness: 150 }
-              });
-              translateY = -15 * springVal * (1 - Math.min(1, activeFrames / (fps * 0.4))); // Jump up and fall back
-              scale = 1.0 + springVal * 0.1;
+              if (settled) {
+                // Asymptote match: spring -> 1 gives scale 1.1, and the
+                // (1 - min(1, ...)) decay drives translateY -> 0. Snapping to
+                // 1.0 here caused a visible ~10% shrink at frame 21.
+                scale = 1.1;
+                translateY = 0;
+              } else {
+                const springVal = spring({
+                  frame: activeFrames,
+                  fps,
+                  config: { damping: 10, mass: 0.3, stiffness: 150 }
+                });
+                translateY = -15 * springVal * (1 - Math.min(1, activeFrames / (fps * 0.4))); // Jump up and fall back
+                scale = 1.0 + springVal * 0.1;
+              }
             }
           }
 
@@ -325,22 +357,13 @@ export const KineticSubtitles: React.FC<Props> = ({
           // Active word: bright amber-yellow with glow
           // Past words: dimmed stone white
           // Future words: standard white
-          const activeColor = subtitleSettings.activeColor || themeAccent;
           const pastColor = subtitleSettings.pastColor || '#d6d3d1';
           const futureColor = subtitleSettings.futureColor || '#f5f5f4';
-          
+
           const color = isActive ? activeColor : isPast ? pastColor : futureColor;
-          
-          // Hex to rgba helper for shadow glow
-          const hexToRgba = (hex: string, alpha: number) => {
-            const r = parseInt(hex.slice(1, 3), 16) || 251;
-            const g = parseInt(hex.slice(3, 5), 16) || 191;
-            const b = parseInt(hex.slice(5, 7), 16) || 36;
-            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-          };
-          
-          const textShadow = isActive 
-            ? `0 0 15px ${hexToRgba(activeColor, 0.4)}, 0px 4px 12px rgba(0,0,0,0.9)`
+
+          const textShadow = isActive
+            ? `0 0 15px ${activeGlow}, 0px 4px 12px rgba(0,0,0,0.9)`
             : '0px 4px 12px rgba(0,0,0,0.9), 0px 2px 4px rgba(0,0,0,0.8)';
 
           return (
@@ -359,9 +382,9 @@ export const KineticSubtitles: React.FC<Props> = ({
                   right: -2,
                   bottom: 2,
                   height: '40%',
-                  backgroundColor: hexToRgba(subtitleSettings.highlightBgColor || activeColor, 0.4),
+                  backgroundColor: highlightBg,
                   transformOrigin: 'left center',
-                  transform: `scaleX(${isPast ? 1 : interpolate(activeFrames, [0, 5], [0, 1], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' })})`,
+                  transform: `scaleX(${isPast || activeFrames > 5 ? 1 : interpolate(activeFrames, [0, 5], [0, 1], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' })})`,
                   zIndex: -1,
                   borderRadius: 2
                 }} />

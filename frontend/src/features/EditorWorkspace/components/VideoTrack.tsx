@@ -176,9 +176,8 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
 
   return (
     <div
-      className={`absolute top-2 rounded-none border-2 bg-gradient-to-r ${SCENE_COLORS[colorIdx]}
-        ${isActive ? 'ring-2 ring-cyan-400/80 z-20 shadow-lg shadow-cyan-500/20' : 'z-10 shadow-md'}
-        hover:brightness-110
+      className={`absolute top-2 rounded-none border-2 ${SCENE_COLORS[colorIdx]}
+        ${isActive ? 'ring-2 ring-cyan-400/80 z-20' : 'z-10'}
         group/scene cursor-pointer overflow-hidden select-none`}
       style={{ left: x + HEADER_WIDTH, width: w, height: 44 }}
       onClick={(e) => {
@@ -222,7 +221,7 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
       {/* Scene Title in Bottom Corner */}
       {subBlocks.length > 0 && (
         <div className="absolute bottom-0.5 right-1 pointer-events-none z-10">
-          <span className="text-[7.5px] font-bold text-white/80 truncate bg-black/70 px-1.5 py-0.2 rounded-none border border-white/10 backdrop-blur-sm">
+          <span className="text-[7.5px] font-bold text-white/80 truncate bg-black/80 px-1.5 py-0.2 rounded-none border border-white/10">
             {scene?.title || `Scene ${idx + 1}`}
           </span>
         </div>
@@ -522,9 +521,12 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
         const currentActiveSubIdx = isSceneActive && activeSubIdxInScene >= 0 && activeSubIdxInScene < subsLen
           ? activeSubIdxInScene
           : -1;
+        // Fix 7: stable keys — index keys remounted the whole lane on
+        // add/delete. Prefer persistent scene id, fall back to index.
+        const sceneKey = (scene as any)?.id ?? (scene as any)?.scene_id ?? `scene-${idx}`;
         return (
           <SceneBlock
-            key={idx}
+            key={sceneKey}
             idx={idx}
             timing={timing}
             scene={scene}

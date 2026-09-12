@@ -76,6 +76,8 @@ interface VisualsTabProps {
   uploadingSubVisual?: string | null;
   onDeleteLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
   onDuplicateLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
+  onMoveLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
+  onReorderLayerSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => void;
   onDeleteCutSubVisual?: (sceneIdx: number, sectionType: string, subIdx: number) => void;
 }
 
@@ -91,14 +93,14 @@ export const VisualsTab = React.memo(function VisualsTab({
   isAnyRewriting, isSectionRewriting, isSubRewriting, isSectionLocked, invalidateRewrites,
   onSeek, onSaveCard, onCancelEdit, onStartEdit, onSetScriptData,
   onRewriteSection, onRewriteSubVisual, onUploadSubVisual, onPreviewSubVisual, uploadingSubVisual,
-  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onDeleteCutSubVisual,
+  onDeleteLayerSubVisual, onDuplicateLayerSubVisual, onMoveLayerSubVisual, onReorderLayerSubVisual, onDeleteCutSubVisual,
   onRegisterFlush, onRegisterCanvasStyle,
 }: VisualsTabProps) {
   // Session cancel stays parent-owned (InspectorPanel/EditorWorkspace); Revert
   // restores the section baseline and stays in-tab, so this is intentionally
   // unused here beyond API stability.
   void onCancelEdit;
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const setSelectedSubVisualIndex = useEditorStore((s) => s.setSelectedSubVisualIndex);
@@ -137,6 +139,13 @@ export const VisualsTab = React.memo(function VisualsTab({
   /** Selection sub-index mirror (ref, not render closure) so lens writes use
    * the fresh section AND fresh cut together on fast switches. */
   const selSubIdxRef = useRef<number>(selectedSubVisualIndex ?? -1);
+  /** Scroll container for the cut lens — same DOM node persists across cut
+   * switches (only the inner editor remounts by key), so without a reset the
+   * new cut opens at the old scrollTop. Reset to top on scene/cut change. */
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [selectedSceneIndex, selectedSubVisualIndex]);
   /** AI prompt drafts per cut — the lens remounts on cut switch, so drafts
    * live here to survive navigation. Must stay above the early returns. */
   const promptDraftsRef = useRef<Record<string, string>>({});
@@ -661,13 +670,21 @@ export const VisualsTab = React.memo(function VisualsTab({
     commitPending();
     onDuplicateLayerSubVisual?.(sceneIdx, sectionType, subIdx, layerIdx);
   };
+  const withFlushMoveLayer = (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => {
+    commitPending();
+    onMoveLayerSubVisual?.(sceneIdx, sectionType, subIdx, fromIdx, toIdx);
+  };
+  const withFlushReorderLayer = (sceneIdx: number, sectionType: string, subIdx: number, fromIdx: number, toIdx: number) => {
+    commitPending();
+    onReorderLayerSubVisual?.(sceneIdx, sectionType, subIdx, fromIdx, toIdx);
+  };
   const withFlushDeleteCut = (sceneIdx: number, sectionType: string, subIdx: number) => {
     commitPending();
     onDeleteCutSubVisual?.(sceneIdx, sectionType, subIdx);
   };
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
       {/* ── Selected cut header ─────────────────────────────────────── */}
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800/60 overflow-hidden">
         <div className="px-4 pt-3 pb-2 border-b border-zinc-800/40">
@@ -772,6 +789,8 @@ export const VisualsTab = React.memo(function VisualsTab({
                   onPreviewSubVisual={onPreviewSubVisual ? (_, query, layerIdx, visualType) => withFlushPreview(handlerSceneIdx, resolved.sectionType, actualSubIdx, query, layerIdx, visualType) : undefined}
                   onDeleteLayer={onDeleteLayerSubVisual ? (_, layerIdx) => withFlushDeleteLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, layerIdx) : undefined}
                   onDuplicateLayer={onDuplicateLayerSubVisual ? (_, layerIdx) => withFlushDuplicateLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, layerIdx) : undefined}
+                  onMoveLayer={onMoveLayerSubVisual ? (_, fromIdx, toIdx) => withFlushMoveLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, fromIdx, toIdx) : undefined}
+                  onReorderLayer={onReorderLayerSubVisual ? (_, fromIdx, toIdx) => withFlushReorderLayer(handlerSceneIdx, resolved.sectionType, actualSubIdx, fromIdx, toIdx) : undefined}
                   uploadingSubVisual={uploadingSubVisual}
                   singleCut
                   cutNumber={actualSubIdx + 1}

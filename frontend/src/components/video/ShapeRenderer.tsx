@@ -69,18 +69,22 @@ export const ShapeRenderer: React.FC<ShapeProps> = ({
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const entrance = spring({
+  // Fix 8: settle-bail entrance + draw; quantize drawProgress so path evolve
+  // memo only recomputes on visible steps, not every frame.
+  const drawDur = Math.max(1, Math.min(45, durationInFrames || 60));
+  const entrance = frame > 30 ? 1 : spring({
     frame,
     fps,
     config: { damping: 14, stiffness: 100, mass: 0.8 },
   });
 
-  const drawProgress = draw_animation
-    ? interpolate(frame, [0, Math.max(1, Math.min(45, durationInFrames || 60))], [0, 1], {
+  const drawProgressRaw = draw_animation
+    ? (frame >= drawDur ? 1 : interpolate(frame, [0, drawDur], [0, 1], {
         extrapolateRight: 'clamp',
         easing: Easing.out(Easing.cubic),
-      })
+      }))
     : 1;
+  const drawProgress = Math.round(drawProgressRaw * 60) / 60;
 
   const glowColor = stroke && stroke !== 'transparent' ? stroke : fill && fill !== 'transparent' ? fill : '#00d4ff';
   const glowStyle = glow

@@ -129,7 +129,6 @@ flowchart TD
             "children": [
               {
                 "type": "Layer",
-                "z_index": 0,
                 "content": {
                   "type": "Video",
                   "cas_hash": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",

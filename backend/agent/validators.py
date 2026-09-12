@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from backend.agent.schemas import SubVisualAST
 
 logger = logging.getLogger(__name__)
@@ -82,16 +82,16 @@ def _dummy_visual(target_duration: float) -> List[Dict[str, Any]]:
     }]
 
 
-def _html_gradient_placeholder(z_index: int = 0) -> Dict[str, Any]:
+def _html_gradient_placeholder() -> Dict[str, Any]:
     """Fallback layer guaranteeing a cut always renders *something*.
 
     Used when sanitization removes every media layer of a cut (e.g. the LLM
     hallucinated Image/Video layers without a search query). A full-canvas
     gradient can never fail to download, decode, or paint.
+    Stacking is array order — placeholder is appended/inserted at index 0 (bottom).
     """
     return {
         "type": "Layer",
-        "z_index": z_index,
         "content": {
             "type": "HTML",
             "html_content": (
@@ -299,12 +299,7 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
                 if isinstance(lp, str) and not lp.strip():
                     content.pop("local_path", None)
     if not clean and children:
-        z = 0
-        try:
-            z = int(children[0].get("z_index", 0)) if isinstance(children[0], dict) else 0
-        except (ValueError, TypeError):
-            z = 0
-        clean = [_html_gradient_placeholder(z)]
+        clean = [_html_gradient_placeholder()]
         logger.warning(
             f"validate_sub_visuals: {cut_label or 'cut'} left layer-less after sanitization — "
             f"inserted HTML gradient placeholder."
@@ -332,6 +327,19 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     for v in sub_visuals:
         if not isinstance(v, dict):
             continue
+
+        # Order-based stacking only: reject any ordering field outright.
+        # No migration — old projects are unsupported.
+        try:
+            _comp = v.get("composition") if isinstance(v, dict) else None
+            _kids = _comp.get("children") if isinstance(_comp, dict) else None
+            if isinstance(_kids, list) and any(isinstance(l, dict) and ("z_index" in l or "zIndex" in l) for l in _kids):
+                return False, _dummy_visual(target_duration), (
+                    f"cut#{len(normalized)}: invalid layer field 'z_index'/'zIndex' — "
+                    "stacking is children array order (children[0]=bottom). Remove the field."
+                )
+        except Exception:
+            pass
 
         dur = _safe_float(v.get("duration", 1.0))
         if dur <= 0:

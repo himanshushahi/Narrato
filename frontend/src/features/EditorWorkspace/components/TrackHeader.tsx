@@ -24,7 +24,9 @@ interface TrackHeaderProps {
   isDragOver?: boolean;
 }
 
-export const TrackHeader: React.FC<TrackHeaderProps> = ({
+// Fix 6+memo: sticky + box-shadow repainted on every scroll pixel; border-r
+// is paint-free. Memoized since parent lanes re-render per drag tick.
+export const TrackHeader: React.FC<TrackHeaderProps> = React.memo(({
   title,
   dotColorClass,
   trackKey,
@@ -45,10 +47,10 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
 }) => {
   return (
     <div
-      className={`sticky left-0 top-0 h-full bg-zinc-950/95 border-r border-zinc-800/80 flex items-center justify-between px-2.5 z-[60] transition-colors select-none cursor-grab active:cursor-grabbing ${
+      className={`sticky left-0 top-0 h-full bg-zinc-950 border-r-2 border-zinc-800 flex items-center justify-between px-2.5 z-[60] select-none cursor-grab active:cursor-grabbing ${
         isDragOver ? 'bg-cyan-950/60 ring-2 ring-inset ring-cyan-400' : ''
       }`}
-      style={{ width: HEADER_WIDTH, boxShadow: '4px 0 15px rgba(0,0,0,0.5)' }}
+      style={{ width: HEADER_WIDTH }}
       draggable={!!onDragStart}
       onDragStart={(e) => onDragStart?.(e, index)}
       onDragOver={(e) => { e.preventDefault(); onDragOver?.(e, index); }}
@@ -107,4 +109,5 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
       </div>
     </div>
   );
-};
+});
+(TrackHeader as any).displayName = 'TrackHeader';

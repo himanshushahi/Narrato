@@ -76,7 +76,7 @@ When adding or removing visual types, these are the **exact files and code symbo
 
 | File Path | What It Controls | Exact Sections / Lines to Update |
 |---|---|---|
-| [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/declarative-ast/SKILL.md) | Full AST specification loaded during generation | **Section 3: The 10 Valid AST Content Types** (Lines 48–315), Z-index table (Lines 38–44) |
+| [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/declarative-ast/SKILL.md) | Full AST specification loaded during generation | **Section 3: The 10 Valid AST Content Types** (Lines 48–315), Layer order table (Lines 38–44) |
 | [visual-director/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/visual-director/SKILL.md) | Visual Director prompt & type selection guide | **VALID CONTENT TYPES** (Lines 16–17), **CONTENT TYPE SELECTION GUIDE** (Lines 19–34), Rule 38, Rule 42 |
 | [storyboard-planner/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/storyboard-planner/SKILL.md) | Stage 1 visual beat archetypes | **The 6 Visual Storyboard Archetypes** (Lines 26–54) |
 | [motion-graphics-designer/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/motion-graphics-designer/SKILL.md) | Glassmorphism & styling presets | Section 1 (Line 17), Section 3 (Lines 93–105), Section 4 (Lines 113–115) |
@@ -94,7 +94,7 @@ When adding or removing visual types, these are the **exact files and code symbo
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `LAYER_CONTENT_SCHEMA` (Lines 173–275) | JSON Schema `enum` of valid types and per-type properties |
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `visuals_system_prompt` (Lines 2000–2052) | Enumeration of types (Lines 2011–2018, 2030, 2042) |
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `plan_system_prompt` (Lines 2169–2175) | Storyboard prompt primitive references |
-| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `_visual_rules_safety_net` (Lines 1892–1922) | Fallback Z-index hierarchy and type rules |
+| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `_visual_rules_safety_net` (Lines 1892–1922) | Fallback layer order hierarchy and type rules |
 | [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `_fetch_ast_layer_asset()` (Lines 579–680) | Downloads media files for media-backed layer types |
 | [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `fetch_single_scene_asset()` (Lines 930–970) | Single asset fetch for editor previews |
 | [backend/agent/validators.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/agent/validators.py) | `validate_sub_visuals()` (Lines 49–110) | Structural validation and timing math normalization |
@@ -335,7 +335,7 @@ If the new type downloads media from an API (e.g. 3D models, icons, external SVG
 1. **`backend/skills/declarative-ast/SKILL.md`**:
    - Update heading: `## 3. The 11 Valid AST Content Types`
    - Add subsection with documentation, fields, and JSON example for `CodeBlock`.
-   - Update Z-index table to classify the new layer (e.g. Midground 10–29).
+   - Update layer order table to classify the new layer (e.g. Midground middle children).
 
 2. **`backend/skills/visual-director/SKILL.md`**:
    - Update line 17: `Image | Video | Text | Chart | Counter | Mockup | Timeline | Shape | Map | HTML | CodeBlock`
