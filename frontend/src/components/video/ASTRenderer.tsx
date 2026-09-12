@@ -80,8 +80,6 @@ interface ASTLayerContent {
 
 export interface ASTLayer {
   type: 'Layer';
-  /** @deprecated stacking is array order (children[0]=bottom). Kept for old projects, ignored by renderer. */
-  z_index?: number;
   content: ASTLayerContent;
   animations?: ASTAnimation[];
   motion_blur?: boolean;
@@ -365,17 +363,8 @@ export const ASTRenderer: React.FC<{
     qualityMode ?? (getRemotionEnvironment().isRendering ? 'export' : 'preview');
   const glassCap = getGlassBlurCap(mode, policy);
   // Order-based stacking: children[0]=bottom ... children[N-1]=top.
-  // Legacy projects may still carry z_index: stable-sort once so preview,
-  // canvas overlay, and export agree (backend strips the key on next write).
-  const parseZ = (v: any): number | null => {
-    if (v === undefined || v === null || v === '') return null;
-    const n = Number(v);
-    return isNaN(n) ? null : n;
-  };
   const orderedChildren = React.useMemo(() => {
-    const kids = composition.children || [];
-    if (!kids.some((l: any) => parseZ(l?.z_index) !== null)) return kids;
-    return [...kids].sort((a: any, b: any) => (parseZ(a?.z_index) ?? 0) - (parseZ(b?.z_index) ?? 0));
+    return composition.children || [];
   }, [composition.children]);
 
   return (

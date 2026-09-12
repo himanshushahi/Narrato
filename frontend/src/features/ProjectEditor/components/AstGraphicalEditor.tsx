@@ -162,27 +162,6 @@ export const AstGraphicalEditor = ({
   onReorderLayer?: (fromIdx: number, toIdx: number) => void;
   uploadingSubVisual?: string | null;
 }) => {
-  const parseZ = (v: any): number | null => {
-    if (v === undefined || v === null || v === '') return null;
-    const n = Number(v);
-    return isNaN(n) ? null : n;
-  };
-
-  const normalizeLegacyComp = (comp: any) => {
-    if (!comp || typeof comp !== 'object' || !Array.isArray(comp.children)) return comp;
-    if (!comp.children.some((l: any) => parseZ(l?.z_index) !== null)) return comp;
-    const sortedKids = [...comp.children]
-      .sort((a: any, b: any) => (parseZ(a?.z_index) ?? 0) - (parseZ(b?.z_index) ?? 0))
-      .map((l: any) => {
-        if (l && typeof l === 'object' && 'z_index' in l) {
-          const clone = { ...l };
-          delete clone.z_index;
-          return clone;
-        }
-        return l;
-      });
-    return { ...comp, children: sortedKids };
-  };
   // New layers must be manipulable on the canvas immediately. A layer with
   // no content.style resolves to fullscreen in layerToBox (CanvasOverlay +
   // ASTRenderer), and fullscreen boxes are select-only by design
@@ -224,9 +203,8 @@ export const AstGraphicalEditor = ({
     });
     return changed ? { ...comp, children } : comp;
   };
-  // Combined migration: legacy z_index sort/strip first, then repair broken
-  // fullscreen media with a default positioned box so handles appear.
-  const normalizeComp = (comp: any) => repairBrokenLayers(normalizeLegacyComp(comp));
+  // Repair broken fullscreen media with a default positioned box so handles appear.
+  const normalizeComp = (comp: any) => repairBrokenLayers(comp);
 
   const [composition, setComposition] = useState(() => {
     if (!initialValue || !initialValue.type) {
@@ -316,20 +294,6 @@ export const AstGraphicalEditor = ({
   useEffect(() => { iconPickerIdxRef.current = iconPickerIdx; }, [iconPickerIdx]);
 
   const triggerChange = (newComp: any) => {
-    // Order-based stacking migration: sort legacy z_index once and strip on edit
-    // so the first manual touch converts the cut cleanly and CanvasOverlay stops
-    // re-sorting by stale values (which would revert user reorders).
-    try {
-      const kids = (newComp as any)?.children;
-      if (Array.isArray(kids)) {
-        if (kids.some((l: any) => parseZ(l?.z_index) !== null)) {
-          kids.sort((a: any, b: any) => (parseZ(a?.z_index) ?? 0) - (parseZ(b?.z_index) ?? 0));
-        }
-        for (const l of kids) {
-          if (l && typeof l === 'object' && 'z_index' in l) delete (l as any).z_index;
-        }
-      }
-    } catch { /* never block an edit on migration cleanup */ }
     lastSentRef.current = newComp;
     lastSentJsonRef.current = safeStringify(newComp);
     // Update the ref synchronously: rapid consecutive edits in the same tick
@@ -389,7 +353,7 @@ export const AstGraphicalEditor = ({
   const handleAddLayer = () => {
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
-    // Order-based stacking: appended = top (foreground), NEVER emit z_index.
+    // Order-based stacking: appended = top (foreground).
     // HTML default with a positioned box so the new layer is manipulable on
     // the canvas immediately (no-style layers are fullscreen select-only).
     const newIdx = newComp.children.length;
@@ -545,7 +509,6 @@ export const AstGraphicalEditor = ({
     newComp.children = newComp.children ? [...newComp.children] : [];
     const clone = JSON.parse(JSON.stringify(newComp.children[idx]));
     // Order-based stacking: duplicate lands directly above original.
-    delete clone.z_index;
     newComp.children.splice(idx + 1, 0, clone);
     setPreviewingIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));
     setUploadingIdx(prev => (prev === null ? null : prev > idx ? prev + 1 : prev));

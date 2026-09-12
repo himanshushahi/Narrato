@@ -9,12 +9,10 @@ from backend.agent.schemas import LayerContent, VisualsArrayResponse
 from backend.agent.validators import validate_sub_visuals, sanitize_media_layers
 
 
-def _media_layer(ctype="Image", query="city skyline", z=None):
+def _media_layer(ctype="Image", query="city skyline"):
     layer = {"type": "Layer",
              "content": {"type": ctype, "query": query, "source": "pexels"},
              "animations": [], "filters": []}
-    if z is not None:
-        layer["z_index"] = z
     if query is None:
         del layer["content"]["query"]
     return layer
@@ -307,52 +305,52 @@ def test_materialize_rewrite_previews_downloads_and_sets_preview_path(tmp_path, 
     assert Path(lp).name.startswith("preview_")
 
 
-# ── Order-based stacking migration ───────────────────────────────────
+# ── Order-based stacking (no legacy support) ──────────────────────────
 
-def test_normalize_layer_order_sorts_legacy_z_and_strips():
-    from backend.agent.validators import normalize_layer_order
+def test_layer_order_is_children_array_order():
     kids = [
-        {"type": "Layer", "z_index": 30, "content": {"type": "Text", "text": "top"}},
-        {"type": "Layer", "z_index": 0, "content": {"type": "HTML", "html_content": "<div/>"}},
-        {"type": "Layer", "z_index": 15, "content": {"type": "Chart"}},
-    ]
-    n = normalize_layer_order(kids)
-    assert n == 3
-    assert [c["content"]["type"] for c in kids] == ["HTML", "Chart", "Text"]
-    assert all("z_index" not in c for c in kids)
-
-
-def test_normalize_layer_order_stable_for_equal_z():
-    from backend.agent.validators import normalize_layer_order
-    kids = [
-        {"type": "Layer", "z_index": 30, "content": {"type": "Text", "text": "a"}},
-        {"type": "Layer", "z_index": 30, "content": {"type": "Text", "text": "b"}},
-    ]
-    normalize_layer_order(kids)
-    assert [c["content"]["text"] for c in kids] == ["a", "b"]
-
-
-def test_sanitize_strips_legacy_z_index():
-    kids = [
-        {"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "city", "source": "pexels"}},
-        {"type": "Layer", "z_index": 30, "content": {"type": "Text", "text": "hi"}},
+        {"type": "Layer", "content": {"type": "HTML", "html_content": "<div/>"}},
+        {"type": "Layer", "content": {"type": "Chart"}},
+        {"type": "Layer", "content": {"type": "Text", "text": "top"}},
     ]
     clean, dropped = sanitize_media_layers(kids, cut_label="cut#0")
     assert dropped == 0
-    assert all("z_index" not in c for c in clean)
-    assert [c["content"]["type"] for c in clean] == ["Image", "Text"]
+    assert [c["content"]["type"] for c in clean] == ["HTML", "Chart", "Text"]
 
 
-def test_normalize_layer_order_handles_string_z_and_strips():
-    from backend.agent.validators import normalize_layer_order
-    kids = [
-        {"type": "Layer", "z_index": "30", "content": {"type": "Text", "text": "top"}},
-        {"type": "Layer", "z_index": "0", "content": {"type": "HTML", "html_content": "<div/>"}},
-        {"type": "Layer", "z_index": 15, "content": {"type": "Chart"}},
-    ]
-    n = normalize_layer_order(kids)
-    assert n == 3
-    assert [c["content"]["type"] for c in kids] == ["HTML", "Chart", "Text"]
-    assert all("z_index" not in c for c in kids)
+def test_validate_rejects_z_index_field():
+    from backend.agent.schemas import ASTLayerNode
+    with pytest.raises(Exception):
+        ASTLayerNode.model_validate(
+            {"type": "Layer", "z_index": 10, "content": {"type": "Text", "text": "hi"}}
+        )
+    with pytest.raises(Exception):
+        ASTLayerNode.model_validate(
+            {"type": "Layer", "zIndex": 10, "content": {"type": "Text", "text": "hi"}}
+        )
+
+
+def test_validate_sub_visuals_rejects_z_index():
+    from backend.agent.validators import validate_sub_visuals
+    svs = [{
+        "duration": 5.0,
+        "composition": {"type": "Sequence", "children": [
+            {"type": "Layer", "z_index": 0, "content": {"type": "Image", "query": "city", "source": "pexels"}},
+            {"type": "Layer", "z_index": 30, "content": {"type": "Text", "text": "hi"}},
+        ]},
+    }]
+    is_valid, _, err = validate_sub_visuals(svs, 5.0)
+    assert is_valid is False
+    assert "z_index" in err
+
+    svs_camel = [{
+        "duration": 5.0,
+        "composition": {"type": "Sequence", "children": [
+            {"type": "Layer", "zIndex": 10, "content": {"type": "Text", "text": "hi"}},
+        ]},
+    }]
+    is_valid_c, _, err_c = validate_sub_visuals(svs_camel, 5.0)
+    assert is_valid_c is False
+    assert "zIndex" in err_c
 
 

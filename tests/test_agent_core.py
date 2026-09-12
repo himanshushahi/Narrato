@@ -1247,7 +1247,6 @@ def test_lottie_and_motion_modifiers_validation():
                 "children": [
                     {
                         "type": "Layer",
-                        "z_index": 10,  # Legacy z_index back-compat fixture
                         "motion_blur": True,
                         "shutter_angle": 180,
                         "camera_shake": "handheld",
@@ -1461,10 +1460,8 @@ def test_update_scene_duration_syncs_vo_manifest(tmp_path, monkeypatch):
 def test_ast_layer_transform_origin_and_sub_visual_defaults():
     from backend.agent.schemas import ASTLayerNode, SubVisualAST
 
-    # Legacy z_index back-compat fixture
     layer = ASTLayerNode(
         type="Layer",
-        z_index=15,
         content={"type": "HTML", "html_content": "<div>test</div>"},
         transform_origin="top left",
         animations=[{"property": "scale", "from": 1.0, "to": 1.05, "duration": 3.0, "easing": "linear"}]

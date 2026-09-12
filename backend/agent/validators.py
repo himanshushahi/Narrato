@@ -266,46 +266,6 @@ def normalize_sub_visuals_sources(sub_visuals: Any) -> int:
     return total
 
 
-def _safe_z(val: Any) -> Optional[float]:
-    if val is None:
-        return None
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return None
-
-
-def normalize_layer_order(children: List[Any]) -> int:
-    """One-time migration: order-based stacking, drop legacy z_index.
-
-    Stacking is children array order (children[0]=bottom ... children[N-1]=top).
-    If any layer still carries a legacy ``z_index``, stable-sort by it once so
-    old projects keep their visual result, then strip the key. Returns number
-    of layers migrated. Supports both numeric and numeric-string values.
-    """
-    if not isinstance(children, list) or not children:
-        return 0
-    has_legacy = any(
-        isinstance(l, dict) and _safe_z(l.get("z_index")) is not None
-        for l in children
-    )
-    if has_legacy:
-        # Stable sort preserves DOM tie-break for equal z (e.g. three z:30 layers).
-        try:
-            children.sort(
-                key=lambda l: _safe_z(l.get("z_index")) if isinstance(l, dict) and _safe_z(l.get("z_index")) is not None else 0.0
-            )
-        except Exception:
-            pass
-    stripped = 0
-    for layer in children:
-        if isinstance(layer, dict) and "z_index" in layer:
-            layer.pop("z_index", None)
-            stripped += 1
-    return stripped
-
-
-
 def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[List[Any], int]:
     """Drops Image/Video layers that carry no search query.
 
@@ -321,7 +281,6 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
     if not isinstance(children, list):
         return [], 0
     normalize_hallucinated_sources(children)
-    normalize_layer_order(children)
     clean = [layer for layer in children if not _is_queryless_media(layer)]
     dropped = len(children) - len(clean)
     if dropped:
@@ -368,6 +327,19 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     for v in sub_visuals:
         if not isinstance(v, dict):
             continue
+
+        # Order-based stacking only: reject any ordering field outright.
+        # No migration — old projects are unsupported.
+        try:
+            _comp = v.get("composition") if isinstance(v, dict) else None
+            _kids = _comp.get("children") if isinstance(_comp, dict) else None
+            if isinstance(_kids, list) and any(isinstance(l, dict) and ("z_index" in l or "zIndex" in l) for l in _kids):
+                return False, _dummy_visual(target_duration), (
+                    f"cut#{len(normalized)}: invalid layer field 'z_index'/'zIndex' — "
+                    "stacking is children array order (children[0]=bottom). Remove the field."
+                )
+        except Exception:
+            pass
 
         dur = _safe_float(v.get("duration", 1.0))
         if dur <= 0:

@@ -90,24 +90,6 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
     const copy = [...latestSubVisualsRef.current];
     copy[idx] = { ...copy[idx] };
 
-    // Order-based stacking: prevent JSON editor bypass by normalizing composition
-    if (field === 'composition' && val && typeof val === 'object' && Array.isArray((val as any).children)) {
-      const kids = [...(val as any).children];
-      const parseZ = (v: any) => (v !== undefined && v !== null && v !== '' && !isNaN(Number(v)) ? Number(v) : null);
-      if (kids.some((l: any) => parseZ(l?.z_index) !== null)) {
-        kids.sort((a: any, b: any) => (parseZ(a?.z_index) ?? 0) - (parseZ(b?.z_index) ?? 0));
-      }
-      const stripped = kids.map((l: any) => {
-        if (l && typeof l === 'object' && 'z_index' in l) {
-          const clone = { ...l };
-          delete clone.z_index;
-          return clone;
-        }
-        return l;
-      });
-      val = { ...(val as any), children: stripped };
-    }
-
     copy[idx][field] = val;
     latestSubVisualsRef.current = copy;
     onChangeRef.current(copy);

@@ -18,9 +18,9 @@ The engine constructs visuals using an **Abstract Syntax Tree (AST)**. Each sub-
 ```
 Root Video Composition (NitishRajputComposition)
 ├── Scene Sequences (Scene 1, Scene 2, ... cuts)
-│   └── Sub-Visual AST Compositions (children[0]=bottom ... children[N-1]=top, NEVER emit z_index)
-├── Global Overlays & Branding Track (Watermarks, Progress Bars, Chapter Pills) [z-index: 95]
-└── Kinetic Subtitles Track (Word-level animated captions) [z-index: 100]
+│   └── Sub-Visual AST Compositions (children[0]=bottom ... children[N-1]=top)
+├── Global Overlays & Branding Track (Watermarks, Progress Bars, Chapter Pills — rendered above all cuts)
+└── Kinetic Subtitles Track (Word-level animated captions — rendered topmost)
 ```
 
 ### 🚫 CRITICAL RULE: NO STATIC CHAPTER TITLES IN SUB-VISUALS
@@ -33,7 +33,7 @@ Root Video Composition (NitishRajputComposition)
 
 ## 2. Standardized Layer Order & 3-Layer Depth Standard
 
-Great motion graphics are defined by **depth, hierarchy, and contrast**. Every sub-visual cut should construct depth across 3 ordered layers (stacking = children array order, children[0]=bottom ... children[N-1]=top — NEVER emit z_index):
+Great motion graphics are defined by **depth, hierarchy, and contrast**. Every sub-visual cut should construct depth across 3 ordered layers (stacking = children array order, children[0]=bottom ... children[N-1]=top):
 
 | Layer | Order | Classification | Role & Motion Grammar |
 |---|---|---|---|

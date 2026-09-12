@@ -1868,7 +1868,7 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
   * Landscape (16:9): Split screens use `left: "6%"` & `left: "52%"`, `width: "42%"`, `height: "66%"`.
   * Portrait (9:16): Stack vertically! Top card `top: "12%"`, `height: "36%"`; Bottom card `top: "50%"`, `height: "22%"`.
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
-- STANDARDIZED LAYER ORDER (stacking = children array order, children[0]=bottom ... children[N-1]=top — NEVER emit z_index):
+- STANDARDIZED LAYER ORDER (stacking = children array order, children[0]=bottom ... children[N-1]=top):
   * Bottom: Background canvas — ANY suitable full-screen base: darkened Video footage, vector Maps, high-contrast Images, HTML gradient/pattern backgrounds, or styled solid-color canvases. Add continuous camera drift (`animations: [{{"property": "scale", "from": 1.0, "to": 1.06, "duration": ..., "easing": "linear"}}]`). VARY your background type — do NOT default to Video for every sub-visual.
   * Middle: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with corner rounding (`borderRadius: "20px"`) + spring entrance (`delay: 0.15`, `easing: "spring"`)
   * Top: Foreground typography / callouts (respect subtitle safe area) with staggered reveal (`delay: 0.45` to `0.7`)
@@ -2013,7 +2013,7 @@ RULES:
 - style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers.
 - DESIGN SYSTEM: Bind `primary`, `accent`, `surface`, `glow`, and `fontFamily` from the project's design system into layer styles.
 - VIDEO: Set `"volume": 0` by default on all Video layers.
-- ONLY use the 9 valid content types: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles (Particles = canvas overlay confetti/embers/dust/money_rain/snow/stars, exactly ONE per cut as the LAST child = topmost, matched to the beat emotion). NEVER emit z_index — stacking is children array order.
+- ONLY use the 9 valid content types: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles (Particles = canvas overlay confetti/embers/dust/money_rain/snow/stars, exactly ONE per cut as the LAST child = topmost, matched to the beat emotion). Stacking is children array order.
 - MOTION MODIFIERS: Set `"motion_blur": true` on fast-moving cards or spring entrances for physical shutter blur. Set `"camera_shake": "handheld" | "shockwave" | "glitch"` on background/composite layers for procedural organic camera motion. 2026 FX pack in layer `"filters"`: CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur) and SVG looks (`url(#fx-emboss)`, `url(#fx-sharpen)`, `url(#fx-posterize)`, `url(#fx-duotone-midnight)`, `url(#fx-duotone-inferno)`, `url(#fx-thermal)`) — max ONE SVG look per layer, ~1 FX cut per 3-4 cuts. Punch-in emphasis at sub-visual level: `"emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}]` — 0-2 marks per cut, cuts of 2s or longer only.
 
 OUTPUT STRUCTURE:

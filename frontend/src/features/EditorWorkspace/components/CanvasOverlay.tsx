@@ -1341,19 +1341,8 @@ export const CanvasOverlay: React.FC<{
         : selectedSubVisualIndex;
     const children: any[] = subVisuals[displaySubIdx]?.composition?.children || [];
     if (children.length === 0) return null;
-    // Paint order = children array order (children[0]=bottom). Legacy docs
-    // with z_index are display-sorted once for continuity; saves strip the key.
-    const parseZ = (v: any): number | null => {
-      if (v === undefined || v === null || v === '') return null;
-      const n = Number(v);
-      return isNaN(n) ? null : n;
-    };
-    const hasLegacyZ = children.some((l) => parseZ(l?.z_index) !== null);
-    const source = hasLegacyZ
-      ? [...children]
-          .map((layer, idx) => ({ layer, idx }))
-          .sort((a, b) => (parseZ(a.layer?.z_index) ?? 0) - (parseZ(b.layer?.z_index) ?? 0))
-      : children.map((layer, idx) => ({ layer, idx }));
+    // Paint order = children array order (children[0]=bottom).
+    const source = children.map((layer, idx) => ({ layer, idx }));
     const ordered = source.map(({ layer, idx }, orderIdx) => ({ layer, idx, box: layerToBox(layer, compW, compH, orderIdx) }));
     return {
       displaySubIdx,

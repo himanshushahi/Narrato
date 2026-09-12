@@ -278,9 +278,12 @@ class LayerContent(AppBaseModel):
 
 
 class ASTLayerNode(AppBaseModel):
-    """A single renderable layer in an AST Sequence composition."""
+    """A single renderable layer in an AST Sequence composition.
+
+    Stacking is children array order: children[0] is the bottom background,
+    children[N-1] is the top foreground. No ordering fields exist.
+    """
     type: Literal["Layer"] = Field(default="Layer", description="Layer node identifier", json_schema_extra={"const": "Layer"})
-    z_index: Optional[int] = Field(default=None, description="DEPRECATED: stacking is children array order (children[0]=bottom). Ignored by renderer; kept only to parse old projects.")
     content: Union[LayerContent, Dict[str, Any]] = Field(..., description="Layer content specification")
     animations: Optional[List[Union[AnimationNode, Dict[str, Any]]]] = Field(default_factory=list, description="Keyframe animation list (spatial props drive shutter blur; blur/brightness are non-spatial fades)")
     floating: Optional[bool] = Field(default=None, description="Harmonic floating drift (slow organic bob). Counts as spatial motion for shutter blur.")
@@ -289,6 +292,13 @@ class ASTLayerNode(AppBaseModel):
     camera_shake: Optional[str] = Field(default=None, description="Procedural noise camera motion effect", json_schema_extra={"enum": ["none", "handheld", "shockwave", "glitch"]})
     transform_origin: Optional[str] = Field(default=None, description="CSS transform-origin pivot for scale/rotate (e.g. 'center center', 'top left'); only visible with motion")
     filters: Optional[List[str]] = Field(default_factory=list, description="CSS/SVG filter strings (brightness/contrast/saturate/hue-rotate/blur/drop-shadow/url(#fx-*) or 'mix-blend-mode: X' — blend needs a layer beneath)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_legacy_ordering_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict) and ("z_index" in data or "zIndex" in data):
+            raise ValueError("Invalid layer field 'z_index'/'zIndex': stacking is children array order (children[0]=bottom). Remove the field instead of ordering layers.")
+        return data
 
 
 class SequenceComposition(AppBaseModel):
