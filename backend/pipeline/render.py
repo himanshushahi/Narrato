@@ -473,8 +473,14 @@ def _stream_process_output(process, cancel_event, line_callback, label="Process"
 
     return process.returncode, tail
 
-def prepare_render_props_and_settings(project_dict, project_dir):
-    """Prepares and returns normalized props, render_settings, and associated data for render & staleness checks."""
+def prepare_render_props_and_settings(project_dict, project_dir, normalize_assets=True, progress_cb=None, cancel_event=None):
+    """Prepares and returns normalized props, render_settings, and associated data for render & staleness checks.
+
+    normalize_assets=False is a read-only path for is_render_stale(): it maps
+    video paths via predicted_normalized_path() without running FFmpeg, so
+    staleness checks never mutate mtimes (which would self-invalidate the
+    frame hashes they compare) and never block the queue HTTP request.
+    """
     project_dir = Path(project_dir)
     manifest_path = Path(project_dict.get('assets_manifest_path') or (project_dir / "assets_manifest.json"))
     transcribe_path = Path(project_dict.get('transcription_path') or (project_dir / "subtitles" / "transcription.json"))
@@ -550,6 +556,35 @@ def prepare_render_props_and_settings(project_dict, project_dir):
             sc.pop("_voiceover_pitch", None)
 
     # Convert local absolute paths in scenes/audios into Bottle media serving URLs & normalize video assets
+    if not normalize_assets:
+        from backend.pipeline.assets import predicted_normalized_path as _predicted
+    else:
+        _predicted = None
+    # Count videos up front so per-file progress is monotonic.
+    _videos_total = 0
+    for sc in scenes:
+        if isinstance(sc, dict):
+            for sv in (sc.get("sub_visuals", []) or []):
+                if isinstance(sv, dict) and sv.get("visual_path"):
+                    _videos_total += 1
+                comp = sv.get("composition", {}) if isinstance(sv, dict) else {}
+                if isinstance(comp, dict) and comp.get("type") == "Sequence":
+                    for layer in (comp.get("children", []) or []):
+                        lp = (layer.get("content", {}) or {}).get("local_path") if isinstance(layer, dict) else None
+                        if lp and Path(str(lp).split("?")[0].split("#")[0]).suffix.lower() in VIDEO_EXTS:
+                            _videos_total += 1
+    _videos_done = [0]
+
+    def _normalize_tracked(path_str):
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Cancelled")
+        out = _predicted(path_str) if _predicted else normalize_video_asset(path_str, cancel_event=cancel_event)
+        _videos_done[0] += 1
+        if progress_cb is not None and _videos_total > 0:
+            pct = 5.0 + 3.0 * (_videos_done[0] / max(1, _videos_total))
+            progress_cb(min(8.0, pct), f"Normalizing video assets... {_videos_done[0]}/{_videos_total}")
+        return out
+
     for sc in scenes:
         if isinstance(sc, dict):
             if sc.get("audio_path"):
@@ -559,7 +594,7 @@ def prepare_render_props_and_settings(project_dict, project_dir):
         
         for sv in sub_visuals:
             if sv.get("visual_path"):
-                sv["visual_path"] = normalize_video_asset(sv["visual_path"])
+                sv["visual_path"] = _normalize_tracked(sv["visual_path"])
                 sv["visual_url"] = clean_media_path(sv["visual_path"])
             else:
                 sv["visual_url"] = ""
@@ -580,9 +615,57 @@ def prepare_render_props_and_settings(project_dict, project_dir):
                         # Normalize by actual file extension (not declared type)
                         # so a legacy video-under-Image-label still gets remuxed.
                         if Path(str(lp).split("?")[0].split("#")[0]).suffix.lower() in VIDEO_EXTS:
-                            content["local_path"] = normalize_video_asset(content["local_path"])
+                            content["local_path"] = _normalize_tracked(content["local_path"])
         
         sc["sub_visuals"] = sub_visuals
+
+    # ── Pre-render media validation (fail fast, never stall at 0%) ──────
+    # An undecodable video freezes headless Chromium (PIPELINE_ERROR_DECODE
+    # on every tab, zero onFrameUpdate callbacks) while the render process
+    # stays alive — the UI then sits at 0.0% with no error. Quarantine bad
+    # files here so the NEXT resume re-downloads them via fetch_assets'
+    # stored asset_url, and fail THIS run with an actionable message.
+    if normalize_assets:
+        from backend.pipeline.assets import is_media_file_valid as _valid
+        _bad = []
+        for sc in scenes:
+            if not isinstance(sc, dict):
+                continue
+            for sv in (sc.get("sub_visuals", []) or []):
+                if not isinstance(sv, dict):
+                    continue
+                _candidates = []
+                if sv.get("visual_path"):
+                    _candidates.append(("visual_path", sv))
+                comp = sv.get("composition", {})
+                if isinstance(comp, dict) and comp.get("type") == "Sequence":
+                    for layer in (comp.get("children", []) or []):
+                        content = layer.get("content", {}) if isinstance(layer, dict) else {}
+                        lp = content.get("local_path") if isinstance(content, dict) else None
+                        if lp and Path(str(lp).split("?")[0].split("#")[0]).suffix.lower() in VIDEO_EXTS:
+                            _candidates.append(("local_path", content))
+                for _kind, _holder in _candidates:
+                    _p = _holder.get(_kind)
+                    if _p and Path(str(_p).split("?")[0].split("#")[0]).suffix.lower() in VIDEO_EXTS:
+                        if not _valid(_p):
+                            _bad.append(str(_p))
+        if _bad:
+            from backend.pipeline.assets import _normalize_marker_path as _marker
+            for _b in dict.fromkeys(_bad):
+                logger.error(f"Quarantining corrupt video asset: {_b}")
+                try:
+                    Path(_b).unlink()
+                except OSError:
+                    pass
+                try:
+                    _marker(Path(_b).with_suffix(".mp4")).unlink()
+                except OSError:
+                    pass
+            uniq = sorted(dict.fromkeys(Path(b).name for b in _bad))
+            raise RuntimeError(
+                "Corrupt video asset(s) quarantined: " + ", ".join(uniq) +
+                ". Resume the pipeline — fetch_assets will re-download them, then render."
+            )
 
     # Clean local media paths in global overlays (e.g. watermark logo_url)
     cleaned_overlays = []
@@ -796,7 +879,7 @@ def is_render_stale(project_dict, project_dir) -> bool:
         if not (manifest_path.exists() and transcribe_path.exists() and audio_path.exists()):
             return True
 
-        props, render_settings = prepare_render_props_and_settings(project_dict, project_dir)[:2]
+        props, render_settings = prepare_render_props_and_settings(project_dict, project_dir, normalize_assets=False)[:2]
 
         current_audio_hash = compute_audio_hash(props, render_settings)
         cached_audio_hash = audio_hash_file.read_text().strip()
@@ -839,7 +922,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
         props, render_settings, scenes, transcript, audio_path,
         render_track_overrides, project_settings, cleaned_music_clips,
         cleaned_sfx_clips
-    ) = prepare_render_props_and_settings(project_dict, project_dir)
+    ) = prepare_render_props_and_settings(project_dict, project_dir, normalize_assets=True, progress_cb=progress_cb, cancel_event=cancel_event)
 
     fps = render_settings["fps"]
     timeout_ms = render_settings["timeout"]

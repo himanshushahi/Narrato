@@ -961,8 +961,116 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15, cance
 
 WIKIMEDIA_USER_AGENT = "RemotionCanvas/1.0 (video generator; mailto:dev@remotioncanvas.local)"
 
+# ── Video normalization cache ──────────────────────────────────────────
+# normalize_video_asset() rewrites files in place, which updates mtime/size
+# and therefore invalidates the very frame hashes Smart Resume compares.
+# The marker records the post-normalize file identity so repeat calls are
+# no-ops: staleness checks and re-renders never pay FFmpeg twice.
+NORMALIZE_VERSION = 2
+NORMALIZE_MARKER_SUFFIX = ".norm.json"
+_NORMALIZE_VIDEO_EXTS = (".mp4", ".mov", ".webm", ".avi", ".mkv")
 
-def normalize_video_asset(video_path):
+
+def predicted_normalized_path(video_path):
+    """Path normalize_video_asset() WOULD return, without running FFmpeg.
+
+    Used by read-only staleness checks so hash inputs match the render path
+    byte-for-byte without touching files on disk.
+    """
+    if not video_path:
+        return ""
+    p = Path(str(video_path).split("?")[0].split("#")[0])
+    if p.suffix.lower() not in _NORMALIZE_VIDEO_EXTS:
+        return str(video_path)
+    return str(p.with_suffix(".mp4"))
+
+
+def _normalize_marker_path(target_path):
+    t = Path(target_path)
+    return t.with_name(t.stem + NORMALIZE_MARKER_SUFFIX)
+
+
+def _is_already_normalized(target_path):
+    """True when the marker matches the file's current identity.
+
+    Version 1 markers predate output validation and are never trusted —
+    their files get one verified re-encode, then a v2 validated marker.
+    """
+    try:
+        marker = _normalize_marker_path(target_path)
+        if not marker.exists() or not Path(target_path).exists():
+            return False
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        if data.get("version") != NORMALIZE_VERSION:
+            return False
+        if data.get("validated") is not True:
+            return False
+        stat = Path(target_path).stat()
+        return (
+            data.get("mtime") == stat.st_mtime
+            and data.get("size") == stat.st_size
+        )
+    except Exception:
+        return False
+
+
+def _write_normalize_marker(target_path):
+    try:
+        stat = Path(target_path).stat()
+        _normalize_marker_path(target_path).write_text(
+            json.dumps({
+                "version": NORMALIZE_VERSION,
+                "mtime": stat.st_mtime,
+                "size": stat.st_size,
+                "validated": True,
+            }),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.warning(f"Could not write normalize marker for {target_path}: {e}")
+
+
+def is_media_file_valid(path_str):
+    """Fast ffprobe check: file exists, has a decodable video stream.
+
+    Detects truncated downloads / corrupt encodes (Invalid NAL units,
+    unknown pix_fmt) that would otherwise stall headless Chromium with
+    PIPELINE_ERROR_DECODE and freeze frame progress at 0% with no error.
+    Images are validated by readability (non-zero size + known suffix).
+    """
+    if not path_str:
+        return False
+    try:
+        p = Path(str(path_str).split("?")[0].split("#")[0])
+        if not p.exists() or p.stat().st_size == 0:
+            return False
+        if p.suffix.lower() not in _NORMALIZE_VIDEO_EXTS:
+            return True
+        from backend.core.config import get_ffprobe_path
+        ffprobe_exe = get_ffprobe_path()
+        if not ffprobe_exe or not Path(ffprobe_exe).exists():
+            return True
+        from backend.core.config import get_startupinfo as _si
+        res = subprocess.run(
+            [str(ffprobe_exe), "-v", "error",
+             "-select_streams", "v:0",
+             "-show_entries", "stream=pix_fmt,codec_name",
+             "-of", "csv=p=0", str(p)],
+            capture_output=True, text=True, timeout=30,
+            startupinfo=_si(),
+        )
+        pix = (res.stdout or "").strip().splitlines()
+        pix = pix[0].strip() if pix else ""
+        if not pix or pix == "unknown":
+            return False
+        if "Invalid NAL" in (res.stderr or ""):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def normalize_video_asset(video_path, cancel_event=None):
     """
     Normalizes a video file with FFmpeg to make it 100% seekable and flicker-free in Chromium/Remotion:
       1. Forces keyframes (GOP) every 15 frames (-g 15 -keyint_min 15) so Chromium seeks in <2ms.
@@ -972,8 +1080,27 @@ def normalize_video_asset(video_path):
     """
     if not video_path:
         return ""
-    p = Path(video_path)
-    if not p.exists() or p.suffix.lower() not in [".mp4", ".mov", ".webm", ".avi", ".mkv"]:
+    p = Path(str(video_path).split("?")[0].split("#")[0])
+    if not p.exists() or p.suffix.lower() not in _NORMALIZE_VIDEO_EXTS:
+        return str(video_path)
+
+    target_path = p.with_suffix(".mp4")
+    # Idempotent fast path: already normalized → never re-encode. This keeps
+    # mtime/size stable so frame hashes don't self-invalidate on every resume.
+    if target_path.exists() and _is_already_normalized(target_path):
+        logger.debug(f"Skipping normalize (cached): {target_path.name}")
+        return str(target_path)
+
+    if cancel_event is not None and cancel_event.is_set():
+        return predicted_normalized_path(str(video_path))
+
+    # A corrupt input (truncated download) re-encodes into a corrupt output
+    # with ffmpeg exit 0 — detect it BEFORE encoding so a bad file is never
+    # cached as "normalized" and never stalls Chromium at 0% with no error.
+    if not is_media_file_valid(str(p)):
+        logger.warning(
+            f"Skipping normalize for corrupt video (will be re-downloaded): {p.name}"
+        )
         return str(video_path)
 
     ffmpeg_exe = get_ffmpeg_path()
@@ -1002,11 +1129,19 @@ def normalize_video_asset(video_path):
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, startupinfo=startupinfo, timeout=120)
         if res.returncode == 0 and temp_normalized.exists() and temp_normalized.stat().st_size > 0:
+            if not is_media_file_valid(str(temp_normalized)):
+                logger.error(
+                    f"Normalize produced undecodable output for {p.name} — discarding, keeping original."
+                )
+                try: temp_normalized.unlink()
+                except: pass
+                return str(video_path)
             target_path = p.with_suffix(".mp4")
             if p.exists() and p != target_path:
                 try: p.unlink()
                 except: pass
             temp_normalized.replace(target_path)
+            _write_normalize_marker(target_path)
             logger.info(f"Successfully normalized video asset: {target_path.name}")
             return str(target_path)
         else:
@@ -1107,7 +1242,12 @@ def _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, lay
         if download_asset(asset_url, dest_file, cancel_event=cancel_event):
             _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, keep_file=dest_file)
             if content_type == "Video":
-                dest_file = Path(normalize_video_asset(dest_file))
+                if not is_media_file_valid(str(dest_file)):
+                    logger.error(f"Downloaded video is undecodable, discarding: {dest_file}")
+                    try: dest_file.unlink()
+                    except: pass
+                    return False
+                dest_file = Path(normalize_video_asset(str(dest_file), cancel_event=cancel_event))
             content["local_path"] = str(dest_file)
             content["asset_url"] = asset_url
             # STRICT: keep the declared content.type — stock search already
@@ -1132,8 +1272,26 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
 
     existing_path = content.get("local_path", "")
     if existing_path and Path(existing_path).exists():
-        logger.info(f"Asset already exists for layer [{seg_idx}:{sub_idx}:{layer_idx}] '{existing_path}', skipping download.")
-        return layer
+        # A corrupt cached video (truncated download / bad encode) decodes
+        # nowhere — not in ffprobe, not in Chromium (PIPELINE_ERROR_DECODE,
+        # frame progress frozen at 0%). Quarantine it and fall through to
+        # deterministic re-download instead of skipping forever.
+        if content_type == "Video" and not is_media_file_valid(existing_path):
+            logger.warning(
+                f"Asset corrupt for layer [{seg_idx}:{sub_idx}:{layer_idx}] "
+                f"'{existing_path}' — quarantining for re-download."
+            )
+            try:
+                Path(existing_path).unlink()
+            except OSError:
+                pass
+            try:
+                _normalize_marker_path(Path(str(existing_path)).with_suffix(".mp4")).unlink()
+            except OSError:
+                pass
+        else:
+            logger.info(f"Asset already exists for layer [{seg_idx}:{sub_idx}:{layer_idx}] '{existing_path}', skipping download.")
+            return layer
 
     # Deterministic resume: re-download the exact URL this layer used before
     # (stock top-results rotate; a fresh search could swap the visual).
