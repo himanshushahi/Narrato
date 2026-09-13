@@ -6,6 +6,8 @@ import worldData from './world-110m.json';
 import { getLogicalCanvasSize } from './compositionScale';
 
 const cachedWorldCountries = topojson.feature(worldData as any, worldData.objects.countries as any);
+const cachedGraticule = d3Geo.geoGraticule10();
+const cachedSphere = { type: 'Sphere' } as const;
 
 interface MapLocation {
   name?: string;
@@ -22,9 +24,6 @@ export const DataVisualizations: React.FC<Props> = React.memo(({ locations = [],
   const frame = useCurrentFrame();
   const { width: configWidth, height: configHeight } = useVideoConfig();
   const { width, height } = getLogicalCanvasSize(configWidth, configHeight);
-  // Fix 2: quantize to every 3rd frame — globe rotation is slow; rebuilding
-  // world-110m projected paths 30x/sec was the largest single-frame CPU cost.
-  const qFrame = Math.floor(frame / 3) * 3;
 
   // TopoJSON to GeoJSON (memoized)
   const countries = cachedWorldCountries;
@@ -87,32 +86,37 @@ export const DataVisualizations: React.FC<Props> = React.memo(({ locations = [],
   const endLon = locations.length > 1 ? locations[1].coord[1] : startLon;
   const endLat = locations.length > 1 ? locations[1].coord[0] : startLat;
 
-  const animDuration = durationInFrames > 0 ? durationInFrames * 0.7 : 300;
-  const geo = React.useMemo(() => {
-    const currentLonRot = interpolate(qFrame, [0, animDuration], [-startLon, -endLon], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
-    const currentLatRot = interpolate(qFrame, [0, animDuration], [-startLat, -endLat], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
-    const projection = d3Geo.geoOrthographic()
+  // Sphere outline is invariant under rotation; only recompute on canvas size change
+  const sphereD = React.useMemo(() => {
+    const p = d3Geo.geoOrthographic()
       .scale(height * 0.42)
-      .translate([width / 2, height / 2])
-      .rotate([currentLonRot, currentLatRot, 0]);
-    const pathGenerator = d3Geo.geoPath().projection(projection);
-    const routeLine = {
-      type: 'LineString',
-      coordinates: locations.map(loc => [loc.coord[1], loc.coord[0]])
-    } as any;
-    const routeLengthTotal = 1000;
-    const currentRouteLength = interpolate(qFrame, [0, animDuration], [0, routeLengthTotal], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
-    return {
-      projection,
-      sphereD: pathGenerator({ type: 'Sphere' }) || '',
-      graticuleD: pathGenerator(d3Geo.geoGraticule10()) || '',
-      countriesD: pathGenerator(countries as any) || '',
-      routeD: pathGenerator(routeLine) || '',
-      routeLengthTotal,
-      currentRouteLength,
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qFrame, animDuration, startLon, startLat, endLon, endLat, width, height, map_style, JSON.stringify(locations)]);
+      .translate([width / 2, height / 2]);
+    return d3Geo.geoPath().projection(p)(cachedSphere as any) || '';
+  }, [width, height]);
+
+  const routeLine = React.useMemo(() => ({
+    type: 'LineString',
+    coordinates: locations.map(loc => [loc.coord[1], loc.coord[0]])
+  }) as any, [locations]);
+
+  const animDuration = durationInFrames > 0 ? durationInFrames * 0.7 : 300;
+  const currentLonRot = interpolate(frame, [0, animDuration], [-startLon, -endLon], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
+  const currentLatRot = interpolate(frame, [0, animDuration], [-startLat, -endLat], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
+
+  const projection = d3Geo.geoOrthographic()
+    .scale(height * 0.42)
+    .translate([width / 2, height / 2])
+    .rotate([currentLonRot, currentLatRot, 0]);
+
+  const pathGenerator = d3Geo.geoPath().projection(projection);
+
+  const graticuleD = pathGenerator(cachedGraticule) || '';
+  const countriesD = pathGenerator(countries as any) || '';
+  const routeD = pathGenerator(routeLine) || '';
+
+  const routeLengthTotal = 1000;
+  const currentRouteLength = interpolate(frame, [0, animDuration], [0, routeLengthTotal], { extrapolateRight: 'clamp', extrapolateLeft: 'clamp' });
+  const isVisible = interpolate(frame, [0, animDuration * 0.1], [0, 1], { extrapolateRight: 'clamp' });
 
   return (
     <div style={{ width: '100%', height: '100%', backgroundColor: theme.bg, position: 'relative' }}>
@@ -126,7 +130,7 @@ export const DataVisualizations: React.FC<Props> = React.memo(({ locations = [],
         </defs>
 
         <path
-          d={geo.sphereD}
+          d={sphereD}
           fill={theme.bg}
           stroke={theme.grid}
           strokeWidth="2"
@@ -134,7 +138,7 @@ export const DataVisualizations: React.FC<Props> = React.memo(({ locations = [],
 
         <g className="graticule">
           <path
-            d={geo.graticuleD}
+            d={graticuleD}
             fill="none"
             stroke={theme.grid}
             strokeWidth="0.5"
@@ -144,7 +148,7 @@ export const DataVisualizations: React.FC<Props> = React.memo(({ locations = [],
 
         <g className="landmass">
           <path
-            d={geo.countriesD}
+            d={countriesD}
             fill={theme.landFill}
             stroke={theme.landStroke}
             strokeWidth="1"
@@ -152,28 +156,27 @@ export const DataVisualizations: React.FC<Props> = React.memo(({ locations = [],
         </g>
 
         <path
-          d={geo.sphereD}
+          d={sphereD}
           fill="url(#globeShadow)"
           pointerEvents="none"
         />
 
         <g className="route">
           <path
-            d={geo.routeD}
+            d={routeD}
             fill="none"
             stroke={theme.route}
             strokeWidth="4"
-            strokeDasharray={geo.routeLengthTotal}
-            strokeDashoffset={geo.routeLengthTotal - geo.currentRouteLength}
+            strokeDasharray={routeLengthTotal}
+            strokeDashoffset={routeLengthTotal - currentRouteLength}
             strokeLinecap="round"
           />
         </g>
 
         {locations.map((loc, i) => {
-          const projected = geo.projection([loc.coord[1], loc.coord[0]]);
+          const projected = projection([loc.coord[1], loc.coord[0]]);
           if (!projected) return null;
 
-          const isVisible = interpolate(qFrame, [0, animDuration * 0.1], [0, 1], { extrapolateRight: 'clamp' });
           const [x, y] = projected;
 
           return (
