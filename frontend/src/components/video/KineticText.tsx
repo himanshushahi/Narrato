@@ -167,6 +167,7 @@ export const KineticText: React.FC<KineticTextProps> = ({
                 display: 'inline-block',
                 padding: isHighlighted ? '2px 8px' : '0',
                 borderRadius: '4px',
+                isolation: 'isolate',
               }}
             >
               {/* Highlight sweep background */}
@@ -181,12 +182,18 @@ export const KineticText: React.FC<KineticTextProps> = ({
                     backgroundColor: highlight_color,
                     opacity: 0.85,
                     borderRadius: '4px',
-                    zIndex: -1,
+                    zIndex: 0,
                     boxShadow: `0 0 15px ${highlight_color}66`,
                   }}
                 />
               )}
-              <span style={{ color: isHighlighted && sweepProgress > 50 ? '#0f172a' : color }}>
+              <span
+                style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  color: isHighlighted && sweepProgress > 50 ? '#0f172a' : color,
+                }}
+              >
                 {word}
               </span>
             </span>
