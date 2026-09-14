@@ -222,6 +222,10 @@ export const AstGraphicalEditor = ({
   // Card collapse (reorder mode): true = header-only compact row for easy dragging.
   // Default expanded (false) so existing editing flow is unchanged.
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
+  // Text-shadow "Custom CSS…" editor open per layer. Needed because picking
+  // Custom from an active preset writes back the identical string — a purely
+  // value-derived select would snap back to the preset and never open.
+  const [customShadowOpen, setCustomShadowOpen] = useState<Record<number, boolean>>({});
   // Drag-over target for drop indicator during HTML5 reorder drags.
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   // Shared canvas selection (preview overlay <-> editor). Clicking a layer card
@@ -398,6 +402,7 @@ export const AstGraphicalEditor = ({
     setAdvancedTab(prev => remapIndexMap(prev, map));
     setCollapsed(prev => remapIndexMap(prev, map));
     setMediaError(prev => remapIndexMap(prev, map));
+    setCustomShadowOpen(prev => remapIndexMap(prev, map));
     setPreviewingIdx(prev => (prev === null ? null : map(prev) ?? prev));
     setUploadingIdx(prev => (prev === null ? null : map(prev) ?? prev));
     setIconPickerIdx(prev => (prev === null ? null : map(prev) ?? prev));
@@ -432,6 +437,7 @@ export const AstGraphicalEditor = ({
     setAdvancedTab(prev => remapIndexMap(prev, map));
     setCollapsed(prev => remapIndexMap(prev, map));
     setMediaError(prev => remapIndexMap(prev, map));
+    setCustomShadowOpen(prev => remapIndexMap(prev, map));
     setPreviewingIdx(prev => (prev === null ? null : map(prev)));
     setUploadingIdx(prev => (prev === null ? null : map(prev)));
     setIconPickerIdx(prev => (prev === null ? null : map(prev)));
@@ -493,6 +499,15 @@ export const AstGraphicalEditor = ({
     });
     setMediaError(prev => {
       const next: Record<number, string | null> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const i = Number(k);
+        if (i < idx) next[i] = v;
+        else if (i > idx) next[i - 1] = v;
+      }
+      return next;
+    });
+    setCustomShadowOpen(prev => {
+      const next: Record<number, boolean> = {};
       for (const [k, v] of Object.entries(prev)) {
         const i = Number(k);
         if (i < idx) next[i] = v;
@@ -1115,6 +1130,66 @@ export const AstGraphicalEditor = ({
                   </select>
                 </div>
 
+                {/* Font Size: slider + exact entry. Stored as `style.fontSize`
+                    ("180px") — the same key the renderer and overlay already
+                    read. Empty exact-entry clears the key (renderer default). */}
+                {(() => {
+                  const st = ((content.style || {}) as Record<string, any>);
+                  const rawFs = st.fontSize;
+                  const parsedFs = typeof rawFs === 'number' ? rawFs : parseFloat(String(rawFs ?? ''));
+                  const fontPx = Number.isFinite(parsedFs) && (parsedFs as number) > 0
+                    ? Math.round(parsedFs as number)
+                    : null;
+                  // Effective default mirrors the renderer (64px with custom
+                  // layout, 100px free text) so the label never lies.
+                  const hasLayout = ['width', 'height', 'top', 'left', 'right', 'bottom', 'aspectRatio']
+                    .some((k) => st[k] !== undefined && st[k] !== null && String(st[k]).trim() !== '');
+                  const effectiveFs = fontPx ?? (hasLayout ? 64 : 100);
+                  const writeFs = (val: string) => {
+                    const v = parseFloat(val);
+                    if (!Number.isFinite(v) || v <= 0) {
+                      const next = { ...(content.style || {}) } as Record<string, any>;
+                      delete next.fontSize;
+                      updateContentFields(idx, { style: next });
+                    } else {
+                      const n = Math.max(8, Math.min(500, Math.round(v)));
+                      updateContentFields(idx, { style: { ...(content.style || {}), fontSize: `${n}px` } });
+                    }
+                  };
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                        <span>Font Size</span>
+                        <span className="text-amber-400 font-mono">
+                          {fontPx !== null ? `${fontPx}px` : `${effectiveFs}px (Auto)`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min="12"
+                          max="320"
+                          step="1"
+                          value={Math.max(12, Math.min(320, effectiveFs))}
+                          onChange={e => writeFs(e.target.value)}
+                          className="flex-1 accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+                          title="Text size in px (composition space). Clearing the exact value restores the renderer default."
+                        />
+                        <input
+                          type="number"
+                          min="8"
+                          max="500"
+                          value={fontPx ?? ''}
+                          placeholder={String(effectiveFs)}
+                          onChange={e => writeFs(e.target.value)}
+                          className="w-16 bg-black/60 border border-white/10 text-stone-200 text-xs font-mono rounded px-1.5 py-0.5 text-center focus:outline-none focus:border-amber-500/50"
+                          title="Exact size in px — clear to restore the renderer default"
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Typography Attributes: Weight, Color & Alignment */}
                 <div className="grid grid-cols-3 gap-2">
                   <div className="space-y-1 min-w-0">
@@ -1165,6 +1240,91 @@ export const AstGraphicalEditor = ({
                     </select>
                   </div>
                 </div>
+
+                {/* Text Shadow: presets + custom CSS. Stored as `style.textShadow`
+                    (renderer default when unset). Picking "Custom CSS…" pins the
+                    current effective value into the key so it can be edited. */}
+                {(() => {
+                  const st = ((content.style || {}) as Record<string, any>);
+                  const CUSTOM = '__custom__';
+                  const PRESETS: { label: string; value: string }[] = [
+                    { label: 'Soft Shadow (Default)', value: '' },
+                    { label: 'None (Off)', value: 'none' },
+                    { label: 'Strong Drop', value: '0 6px 30px rgba(0,0,0,0.9)' },
+                    { label: 'Neon Cyan Glow', value: '0 0 40px rgba(0, 212, 255, 0.8), 0 0 80px rgba(0, 212, 255, 0.5)' },
+                    { label: 'Neon Amber Glow', value: '0 0 30px rgba(250,204,21,0.8), 0 4px 20px rgba(0,0,0,0.8)' },
+                  ];
+                  const raw = typeof st.textShadow === 'string' ? st.textShadow.trim() : '';
+                  const customOpen = !!customShadowOpen[idx];
+                  const selVal = customOpen
+                    ? CUSTOM
+                    : (PRESETS.some((p) => p.value === raw) ? raw : (raw ? CUSTOM : ''));
+                  const closeCustom = () => {
+                    setCustomShadowOpen((prev) => {
+                      if (!prev[idx]) return prev;
+                      const next = { ...prev };
+                      delete next[idx];
+                      return next;
+                    });
+                  };
+                  return (
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Text Shadow</label>
+                      <select
+                        className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
+                        value={selVal}
+                        onChange={e => {
+                          const v = e.target.value;
+                          if (v === CUSTOM) {
+                            // Open the editor on the current effective value
+                            // (preset string becomes the editable starting
+                            // point; Default seeds the renderer default).
+                            setCustomShadowOpen((prev) => ({ ...prev, [idx]: true }));
+                            if (!raw) {
+                              updateContentFields(idx, { style: { ...(content.style || {}), textShadow: '0 4px 20px rgba(0,0,0,0.8)' } });
+                            }
+                            return;
+                          }
+                          closeCustom();
+                          if (v === '') {
+                            const next = { ...(content.style || {}) } as Record<string, any>;
+                            delete next.textShadow;
+                            updateContentFields(idx, { style: next });
+                          } else {
+                            updateContentFields(idx, { style: { ...(content.style || {}), textShadow: v } });
+                          }
+                        }}
+                      >
+                        {PRESETS.map((p) => (
+                          <option key={p.label} value={p.value} className="bg-zinc-950 text-stone-200 font-normal">
+                            {p.label}
+                          </option>
+                        ))}
+                        <option value={CUSTOM} className="bg-zinc-950 text-stone-200 font-normal">Custom CSS…</option>
+                      </select>
+                      {selVal === CUSTOM && (
+                        <input
+                          type="text"
+                          className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                          value={typeof st.textShadow === 'string' ? st.textShadow : ''}
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (!v.trim()) {
+                              closeCustom();
+                              const next = { ...(content.style || {}) } as Record<string, any>;
+                              delete next.textShadow;
+                              updateContentFields(idx, { style: next });
+                            } else {
+                              updateContentFields(idx, { style: { ...(content.style || {}), textShadow: v } });
+                            }
+                          }}
+                          placeholder="e.g. 0 4px 20px rgba(0,0,0,0.8)"
+                          spellCheck={false}
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
