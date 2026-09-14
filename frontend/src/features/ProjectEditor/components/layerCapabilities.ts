@@ -93,6 +93,87 @@ export function getLayerCapability(kind: LayerKind): LayerCapability {
 /** Only spatial keyframes produce shutter motion — opacity/blur/brightness fades don't. */
 export { SPATIAL_ANIMATION_PROPS } from '../../../components/video/spatialMotion';
 
+// ── Style key support (Phase 3 warning surface) ──────────────────────────
+// Mirrors backend/agent/schemas.py allowlists (UNIVERSAL_STYLE_KEYS plus the
+// per-type extras). Keep in sync — the backend strips anything outside the
+// allowlist, so `blocked` here flags legacy/manual data that predates (or
+// bypassed) the validator, while `advanced` flags allowlisted keys with no
+// visual editor yet. Positioning keys (position/left/top/right/bottom) count
+// as covered: canvas drag + Layout sliders/presets operate on them even when
+// a particular anchor lacks a dedicated slider.
+const UNIVERSAL_STYLE_KEYS: ReadonlySet<string> = new Set([
+  'position', 'left', 'top', 'right', 'bottom', 'width', 'height',
+  'borderRadius', 'boxShadow', 'overflow',
+  'margin', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight',
+  'padding', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight',
+  'border', 'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
+  'borderWidth', 'borderStyle', 'borderColor',
+  'backgroundColor', 'background', 'backdropFilter', 'WebkitBackdropFilter',
+  'rotate', 'scale', 'scaleX', 'scaleY', 'aspectRatio',
+]);
+
+const STYLE_EXTRAS_BY_KIND: Record<string, ReadonlySet<string>> = {
+  Text: new Set(['fontSize', 'textAlign', 'lineHeight', 'letterSpacing', 'textShadow', 'fontStyle', 'justifyContent']),
+  Chart: new Set(['color']),
+  Image: new Set(['objectFit']),
+  Video: new Set(['objectFit']),
+};
+
+// Keys with a real GUI control (Layout tab / type panels / canvas drag).
+const GUI_UNIVERSAL_KEYS: ReadonlySet<string> = new Set([
+  'position', 'left', 'top', 'right', 'bottom', 'width', 'height',
+  'borderRadius', 'rotate', 'scale', 'scaleX', 'scaleY',
+]);
+
+const GUI_EXTRAS_BY_KIND: Record<string, ReadonlySet<string>> = {
+  Text: new Set(['fontSize', 'textAlign', 'lineHeight', 'letterSpacing', 'textShadow', 'fontStyle']),
+  Chart: new Set(['color']),
+  Image: new Set(['objectFit', 'aspectRatio']),
+  Video: new Set(['objectFit', 'aspectRatio']),
+};
+
+export interface StyleKeySupport {
+  /** Allowlisted keys with no visual editor (render fine, edit via JSON). */
+  advanced: string[];
+  /** Keys outside the allowlist (stripped by the backend validator; raw
+   * `transform` additionally breaks the canvas overlay box). */
+  blocked: string[];
+}
+
+export function getStyleKeySupport(kind: LayerKind, style: unknown): StyleKeySupport {
+  const advanced: string[] = [];
+  const blocked: string[] = [];
+  if (!style || typeof style !== 'object' || Array.isArray(style)) {
+    return { advanced, blocked };
+  }
+  const extras = STYLE_EXTRAS_BY_KIND[kind] ?? new Set<string>();
+  const guiExtras = GUI_EXTRAS_BY_KIND[kind] ?? new Set<string>();
+  for (const key of Object.keys(style as Record<string, unknown>)) {
+    if (!UNIVERSAL_STYLE_KEYS.has(key) && !extras.has(key)) {
+      blocked.push(key);
+      continue;
+    }
+    if (!GUI_UNIVERSAL_KEYS.has(key) && !guiExtras.has(key)) {
+      advanced.push(key);
+    }
+  }
+  advanced.sort();
+  blocked.sort();
+  return { advanced, blocked };
+}
+
+/** Remediation hints for blocked keys (shown beside the warning). */
+export const BLOCKED_STYLE_HINTS: Record<string, string> = {
+  transform: 'Use rotate / scale / scaleX / scaleY instead — raw transform renders outside the canvas overlay box.',
+  opacity: 'Use the Animations tab (opacity keyframe) instead.',
+  filter: 'Use the Filters tab instead.',
+  display: 'Display is managed by the renderer — remove it.',
+  mixBlendMode: 'Use filters "mix-blend-mode: X" (Filters tab) instead.',
+  fontFamily: 'Use the Font Family dropdown (content.font) instead.',
+  fontWeight: 'Use the Weight dropdown (content.weight) instead.',
+  src: 'Folded into lottie_url by the validator — set the Lottie URL field instead.',
+};
+
 /** Shutter-angle slider needs blur ON plus real spatial motion (anim, float or shake). */
 export function getMotionState(opts: {
   motionBlur: boolean;

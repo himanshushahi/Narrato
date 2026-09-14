@@ -14,7 +14,7 @@ import { AstChartDataEditor } from './AstChartDataEditor';
 import { AstMapLocationsEditor } from './AstMapLocationsEditor';
 import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
 import { AstParticlesEditor } from './AstParticlesEditor';
-import { normalizeLayerKind, getLayerCapability, getMotionState, isSvgLookToken } from './layerCapabilities';
+import { normalizeLayerKind, getLayerCapability, getMotionState, isSvgLookToken, getStyleKeySupport, BLOCKED_STYLE_HINTS } from './layerCapabilities';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { inferMediaType, isImageFile, isVideoFile } from '../../../utils/mediaExtensions';
 
@@ -734,6 +734,16 @@ export const AstGraphicalEditor = ({
         const isCollapsed = !!collapsed[idx];
         const layerKind = normalizeLayerKind(cType);
         const layerCap = getLayerCapability(layerKind);
+        // Phase 3: flag style keys with no visual editor (blocked = outside
+        // the validator allowlist, e.g. legacy `transform`; advanced =
+        // renders but has no control yet). Derived from data — clears itself
+        // when fixed. Lottie `src` is content-level but equally invisible.
+        const styleSupport = getStyleKeySupport(layerKind, (content as any).style);
+        const blockedKeys = [...styleSupport.blocked];
+        if (cType === 'Lottie' && typeof (content as any).src === 'string' && (content as any).src.trim() !== '') {
+          blockedKeys.push('src');
+        }
+        const keyIssueCount = blockedKeys.length + styleSupport.advanced.length;
         const motionState = getMotionState({
           motionBlur: !!layer.motion_blur,
           animations: layer.animations || [],
@@ -786,6 +796,21 @@ export const AstGraphicalEditor = ({
                   {idx === 0 ? '· bottom' : idx === layers.length - 1 ? '· top' : ''}
                 </span>
                 <span className="text-[10px] font-semibold text-stone-300 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap">{cType}</span>
+                {keyIssueCount > 0 && (
+                  <span
+                    className={`text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap border ${
+                      blockedKeys.length > 0
+                        ? 'text-red-400 bg-red-500/10 border-red-500/30'
+                        : 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+                    }`}
+                    title={[
+                      blockedKeys.length > 0 ? `Unsupported keys (stripped by validator): ${blockedKeys.join(', ')}` : null,
+                      styleSupport.advanced.length > 0 ? `Advanced keys (no visual editor): ${styleSupport.advanced.join(', ')}` : null,
+                    ].filter(Boolean).join(' · ')}
+                  >
+                    {blockedKeys.length > 0 ? `⛔ unsupported${keyIssueCount > 1 ? ` ×${keyIssueCount}` : ''}` : `⚠ advanced${styleSupport.advanced.length > 1 ? ` ×${styleSupport.advanced.length}` : ''}`}
+                  </span>
+                )}
                 {isCollapsed && (
                   <span className="text-[11px] text-stone-500 truncate min-w-0">
                     {(content.text || content.query || content.html_content || content.chart_type || content.shape_type || content.icon_name || '')
@@ -837,6 +862,25 @@ export const AstGraphicalEditor = ({
 
             {!isCollapsed && (
             <>
+            {keyIssueCount > 0 && (
+              <div className={`rounded-lg border px-2.5 py-2 space-y-1 text-[11px] leading-relaxed ${
+                blockedKeys.length > 0
+                  ? 'bg-red-500/10 border-red-500/30 text-red-200/90'
+                  : 'bg-amber-500/10 border-amber-500/30 text-amber-200/90'
+              }`}>
+                {blockedKeys.map((k) => (
+                  <div key={`blocked-${k}`}>
+                    ⛔ <code className="font-mono font-bold">{k}</code>
+                    {BLOCKED_STYLE_HINTS[k] ? ` — ${BLOCKED_STYLE_HINTS[k]}` : ' — unsupported (stripped by the validator).'}
+                  </div>
+                ))}
+                {styleSupport.advanced.map((k) => (
+                  <div key={`adv-${k}`}>
+                    ⚠ <code className="font-mono font-bold">{k}</code> — renders, but has no visual editor yet.
+                  </div>
+                ))}
+              </div>
+            )}
             {/* Content Type Selector */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block whitespace-nowrap">Type</label>
