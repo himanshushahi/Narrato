@@ -33,6 +33,16 @@ export const KineticText: React.FC<KineticTextProps> = ({
 
   const cleanWordKey = (w: string) => (w || '').trim().toLowerCase().replace(/[\s.,!?;:'"()]/g, '');
 
+  // The editor's ALIGN control writes style.textAlign, but these modes render
+  // as flex rows where textAlign alone does nothing — map it to
+  // justifyContent so Left/Center/Right actually work. Without this, a
+  // right-aligned long word (e.g. "SUPERPOSITION" in Oswald 900) stays
+  // centered, overflows its overflow:hidden layer box, and gets clipped
+  // no matter how the user resizes width/height.
+  const alignJustify =
+    (style as any).justifyContent ||
+    (style.textAlign === 'right' ? 'flex-end' : style.textAlign === 'left' ? 'flex-start' : 'center');
+
   const highlightSet = useMemo(() => {
     return new Set(highlight_words.map(cleanWordKey));
   }, [highlight_words]);
@@ -96,9 +106,10 @@ export const KineticText: React.FC<KineticTextProps> = ({
           ...baseFontStyle,
           display: 'flex',
           flexWrap: 'wrap',
-          justifyContent: style.justifyContent || 'center',
+          justifyContent: alignJustify,
           alignItems: 'center',
           gap: '12px 18px',
+          width: '100%',
         }}
       >
         {words.map((word, idx) => {
@@ -119,6 +130,12 @@ export const KineticText: React.FC<KineticTextProps> = ({
               key={idx}
               style={{
                 display: 'inline-block',
+                // Flex items default to min-width:auto, which lets a single
+                // long word overflow its box and get clipped by the layer's
+                // overflow:hidden. Clamp + break so it wraps instead.
+                minWidth: 0,
+                maxWidth: '100%',
+                overflowWrap: 'break-word',
                 opacity: wordSpr,
                 transform: `scale(${wordSpr}) translateY(${(1 - wordSpr) * 20}px)`,
                 color: isHighlighted ? highlight_color : color,
@@ -141,9 +158,10 @@ export const KineticText: React.FC<KineticTextProps> = ({
           ...baseFontStyle,
           display: 'flex',
           flexWrap: 'wrap',
-          justifyContent: style.justifyContent || 'center',
+          justifyContent: alignJustify,
           alignItems: 'center',
           gap: '10px 16px',
+          width: '100%',
         }}
       >
         {words.map((word, idx) => {
@@ -165,6 +183,12 @@ export const KineticText: React.FC<KineticTextProps> = ({
               style={{
                 position: 'relative',
                 display: 'inline-block',
+                // Same overflow guard as words_stagger: a lone long word
+                // must wrap inside the layer box, not bleed past it and get
+                // clipped by overflow:hidden.
+                minWidth: 0,
+                maxWidth: '100%',
+                overflowWrap: 'break-word',
                 padding: isHighlighted ? '2px 8px' : '0',
                 borderRadius: '4px',
                 isolation: 'isolate',
