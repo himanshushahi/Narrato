@@ -117,6 +117,34 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
     onChange(copy);
   };
 
+  // Shortcut: V toggles Graphical <-> JSON view for all cuts in this editor.
+  // Uses a functional set so the global keydown listener never sees stale state.
+  const toggleViewModeAll = useCallback(() => {
+    setViewMode((prev) => {
+      const cuts = latestSubVisualsRef.current || [];
+      if (cuts.length === 0) return prev;
+      const allJson = cuts.every((_: any, i: number) => (prev[i] ?? 'gui') === 'json');
+      const next: Record<number, 'gui' | 'json'> = {};
+      cuts.forEach((_: any, i: number) => {
+        next[i] = allJson ? 'gui' : 'json';
+      });
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key !== 'v' && e.key !== 'V') return;
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.isContentEditable) return;
+      e.preventDefault();
+      toggleViewModeAll();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [toggleViewModeAll]);
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center mb-2">
@@ -381,16 +409,29 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               </div>
 
               {/* Composition Section */}
-              <div className="space-y-2 pt-1" onClick={e => e.stopPropagation()}>
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold uppercase tracking-wider text-stone-400">Composition (AST)</label>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setViewMode(prev => ({ ...prev, [idx]: prev[idx] === 'json' ? 'gui' : 'json' })) }}
-                    className="text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-white/10 border border-white/10 text-stone-300 px-2 py-1 rounded transition-colors cursor-pointer"
-                  >
-                    View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}
-                  </button>
+              <div className="space-y-2 pt-1 min-w-0" onClick={e => e.stopPropagation()}>
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 min-w-0">
+                  <label className="text-xs font-bold uppercase tracking-wider text-stone-400 shrink-0">Composition (AST)</label>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 min-w-0">
+                    {viewMode[idx] !== 'json' && ((sv ?? latestSubVisualsRef.current[idx])?.composition?.children?.length ?? 0) > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('ast:toggle-collapse-all')); }}
+                        className="h-6 inline-flex items-center px-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                        title="Collapse all to compact rows, or expand them again (X)"
+                      >
+                        Collapse
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setViewMode(prev => ({ ...prev, [idx]: prev[idx] === 'json' ? 'gui' : 'json' })) }}
+                      className="h-6 inline-flex items-center px-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                      title="Toggle Graphical / JSON view (V)"
+                    >
+                      View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}
+                    </button>
+                  </div>
                 </div>
 
                 {viewMode[idx] === 'json' ? (

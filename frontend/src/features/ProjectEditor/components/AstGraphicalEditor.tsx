@@ -618,16 +618,44 @@ export const AstGraphicalEditor = ({
     setCollapsed(prev => ({ ...prev, [idx]: !prev[idx] }));
   };
 
-  const collapseAll = () => {
-    const count = (compositionRef.current.children || []).length;
-    const next: Record<number, boolean> = {};
-    for (let i = 0; i < count; i++) next[i] = true;
-    setCollapsed(next);
+  // Single toggle: if every layer is collapsed -> expand all, otherwise collapse all.
+  // Functional set so the global keydown listener never sees stale state.
+  const toggleCollapseAll = () => {
+    setCollapsed((prev) => {
+      const count = (compositionRef.current.children || []).length;
+      if (count === 0) return prev;
+      let allCollapsed = true;
+      for (let i = 0; i < count; i++) {
+        if (!prev[i]) { allCollapsed = false; break; }
+      }
+      if (allCollapsed) return {};
+      const next: Record<number, boolean> = {};
+      for (let i = 0; i < count; i++) next[i] = true;
+      return next;
+    });
   };
 
-  const expandAll = () => {
-    setCollapsed({});
-  };
+  // Shortcut: X toggles collapse / expand all layers.
+  // Also listens for the parent toolbar button (single unified row in
+  // SubVisualsEditor) via a window event so both controls stay in sync.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key !== 'x' && e.key !== 'X') return;
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.isContentEditable) return;
+      e.preventDefault();
+      toggleCollapseAll();
+    };
+    const onToolbarToggle = () => toggleCollapseAll();
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('ast:toggle-collapse-all', onToolbarToggle);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('ast:toggle-collapse-all', onToolbarToggle);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Stable per-layer API for memoized children: every function reads latest
   // state through refs, so identities never churn across ticks and sibling
@@ -703,27 +731,6 @@ export const AstGraphicalEditor = ({
 
   return (
     <div className="space-y-3 w-full min-w-0">
-      {layers.length > 1 && (
-        <div className="flex items-center justify-between gap-2 px-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
-            {layers.length} layers · bottom = background, top = foreground
-          </span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={collapseAll}
-              className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer"
-              title="Collapse all to compact rows for easy drag-reorder"
-            >Collapse all</button>
-            <button
-              type="button"
-              onClick={expandAll}
-              className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer"
-              title="Expand all layer editors"
-            >Expand all</button>
-          </div>
-        </div>
-      )}
       {/* Photoshop-style: top of stack at top of panel. Data stays children[0]=bottom;
           only display order is reversed. All handlers keep using the real idx. */}
       {[...layers.keys()].reverse().map((idx: number) => {

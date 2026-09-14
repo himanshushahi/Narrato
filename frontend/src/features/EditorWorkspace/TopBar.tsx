@@ -83,6 +83,13 @@ const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
     ],
   },
   {
+    title: 'Visuals / AST Editor',
+    items: [
+      { keys: 'V', desc: 'Toggle Graphical / JSON view' },
+      { keys: 'X', desc: 'Collapse / Expand all layers' },
+    ],
+  },
+  {
     title: 'General',
     items: [
       { keys: 'Ctrl + S', desc: 'Save project' },
