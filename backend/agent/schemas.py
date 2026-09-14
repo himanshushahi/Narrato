@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -165,6 +169,76 @@ class MapLocation(AppBaseModel):
     coord: List[float] = Field(..., description="[Latitude, Longitude]")
 
 
+# ============================================================================
+# LAYER STYLE KEY ALLOWLISTS
+# ============================================================================
+# Single source of truth for which `content.style` keys the Remotion renderer
+# honors. Mirrors frontend ASTRenderer splitStyles LAYOUT_PROPS plus the
+# per-type readers (KineticText, ChartRenderer, MediaNode). Anything else
+# either breaks the editor overlay geometry (a raw `transform` bypasses the
+# rotate/scale pipeline the overlay mirrors, so text renders outside its
+# box) or silently does nothing — both are stripped by sanitize_layer_style().
+UNIVERSAL_STYLE_KEYS = frozenset({
+    "position", "left", "top", "right", "bottom", "width", "height",
+    "borderRadius", "boxShadow", "overflow",
+    "margin", "marginTop", "marginBottom", "marginLeft", "marginRight",
+    "padding", "paddingTop", "paddingBottom", "paddingLeft", "paddingRight",
+    "border", "borderTop", "borderBottom", "borderLeft", "borderRight",
+    "borderWidth", "borderStyle", "borderColor",
+    "backgroundColor", "background", "backdropFilter", "WebkitBackdropFilter",
+    "rotate", "scale", "scaleX", "scaleY", "aspectRatio",
+})
+# Per-type extras the renderer reads from the inner (non-layout) style.
+TEXT_STYLE_KEYS = frozenset({
+    "fontSize", "textAlign", "lineHeight", "letterSpacing",
+    "textShadow", "fontStyle", "justifyContent",
+})
+CHART_STYLE_KEYS = frozenset({"color"})
+MEDIA_STYLE_KEYS = frozenset({"objectFit"})
+_STYLE_EXTRAS_BY_TYPE = {
+    "Text": TEXT_STYLE_KEYS,
+    "Chart": CHART_STYLE_KEYS,
+    "Image": MEDIA_STYLE_KEYS,
+    "Video": MEDIA_STYLE_KEYS,
+}
+# Text style aliases the renderer tolerates: canonical home is the top-level
+# content field — moved there when empty, dropped when already set.
+TEXT_STYLE_ALIASES = {"fontFamily": "font", "fontWeight": "weight", "color": "color"}
+
+
+def sanitize_layer_style(content_type: Any, style: Any) -> tuple:
+    """Enforce the style allowlist for one layer's `content.style`.
+
+    Returns (cleaned_style_or_None, stripped_keys, alias_moves). `stripped`
+    holds removed style keys (unsupported/dead/harmful); `alias_moves` maps
+    Text style aliases to their canonical content field for the caller to
+    relocate when that field is empty. Non-dict styles are dropped entirely.
+    Idempotent: running twice strips nothing the second time.
+    """
+    if style is None:
+        return None, [], {}
+    if not isinstance(style, dict):
+        return None, [f"style:{type(style).__name__}"], {}
+    allowed = UNIVERSAL_STYLE_KEYS | _STYLE_EXTRAS_BY_TYPE.get(content_type, frozenset())
+    cleaned: Dict[str, Any] = {}
+    stripped: List[str] = []
+    moves: Dict[str, Any] = {}
+    for key, value in style.items():
+        if key in allowed:
+            cleaned[key] = value
+        elif (
+            content_type == "Text"
+            and key in TEXT_STYLE_ALIASES
+            and value not in (None, "")
+        ):
+            # Relocated to the canonical content field by the caller —
+            # not stripped, so it stays out of the stripped list.
+            moves[TEXT_STYLE_ALIASES[key]] = value
+        else:
+            stripped.append(str(key))
+    return (cleaned or None), stripped, moves
+
+
 class LayerContent(AppBaseModel):
     """Rich polymorphic content payload for an AST Layer."""
     type: Literal["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie", "Particles"] = Field(..., description="Content type: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles")
@@ -231,7 +305,7 @@ class LayerContent(AppBaseModel):
     image_type: Optional[str] = Field(default=None, description="Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons.", json_schema_extra={"enum": ["all", "photo", "illustration", "vector"]})
     yt_start_offset: Optional[float] = Field(default=None, description="Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15.")
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
-    style: Optional[Dict[str, Any]] = Field(default=None, description="CSS layout box: position/left/top/bottom/width/height (% strings), objectFit, borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors), fontSize/textAlign/textShadow/fontStyle, mixBlendMode (needs layer beneath). Prefer base boxes; static scale/rotate for emphasis only.")
+    style: Optional[Dict[str, Any]] = Field(default=None, description="Layer box styling. Allowed keys ONLY (rest are stripped): universal box keys position/left/top/bottom/width/height (% strings), borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors), objectFit (Image/Video), Text extras fontSize/textAlign/lineHeight/letterSpacing/textShadow/fontStyle, Chart accent color. NEVER transform/opacity/filter/display/mixBlendMode in style (breaks the editor overlay; use rotate/scale, animations, filters). Text font/weight/color are top-level content fields.")
 
     @model_validator(mode="before")
     @classmethod
@@ -255,6 +329,43 @@ class LayerContent(AppBaseModel):
             stripped = v.strip()
             return stripped or None
         return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_style_keys(cls, data: Any) -> Any:
+        """Strip unsupported `style` keys and relocate aliases (before-validation).
+
+        Runs on the raw input dict (never on `self`, so assignment
+        re-validation cannot recurse). A raw `transform` (or
+        opacity/filter/display/mixBlendMode) inside style bypasses the
+        renderer's rotate/scale pipeline that the editor overlay mirrors —
+        the layer then renders outside its box with no GUI control to fix
+        it. Strip to the per-type allowlist; move Text
+        fontFamily/fontWeight/color aliases (and the Lottie `src` alias)
+        into their canonical fields when those are empty.
+        """
+        if not isinstance(data, dict):
+            return data
+        if "style" in data:
+            cleaned, stripped, moves = sanitize_layer_style(data.get("type"), data.get("style"))
+            if stripped or moves:
+                logger.warning(
+                    "LayerContent(%s): stripped unsupported style keys %s; "
+                    "relocated aliases %s",
+                    data.get("type"), sorted(set(stripped)), sorted(moves),
+                )
+            if cleaned is None:
+                data.pop("style", None)
+            else:
+                data["style"] = cleaned
+            for target, value in moves.items():
+                if data.get(target) in (None, ""):
+                    data[target] = value
+        if data.get("type") == "Lottie" and "src" in data:
+            src = data.pop("src")
+            if src not in (None, "") and data.get("lottie_url") in (None, ""):
+                data["lottie_url"] = src
+        return data
 
     @model_validator(mode="after")
     def sanitize_shape_and_content(self) -> LayerContent:

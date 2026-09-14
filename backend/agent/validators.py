@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Any, Tuple, Optional
-from backend.agent.schemas import SubVisualAST
+from backend.agent.schemas import SubVisualAST, sanitize_layer_style
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +335,55 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
     return clean, total_dropped
 
 
+def sanitize_style_keys(children: List[Any], cut_label: str = "") -> int:
+    """Enforce the per-type style allowlist on raw-dict layers.
+
+    Mirrors the LayerContent model validator for pipeline paths that never
+    run model validation. Mutates layer content dicts in place: strips
+    unsupported style keys (a raw `transform` bypasses the rotate/scale
+    pipeline the editor overlay mirrors, so the layer renders outside its
+    box with no GUI control to fix it), relocates Text style aliases
+    (fontFamily/fontWeight/color) into canonical content fields when empty,
+    and folds the Lottie `src` alias into `lottie_url`. Returns the number
+    of keys stripped or moved.
+    """
+    if not isinstance(children, list):
+        return 0
+    fixed = 0
+    for idx, layer in enumerate(children):
+        if not isinstance(layer, dict):
+            continue
+        content = layer.get("content")
+        if not isinstance(content, dict):
+            continue
+        ctype = content.get("type")
+        if "style" in content:
+            cleaned, stripped, moves = sanitize_layer_style(ctype, content.get("style"))
+            if cleaned is None:
+                content.pop("style", None)
+            else:
+                content["style"] = cleaned
+            moved_here = []
+            for target, value in moves.items():
+                if content.get(target) in (None, ""):
+                    content[target] = value
+                    moved_here.append(target)
+                    fixed += 1
+            if stripped or moved_here:
+                fixed += len(stripped)
+                logger.warning(
+                    f"sanitize_style_keys: {cut_label or 'cut'} layer#{idx} "
+                    f"({ctype}): stripped unsupported style keys {sorted(set(stripped))}; "
+                    f"relocated aliases {sorted(moved_here)}."
+                )
+        if ctype == "Lottie" and "src" in content:
+            src = content.pop("src")
+            if src not in (None, "") and content.get("lottie_url") in (None, ""):
+                content["lottie_url"] = src
+                fixed += 1
+    return fixed
+
+
 def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1) -> Tuple[bool, List[Dict[str, Any]], str]:
     """
     Validates a list of AST sub-visuals, ensuring their durations sum up to the
@@ -412,6 +461,17 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             comp = entry.get("composition") or {}
             if isinstance(comp, dict) and isinstance(comp.get("children"), list):
                 comp["children"], _ = sanitize_media_layers(
+                    comp["children"], cut_label=f"cut#{len(normalized)}"
+                )
+        except Exception:
+            pass
+        # Strip unsupported style keys (raw `transform`, opacity/filter in
+        # style, dead per-type extras) and relocate aliases. Repair, don't
+        # fail — the model validator re-runs the same contract idempotently.
+        try:
+            comp = entry.get("composition") or {}
+            if isinstance(comp, dict) and isinstance(comp.get("children"), list):
+                sanitize_style_keys(
                     comp["children"], cut_label=f"cut#{len(normalized)}"
                 )
         except Exception:

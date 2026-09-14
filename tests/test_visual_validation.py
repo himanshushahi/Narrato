@@ -354,3 +354,117 @@ def test_validate_sub_visuals_rejects_z_index():
     assert "zIndex" in err_c
 
 
+# ── Style key allowlist (transform et al. must never persist) ──────────
+
+def _styled_layer(ctype, style, **extra):
+    content = {"type": ctype, "style": style}
+    content.update(extra)
+    return {"type": "Layer", "content": content,
+            "animations": [], "filters": []}
+
+
+def test_style_transform_stripped_from_text_layer():
+    from backend.agent.validators import sanitize_style_keys
+    kids = [_styled_layer("Text", {
+        "position": "absolute", "left": "29.25%", "width": "20%",
+        "fontSize": "180px", "textAlign": "right",
+        "transform": "translateX(-50%)",
+    }, text="LIKE A SPINNING COIN")]
+    fixed = sanitize_style_keys(kids, cut_label="cut#0")
+    assert fixed == 1
+    style = kids[0]["content"]["style"]
+    assert "transform" not in style
+    assert style["left"] == "29.25%"
+    assert style["fontSize"] == "180px"
+    assert style["textAlign"] == "right"
+
+
+def test_style_opacity_filter_display_mixblend_stripped():
+    from backend.agent.validators import sanitize_style_keys
+    kids = [_styled_layer("Image", {
+        "width": "100%", "opacity": 0.5, "filter": "blur(2px)",
+        "display": "flex", "mixBlendMode": "overlay", "objectFit": "cover",
+    }, query="city skyline")]
+    fixed = sanitize_style_keys(kids, cut_label="cut#0")
+    assert fixed == 4
+    style = kids[0]["content"]["style"]
+    assert style == {"width": "100%", "objectFit": "cover"}
+
+
+def test_text_style_aliases_coerced_to_content():
+    from backend.agent.validators import sanitize_style_keys
+    kids = [_styled_layer("Text", {
+        "fontFamily": "Montserrat", "fontWeight": "900", "color": "#f8fafc",
+        "left": "10%",
+    }, text="hi")]
+    fixed = sanitize_style_keys(kids, cut_label="cut#0")
+    content = kids[0]["content"]
+    assert content["font"] == "Montserrat"
+    assert content["weight"] == "900"
+    assert content["color"] == "#f8fafc"
+    assert content["style"] == {"left": "10%"}
+    assert fixed == 3
+
+
+def test_text_alias_dropped_when_canonical_set():
+    from backend.agent.validators import sanitize_style_keys
+    kids = [_styled_layer("Text", {"fontFamily": "Oswald", "left": "10%"},
+                            text="hi", font="Montserrat")]
+    sanitize_style_keys(kids, cut_label="cut#0")
+    content = kids[0]["content"]
+    assert content["font"] == "Montserrat"
+    assert content["style"] == {"left": "10%"}
+
+
+def test_chart_accent_kept_objectfit_stripped_on_text():
+    from backend.agent.validators import sanitize_style_keys
+    kids = [
+        _styled_layer("Chart", {"left": "6%", "color": "#00d4ff", "transform": "scale(1.1)"}),
+        _styled_layer("Text", {"left": "10%", "objectFit": "cover"}, text="hi"),
+    ]
+    sanitize_style_keys(kids, cut_label="cut#0")
+    assert kids[0]["content"]["style"] == {"left": "6%", "color": "#00d4ff"}
+    assert kids[1]["content"]["style"] == {"left": "10%"}
+
+
+def test_non_dict_style_dropped():
+    from backend.agent.validators import sanitize_style_keys
+    kids = [_styled_layer("Text", "width:100%", text="hi")]
+    fixed = sanitize_style_keys(kids, cut_label="cut#0")
+    assert fixed == 1
+    assert "style" not in kids[0]["content"]
+
+
+def test_lottie_src_alias_folded():
+    from backend.agent.validators import sanitize_style_keys
+    kids = [_styled_layer("Lottie", {"left": "10%"})]
+    kids[0]["content"]["src"] = "https://example.com/a.json"
+    sanitize_style_keys(kids, cut_label="cut#0")
+    content = kids[0]["content"]
+    assert content["lottie_url"] == "https://example.com/a.json"
+    assert "src" not in content
+
+
+def test_layer_content_model_sanitizes_style():
+    c = LayerContent.model_validate({
+        "type": "Text", "text": "hi",
+        "style": {"left": "10%", "transform": "translateX(-50%)",
+                  "fontFamily": "Montserrat"},
+    })
+    assert "transform" not in (c.style or {})
+    assert (c.style or {}).get("left") == "10%"
+    assert c.font == "Montserrat"
+
+
+def test_validate_sub_visuals_cleans_style_end_to_end():
+    svs = [_cut(_styled_layer("Text", {
+        "left": "29.25%", "width": "20%",
+        "transform": "translateX(-50%)",
+    }, text="hi"), duration=5.0)]
+    is_valid, normalized, err = validate_sub_visuals(svs, 5.0)
+    assert err == ""
+    style = normalized[0]["composition"]["children"][0]["content"]["style"]
+    assert "transform" not in style
+    assert style["width"] == "20%"
+
+
