@@ -266,12 +266,29 @@ def normalize_sub_visuals_sources(sub_visuals: Any) -> int:
     return total
 
 
+def _is_layer_node(node: Any) -> bool:
+    """True only for valid renderable children: {"type": "Layer", ...} dicts."""
+    return isinstance(node, dict) and node.get("type") == "Layer"
+
+
+def _keep_layers(children: List[Any]) -> List[Dict[str, Any]]:
+    """Filter an AST children list down to valid Layer nodes only."""
+    return [layer for layer in children if _is_layer_node(layer)]
+
+
 def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[List[Any], int]:
-    """Drops Image/Video layers that carry no search query.
+    """Drops non-Layer nodes and Image/Video layers that carry no search query.
+
+    Non-Layer nodes are corrupted AST fragments (LLM Python-repr split into
+    string fragments, nested sub-visual dicts swallowed into composition,
+    style/content dicts orphaned without their Layer wrapper). A non-dict
+    child crashes fetch_assets ('str' has no .get), and a non-Layer dict
+    renders nothing — neither may persist.
 
     Such layers can never resolve an asset (the fetcher skips them), so they
     only ever render as broken placeholders. Returns (clean_children,
-    dropped_count). A cut left with zero layers gets a single HTML gradient
+    dropped_count) where dropped_count covers BOTH corruption drops and
+    query-less drops. A cut left with zero layers gets a single HTML gradient
     placeholder so it still paints deterministically.
 
     Also clears stale empty-string ``local_path`` on surviving media layers
@@ -281,11 +298,22 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
     if not isinstance(children, list):
         return [], 0
     normalize_hallucinated_sources(children)
-    clean = [layer for layer in children if not _is_queryless_media(layer)]
-    dropped = len(children) - len(clean)
+    # Defensive: corrupted cuts must be dropped here — never persisted.
+    # Only {"type": "Layer", ...} nodes are valid children (see helper).
+    non_layer = sum(1 for layer in children if not _is_layer_node(layer))
+    if non_layer:
+        logger.warning(
+            f"sanitize_media_layers: dropped {non_layer} non-layer node(s) "
+            f"in {cut_label or 'cut'} (corrupted AST fragment; cut renders "
+            f"remaining valid layers as fallback)."
+        )
+    dict_children = _keep_layers(children)
+    clean = [layer for layer in dict_children if not _is_queryless_media(layer)]
+    dropped = len(dict_children) - len(clean)
+    total_dropped = non_layer + dropped
     if dropped:
         logger.warning(
-            f"validate_sub_visuals: dropped {dropped} query-less media layer(s) "
+            f"sanitize_media_layers: dropped {dropped} query-less media layer(s) "
             f"in {cut_label or 'cut'} (LLM omitted the search query; asset could never download)."
         )
     # Scrub stale empty-string local_path from surviving media layers so the
@@ -301,10 +329,10 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
     if not clean and children:
         clean = [_html_gradient_placeholder()]
         logger.warning(
-            f"validate_sub_visuals: {cut_label or 'cut'} left layer-less after sanitization — "
+            f"sanitize_media_layers: {cut_label or 'cut'} left layer-less after sanitization — "
             f"inserted HTML gradient placeholder."
         )
-    return clean, dropped
+    return clean, total_dropped
 
 
 def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1) -> Tuple[bool, List[Dict[str, Any]], str]:
@@ -352,6 +380,30 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             "transition": normalize_transition(v.get("transition", "cut")),
             "duration": dur,
         }
+        # Hard-clean the composition BEFORE validation: the LLM repair path
+        # can nest a whole second cut inside composition ({type, children,
+        # duration, transition, composition}) or split a Python repr into
+        # string fragments. Neither shape may persist — strip stray keys and
+        # keep only Layer nodes so fetch_assets ('.get' traversal) and the
+        # renderer can never crash on them. Copy (don't mutate the caller's
+        # LLM output in place).
+        try:
+            raw_comp = entry.get("composition")
+            if not isinstance(raw_comp, dict):
+                entry["composition"] = {"type": "Sequence", "children": []}
+            else:
+                comp = dict(raw_comp)
+                for _stray in ("duration", "transition", "composition", "emphasis", "subtitle_position", "visual_path", "visual_url"):
+                    comp.pop(_stray, None)
+                if comp.get("type") != "Sequence":
+                    comp["type"] = "Sequence"
+                if not isinstance(comp.get("children"), list):
+                    comp["children"] = []
+                else:
+                    comp["children"] = _keep_layers(comp["children"])
+                entry["composition"] = comp
+        except Exception:
+            pass
         # Sanitize hallucinated media layers (Image/Video without a search
         # query can never download an asset). Dropped layers are repaired,
         # not retried — burning an LLM correction turn on already-fixed
@@ -417,7 +469,21 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
         try:
             validated = SubVisualAST.model_validate(entry)
             normalized.append(validated.model_dump(exclude_none=True))
-        except Exception:
+        except Exception as ve:
+            # Never persist the raw corrupted entry: a model_validate failure
+            # means stray shapes slipped through (e.g. non-dict children).
+            # Keep the sanitized entry (dict-only children) so the cut still
+            # renders via procedural fallback instead of crashing fetch_assets.
+            logger.warning(
+                f"validate_sub_visuals: cut#{len(normalized)} failed schema "
+                f"validation ({ve}); keeping sanitized fallback."
+            )
+            try:
+                _comp = entry.get("composition")
+                if isinstance(_comp, dict) and isinstance(_comp.get("children"), list):
+                    _comp["children"] = _keep_layers(_comp["children"])
+            except Exception:
+                pass
             normalized.append(entry)
 
     if not normalized:

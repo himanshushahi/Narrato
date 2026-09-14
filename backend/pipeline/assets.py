@@ -1264,7 +1264,11 @@ def _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, lay
 
 def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format):
     """Downloads media for a single AST layer if it is Image or Video."""
+    if not isinstance(layer, dict):
+        return layer
     content = layer.get("content", {})
+    if not isinstance(content, dict):
+        return layer
     content_type = content.get("type", "")
 
     if content_type not in ["Image", "Video"]:
@@ -1414,17 +1418,47 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
 
 def _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, api_key, pixabay_api_key, cancel_event, video_format):
     """Traverses the AST composition and downloads required media for Image/Video layers."""
+    if not isinstance(sub_visual, dict):
+        logger.warning(
+            f"Sub-visual [{seg_idx}:{sub_idx}] is {type(sub_visual).__name__}, not a dict — "
+            f"skipping asset download for this cut."
+        )
+        return sub_visual
     composition = sub_visual.get("composition", {})
+    if not isinstance(composition, dict):
+        logger.warning(
+            f"Sub-visual [{seg_idx}:{sub_idx}] has non-dict composition "
+            f"({type(composition).__name__}) — skipping asset download."
+        )
+        return sub_visual
     if composition.get("type") == "Sequence":
         children = composition.get("children", [])
+        if not isinstance(children, list):
+            logger.warning(
+                f"Sub-visual [{seg_idx}:{sub_idx}] children is "
+                f"{type(children).__name__}, not a list — skipping."
+            )
+            return sub_visual
+        # Defensive: corrupted cuts (e.g. LLM repr split into string
+        # fragments) must never crash the whole fetch_assets step.
+        # They render as procedural fallbacks; count skips and log once.
+        skipped = 0
         for layer_idx, layer in enumerate(children):
             if cancel_event and cancel_event.is_set():
                 raise InterruptedError("Cancelled")
-                
+
+            if not isinstance(layer, dict) or layer.get("type") != "Layer":
+                skipped += 1
+                continue
             # If it's a Layer containing content, fetch asset
-            if layer.get("type") == "Layer" and "content" in layer:
+            if "content" in layer:
                 _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_key, pixabay_api_key, cancel_event, video_format)
-                
+        if skipped:
+            logger.warning(
+                f"Sub-visual [{seg_idx}:{sub_idx}] skipped {skipped} non-layer "
+                f"node(s) (corrupted AST fragment; cut renders as procedural fallback)."
+            )
+
     return sub_visual
 
 
