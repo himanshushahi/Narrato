@@ -363,7 +363,7 @@ def _styled_layer(ctype, style, **extra):
             "animations": [], "filters": []}
 
 
-def test_style_transform_stripped_from_text_layer():
+def test_style_transform_folded_from_text_layer():
     from backend.agent.validators import sanitize_style_keys
     kids = [_styled_layer("Text", {
         "position": "absolute", "left": "29.25%", "width": "20%",
@@ -374,21 +374,28 @@ def test_style_transform_stripped_from_text_layer():
     assert fixed == 1
     style = kids[0]["content"]["style"]
     assert "transform" not in style
-    assert style["left"] == "29.25%"
+    # Centering hack folded: 29.25 − 20/2 = 19.25.
+    assert style["left"] == "19.25%"
     assert style["fontSize"] == "180px"
     assert style["textAlign"] == "right"
 
 
-def test_style_opacity_filter_display_mixblend_stripped():
+def test_renderable_keys_pass_through_untouched():
+    # Warn-don't-block: opacity/filter/display/mixBlendMode render via
+    # passthrough and are flagged in the UI — never stripped here.
     from backend.agent.validators import sanitize_style_keys
     kids = [_styled_layer("Image", {
         "width": "100%", "opacity": 0.5, "filter": "blur(2px)",
         "display": "flex", "mixBlendMode": "overlay", "objectFit": "cover",
+        "boxShadow": "0 0 10px #000",
     }, query="city skyline")]
     fixed = sanitize_style_keys(kids, cut_label="cut#0")
-    assert fixed == 4
-    style = kids[0]["content"]["style"]
-    assert style == {"width": "100%", "objectFit": "cover"}
+    assert fixed == 0
+    assert kids[0]["content"]["style"] == {
+        "width": "100%", "opacity": 0.5, "filter": "blur(2px)",
+        "display": "flex", "mixBlendMode": "overlay", "objectFit": "cover",
+        "boxShadow": "0 0 10px #000",
+    }
 
 
 def test_text_style_aliases_coerced_to_content():
@@ -416,7 +423,7 @@ def test_text_alias_dropped_when_canonical_set():
     assert content["style"] == {"left": "10%"}
 
 
-def test_chart_accent_kept_objectfit_stripped_on_text():
+def test_chart_accent_kept_objectfit_kept_on_text():
     from backend.agent.validators import sanitize_style_keys
     kids = [
         _styled_layer("Chart", {"left": "6%", "color": "#00d4ff", "transform": "scale(1.1)"}),
@@ -424,7 +431,7 @@ def test_chart_accent_kept_objectfit_stripped_on_text():
     ]
     sanitize_style_keys(kids, cut_label="cut#0")
     assert kids[0]["content"]["style"] == {"left": "6%", "color": "#00d4ff"}
-    assert kids[1]["content"]["style"] == {"left": "10%"}
+    assert kids[1]["content"]["style"] == {"left": "10%", "objectFit": "cover"}
 
 
 def test_non_dict_style_dropped():
@@ -466,5 +473,100 @@ def test_validate_sub_visuals_cleans_style_end_to_end():
     style = normalized[0]["composition"]["children"][0]["content"]["style"]
     assert "transform" not in style
     assert style["width"] == "20%"
+
+
+# ── Centering-hack fold + position rule ─────────────────────────────
+
+def test_centering_translate_folded_into_left():
+    from backend.agent.schemas import sanitize_layer_style
+    cleaned, stripped, _ = sanitize_layer_style("Text", {
+        "position": "absolute", "top": "17.24%", "left": "29.25%",
+        "transform": "translateX(-50%)", "fontSize": "180px",
+        "textAlign": "right", "width": "54.7%", "height": "22.28%",
+    })
+    assert cleaned["left"] == "1.9%"
+    assert cleaned["width"] == "54.7%"
+    assert cleaned["top"] == "17.24%"
+    assert "transform" not in cleaned
+    assert "transform" in stripped
+
+
+def test_translate_xy_folds_both_axes():
+    from backend.agent.schemas import sanitize_layer_style
+    cleaned, stripped, _ = sanitize_layer_style("Image", {
+        "left": "30%", "top": "20%", "width": "40%", "height": "30%",
+        "transform": "translate(-50%, -50%)",
+    })
+    assert cleaned["left"] == "10%"
+    assert cleaned["top"] == "5%"
+    assert "transform" not in cleaned
+    assert "transform" in stripped
+
+
+def test_translate_y_only_folds_top():
+    from backend.agent.schemas import sanitize_layer_style
+    cleaned, _, _ = sanitize_layer_style("Text", {
+        "left": "10%", "top": "30%", "width": "50%", "height": "20%",
+        "transform": "translateY(-50%)",
+    })
+    assert cleaned["top"] == "20%"
+    assert cleaned["left"] == "10%"
+    assert "transform" not in cleaned
+
+
+def test_unmatched_transform_stripped_without_fold():
+    from backend.agent.schemas import sanitize_layer_style
+    for bad in ("translateX(-30%)", "rotate(5deg)", "translateX(-50%) scale(1.1)"):
+        cleaned, stripped, _ = sanitize_layer_style("Text", {
+            "left": "29.25%", "width": "54.7%", "transform": bad,
+        })
+        assert cleaned["left"] == "29.25%"
+        assert "transform" not in cleaned
+        assert "transform" in stripped
+
+
+def test_mixed_units_never_fold():
+    from backend.agent.schemas import sanitize_layer_style
+    cleaned, stripped, _ = sanitize_layer_style("Text", {
+        "left": "29.25%", "width": "200px", "transform": "translateX(-50%)",
+    })
+    assert cleaned["left"] == "29.25%"
+    assert "transform" in stripped
+
+
+def test_non_absolute_position_dropped_absolute_kept():
+    from backend.agent.schemas import sanitize_layer_style
+    cleaned, stripped, _ = sanitize_layer_style("Text", {
+        "left": "10%", "position": "relative",
+    })
+    assert "position" not in cleaned
+    assert any("position" in s for s in stripped)
+    kept, stripped2, _ = sanitize_layer_style("Text", {
+        "left": "10%", "position": "absolute",
+    })
+    assert kept["position"] == "absolute"
+    assert stripped2 == []
+
+
+def test_fold_is_idempotent():
+    from backend.agent.schemas import sanitize_layer_style
+    style = {"left": "29.25%", "width": "54.7%",
+             "transform": "translateX(-50%)"}
+    cleaned, _, _ = sanitize_layer_style("Text", style)
+    cleaned2, stripped2, moves2 = sanitize_layer_style("Text", cleaned)
+    assert cleaned2 == cleaned
+    assert stripped2 == [] and moves2 == {}
+
+
+def test_model_folds_user_reported_style():
+    c = LayerContent.model_validate({
+        "type": "Text", "text": "LIKE A SPINNING COIN",
+        "style": {"position": "absolute", "top": "17.24%", "left": "29.25%",
+                  "transform": "translateX(-50%)", "fontSize": "180px",
+                  "textAlign": "right", "width": "54.7%", "height": "22.28%"},
+    })
+    assert c.style["left"] == "1.9%"
+    assert c.style["width"] == "54.7%"
+    assert "transform" not in c.style
 
 

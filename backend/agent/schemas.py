@@ -206,26 +206,85 @@ _STYLE_EXTRAS_BY_TYPE = {
 TEXT_STYLE_ALIASES = {"fontFamily": "font", "fontWeight": "weight", "color": "color"}
 
 
-def sanitize_layer_style(content_type: Any, style: Any) -> tuple:
-    """Enforce the style allowlist for one layer's `content.style`.
+def _centering_axes(transform_value: Any) -> tuple:
+    """Detect the exact -50% centering hack: translateX/Y(-50%) or translate(-50%, -50%).
 
-    Returns (cleaned_style_or_None, stripped_keys, alias_moves). `stripped`
-    holds removed style keys (unsupported/dead/harmful); `alias_moves` maps
-    Text style aliases to their canonical content field for the caller to
-    relocate when that field is empty. Non-dict styles are dropped entirely.
-    Idempotent: running twice strips nothing the second time.
+    Returns (fold_x, fold_y). Anything else (other percentages, rotate(),
+    compound transforms) is NOT folded — it is stripped like any other
+    unsupported transform.
+    """
+    if not isinstance(transform_value, str):
+        return False, False
+    t = transform_value.strip().lower()
+    if re.fullmatch(r"translate\(\s*-50%\s*,\s*-50%\s*\)", t):
+        return True, True
+    if re.fullmatch(r"translatex\(\s*-50%\s*\)", t):
+        return True, False
+    if re.fullmatch(r"translatey\(\s*-50%\s*\)", t):
+        return False, True
+    return False, False
+
+
+def _same_unit_pair(first: Any, second: Any) -> Any:
+    """Return (unit, a, b) when both values are % or both are px numbers."""
+    for pattern, unit in ((r"^\s*(-?[\d.]+)%\s*$", "%"), (r"^\s*(-?[\d.]+)px\s*$", "px")):
+        ma = re.match(pattern, str(first))
+        mb = re.match(pattern, str(second))
+        if ma and mb:
+            try:
+                return unit, float(ma.group(1)), float(mb.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def sanitize_layer_style(content_type: Any, style: Any) -> tuple:
+    """Repair (never punish) one layer's `content.style`.
+
+    The renderer already honors any CSS it receives and the editor flags
+    GUI-less keys in the UI — so the validator only removes what actively
+    breaks the overlay geometry, and repairs intent where it can:
+    - a translateX/Y(-50%) centering hack is folded into explicit
+      left/top (same-unit pairs only);
+    - the (folded or not) `transform` key is always removed: the overlay
+      and Layout tab cannot represent it, so the layer would render
+      outside its box with no control to fix it;
+    - non-`absolute` `position` values are dropped (the renderer forces
+      absolute containers; anything else breaks box geometry);
+    - Text fontFamily/fontWeight/color aliases move to canonical content
+      fields when those are empty;
+    - everything else passes through untouched, even GUI-less keys (the
+      layer-card warning surface covers visibility, not the validator).
+    Returns (cleaned_style_or_None, stripped_keys, alias_moves). Idempotent:
+    running twice strips nothing the second time.
     """
     if style is None:
         return None, [], {}
     if not isinstance(style, dict):
         return None, [f"style:{type(style).__name__}"], {}
-    allowed = UNIVERSAL_STYLE_KEYS | _STYLE_EXTRAS_BY_TYPE.get(content_type, frozenset())
+    working = style
+    if "transform" in style:
+        fold_x, fold_y = _centering_axes(style.get("transform"))
+        if fold_x or fold_y:
+            working = dict(style)
+            if fold_x:
+                pair = _same_unit_pair(working.get("left"), working.get("width"))
+                if pair is not None:
+                    unit, left, width = pair
+                    working["left"] = f"{round(left - width / 2, 2):g}{unit}"
+            if fold_y:
+                pair = _same_unit_pair(working.get("top"), working.get("height"))
+                if pair is not None:
+                    unit, top, height = pair
+                    working["top"] = f"{round(top - height / 2, 2):g}{unit}"
     cleaned: Dict[str, Any] = {}
     stripped: List[str] = []
     moves: Dict[str, Any] = {}
-    for key, value in style.items():
-        if key in allowed:
-            cleaned[key] = value
+    for key, value in working.items():
+        if key == "transform":
+            stripped.append("transform")
+        elif key == "position" and value not in (None, "absolute"):
+            stripped.append("position(non-absolute)")
         elif (
             content_type == "Text"
             and key in TEXT_STYLE_ALIASES
@@ -235,7 +294,16 @@ def sanitize_layer_style(content_type: Any, style: Any) -> tuple:
             # not stripped, so it stays out of the stripped list.
             moves[TEXT_STYLE_ALIASES[key]] = value
         else:
-            stripped.append(str(key))
+            cleaned[key] = value
+    # GUI-less but renderable keys pass through; note them once for the
+    # promote-by-data loop (frequent ones earn allowlist/GUI status).
+    allowed = UNIVERSAL_STYLE_KEYS | _STYLE_EXTRAS_BY_TYPE.get(content_type, frozenset())
+    unusual = sorted({str(k) for k in working if k not in allowed and k != "transform"})
+    if unusual:
+        logger.debug(
+            "sanitize_layer_style(%s): passing through GUI-less keys %s",
+            content_type, unusual,
+        )
     return (cleaned or None), stripped, moves
 
 
@@ -333,16 +401,16 @@ class LayerContent(AppBaseModel):
     @model_validator(mode="before")
     @classmethod
     def sanitize_style_keys(cls, data: Any) -> Any:
-        """Strip unsupported `style` keys and relocate aliases (before-validation).
+        """Repair (never punish) the layer style (before-validation).
 
         Runs on the raw input dict (never on `self`, so assignment
-        re-validation cannot recurse). A raw `transform` (or
-        opacity/filter/display/mixBlendMode) inside style bypasses the
-        renderer's rotate/scale pipeline that the editor overlay mirrors —
-        the layer then renders outside its box with no GUI control to fix
-        it. Strip to the per-type allowlist; move Text
-        fontFamily/fontWeight/color aliases (and the Lottie `src` alias)
-        into their canonical fields when those are empty.
+        re-validation cannot recurse). A translateX/Y(-50%) centering hack
+        is folded into explicit coordinates; the `transform` key itself is
+        always removed (the overlay and Layout tab cannot represent it, so
+        the layer would render outside its box); non-absolute `position`
+        values are dropped; Text aliases move to canonical content fields.
+        Everything else passes through — GUI-less keys are flagged in the
+        editor UI, not stripped here.
         """
         if not isinstance(data, dict):
             return data

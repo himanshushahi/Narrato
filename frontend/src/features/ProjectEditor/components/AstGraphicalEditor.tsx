@@ -14,7 +14,7 @@ import { AstChartDataEditor } from './AstChartDataEditor';
 import { AstMapLocationsEditor } from './AstMapLocationsEditor';
 import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
 import { AstParticlesEditor } from './AstParticlesEditor';
-import { normalizeLayerKind, getLayerCapability, getMotionState, isSvgLookToken, getStyleKeySupport, BLOCKED_STYLE_HINTS } from './layerCapabilities';
+import { normalizeLayerKind, getLayerCapability, getMotionState, isSvgLookToken, getStyleKeySupport, BLOCKED_STYLE_HINTS, ADVANCED_STYLE_HINTS } from './layerCapabilities';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { inferMediaType, isImageFile, isVideoFile } from '../../../utils/mediaExtensions';
 
@@ -876,7 +876,8 @@ export const AstGraphicalEditor = ({
                 ))}
                 {styleSupport.advanced.map((k) => (
                   <div key={`adv-${k}`}>
-                    ⚠ <code className="font-mono font-bold">{k}</code> — renders, but has no visual editor yet.
+                    ⚠ <code className="font-mono font-bold">{k}</code>
+                    {ADVANCED_STYLE_HINTS[k] ? ` — ${ADVANCED_STYLE_HINTS[k]}` : ' — renders, but has no visual editor yet.'}
                   </div>
                 ))}
               </div>

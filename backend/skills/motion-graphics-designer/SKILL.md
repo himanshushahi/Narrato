@@ -15,7 +15,7 @@ Apply these aesthetic recipes, responsive geometries, and motion grammar rules t
 ## 1. Card Layout Presets & Spatial Geometries
 
 Use these standard responsive percentage coordinates for multi-element compositions.
-Prefer base position boxes (`position`, `left`, `top`, `width`, `height`, `borderRadius`) for layout. Static `style` transforms (`rotate` deg, `scale`/`scaleX`/`scaleY` multiplier, negative mirrors e.g. `scaleX: -1` for H-flip, `aspectRatio` e.g. `"1 / 1"` for circles, `bottom` anchor for lower-thirds) are allowed sparingly for emphasis — they compose with keyframe animations. NEVER write a raw `transform` string in `style` (it bypasses the `rotate`/`scale` pipeline and breaks the editor overlay box). Pivot via layer `transform_origin` (default `center center`).
+Prefer base position boxes (`left`, `top`, `width`, `height`, `borderRadius`) for layout — position is always absolute. Static `style` transforms (`rotate` deg, `scale`/`scaleX`/`scaleY` multiplier, negative mirrors e.g. `scaleX: -1` for H-flip, `aspectRatio` e.g. `"1 / 1"` for circles, `bottom` anchor for lower-thirds) are allowed sparingly for emphasis — they compose with keyframe animations. NEVER write a raw `transform` string in `style` (no `translateX(-50%)` centering — center with explicit math: width `42%` → `left: "29%"`); the key is removed and the editor overlay box loses sync. Pivot via layer `transform_origin` (default `center center`).
 
 ### A. Full-Width Centered Card (Single Focus)
 ```json

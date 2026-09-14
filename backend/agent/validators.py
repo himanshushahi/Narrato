@@ -336,16 +336,18 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
 
 
 def sanitize_style_keys(children: List[Any], cut_label: str = "") -> int:
-    """Enforce the per-type style allowlist on raw-dict layers.
+    """Repair (never punish) style keys on raw-dict layers.
 
     Mirrors the LayerContent model validator for pipeline paths that never
-    run model validation. Mutates layer content dicts in place: strips
-    unsupported style keys (a raw `transform` bypasses the rotate/scale
-    pipeline the editor overlay mirrors, so the layer renders outside its
-    box with no GUI control to fix it), relocates Text style aliases
-    (fontFamily/fontWeight/color) into canonical content fields when empty,
-    and folds the Lottie `src` alias into `lottie_url`. Returns the number
-    of keys stripped or moved.
+    run model validation. Mutates layer content dicts in place: folds a
+    translateX/Y(-50%) centering hack into explicit coordinates, removes
+    the `transform` key itself (the overlay and Layout tab cannot represent
+    it, so the layer would render outside its box) and non-absolute
+    `position` values, relocates Text style aliases (fontFamily/fontWeight/
+    color) into canonical content fields when empty, and folds the Lottie
+    `src` alias into `lottie_url`. Everything else passes through — GUI-less
+    keys are flagged in the editor UI, not stripped here. Returns the number
+    of keys stripped, folded, or moved.
     """
     if not isinstance(children, list):
         return 0

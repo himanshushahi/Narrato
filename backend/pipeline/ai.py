@@ -1884,9 +1884,10 @@ When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] toda
 Example: If "GDP" is spoken at [2.3s], set `delay: 2.3` on the GDP text animation.
 
 - DO NOT add arbitrary properties that are not supported — especially inside
-  `style`: NEVER `transform`/`opacity`/`filter`/`display`/`mixBlendMode`
-  (stripped by the validator; use `rotate`/`scale`, `animations`, and
-  `filters` instead).
+  `style`: NEVER `transform`/`translate` (the key is removed and the overlay
+  box loses sync; center with explicit math like `left = 50 - width/2`).
+  Other renderable CSS passes through but may lack a visual editor — prefer
+  `rotate`/`scale`, `animations`, and `filters`.
 - `query` in `Image` and `Video` content MUST ALWAYS be in English.
 - All text content MUST be in English.
 - QUERY-ONLY MEDIA CONTRACT (critical): for `Image`/`Video` layers output ONLY
