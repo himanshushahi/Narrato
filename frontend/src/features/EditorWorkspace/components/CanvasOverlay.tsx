@@ -117,7 +117,8 @@ function estimateTextDims(
   fontFamily: string,
   fontWeight: string | number,
   baseWidth = 1920,
-  baseHeight = 1080
+  baseHeight = 1080,
+  opts?: { lineHeight?: unknown; letterSpacing?: unknown }
 ): { widthPct: number; heightPct: number } {
   if (!text || !text.trim()) {
     return { widthPct: 30, heightPct: 10 };
@@ -126,6 +127,14 @@ function estimateTextDims(
   const fs = typeof fontSizeVal === 'number' && Number.isFinite(fontSizeVal)
     ? fontSizeVal
     : parseFloat(String(fontSizeVal)) || 64;
+  // Mirror the renderer's KineticText defaults so the estimated box matches
+  // the glyphs (lineHeight 1.25; letterSpacing normal = 0).
+  const lhRaw = typeof opts?.lineHeight === 'number' ? opts.lineHeight : parseFloat(String(opts?.lineHeight ?? ''));
+  const lh = Number.isFinite(lhRaw) && (lhRaw as number) > 0
+    ? Math.min(3, Math.max(0.5, lhRaw as number))
+    : 1.25;
+  const lsRaw = typeof opts?.letterSpacing === 'number' ? opts.letterSpacing : parseFloat(String(opts?.letterSpacing ?? ''));
+  const ls = Number.isFinite(lsRaw) ? Math.min(60, Math.max(-10, lsRaw as number)) : 0;
 
   if (typeof document !== 'undefined') {
     if (!_measureCanvas) {
@@ -134,6 +143,10 @@ function estimateTextDims(
     const ctx = _measureCanvas.getContext('2d');
     if (ctx) {
       ctx.font = `${fontWeight || 'bold'} ${fs}px ${fontFamily || 'Inter, sans-serif'}`;
+      // Letter-spacing widens every advance the same way CSS does.
+      try {
+        (ctx as any).letterSpacing = `${ls}px`;
+      } catch { /* older canvas implementations ignore it */ }
       const lines = cleanText.split('\n');
       let maxLineWidth = 0;
       for (const line of lines) {
@@ -142,9 +155,12 @@ function estimateTextDims(
           maxLineWidth = metrics.width;
         }
       }
+      try {
+        (ctx as any).letterSpacing = '0px';
+      } catch { /* no-op */ }
       // Add comfortable padding (24px horizontal, 16px vertical)
       const totalWidthPx = maxLineWidth + 24;
-      const lineHeightPx = fs * 1.3;
+      const lineHeightPx = fs * lh;
       const totalHeightPx = lines.length * lineHeightPx + 16;
 
       const widthPct = clampN((totalWidthPx / baseWidth) * 100, 8, 98);
@@ -248,7 +264,8 @@ function layerToBox(
       layer?.content?.font || style.fontFamily || 'Inter, sans-serif',
       layer?.content?.weight || style.fontWeight || 'bold',
       baseWidth,
-      baseHeight
+      baseHeight,
+      { lineHeight: style.lineHeight, letterSpacing: style.letterSpacing }
     );
   }
 

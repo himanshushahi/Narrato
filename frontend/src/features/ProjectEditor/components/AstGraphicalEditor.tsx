@@ -1190,8 +1190,115 @@ export const AstGraphicalEditor = ({
                   );
                 })()}
 
-                {/* Typography Attributes: Weight, Color & Alignment */}
-                <div className="grid grid-cols-3 gap-2">
+                {/* Advanced Typography: Line Height, Letter Spacing.
+                    Stored as style.lineHeight (number) / style.letterSpacing
+                    ("Npx") — both read by the renderer AND the overlay
+                    estimator, so boxes stay truthful. Empty clears the key. */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  {(() => {
+                    const st = ((content.style || {}) as Record<string, any>);
+                    const rawLh = typeof st.lineHeight === 'number' ? st.lineHeight : parseFloat(String(st.lineHeight ?? ''));
+                    const lh = Number.isFinite(rawLh) && (rawLh as number) > 0 ? (rawLh as number) : null;
+                    const effLh = lh ?? 1.25;
+                    const writeLh = (val: string) => {
+                      const v = parseFloat(val);
+                      if (!Number.isFinite(v) || v <= 0) {
+                        const next = { ...(content.style || {}) } as Record<string, any>;
+                        delete next.lineHeight;
+                        updateContentFields(idx, { style: next });
+                      } else {
+                        const n = Math.max(0.5, Math.min(3, Math.round(v * 100) / 100));
+                        updateContentFields(idx, { style: { ...(content.style || {}), lineHeight: n } });
+                      }
+                    };
+                    return (
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                          <span>Line Height</span>
+                          <span className="text-amber-400 font-mono">
+                            {lh !== null ? lh.toFixed(2) : `${effLh.toFixed(2)} (Auto)`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="1"
+                            max="2"
+                            step="0.05"
+                            value={Math.max(1, Math.min(2, effLh))}
+                            onChange={e => writeLh(e.target.value)}
+                            className="flex-1 accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded min-w-0"
+                            title="Line spacing multiplier (multi-line text box height)"
+                          />
+                          <input
+                            type="number"
+                            min="0.5"
+                            max="3"
+                            step="0.05"
+                            value={lh ?? ''}
+                            placeholder={effLh.toFixed(2)}
+                            onChange={e => writeLh(e.target.value)}
+                            className="w-14 bg-black/60 border border-white/10 text-stone-200 text-xs font-mono rounded px-1 py-0.5 text-center focus:outline-none focus:border-amber-500/50 shrink-0"
+                            title="Exact line-height multiplier — clear for renderer default"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const st = ((content.style || {}) as Record<string, any>);
+                    const rawLs = st.letterSpacing;
+                    const parsedLs = typeof rawLs === 'number' ? rawLs : parseFloat(String(rawLs ?? ''));
+                    const ls = Number.isFinite(parsedLs) ? Math.round(parsedLs * 10) / 10 : null;
+                    const writeLs = (val: string) => {
+                      const v = parseFloat(val);
+                      if (!val.trim() || !Number.isFinite(v)) {
+                        const next = { ...(content.style || {}) } as Record<string, any>;
+                        delete next.letterSpacing;
+                        updateContentFields(idx, { style: next });
+                      } else {
+                        const n = Math.max(-10, Math.min(60, Math.round(v * 10) / 10));
+                        updateContentFields(idx, { style: { ...(content.style || {}), letterSpacing: `${n}px` } });
+                      }
+                    };
+                    return (
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                          <span>Spacing</span>
+                          <span className="text-amber-400 font-mono">
+                            {ls !== null ? `${ls}px` : '0px (Auto)'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="-2"
+                            max="24"
+                            step="0.5"
+                            value={Math.max(-2, Math.min(24, ls ?? 0))}
+                            onChange={e => writeLs(e.target.value)}
+                            className="flex-1 accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded min-w-0"
+                            title="Letter spacing in px (tracking)"
+                          />
+                          <input
+                            type="number"
+                            min="-10"
+                            max="60"
+                            step="0.5"
+                            value={ls ?? ''}
+                            placeholder="0"
+                            onChange={e => writeLs(e.target.value)}
+                            className="w-14 bg-black/60 border border-white/10 text-stone-200 text-xs font-mono rounded px-1 py-0.5 text-center focus:outline-none focus:border-amber-500/50 shrink-0"
+                            title="Exact letter-spacing in px — clear for normal"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Typography Attributes: Weight, Color, Alignment & Style */}
+                <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Weight</label>
                     <select
@@ -1237,6 +1344,26 @@ export const AstGraphicalEditor = ({
                       <option value="center">Center</option>
                       <option value="left">Left</option>
                       <option value="right">Right</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Style</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-1.5 py-1 focus:outline-none cursor-pointer font-medium"
+                      value={(content.style as any)?.fontStyle || 'normal'}
+                      onChange={e => {
+                        if (e.target.value === 'normal') {
+                          const next = { ...(content.style || {}) } as Record<string, any>;
+                          delete next.fontStyle;
+                          updateContentFields(idx, { style: next });
+                        } else {
+                          updateContentFields(idx, { style: { ...(content.style || {}), fontStyle: e.target.value } });
+                        }
+                      }}
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="italic">Italic</option>
                     </select>
                   </div>
                 </div>
@@ -1410,6 +1537,35 @@ export const AstGraphicalEditor = ({
                       value={content.bar_max_width ?? ''}
                       onChange={e => updateContent(idx, 'bar_max_width', e.target.value ? Math.max(0, parseFloat(e.target.value)) : undefined)}
                       placeholder="90"
+                    />
+                  </div>
+                </div>
+                {/* Accent Color: drives the chart primary color (line stroke,
+                    pie/donut fills fallback). Stored as style.color; empty
+                    restores the renderer default (#00d4ff). */}
+                <div className="space-y-1 min-w-0">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Accent Color</label>
+                  <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50 min-w-0">
+                    <input
+                      type="color"
+                      value={((content.style as any)?.color?.startsWith('#') && (content.style as any)?.color.length === 7) ? (content.style as any).color : '#00d4ff'}
+                      onChange={e => updateContentFields(idx, { style: { ...(content.style || {}), color: e.target.value } })}
+                      className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                    />
+                    <input
+                      type="text"
+                      className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono min-w-0"
+                      value={(content.style as any)?.color || ''}
+                      onChange={e => {
+                        if (!e.target.value.trim()) {
+                          const next = { ...(content.style || {}) } as Record<string, any>;
+                          delete next.color;
+                          updateContentFields(idx, { style: next });
+                        } else {
+                          updateContentFields(idx, { style: { ...(content.style || {}), color: e.target.value } });
+                        }
+                      }}
+                      placeholder="#00d4ff"
                     />
                   </div>
                 </div>
