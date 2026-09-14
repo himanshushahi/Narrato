@@ -67,12 +67,12 @@ export const KineticText: React.FC<KineticTextProps> = ({
   };
 
   if (!text || text.trim() === '') {
-    return <div style={baseFontStyle} />;
+    return <div data-kinetic-text="true" style={baseFontStyle} />;
   }
 
   // 1. Static Mode
   if (mode === 'static' || !mode) {
-    return <div style={baseFontStyle}>{text}</div>;
+    return <div data-kinetic-text="true" style={baseFontStyle}>{text}</div>;
   }
 
   // 2. Typewriter Mode
@@ -89,7 +89,7 @@ export const KineticText: React.FC<KineticTextProps> = ({
     const cursorVisible = frame % 16 < 8; // Blinking cursor
 
     return (
-      <div style={baseFontStyle}>
+      <div data-kinetic-text="true" style={baseFontStyle}>
         <span>{visibleText}</span>
         <span style={{ opacity: cursorVisible ? 1 : 0, color: highlight_color, marginLeft: '2px', fontWeight: 900 }}>
           _
@@ -102,6 +102,7 @@ export const KineticText: React.FC<KineticTextProps> = ({
   if (mode === 'words_stagger') {
     return (
       <div
+        data-kinetic-text="true"
         style={{
           ...baseFontStyle,
           display: 'flex',
@@ -154,6 +155,7 @@ export const KineticText: React.FC<KineticTextProps> = ({
   if (mode === 'marker_highlight') {
     return (
       <div
+        data-kinetic-text="true"
         style={{
           ...baseFontStyle,
           display: 'flex',
@@ -227,5 +229,5 @@ export const KineticText: React.FC<KineticTextProps> = ({
     );
   }
 
-  return <div style={baseFontStyle}>{text}</div>;
+  return <div data-kinetic-text="true" style={baseFontStyle}>{text}</div>;
 };

@@ -104,6 +104,68 @@ function staticTransform(style: Record<string, any>): { transform?: string; rota
   };
 }
 
+/**
+ * Fast synchronous canvas text measurement.
+ * Measures the exact bounding box in percent space based on text content, font size,
+ * weight, and family, preventing hardcoded 100% width or 15% height boxes.
+ */
+let _measureCanvas: HTMLCanvasElement | null = null;
+
+function estimateTextDims(
+  text: string,
+  fontSizeVal: any,
+  fontFamily: string,
+  fontWeight: string | number,
+  baseWidth = 1920,
+  baseHeight = 1080
+): { widthPct: number; heightPct: number } {
+  if (!text || !text.trim()) {
+    return { widthPct: 30, heightPct: 10 };
+  }
+  const cleanText = text.trim();
+  const fs = typeof fontSizeVal === 'number' && Number.isFinite(fontSizeVal)
+    ? fontSizeVal
+    : parseFloat(String(fontSizeVal)) || 64;
+
+  if (typeof document !== 'undefined') {
+    if (!_measureCanvas) {
+      _measureCanvas = document.createElement('canvas');
+    }
+    const ctx = _measureCanvas.getContext('2d');
+    if (ctx) {
+      ctx.font = `${fontWeight || 'bold'} ${fs}px ${fontFamily || 'Inter, sans-serif'}`;
+      const lines = cleanText.split('\n');
+      let maxLineWidth = 0;
+      for (const line of lines) {
+        const metrics = ctx.measureText(line);
+        if (metrics.width > maxLineWidth) {
+          maxLineWidth = metrics.width;
+        }
+      }
+      // Add comfortable padding (24px horizontal, 16px vertical)
+      const totalWidthPx = maxLineWidth + 24;
+      const lineHeightPx = fs * 1.3;
+      const totalHeightPx = lines.length * lineHeightPx + 16;
+
+      const widthPct = clampN((totalWidthPx / baseWidth) * 100, 8, 98);
+      const heightPct = clampN((totalHeightPx / baseHeight) * 100, 5, 90);
+      return {
+        widthPct: Math.round(widthPct * 100) / 100,
+        heightPct: Math.round(heightPct * 100) / 100,
+      };
+    }
+  }
+
+  // Fallback if canvas is unavailable
+  const approxWidth = cleanText.length * (fs * 0.55) + 24;
+  const widthPct = clampN((approxWidth / baseWidth) * 100, 10, 95);
+  const heightPct = clampN(((fs * 1.4) / baseHeight) * 100, 6, 80);
+  return {
+    widthPct: Math.round(widthPct * 100) / 100,
+    heightPct: Math.round(heightPct * 100) / 100,
+  };
+}
+
 interface Box {
   leftPct: number | null;
   rightPct: number | null;
@@ -122,7 +184,13 @@ interface Box {
 }
 
 /** Mirror of ASTRenderer layout resolution in percent space. Order-based stacking: orderIdx=array index (0=bottom). */
-function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080, orderIdx = 0): Box {
+function layerToBox(
+  layer: any,
+  baseWidth = 1920,
+  baseHeight = 1080,
+  orderIdx = 0,
+  measuredDomRect?: { left: number; top: number; width: number; height: number } | null
+): Box {
   const style: Record<string, any> = layer?.content?.style || {};
   const cType = layer?.content?.type || 'Image';
   const isText = cType === 'Text';
@@ -133,7 +201,9 @@ function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080, orderIdx = 
 
   const { transform, rotateDeg } = staticTransform(style);
 
-  if (!hasCustomLayout) {
+  // TEXT LAYERS MUST NEVER BE FULLSCREEN!
+  // Text layers are content-driven typography and must always display interactive handles.
+  if (!hasCustomLayout && !isText) {
     return {
       leftPct: 0,
       rightPct: null,
@@ -153,7 +223,6 @@ function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080, orderIdx = 
   }
 
   const aspect = parseAspect(style);
-  const widthPct = parsePct(style.width, 100, false, baseWidth, baseHeight);
 
   const rawLeft = style.left;
   const rawRight = style.right;
@@ -165,8 +234,35 @@ function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080, orderIdx = 
   const hasTop = rawTop !== undefined && rawTop !== null && String(rawTop).trim() !== '';
   const hasBottom = rawBottom !== undefined && rawBottom !== null && String(rawBottom).trim() !== '';
 
+  const rawWidth = style.width;
+  const hasWidth = rawWidth !== undefined && rawWidth !== null && String(rawWidth).trim() !== '';
   const rawHeight = style.height;
   const hasHeight = rawHeight !== undefined && rawHeight !== null && String(rawHeight).trim() !== '';
+
+  // Smart text metrics calculation
+  let textDims: { widthPct: number; heightPct: number } | null = null;
+  if (isText) {
+    textDims = estimateTextDims(
+      layer?.content?.text || '',
+      style.fontSize || '64px',
+      layer?.content?.font || style.fontFamily || 'Inter, sans-serif',
+      layer?.content?.weight || style.fontWeight || 'bold',
+      baseWidth,
+      baseHeight
+    );
+  }
+
+  let widthPct: number;
+  if (hasWidth) {
+    widthPct = parsePct(rawWidth, 100, false, baseWidth, baseHeight);
+  } else if (isText) {
+    // If live DOM measurement from player is available, use it; otherwise canvas estimation
+    widthPct = measuredDomRect && measuredDomRect.width > 0
+      ? measuredDomRect.width
+      : textDims!.widthPct;
+  } else {
+    widthPct = parsePct(style.width, 100, false, baseWidth, baseHeight);
+  }
 
   let heightPct: number | null = null;
   if (aspect) {
@@ -176,20 +272,58 @@ function layerToBox(layer: any, baseWidth = 1920, baseHeight = 1080, orderIdx = 
   } else if (hasHeight) {
     heightPct = parsePct(rawHeight, 100, true, baseWidth, baseHeight);
   } else if (isText) {
-    // Kinetic text without explicit height: default to a tidy 15% lower-third box
-    // so bottom-anchored text doesn't stretch 100% across the whole screen.
-    heightPct = 15;
+    heightPct = measuredDomRect && measuredDomRect.height > 0
+      ? measuredDomRect.height
+      : textDims!.heightPct;
   } else if (!hasTop && hasBottom) {
     heightPct = 25;
   } else {
     heightPct = parsePct(style.height, 100, true, baseWidth, baseHeight);
   }
 
+  // Left position: if not set and is text, center or align according to textAlign
+  let leftPct: number | null = null;
+  let rightPct: number | null = null;
+  if (hasLeft || (!isText && !hasRight)) {
+    leftPct = parsePct(rawLeft, 0, false, baseWidth, baseHeight);
+  } else if (hasRight) {
+    rightPct = parsePct(rawRight, 0, false, baseWidth, baseHeight);
+  } else if (isText) {
+    if (measuredDomRect && Number.isFinite(measuredDomRect.left) && measuredDomRect.left >= 0) {
+      leftPct = measuredDomRect.left;
+    } else {
+      const align = style.textAlign || 'center';
+      if (align === 'left') {
+        leftPct = 10;
+      } else if (align === 'right') {
+        rightPct = 10;
+      } else {
+        leftPct = Math.max(0, Math.round(((100 - widthPct) / 2) * 100) / 100);
+      }
+    }
+  }
+
+  // Top position: if not set and is text, center or place sensibly
+  let topPct: number | null = null;
+  let bottomPct: number | null = null;
+  if (hasTop || (!isText && !hasBottom)) {
+    topPct = parsePct(rawTop, 0, true, baseWidth, baseHeight);
+  } else if (hasBottom) {
+    bottomPct = parsePct(rawBottom, 0, true, baseWidth, baseHeight);
+  } else if (isText) {
+    if (measuredDomRect && Number.isFinite(measuredDomRect.top) && measuredDomRect.top >= 0) {
+      topPct = measuredDomRect.top;
+    } else {
+      const h = heightPct ?? 15;
+      topPct = Math.max(0, Math.round(((100 - h) / 2) * 100) / 100);
+    }
+  }
+
   return {
-    leftPct: hasLeft || !hasRight ? parsePct(rawLeft, 0, false, baseWidth, baseHeight) : null,
-    rightPct: !hasLeft && hasRight ? parsePct(rawRight, 0, false, baseWidth, baseHeight) : null,
-    topPct: hasTop || !hasBottom ? parsePct(rawTop, 0, true, baseWidth, baseHeight) : null,
-    bottomPct: !hasTop && hasBottom ? parsePct(rawBottom, 0, true, baseWidth, baseHeight) : null,
+    leftPct,
+    rightPct,
+    topPct,
+    bottomPct,
     widthPct,
     heightPct,
     aspectRatio: aspect,
@@ -504,7 +638,7 @@ function computeDrag(
   };
 }
 
-/** P4 Alt-drag scale factors from raw (unclamped) corner deltas. */
+/** P4 Corner drag scale factors from raw (unclamped) corner deltas. */
 function scaleFactors(
   init: DragInit,
   corner: DragCorner | null,
@@ -517,13 +651,10 @@ function scaleFactors(
   const rawH = init.height + (south ? dyPct : -dyPct);
   const fx = init.width > 0 ? rawW / init.width : 1;
   const fy = init.height > 0 ? rawH / init.height : 1;
-  if (init.aspect) {
-    // Aspect-locked media scales uniformly — follow the dominant drag
-    // direction so a corner pull can never squish the layer.
-    const f = Math.abs(dxPct) >= Math.abs(dyPct) ? fx : fy;
-    return { fx: f, fy: f };
-  }
-  return { fx, fy };
+  // Uniform scaling by default: pick the dominant axis delta so corner pulls
+  // preserve aspect ratio and never squish or distort text or media.
+  const f = Math.abs(dxPct) >= Math.abs(dyPct) ? fx : fy;
+  return { fx: f, fy: f };
 }
 
 /** P4: scale multipliers from factors — sign-preserving (flip), 10–500%. */
@@ -740,7 +871,7 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
     : (selected ? 100 : 20 + box.zIndex);
 
   // Keep label badges visible inside container when box is near the top edge
-  const isNearTop = effBox.topPct !== null && effBox.topPct < 4 && !effBox.fullscreen;
+  const isNearTop = effBox.topPct !== null && effBox.topPct < 6 && !effBox.fullscreen;
   const badgeTop = isNearTop ? 4 : -22;
   const badgeLeft = isNearTop ? 4 : 0;
   // Effective rotation drives the badge counter-rotation (live during spins)
@@ -777,6 +908,15 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
     e.stopPropagation();
     onSelect(idx);
   }, [onSelect, idx, suppressRef]);
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (locked) return;
+    e.stopPropagation();
+    onSelect(idx);
+    const st = useEditorStore.getState();
+    if (st.inspectorTab !== 'visuals') {
+      st.setInspectorTab('visuals');
+    }
+  }, [locked, onSelect, idx]);
   const makeHandleDown = useCallback((mode: DragMode, dir: DragCorner | EdgeDir) => (e: React.PointerEvent) => {
     onBeginDrag(e, idx, box, layer, mode, dir);
   }, [onBeginDrag, idx, box, layer]);
@@ -816,6 +956,7 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
       onPointerUp={handleBoxUp}
       onPointerCancel={handleBoxCancel}
       onClick={handleBoxClick}
+      onDoubleClick={handleDoubleClick}
       title={`Layer ${idx + 1} · ${cType}${box.fullscreen ? ' (fullscreen)' : ''}${locked ? ' — AI rewriting…' : ''}`}
       style={{
         ...posStyle,
@@ -855,8 +996,9 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
       >
         {`L${idx + 1} · ${cType}`}
       </span>
-      {/* P3/P4 corner resize handles (aspect-aware; rotated layers resize
-          in local axes). Hold Alt to scale multipliers instead. */}
+      {/* P3/P4 corner scale handles (aspect-preserving uniform scale).
+          Corner drag directly manipulates scale; hold Alt for dimension resizing.
+          22px expanded hitbox ensures effortless, reliable grabbing. */}
       {showHandles &&
         (['se', 'sw', 'ne', 'nw'] as DragCorner[]).map((c) => (
           <div
@@ -866,30 +1008,38 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
             onPointerUp={handleBoxUp}
             onPointerCancel={handleBoxCancel}
             onClick={consumeClick}
-            title={
-              box.aspectRatio
-                ? 'Resize (aspect locked — width drives height; Alt: scale)'
-                : 'Resize corner (Alt: scale)'
-            }
+            title="Scale element (Alt: resize box dimensions)"
             style={{
               position: 'absolute',
-              width: 10,
-              height: 10,
-              left: c === 'sw' || c === 'nw' ? -5 : undefined,
-              right: c === 'se' || c === 'ne' ? -5 : undefined,
-              top: c === 'ne' || c === 'nw' ? -5 : undefined,
-              bottom: c === 'se' || c === 'sw' ? -5 : undefined,
-              borderRadius: 2,
-              background: 'rgba(245,158,11,0.95)',
-              border: '1px solid rgba(0,0,0,0.6)',
+              width: 22,
+              height: 22,
+              left: c === 'sw' || c === 'nw' ? -11 : undefined,
+              right: c === 'se' || c === 'ne' ? -11 : undefined,
+              top: c === 'ne' || c === 'nw' ? -11 : undefined,
+              bottom: c === 'se' || c === 'sw' ? -11 : undefined,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               cursor: cornerCursor(c, effRotateDeg),
               transform: invHandles,
-              zIndex: 1,
+              zIndex: 10,
               touchAction: 'none',
             }}
-          />
+          >
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 2,
+                background: 'rgba(245,158,11,0.95)',
+                border: '1px solid rgba(0,0,0,0.6)',
+                boxShadow: '0 0 4px rgba(0,0,0,0.5)',
+              }}
+            />
+          </div>
         ))}
-      {/* P4 edge resize handles (N/S unlock aspect; rotated use local axes). */}
+      {/* P4 edge resize handles (N/S unlock aspect; rotated use local axes).
+          24px expanded hitbox ensures easy edge grabbing. */}
       {showHandles &&
         (['n', 's', 'e', 'w'] as EdgeDir[]).map((d) => (
           <div
@@ -910,27 +1060,37 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
             }
             style={{
               position: 'absolute',
-              width: d === 'n' || d === 's' ? 14 : 10,
-              height: d === 'n' || d === 's' ? 10 : 14,
-              left: d === 'n' || d === 's' ? '50%' : d === 'w' ? -5 : undefined,
-              right: d === 'e' ? -5 : undefined,
-              top: d === 'e' || d === 'w' ? '50%' : d === 'n' ? -5 : undefined,
-              bottom: d === 's' ? -5 : undefined,
-              marginLeft: d === 'n' || d === 's' ? -7 : undefined,
-              marginTop: d === 'e' || d === 'w' ? -7 : undefined,
-              borderRadius: 2,
-              background: 'rgba(245,158,11,0.95)',
-              border: '1px solid rgba(0,0,0,0.6)',
+              width: d === 'n' || d === 's' ? 24 : 18,
+              height: d === 'n' || d === 's' ? 18 : 24,
+              left: d === 'n' || d === 's' ? '50%' : d === 'w' ? -9 : undefined,
+              right: d === 'e' ? -9 : undefined,
+              top: d === 'e' || d === 'w' ? '50%' : d === 'n' ? -9 : undefined,
+              bottom: d === 's' ? -9 : undefined,
+              marginLeft: d === 'n' || d === 's' ? -12 : undefined,
+              marginTop: d === 'e' || d === 'w' ? -12 : undefined,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               cursor: edgeCursor(d, effRotateDeg),
               transform: invHandles,
-              zIndex: 1,
+              zIndex: 9,
               touchAction: 'none',
             }}
-          />
+          >
+            <div
+              style={{
+                width: d === 'n' || d === 's' ? 14 : 8,
+                height: d === 'n' || d === 's' ? 8 : 14,
+                borderRadius: 2,
+                background: 'rgba(245,158,11,0.95)',
+                border: '1px solid rgba(0,0,0,0.6)',
+                boxShadow: '0 0 4px rgba(0,0,0,0.5)',
+              }}
+            />
+          </div>
         ))}
-      {/* P4 rotate lollipop — orbits with the box (no counter-rotation:
-          the knob is symmetric and the stem must stay glued to the top
-          edge). Lifted clear of the North handle's hitbox. */}
+      {/* P4 rotate lollipop — orbits with the box. Lifted clear of North handle.
+          Inverts to bottom edge when near top edge of canvas to prevent clipping. */}
       {showHandles && (
         <div
           onPointerDown={handleRotateDown}
@@ -942,13 +1102,14 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
           style={{
             position: 'absolute',
             left: '50%',
-            top: -38,
+            top: isNearTop ? undefined : -38,
+            bottom: isNearTop ? -38 : undefined,
             width: 16,
             height: 30,
             marginLeft: -8,
             cursor: 'grab',
             transform: invHandles,
-            zIndex: 2,
+            zIndex: 12,
             touchAction: 'none',
           }}
         >
@@ -957,7 +1118,7 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
               width: '100%',
               height: '100%',
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection: isNearTop ? 'column-reverse' : 'column',
               alignItems: 'center',
             }}
           >
@@ -968,6 +1129,7 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
                 borderRadius: '50%',
                 background: 'rgba(245,158,11,0.95)',
                 border: '1px solid rgba(0,0,0,0.6)',
+                boxShadow: '0 0 4px rgba(0,0,0,0.5)',
               }}
             />
             <div style={{ width: 1, height: 15, background: 'rgba(245,158,11,0.7)' }} />
@@ -1052,6 +1214,73 @@ export const CanvasOverlay: React.FC<{
   const rotateMoveRef = useRef<{ x: number; y: number } | null>(null);
   const handleRotateMoveRef = useRef<(e: React.PointerEvent) => void>(() => {});
   const handleRotateEndRef = useRef<(e: React.PointerEvent, commit: boolean) => void>(() => {});
+
+  // Live DOM measurement from Remotion Player DOM:
+  // Measures the exact rendered bounding box of layers (especially kinetic text).
+  const [domRects, setDomRects] = useState<Record<number, { left: number; top: number; width: number; height: number }>>({});
+
+  useEffect(() => {
+    if (!rootRef.current) return;
+    const root = rootRef.current;
+    const parent = root.parentElement;
+    if (!parent) return;
+
+    const measure = () => {
+      const rootRect = root.getBoundingClientRect();
+      if (rootRect.width <= 0 || rootRect.height <= 0) return;
+
+      const newRects: Record<number, { left: number; top: number; width: number; height: number }> = {};
+      const layerEls = parent.querySelectorAll<HTMLElement>('[data-ast-layer-idx]');
+      layerEls.forEach((el) => {
+        const idxAttr = el.getAttribute('data-ast-layer-idx');
+        if (idxAttr === null) return;
+        const idx = parseInt(idxAttr, 10);
+        if (isNaN(idx)) return;
+
+        const isTextLayer = el.getAttribute('data-ast-layer-type') === 'Text';
+        const targetNode = isTextLayer ? (el.querySelector<HTMLElement>('[data-kinetic-text]') || el) : el;
+        const targetRect = targetNode.getBoundingClientRect();
+
+        const left = ((targetRect.left - rootRect.left) / rootRect.width) * 100;
+        const top = ((targetRect.top - rootRect.top) / rootRect.height) * 100;
+        const width = (targetRect.width / rootRect.width) * 100;
+        const height = (targetRect.height / rootRect.height) * 100;
+
+        if (width > 0 && height > 0) {
+          newRects[idx] = {
+            left: Math.round(left * 100) / 100,
+            top: Math.round(top * 100) / 100,
+            width: Math.round(width * 100) / 100,
+            height: Math.round(height * 100) / 100,
+          };
+        }
+      });
+
+      setDomRects((prev) => {
+        const prevKeys = Object.keys(prev);
+        const newKeys = Object.keys(newRects);
+        if (prevKeys.length !== newKeys.length) return newRects;
+        for (const k of newKeys) {
+          const p = prev[Number(k)];
+          const n = newRects[Number(k)];
+          if (
+            !p ||
+            Math.abs(p.left - n.left) > 0.5 ||
+            Math.abs(p.top - n.top) > 0.5 ||
+            Math.abs(p.width - n.width) > 0.5 ||
+            Math.abs(p.height - n.height) > 0.5
+          ) {
+            return newRects;
+          }
+        }
+        return prev;
+      });
+    };
+
+    measure();
+    const t = setTimeout(measure, 60);
+    return () => clearTimeout(t);
+  }, [scenes, selectedSceneIndex, selectedSubVisualIndex, currentFrame]);
 
   // Prop mirrors: gesture callbacks and global listeners stay referentially
   // stable while always reading the latest values, so window listeners
@@ -1177,11 +1406,12 @@ export const CanvasOverlay: React.FC<{
       if (e.key !== 'Alt') return;
       const s = dragRef.current;
       if (!s || s.mode !== 'corner') return;
-      if (s.scaleMode === want) return;
+      const targetScaleMode = !want;
+      if (s.scaleMode === targetScaleMode) return;
       if (want) e.preventDefault();
       const updated: DragSession = {
         ...s,
-        scaleMode: want,
+        scaleMode: targetScaleMode,
         cur: { left: s.init.left, top: s.init.top, width: s.init.width, height: s.init.height },
         preview: null,
         moved: true,
@@ -1358,14 +1588,18 @@ export const CanvasOverlay: React.FC<{
     if (children.length === 0) return null;
     // Paint order = children array order (children[0]=bottom).
     const source = children.map((layer, idx) => ({ layer, idx }));
-    const ordered = source.map(({ layer, idx }, orderIdx) => ({ layer, idx, box: layerToBox(layer, compW, compH, orderIdx) }));
+    const ordered = source.map(({ layer, idx }, orderIdx) => ({
+      layer,
+      idx,
+      box: layerToBox(layer, compW, compH, orderIdx, domRects[idx]),
+    }));
     return {
       displaySubIdx,
       isViewingSelectedCut: displaySubIdx === selectedSubVisualIndex,
       children,
       ordered,
     };
-  }, [scenes, selectedSceneIndex, selectedSubVisualIndex, activeSceneIdx, playheadSubIdx, compW, compH]);
+  }, [scenes, selectedSceneIndex, selectedSubVisualIndex, activeSceneIdx, playheadSubIdx, compW, compH, domRects]);
 
   // ── P3/P4 direct manipulation ─────────────────────────────────────
   // Pointerdown selects immediately (click and drag share one path; the
@@ -1399,7 +1633,7 @@ export const CanvasOverlay: React.FC<{
     if (!rect || rect.width <= 0 || rect.height <= 0) return;
     const style: Record<string, any> = { ...(layer?.content?.style || {}) };
     const { left, top, height } = boxTopLeft(box, rect.width, rect.height);
-    const scaleMode = mode === 'corner' && e.altKey;
+    const scaleMode = mode === 'corner' ? !e.altKey : false;
     const edge = mode === 'edge' ? (dir as EdgeDir) : null;
     const corner = mode === 'corner' ? (dir as DragCorner) : null;
     const dropAspect = mode === 'edge' && (edge === 'n' || edge === 's') && !!box.aspectRatio;
@@ -1648,6 +1882,30 @@ export const CanvasOverlay: React.FC<{
           className="absolute inset-0 z-0 cursor-default"
           style={{ pointerEvents: 'auto' }}
           onClick={() => setSelectedLayerIndex(null)}
+        />
+      )}
+
+      {/* Live center snap guide lines (shown during body move gesture when aligned with canvas center) */}
+      {drag && drag.mode === 'move' && Math.abs((drag.cur.left + drag.cur.width / 2) - 50) < 0.75 && (
+        <div
+          className="absolute top-0 bottom-0 pointer-events-none z-30"
+          style={{
+            left: '50%',
+            width: 1,
+            backgroundColor: 'rgba(245, 158, 11, 0.9)',
+            boxShadow: '0 0 8px rgba(245, 158, 11, 0.75)',
+          }}
+        />
+      )}
+      {drag && drag.mode === 'move' && Math.abs((drag.cur.top + drag.cur.height / 2) - 50) < 0.75 && (
+        <div
+          className="absolute left-0 right-0 pointer-events-none z-30"
+          style={{
+            top: '50%',
+            height: 1,
+            backgroundColor: 'rgba(245, 158, 11, 0.9)',
+            boxShadow: '0 0 8px rgba(245, 158, 11, 0.75)',
+          }}
         />
       )}
 

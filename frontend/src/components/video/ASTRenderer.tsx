@@ -361,11 +361,12 @@ MediaNode.displayName = 'MediaNode';
  */
 const ASTLayerView: React.FC<{
   layer: ASTLayer;
+  idx: number;
   zIndex: number;
   mode: QualityMode;
   policy: QualityPolicy;
   glassCap: number;
-}> = React.memo(({ layer, zIndex, mode, policy, glassCap }) => {
+}> = React.memo(({ layer, idx, zIndex, mode, policy, glassCap }) => {
         const { content, animations, filters } = layer;
         const contentStyle = (content as any).style as React.CSSProperties | undefined;
         const { containerStyle: layoutStyle, contentStyle: innerStyle } = React.useMemo(
@@ -572,7 +573,10 @@ const ASTLayerView: React.FC<{
         if (!node) return null;
 
         const inner = (
-          <div style={{
+          <div
+            data-ast-layer-idx={idx}
+            data-ast-layer-type={content.type}
+            style={{
             ...containerBaseStyle,
             ...(optimizedBackdrop !== (layoutStyle as any).backdropFilter
               ? { backdropFilter: optimizedBackdrop }
@@ -660,6 +664,7 @@ const ASTRendererInner: React.FC<{
         <ASTLayerView
           key={idx}
           layer={layer}
+          idx={idx}
           zIndex={idx + 1}
           mode={mode}
           policy={policy}
