@@ -273,34 +273,31 @@ def _get_section_duration(project_id: str, scene_idx: int, section_type: str, cu
     return 15.0
 
 
-def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, full_script: dict) -> str:
-    """Load word-level Whisper transcription and extract timestamps for a specific scene.
+def _load_scene_words(project_id: str, scene_idx: int, section_type: str, full_script: dict):
+    """Shared word-timing loader for visual prompts.
 
-    Computes the cumulative audio offset by summing manifest durations for all
-    preceding scenes, then filters transcription words falling within this scene's
-    time window.  Returns a formatted string suitable for injection into an LLM
-    prompt, or an empty string when transcription data is unavailable.
-
-    It also compares the current script hash against the manifest's stored hash
-    to detect if the user has edited the script or reordered scenes since the
-    last voiceover generation. If so, timestamps are labelled as approximate.
+    Returns (words, is_stale) where words is a list of
+    (word, offset_seconds_from_scene_start) tuples, or ([], False)
+    when transcription data is unavailable. is_stale is True when the
+    narration was edited after the last voiceover (timestamps are from
+    the previous audio and must not be trusted for exact delays).
     """
     try:
         from backend.core.config import get_storage_dir
         project = get_project(project_id)
         if not project:
-            return ""
+            return [], False
 
         # Load transcription data
         transcription_path = project.get("transcription_path", "")
         if not transcription_path or not os.path.exists(transcription_path):
-            return ""
+            return [], False
 
         with open(transcription_path, "r", encoding="utf-8") as f:
             transcription_data = json.load(f)
 
         if not transcription_data or "segments" not in transcription_data:
-            return ""
+            return [], False
 
         # Load manifest for reliable scene-level durations
         manifest_path = project.get("assets_manifest_path", "")
@@ -308,7 +305,7 @@ def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, 
             # Fallback to voiceover manifest
             manifest_path = str(get_storage_dir() / project_id / "voiceover" / "manifest.json")
         if not os.path.exists(manifest_path):
-            return ""
+            return [], False
 
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
@@ -332,13 +329,13 @@ def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, 
                     break
 
         if target_manifest_idx is None:
-            return ""
+            return [], False
 
         # Out-of-bounds check for scenes
         if section_type == "scenes":
             scenes = full_script.get("scenes", [])
             if scene_idx >= len(scenes):
-                return ""
+                return [], False
 
         target_entry = manifest[target_manifest_idx]
 
@@ -371,32 +368,119 @@ def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, 
 
         scene_duration = _safe_float(target_entry.get("duration", 15.0), 15.0)
 
-        # Extract words within this scene's time window
+        # Extract words within this scene's time window (skip empty /
+        # punctuation-only entries so the prompt has no "[1.2s]" ghosts)
         words_in_scene = []
         for seg in transcription_data["segments"]:
             for w in seg.get("words", []):
                 w_start = w.get("start", 0)
+                text = (w.get('word') or '').strip()
+                if not text:
+                    continue
                 if w_start >= cumulative_time and w_start < cumulative_time + scene_duration:
-                    words_in_scene.append(
-                        f"{(w.get('word') or '').strip()} [{w_start - cumulative_time:.1f}s]"
-                    )
+                    words_in_scene.append((text, w_start - cumulative_time))
 
-        if not words_in_scene:
-            return ""
-
-        if is_stale:
-            header = (
-                "\nAPPROXIMATE Spoken Word Timestamps (narration has been edited since last voiceover — "
-                "timestamps are from the PREVIOUS audio and may not align precisely with current text):\n"
-            )
-        else:
-            header = "\nExact Spoken Words with Timestamps (Seconds from Scene Start):\n"
-
-        return header + " ".join(words_in_scene) + "\n"
+        return words_in_scene, is_stale
 
     except Exception as e:
         logger.warning(f"Failed to load word timings for scene {scene_idx} ({section_type}): {e}")
+        return [], False
+
+
+# Fallback timing rule injected into visual prompts when no (exact) word
+# timestamps are available — keeps entrances visible without guessing.
+NO_TIMINGS_FALLBACK = (
+    "No reliable word timestamps available — use safe stagger delays "
+    "(entrances 0.5s, foreground 0.7s) instead of guessing narration sync."
+)
+
+
+def _get_cut_word_timings(project_id: str, scene_idx: int, section_type: str,
+                           full_script: dict, sub_idx: int) -> str:
+    """Words spoken DURING one sub-visual cut, in cut-relative seconds.
+
+    Pre-subtracts the cut's start offset so the model can use the values
+    directly as animation `delay` without offset arithmetic. Returns ""
+    when no words fall inside the cut (caller should then use
+    NO_TIMINGS_FALLBACK when no scene timings exist either).
+    """
+    if section_type == "introduction":
+        section = full_script.get("introduction", {})
+    elif section_type == "conclusion":
+        section = full_script.get("conclusion", {})
+    else:
+        scenes = full_script.get("scenes", [])
+        if scene_idx >= len(scenes):
+            return ""
+        section = scenes[scene_idx]
+    sub_visuals = section.get("sub_visuals", [])
+    if sub_idx < 0 or sub_idx >= len(sub_visuals):
         return ""
+    cut_start = sum(_safe_float(sv.get("duration", 0)) for sv in sub_visuals[:sub_idx] if isinstance(sv, dict))
+    cut_start = sum(_safe_float(sv.get("duration", 0)) for sv in sub_visuals[:sub_idx] if isinstance(sv, dict))
+    cut_dur = _safe_float(sub_visuals[sub_idx].get("duration", 0) if isinstance(sub_visuals[sub_idx], dict) else 0)
+
+    words, is_stale = _load_scene_words(project_id, scene_idx, section_type, full_script)
+    in_cut = [(w, o - cut_start) for (w, o) in words if o >= cut_start and o < cut_start + cut_dur and w]
+    if not in_cut:
+        return ""
+    body = " ".join(f"{w} [{o:.1f}s]" for w, o in in_cut)
+    if is_stale:
+        return (
+            "\nAPPROXIMATE words during THIS CUT (narration edited since voiceover — "
+            "do NOT trust for exact `delay`; prefer safe stagger 0.5s/0.7s):\n" + body + "\n"
+        )
+    return (
+        "\nWords Spoken DURING THIS CUT (seconds from CUT start — "
+        "use these values directly as animation `delay`; if a value is below 0.5, use 0.5):\n" + body + "\n"
+    )
+
+
+def _get_genre_pacing_line(project_id: str, full_script: dict, sub_visuals: list) -> str:
+    """Compact genre + rhythm line so rewrites match the project's pacing."""
+    try:
+        from backend.pipeline.genres import get_genre_profile
+        project = get_project(project_id)
+        genre_key = (project.get("prompt", "") if project else "") or "documentary"
+        profile = get_genre_profile(genre_key)
+        durs = [_safe_float(sv.get("duration", 0)) for sv in (sub_visuals or []) if isinstance(sv, dict) and _safe_float(sv.get("duration", 0)) > 0]
+        rhythm = f" Match the surrounding rhythm (~{sum(durs) / len(durs):.1f}s per cut)." if durs else ""
+        return (
+            f"Genre: {profile.get('name', genre_key)} — {profile.get('tagline', '')} "
+            f"Format: {full_script.get('video_format', 'landscape')}.{rhythm}\n"
+        )
+    except Exception as e:
+        logger.warning(f"Genre pacing line skipped: {e}")
+        return ""
+
+
+def _get_scene_word_timings(project_id: str, scene_idx: int, section_type: str, full_script: dict) -> str:
+    """Load word-level Whisper transcription and extract timestamps for a specific scene.
+
+    Computes the cumulative audio offset by summing manifest durations for all
+    preceding scenes, then filters transcription words falling within this scene's
+    time window.  Returns a formatted string suitable for injection into an LLM
+    prompt, or an empty string when transcription data is unavailable.
+
+    Staleness is detected per scene by comparing the current narration against
+    the manifest text used at voiceover generation, so editing an unrelated
+    scene doesn't mark this scene's timestamps as approximate.
+    """
+    words_in_scene, is_stale = _load_scene_words(project_id, scene_idx, section_type, full_script)
+    if not words_in_scene:
+        return ""
+
+    if is_stale:
+        header = (
+            "\nAPPROXIMATE Spoken Word Timestamps (narration has been edited since last voiceover — "
+            "timestamps are from the PREVIOUS audio and may not align precisely with current text). "
+            "Do NOT trust these for exact animation `delay` values — prefer the safe stagger "
+            "(entrances 0.5s, foreground 0.7s).\n"
+        )
+    else:
+        header = "\nExact Spoken Words with Timestamps (Seconds from Scene Start):\n"
+
+    return header + " ".join(f"{w} [{o:.1f}s]" for w, o in words_in_scene) + "\n"
 
 
 def _format_sub_visual_durations(sub_visuals: list, highlight_idx: int = -1) -> str:
@@ -424,6 +508,87 @@ def _format_sub_visual_durations(sub_visuals: list, highlight_idx: int = -1) -> 
         cumulative += dur
 
     return "\n".join(lines) + "\n"
+
+
+def _clamp_cut_animation_delays(sub_visual: dict) -> bool:
+    """Fit keyframe timings inside the cut duration (mutates in place).
+
+    Guarantees delay + duration <= cut duration. When an overshoot is
+    found, prefers keeping the entrance visible (delay >= 0.5) by
+    shortening duration first; only pushes delay below 0.5 when the cut
+    itself is too short for that. Returns True when anything changed.
+    """
+    if not isinstance(sub_visual, dict):
+        return False
+    cut_dur = _safe_float(sub_visual.get("duration", 0))
+    if cut_dur <= 0:
+        return False
+    changed = False
+    comp = sub_visual.get("composition", {})
+    for layer in (comp.get("children", []) if isinstance(comp, dict) else []):
+        if not isinstance(layer, dict):
+            continue
+        for anim in (layer.get("animations", []) or []):
+            if not isinstance(anim, dict):
+                continue
+            dur = _safe_float(anim.get("duration", 0))
+            delay = _safe_float(anim.get("delay", 0))
+            if dur <= 0:
+                continue
+            if delay + dur <= cut_dur:
+                continue
+            fit_delay = cut_dur - dur
+            if cut_dur > 0.5 and fit_delay >= 0.5:
+                # Shifting the entrance earlier keeps it visible — leave
+                # duration untouched for a minimal change.
+                anim["delay"] = round(fit_delay, 2)
+            elif cut_dur > 0.5:
+                # No visible-delay shift fits: pin delay at 0.5 and shorten
+                # the duration instead of hiding the start under the cut
+                # transition.
+                anim["delay"] = 0.5
+                anim["duration"] = round(cut_dur - 0.5, 2)
+            else:
+                # Cut shorter than the transition itself: fit exactly.
+                anim["delay"] = 0.0
+                anim["duration"] = round(min(dur, cut_dur), 2)
+            changed = True
+    return changed
+
+
+def _find_queryless_media(sub_visual: dict) -> list:
+    """Layer indices whose Image/Video content has no usable search query.
+
+    Mirrors backend/agent/validators._is_queryless_media: a query nested in
+    a hallucinated ``sources[{query}]`` array still counts as usable.
+    Call AFTER normalize_sub_visuals_sources so hoisted queries are seen.
+    """
+    bad = []
+    if not isinstance(sub_visual, dict):
+        return bad
+    comp = sub_visual.get("composition", {})
+    children = comp.get("children", []) if isinstance(comp, dict) else []
+    for i, layer in enumerate(children):
+        if not isinstance(layer, dict):
+            continue
+        content = layer.get("content", {})
+        if not isinstance(content, dict):
+            continue
+        if content.get("type") not in ("Image", "Video"):
+            continue
+        q = content.get("query")
+        if isinstance(q, str) and q.strip():
+            continue
+        sources = content.get("sources")
+        if isinstance(sources, list) and any(
+            isinstance(e, dict) and isinstance(e.get("query"), str) and e["query"].strip()
+            for e in sources
+        ):
+            continue
+        if any(content.get(k) for k in ("local_path", "asset_url", "url", "visual_path", "preview_path")):
+            continue
+        bad.append(i)
+    return bad
 
 
 def _call_llm_safe(system_prompt, user_prompt, schema, cancel_event=None, use_tools=False, allowed_tools=None):
@@ -1501,7 +1666,16 @@ class ApiBridge:
         # Gather word-level transcript and duration breakdown for precise AI timing
         narration_text = _get_section_narration(section_type, target_content)
         word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
+        if not word_timings:
+            word_timings = NO_TIMINGS_FALLBACK + "\n"
+        genre_line = _get_genre_pacing_line(project_id, full_script, current_visuals)
         duration_table = _format_sub_visual_durations(current_visuals)
+        if section_type == "introduction":
+            section_title = "Introduction"
+        elif section_type == "conclusion":
+            section_title = "Conclusion"
+        else:
+            section_title = target_content.get("title", f"Scene {scene_idx + 1}")
 
         prev_scene_context = ""
         if section_type == "scenes" and scene_idx > 0:
@@ -1515,7 +1689,9 @@ class ApiBridge:
 
         user_prompt = (
             f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
-            f"Narration for this segment:\n\"{narration_text}\"\n"
+            f"Scene Title: \"{section_title}\"\n"
+            + (f"{genre_line}" if genre_line else "")
+            + f"Narration for this segment:\n\"{narration_text}\"\n"
             + (f"{word_timings}\n" if word_timings else "")
             + (f"{duration_table}\n" if duration_table else "")
             + prev_scene_context
@@ -1550,6 +1726,15 @@ class ApiBridge:
                 for v in svs:
                     if isinstance(v, dict):
                         v["duration"] = round(_safe_float(v.get("duration", 1.0), 1.0) / _norm * total_duration, 2)
+
+            # Timing fit per (possibly renormalized) cut durations — the
+            # boundaries the model computed delays against may have shifted.
+            try:
+                clamped = sum(1 for v in svs if isinstance(v, dict) and _clamp_cut_animation_delays(v))
+                if clamped:
+                    logger.info(f"Full-scene rewrite: clamped animation delay(s) in {clamped} cut(s)")
+            except Exception as e:
+                logger.warning(f"Full-scene delay clamp skipped: {e}")
 
             # Preview-first: normalize any hardcoded sources[]/url shape back
             # to the query-only contract, then download each media query into
@@ -1611,6 +1796,15 @@ class ApiBridge:
         # Gather word-level transcript and duration breakdown for precise AI timing
         narration_text = _get_section_narration(section_type, section)
         word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
+        cut_timings = _get_cut_word_timings(project_id, scene_idx, section_type, full_script, sub_idx)
+        if cut_timings:
+            # Cut-relative block is authoritative (values usable directly as
+            # delay) — drop the scene-level block so the two arithmetics
+            # can't conflict.
+            word_timings = ""
+        if not word_timings and not cut_timings:
+            word_timings = NO_TIMINGS_FALLBACK + "\n"
+        genre_line = _get_genre_pacing_line(project_id, full_script, sub_visuals)
         duration_table = _format_sub_visual_durations(sub_visuals, highlight_idx=sub_idx)
 
         # Compute cumulative start offset for the target sub-visual within the scene
@@ -1627,8 +1821,10 @@ class ApiBridge:
         user_prompt = (
             f"Video Title: \"{doc_title}\"\n"
             f"Scene Title: \"{scene_title}\"\n"
-            f"Context (Narration of this scene):\n\"{narration_text}\"\n"
+            + (f"{genre_line}" if genre_line else "")
+            + f"Context (Narration of this scene):\n\"{narration_text}\"\n"
             + (f"{word_timings}\n" if word_timings else "")
+            + (f"{cut_timings}\n" if cut_timings else "")
             + (f"{duration_table}\n" if duration_table else "")
             + f"This sub-visual's target start offset is {sub_start_offset:.1f}s into the scene and lasts {_safe_float(target_sub_visual.get('duration', 0)):.1f}s.\n\n"
             + prev_context
@@ -1641,13 +1837,49 @@ class ApiBridge:
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
         result = _call_llm_safe(system_prompt, user_prompt, SubVisualAST, use_tools=True, allowed_tools=BRIDGE_VISUAL_TOOLS)
         if result.get("success") and isinstance(result.get("data"), dict):
-            # Same preview-first contract as section rewrites: strip any
-            # hardcoded sources[]/url the model embedded, then download the
+            from backend.agent.validators import normalize_sub_visuals_sources
+            # Normalize FIRST so hoisted sources[].query counts as usable and
+            # the queryless check below doesn't fire on fixable shapes.
+            try:
+                normalize_sub_visuals_sources([result["data"]])
+            except Exception as e:
+                logger.warning(f"Single-cut source normalization skipped: {e}")
+            # Post-check 1 (timing fit): clamp any animation whose
+            # delay + duration overshoots the cut duration.
+            try:
+                if _clamp_cut_animation_delays(result["data"]):
+                    logger.info("Single-cut rewrite: clamped animation delay(s) to fit cut duration")
+            except Exception as e:
+                logger.warning(f"Single-cut delay clamp skipped: {e}")
+            # Post-check 2 (queryless media): one correction retry when an
+            # Image/Video layer has no `query` and no local asset — otherwise
+            # the cut saves silently asset-less (full-scene path gates this,
+            # single-cut previously did not).
+            try:
+                bad = _find_queryless_media(result["data"])
+                if bad:
+                    logger.info(f"Single-cut rewrite: retrying queryless media on layer(s) {bad}")
+                    fix_prompt = (
+                        f"{user_prompt}\n\nCORRECTION REQUIRED: your previous output has "
+                        f"Image/Video layer(s) {bad} with no `query` (and no local asset). "
+                        "Every Image/Video layer MUST include a 1-3 word English `query` with a "
+                        "`source` (pexels|pixabay|wikipedia|youtube). Fix ONLY that — keep "
+                        "everything else identical. Previous output:\n"
+                        f"{json.dumps(result['data'])}\n"
+                    )
+                    retry = _call_llm_safe(system_prompt, fix_prompt, SubVisualAST, use_tools=False)
+                    if retry.get("success") and isinstance(retry.get("data"), dict):
+                        if not _find_queryless_media(retry["data"]):
+                            result = retry
+                            _clamp_cut_animation_delays(result["data"])
+                        else:
+                            logger.warning("Single-cut retry still queryless — keeping original output")
+            except Exception as e:
+                logger.warning(f"Single-cut queryless retry skipped: {e}")
+            # Same preview-first contract as section rewrites: download the
             # query into assets/previews/ so the cut previews real media.
             try:
-                from backend.agent.validators import normalize_sub_visuals_sources
                 from backend.pipeline.assets import materialize_rewrite_previews
-                normalize_sub_visuals_sources([result["data"]])
                 materialize_rewrite_previews(project_id, [result["data"]], video_format=video_format)
             except Exception as e:
                 logger.warning(f"Single-cut preview materialization skipped: {e}")

@@ -1882,6 +1882,7 @@ Do NOT create static chapter title badges, scene name cards, or temporary header
 - ONE hero-motion layer per sub-visual: full `animations` keyframes on exactly ONE non-background layer (the midground subject or foreground callout carrying the beat). The bottom background layer gets ONLY slow continuous drift; every other layer stays static.
 - When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), you MUST use them to sync entrances: `delay` = (word timestamp − this sub-visual's start offset within the scene), clamped to `[0.5, cut_duration − animation_duration]`, so each visual enters exactly when the narration mentions it.
 - `delay + duration` MUST be ≤ the sub-visual's `duration`. On short cuts (≤2.5s) use a short `duration` (0.4–0.5s) at the word-timed `delay`.
+- If NO word timestamps are provided for a scene, do NOT guess narration sync — use the safe stagger (midground entrances `delay: 0.5`, foreground `delay: 0.7`).
 - Text reveal animations timed to when specific words are spoken using `delay` in seconds.
 - Data visualization build-up animations synced to narration beats.
 - Element entry/exit timings matching spoken content transitions.
