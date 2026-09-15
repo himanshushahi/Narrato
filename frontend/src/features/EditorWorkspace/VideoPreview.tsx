@@ -256,7 +256,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     }
   };
 
-  const zoomScale = zoom === 'fit' ? 0.9 : zoom === '100' ? 0.8 : 1.35;
+  const zoomScale = zoom === 'fit' ? 1 : zoom === '100' ? 0.9 : 1.5;
 
   // Stable object identity so the memoized Player skips re-renders.
   const playerSubtitleSettings = React.useMemo(
@@ -349,10 +349,22 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
       )}
 
       {/* ███ Video player area — monitor bezel ███ */}
-      <div className="flex-1 flex items-center justify-center overflow-hidden bg-zinc-950/50">
-        <div className="flex-1 flex items-center justify-center p-6">
+      <div
+        className={`flex-1 flex items-center justify-center min-h-0 min-w-0 bg-zinc-950/50 ${zoom === '150' ? 'overflow-auto' : 'overflow-hidden'}`}
+        style={{ containerType: 'size' }}
+      >
+        <div className="flex-1 self-stretch min-h-0 min-w-0 flex items-center justify-center p-2">
           <motion.div
-            className="relative w-full max-w-full"
+            className={
+              isPortraitFormat
+                ? 'relative aspect-[9/16] max-w-full max-h-full mx-auto origin-center'
+                : 'relative aspect-video max-w-full max-h-full mx-auto origin-center'
+            }
+            style={{
+              width: isPortraitFormat
+                ? 'min(100%, calc((100cqh - 16px) * 9 / 16))'
+                : 'min(100%, calc((100cqh - 16px) * 16 / 9))',
+            }}
             animate={{ scale: zoomScale }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           >
