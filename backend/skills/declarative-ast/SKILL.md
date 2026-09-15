@@ -54,9 +54,12 @@ Every layer should move with purpose according to its role, creating a tactile *
    * Always apply subtle continuous movement over the full cut duration so the canvas never looks dead or frozen:
      `"animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 4.5, "easing": "linear" }]`
 3. **Midground Graphics (Physics Spring Entrance & Floating)**:
-   * Cards, charts, shapes, and HTML UI elements must enter via spring physics in the first 0.5s–0.8s:
-     `"animations": [{ "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "easing": "spring" }, { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "easing": "ease-out" }]`
-   * On high-velocity spring entrances, set `motion_blur: true` on the layer to enable physical optical shutter blur!
+    * Cards, charts, shapes, and HTML UI elements must enter via spring physics — FIRED AFTER the cut transition settles (`delay` ≥ 0.5s), NOT at cut start:
+      `"animations": [{ "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring" }, { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "delay": 0.5, "easing": "ease-out" }]`
+    * On high-velocity spring entrances, set `motion_blur: true` on the layer to enable physical optical shutter blur!
+    * **ONE hero-motion layer per cut:** keyframe `animations` go on exactly ONE non-background layer per sub-visual (background keeps only its slow drift). Never animate every layer.
+    * **Narration sync:** when `Exact Spoken Words with Timestamps` are provided, set the entrance `delay` = (spoken word time − sub-visual start offset), clamped to `[0.5, cut_duration − animation_duration]`, so the visual enters exactly when the narration mentions it.
+    * **Fit the cut:** `delay + duration` MUST be ≤ the sub-visual's `duration`.
 4. **Foreground Typography (Selective Kinetic Accenting)**:
    * Use `animation_mode: "marker_highlight"` with `highlight_words` on high-impact keywords.
    * Use `animation_mode: "words_stagger"` for impactful statements.

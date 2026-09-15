@@ -56,6 +56,12 @@ Image | Video | Text | Chart | Shape | Map | HTML | Lottie | Particles
 - **2026 FX Pack** (layer `filters` array): cinematic CSS looks — `Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur` — plus SVG looks `url(#fx-emboss)`, `url(#fx-sharpen)`, `url(#fx-posterize)`, `url(#fx-duotone-midnight)`, `url(#fx-duotone-inferno)`, `url(#fx-thermal)`. Max ONE SVG look per layer; ~1 FX cut per 3–4 cuts.
 - **Punch-In Emphasis** (sub-visual level, sibling of `transition`): `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]` — 0–2 marks per cut, cuts ≥2s only, on the single most shocking word/stat.
 
+=== ANIMATION DELAY & NARRATION SYNC (every cut) ===
+- `delay` is seconds from the CUT start. Cut transitions run ~0.5s — an entrance with `delay: 0` plays UNDER the transition and is never seen. Minimum entrance `delay` is `0.5`.
+- Animate aggressively but with discipline: full `animations` keyframes on exactly ONE non-background layer per sub-visual (the midground subject or foreground callout carrying the beat). The bottom background layer gets ONLY slow continuous drift; all other layers stay static.
+- When `Exact Spoken Words with Timestamps` are provided, compute `delay` = (word timestamp − sub-visual start offset), clamped to `[0.5, cut_duration − animation_duration]`, so each visual enters exactly when the narration mentions it.
+- `delay + duration` MUST be ≤ the sub-visual's `duration`. On short cuts (≤2.5s) use a short `duration` (0.4–0.5s) at the word-timed `delay`.
+
 === COMPOSITION VARIETY & PRE-OUTPUT CHECKLIST ===
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
 - NEVER use the same layout or primitive twice in a row.

@@ -47,11 +47,11 @@ Prefer base position boxes (`left`, `top`, `width`, `height`, `borderRadius`) fo
 Every layer should use standardized physics animations:
 
 ### A. Midground Entrance Spring (Cards, Charts, Shapes, HTML UI)
-Enters with natural spring recoil in the first 0.6 seconds:
+Enters with natural spring recoil — FIRES AFTER the cut transition settles (`delay` ≥ 0.5s, see Timing Rules below):
 ```json
 "animations": [
-  { "property": "translateY", "from": 45, "to": 0, "duration": 0.6, "easing": "spring" },
-  { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+  { "property": "translateY", "from": 45, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": 0.5, "easing": "ease-out" }
 ]
 ```
 
@@ -66,8 +66,8 @@ Gentle continuous motion over the cut's full duration:
 ### C. Perspective Punch-In (Evidence & Leaks)
 ```json
 "animations": [
-  { "property": "scale", "from": 0.82, "to": 1.0, "duration": 0.65, "easing": "spring" },
-  { "property": "translateY", "from": 50, "to": 0, "duration": 0.65, "easing": "spring" }
+  { "property": "scale", "from": 0.82, "to": 1.0, "duration": 0.65, "delay": 0.5, "easing": "spring" },
+  { "property": "translateY", "from": 50, "to": 0, "duration": 0.65, "delay": 0.5, "easing": "spring" }
 ]
 ```
 
@@ -82,8 +82,8 @@ Use `motion_blur: true` on fast spring reveals or sliding cards (no-op without s
 ### D2. Rack-Focus & Flash Keyframes (non-spatial fades)
 ```json
 "animations": [
-  { "property": "blur", "from": 10, "to": 0, "duration": 0.6, "easing": "ease-out" },
-  { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "easing": "ease-out" }
+  { "property": "blur", "from": 10, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "ease-out" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "delay": 0.5, "easing": "ease-out" }
 ]
 ```
 `blur` (px) and `brightness` (multiplier) fade without triggering shutter blur — pair with opacity for reveals.
@@ -101,6 +101,14 @@ Unlike entrance animations, `emphasis` marks fire mid-cut — sudden zoom snap +
 ```
  0–2 marks per cut, cuts ≥ 2s only, `scale` 1.02–1.6. Pair with the 2026 FX pack (`filters`: Thermal/Night-Vision/duotones) and a single topmost `Particles` layer for maximum-impact beats.
 * `filters` blend note: `"mix-blend-mode: overlay/screen/multiply/..."` composites with layers beneath — invisible on a single opaque fullscreen layer, so only use on stacked cuts.
+
+### G. Animation Delay, Narration Sync & Single-Animated-Layer Rule (CRITICAL)
+`delay` is in seconds from the CUT start (not video start). Use it aggressively — but with discipline:
+* **ONE animated layer per sub-visual (plus background drift):** give full `animations` keyframes to exactly ONE non-background layer (the midground subject or the foreground callout — whichever carries the beat). The bottom background layer gets ONLY the slow continuous drift from preset B (never an entrance). All other layers stay static. Animating everything looks cheap and chaotic; one hero motion per cut looks premium.
+* **NEVER `delay: 0` on entrances:** cut transitions (fade/slide/zoom/whip) run ~0.5s. An entrance with `delay: 0` plays UNDER the transition and is invisible. Minimum entrance `delay` is `0.5`.
+* **Sync to the spoken word:** you receive `Exact Spoken Words with Timestamps (Seconds from Scene Start)` plus each sub-visual's start offset within the scene. Compute `delay` = (word timestamp − sub-visual start offset), clamped to `[0.5, cut_duration − animation_duration]`, so the layer the narration is talking about enters exactly when it is mentioned. Example: sub-visual starts at 4.0s in the scene, "GDP" is spoken at [6.3s] → `delay: 2.3` on the GDP card entrance.
+* **Must fit the cut:** `delay + duration` MUST be ≤ the sub-visual's `duration`. On short cuts (≤2.5s) prefer the word-timed `delay` with a short `duration` (0.4–0.5s) over the default 0.5s stagger.
+* Foreground typography follows the same rule with a slightly later stagger (`delay`: word time, or 0.7+ when no timestamp matches).
 
 ---
 
@@ -229,7 +237,7 @@ Use `Shape` layers with `preset_path` for broadcast-grade motion graphics:
     "glow": true,
     "style": { "position": "absolute", "left": "48%", "top": "46%", "width": "60px", "height": "60px" }
   },
-  "animations": [{ "property": "translateY", "from": -20, "to": 0, "duration": 0.5, "easing": "spring" }]
+  "animations": [{ "property": "translateY", "from": -20, "to": 0, "duration": 0.5, "delay": 0.5, "easing": "spring" }]
 }
 ```
 

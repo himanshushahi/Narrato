@@ -25,8 +25,8 @@ const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
     label: 'Spring Pop In',
     icon: '🚀',
     animations: [
-      { property: 'translateY', from: 45, to: 0, duration: 0.6, delay: 0, easing: 'spring' },
-      { property: 'opacity', from: 0, to: 1, duration: 0.4, delay: 0, easing: 'ease-out' },
+      { property: 'translateY', from: 45, to: 0, duration: 0.6, delay: 0.5, easing: 'spring' },
+      { property: 'opacity', from: 0, to: 1, duration: 0.4, delay: 0.5, easing: 'ease-out' },
     ],
   },
   {
@@ -40,25 +40,25 @@ const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
     label: '3D Card Flip',
     icon: '🔄',
     animations: [
-      { property: 'rotateX', from: 20, to: 0, duration: 0.7, delay: 0, easing: 'spring' },
-      { property: 'translateY', from: 40, to: 0, duration: 0.7, delay: 0, easing: 'spring' },
-      { property: 'opacity', from: 0, to: 1, duration: 0.4, delay: 0, easing: 'ease-out' },
+      { property: 'rotateX', from: 20, to: 0, duration: 0.7, delay: 0.5, easing: 'spring' },
+      { property: 'translateY', from: 40, to: 0, duration: 0.7, delay: 0.5, easing: 'spring' },
+      { property: 'opacity', from: 0, to: 1, duration: 0.4, delay: 0.5, easing: 'ease-out' },
     ],
   },
   {
     label: 'Rack Focus In',
     icon: '🔍',
     animations: [
-      { property: 'blur', from: 10, to: 0, duration: 0.6, delay: 0, easing: 'ease-out' },
-      { property: 'opacity', from: 0, to: 1, duration: 0.5, delay: 0, easing: 'ease-out' },
+      { property: 'blur', from: 10, to: 0, duration: 0.6, delay: 0.5, easing: 'ease-out' },
+      { property: 'opacity', from: 0, to: 1, duration: 0.5, delay: 0.5, easing: 'ease-out' },
     ],
   },
   {
     label: 'Zoom Punch',
     icon: '💥',
     animations: [
-      { property: 'scale', from: 1.15, to: 1.0, duration: 0.6, delay: 0, easing: 'spring' },
-      { property: 'opacity', from: 0, to: 1, duration: 0.35, delay: 0, easing: 'ease-out' },
+      { property: 'scale', from: 1.15, to: 1.0, duration: 0.6, delay: 0.5, easing: 'spring' },
+      { property: 'opacity', from: 0, to: 1, duration: 0.35, delay: 0.5, easing: 'ease-out' },
     ],
   },
 ];
@@ -74,7 +74,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
       from: propMeta?.defaultFrom ?? 0,
       to: propMeta?.defaultTo ?? 1,
       duration: 0.6,
-      delay: 0,
+      delay: 0.5,
       easing: 'spring',
     };
     onChange([...animations, newAnim]);
@@ -271,7 +271,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                   </div>
 
                   <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Delay</label>
+                    <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block" title="Seconds from cut start. Cut transitions run ~0.5s — keep entrances at 0.5+ or they play hidden under the transition. Sync to the spoken word when possible.">Delay</label>
                     <div className="flex items-center gap-1 bg-black/60 border border-white/10 rounded px-1.5 py-0.5">
                       <input
                         type="number"

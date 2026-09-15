@@ -1870,18 +1870,22 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
 - STANDARDIZED LAYER ORDER (stacking = children array order, children[0]=bottom ... children[N-1]=top):
   * Bottom: Background canvas — ANY suitable full-screen base: darkened Video footage, vector Maps, high-contrast Images, HTML gradient/pattern backgrounds, or styled solid-color canvases. Add continuous camera drift (`animations: [{{"property": "scale", "from": 1.0, "to": 1.06, "duration": ..., "easing": "linear"}}]`). VARY your background type — do NOT default to Video for every sub-visual.
-  * Middle: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with corner rounding (`borderRadius: "20px"`) + spring entrance (`delay: 0.15`, `easing: "spring"`)
-  * Top: Foreground typography / callouts (respect subtitle safe area) with staggered reveal (`delay: 0.45` to `0.7`)
+  * Middle: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with corner rounding (`borderRadius: "20px"`) + spring entrance (`delay: 0.5` minimum, `easing: "spring"`)
+  * Top: Foreground typography / callouts (respect subtitle safe area) with staggered reveal (`delay: 0.7` to `1.0`, or the exact spoken-word time)
 
 === NO STATIC CHAPTER TITLE CARDS IN SUB-VISUALS ===
 Do NOT create static chapter title badges, scene name cards, or temporary header pills inside sub-visual cuts. Chapter indicators and video branding are managed continuously at the root composition level. Dedicate sub-visual cuts entirely to motion graphics, infographics, evidence mockups, b-roll, and visual storytelling.
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
-When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), use them to precisely sync:
+`delay` on a layer animation is in seconds from the CUT (sub-visual) start — NOT from scene/video start. Cut transitions run ~0.5s, so an entrance with `delay: 0` plays hidden UNDER the transition and is never seen.
+- MANDATORY: every entrance animation gets `delay` >= 0.5. NEVER emit an entrance keyframe with `delay: 0` or missing `delay`.
+- ONE hero-motion layer per sub-visual: full `animations` keyframes on exactly ONE non-background layer (the midground subject or foreground callout carrying the beat). The bottom background layer gets ONLY slow continuous drift; every other layer stays static.
+- When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), you MUST use them to sync entrances: `delay` = (word timestamp − this sub-visual's start offset within the scene), clamped to `[0.5, cut_duration − animation_duration]`, so each visual enters exactly when the narration mentions it.
+- `delay + duration` MUST be ≤ the sub-visual's `duration`. On short cuts (≤2.5s) use a short `duration` (0.4–0.5s) at the word-timed `delay`.
 - Text reveal animations timed to when specific words are spoken using `delay` in seconds.
 - Data visualization build-up animations synced to narration beats.
 - Element entry/exit timings matching spoken content transitions.
-Example: If "GDP" is spoken at [2.3s], set `delay: 2.3` on the GDP text animation.
+Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] → set `delay: 2.3` on the GDP text animation.
 
 - DO NOT add arbitrary properties that are not supported — especially inside
   `style`: NEVER `transform`/`translate` (the key is removed and the overlay
@@ -1992,7 +1996,7 @@ Construct depth across 3 ordered layers on every visual beat (first child=bottom
    - **HTML**: CSS gradient canvas, technical grid pattern, or colored slate. Best for data-heavy, tech, financial, and infographic beats without distracting footage.
    - **Map**: Vector globe with animated route trajectory. Best when geography/travel is central to the narration.
    ⚠️ VARIETY RULE: Do NOT use the same background type for consecutive sub-visuals. If cut #1 used Video, switch to Image, HTML Gradient/Grid, or Map for cut #2.
-2. **Midground (Graphic Subject, middle children)**: Data charts (`Chart`), cards, vector shapes & icons (`Shape`), bespoke HTML evidence memos (`HTML`), or split-screen insets. Enter via physics spring (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out"}}]`).
+2. **Midground (Graphic Subject, middle children)**: Data charts (`Chart`), cards, vector shapes & icons (`Shape`), bespoke HTML evidence memos (`HTML`), or split-screen insets. Enter via physics spring AFTER the transition settles (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": 0.5, "easing": "ease-out"}}]` — or the exact spoken-word time when timestamps are provided).
     * 💡 **Chart Placement Rule**: Charts MUST live as middle children over an HTML gradient canvas or darkened video. Never render a raw naked chart as the first (background) child.
 3. **Foreground (Typography & Accents, last children)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (respecting subtitle safe area: `bottom > 18%` for landscape).
 
