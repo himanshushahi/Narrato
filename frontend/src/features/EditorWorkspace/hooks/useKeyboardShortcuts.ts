@@ -16,6 +16,8 @@ interface ShortcutHandlers {
   onRunPipeline?: () => void;
   onFullscreenToggle?: () => void;
   onEditVisuals?: () => void;
+  onDuplicate?: () => void;
+  onDeleteLayer?: () => void;
 }
 
 function isArrowKey(key: string): boolean {
@@ -30,7 +32,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isCtrl = e.ctrlKey || e.metaKey;
       const tag = (e.target as HTMLElement)?.tagName;
-      const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       const h = ref.current;
 
       // Ctrl+S = Save (always)
@@ -54,6 +56,22 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         e.preventDefault();
         e.stopPropagation();
         h.onEditVisuals?.();
+        return;
+      }
+
+      // Ctrl+D = Duplicate selected layer (preview-only, saved on Ctrl+S).
+      // Skipped inside text fields (Query INPUT, HTML/JSON TEXTAREA, SELECT,
+      // contentEditable): typing Ctrl+D there must not spray a clone with no
+      // undo. Bookmark is still suppressed via preventDefault. Capture phase
+      // handles it in dev and prod.
+      // Repeat guard: holding the keys must not spray N clones (no undo yet).
+      if (isCtrl && (e.key?.toLowerCase() === 'd' || e.code === 'KeyD')) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.repeat) return;
+        const t = e.target as HTMLElement | null;
+        if (isInput || t?.isContentEditable) return;
+        h.onDuplicate?.();
         return;
       }
 
@@ -92,7 +110,19 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       }
 
       // Skip input-only shortcuts when focus is in a text field
+      // (Ctrl+Backspace keeps its native "delete word" behavior inside inputs).
       if (isInput) return;
+
+      // Ctrl+Backspace/Delete = Delete selected layer (preview-only).
+      // Before the plain Delete handler so the Ctrl combo never falls through
+      // to scene delete. Only outside text fields; repeat-guarded (no undo).
+      if (isCtrl && (e.key === 'Backspace' || e.key === 'Delete' || e.code === 'NumpadDecimal')) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.repeat) return;
+        h.onDeleteLayer?.();
+        return;
+      }
 
       // ArrowLeft / ArrowRight = Step frames
       if (e.key === 'ArrowLeft') {
@@ -123,7 +153,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       }
 
       // Delete / Backspace / Numpad Del (even with NumLock ON) = Delete selected item
-      if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Del' || e.code === 'NumpadDecimal') {
+      if (e.key === 'Delete' || e.key === 'Backspace' || e.code === 'NumpadDecimal') {
         e.preventDefault();
         h.onDelete?.();
         return;

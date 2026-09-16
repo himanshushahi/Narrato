@@ -877,6 +877,125 @@ const EditorWorkspace: React.FC = () => {
     setScriptData(writeSectionSubs(doc, r, full));
   }, [cardKeyForScene, isSectionRewriting, isSubRewriting, sceneTimings, setScriptData]);
 
+  // Ctrl+D: duplicate the selected AST layer (preview-only until save).
+  // Selection is shared: CanvasOverlay boxes and AstGraphicalEditor cards both
+  // write useEditorStore.selectedLayerIndex, so one handler covers both.
+  // Preferred path: mounted graphical editor handles it via
+  // 'ast:duplicate-selected-layer' (exact card-button path: per-layer UI maps +
+  // lens debounce/bookkeeping, so Revert keeps working). Fallback below is for
+  // when the editor is unmounted (e.g. Script tab) — direct preview-only write.
+  // Preview-only: only setScriptData + preview-asset bookkeeping, never disk.
+  // Save happens later via handleSave (Ctrl+S / TopBar) -> handleSaveCard.
+  const handleDuplicateSelectedLayer = useCallback(() => {
+    const st = useEditorStore.getState();
+    const sceneIdx = st.selectedSceneIndex;
+    const subIdx = st.selectedSubVisualIndex;
+    const layerIdx = st.selectedLayerIndex;
+    if (sceneIdx === null || sceneIdx === undefined) return;
+    if (subIdx === null || subIdx === undefined) return;
+    if (layerIdx === null || layerIdx === undefined) return;
+    const lockKey = cardKeyForScene(sceneIdx);
+    if (lockKey && (isSectionRewriting(lockKey) || isSubRewriting(lockKey, subIdx))) {
+      useUIStore.getState().addToast('Layer duplicate is paused while this section rewrites.', 'warning');
+      return;
+    }
+    if (!requireSectionUnlocked(sceneIdx, 'Layer duplicate')) return;
+    // Never hijack a dirty Script-tab session on the same card (VisualsTab
+    // auto-start explicitly avoids this; save-diffing/cancel would corrupt).
+    if (editingCard && lockKey && editingCard.key === lockKey && editingCard.mode === 'script') {
+      useUIStore.getState().addToast('Finish or cancel the Script edit before duplicating a layer.', 'warning');
+      return;
+    }
+    // Preferred: let the mounted graphical editor duplicate (handles its own
+    // per-layer UI maps + lens bookkeeping). Cancelable event: preventDefault
+    // signals "handled" (dispatchEvent returns false).
+    try {
+      const ev = new CustomEvent('ast:duplicate-selected-layer', { cancelable: true });
+      if (!window.dispatchEvent(ev)) return;
+    } catch { /* fall through to direct path */ }
+    // Fallback (editor unmounted): validate + clone FIRST so asset/session
+    // side effects never run when the clone itself would fail.
+    const flushed = visualsFlushRef.current?.();
+    const doc = flushed ?? scriptDataRef.current;
+    if (!doc) return;
+    const r = resolveVisualSelection(doc, manifestDataRef.current, sceneTimingsRef.current ?? sceneTimings, { sceneIdx, subIdx });
+    if (!r) return;
+    const subs = readSectionSubs(doc, r);
+    if (subIdx < 0 || subIdx >= subs.length) return;
+    const cut = subs[subIdx] ?? {};
+    const kids = cut?.composition?.children ?? [];
+    if (layerIdx < 0 || layerIdx >= kids.length) {
+      st.setSelectedLayerIndex(null);
+      return;
+    }
+    let clone: any;
+    try {
+      clone = JSON.parse(JSON.stringify(kids[layerIdx]));
+    } catch {
+      return;
+    }
+    // Ensure a visuals edit session so global Cancel restores the
+    // pre-duplicate snapshot and Ctrl+S routes correctly. (VisualsTab Revert
+    // baselines on mount, so duplicating while it is unmounted is only
+    // revertible via global Cancel — surfaced in the toast below.)
+    if (lockKey) handleStartEdit(lockKey, 'visuals');
+    // Keep temp preview assets aligned: duplicated layer shares the source
+    // file until re-rendered (same convention as the card duplicate button).
+    try {
+      handleDuplicateLayerAsset(r.sceneNumber, r.sectionType, subIdx, layerIdx);
+    } catch { /* bookkeeping best-effort */ }
+    // Order-based stacking: duplicate lands directly above original.
+    const composition = { ...(cut.composition || { type: 'Sequence' }) };
+    composition.children = [...kids.slice(0, layerIdx + 1), clone, ...kids.slice(layerIdx + 1)];
+    const full = [...subs];
+    full[subIdx] = { ...cut, composition };
+    setScriptData(writeSectionSubs(doc, r, full));
+    // Match card-button semantics: keep a selection before the clone, follow
+    // the clone when it was the selection (robust to a change mid-flight).
+    const curSel = useEditorStore.getState().selectedLayerIndex;
+    st.setSelectedLayerIndex(curSel === null || curSel === undefined ? layerIdx + 1 : curSel === layerIdx ? layerIdx + 1 : curSel > layerIdx ? curSel + 1 : curSel);
+    if (useEditorStore.getState().inspectorTab !== 'visuals') {
+      useUIStore.getState().addToast(`Layer ${layerIdx + 1} duplicated as preview — save to keep it.`, 'info');
+    }
+  }, [cardKeyForScene, isSectionRewriting, isSubRewriting, requireSectionUnlocked, editingCard, handleStartEdit, handleDuplicateLayerAsset, sceneTimings, setScriptData]);
+
+  // Ctrl+Backspace/Delete: delete the selected AST layer via the existing
+  // card-button path (AstGraphicalEditor.handleDeleteLayer). No new delete
+  // logic here — just guards + event attach. Preview-only until save.
+  const handleDeleteSelectedLayer = useCallback(() => {
+    const st = useEditorStore.getState();
+    const sceneIdx = st.selectedSceneIndex;
+    const subIdx = st.selectedSubVisualIndex;
+    const layerIdx = st.selectedLayerIndex;
+    if (sceneIdx === null || sceneIdx === undefined) return;
+    if (subIdx === null || subIdx === undefined) return;
+    if (layerIdx === null || layerIdx === undefined) return;
+    const lockKey = cardKeyForScene(sceneIdx);
+    if (lockKey && (isSectionRewriting(lockKey) || isSubRewriting(lockKey, subIdx))) {
+      useUIStore.getState().addToast('Layer delete is paused while this section rewrites.', 'warning');
+      return;
+    }
+    if (!requireSectionUnlocked(sceneIdx, 'Layer delete')) return;
+    if (editingCard && lockKey && editingCard.key === lockKey && editingCard.mode === 'script') {
+      useUIStore.getState().addToast('Finish or cancel the Script edit before deleting a layer.', 'warning');
+      return;
+    }
+    // Attach to the existing delete: mounted graphical editor runs
+    // handleDeleteLayer(selectedLayerIndex). Cancelable event: preventDefault
+    // signals "handled" (dispatchEvent returns false).
+    let handled = false;
+    try {
+      const ev = new CustomEvent('ast:delete-selected-layer', { cancelable: true });
+      handled = !window.dispatchEvent(ev);
+    } catch {
+      handled = false;
+    }
+    if (handled) return;
+    // Unwassembled path (JSON view has no listener, other tab unmounted):
+    // toast regardless of tab so it is never a silent no-op.
+    useUIStore.getState().addToast('Open the Visuals tab graphical view to delete the selected layer.', 'info');
+  }, [cardKeyForScene, isSectionRewriting, isSubRewriting, requireSectionUnlocked, editingCard]);
+
   const handleSave = useCallback(() => {
     // Whole-document save is locked while ANY AI rewrite is in flight: it
     // would persist a pre-AI doc and wipe every card baseline. Covers Ctrl+S,
@@ -1253,6 +1372,8 @@ const EditorWorkspace: React.FC = () => {
     onUndo: () => {},
     onEscape: handleEscape,
     onDelete: handleDelete,
+    onDuplicate: handleDuplicateSelectedLayer,
+    onDeleteLayer: handleDeleteSelectedLayer,
     onSeekRelative: handleSeekRelative,
     onPrevScene: handlePrevScene,
     onNextScene: handleNextScene,

@@ -635,9 +635,35 @@ export const AstGraphicalEditor = ({
     });
   };
 
-  // Shortcut: X toggles collapse / expand all layers.
-  // Also listens for the parent toolbar button (single unified row in
-  // SubVisualsEditor) via a window event so both controls stay in sync.
+  // X shortcut toggles collapse-all; parent toolbar button syncs via
+  // 'ast:toggle-collapse-all' window event (see listener below).
+  // Ctrl+D / Ctrl+Backspace path: EditorWorkspace dispatches cancelable
+  // 'ast:duplicate-selected-layer' / 'ast:delete-selected-layer' events first
+  // so the mounted graphical editor (single-cut lens) runs the exact
+  // card-button path — local per-layer UI maps + lens debounce + preview-asset
+  // bookkeeping stay consistent. preventDefault() signals "handled"
+  // (dispatchEvent returns false). Single mounted editor assumed (VisualsTab
+  // single-cut lens); refs refresh every render so handlers stay current.
+  const runOnSelected = (fn: (idx: number) => void) => {
+    try {
+      const sel = useEditorStore.getState().selectedLayerIndex;
+      if (sel === null || sel === undefined) return false;
+      const kids = compositionRef.current?.children ?? [];
+      if (sel < 0 || sel >= kids.length) return false;
+      fn(sel);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const duplicateSelectedRef = useRef(() => runOnSelected(handleDuplicateLayer));
+  // Ctrl+Backspace path mirrors the duplicate event: run the exact
+  // card-button delete so per-layer UI maps + lens bookkeeping stay correct.
+  const deleteSelectedRef = useRef(() => runOnSelected(handleDeleteLayer));
+  useEffect(() => {
+    duplicateSelectedRef.current = () => runOnSelected(handleDuplicateLayer);
+    deleteSelectedRef.current = () => runOnSelected(handleDeleteLayer);
+  });
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -648,11 +674,21 @@ export const AstGraphicalEditor = ({
       toggleCollapseAll();
     };
     const onToolbarToggle = () => toggleCollapseAll();
+    const onDuplicateSelected = (e: Event) => {
+      if (duplicateSelectedRef.current()) e.preventDefault();
+    };
+    const onDeleteSelected = (e: Event) => {
+      if (deleteSelectedRef.current()) e.preventDefault();
+    };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('ast:toggle-collapse-all', onToolbarToggle);
+    window.addEventListener('ast:duplicate-selected-layer', onDuplicateSelected);
+    window.addEventListener('ast:delete-selected-layer', onDeleteSelected);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('ast:toggle-collapse-all', onToolbarToggle);
+      window.removeEventListener('ast:duplicate-selected-layer', onDuplicateSelected);
+      window.removeEventListener('ast:delete-selected-layer', onDeleteSelected);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
