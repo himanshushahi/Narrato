@@ -76,6 +76,8 @@ const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
     title: 'Canvas & Overlays',
     items: [
       { keys: '[ / ]', desc: 'Select previous / next layer' },
+      { keys: 'Ctrl/Cmd + D', desc: 'Duplicate selected layer (preview until save)' },
+      { keys: 'Ctrl/Cmd + ⌫/Del', desc: 'Delete selected layer (preview until save)' },
       { keys: 'Drag Corner', desc: 'Scale layer uniformly' },
       { keys: 'Alt + Drag Corner', desc: 'Freeform resize width & height' },
       { keys: 'Double-Click Layer', desc: 'Focus layer in Visuals editor' },
