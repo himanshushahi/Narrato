@@ -2289,8 +2289,7 @@ Generate the sub_visuals array following the APPROVED STORYBOARD PLAN precisely.
 
             # Sync design.json to project_settings for total visual cohesion.
             # Re-fetch the row so long-running user edits to project_settings
-            # (or the agent's update_visual_settings writes) are not clobbered
-            # by the snapshot taken when the run started.
+            # are not clobbered by the snapshot taken when the run started.
             proj_id = project_dict.get('id')
             if proj_id:
                 fresh_project = get_project(proj_id)

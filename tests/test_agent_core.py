@@ -263,9 +263,9 @@ def test_run_with_tools_rejects_disallowed_tools(monkeypatch):
 
     def fake_call(system, user, schema, cancel_event, **kwargs):
         calls["n"] += 1
-        assert "update_subtitles" not in system  # disallowed tool not documented
+        assert "search_pexels_photo" not in system  # disallowed tool not documented
         if calls["n"] == 1:
-            return '```tool\n{"name": "update_subtitles", "arguments": {}}\n```\n'
+            return '```tool\n{"name": "search_pexels_photo", "arguments": {"query": "city"}}\n```\n'
         return '{"final": true}'
 
     def fake_execute(name, args):
@@ -328,22 +328,29 @@ def test_subtitle_settings_overview_groups():
     assert "Render" in out and '"render_resolution": "1080p"' in out
 
 
-def test_visual_settings_tool_schema_present():
+def test_removed_mutation_tools_absent_from_schema():
     from backend.agent.tools import get_tools_schema
     names = {t["function"]["name"] for t in get_tools_schema()}
-    assert "update_visual_settings" in names
-    assert "update_subtitle_style" in names
-    assert "update_design_settings" in names
+    for tool in ("update_visual_settings", "update_subtitle_style",
+                 "update_design_settings", "update_subtitles",
+                 "update_scene_properties", "set_tts_settings",
+                 "invalidate_scene", "update_scene_duration",
+                 "reorder_scenes", "delete_scene", "add_scene_with_ai",
+                 "regenerate_script_section", "regenerate_scene_visuals"):
+        assert tool not in names, f"Dead tool {tool} should have been removed"
 
 def test_tools_schema_has_new_tools():
     from backend.agent.tools import get_tools_schema
     names = {t["function"]["name"] for t in get_tools_schema()}
-    for tool in ("web_search", "get_skill",
-                 "project_status_report", "update_scene_duration", "reorder_scenes",
-                 "delete_scene", "add_scene_with_ai", "regenerate_script_section",
-                 "regenerate_scene_visuals", "set_tts_settings"):
-        assert tool in names, f"Tool {tool} missing from schema"
-    assert "table" not in names
+    assert names == {
+        "web_search", "get_skill",
+        "search_pexels_photo", "search_pexels_video",
+        "search_wikipedia_image",
+        "search_pixabay_photo", "search_pixabay_video",
+        "search_youtube_video",
+        "read_project_file", "project_status_report",
+        "list_project_files",
+    }, f"Registry must be exactly the 11 read-only tools, got: {sorted(names)}"
 
 def test_agent_runner_no_api_key_returns_safe_error(monkeypatch):
     import backend.agent.agent_engine as ae
@@ -380,60 +387,12 @@ def test_call_llm_safe_tools_mode_passes_cancel_event(monkeypatch):
     assert seen["cancel_event"].is_set() is False
 
 
-def test_invalidate_scene_resolves_by_section_type(monkeypatch):
-    """Manifests are laid out [introduction, scene..., conclusion]; scene
-    indices must not be used to index the manifest list directly."""
-    import json
-    import backend.agent.tools as t
-
-    manifest = [
-        {"section_type": "introduction", "title": "Intro", "_narr_hash": "x"},
-        {"section_type": "scene", "title": "A", "_narr_hash": "x", "_design_hash": "y"},
-        {"section_type": "scene", "title": "B", "_narr_hash": "x", "_design_hash": "y"},
-        {"section_type": "conclusion", "title": "End", "_narr_hash": "x"},
-    ]
-    saved = {}
-
-    def fake_load(project_id, rel_path):
-        if rel_path in ("assets/assets_manifest.json", "voiceover/manifest.json"):
-            return json.loads(json.dumps(manifest))
-        return None
-
-    def fake_save(project_id, rel_path, data):
-        saved[rel_path] = data
-        return True
-
-    monkeypatch.setattr(t, "_load_json", fake_load)
-    monkeypatch.setattr(t, "_save_json", fake_save)
-    monkeypatch.setattr(t, "_invalidate_voiceover", lambda pid: None)
-
-    result = t.execute_tool("invalidate_scene", {"project_id": "p1", "scene_index": 0})
-
-    assert "Invalidated scene 0" in result
-    assert saved  # both manifests were written
-    for data in saved.values():
-        intro = next(e for e in data if e.get("section_type") == "introduction")
-        scenes = [e for e in data if e.get("section_type") == "scene"]
-        conclusion = next(e for e in data if e.get("section_type") == "conclusion")
-        assert "_narr_hash" in intro       # scene 0's hashes popped, intro untouched
-        assert "_narr_hash" not in scenes[0]
-        assert "_narr_hash" in scenes[1]   # scene 1 untouched
-        assert "_narr_hash" in conclusion
-
-    # String indices from the LLM must be coerced to ints, not crash comparisons.
-    saved.clear()
-    result = t.execute_tool("invalidate_scene", {"project_id": "p1", "scene_index": "1"})
-    assert "Invalidated scene 1" in result
-    for data in saved.values():
-        scenes = [e for e in data if e.get("section_type") == "scene"]
-        assert "_narr_hash" not in scenes[1]
-        assert "_narr_hash" in scenes[0]
-
 
 def test_run_with_tools_restricts_allowed_tools(monkeypatch):
-    """Disallowed tools (e.g. delete_scene) must never be executed."""
+    """Disallowed tools (e.g. search_pexels_photo under BRIDGE_SCRIPT_TOOLS)
+    must never be executed."""
     import backend.agent.agent_engine as ae
-    from backend.agent.agent_engine import AgentRunner, BRIDGE_VISUAL_TOOLS
+    from backend.agent.agent_engine import AgentRunner, BRIDGE_SCRIPT_TOOLS
 
     calls = {"n": 0}
     executed = []
@@ -441,7 +400,7 @@ def test_run_with_tools_restricts_allowed_tools(monkeypatch):
     def fake_call(system, user, schema, cancel_event, **kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
-            return '```tool\n{"name": "delete_scene", "arguments": {"project_id": "p", "scene_index": 0}}\n```\n'
+            return '```tool\n{"name": "search_pexels_photo", "arguments": {"query": "city"}}\n```\n'
         return '{"final": true}'
 
     def fake_execute(name, args):
@@ -452,9 +411,9 @@ def test_run_with_tools_restricts_allowed_tools(monkeypatch):
     monkeypatch.setattr(ae, "execute_tool", fake_execute)
 
     result = AgentRunner().run_with_tools(
-        "system", "prompt", {"type": "object"}, allowed_tools=BRIDGE_VISUAL_TOOLS)
+        "system", "prompt", {"type": "object"}, allowed_tools=BRIDGE_SCRIPT_TOOLS)
     assert result == {"final": True}
-    assert executed == []  # delete_scene was rejected, never executed
+    assert executed == []  # search_pexels_photo was rejected, never executed
 
 
 def test_telemetry_activity_resolves_in_place():
@@ -641,8 +600,8 @@ def test_extract_tool_blocks_multiformats():
         ('Use this: {"name": "list_project_files", "arguments": {"project_id": "p"}} now.',
          [("list_project_files", {"project_id": "p"})]),
         # nested arguments must not be cut at the first '}'
-        ('{"name": "update_subtitle_style", "arguments": {"updates": {"activeColor": "#facc15", "fontSize": 64}}}',
-         [("update_subtitle_style", {"updates": {"activeColor": "#facc15", "fontSize": 64}})]),
+        ('{"name": "web_search", "arguments": {"query": "x", "filters": {"a": 1}}}',
+         [("web_search", {"query": "x", "filters": {"a": 1}})]),
         # multiple blocks in one response
         ('```tool\n{"name": "web_search", "arguments": {"query": "x"}}\n``` then ```json\n{"name": "get_skill", "arguments": {"name": "scriptwriter"}}\n```',
          [("web_search", {"query": "x"}), ("get_skill", {"name": "scriptwriter"})]),
