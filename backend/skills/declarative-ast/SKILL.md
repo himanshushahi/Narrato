@@ -130,6 +130,7 @@ The `content` object inside every `Layer` must specify one of the **8 supported 
 
 ### 8. `HTML` (Universal Dynamic Canvas: Evidence Memos, UI Mocks, Custom Shapes, Timelines)
 * `html_content`: Custom inline HTML/SVG/CSS markup. Ideal for bespoke leaked documents, chat bubbles, technical HUD blueprints, comparison cards, and metric tickers.
+* ONE CARD PER HTML LAYER: an HTML layer's `html_content` must contain exactly ONE card/panel/memo (one bordered container). When the beat needs multiple cards (comparison pair, KPI grid, several chat bubbles), emit ONE HTML Layer per card — each with its own `style` box and its own entrance animation (stagger `delay`s, e.g. 0.5 / 0.7 / 0.9, keeping `delay + duration` ≤ cut duration). NEVER fuse several cards into a single `html_content`: layer-level `animations`, `filters`, motion FX and the editor's per-layer controls apply to the whole Layer, so fused cards can never be animated or restyled independently. Exception: a single composite is allowed only when the pieces are truly one inseparable visual (e.g. a data table with rows, one chat thread scrolling as a unit).
 
 ### 9. `Particles` (Canvas Confetti, Embers, Dust, Money Rain, Snow & Stars)
 * `particle_preset`: `"confetti"` (celebrations) | `"embers"` (fire/energy/crisis, rises) | `"dust"` (ambient depth) | `"money_rain"` (finance/profits) | `"snow"` | `"stars"` (twinkling night sky).

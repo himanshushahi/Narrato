@@ -96,7 +96,9 @@ Steps:
    `{visual_rules}` — same inputs as `sub-visual-rewriter` plus a single-layer
    scope section (sibling list is read-only; output exactly one `Layer` node;
    `type: "Layer"` wrapper mandatory; Image/Video requires `query` + `source`;
-   style allowlist reminder; delay rules against the given cut duration).
+   style allowlist reminder; delay rules against the given cut duration). The
+   one-card-per-HTML-layer rule arrives automatically via `{visual_rules}`
+   (declarative-ast §8 + shared safety net).
 2. **User prompt:** video/scene titles + genre pacing line (`_get_genre_pacing_line`)
    + scene narration + cut-relative word timings (`_get_cut_word_timings`, fallback
    `NO_TIMINGS_FALLBACK`) + cut duration (delay-fitting bound) + compact sibling

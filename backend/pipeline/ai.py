@@ -1901,6 +1901,9 @@ Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] �
   `visual_url` — no hardcoded remote links. Search-tool URLs are for
   verification only, never to be copied into the JSON. The pipeline downloads
   the asset itself; a hardcoded URL is ignored and leaves the cut blank.
+- ONE CARD PER HTML LAYER: one `HTML` layer holds exactly ONE card/panel/memo.
+  Multiple cards = multiple `HTML` layers with staggered entrances — never fuse
+  several cards into one `html_content`, or they can't be animated per-layer.
 """
 
 
