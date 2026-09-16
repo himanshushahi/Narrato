@@ -1904,6 +1904,13 @@ Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] �
 - ONE CARD PER HTML LAYER: one `HTML` layer holds exactly ONE card/panel/memo.
   Multiple cards = multiple `HTML` layers with staggered entrances — never fuse
   several cards into one `html_content`, or they can't be animated per-layer.
+- NO REMOTE MEDIA IN HTML: `html_content` must NEVER contain `<img>`/`<video>`/
+  `<source>`/`<iframe>`, `src=`, `url(...)`, `background-image`, base64/data-URIs,
+  or any hardcoded http(s) link — the pipeline never downloads them, so they
+  render as blank/broken boxes. HTML = CSS + typography + inline SVG shapes only.
+  Need a photo/footage + card merged look? Emit a separate `Image`/`Video` layer
+  (query-only: `query` + `source`) PLUS an `HTML` layer with adjacent `style`
+  boxes on the same band so they read as one visual.
 """
 
 
