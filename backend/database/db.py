@@ -140,6 +140,7 @@ def init_db():
             "openai_max_tokens": "4096",
             "openai_top_p": "1.0",
             "llm_concurrency": "3",
+            "app_language": "hi", # default script language: 'hi' (Hindi) or 'en' (English)
             "whisper_model": "base",
             "whisper_device": "cpu", # 'cpu' or 'cuda'
             "tts_engine": "edge", # 'edge' or 'xtts'

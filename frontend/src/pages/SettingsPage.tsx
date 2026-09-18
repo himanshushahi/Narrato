@@ -64,8 +64,21 @@ const SettingsPage: React.FC = () => {
   const [ytdlpPath, setYtdlpPath] = useState<string | null>(null);
 
 
-  // App language state (computed locally based on voice settings)
+  // App language state (persisted as settings.app_language; falls back to voice
+  // derivation only for DBs created before the key existed)
   const [appLanguage, setAppLanguage] = useState<'hi' | 'en'>('hi');
+
+  const resolveAppLanguage = (s: any): 'hi' | 'en' => {
+    if (s?.app_language === 'hi' || s?.app_language === 'en') return s.app_language;
+    const voice: string = s?.tts_voice || '';
+    if (voice.startsWith('hi-')) return 'hi';
+    if (voice.startsWith('en-')) return 'en';
+    const profiles: any[] = s?.xtts_profiles || [];
+    const current = profiles.find((p: any) => p.id === voice);
+    if (current?.language === 'hi' || current?.language === 'en') return current.language;
+    if (typeof s?.whisper_model === 'string' && s.whisper_model.toLowerCase().includes('hindi')) return 'hi';
+    return 'hi';
+  };
 
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearSaveStatusTimer = () => { if (saveStatusTimerRef.current) { clearTimeout(saveStatusTimerRef.current); saveStatusTimerRef.current = null; } };
@@ -103,20 +116,25 @@ const SettingsPage: React.FC = () => {
 
   // Sync settings when loaded
   useEffect(() => {
-    const isHindi = (settings.tts_voice?.startsWith('hi-'));
-    setAppLanguage(isHindi ? 'hi' : 'en');
+    const lang = resolveAppLanguage(settings);
+    setAppLanguage(lang);
 
     setFormData(() => {
       const updated = { ...settings };
+      // Persist the resolved language so pre-existing DBs gain the key on next save.
+      if ((updated as any).app_language !== 'hi' && (updated as any).app_language !== 'en') {
+        (updated as any).app_language = lang;
+      }
       if (!gpuAvailable) {
         updated.whisper_device = 'cpu';
         updated.render_hardware = 'cpu';
       }
 
       // Smart default: Upgrade legacy 'small', 'base' or 'turbo' to the Hindi model if the app is in Hindi
-      if (isHindi && (updated.whisper_model === 'small' || updated.whisper_model === 'base' || updated.whisper_model === 'turbo')) {
+      const isHindiLang = lang === 'hi';
+      if (isHindiLang && (updated.whisper_model === 'small' || updated.whisper_model === 'base' || updated.whisper_model === 'turbo')) {
         updated.whisper_model = 'collabora/faster-whisper-small-hindi';
-      } else if (!isHindi && updated.whisper_model === 'collabora/faster-whisper-small-hindi') {
+      } else if (!isHindiLang && updated.whisper_model === 'collabora/faster-whisper-small-hindi') {
         updated.whisper_model = 'turbo';
       }
 
@@ -126,11 +144,11 @@ const SettingsPage: React.FC = () => {
 
   // Sync preview text language
   useEffect(() => {
-    setPreviewText(appLanguage === 'hi'
+    setPreviewText(currentLang === 'hi'
       ? 'नमस्ते! यह चुनी हुई आवाज का पूर्वावलोकन है।'
       : 'Hello! This is a preview of the selected voice.'
     );
-  }, [appLanguage]);
+  }, [currentLang]);
 
   // Clear preview URL and errors when voice options change
   useEffect(() => {
@@ -165,14 +183,19 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleSelectChange = (name: string, value: string) => {
+    if (name === 'app_language') {
+      setAppLanguage(value as 'hi' | 'en');
+    }
     setFormData((prev: SettingsType) => {
       const updated = { ...prev, [name]: value };
       if (name === 'app_language') {
         const lang = value as 'hi' | 'en';
-        setAppLanguage(lang);
+        (updated as any).app_language = lang;
         if (updated.tts_engine === 'xtts') {
           // Keep the OmniVoice profile only if it matches the new language,
           // otherwise clear it so the filtered dropdown isn't stale.
+          // The language itself is preserved via app_language, so unlike before
+          // clearing the voice no longer flips the language back to English.
           const current = (updated.xtts_profiles || []).find((p: any) => p.id === updated.tts_voice);
           if (!current || current.language !== lang) {
             updated.tts_voice = '';
@@ -218,7 +241,7 @@ const SettingsPage: React.FC = () => {
         voice,
         formData.tts_speed,
         formData.tts_pitch,
-        appLanguage
+        currentLang
       );
 
       if (res?.success && res.audio_path) {
@@ -487,7 +510,7 @@ const SettingsPage: React.FC = () => {
                     { value: 'hi', label: 'Hindi (हिन्दी)' },
                     { value: 'en', label: 'English' }
                   ]}
-                  value={appLanguage}
+                  value={(formData as any).app_language || appLanguage}
                   onChange={(val) => handleSelectChange('app_language', val)}
                 />
                 <div className="text-xs text-stone-400 flex items-center bg-black/20 p-4 rounded-md border border-stone-800/40">
@@ -658,7 +681,7 @@ const SettingsPage: React.FC = () => {
                     <CustomSelect
                       label="Edge Cloud Voice"
                       options={edgeVoiceOptions.filter(opt =>
-                        appLanguage === 'hi' ? opt.value.startsWith('hi-') : !opt.value.startsWith('hi-')
+                        currentLang === 'hi' ? opt.value.startsWith('hi-') : !opt.value.startsWith('hi-')
                       )}
                       value={formData.tts_voice}
                       onChange={(val) => handleSelectChange('tts_voice', val)}
@@ -686,7 +709,7 @@ const SettingsPage: React.FC = () => {
                       options={[
                         { value: '', label: 'Default Reference Voice (Bundled)' },
                         ...(formData.xtts_profiles || [])
-                          .filter((p: any) => p.language === appLanguage || p.id === formData.tts_voice)
+                          .filter((p: any) => p.language === currentLang || p.id === formData.tts_voice)
                           .map((p: any) => ({
                             value: p.id,
                             label: p.language === 'hi' ? `${p.name} (Hindi)` : p.language === 'en' ? `${p.name} (English)` : p.name
@@ -756,7 +779,7 @@ const SettingsPage: React.FC = () => {
                             />
                           </div>
                           <div className="flex items-center text-[10px] text-zinc-500 font-medium px-2 uppercase tracking-wider border border-zinc-800/60 rounded bg-black/40">
-                            Lang: {appLanguage === 'hi' ? 'Hindi' : 'English'}
+                            Lang: {currentLang === 'hi' ? 'Hindi' : 'English'}
                           </div>
                         </div>
                         <GlowButton variant="secondary" size="sm" type="button" fullWidth icon={<VscFolderOpened />} onClick={async () => {
@@ -769,7 +792,7 @@ const SettingsPage: React.FC = () => {
                             const newProfile = {
                               id: 'xtts_prof_' + Math.random().toString(36).substr(2, 9),
                               name: newProfileName,
-                              language: appLanguage,
+                              language: currentLang,
                               reference_voice: res.path
                             };
                             setFormData(prev => ({

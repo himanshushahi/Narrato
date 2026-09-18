@@ -22,6 +22,7 @@ export interface Settings {
   openai_temperature: string;
   openai_max_tokens: string;
   openai_top_p: string;
+  app_language: string; // 'hi' (Hindi) or 'en' (English) — default script language
   whisper_model: string;
   whisper_device: string;
   tts_engine: string;
@@ -147,6 +148,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     openai_temperature: "0.7",
     openai_max_tokens: "4096",
     openai_top_p: "1.0",
+    app_language: "hi",
     whisper_model: "turbo",
     whisper_device: "cpu",
     tts_engine: "edge",
@@ -211,7 +213,30 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   
   fetchSettings: async () => {
     const data = await safeApiCall<any>('db_get_settings');
-    if (data) set({ settings: data });
+    if (data) {
+      // Backfill app_language for DBs created before the key existed.
+      // Prefer the persisted value; otherwise derive from the saved voice so
+      // existing users keep their language instead of flipping to default.
+      if (!data.app_language) {
+        const voice: string = data.tts_voice || '';
+        if (voice.startsWith('hi-')) {
+          data.app_language = 'hi';
+        } else if (voice.startsWith('en-')) {
+          data.app_language = 'en';
+        } else {
+          const profiles: any[] = data.xtts_profiles || [];
+          const current = profiles.find((p) => p.id === voice);
+          if (current?.language === 'hi' || current?.language === 'en') {
+            data.app_language = current.language;
+          } else if (typeof data.whisper_model === 'string' && data.whisper_model.toLowerCase().includes('hindi')) {
+            data.app_language = 'hi';
+          } else {
+            data.app_language = 'hi';
+          }
+        }
+      }
+      set({ settings: data });
+    }
   },
 
   saveSettings: async (newSettings) => {
