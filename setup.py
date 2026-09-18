@@ -40,7 +40,7 @@ def check_python_dependencies():
         import webview
         import faster_whisper
         import edge_tts
-        import TTS  # coqui-tts (XTTS v2 voice cloning)
+        import omnivoice  # OmniVoice voice cloning (replaces coqui-TTS/XTTS v2)
         import huggingface_hub
         import soundfile
         import numpy
