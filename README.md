@@ -95,7 +95,7 @@ All prompt intelligence is decoupled from code into **17 hot-reloadable Markdown
 |---|---|
 | **Desktop Shell** | **pywebview 6.2** (Edge WebView2) + Python **3.14** |
 | **Backend & Agent** | Python, `AgentRunner` tool loop, SQLite (WAL mode), `SkillLoader` |
-| **TTS & Voice** | **coqui-tts 0.27.5** (XTTS v2), **edge-tts 7.2.8**, torch 2.12.0 |
+| **TTS & Voice** | **omnivoice 0.2.1** (OmniVoice voice cloning, replaces XTTS v2), **edge-tts 7.2.8**, torch 2.12.0 |
 | **Speech-to-Text** | **faster-whisper 1.2.1** (ctranslate2) |
 | **LLM & Search** | OpenAI-Compatible LLM APIs (OpenAI, OpenRouter, Groq, Ollama, DeepSeek) + LangSearch web search |
 | **Frontend** | **React 19**, **TypeScript 5.7**, **Vite 6**, **Tailwind CSS 4**, **Zustand 5**, framer-motion |
@@ -263,9 +263,8 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 
 ## Troubleshooting
 
-- **"XTTS model loaded on cpu" even with an NVIDIA GPU** — The installed torch is the CPU wheel. Download the CUDA runtime in-app from **Settings → GPU Acceleration** or run `pip install torch==2.12.0+cu126 --index-url https://download.pytorch.org/whl/cu126`.
-- **transformers must stay < 5** — `coqui-tts 0.27.5` requires transformers 4.x (pinned to 4.57.6).
-- **torchcodec / FFmpeg DLL errors** — `backend/xtts.py::_ensure_torchcodec_dlls` auto-provisions the FFmpeg 4.3 DLLs into `%LOCALAPPDATA%\Narrato\torchcodec\` and registers them in the Windows DLL search path.
+- **"OmniVoice model loaded on cpu" even with an NVIDIA GPU** — The installed torch is the CPU wheel. Download the CUDA runtime in-app from **Settings → GPU Acceleration** or run `pip install torch==2.12.0+cu126 --index-url https://download.pytorch.org/whl/cu126`.
+- **transformers must stay >= 5.3** — `omnivoice 0.2.1` requires transformers 5.x. The old `coqui-tts 0.27.5` (XTTS v2, needed transformers < 5) was removed in the OmniVoice migration.
 - **Complex Script Font Rendering** — If Hindi/Devanagari, Tamil, or Arabic subtitles or motion text show broken Unicode matras/ligatures, ensure `Noto Sans Devanagari` (or corresponding Noto font) is selected in the design system.
 
 ---

@@ -20,7 +20,7 @@ import { EDGE_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../../Settings
 
 const ENGINE_TABS: Tab[] = [
   { id: 'edge', label: 'Edge-TTS (Online)' },
-  { id: 'xtts', label: 'XTTS v2 (Voice Clone)' },
+  { id: 'xtts', label: 'OmniVoice (Voice Clone)' },
 ];
 
 // ─── Voice Presets ───────────────────────────────────────────
@@ -229,7 +229,7 @@ const OverrideRow: React.FC<OverrideRowProps> = ({
 const getProjectVal = (settings: any, key: string): string => settings?.[key] || '';
 
 // Edge voices look like "hi-IN-SwaraNeural" / "en-US-AndrewNeural". Anything
-// else (e.g. an XTTS reference file path leaked into tts_voice by older
+// else (e.g. a voice-clone reference file path leaked into tts_voice by older
 // versions) is not a usable Edge voice.
 const isEdgeVoiceName = (v: string): boolean => /^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$/.test(v || '');
 
@@ -260,7 +260,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
 
-  // Generate XTTS presets dynamically
+  // Generate OmniVoice presets dynamically
   const xttsPresets: VoicePreset[] = (globalSettings.xtts_profiles || []).map(p => ({
     id: p.id,
     label: p.name,
@@ -295,7 +295,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
         }
     } catch(e) {}
 
-    // A tts_voice that isn't a valid Edge voice name (e.g. an XTTS reference
+    // A tts_voice that isn't a valid Edge voice name (e.g. a voice-clone reference
     // path leaked into the column by older versions) doesn't count as an
     // explicit voice choice, so the auto-fix can still correct it.
     const hasProjectSpecificVoice = !!selectedProject.tts_engine ||
@@ -311,7 +311,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     if (pEngine === 'edge') {
       currentVoice = globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
     } else if (pEngine === 'xtts') {
-      // XTTS uses reference voice, no voice mismatch check needed
+      // OmniVoice uses reference voice, no voice mismatch check needed
       return;
     }
 
@@ -455,7 +455,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
               onChange={(v) => {
                 const updated = { ...localProjectSettings, tts_engine: v };
                 // When switching back to Edge, always set a usable Edge voice —
-                // including when tts_voice holds a stale XTTS reference path.
+                // including when tts_voice holds a stale voice-clone reference path.
                 if (v === 'edge' && !isEdgeVoiceName(getProjectVal(updated, 'tts_voice'))) {
                   updated.tts_voice = globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
                 }
@@ -492,7 +492,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
           </OverrideRow>
         ) : (
           <OverrideRow
-            label="XTTS Profile"
+            label="OmniVoice Profile"
             globalValue={globalSettings.tts_voice || ''}
             projectValue={projectVal('tts_voice')}
             onReset={() => resetKey('tts_voice')}
@@ -621,7 +621,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
                 </div>
                 <p className="text-[8px] text-zinc-500">{preset.desc}</p>
                 <span className="text-[7px] uppercase tracking-wider text-zinc-600 font-bold mt-0.5">
-                  {preset.engine === 'xtts' ? 'XTTS v2' : 'Edge'}
+                  {preset.engine === 'xtts' ? 'OmniVoice' : 'Edge'}
                 </span>
               </motion.button>
             );

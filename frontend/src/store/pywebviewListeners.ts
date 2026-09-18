@@ -109,6 +109,10 @@ export const initializePywebviewListeners = async () => {
     handleDownloadProgress(data, 'xttsDownload');
   };
 
+  window.onOmniVoiceDownloadProgress = (data: any) => {
+    handleDownloadProgress(data, 'xttsDownload');
+  };
+
   window.onWhisperDownloadProgress = (data: any) => {
     handleDownloadProgress(data, 'whisperDownload', () => {
       useSettingsStore.getState().fetchDownloadedWhisperModels();

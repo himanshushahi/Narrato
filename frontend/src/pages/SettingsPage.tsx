@@ -138,13 +138,13 @@ const SettingsPage: React.FC = () => {
     setPreviewError('');
   }, [formData.tts_engine, formData.tts_voice, formData.tts_speed, formData.tts_pitch, formData.xtts_reference_voice]);
 
-  // Check XTTS model downloads
+  // Check OmniVoice model downloads
   useEffect(() => {
     checkXttsAssets();
   }, [xttsDownload.status]);
 
   const checkXttsAssets = async () => {
-    const ok = await callApi<boolean>('check_xtts_downloaded');
+    const ok = await callApi<boolean>('check_omnivoice_downloaded');
     setXttsInstalled(!!ok);
   };
 
@@ -171,7 +171,7 @@ const SettingsPage: React.FC = () => {
         const lang = value as 'hi' | 'en';
         setAppLanguage(lang);
         if (updated.tts_engine === 'xtts') {
-          // Keep the XTTS profile only if it matches the new language,
+          // Keep the OmniVoice profile only if it matches the new language,
           // otherwise clear it so the filtered dropdown isn't stale.
           const current = (updated.xtts_profiles || []).find((p: any) => p.id === updated.tts_voice);
           if (!current || current.language !== lang) {
@@ -269,7 +269,7 @@ const SettingsPage: React.FC = () => {
 
   const ttsEngineTabs: Tab[] = [
     { id: 'edge', label: 'Edge-TTS (Online)' },
-    { id: 'xtts', label: 'XTTS v2 (Voice Clone)' }
+    { id: 'xtts', label: 'OmniVoice (Voice Clone)' }
   ];
 
   const edgeVoiceOptions = EDGE_VOICE_OPTIONS;
@@ -612,18 +612,18 @@ const SettingsPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        showConfirm("Delete XTTS Model", "Are you sure you want to delete the XTTS v2 model (~1.8GB)? You will need to download it again to use offline voice cloning.", async () => {
-                          const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_xtts_model');
+                        showConfirm("Delete OmniVoice Model", "Are you sure you want to delete the OmniVoice model (~3.3GB)? You will need to download it again to use offline voice cloning.", async () => {
+                          const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_omnivoice_model');
                           if (res?.success) {
                             setXttsInstalled(false);
-                            useUIStore.getState().addToast('XTTS model deleted successfully.', 'success');
+                            useUIStore.getState().addToast('OmniVoice model deleted successfully.', 'success');
                           } else {
                             useUIStore.getState().addToast(res?.error || 'Failed to delete model.', 'error');
                           }
                         });
                       }}
                       className="text-rose-500/70 hover:text-rose-400 p-1 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
-                      title="Delete XTTS Model"
+                      title="Delete OmniVoice Model"
                     >
                       <VscTrash className="text-lg" />
                     </button>
@@ -680,9 +680,9 @@ const SettingsPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* XTTS Voice dropdown — mirrors Edge voice selection */}
+                    {/* OmniVoice Voice dropdown — mirrors Edge voice selection */}
                     <CustomSelect
-                      label="XTTS Voice (Clone Profile)"
+                      label="OmniVoice Voice (Clone Profile)"
                       options={[
                         { value: '', label: 'Default Reference Voice (Bundled)' },
                         ...(formData.xtts_profiles || [])
@@ -711,9 +711,9 @@ const SettingsPage: React.FC = () => {
                       onChange={(val) => handleSelectChange('tts_speed', val)}
                     />
 
-                    {/* XTTS Profile Manager */}
+                    {/* OmniVoice Profile Manager */}
                     <div className="space-y-3 pt-2 border-t border-stone-800/50">
-                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Voice Profiles (XTTS)</label>
+                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Voice Profiles (OmniVoice)</label>
                       
                       {/* Profile List */}
                       {formData.xtts_profiles && formData.xtts_profiles.length > 0 && (
@@ -785,7 +785,7 @@ const SettingsPage: React.FC = () => {
                           Upload Audio (.wav) & Save Profile
                         </GlowButton>
                       </div>
-                      <p className="text-[9px] text-stone-500">Upload a 6–15 second clear voice clip (.wav) for voice cloning.</p>
+                      <p className="text-[9px] text-stone-500">Upload a 3–10 second clear voice clip (.wav) for voice cloning.</p>
                     </div>
                   </div>
                 )}
@@ -807,7 +807,7 @@ const SettingsPage: React.FC = () => {
                     {formData.tts_engine === 'xtts' && (
                       <div className="flex items-center gap-2 text-[10px] text-stone-500 px-1 pb-1">
                         <VscFeedback className="text-xs text-[var(--color-accent-primary)]" />
-                        Preview uses the XTTS voice selected above.
+                        Preview uses the OmniVoice voice selected above.
                       </div>
                     )}
                     <GlowButton
@@ -840,10 +840,10 @@ const SettingsPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* XTTS Download UI */}
+                {/* OmniVoice Download UI */}
                 {formData.tts_engine === 'xtts' && !xttsInstalled && (
                   <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-4 space-y-3">
-                    <p className="text-[10px] text-amber-200/70">XTTS v2 model is required for offline voice cloning. Size is ~1.8GB. A CUDA GPU is recommended.</p>
+                    <p className="text-[10px] text-amber-200/70">OmniVoice model is required for offline voice cloning. Size is ~3.3GB. A CUDA GPU is recommended.</p>
                     {xttsDownload.active ? (
                       <div className="space-y-2">
                         <div className="flex justify-between text-[10px] text-amber-400 font-medium">
@@ -856,7 +856,7 @@ const SettingsPage: React.FC = () => {
                       </div>
                     ) : (
                       <GlowButton variant="secondary" size="sm" fullWidth onClick={downloadXtts} type="button" icon={<VscCloudDownload />}>
-                        Download XTTS v2 Model
+                        Download OmniVoice Model
                       </GlowButton>
                     )}
                   </div>
@@ -885,7 +885,7 @@ const SettingsPage: React.FC = () => {
 
               <div className="space-y-3 text-xs text-stone-400">
                 <p className="leading-relaxed">
-                  Voice cloning (XTTS) runs on the CPU by default. If your PC has an NVIDIA GPU, you can
+                  Voice cloning (OmniVoice) runs on the CPU by default. If your PC has an NVIDIA GPU, you can
                   download the CUDA runtime (~2.6 GB) once and get several times faster voice generation.
                 </p>
 

@@ -1,6 +1,6 @@
 # TTS Migration: XTTS v2 -> OmniVoice
 
-Status: research only, not implemented yet.
+Status: implemented on branch `feature/tts_migration` (backend + frontend).
 Scope: English + Hindi voice cloning for `remotion_canvas`.
 Proposed replacement: https://github.com/k2-fsa/OmniVoice Python API (`k2-fsa/OmniVoice` on Hugging Face).
 
@@ -48,17 +48,35 @@ No code yet. When implementing, target this surface from upstream README:
 
 CLI equivalents exist: `omnivoice-demo`, `omnivoice-infer`, `omnivoice-infer-batch`.
 
-## 5. Migration checklist (to do later)
+## 5. Migration checklist
 
-- [ ] Add `omnivoice` as optional TTS backend behind existing TTS interface, keep XTTS as fallback
-- [ ] Cache model once per process, support `float16` on CUDA, `mps`/`xpu` note
-- [ ] Implement voice-prompt cache (`VoiceClonePrompt.save/load`) per speaker ID
-- [ ] Always pass `ref_text` when known to avoid Whisper download; allow auto-transcribe fallback
-- [ ] Text chunking: OmniVoice is faster so larger chunks are OK, but keep sentence split for very long scripts
-- [ ] Number normalization step before `generate`
+Implementation notes (branch `feature/tts_migration`):
+- Backend: new `backend/omnivoice_tts.py` (model cache, snapshot download,
+  voice-prompt cache, chunking, number normalization); `backend/xtts.py` kept
+  as a compat shim; `backend/pipeline/tts.py` + `backend/core/bridge.py` accept
+  engine `"xtts"` (legacy id) and `"omnivoice"` (alias); `omnivoice>=0.2.1`
+  added to requirements. Engine id `"xtts"` is kept in settings/DB (no data
+  migration); UI displays "OmniVoice".
+- Frontend: labels/badges/hints switched from "XTTS v2" to "OmniVoice"
+  (`SettingsPage.tsx`, `VoiceTab.tsx`); download size text ~1.8GB -> ~3.3GB;
+  reference hint 6-15s -> 3-10s; bridge calls use `check/start/delete_omnivoice_*`
+  aliases (old `xtts_*` names still work).
+
+- [x] Add `omnivoice` as optional TTS backend behind existing TTS interface, keep XTTS as fallback
+- [x] Cache model once per process, support `float16` on CUDA, `mps`/`xpu` note
+- [x] Implement voice-prompt cache (`VoiceClonePrompt.save/load`) per speaker ID
+- [x] Always pass `ref_text` when known to avoid Whisper download; allow auto-transcribe fallback
+  (implemented via local faster-whisper: reference clips are transcribed with
+  `models/whisper/turbo` when present, otherwise faster-whisper "turbo" is
+  bootstrap-downloaded once via the existing whisper download machinery
+  (serialized, cancellable); all model paths resolve via `get_models_dir()`,
+  dynamic per dev/prod. OmniVoice's own ~1.6GB transformers Whisper download
+  is only a last resort when no local model exists)
+- [x] Text chunking: OmniVoice is faster so larger chunks are OK, but keep sentence split for very long scripts
+- [x] Number normalization step before `generate`
 - [ ] Verify Hindi samples (Devanagari) + English samples with same cloned voice
 - [ ] Measure RTF / VRAM on target GPU, decide `num_step=16 vs 32`
-- [ ] Update requirements / docs, note ~3.3GB first-run download + HF cache location
+- [x] Update requirements / docs, note ~3.3GB first-run download + HF cache location
 - [ ] Test offline behavior and `HF_ENDPOINT` mirror if needed
 
 ## 6. Risks / open questions

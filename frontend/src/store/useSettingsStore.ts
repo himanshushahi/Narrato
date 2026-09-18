@@ -226,7 +226,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   downloadXtts: async () => {
     set({ xttsDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
-    await safeApiCall<void>('start_xtts_download');
+    await safeApiCall<void>('start_omnivoice_download');
   },
 
   downloadWhisper: async (modelSize) => {

@@ -30,6 +30,9 @@ interface PywebviewApi {
   check_xtts_downloaded(): Promise<boolean>;
   start_xtts_download(): Promise<{ status: string }>;
   delete_xtts_model(): Promise<{ success: boolean; message?: string; error?: string }>;
+  check_omnivoice_downloaded(): Promise<boolean>;
+  start_omnivoice_download(): Promise<{ status: string }>;
+  delete_omnivoice_model(): Promise<{ success: boolean; message?: string; error?: string }>;
   upload_reference_voice(): Promise<{ success: boolean; path?: string; filename?: string; error?: string }>;
   check_whisper_downloaded(model_size: string): Promise<boolean>;
   start_whisper_download(model_size: string): Promise<{ status: string }>;
@@ -71,6 +74,7 @@ interface Window {
   onProgressUpdate?: (data: any) => void;
   onAgentActivity?: (entry: any) => void;
   onXttsDownloadProgress?: (data: any) => void;
+  onOmniVoiceDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;
   onYtdlpUpdateProgress?: (data: any) => void;
   onGpuDownloadProgress?: (data: any) => void;
