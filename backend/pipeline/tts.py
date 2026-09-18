@@ -178,8 +178,10 @@ def _resolve_tts_settings(project_dict):
         # (older versions persisted it there); edge-tts would fail on that name.
         if not voice or not re.match(r"^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$", voice or ""):
             voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
-    elif engine == "xtts":
-        # For XTTS, check if tts_voice points to an XTTS profile ID
+    elif engine in ("xtts", "omnivoice"):
+        # Voice cloning via OmniVoice (migrated from XTTS v2; engine id "xtts"
+        # is kept in settings/DB for backward compat, "omnivoice" is the
+        # forward alias). For XTTS, check if tts_voice points to an XTTS profile ID
         tts_voice_id = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
         xtts_profiles = get_setting("xtts_profiles") or []
         
@@ -250,7 +252,7 @@ def is_voiceover_stale(project_dict, project_dir):
 
         # A reference clip replaced in place keeps the same path; compare mtime so
         # re-recording over the same file also invalidates the voiceover.
-        if engine == "xtts" and voice and Path(voice).exists():
+        if engine in ("xtts", "omnivoice") and voice and Path(voice).exists():
             try:
                 stored_mtime = first_entry.get("_voiceover_voice_mtime")
                 if stored_mtime is not None and float(stored_mtime) != os.path.getmtime(voice):
@@ -323,7 +325,7 @@ def _tts_entry_settings_match(old_entry, engine, speed, pitch, voice):
         if str(old_entry.get("_voiceover_pitch", "0")) != str(pitch):
             return False
     # A reference clip replaced in place keeps the same path — compare mtime.
-    if engine == "xtts" and voice and Path(voice).exists():
+    if engine in ("xtts", "omnivoice") and voice and Path(voice).exists():
         try:
             if float(old_entry.get("_voiceover_voice_mtime", -1)) != os.path.getmtime(voice):
                 return False
@@ -455,10 +457,10 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             import concurrent.futures
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             try:
-                if engine == "xtts":
-                    from backend.xtts import generate_xtts_tts
+                if engine in ("xtts", "omnivoice"):
+                    from backend.omnivoice_tts import generate_omnivoice_tts
                     future = executor.submit(
-                        generate_xtts_tts, sec['text'], str(seg_file),
+                        generate_omnivoice_tts, sec['text'], str(seg_file),
                         speaker_wav=voice, language=language, speed=speed,
                         cancel_event=cancel_event,
                     )
@@ -550,7 +552,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             entry["_voiceover_voice"] = voice
             entry["_voiceover_speed"] = speed
             entry["_voiceover_pitch"] = pitch
-            if engine == "xtts" and voice and Path(voice).exists():
+            if engine in ("xtts", "omnivoice") and voice and Path(voice).exists():
                 try:
                     entry["_voiceover_voice_mtime"] = os.path.getmtime(voice)
                 except OSError:
@@ -695,7 +697,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
 
     # Sync resolved settings back to the project so downstream staleness checks
     # and the UI read the same values that were actually used.
-    if engine == "xtts":
+    if engine in ("xtts", "omnivoice"):
         # Never persist the raw reference path into tts_voice: that column must
         # only ever hold an Edge voice name, otherwise switching the project back
         # to Edge would feed the path to edge-tts and break generation. Persist

@@ -1232,27 +1232,35 @@ class ApiBridge:
             return {"success": False, "error": str(e)}
 
     def check_xtts_downloaded(self) -> bool:
-        from backend.xtts import check_xtts_model
-        return check_xtts_model()
+        # Legacy name kept for frontend compat; backend is OmniVoice now.
+        from backend.omnivoice_tts import check_omnivoice_model
+        return check_omnivoice_model()
+
+    def check_omnivoice_downloaded(self) -> bool:
+        from backend.omnivoice_tts import check_omnivoice_model
+        return check_omnivoice_model()
 
     def delete_xtts_model(self) -> dict:
         try:
-            from backend.xtts import delete_xtts_model
-            success = delete_xtts_model()
+            from backend.omnivoice_tts import delete_omnivoice_model
+            success = delete_omnivoice_model()
             if success:
-                return {"success": True, "message": "XTTS model deleted successfully."}
+                return {"success": True, "message": "OmniVoice model deleted successfully."}
             else:
                 return {"success": False, "error": "Model not found or could not be deleted."}
         except Exception as e:
-            logger.error(f"XTTS model delete failed: {e}")
+            logger.error(f"OmniVoice model delete failed: {e}")
             return {"success": False, "error": str(e)}
+
+    def delete_omnivoice_model(self) -> dict:
+        return self.delete_xtts_model()
 
     def start_xtts_download(self) -> dict:
         global _xtts_download_active
         if _xtts_download_active:
             return {"status": "already_running"}
-        from backend.xtts import check_xtts_model
-        if check_xtts_model():
+        from backend.omnivoice_tts import check_omnivoice_model
+        if check_omnivoice_model():
             return {"status": "already_downloaded"}
         _xtts_download_active = True
 
@@ -1265,12 +1273,12 @@ class ApiBridge:
                     except Exception:
                         pass
                 safe_progress({"file": "model", "progress": 0})
-                from backend.xtts import download_xtts_model
-                download_xtts_model(progress_callback=safe_progress)
+                from backend.omnivoice_tts import download_omnivoice_model
+                download_omnivoice_model(progress_callback=safe_progress)
                 safe_progress({"status": "completed"})
-                logger.info("XTTS model downloaded successfully.")
+                logger.info("OmniVoice model downloaded successfully.")
             except Exception as e:
-                logger.error(f"XTTS model download failed: {e}")
+                logger.error(f"OmniVoice model download failed: {e}")
                 safe_progress({"status": "failed", "error": str(e)})
             finally:
                 _xtts_download_active = False
@@ -1278,8 +1286,11 @@ class ApiBridge:
         threading.Thread(target=_download_task, daemon=True).start()
         return {"status": "started"}
 
+    def start_omnivoice_download(self) -> dict:
+        return self.start_xtts_download()
+
     def upload_reference_voice(self) -> dict:
-        """Opens a file dialog to select a reference voice .wav file for XTTS voice cloning.
+        """Opens a file dialog to select a reference voice clip for OmniVoice voice cloning.
 
         The clip is converted to a 22050 Hz mono WAV and stored under a
         content-addressed filename (xtts_reference_voice_<hash>.wav) so that
@@ -1971,13 +1982,11 @@ class ApiBridge:
                     pass
             preview_file = temp_dir / f"preview_{uuid.uuid4().hex}.wav"
             speed_float = float(speed) if speed else 1.0
-            if engine == "xtts":
-                from backend.xtts import check_xtts_model, generate_xtts_tts
-                if not check_xtts_model():
-                    return {"success": False, "error": "XTTS model is not downloaded. Please download it from Settings."}
-                # 'voice' parameter here holds the reference speaker_wav path
-                speaker_wav = voice if voice and Path(voice).exists() else ""
-                generate_xtts_tts(
+            if engine in ("xtts", "omnivoice"):
+                from backend.omnivoice_tts import check_omnivoice_model, generate_omnivoice_tts
+                if not check_omnivoice_model():
+                    return {"success": False, "error": "OmniVoice model is not downloaded. Please download it from Settings."}
+                generate_omnivoice_tts(
                     text, str(preview_file),
                     speaker_wav=speaker_wav, language=language, speed=speed_float
                 )
