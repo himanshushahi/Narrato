@@ -1357,26 +1357,14 @@ class ApiBridge:
             else:
                 shutil.move(str(tmp_wav), str(dest))
 
-            # Gather all currently active reference voice paths from prefs
-            from backend.core.prefs import load_prefs
-            prefs = load_prefs()
-            active_paths = set()
-            global_ref = prefs.get("xtts_reference_voice")
-            if global_ref:
-                active_paths.add(Path(global_ref).resolve())
-            for p in prefs.get("xtts_profiles", []):
-                prof_ref = p.get("reference_voice")
-                if prof_ref:
-                    active_paths.add(Path(prof_ref).resolve())
-
-            # Remove stale reference voice files so only the current clip remains.
-            for old in assets_dir.glob("xtts_reference_voice*.wav"):
-                if old.resolve() != dest.resolve() and old.resolve() not in active_paths:
-                    try:
-                        old.unlink()
-                        logger.info(f"Removed stale reference voice: {old}")
-                    except Exception as e:
-                        logger.warning(f"Could not remove stale reference voice {old}: {e}")
+            # NOTE: we deliberately do NOT delete other xtts_reference_voice*.wav
+            # files here. A previous version removed every clip except the one
+            # just uploaded, which deleted voices still in use: profiles created
+            # in Settings exist only in unsaved form state until "Save
+            # Preferences" is clicked, so no backend check (DB or prefs) can see
+            # them at upload time, and projects can also reference clips via
+            # project_settings.xtts_reference_voice. Each clip is only a few
+            # hundred KB, so keeping orphans is far cheaper than breaking voices.
 
             logger.info(f"Reference voice saved to {dest}")
             return {"success": True, "path": str(dest), "filename": Path(selected_path).name}
