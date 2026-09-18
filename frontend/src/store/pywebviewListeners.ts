@@ -105,10 +105,6 @@ export const initializePywebviewListeners = async () => {
     });
   };
 
-  window.onXttsDownloadProgress = (data: any) => {
-    handleDownloadProgress(data, 'xttsDownload');
-  };
-
   window.onOmniVoiceDownloadProgress = (data: any) => {
     handleDownloadProgress(data, 'xttsDownload');
   };

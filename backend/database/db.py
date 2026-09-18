@@ -143,11 +143,11 @@ def init_db():
             "app_language": "hi", # default script language: 'hi' (Hindi) or 'en' (English)
             "whisper_model": "base",
             "whisper_device": "cpu", # 'cpu' or 'cuda'
-            "tts_engine": "edge", # 'edge' or 'xtts'
+            "tts_engine": "edge", # 'edge' or 'xtts' (legacy id for OmniVoice voice cloning)
             "tts_voice": "hi-IN-SwaraNeural", # default Edge voice (Hindi)
             "tts_speed": "1.0",
             "tts_pitch": "0",
-            "xtts_reference_voice": "", # XTTS reference clip path for voice cloning
+            "xtts_reference_voice": "", # OmniVoice reference clip path for voice cloning (legacy key name)
             "bg_music_path": "",
             "bg_music_volume": "0.15",
             "sfx_volume": "0.5",

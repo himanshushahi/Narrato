@@ -10,12 +10,10 @@ API shape (upstream README):
 - Reuse: `create_voice_clone_prompt(...)` -> `save("my_voice.pt")` -> `VoiceClonePrompt.load(...)`
 - Perf knobs: `num_step` (32 quality / 16 fast), `speed`, `duration`
 
-This module mirrors the old `backend/xtts.py` public surface so the
-pipeline (`backend/pipeline/tts.py`) and bridge (`backend/core/bridge.py`)
-keep working unchanged:
+This module is the single voice-cloning backend. The pipeline
+(`backend/pipeline/tts.py`) and bridge (`backend/core/bridge.py`) use:
   check_omnivoice_model / download_omnivoice_model / delete_omnivoice_model /
   generate_omnivoice_tts / get_omnivoice_dir / get_default_reference_voice
-plus `backend/xtts.py` re-exports the old `check_xtts_model`-style names.
 """
 
 import hashlib
@@ -189,7 +187,7 @@ def delete_omnivoice_model() -> bool:
         return False
 
 
-# ── Default reference voice (engine-agnostic, same behaviour as old XTTS) ──
+# ── Default reference voice (engine-agnostic) ──
 
 DEFAULT_REFERENCE_EDGE_VOICE = "hi-IN-SwaraNeural"
 DEFAULT_REFERENCE_TEXT = (
@@ -600,7 +598,7 @@ def _empty_cuda_cache() -> None:
 def _chunk_text_for_omnivoice(text: str) -> list[str]:
     """Splits text into sentence-level chunks.
 
-    OmniVoice (non-autoregressive diffusion) handles larger chunks than XTTS,
+    OmniVoice (non-autoregressive diffusion) handles larger chunks,
     but very long scripts still benefit from sentence splitting.
     """
     raw_chunks = re.split(r"(?<=[.!?।\n])\s+", text.strip())

@@ -27,9 +27,6 @@ interface PywebviewApi {
   save_json_file(file_path: string, data: any): Promise<boolean>;
   scan_assets_directory(project_id: string): Promise<{ files: any[]; total_size: number; total_files: number }>;
   download_google_font(font_family: string): Promise<{ success: boolean; css_path?: string; error?: string }>;
-  check_xtts_downloaded(): Promise<boolean>;
-  start_xtts_download(): Promise<{ status: string }>;
-  delete_xtts_model(): Promise<{ success: boolean; message?: string; error?: string }>;
   check_omnivoice_downloaded(): Promise<boolean>;
   start_omnivoice_download(): Promise<{ status: string }>;
   delete_omnivoice_model(): Promise<{ success: boolean; message?: string; error?: string }>;
@@ -74,7 +71,6 @@ interface Window {
   onShowToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
   onProgressUpdate?: (data: any) => void;
   onAgentActivity?: (entry: any) => void;
-  onXttsDownloadProgress?: (data: any) => void;
   onOmniVoiceDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;
   onYtdlpUpdateProgress?: (data: any) => void;

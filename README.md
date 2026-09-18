@@ -75,7 +75,7 @@ All prompt intelligence is decoupled from code into **17 hot-reloadable Markdown
 
 ### 5. AI Voiceover & Audio Engine
 - **Edge TTS** (fast, online neural voices for Hindi, English, and dozens of languages).
-- **XTTS v2 Voice Cloning** (offline voice cloning from reference audio clips; auto-unloaded after 30s of inactivity to free VRAM/RAM).
+- **OmniVoice Voice Cloning** (offline voice cloning from reference audio clips, ~3.3 GB model; auto-unloaded after 30s of inactivity to free VRAM/RAM).
 - **Faster-Whisper Transcription**: Word-level timestamps for kinetic subtitles and synced visual animations.
 
 ### 6. Interactive Studio & Timeline Editor
@@ -121,7 +121,7 @@ All prompt intelligence is decoupled from code into **17 hot-reloadable Markdown
         ▼              ▼                   ▼                    ▼
   backend/agent/   backend/pipeline/   backend/skills/      backend/core/
   • agent_engine   • ai.py (LLM core)  • 17 modular skills  • config & prefs
-  • skill_loader   • tts.py (Edge/XTTS)• YAML frontmatter   • logger (UI stream)
+  • skill_loader   • tts.py (Edge/OmniVoice)• YAML frontmatter   • logger (UI stream)
   • tools.py       • transcribe.py     • safe templating    • gpu_runtime.py
   • cache.py       • assets.py         • hot-reload         • file_server.py
   • telemetry.py   • render.py (Remotion)                   • database/db.py
@@ -254,7 +254,7 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 | **LLM Provider** | OpenAI-Compatible Endpoint (model, temperature, tokens, base URL) |
 | **Web Search** | LangSearch (master toggle + API key) — feeds real-time web facts to scriptwriter agent |
 | **Whisper** | Faster-Whisper models (including `collabora/faster-whisper-small-hindi`), device CPU/CUDA |
-| **TTS Engine** | Edge TTS (voices, speed, pitch) or XTTS v2 (voice profiles, reference clip, ~1.8 GB model) |
+| **TTS Engine** | Edge TTS (voices, speed, pitch) or OmniVoice (voice profiles, reference clip, ~3.3 GB model) |
 | **Media Sources** | Pexels API key, Pixabay illustrations/vectors, Wikipedia images, YouTube clips |
 | **Render Engine** | Resolution, FPS, CRF, codec, concurrency, hardware acceleration (CPU / NVENC) |
 | **GPU Acceleration** | Detect NVIDIA GPU, download CUDA runtime (2.6 GB), enable/disable, remove |

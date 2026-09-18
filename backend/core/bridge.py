@@ -30,7 +30,7 @@ from backend.agent.schemas import (
 from backend.core.power import power_manager, auto_instrument_bridge
 
 ui_queue = queue.Queue()
-_xtts_download_active = False
+_omnivoice_download_active = False
 _whisper_download_active = False
 _ytdlp_update_active = False
 _gpu_download_active = False
@@ -1231,16 +1231,11 @@ class ApiBridge:
             logger.error(f"Failed to download font {font_family}: {e}")
             return {"success": False, "error": str(e)}
 
-    def check_xtts_downloaded(self) -> bool:
-        # Legacy name kept for frontend compat; backend is OmniVoice now.
-        from backend.omnivoice_tts import check_omnivoice_model
-        return check_omnivoice_model()
-
     def check_omnivoice_downloaded(self) -> bool:
         from backend.omnivoice_tts import check_omnivoice_model
         return check_omnivoice_model()
 
-    def delete_xtts_model(self) -> dict:
+    def delete_omnivoice_model(self) -> dict:
         try:
             from backend.omnivoice_tts import delete_omnivoice_model
             success = delete_omnivoice_model()
@@ -1252,24 +1247,21 @@ class ApiBridge:
             logger.error(f"OmniVoice model delete failed: {e}")
             return {"success": False, "error": str(e)}
 
-    def delete_omnivoice_model(self) -> dict:
-        return self.delete_xtts_model()
-
-    def start_xtts_download(self) -> dict:
-        global _xtts_download_active
-        if _xtts_download_active:
+    def start_omnivoice_download(self) -> dict:
+        global _omnivoice_download_active
+        if _omnivoice_download_active:
             return {"status": "already_running"}
         from backend.omnivoice_tts import check_omnivoice_model
         if check_omnivoice_model():
             return {"status": "already_downloaded"}
-        _xtts_download_active = True
+        _omnivoice_download_active = True
 
         def _download_task():
-            global _xtts_download_active
+            global _omnivoice_download_active
             try:
                 def safe_progress(data):
                     try:
-                        ui_queue.put(("onXttsDownloadProgress", (data,)))
+                        ui_queue.put(("onOmniVoiceDownloadProgress", (data,)))
                     except Exception:
                         pass
                 safe_progress({"file": "model", "progress": 0})
@@ -1281,13 +1273,10 @@ class ApiBridge:
                 logger.error(f"OmniVoice model download failed: {e}")
                 safe_progress({"status": "failed", "error": str(e)})
             finally:
-                _xtts_download_active = False
+                _omnivoice_download_active = False
 
         threading.Thread(target=_download_task, daemon=True).start()
         return {"status": "started"}
-
-    def start_omnivoice_download(self) -> dict:
-        return self.start_xtts_download()
 
     def upload_reference_voice(self) -> dict:
         """Opens a file dialog to select a reference voice clip for OmniVoice voice cloning.

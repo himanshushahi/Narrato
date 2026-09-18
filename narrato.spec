@@ -22,30 +22,10 @@ datas = [
     ('backend/skills', 'backend/skills'),
 ]
 
-# Collect Coqui-TTS (XTTS v2) and other internal assets, filtering out unused models to reduce bundle size
-# include_py_files=True: TTS/vocoder/configs/__init__.py and TTS/vocoder/models/__init__.py do
-# os.listdir(os.path.dirname(__file__)) at import time to discover their modules. PYZ-only
-# packages have NO on-disk directory, so without the .py files the frozen app dies with
-# "FileNotFoundError: [WinError 3] ... TTS\vocoder\configs". Copying the whole tree fixes it.
-tts_datas = collect_data_files('TTS', include_py_files=True)
-datas += tts_datas
-# NOTE: previously filtered out 'piper'/'espeak' paths here — that filter
-# deleted TTS/tts/utils/text/phonemizers/espeak_wrapper.py, which
-# phonemizers/__init__.py imports UNGUARDED (ModuleNotFoundError in frozen
-# app). This TTS install ships NO espeak/piper data (espeak-ng is a system
-# binary, checked via shutil.which at import), so no filtering is needed.
-datas += copy_metadata('coqui-tts')
-# ko_speech_tools (coqui-tts Korean g2p dep) reads JSON/dict data via
-# importlib.resources.files("ko_speech_tools.data.<sub>") at import time
-# (jamo.py, g2p/*.py). Those dotted lookups are dynamic namespace packages
-# invisible to PyInstaller's static analysis; collect the whole tree so the
-# data dirs exist under _internal and resources.files() can resolve them.
-datas += collect_data_files('ko_speech_tools', include_py_files=True)
-# inflect (imported by TTS text cleaners) decorates its methods with
-# typeguard's @typechecked, which calls inspect.getsource() at decoration time;
-# that fails for PYZ-compiled bytecode ("OSError: could not get source code").
-# Copy its source to disk (it is also excluded from the PYZ below).
-datas += collect_data_files('inflect', include_py_files=True)
+# Internal assets bundled as real files (PyInstaller data).
+# NOTE: Coqui-TTS (XTTS v2) was removed in the OmniVoice migration —
+# no TTS / coqui-tts / ko_speech_tools / inflect collection here.
+# (inflect was only required by coqui-tts text cleaners.)
 # torchcodec needs its FFmpeg shared DLLs at load time; bundle the whole package
 # (data files + .pyd/.dll binaries) so the frozen app can load them.
 datas += collect_data_files('torchcodec')
@@ -76,7 +56,7 @@ a = Analysis(
         'clr',
         'faster_whisper',
         'edge_tts',
-        'TTS',
+        'omnivoice',
         'soundfile',
         'numpy',
         'torch',
@@ -84,13 +64,12 @@ a = Analysis(
         'PIL',
         'huggingface_hub',
         'scipy._external.array_api_compat.numpy.fft',
-    ] + collect_submodules('transformers') + collect_submodules('TTS'),
+    ] + collect_submodules('transformers') + collect_submodules('omnivoice'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # NOTE: matplotlib must NOT be excluded — TTS/vocoder/utils/generic_utils.py and
-    # TTS/tts/utils/visual.py import it at module top-level, and the vocoder configs
-    # enumeration (os.listdir import loop) reaches it via wavegrad/wavernn configs.
+    # NOTE: matplotlib is intentionally not excluded — it is harmless to
+    # bundle and may be pulled in by transitive deps.
     excludes=['ipython', 'notebook', 'tkinter', 'PyQt5', 'tensorboard'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -98,24 +77,14 @@ a = Analysis(
     noarchive=False,
 )
 
-# Load TTS and inflect from REAL FILES on disk (copied to _internal by the
-# include_py_files collections above) instead of the compiled PYZ:
-#  - TTS has a circular import chain (TTS/__init__ -> xtts_config -> xtts ->
-#    tokenizer -> text -> back into TTS/__init__) that breaks under the frozen
-#    PYZ importer with "cannot import name 'XttsConfig' from partially
-#    initialized module ... (most likely due to a circular import)".
-#  - inflect uses typeguard's @typechecked; typeguard calls inspect.getsource()
-#    at decoration time, which fails for PYZ bytecode with
-#    "OSError: could not get source code".
-# On-disk modules import exactly like dev, fixing both.
+# Load torch from REAL FILES on disk (copied to _internal by the
+# include_py_files collection above) instead of the compiled PYZ:
 # torch is excluded from the PYZ for SHADOWING: the downloaded GPU runtime is
 # inserted at sys.path[0] at startup (main.py -> gpu_runtime.apply_runtime);
 # with torch importable from real files it wins over the bundled CPU torch.
 a.pure = [
     x for x in a.pure
-    if x[0] != 'TTS' and not x[0].startswith('TTS.')
-    and x[0] != 'inflect' and not x[0].startswith('inflect.')
-    and x[0] != 'torch' and not x[0].startswith('torch.')
+    if x[0] != 'torch' and not x[0].startswith('torch.')
 ]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)

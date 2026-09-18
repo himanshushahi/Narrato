@@ -52,15 +52,16 @@ CLI equivalents exist: `omnivoice-demo`, `omnivoice-infer`, `omnivoice-infer-bat
 
 Implementation notes (branch `feature/tts_migration`):
 - Backend: new `backend/omnivoice_tts.py` (model cache, snapshot download,
-  voice-prompt cache, chunking, number normalization); `backend/xtts.py` kept
-  as a compat shim; `backend/pipeline/tts.py` + `backend/core/bridge.py` accept
+  voice-prompt cache, chunking, number normalization); `backend/xtts.py` compat
+  shim was removed after the migration (no importers left);
+  `backend/pipeline/tts.py` + `backend/core/bridge.py` accept
   engine `"xtts"` (legacy id) and `"omnivoice"` (alias); `omnivoice>=0.2.1`
   added to requirements. Engine id `"xtts"` is kept in settings/DB (no data
   migration); UI displays "OmniVoice".
 - Frontend: labels/badges/hints switched from "XTTS v2" to "OmniVoice"
   (`SettingsPage.tsx`, `VoiceTab.tsx`); download size text ~1.8GB -> ~3.3GB;
-  reference hint 6-15s -> 3-10s; bridge calls use `check/start/delete_omnivoice_*`
-  aliases (old `xtts_*` names still work).
+  reference hint 6-15s -> 3-10s; bridge exposes `check/start/delete_omnivoice_*`
+  only (old `xtts_*` duplicates removed).
 
 - [x] Add `omnivoice` as optional TTS backend behind existing TTS interface, keep XTTS as fallback
 - [x] Cache model once per process, support `float16` on CUDA, `mps`/`xpu` note
