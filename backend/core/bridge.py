@@ -1384,6 +1384,14 @@ class ApiBridge:
             logger.error(f"Reference voice upload failed: {e}")
             return {"success": False, "error": str(e)}
 
+    def check_file_exists(self, path: str) -> bool:
+        """Returns True if the given local file path exists (used by the UI
+        to flag voice-profile reference clips that were deleted/moved)."""
+        try:
+            return bool(path) and Path(path).is_file()
+        except Exception:
+            return False
+
     def check_whisper_downloaded(self, model_size: str) -> bool:
         from backend.pipeline.transcribe import check_whisper_assets
         return check_whisper_assets(model_size)
@@ -1986,6 +1994,13 @@ class ApiBridge:
                 from backend.omnivoice_tts import check_omnivoice_model, generate_omnivoice_tts
                 if not check_omnivoice_model():
                     return {"success": False, "error": "OmniVoice model is not downloaded. Please download it from Settings."}
+                # 'voice' parameter here holds the reference speaker_wav path.
+                # An explicitly selected voice whose file is missing must fail
+                # loudly — silently previewing the default voice hides a
+                # broken selection that would then ruin the full voiceover.
+                if voice and not Path(voice).exists():
+                    return {"success": False, "error": f"Selected voice file is missing: {voice}. The reference audio was deleted or moved — re-upload it in Settings > Voice Synthesis (replace the profile audio) or select another voice."}
+                speaker_wav = voice or ""
                 generate_omnivoice_tts(
                     text, str(preview_file),
                     speaker_wav=speaker_wav, language=language, speed=speed_float

@@ -34,6 +34,7 @@ interface PywebviewApi {
   start_omnivoice_download(): Promise<{ status: string }>;
   delete_omnivoice_model(): Promise<{ success: boolean; message?: string; error?: string }>;
   upload_reference_voice(): Promise<{ success: boolean; path?: string; filename?: string; error?: string }>;
+  check_file_exists(path: string): Promise<boolean>;
   check_whisper_downloaded(model_size: string): Promise<boolean>;
   start_whisper_download(model_size: string): Promise<{ status: string }>;
   get_downloaded_whisper_models(): Promise<any[]>;

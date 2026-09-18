@@ -359,6 +359,39 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     setPreviewError('');
   }, [engine, projectVal('tts_voice'), projectVal('tts_speed'), projectVal('tts_pitch')]);
 
+  // Detect when the selected OmniVoice profile's reference audio file is
+  // missing from disk (deleted/moved outside the app). The backend would
+  // otherwise fail at generation time — flag it here proactively.
+  const [voiceFileMissing, setVoiceFileMissing] = useState(false);
+  const checkedVoiceRef = useRef<string>('');
+  useEffect(() => {
+    if (engine !== 'xtts') {
+      setVoiceFileMissing(false);
+      checkedVoiceRef.current = '';
+      return;
+    }
+    const selId = projectVal('tts_voice') || (globalSettings as any).tts_voice || '';
+    const prof = (globalSettings.xtts_profiles || []).find((p: any) => p.id === selId);
+    if (!prof?.reference_voice) {
+      // "Default Reference Voice" (bundled) — always available.
+      setVoiceFileMissing(false);
+      checkedVoiceRef.current = selId || '(default)';
+      return;
+    }
+    if (checkedVoiceRef.current === prof.reference_voice) return;
+    checkedVoiceRef.current = prof.reference_voice;
+    let cancelled = false;
+    (async () => {
+      try {
+        const ok = await callApi<boolean>('check_file_exists', prof.reference_voice);
+        if (!cancelled) setVoiceFileMissing(ok === false);
+      } catch {
+        if (!cancelled) setVoiceFileMissing(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  });
+
 
   // ── Preset handler ──
   const applyPreset = (preset: VoicePreset) => {
@@ -430,6 +463,20 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     return true;
   };
 
+  // OmniVoice dropdown options (shared by the select + stale check below).
+  // A stored voice id that matches no option means the profile was deleted
+  // (or belongs to another language) — the select would misleadingly show
+  // "Default Reference Voice" while the project still references the dead id.
+  const xttsOptions = [
+    { value: '', label: 'Default Reference Voice' },
+    ...(globalSettings.xtts_profiles || [])
+      .filter((p: any) => p.language === projectLanguage || projectLanguage === 'all' || !projectLanguage)
+      .map((p: any) => ({ value: p.id, label: p.name }))
+  ];
+  const effectiveVoiceVal = projectVal('tts_voice') || (globalSettings as any).tts_voice || '';
+  const isVoiceStale = engine === 'xtts' && !!effectiveVoiceVal &&
+    !xttsOptions.some(o => o.value === effectiveVoiceVal);
+
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-4">
 
@@ -498,15 +545,22 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
             onReset={() => resetKey('tts_voice')}
           >
             <CustomSelect
-              options={[
-                { value: '', label: 'Default Reference Voice' },
-                ...(globalSettings.xtts_profiles || [])
-                  .filter(p => p.language === projectLanguage || projectLanguage === 'all' || !projectLanguage)
-                  .map(p => ({ value: p.id, label: p.name }))
-              ]}
+              options={xttsOptions}
               value={projectVal('tts_voice') || globalSettings.tts_voice || ''}
               onChange={(v) => updateKey('tts_voice', v)}
             />
+            {isVoiceStale && (
+              <div className="text-[9px] text-amber-400 bg-amber-950/20 border border-amber-800/30 rounded p-2">
+                The previously selected voice is no longer available (profile deleted or voice file removed).
+                Generation will fail until you pick another voice above.
+              </div>
+            )}
+            {voiceFileMissing && !isVoiceStale && (
+              <div className="text-[9px] text-amber-400 bg-amber-950/20 border border-amber-800/30 rounded p-2">
+                The audio file for the selected voice is missing from disk (deleted or moved).
+                Re-upload it in Settings › Voice Synthesis (replace the profile audio), or pick another voice.
+              </div>
+            )}
           </OverrideRow>
         )}
 

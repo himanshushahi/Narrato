@@ -90,6 +90,34 @@ const SettingsPage: React.FC = () => {
 
   const [newProfileName, setNewProfileName] = useState('');
 
+  // Profile ids whose reference audio file is missing from disk. Checked
+  // whenever the profile list changes so broken voices are flagged inline.
+  const [missingProfileAudio, setMissingProfileAudio] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const missing: string[] = [];
+      for (const p of (formData.xtts_profiles || [])) {
+        if (!p?.reference_voice) continue;
+        try {
+          const ok = await callApi<boolean>('check_file_exists', p.reference_voice);
+          if (ok === false) missing.push(p.id);
+        } catch {
+          /* backend unreachable — skip check */
+        }
+      }
+      if (!cancelled) setMissingProfileAudio(missing);
+    })();
+    return () => { cancelled = true; };
+  }, [formData.xtts_profiles]);
+
+  // Effective language: unsaved form value wins so the UI (voice lists,
+  // preview) reacts immediately; falls back to last-saved value.
+  const currentLang: 'hi' | 'en' =
+    ((formData as any)?.app_language === 'hi' || (formData as any)?.app_language === 'en')
+      ? (formData as any).app_language
+      : appLanguage;
+
   // Fetch settings on load
   useEffect(() => {
     fetchSettings();
@@ -746,21 +774,47 @@ const SettingsPage: React.FC = () => {
                               <div>
                                 <div className="text-xs font-semibold text-stone-200">{profile.name}</div>
                                 <div className="text-[10px] text-stone-500 uppercase tracking-wider">{profile.language === 'hi' ? 'Hindi' : profile.language === 'en' ? 'English' : profile.language}</div>
+                                {missingProfileAudio.includes(profile.id) && (
+                                  <div className="text-[9px] text-amber-400 font-medium mt-0.5">Audio file missing — replace it or this voice will fail.</div>
+                                )}
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const updated = formData.xtts_profiles!.filter(p => p.id !== profile.id);
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    xtts_profiles: updated,
-                                    tts_voice: prev.tts_voice === profile.id ? '' : prev.tts_voice
-                                  }));
-                                }}
-                                className="text-rose-500/70 hover:text-rose-400 p-1.5 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
-                              >
-                                <VscTrash />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  title="Replace voice audio (re-upload clip, keeps this profile selected in projects)"
+                                  onClick={async () => {
+                                    const res = await callApi<{ success: boolean; path?: string; filename?: string; error?: string }>('upload_reference_voice');
+                                    if (res?.success && res.path) {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        xtts_profiles: (prev.xtts_profiles || []).map(pr =>
+                                          pr.id === profile.id ? { ...pr, reference_voice: res.path as string } : pr
+                                        )
+                                      }));
+                                      useUIStore.getState().addToast(`Voice audio replaced: ${res.filename}. Click Save Preferences to apply.`, 'success');
+                                    } else if (res?.error && res.error !== 'No file selected.') {
+                                      useUIStore.getState().addToast(res.error, 'error');
+                                    }
+                                  }}
+                                  className="text-sky-500/70 hover:text-sky-400 p-1.5 cursor-pointer rounded hover:bg-sky-500/10 transition-colors"
+                                >
+                                  <VscFolderOpened />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = formData.xtts_profiles!.filter(p => p.id !== profile.id);
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      xtts_profiles: updated,
+                                      tts_voice: prev.tts_voice === profile.id ? '' : prev.tts_voice
+                                    }));
+                                  }}
+                                  className="text-rose-500/70 hover:text-rose-400 p-1.5 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
+                                >
+                                  <VscTrash />
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>

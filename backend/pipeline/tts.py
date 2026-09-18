@@ -153,8 +153,18 @@ def get_audio_duration(audio_path):
         logger.warning(f"Failed to probe duration for {audio_path}: {e}")
     return 0.0
 
-def _resolve_tts_settings(project_dict):
-    """Resolve TTS settings from project overrides or global settings."""
+def _resolve_tts_settings(project_dict, strict=False):
+    """Resolve TTS settings from project overrides or global settings.
+
+    When ``strict`` is True (actual generation), an explicitly selected
+    OmniVoice profile that no longer resolves — deleted profile, or a
+    reference clip that was moved/deleted — raises a clear error instead of
+    silently falling back to the default reference voice (which would
+    produce a whole voiceover in the wrong voice). Callers doing read-only
+    staleness checks must use ``strict=False``: the fallback then resolves
+    to the default so the voice mismatch is simply reported as stale, and
+    the subsequent strict run surfaces the actionable error.
+    """
     project_settings_raw = project_dict.get("project_settings")
     project_settings = {}
     if project_settings_raw:
@@ -172,6 +182,13 @@ def _resolve_tts_settings(project_dict):
     pitch = project_settings.get("tts_pitch") or get_setting("tts_pitch") or "0"
     language = project_dict.get("language", "hi")
 
+    def _broken_voice_error(detail: str) -> RuntimeError:
+        return RuntimeError(
+            f"Selected voice is unavailable ({detail}). "
+            "Re-select a voice in the Voice tab (or re-upload the voice clip in "
+            "Settings > Voice Synthesis) and regenerate the voiceover."
+        )
+
     if engine == "edge":
         voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
         # Guard against a tts_voice column polluted with an XTTS reference path
@@ -184,17 +201,43 @@ def _resolve_tts_settings(project_dict):
         # forward alias). For XTTS, check if tts_voice points to an XTTS profile ID
         tts_voice_id = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
         xtts_profiles = get_setting("xtts_profiles") or []
-        
+
         voice = None
-        if xtts_profiles and tts_voice_id:
-            for p in xtts_profiles:
+        matched_profile = None
+        if tts_voice_id:
+            for p in xtts_profiles or []:
                 if p.get("id") == tts_voice_id:
+                    matched_profile = p
                     voice = p.get("reference_voice")
                     break
-        
+            if voice and not Path(voice).exists():
+                # Profile exists but its reference clip was deleted/moved
+                # (e.g. removed by an older cleanup run). Never silently
+                # clone the wrong voice.
+                detail = f"voice '{matched_profile.get('name', tts_voice_id)}' file is missing: {voice}"
+                if strict:
+                    raise _broken_voice_error(detail)
+                logger.warning(f"{detail}. Falling back to default reference voice for staleness comparison only.")
+                voice = None
+            elif tts_voice_id and not matched_profile and str(tts_voice_id).startswith("xtts_prof_"):
+                # Explicitly selected profile was deleted from global settings.
+                detail = f"voice profile '{tts_voice_id}' was not found (it may have been deleted in Settings)"
+                if strict:
+                    raise _broken_voice_error(detail)
+                logger.warning(f"{detail}. Falling back to default reference voice for staleness comparison only.")
+                voice = None
+
         # Fallback to old global reference voice if profile not found or not set
         if not voice:
-            voice = project_settings.get("xtts_reference_voice") or get_setting("xtts_reference_voice") or ""
+            ref = project_settings.get("xtts_reference_voice") or get_setting("xtts_reference_voice") or ""
+            if ref and not Path(ref).exists():
+                detail = f"reference voice file is missing: {ref}"
+                if strict:
+                    raise _broken_voice_error(detail)
+                logger.warning(f"{detail}. Using default reference voice.")
+                voice = ""
+            else:
+                voice = ref
     else:
         # Fallback to edge
         voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice") or "hi-IN-SwaraNeural"
@@ -239,7 +282,7 @@ def is_voiceover_stale(project_dict, project_dir):
             return True
             
         engine, speed, pitch, voice = _resolve_tts_settings(project_dict)
-        
+
         stored_engine = first_entry.get("_voiceover_engine")
         stored_voice = first_entry.get("_voiceover_voice")
         
@@ -406,7 +449,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
     voice_dir = project_dir / "voiceover"
     voice_dir.mkdir(parents=True, exist_ok=True)
 
-    engine, speed, pitch, voice = _resolve_tts_settings(project_dict)
+    engine, speed, pitch, voice = _resolve_tts_settings(project_dict, strict=True)
     language = project_dict.get("language", "hi")
 
     temp_files = []
