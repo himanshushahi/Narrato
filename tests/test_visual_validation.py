@@ -371,7 +371,8 @@ def test_style_transform_folded_from_text_layer():
         "transform": "translateX(-50%)",
     }, text="LIKE A SPINNING COIN")]
     fixed = sanitize_style_keys(kids, cut_label="cut#0")
-    assert fixed == 1
+    # 1 transform strip (+fold into left) + 1 LayerBox value normalization.
+    assert fixed == 2
     style = kids[0]["content"]["style"]
     assert "transform" not in style
     # Centering hack folded: 29.25 − 20/2 = 19.25.
@@ -381,8 +382,9 @@ def test_style_transform_folded_from_text_layer():
 
 
 def test_renderable_keys_pass_through_untouched():
-    # Warn-don't-block: opacity/filter/display/mixBlendMode render via
-    # passthrough and are flagged in the UI — never stripped here.
+    # LayerBox SOT v1: opacity/display/mixBlendMode still pass through and
+    # are flagged in the UI — but style.filter is hoisted into layer.filters
+    # so the Filters tab stays the single filter authority.
     from backend.agent.validators import sanitize_style_keys
     kids = [_styled_layer("Image", {
         "width": "100%", "opacity": 0.5, "filter": "blur(2px)",
@@ -390,12 +392,14 @@ def test_renderable_keys_pass_through_untouched():
         "boxShadow": "0 0 10px #000",
     }, query="city skyline")]
     fixed = sanitize_style_keys(kids, cut_label="cut#0")
-    assert fixed == 0
+    # 1 position coerce + 1 style.filter hoist.
+    assert fixed == 2
     assert kids[0]["content"]["style"] == {
-        "width": "100%", "opacity": 0.5, "filter": "blur(2px)",
+        "width": "100%", "opacity": 0.5,
         "display": "flex", "mixBlendMode": "overlay", "objectFit": "cover",
-        "boxShadow": "0 0 10px #000",
+        "boxShadow": "0 0 10px #000", "position": "absolute",
     }
+    assert kids[0]["filters"] == ["blur(2px)"]
 
 
 def test_text_style_aliases_coerced_to_content():
@@ -409,8 +413,10 @@ def test_text_style_aliases_coerced_to_content():
     assert content["font"] == "Montserrat"
     assert content["weight"] == "900"
     assert content["color"] == "#f8fafc"
-    assert content["style"] == {"left": "10%"}
-    assert fixed == 3
+    # LayerBox SOT: position coerced to absolute alongside the alias moves.
+    assert content["style"] == {"left": "10%", "position": "absolute"}
+    # 3 alias moves + 1 LayerBox position coerce.
+    assert fixed == 4
 
 
 def test_text_alias_dropped_when_canonical_set():
@@ -420,7 +426,7 @@ def test_text_alias_dropped_when_canonical_set():
     sanitize_style_keys(kids, cut_label="cut#0")
     content = kids[0]["content"]
     assert content["font"] == "Montserrat"
-    assert content["style"] == {"left": "10%"}
+    assert content["style"] == {"left": "10%", "position": "absolute"}
 
 
 def test_chart_accent_kept_objectfit_kept_on_text():
@@ -430,11 +436,15 @@ def test_chart_accent_kept_objectfit_kept_on_text():
         _styled_layer("Text", {"left": "10%", "objectFit": "cover"}, text="hi"),
     ]
     sanitize_style_keys(kids, cut_label="cut#0")
-    assert kids[0]["content"]["style"] == {"left": "6%", "color": "#00d4ff"}
-    assert kids[1]["content"]["style"] == {"left": "10%", "objectFit": "cover"}
+    assert kids[0]["content"]["style"] == {"left": "6%", "color": "#00d4ff",
+                                           "position": "absolute"}
+    assert kids[1]["content"]["style"] == {"left": "10%", "objectFit": "cover",
+                                           "position": "absolute"}
 
 
 def test_non_dict_style_dropped():
+    # LayerBox SOT: garbage style is dropped. A single background layer
+    # (idx 0) with no box stays fullscreen — no foreground fill.
     from backend.agent.validators import sanitize_style_keys
     kids = [_styled_layer("Text", "width:100%", text="hi")]
     fixed = sanitize_style_keys(kids, cut_label="cut#0")
@@ -535,11 +545,13 @@ def test_mixed_units_never_fold():
 
 
 def test_non_absolute_position_dropped_absolute_kept():
+    # LayerBox SOT: non-absolute position is stripped, then the box contract
+    # coerces it back to absolute — repair, never punish.
     from backend.agent.schemas import sanitize_layer_style
     cleaned, stripped, _ = sanitize_layer_style("Text", {
         "left": "10%", "position": "relative",
     })
-    assert "position" not in cleaned
+    assert cleaned["position"] == "absolute"
     assert any("position" in s for s in stripped)
     kept, stripped2, _ = sanitize_layer_style("Text", {
         "left": "10%", "position": "absolute",

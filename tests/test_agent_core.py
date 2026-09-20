@@ -20,7 +20,11 @@ def test_validate_sub_visuals():
     is_valid, normalized, err = validate_sub_visuals(svs, 15.0)
     assert is_valid is True
     assert err == ""
-    assert normalized[0]["composition"] == {"type": "Sequence", "children": []}
+    # Layer-less cuts paint the gradient placeholder instead of black —
+    # durations untouched.
+    for cut in normalized:
+        kids = cut["composition"]["children"]
+        assert len(kids) == 1 and kids[0]["content"]["type"] == "HTML"
     assert normalized[0]["duration"] == 10.0
     assert normalized[1]["duration"] == 5.0
 

@@ -82,6 +82,23 @@ def _dummy_visual(target_duration: float) -> List[Dict[str, Any]]:
     }]
 
 
+# Marker identifying the fallback layer below. Sections whose cuts hold
+# ONLY this placeholder are treated as visually blank (see
+# assets._has_meaningful_sub_visuals) so Smart Resume regenerates them
+# instead of sticking on a gradient forever.
+_HTML_PLACEHOLDER_MARKER = "linear-gradient(135deg,#0f172a"
+
+
+def is_html_gradient_placeholder(layer: Any) -> bool:
+    """True when a layer node is the fallback gradient placeholder."""
+    if not isinstance(layer, dict):
+        return False
+    content = layer.get("content")
+    if not isinstance(content, dict) or content.get("type") != "HTML":
+        return False
+    return _HTML_PLACEHOLDER_MARKER in str(content.get("html_content") or "")
+
+
 def _html_gradient_placeholder() -> Dict[str, Any]:
     """Fallback layer guaranteeing a cut always renders *something*.
 
@@ -288,8 +305,9 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
     Such layers can never resolve an asset (the fetcher skips them), so they
     only ever render as broken placeholders. Returns (clean_children,
     dropped_count) where dropped_count covers BOTH corruption drops and
-    query-less drops. A cut left with zero layers gets a single HTML gradient
-    placeholder so it still paints deterministically.
+    query-less drops. A cut with zero layers — whether it arrived empty from
+    the LLM or was emptied by sanitization — gets a single HTML gradient
+    placeholder so it still paints deterministically instead of black.
 
     Also clears stale empty-string ``local_path`` on surviving media layers
     so the frontend correctly routes to the ProceduralCanvasFallback branch
@@ -326,16 +344,18 @@ def sanitize_media_layers(children: List[Any], cut_label: str = "") -> Tuple[Lis
                 lp = content.get("local_path")
                 if isinstance(lp, str) and not lp.strip():
                     content.pop("local_path", None)
-    if not clean and children:
+    if not clean:
         clean = [_html_gradient_placeholder()]
         logger.warning(
-            f"sanitize_media_layers: {cut_label or 'cut'} left layer-less after sanitization — "
+            f"sanitize_media_layers: {cut_label or 'cut'} layer-less "
+            f"(arrived empty or emptied by sanitization) — "
             f"inserted HTML gradient placeholder."
         )
     return clean, total_dropped
 
 
-def sanitize_style_keys(children: List[Any], cut_label: str = "") -> int:
+def sanitize_style_keys(children: List[Any], cut_label: str = "",
+                        video_format: str = "landscape") -> int:
     """Repair (never punish) style keys on raw-dict layers.
 
     Mirrors the LayerContent model validator for pipeline paths that never
@@ -345,13 +365,23 @@ def sanitize_style_keys(children: List[Any], cut_label: str = "") -> int:
     it, so the layer would render outside its box) and non-absolute
     `position` values, relocates Text style aliases (fontFamily/fontWeight/
     color) into canonical content fields when empty, and folds the Lottie
-    `src` alias into `lottie_url`. Everything else passes through — GUI-less
-    keys are flagged in the editor UI, not stripped here. Returns the number
-    of keys stripped, folded, or moved.
+    `src` alias into `lottie_url`. LayerBox SOT v1 (stage 2, needs the layer
+    index the model validator cannot see): hoists `style.filter` into
+    `layer.filters`, drops legacy Shape `content.width/height` when a style
+    box exists (box = stage, content fields = glyph), and fills a missing
+    box on non-background layers (Center Card; Lower Third for Text).
+    Everything else passes through — GUI-less keys are flagged in the
+    editor UI, not stripped here. Returns the number of keys stripped,
+    folded, moved, hoisted, or filled.
     """
+    from backend.agent.schemas import (
+        CENTER_CARD_FILL, LOWER_THIRD_FILL, FULLSCREEN_FILL,
+        FULLSCREEN_BOX_TYPES,
+    )
     if not isinstance(children, list):
         return 0
     fixed = 0
+    total = len(children)
     for idx, layer in enumerate(children):
         if not isinstance(layer, dict):
             continue
@@ -360,11 +390,36 @@ def sanitize_style_keys(children: List[Any], cut_label: str = "") -> int:
             continue
         ctype = content.get("type")
         if "style" in content:
-            cleaned, stripped, moves = sanitize_layer_style(ctype, content.get("style"))
+            before_box = dict(content["style"]) if isinstance(content.get("style"), dict) else None
+            cleaned, stripped, moves = sanitize_layer_style(
+                ctype, content.get("style"), video_format)
             if cleaned is None:
                 content.pop("style", None)
             else:
                 content["style"] = cleaned
+            # LayerBox value rewrites (px→%, anchor resolve, clamp, position
+            # coerce, fullscreen force) change values without stripping keys —
+            # count them so migrate_cut_geometry() (and telemetry) sees them.
+            # Alias moves / transform strips are counted by their own
+            # branches, so they are excluded from the diff (no double count).
+            if before_box is not None and isinstance(cleaned, dict):
+                from backend.agent.schemas import TEXT_STYLE_ALIASES as _ALIASES
+                # Normalize stripped tokens to key names: "position(non-absolute)"
+                # repairs to position:absolute, so "position" must be ignored in
+                # the value-rewrite diff (otherwise one repair counts twice).
+                ignored = {str(t).split("(")[0].split(":")[0] for t in stripped}
+                ignored |= {"transform"} | set(_ALIASES)
+                before_flat = {k: str(v) for k, v in before_box.items()
+                               if k not in ignored}
+                after_flat = {k: str(v) for k, v in cleaned.items()
+                              if k not in ignored}
+                if before_flat != after_flat:
+                    fixed += 1
+                    logger.warning(
+                        f"sanitize_style_keys: {cut_label or 'cut'} layer#{idx} "
+                        f"({ctype}): normalized LayerBox "
+                        f"{sorted(set(after_flat) ^ set(before_flat) | {k for k in after_flat if after_flat.get(k) != before_flat.get(k)})}."
+                    )
             moved_here = []
             for target, value in moves.items():
                 if content.get(target) in (None, ""):
@@ -378,6 +433,75 @@ def sanitize_style_keys(children: List[Any], cut_label: str = "") -> int:
                     f"({ctype}): stripped unsupported style keys {sorted(set(stripped))}; "
                     f"relocated aliases {sorted(moved_here)}."
                 )
+        # LayerBox: hoist style.filter (second filter control) into
+        # layer.filters so the Filters tab stays the single filter authority.
+        style = content.get("style")
+        if isinstance(style, dict) and "filter" in style:
+            raw = style.pop("filter", None)
+            hoisted: List[str] = []
+            if isinstance(raw, str) and raw.strip():
+                hoisted = [raw.strip()]
+            elif isinstance(raw, list):
+                hoisted = [str(x).strip() for x in raw if str(x).strip()]
+            if hoisted:
+                existing = layer.get("filters")
+                if not isinstance(existing, list):
+                    existing = []
+                    layer["filters"] = existing
+                for token in hoisted:
+                    if token not in existing:
+                        existing.append(token)
+                fixed += len(hoisted)
+                logger.warning(
+                    f"sanitize_style_keys: {cut_label or 'cut'} layer#{idx} "
+                    f"({ctype}): hoisted style.filter into layer.filters {hoisted}."
+                )
+            else:
+                fixed += 1
+            if not style:
+                content.pop("style", None)
+                style = None
+        # LayerBox: Shape box = stage. Legacy numeric content.width/height
+        # (fixed-px Rect) would ignore the stage — drop it when a box exists.
+        if ctype == "Shape" and isinstance(style, dict):
+            if any(k in style for k in ("left", "top", "right", "bottom", "width", "height")):
+                dropped = False
+                for legacy in ("width", "height"):
+                    if content.pop(legacy, None) is not None:
+                        dropped = True
+                if dropped:
+                    fixed += 1
+                    logger.warning(
+                        f"sanitize_style_keys: {cut_label or 'cut'} layer#{idx} "
+                        f"(Shape): dropped legacy content width/height — style box is the stage."
+                    )
+        # LayerBox: fill a missing box on non-background layers so AI cuts
+        # never depend on the fullscreen fallback for foreground content.
+        # Background children[0] with no box = fullscreen (valid, no fill),
+        # even for single-layer cuts.
+        # Map/Particles are always fullscreen.
+        if ctype in FULLSCREEN_BOX_TYPES:
+            if not isinstance(content.get("style"), dict):
+                content["style"] = dict(FULLSCREEN_FILL)
+                fixed += 1
+        elif idx > 0:
+            cur = content.get("style")
+            has_box = isinstance(cur, dict) and any(
+                k in cur for k in ("left", "top", "right", "bottom", "width", "height")
+            )
+            if not has_box:
+                fill = dict(LOWER_THIRD_FILL) if ctype == "Text" else dict(CENTER_CARD_FILL)
+                if isinstance(cur, dict):
+                    fill.update({k: v for k, v in cur.items() if k not in fill})
+                    content["style"] = fill
+                else:
+                    content["style"] = fill
+                fixed += 1
+                logger.warning(
+                    f"sanitize_style_keys: {cut_label or 'cut'} layer#{idx} "
+                    f"({ctype}): filled missing LayerBox with "
+                    f"{'lower-third' if ctype == 'Text' else 'center-card'} default."
+                )
         if ctype == "Lottie" and "src" in content:
             src = content.pop("src")
             if src not in (None, "") and content.get("lottie_url") in (None, ""):
@@ -386,10 +510,54 @@ def sanitize_style_keys(children: List[Any], cut_label: str = "") -> int:
     return fixed
 
 
-def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1) -> Tuple[bool, List[Dict[str, Any]], str]:
+def migrate_cut_geometry(sub_visuals: Any, video_format: str = "landscape",
+                         cut_label_prefix: str = "migrate") -> int:
+    """Opt-in LayerBox SOT v1 migration for stored projects.
+
+    Runs geometry-only repair (query-less media drops + layer-less cuts get
+    the gradient placeholder + style normalize + filter hoist + Shape legacy
+    drop + missing-box fill + fullscreen force) on every cut WITHOUT
+    touching durations, transitions, or stacking — unlike
+    validate_sub_visuals, which renormalizes durations to a target.
+    Mutates in place. Returns total layers/keys repaired. Idempotent: a
+    second run repairs nothing.
+    """
+    if isinstance(sub_visuals, dict):
+        if isinstance(sub_visuals.get("sub_visuals"), list):
+            cuts = sub_visuals["sub_visuals"]
+        else:
+            cuts = [sub_visuals]
+    elif isinstance(sub_visuals, list):
+        cuts = sub_visuals
+    else:
+        return 0
+    total = 0
+    for cut_idx, sv in enumerate(cuts):
+        if not isinstance(sv, dict):
+            continue
+        comp = sv.get("composition")
+        if not isinstance(comp, dict) or not isinstance(comp.get("children"), list):
+            continue
+        label = f"{cut_label_prefix} cut#{cut_idx}"
+        before = len(comp["children"])
+        clean, dropped = sanitize_media_layers(comp["children"], cut_label=label)
+        comp["children"] = clean
+        total += dropped
+        if len(clean) > before:
+            total += 1  # gradient placeholder inserted into a layer-less cut
+        total += sanitize_style_keys(comp["children"], cut_label=label,
+                                     video_format=video_format)
+    return total
+
+
+def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1,
+                         video_format: str = "landscape") -> Tuple[bool, List[Dict[str, Any]], str]:
     """
     Validates a list of AST sub-visuals, ensuring their durations sum up to the
     target_duration, and normalizes transitions onto valid enums.
+
+    video_format selects the LayerBox px→% reference grid
+    (landscape 1920x1080, portrait 1080x1920, square 1080x1080).
 
     Returns: (is_valid, normalized_sub_visuals, error_message)
     """
@@ -474,7 +642,8 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             comp = entry.get("composition") or {}
             if isinstance(comp, dict) and isinstance(comp.get("children"), list):
                 sanitize_style_keys(
-                    comp["children"], cut_label=f"cut#{len(normalized)}"
+                    comp["children"], cut_label=f"cut#{len(normalized)}",
+                    video_format=video_format,
                 )
         except Exception:
             pass

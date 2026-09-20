@@ -205,6 +205,191 @@ _STYLE_EXTRAS_BY_TYPE = {
 # content field — moved there when empty, dropped when already set.
 TEXT_STYLE_ALIASES = {"fontFamily": "font", "fontWeight": "weight", "color": "color"}
 
+# ============================================================================
+# LAYERBOX SOT v1 — single source of truth for layer geometry.
+# ============================================================================
+# Authority = `content.style` box keys ONLY. Anchor rule: `top` XOR `bottom`
+# (never both), `left` XOR `right` (never both). Units are `%` strings —
+# `px`/unitless values are normalized to `%` at ingest (1920x1080 ref).
+# Per-type stage rules: the style box is the stage for EVERY type; content
+# fields are glyph/data detail, never a second size system. `Map`/`Particles`
+# are full-frame canvases — their box is forced to fullscreen (it crops,
+# never refits). `Shape` legacy `content.width/height` (fixed-px rect) is
+# dropped when a style box is present (see validators.sanitize_style_keys).
+# Background `children[0]` with no box = fullscreen (valid, no fill).
+LAYER_BOX_KEYS = frozenset({
+    "position", "left", "top", "right", "bottom", "width", "height",
+    "borderRadius", "aspectRatio", "rotate", "scale", "scaleX", "scaleY",
+})
+# Full-frame canvas types: box is forced to fullscreen, never a positioned card.
+FULLSCREEN_BOX_TYPES = frozenset({"Map", "Particles"})
+# Foreground fill when a non-background layer carries no box at all.
+CENTER_CARD_FILL = {
+    "position": "absolute", "left": "15%", "top": "16%",
+    "width": "70%", "height": "66%",
+}
+LOWER_THIRD_FILL = {
+    "position": "absolute", "bottom": "18%", "left": "6%", "width": "88%",
+}
+FULLSCREEN_FILL = {"position": "absolute", "width": "100%", "height": "100%"}
+# px→% reference grid per orientation. Landscape 1920x1080, portrait
+# 1080x1920, square 1080x1080. Horizontal keys resolve against the canvas
+# width, vertical keys against the canvas height.
+_PX_REF_BY_FORMAT = {
+    "landscape": {"x": 1920.0, "y": 1080.0},
+    "portrait": {"x": 1080.0, "y": 1920.0},
+    "square": {"x": 1080.0, "y": 1080.0},
+}
+_X_KEYS = frozenset({"left", "right", "width"})
+_Y_KEYS = frozenset({"top", "bottom", "height"})
+_GEOM_KEYS = _X_KEYS | _Y_KEYS
+
+
+def _px_ref(video_format: Any) -> dict:
+    return _PX_REF_BY_FORMAT.get(str(video_format or "landscape").lower(),
+                                 _PX_REF_BY_FORMAT["landscape"])
+
+
+def _to_percent(key: str, value: Any, video_format: str = "landscape") -> Any:
+    """Normalize one geometry value to a `%` string. Non-geometry values
+    (borderRadius px, rotate deg, scale multipliers) pass through untouched."""
+    if key not in _GEOM_KEYS:
+        return value
+    grid = _px_ref(video_format)
+    ref = grid["x"] if key in _X_KEYS else grid["y"]
+    num: float | None = None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        num = float(value)
+        # Bare numbers <=100 are already %; larger ones are px on the
+        # format grid (e.g. 200 → 200/1920*100 on landscape).
+        if abs(num) <= 100:
+            logger.debug("_to_percent(%s): bare number %s treated as %%", key, value)
+            return f"{round(num, 2):g}%"
+        logger.debug("_to_percent(%s): bare number %s >100 treated as px→%%", key, value)
+        num = num / ref * 100.0
+    elif isinstance(value, str):
+        t = value.strip()
+        m = re.fullmatch(r"(-?[\d.]+)%", t)
+        if m:
+            try:
+                return f"{round(float(m.group(1)), 2):g}%"
+            except ValueError:
+                return value
+        m = re.fullmatch(r"(-?[\d.]+)px", t)
+        if m:
+            try:
+                num = float(m.group(1)) / ref * 100.0
+            except ValueError:
+                return value
+        elif re.fullmatch(r"-?[\d.]+", t):
+            try:
+                num = float(t)
+            except ValueError:
+                return value
+            if abs(num) <= 100:
+                logger.debug("_to_percent(%s): bare str '%s' treated as %%", key, t)
+                return f"{round(num, 2):g}%"
+            logger.debug("_to_percent(%s): bare str '%s' >100 treated as px→%%", key, t)
+            num = num / ref * 100.0
+        else:
+            return value
+    else:
+        return value
+    if num is None or num != num:  # None or NaN
+        return value
+    return f"{round(num, 2):g}%"
+
+
+def _clamp_percent(key: str, value: Any, content_type: Any = None) -> Any:
+    """Clamp `%` geometry to sane canvas ranges. Non-`%` strings pass through."""
+    if key not in _GEOM_KEYS or not isinstance(value, str):
+        return value
+    m = re.fullmatch(r"\s*(-?[\d.]+)%\s*", value)
+    if not m:
+        return value
+    try:
+        num = float(m.group(1))
+    except ValueError:
+        return value
+    if key in ("width", "height"):
+        # Shape accent dots stay renderable at small sizes; everything else
+        # keeps the 5% floor so layers stay selectable in the editor.
+        floor = 2.0 if content_type == "Shape" else 5.0
+        num = min(100.0, max(floor, num))
+    else:
+        num = min(100.0, max(-20.0, num))
+    return f"{round(num, 2):g}%"
+
+
+def normalize_layer_box(content_type: Any, style: Dict[str, Any],
+                        video_format: str = "landscape") -> list:
+    """Enforce the LayerBox contract on one layer's style dict IN PLACE.
+
+    - coerces `position` to `absolute` when a box is present;
+    - converts `px`/unitless geometry to `%` strings;
+    - resolves double anchors (`top`+`bottom` → keep `top`;
+      `left`+`right` → keep `left`);
+    - clamps geometry to canvas ranges;
+    - forces `Map`/`Particles` boxes to fullscreen.
+    Returns human-readable notes for logging. Idempotent.
+    """
+    notes: List[str] = []
+    if not isinstance(style, dict):
+        return notes
+    has_geom = any(k in style for k in _GEOM_KEYS)
+    if has_geom and style.get("position") != "absolute":
+        style["position"] = "absolute"
+        notes.append("position→absolute")
+    for key in ("left", "top", "right", "bottom", "width", "height"):
+        if key in style:
+            new_val = _to_percent(key, style[key], video_format)
+            if new_val != style[key]:
+                notes.append(f"{key}:px→%")
+                style[key] = new_val
+            clamped = _clamp_percent(key, style[key], content_type)
+            if clamped != style[key]:
+                notes.append(f"{key}:clamped")
+                style[key] = clamped
+    if "top" in style and "bottom" in style:
+        style.pop("bottom", None)
+        notes.append("anchor:kept-top")
+    if "left" in style and "right" in style:
+        style.pop("right", None)
+        notes.append("anchor:kept-left")
+    # Compound off-canvas check: warn when a positioned layer is entirely
+    # outside the visible 0–100% canvas (e.g. left: -20% + width: 5%).
+    def _pct_val(v: Any) -> float | None:
+        if not isinstance(v, str):
+            return None
+        m2 = re.fullmatch(r"\s*(-?[\d.]+)%\s*", v)
+        return float(m2.group(1)) if m2 else None
+    l_v, t_v = _pct_val(style.get("left")), _pct_val(style.get("top"))
+    w_v, h_v = _pct_val(style.get("width")), _pct_val(style.get("height"))
+    if l_v is not None and w_v is not None and (l_v + w_v <= 0 or l_v >= 100):
+        notes.append("off-canvas:horizontal")
+        logger.warning("normalize_layer_box: layer entirely off-canvas horizontally "
+                       "(left=%s, width=%s)", style.get('left'), style.get('width'))
+    if t_v is not None and h_v is not None and (t_v + h_v <= 0 or t_v >= 100):
+        notes.append("off-canvas:vertical")
+        logger.warning("normalize_layer_box: layer entirely off-canvas vertically "
+                       "(top=%s, height=%s)", style.get('top'), style.get('height'))
+    if content_type in FULLSCREEN_BOX_TYPES and isinstance(style, dict):
+        # Full-frame canvases ignore any box: a style with only
+        # objectFit/opacity/borderRadius must still become fullscreen.
+        changed = False
+        for drop in ("left", "top", "right", "bottom"):
+            if style.pop(drop, None) is not None:
+                changed = True
+        if style.get("width") != "100%" or style.get("height") != "100%":
+            style["width"], style["height"] = "100%", "100%"
+            changed = True
+        if style.get("position") != "absolute":
+            style["position"] = "absolute"
+            changed = True
+        if changed:
+            notes.append(f"{content_type}:forced-fullscreen")
+    return notes
+
 
 def _centering_axes(transform_value: Any) -> tuple:
     """Detect the exact -50% centering hack: translateX/Y(-50%) or translate(-50%, -50%).
@@ -238,7 +423,8 @@ def _same_unit_pair(first: Any, second: Any) -> Any:
     return None
 
 
-def sanitize_layer_style(content_type: Any, style: Any) -> tuple:
+def sanitize_layer_style(content_type: Any, style: Any,
+                         video_format: str = "landscape") -> tuple:
     """Repair (never punish) one layer's `content.style`.
 
     The renderer already honors any CSS it receives and the editor flags
@@ -253,6 +439,10 @@ def sanitize_layer_style(content_type: Any, style: Any) -> tuple:
       absolute containers; anything else breaks box geometry);
     - Text fontFamily/fontWeight/color aliases move to canonical content
       fields when those are empty;
+    - the LayerBox contract is enforced via normalize_layer_box():
+      `px`/unitless geometry → `%`, double anchors resolved
+      (`top`/`left` win), values clamped, `Map`/`Particles` forced
+      fullscreen, `position` coerced to `absolute`;
     - everything else passes through untouched, even GUI-less keys (the
       layer-card warning surface covers visibility, not the validator).
     Returns (cleaned_style_or_None, stripped_keys, alias_moves). Idempotent:
@@ -295,6 +485,14 @@ def sanitize_layer_style(content_type: Any, style: Any) -> tuple:
             moves[TEXT_STYLE_ALIASES[key]] = value
         else:
             cleaned[key] = value
+    # LayerBox SOT: normalize units/anchors/clamps + fullscreen types.
+    # Runs on the cleaned dict (never on `self`, so no re-validation loop).
+    box_notes = normalize_layer_box(content_type, cleaned, video_format)
+    if box_notes:
+        logger.debug(
+            "sanitize_layer_style(%s): layerbox %s",
+            content_type, box_notes,
+        )
     # GUI-less but renderable keys pass through; note them once for the
     # promote-by-data loop (frequent ones earn allowlist/GUI status).
     allowed = UNIVERSAL_STYLE_KEYS | _STYLE_EXTRAS_BY_TYPE.get(content_type, frozenset())
@@ -373,7 +571,7 @@ class LayerContent(AppBaseModel):
     image_type: Optional[str] = Field(default=None, description="Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons.", json_schema_extra={"enum": ["all", "photo", "illustration", "vector"]})
     yt_start_offset: Optional[float] = Field(default=None, description="Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15.")
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
-    style: Optional[Dict[str, Any]] = Field(default=None, description="Layer box styling. Allowed keys ONLY (rest are stripped): universal box keys position/left/top/bottom/width/height (% strings), borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors), objectFit (Image/Video), Text extras fontSize/textAlign/lineHeight/letterSpacing/textShadow/fontStyle, Chart accent color. NEVER transform/opacity/filter/display/mixBlendMode in style (breaks the editor overlay; use rotate/scale, animations, filters). Text font/weight/color are top-level content fields.")
+    style: Optional[Dict[str, Any]] = Field(default=None, description="LayerBox SOT v1 — the ONLY geometry authority. Box keys: position/left/top/right/bottom/width/height (% strings ONLY, never px — px/unitless are normalized to % at ingest), borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors). Anchor rule: top XOR bottom, left XOR right (never both; top/left win). Background children[0] with no box = fullscreen (valid). Map/Particles MUST be fullscreen 100%x100% (their canvas ignores sizing — a positioned box only crops). Shape box = stage, content width/height/radius = glyph detail (legacy content width/height dropped when a box exists). Text lower-thirds use the bottom anchor. Center math: width 42% -> left 29% (50-width/2). NEVER transform/opacity/filter/display/mixBlendMode in style (transform stripped + overlay loses sync; style.filter hoisted to layer filters; opacity belongs in animations). Text font/weight/color are top-level content fields, plus objectFit (Image/Video), Text extras, Chart accent color.")
 
     @model_validator(mode="before")
     @classmethod
