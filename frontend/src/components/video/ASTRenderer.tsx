@@ -375,8 +375,14 @@ const ASTLayerView: React.FC<{
         );
         const { filterStyle, blendStyle } = React.useMemo(() => parseFilters(filters), [filters]);
 
-        // Check if this layer has custom positioning (not fullscreen)
-        const hasCustomLayout = !!contentStyle && !!(
+        // Check if this layer has custom positioning (not fullscreen).
+        // LayerBox SOT v1: Map/Particles are full-frame canvases — their box
+        // only crops, never refits (backend forces fullscreen too). Force the
+        // fullscreen branch here as a render-time safety net so a stray
+        // positioned box from AI/manual JSON can never crop the world map or
+        // the particle emitter field.
+        const isFullFrameCanvas = content.type === 'Map' || content.type === 'Particles';
+        const hasCustomLayout = !isFullFrameCanvas && !!contentStyle && !!(
           contentStyle.width || contentStyle.height ||
           contentStyle.top || contentStyle.left || contentStyle.right || contentStyle.bottom ||
           (contentStyle as any).aspectRatio
@@ -396,7 +402,26 @@ const ASTLayerView: React.FC<{
         const { rotate: _rot, scale: _scl, scaleX: _sx, scaleY: _sy, borderRadius: _br, ...layoutRest } = layoutStyle as Record<string, any>;
 
         const hasRadius = !!effectiveRadius;
-        const effectiveOverflow = (layoutRest as any).overflow || (hasCustomLayout || hasRadius ? 'hidden' : undefined);
+        // LayerBox SOT v1: Shape box = stage, glyph = content. Small accent
+        // shapes (dots, icons, arrows) intentionally overflow tiny stage
+        // boxes, so small stages must not clip. Large stage rectangles keep
+        // `hidden` so inner content can't leak. Explicit overflow still wins.
+        const explicitOverflow = (layoutRest as any).overflow;
+        const parsePct = (v: unknown): number | null => {
+          if (typeof v !== 'string') return null;
+          const m = v.trim().match(/^(-?[\d.]+)%$/);
+          if (!m) return null;
+          const n = parseFloat(m[1]);
+          return Number.isFinite(n) ? n : null;
+        };
+        const wPct = parsePct((layoutRest as any).width);
+        const hPct = parsePct((layoutRest as any).height);
+        const isSmallShapeStage =
+          content.type === 'Shape' &&
+          wPct !== null && hPct !== null && wPct <= 25 && hPct <= 25;
+        const effectiveOverflow = explicitOverflow
+          || (isSmallShapeStage ? 'visible' : null)
+          || (hasCustomLayout || hasRadius ? 'hidden' : undefined);
 
         const mediaStyle: React.CSSProperties | null = React.useMemo(() => {
           if (!((content.type === 'Image' || content.type === 'Video') && (content as any).local_path)) return null;

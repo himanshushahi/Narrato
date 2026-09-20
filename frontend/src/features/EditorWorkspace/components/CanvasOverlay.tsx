@@ -217,9 +217,15 @@ function layerToBox(
 
   const { transform, rotateDeg } = staticTransform(style);
 
+  // LayerBox SOT v1 mirror of ASTRenderer: Map/Particles are full-frame
+  // canvases — a stray positioned box would only crop at render time, so the
+  // overlay treats them as fullscreen (select-only) until Reset to Fullscreen
+  // clears the stray keys via the Layout tab.
+  const isFullFrameCanvas = cType === 'Map' || cType === 'Particles';
+
   // TEXT LAYERS MUST NEVER BE FULLSCREEN!
   // Text layers are content-driven typography and must always display interactive handles.
-  if (!hasCustomLayout && !isText) {
+  if ((!hasCustomLayout && !isText) || isFullFrameCanvas) {
     return {
       leftPct: 0,
       rightPct: null,
@@ -289,10 +295,13 @@ function layerToBox(
   } else if (hasHeight) {
     heightPct = parsePct(rawHeight, 100, true, baseWidth, baseHeight);
   } else if (isText) {
+    // Text layers auto-size — use DOM measurement or content estimation.
+    // This covers the LOWER_THIRD_FILL pattern (bottom-anchored, no height).
     heightPct = measuredDomRect && measuredDomRect.height > 0
       ? measuredDomRect.height
       : textDims!.heightPct;
   } else if (!hasTop && hasBottom) {
+    // Non-text bottom-anchored layer without explicit height — reasonable default.
     heightPct = 25;
   } else {
     heightPct = parsePct(style.height, 100, true, baseWidth, baseHeight);
