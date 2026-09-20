@@ -81,28 +81,35 @@ def list_downloaded_whisper_models():
                 })
     return models
 
+# Standard faster-whisper sizes, best quality first. "turbo"
+# (large-v3-turbo) is a first-class entry: ~large-v3 quality at a third
+# of the size, and the only model on machines that downloaded just it.
+# NOTE: get_best_downloaded_whisper_model matches downloaded folder ids
+# against this list — any new first-class size MUST be added here or the
+# picker silently falls through to its (possibly undownloaded) fallback.
+KNOWN_WHISPER_MODELS = [
+    "large-v3",
+    "large-v2",
+    "large",
+    "turbo",
+    "medium",
+    "small.en",
+    "small",
+    "base.en",
+    "base",
+    "tiny.en",
+    "tiny"
+]
+
 def get_best_downloaded_whisper_model(fallback="small"):
     """
     Returns the highest quality standard multilingual/English Whisper model 
     that is already downloaded on the system. If none are found, returns the fallback.
     """
-    STANDARD_MODELS = [
-        "large-v3",
-        "large-v2",
-        "large",
-        "medium",
-        "small.en",
-        "small",
-        "base.en",
-        "base",
-        "tiny.en",
-        "tiny"
-    ]
-    
     downloaded = list_downloaded_whisper_models()
     downloaded_ids = [m["id"] for m in downloaded]
     
-    for model in STANDARD_MODELS:
+    for model in KNOWN_WHISPER_MODELS:
         if model in downloaded_ids:
             return model
             

@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import hashlib
 from pathlib import Path
@@ -6,6 +7,13 @@ from backend.core.config import get_workspace_dir, BUNDLE_DIR
 from backend.core.logger import logger
 
 from backend.agent.schemas import SkillMetadata
+
+# Chunked skill reading (MCP get_skill section=/brief=): split rendered
+# markdown on ## headers so agents can pull one part of a 50KB skill
+# instead of the whole file. Files without ## headers are one chunk.
+_SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+_SUBSECTION_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
+_BRIEF_SMALL_LIMIT = 10000  # chars: at/below this, brief just returns full text
 
 class Skill:
     def __init__(self, name: str, version: str, when_to_use: str, content: str, file_path: str, description: str = ""):
@@ -34,6 +42,83 @@ class Skill:
             else:
                 rendered = rendered.replace(f"{{{key}}}", "")
         return rendered
+
+    def _split_sections(self, rendered: str) -> list:
+        """Split rendered markdown into [{title, body}]. No ## headers →
+        single 'full' chunk."""
+        matches = list(_SECTION_RE.finditer(rendered))
+        if not matches:
+            return [{"title": "full", "body": rendered.strip()}]
+        chunks = []
+        for i, m in enumerate(matches):
+            start = m.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(rendered)
+            chunks.append({"title": m.group(1).strip(),
+                           "body": rendered[start:end].strip()})
+        return chunks
+
+    @staticmethod
+    def _preview(body: str, limit: int = 220) -> str:
+        for line in body.splitlines():
+            s = line.strip().lstrip("#*-0123456789. ").strip()
+            if len(s) >= 40:
+                return s[:limit]
+        return body.strip()[:limit]
+
+    def brief(self, **context) -> dict:
+        """Compact quick-ref: metadata + per-section TOC (title, size,
+        ### subheads, one-line preview). Small skills return full text."""
+        rendered = self.render(**context)
+        chunks = self._split_sections(rendered)
+        sections = []
+        for c in chunks:
+            subheads = _SUBSECTION_RE.findall(c["body"])
+            sections.append({"title": c["title"], "chars": len(c["body"]),
+                             "subheads": [s.strip() for s in subheads[:24]],
+                             "preview": self._preview(c["body"])})
+        out = {"name": self.name, "version": self.version,
+               "description": self.description,
+               "when_to_use": self.when_to_use,
+               "full_chars": len(rendered), "sections": sections}
+        if len(rendered) <= _BRIEF_SMALL_LIMIT:
+            out["content"] = rendered
+        return out
+
+    def render_section(self, query: str, **context) -> dict | None:
+        """Fuzzy-find one ## section by title (or ### subhead → enclosing
+        section). Returns {title, body, remaining} or None."""
+        rendered = self.render(**context)
+        chunks = self._split_sections(rendered)
+        q = (query or "").strip().lower()
+        if not q:
+            return None
+        q = q.lstrip("§#").strip()
+        for c in chunks:  # exact/numbered ## title match first
+            t = c["title"].lower()
+            if q == t or t.startswith(q) or q in t:
+                return {"title": c["title"], "body": c["body"],
+                        "remaining": [x["title"] for x in chunks
+                                      if x["title"] != c["title"]]}
+        for c in chunks:  # then ### subhead → enclosing section
+            for s in _SUBSECTION_RE.findall(c["body"]):
+                if q in s.lower():
+                    return {"title": c["title"],
+                            "matched_subhead": s.strip(), "body": c["body"],
+                            "remaining": [x["title"] for x in chunks
+                                          if x["title"] != c["title"]]}
+        # bare number ("5" / "section 5") → nth section
+        import re as _re
+        m = _re.search(r"(\d+)", q)
+        if m:
+            idx = int(m.group(1)) - 1
+            numbered = [c for c in chunks if c["title"][:1].isdigit()]
+            pool = numbered or chunks
+            if 0 <= idx < len(pool):
+                c = pool[idx]
+                return {"title": c["title"], "body": c["body"],
+                        "remaining": [x["title"] for x in chunks
+                                      if x["title"] != c["title"]]}
+        return None
 
 class SkillLoader:
     def __init__(self, skills_dirs: list = None):

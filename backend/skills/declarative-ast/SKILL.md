@@ -71,7 +71,7 @@ Every layer should move with purpose according to its role, creating a tactile *
 
 ## 4. The 9 Valid AST Content Types & Motion Modifiers
 
-The `content` object inside every `Layer` must specify one of the **8 supported types**:
+The `content` object inside every `Layer` must specify one of the **9 supported types**:
 
 ### 1. `Chart` (Infographics & Data Visualization)
 * `chart_type`: `"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`
