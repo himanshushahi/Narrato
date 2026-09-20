@@ -1894,7 +1894,7 @@ Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] �
   NEVER `px`, NEVER bare numbers — they are normalized to `%` at ingest).
   Anchor rule: `top` XOR `bottom` (lower-thirds use `bottom`, all cards use
   `top`), `left` XOR `right` (prefer `left`; doubles resolve to `top`/`left`).
-  Center with explicit math like `left = 50 - width/2`. `Map`/`Particles`
+  Center with explicit math like `left = 50 - width/2`. `Map`/`Particles`/`Background`
   MUST be fullscreen `100%`/`100%` with no position keys (positioned boxes
   only crop them). `Shape` box = stage — NEVER set content `width`/`height`
   alongside a style box (dropped); dots use small `%` boxes, never `px`.
@@ -2044,12 +2044,13 @@ Every sub-visual should feel like a deliberate creative decision with rich multi
 === 3-LAYER DEPTH & MOTION GRAMMAR ===
 Construct depth across 3 ordered layers on every visual beat (first child=bottom background, last child=top foreground):
 1. **Background (Atmospheric Canvas, first child)**: Full-screen base layer. Choose the BEST fit for the narrative moment:
+   - **Background**: Procedural animated canvas (`background_preset`: "gradient_mesh", "grid_flow", "waves", "dots", "blueprint", "vignette_loop", "paper_grain"). Sleek kinetic motion with zero asset downloads.
    - **Video**: Cinematic B-roll footage with `brightness(0.3)` filter + camera drift (`scale: 1.0 -> 1.06`). Best for atmospheric/cinematic beats.
    - **Image**: High-contrast darkened photograph (portraits, evidence, textures) + camera drift. Best for entity spotlights and historical context.
    - **HTML**: CSS gradient canvas, technical grid pattern, or colored slate. Best for data-heavy, tech, financial, and infographic beats without distracting footage.
    - **Map**: Vector globe with animated route trajectory. Best when geography/travel is central to the narration.
-   ⚠️ VARIETY RULE: Do NOT use the same background type for consecutive sub-visuals. If cut #1 used Video, switch to Image, HTML Gradient/Grid, or Map for cut #2.
-2. **Midground (Graphic Subject, middle children)**: Data charts (`Chart`), cards, vector shapes & icons (`Shape`), bespoke HTML evidence memos (`HTML`), or split-screen insets. Enter via physics spring AFTER the transition settles (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": 0.5, "easing": "ease-out"}}]` — or the exact spoken-word time when timestamps are provided).
+   ⚠️ VARIETY RULE: Do NOT use the same background type for consecutive sub-visuals. If cut #1 used Video, switch to Background, Image, HTML Gradient/Grid, or Map for cut #2.
+2. **Midground (Graphic Subject, middle children)**: Data charts (`Chart`), animated metric counters (`Counter` with tabular numerals & spring pop), cards, vector shapes & icons (`Shape`), bespoke HTML evidence memos (`HTML`), or split-screen insets. Enter via physics spring AFTER the transition settles (`animations: [{{"property": "translateY", "from": 45, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring"}}, {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": 0.5, "easing": "ease-out"}}]` — or the exact spoken-word time when timestamps are provided).
     * 💡 **Chart Placement Rule**: Charts MUST live as middle children over an HTML gradient canvas or darkened video. Never render a raw naked chart as the first (background) child.
 3. **Foreground (Typography & Accents, last children)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (respecting subtitle safe area: `bottom > 18%` for landscape).
 
@@ -2057,7 +2058,7 @@ Construct depth across 3 ordered layers on every visual beat (first child=bottom
 Vary your spatial layouts across cuts using these master blueprints:
 - **Split-Screen Data HUD**: Darkened Video/HTML background + Left 45% chart card + Right 45% media inset.
 - **Investigative Dossier**: Dark background + custom HTML leaked document memo with confidential stamp + glowing marker highlight quote.
-- **Macro Metric Callout**: Dark background + large badge with dynamic metric or progress bar (`Chart`).
+- **Macro Metric Callout**: Procedural Background / dark footage + dynamic metric Counter (`$100M+` or `99.8%`) or progress bar (`Chart`).
 - **Geographic Route / Map**: Dark vector map with city pins + glowing animated SVG trajectory path (`preset_path: "route_arch"`).
 - **Technical Blueprint / HUD**: Grid background (first-child HTML) + transparent vector diagram + glowing corner brackets (`preset_path: "corner_brackets"`).
 - **Bespoke Infographic Card**: HTML gradient background + high-production HTML/SVG comparison table, radar chart, or UI mockup.
@@ -2074,7 +2075,7 @@ RULES:
 - style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers.
 - DESIGN SYSTEM: Bind `primary`, `accent`, `surface`, `glow`, and `fontFamily` from the project's design system into layer styles.
 - VIDEO: Set `"volume": 0` by default on all Video layers.
-- ONLY use the 9 valid content types: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles (Particles = canvas overlay confetti/embers/dust/money_rain/snow/stars, exactly ONE per cut as the LAST child = topmost, matched to the beat emotion). Stacking is children array order.
+- ONLY use the 11 valid content types: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background (Background = procedural animated canvas gradient/mesh/grid/waves/dots/blueprint/paper, Counter = animated numerical count-up with suffix/prefix/font_size/format/spring, Particles = canvas overlay confetti/embers/dust/money_rain/snow/stars, exactly ONE per cut as the LAST child = topmost, matched to the beat emotion). Stacking is children array order.
 - MOTION MODIFIERS: Set `"motion_blur": true` on fast-moving cards or spring entrances for physical shutter blur. Set `"camera_shake": "handheld" | "shockwave" | "glitch"` on background/composite layers for procedural organic camera motion. 2026 FX pack in layer `"filters"`: CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur) and SVG looks (`url(#fx-emboss)`, `url(#fx-sharpen)`, `url(#fx-posterize)`, `url(#fx-duotone-midnight)`, `url(#fx-duotone-inferno)`, `url(#fx-thermal)`) — max ONE SVG look per layer, ~1 FX cut per 3-4 cuts. Punch-in emphasis at sub-visual level: `"emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}]` — 0-2 marks per cut, cuts of 2s or longer only.
 
 OUTPUT STRUCTURE:
@@ -2226,7 +2227,7 @@ You are an expert Visual Director and Cinematographer. Your job is to read the n
 
 {genre_storyboard_guidance}
 
-Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Lottie, Footage, Particles atmosphere overlays) with cinematic motion blur and camera shake modifiers aligned with the {genre_profile['name']} style.
+Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Lottie, Footage, Counters, Procedural Backgrounds, Particles atmosphere overlays) with cinematic motion blur and camera shake modifiers aligned with the {genre_profile['name']} style.
 Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling.
 Do not output AST JSON, just output a detailed text description of what each sub-visual should look like.{storyboard_guidance}"""
 

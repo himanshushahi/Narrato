@@ -37,8 +37,8 @@ Great motion graphics are defined by **depth, hierarchy, and contrast**. Every s
 
 | Layer | Order | Classification | Role & Motion Grammar |
 |---|---|---|---|
-| **Layer 1** | **first child (bottom)** | **Atmospheric Canvas (Background)** | Full-screen base layer. Choose the BEST type for the narrative moment: darkened Video footage, high-contrast Images (portraits, evidence, textures), vector Maps, or HTML gradient/grid canvases. Apply cinematic filters (`brightness(0.35)`, `contrast(1.15)`) and continuous camera drift (`scale: 1.0 -> 1.06`). ⚠️ VARY: Do NOT default to Video — alternate between Video, Image, HTML Gradients, and Maps across consecutive cuts. |
-| **Layer 2** | **middle children** | **Graphic Subject (Midground)** | Animated charts (`Chart` over HTML gradient or darkened video), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
+| **Layer 1** | **first child (bottom)** | **Atmospheric Canvas (Background)** | Full-screen base layer. Choose the BEST type for the narrative moment: procedural `Background` canvases (`gradient_mesh`, `grid_flow`, `waves`, `dots`, `blueprint`, `vignette_loop`, `paper_grain`), darkened Video footage, high-contrast Images (portraits, evidence, textures), vector Maps, or HTML gradient/grid canvases. Apply continuous camera drift or let the procedural shader flow. ⚠️ VARY: Do NOT default to Video — alternate between Background presets, Video, Image, HTML Gradients, and Maps across consecutive cuts. |
+| **Layer 2** | **middle children** | **Graphic Subject (Midground)** | Animated charts (`Chart` over HTML gradient or darkened video), dynamic metric counters (`Counter` with tabular numerals & spring pop), vector shapes & path drawings (`Shape`), bespoke HTML evidence cards (`HTML`), split-screen insets. Fast physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`). |
 | **Layer 3** | **last children (top)** | **Typography & Accents (Foreground)** | Kinetic callouts (`marker_highlight`, `words_stagger`, `typewriter`), indicator arrows/pointers, data badges. Staggered reveal entering after the midground card (respecting subtitle safe area). |
 
 ---
@@ -54,7 +54,7 @@ Every layer should move with purpose according to its role, creating a tactile *
    * Always apply subtle continuous movement over the full cut duration so the canvas never looks dead or frozen:
      `"animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 4.5, "easing": "linear" }]`
 3. **Midground Graphics (Physics Spring Entrance & Floating)**:
-    * Cards, charts, shapes, and HTML UI elements must enter via spring physics — FIRED AFTER the cut transition settles (`delay` ≥ 0.5s), NOT at cut start:
+    * Cards, charts, counters, shapes, and HTML UI elements must enter via spring physics — FIRED AFTER the cut transition settles (`delay` ≥ 0.5s), NOT at cut start:
       `"animations": [{ "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring" }, { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "delay": 0.5, "easing": "ease-out" }]`
     * **ALWAYS pair entrance animations with opacity fade:** Whenever you animate an entrance property (such as `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`, `blur`), ALWAYS include a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` animation on the same layer. Never animate spatial motion alone without an opacity fade — elements must fade into view smoothly instead of abruptly popping in while moving.
     * On high-velocity spring entrances, set `motion_blur: true` on the layer to enable physical optical shutter blur!
@@ -70,9 +70,9 @@ Every layer should move with purpose according to its role, creating a tactile *
 
 ---
 
-## 4. The 9 Valid AST Content Types & Motion Modifiers
+## 4. The 11 Valid AST Content Types & Motion Modifiers
 
-The `content` object inside every `Layer` must specify one of the **9 supported types**:
+The `content` object inside every `Layer` must specify one of the **11 supported types**:
 
 ### 1. `Chart` (Infographics & Data Visualization)
 * `chart_type`: `"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`
@@ -139,6 +139,33 @@ The `content` object inside every `Layer` must specify one of the **9 supported 
 * Optional tuning: `particle_count` (10–300), `particle_colors` (hex palette override), `particle_size` ([min_px, max_px] at 1080p), `particle_speed` (multiplier), `particle_direction` ("up"/"down"/"left"/"right"/"outward"/"twinkle"), `particle_opacity` (0–1).
 * RULES: exactly ONE Particles layer per cut, always LAST child (topmost), pointer-transparent overlay — it decorates, never covers key content. Match the preset to the emotion of the narration beat (profits → money_rain, scandal → embers, victory → confetti).
 
+### 10. `Counter` (Animated Numerical Count-Up with Tabular Numerals & Suffix/Prefix)
+* `value`: Target numerical value to count up to (e.g. `100`, `45000`, `99.9`).
+* `start_value`: Starting numerical value (default `0`).
+* `prefix`: Prefix string before the number (e.g. `"$"` or `"+"`, or `"₹"`).
+* `suffix`: Suffix string after the number (e.g. `"M+"`, `"%"` or `"B"`).
+* `decimals`: Decimal places to display (default `0`).
+* `duration`: Duration in seconds of count-up animation (default `2.0`).
+* `format`: Number formatting preset: `"standard"` (e.g. `1,250`), `"compact"` (e.g. `1.2M`), `"currency"`, `"percent"`.
+* `font_size`: Numerical font size in pixels (default `72`, range `16`–`300`). Controls the scale of the counter number independently of its bounding box.
+* `title`: Uppercase headline label displayed directly above the counter (e.g. `"TOTAL LOSSES"`).
+* `color`, `font`, `weight`: Hex accent color (default `"#00d4ff"`), optional font family, and font weight (default `"900"`).
+* Tabular numerals (`tabular-nums` / font-variant-numeric: `tnum`) prevent layout jitter as numbers spin up. Finishes with a subtle spring punch-in scale pop.
+* Use for financial metrics, user growth stats, casualty numbers, valuations, and milestone metrics.
+
+### 11. `Background` (Procedural Kinetic Background Canvases)
+* `background_preset`: Procedural animated background style:
+  - `"gradient_mesh"`: Flowing multi-point organic radial color gradient blooms with breathing light.
+  - `"grid_flow"`: 3D perspective cyber grid with flowing horizon glow and perspective speed.
+  - `"waves"`: Sinusoidal layered oscillating translucent energy waves.
+  - `"dots"`: Pulsing radial dot-matrix grid with traveling wave ripples.
+  - `"blueprint"`: Technical engineering graph grid with primary and minor subdivisions.
+  - `"vignette_loop"`: Deep cinematic darkened vignette with breathing ambient light.
+  - `"paper_grain"`: Warm tactile editorial paper and film noise texture.
+* `colors`: Optional custom hex palette array (e.g. `["#0a0e17", "#0284c7", "#6366f1"]`).
+* `speed`: Speed multiplier (default `1.0`).
+* RULES: Always full-screen (`{"width": "100%", "height": "100%"}`), placed as the bottom layer (`children[0]`). Procedural math animation runs continuously with 0 asset downloads and zero risk of broken links.
+
 ---
 
 ### Universal Layer Motion Modifiers
@@ -149,7 +176,7 @@ Every `Layer` can additionally specify:
 * `transform_origin`: Pivot for scale/rotate (e.g. `"center center"` default, `"top left"`, `"bottom center"`). Only visible with motion.
 * `camera_shake: "handheld" | "shockwave" | "glitch"` — Procedural Perlin noise camera drift or impact shock.
 * Keyframe props: `scale`, `opacity`, `translateX`, `translateY`, `rotate`, `rotateX`, `rotateY` (spatial — drive shutter blur) plus `blur` (px rack-focus, e.g. `10 -> 0`) and `brightness` (multiplier flash, e.g. `0.3 -> 1.0`) which are non-spatial fades and do NOT trigger shutter blur alone.
-* `style` layout box — LayerBox SOT v1, the ONLY geometry authority (optional but powerful): `left/top/width/height` (`%` strings ONLY — NEVER `px`, NEVER bare numbers; position is always absolute, omit it), `objectFit` (Image/Video only), `borderRadius`, `aspectRatio` (e.g. `"1 / 1"` for circles), `rotate` (deg static tilt), `scale`/`scaleX`/`scaleY` (multiplier; negative mirrors, e.g. `scaleX: -1` flips H). ANCHOR RULE: `top` XOR `bottom` (never both — lower-thirds use `bottom`, everything else uses `top`); `left` XOR `right` (never both — prefer `left`). Every non-background layer MUST carry a full box (`left`+`top`+`width`+`height`); background `children[0]` with no box = fullscreen (valid). `Map`/`Particles` MUST be fullscreen `{"width": "100%", "height": "100%"}` with no position keys (their canvas ignores sizing — a positioned box only crops). `Shape` box = stage, content fields = glyph: NEVER set content `width`/`height` alongside a style box (it is dropped); dots/badges use small `%` boxes, never `px`. Prefer base boxes for layout; use static scale/rotate sparingly for emphasis. Center with explicit math — box width `40%` → `left: "30%"` (`50 − width/2`); same vertically with `top`. Per-type extras: Text → `fontSize`, `textAlign` (`center|left|right`), `lineHeight`, `letterSpacing`, `textShadow`, `fontStyle` (`normal|italic`); Chart → `color` (accent/line color). Other renderable CSS passes through but has no visual editor — prefer `animations` over style-`opacity`, the Filters tab over style-`filter` (style-`filter` is hoisted into `filters` automatically), and `filters: "mix-blend-mode: X"` over `mixBlendMode`. NEVER write `transform`/`translate` — the key is removed and the canvas overlay box loses sync. Text `font`/`weight`/`color` are top-level content fields, never style keys.
+* `style` layout box — LayerBox SOT v1, the ONLY geometry authority (optional but powerful): `left/top/width/height` (`%` strings ONLY — NEVER `px`, NEVER bare numbers; position is always absolute, omit it), `objectFit` (Image/Video only), `borderRadius`, `aspectRatio` (e.g. `"1 / 1"` for circles), `rotate` (deg static tilt), `scale`/`scaleX`/`scaleY` (multiplier; negative mirrors, e.g. `scaleX: -1` flips H). ANCHOR RULE: `top` XOR `bottom` (never both — lower-thirds use `bottom`, everything else uses `top`); `left` XOR `right` (never both — prefer `left`). Every non-background layer MUST carry a full box (`left`+`top`+`width`+`height`); background `children[0]` with no box = fullscreen (valid). `Map`/`Particles`/`Background` MUST be fullscreen `{"width": "100%", "height": "100%"}` with no position keys (their canvas ignores sizing — a positioned box only crops). Shape box = stage, content fields = glyph: NEVER set content `width`/`height` alongside a style box (it is dropped); dots/badges use small `%` boxes, never `px`. Prefer base boxes for layout; use static scale/rotate sparingly for emphasis. Center with explicit math — box width `40%` → `left: "30%"` (`50 − width/2`); same vertically with `top`. Per-type extras: Text → `fontSize`, `textAlign` (`center|left|right`), `lineHeight`, `letterSpacing`, `textShadow`, `fontStyle` (`normal|italic`); Counter → `fontSize`, `textAlign`, `letterSpacing`; Chart → `color` (accent/line color). Other renderable CSS passes through but has no visual editor — prefer `animations` over style-`opacity`, the Filters tab over style-`filter` (style-`filter` is hoisted into `filters` automatically), and `filters: "mix-blend-mode: X"` over `mixBlendMode`. NEVER write `transform`/`translate` — the key is removed and the canvas overlay box loses sync. Text `font`/`weight`/`color` are top-level content fields, never style keys.
   * Canvas pixel grids: landscape = 1920×1080, portrait = 1080×1920, square = 1080×1080. Equal `%` on width and height ≠ equal pixels unless square — use `aspectRatio: "1 / 1"` (+ drop `height`) for true squares/circles.
   * **Collision / Overlap guard**: when a cut has multiple positioned layers, verify boxes do NOT overlap unless the overlap is intentional (e.g., text label over an image, badge dot on a card corner). For safe splits use the motion-graphics-designer presets. Vertical stacking: `top` + `height` + gap ≤ 100%.
   * **objectFit per role** (Image/Video only): background fullscreen → `"cover"`; circle-crop card → `"cover"`; transparent-bg icon/illustration cutout → `"contain"`; default when omitted = `"cover"` for positioned layers.

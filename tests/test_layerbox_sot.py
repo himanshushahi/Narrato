@@ -97,6 +97,14 @@ def test_particles_box_forced_fullscreen():
     assert cleaned["width"] == "100%" and cleaned["height"] == "100%"
 
 
+def test_background_box_forced_fullscreen():
+    cleaned, _, _ = sanitize_layer_style(
+        "Background", {"position": "absolute", "left": "5%", "top": "5%",
+                        "width": "90%", "height": "90%"})
+    assert cleaned["width"] == "100%" and cleaned["height"] == "100%"
+    assert "left" not in cleaned and "top" not in cleaned
+
+
 # ── validator stage 2 ─────────────────────────────────────────────────
 
 def test_style_filter_hoisted_to_layer_filters():
@@ -137,6 +145,15 @@ def test_missing_foreground_text_filled_lower_third():
     sanitize_style_keys([bg, fg], cut_label="test")
     assert fg["content"]["style"]["bottom"] == "18%"
     assert fg["content"]["style"]["width"] == "88%"
+
+
+def test_missing_foreground_counter_filled_center_card():
+    bg = _layer("Background", None, extra_content={"background_preset": "gradient_mesh"})
+    fg = _layer("Counter", None, extra_content={"value": 500, "prefix": "$"})
+    sanitize_style_keys([bg, fg], cut_label="test")
+    assert bg["content"]["style"]["width"] == "100%" and bg["content"]["style"]["height"] == "100%"
+    assert fg["content"]["style"]["width"] == "70%"
+    assert fg["content"]["style"]["left"] == "15%"
 
 
 def test_background_without_box_left_alone():

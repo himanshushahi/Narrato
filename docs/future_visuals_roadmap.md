@@ -21,7 +21,7 @@ Conventions every item must follow:
 
 ---
 
-## 1. Layers we already have (9) + required upgrades
+## 1. Layers we already have (11) + required upgrades
 
 | # | Type | File | Status | Upgrades needed |
 |---|------|------|--------|-----------------|
@@ -34,6 +34,8 @@ Conventions every item must follow:
 | 7 | `Map` | `DataVisualizations.tsx` (d3-geo + `world-110m.json`) | ✅🔧 | 🔧 Zoom-to-region animation; sequential callouts (one label at a time, fade previous); route draw + pulsing markers; choropleth fill (`values` per country); more `map_style`s (satellite-dark, paper). |
 | 8 | `HTML` | `ASTRenderer.tsx` (`dangerouslySetInnerHTML`) | ✅ | 🔧 Do NOT extend — shrink it. Every pattern below that is hand-written HTML today (memo, chat, KPI card, table) should graduate to a typed layer (§2). Keep `HTML` as escape hatch + add snippet library (memo, chat, KPI, newspaper) in `AstHtmlCodeEditor`. |
 | 9 | `Particles` | `ParticlesRenderer.tsx` (`confetti\|embers\|dust\|money_rain\|snow\|stars`) | ✅ | 🔧 New presets: `rain`, `sparks_rise`, `fireflies`, `matrix_glyphs`; emitter zone control (top/full/edges); gust direction keyframe. Rule stays: max ONE per cut, topmost. |
+| 10 | `Counter` | `CounterRenderer.tsx` (`standard\|compact\|currency\|percent`) | ✅ | 🔧 Add radial circular progress ring option; custom gradient text fill; ease curve selector. |
+| 11 | `Background` | `BackgroundRenderer.tsx` (`gradient_mesh\|grid_flow\|waves\|dots\|blueprint\|vignette_loop\|paper_grain`) | ✅ | 🔧 Additional shader presets (`aurora`, `matrix_rain`, `cyber_lines`); subtle audio-reactive pulse integration. |
 
 Global renderer upgrades (apply to all layers, not a type):
 - `🔧 GIF support` — treat `.gif` as first-class in `MediaNode`/`inferMediaType` (looping reaction clips, memes). Tiny change, big energy payoff.
@@ -43,29 +45,23 @@ Global renderer upgrades (apply to all layers, not a type):
 
 ## 2. New visual layers to implement (priority order)
 
-### P0 — do first (pure React/CSS/SVG, no assets, no new deps)
+### P0 — Remaining Next Steps (pure React/CSS/SVG, no assets, no new deps)
 
-1. `🆕 Counter` — animated number count-up (`$1.4B`, `99%`, `44x`).
-   Props: `value, prefix, suffix, decimals, duration, format (compact|full)`.
-   Why first: documentary videos state a stat every ~20s; Vox never lets a number
-   float as plain text. Spring + mono tabular numerals.
-2. `🆕 Timeline` — milestone track, horizontal or vertical, glowing nodes.
+- [x] **`Counter`** (Shipped ✅ in `frontend/src/components/video/CounterRenderer.tsx`) — Animated count-up with tabular numerals, prefix/suffix, format presets, and spring pop finish.
+- [x] **`Background`** (Shipped ✅ in `frontend/src/components/video/BackgroundRenderer.tsx`) — Procedural kinetic canvas with 7 presets, custom speed, and color palettes.
+
+1. `🆕 Timeline` — milestone track, horizontal or vertical, glowing nodes.
    Props: `events[{date, title, desc?, color?}], orientation, progress (0-1 animated)`.
    Why: the second Vox workhorse after maps; turns abstract history into something
    the eye can follow.
-3. `🆕 Quote / LowerThird` — nameplate + pull-quote card.
+2. `🆕 Quote / LowerThird` — nameplate + pull-quote card.
    Props: `name?, role?, quote?, avatar_query?, style_variant (bar|card|minimal)`.
    Replaces the most common `Text`+`HTML` hand-composition; slide-in-from-left entry.
-4. `🆕 Background` — procedural canvas: `gradient_mesh | grid_flow | waves | dots | blueprint | vignette_loop | paper_grain`.
-   Props: `background_preset, colors[2-3], speed`.
-   Why: kills black-screen empty cuts and the `HTML`-gradient hack; pure CSS/canvas
-   like `ProceduralCanvasFallback`. Teach `visual-director` to default to it when no
-   stock media fits.
-5. `🆕 CodeBlock` — syntax-highlighted snippet card (template already in
+3. `🆕 CodeBlock` — syntax-highlighted snippet card (template already in
    `visual_type_implementation.md §4`). `highlight.js` is already a dependency —
    wire it into a renderer instead of only the JSON editor.
    Props: `code, language, title?, theme (dark|neon|matrix), show_line_numbers?`.
-6. `🆕 Table / Versus` — comparison table, Pros/Cons, `A vs B` split card.
+4. `🆕 Table / Versus` — comparison table, Pros/Cons, `A vs B` split card.
    Props: `headers[], rows[][], highlight_row?, variant (table|pros_cons|versus)`.
    `Chart` covers distributions; tables cover rankings, specs, verdicts.
 

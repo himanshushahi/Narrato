@@ -921,7 +921,7 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                     "unused_kinds": []}
     try:
         kinds = ("Image", "Video", "Text", "Chart", "Shape", "Map",
-                 "HTML", "Lottie", "Particles")
+                 "HTML", "Lottie", "Particles", "Counter", "Background")
 
         def _cut_parts(cut: dict):
             comp = cut.get("composition") or {}

@@ -6,7 +6,7 @@ import {
   Image as ImageIcon, Map as MapIcon, Layers,
   BarChart3, Shapes, Type, Video as VideoIcon,
   Code, Sparkles, Sparkle, Zap, ZoomIn, ZoomOut, MoveRight,
-  Minus, Wind
+  Minus, Wind, Hash, Palette
 } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
 import { FPS, HEADER_WIDTH } from '../timelineConstants';
@@ -50,6 +50,8 @@ const AST_PRIMITIVE_BADGES: Record<string, { label: string; icon: React.ElementT
   HTML: { label: 'HTML', icon: Code, color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' },
   Lottie: { label: 'Lottie', icon: Sparkles, color: 'bg-violet-500/20 text-violet-300 border-violet-500/30' },
   Particles: { label: 'Particles', icon: Sparkle, color: 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30' },
+  Counter: { label: 'Counter', icon: Hash, color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+  Background: { label: 'Background', icon: Palette, color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
 };
 
 const extractAstPrimitives = (subVisual: any): string[] => {

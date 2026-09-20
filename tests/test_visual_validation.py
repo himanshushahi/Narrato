@@ -50,6 +50,115 @@ def test_text_without_query_passes():
     assert c.query is None
 
 
+def test_counter_layer_content():
+    c = LayerContent.model_validate({
+        "type": "Counter",
+        "value": 1500,
+        "prefix": "$",
+        "suffix": "M+",
+        "format": "compact",
+        "decimals": 1,
+    })
+    assert c.type == "Counter"
+    assert c.value == 1500
+    assert c.prefix == "$"
+    assert c.format == "compact"
+
+
+def test_background_layer_content():
+    b = LayerContent.model_validate({
+        "type": "Background",
+        "background_preset": "grid_flow",
+        "colors": ["#000", "#fff"],
+        "speed": 1.5,
+    })
+    assert b.type == "Background"
+    assert b.background_preset == "grid_flow"
+    assert b.speed == 1.5
+
+
+def test_counter_format_normalization_and_defaults():
+    # 'full' format is normalized to canonical 'standard'
+    c1 = LayerContent.model_validate({
+        "type": "Counter",
+        "value": 1400000,
+        "format": "full",
+        "font_size": "96px",
+    })
+    assert c1.format == "standard"
+    assert c1.start_value == 0.0
+    assert c1.font_size == 96.0
+
+    # Missing value defaults to 100.0, negative decimals clamped to 0, non-positive duration defaulted to 2.0, non-positive font_size defaulted to 72.0
+    c2 = LayerContent.model_validate({
+        "type": "Counter",
+        "decimals": -3,
+        "duration": -1.0,
+        "font_size": -20,
+    })
+    assert c2.value == 100.0
+    assert c2.decimals == 0
+    assert c2.duration == 2.0
+    assert c2.font_size == 72.0
+
+    # fontSize camelCase alias accepted
+    c3 = LayerContent.model_validate({
+        "type": "Counter",
+        "fontSize": 84,
+    })
+    assert c3.font_size == 84.0
+
+    # Style extras allow fontSize and textAlign on Counter without stripping
+    from backend.agent.schemas import sanitize_layer_style
+    cleaned, stripped, moves = sanitize_layer_style("Counter", {
+        "fontSize": "110px",
+        "textAlign": "center",
+        "width": "60%",
+        "height": "30%",
+        "left": "20%",
+        "top": "35%",
+    })
+    assert "fontSize" in cleaned
+    assert "textAlign" in cleaned
+    assert "fontSize" not in stripped
+
+
+def test_background_sanitization_and_aliases():
+    # Comma-separated string colors are parsed into a list
+    b1 = LayerContent.model_validate({
+        "type": "Background",
+        "colors": "#0a0a0f, #1a1a2e, #4f46e5",
+        "speed": -0.5,
+        "background_preset": "grid",
+    })
+    assert b1.colors == ["#0a0a0f", "#1a1a2e", "#4f46e5"]
+    assert b1.speed == 1.0
+    assert b1.background_preset == "grid_flow"
+
+    # Presets with aliases and case/hyphen normalization
+    aliases = {
+        "mesh": "gradient_mesh",
+        "gradient": "gradient_mesh",
+        "cyber-grid": "grid_flow",
+        "wave": "waves",
+        "matrix": "dots",
+        "cad": "blueprint",
+        "spotlight": "vignette_loop",
+        "paper": "paper_grain",
+    }
+    for alias, expected in aliases.items():
+        b = LayerContent.model_validate({
+            "type": "Background",
+            "background_preset": alias,
+        })
+        assert b.background_preset == expected, f"Expected {alias} -> {expected}, got {b.background_preset}"
+
+    # Missing preset defaults to gradient_mesh
+    b_default = LayerContent.model_validate({"type": "Background"})
+    assert b_default.background_preset == "gradient_mesh"
+
+
+
 # ── Response-level gate (Union[Dict] bypass proof) ─────────────────────
 
 def test_response_rejects_raw_dict_queryless_media():

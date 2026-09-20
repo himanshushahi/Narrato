@@ -65,6 +65,16 @@ hljs.registerLanguage('json', json);
 const EMPTY_STYLE: Record<string, any> = Object.freeze({}) as Record<string, any>;
 const EMPTY_LIST: any[] = Object.freeze([] as any[]) as any[];
 
+export const BACKGROUND_PRESET_DEFAULTS: Record<string, [string, string, string]> = {
+  gradient_mesh: ['#0a0e17', '#0369a1', '#4338ca'],
+  grid_flow: ['#050811', '#0ea5e9', '#6366f1'],
+  waves: ['#030712', '#0284c7', '#38bdf8'],
+  dots: ['#090d16', '#38bdf8', '#818cf8'],
+  blueprint: ['#041527', '#0284c7', '#38bdf8'],
+  vignette_loop: ['#09090b', '#18181b', '#27272a'],
+  paper_grain: ['#1c1917', '#292524', '#f5ebd7'],
+};
+
 export interface AstLayerApi {
   updateLayer: (idx: number, field: string, val: any) => void;
   updateContent: (idx: number, field: string, val: any) => void;
@@ -726,6 +736,28 @@ export const AstGraphicalEditor = ({
         newContent.particle_count = newContent.particle_count ?? 100;
         newContent.particle_opacity = newContent.particle_opacity ?? 0.9;
       }
+      if (newType === 'Counter') {
+        newContent.value = newContent.value ?? 100;
+        newContent.start_value = newContent.start_value ?? 0;
+        newContent.prefix = newContent.prefix ?? '';
+        newContent.suffix = newContent.suffix ?? '';
+        newContent.decimals = newContent.decimals ?? 0;
+        newContent.duration = newContent.duration ?? 1.4;
+        newContent.format = newContent.format ?? 'standard';
+        newContent.color = newContent.color ?? '#00d4ff';
+        newContent.font_size = newContent.font_size ?? 72;
+      }
+      if (newType === 'Background') {
+        newContent.background_preset = newContent.background_preset || 'gradient_mesh';
+        newContent.speed = newContent.speed ?? 1.0;
+        newContent.style = {
+          position: 'absolute',
+          left: '0%',
+          top: '0%',
+          width: '100%',
+          height: '100%',
+        };
+      }
       copy.children[idx] = { ...oldLayer, content: newContent };
       triggerChange(copy);
     },
@@ -961,6 +993,8 @@ export const AstGraphicalEditor = ({
                 <option value="Shape">Shape / Vector (Native)</option>
                 <option value="Lottie">Lottie (Vector Animation)</option>
                 <option value="Particles">Particles (Confetti/Embers…)</option>
+                <option value="Counter">Counter (Animated Number)</option>
+                <option value="Background">Background (Procedural Canvas)</option>
                 <option value="HTML">HTML / SVG (Custom)</option>
                 <option value="Map">Map</option>
               </select>
@@ -2085,6 +2119,278 @@ export const AstGraphicalEditor = ({
               </div>
             )}
 
+            {/* Dynamic Content Fields for Counter */}
+            {cType === 'Counter' && (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Target Value</label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.value ?? 100}
+                      onChange={e => updateContent(idx, 'value', parseFloat(e.target.value) || 0)}
+                      placeholder="100"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Start Value</label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.start_value ?? 0}
+                      onChange={e => updateContent(idx, 'start_value', parseFloat(e.target.value) || 0)}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Prefix</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.prefix || ''}
+                      onChange={e => updateContent(idx, 'prefix', e.target.value)}
+                      placeholder="e.g. $"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Suffix</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.suffix || ''}
+                      onChange={e => updateContent(idx, 'suffix', e.target.value)}
+                      placeholder="e.g. %, B, M, x"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Decimals</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="5"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.decimals ?? 0}
+                      onChange={e => updateContent(idx, 'decimals', Math.max(0, parseInt(e.target.value) || 0))}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Number Format</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      value={content.format === 'full' ? 'standard' : (content.format || 'standard')}
+                      onChange={e => updateContent(idx, 'format', e.target.value)}
+                    >
+                      <option value="standard">Standard Full (1,400,000)</option>
+                      <option value="compact">Compact (1.4M / 2.5B)</option>
+                      <option value="currency">Currency ($1,400.00)</option>
+                      <option value="percent">Percentage (99.8%)</option>
+                      <option value="none">Raw (no commas)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Duration (Sec)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.2"
+                      max="10"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-mono"
+                      value={content.duration ?? 1.4}
+                      onChange={e => updateContent(idx, 'duration', parseFloat(e.target.value) || 1.4)}
+                      placeholder="1.4"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Headline / Title</label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none font-medium"
+                      value={content.title || ''}
+                      onChange={e => updateContent(idx, 'title', e.target.value)}
+                      placeholder="e.g. ANNUAL REVENUE"
+                    />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Color</label>
+                    <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50 min-w-0">
+                      <input
+                        type="color"
+                        value={content.color?.startsWith('#') && content.color.length === 7 ? content.color : '#00d4ff'}
+                        onChange={e => updateContent(idx, 'color', e.target.value)}
+                        className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                      />
+                      <input
+                        type="text"
+                        className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono min-w-0"
+                        value={content.color || '#00d4ff'}
+                        onChange={e => updateContent(idx, 'color', e.target.value)}
+                        placeholder="#00d4ff"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Font Size control */}
+                {(() => {
+                  const rawFs = content.font_size ?? (content.style?.fontSize ? parseInt(String(content.style.fontSize)) : null);
+                  const effectiveFs = typeof rawFs === 'number' && Number.isFinite(rawFs) && rawFs > 0 ? rawFs : 72;
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                        <span>Font Size</span>
+                        <span className="text-amber-400 font-mono">{effectiveFs}px</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min="16"
+                          max="240"
+                          step="2"
+                          value={Math.max(16, Math.min(240, effectiveFs))}
+                          onChange={e => updateContent(idx, 'font_size', parseInt(e.target.value) || 72)}
+                          className="flex-1 accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+                        />
+                        <input
+                          type="number"
+                          min="16"
+                          max="300"
+                          value={content.font_size ?? ''}
+                          onChange={e => {
+                            const val = e.target.value === '' ? undefined : (parseInt(e.target.value) || 72);
+                            updateContent(idx, 'font_size', val);
+                          }}
+                          className="w-16 bg-black/40 border border-white/10 rounded-md px-2 py-1 text-xs text-stone-200 focus:outline-none font-mono text-center"
+                          placeholder="72"
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Dynamic Content Fields for Background */}
+            {cType === 'Background' && (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Preset Pattern</label>
+                    <select
+                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                      value={content.background_preset || 'gradient_mesh'}
+                      onChange={e => updateContent(idx, 'background_preset', e.target.value)}
+                    >
+                      <option value="gradient_mesh">Gradient Mesh (Organic Pulse)</option>
+                      <option value="grid_flow">Grid Flow (3D Cyber Horizon)</option>
+                      <option value="waves">Waves (Sinusoidal Ribbon)</option>
+                      <option value="dots">Dots (Matrix Radar Pulse)</option>
+                      <option value="blueprint">Blueprint (Technical CAD Grid)</option>
+                      <option value="vignette_loop">Vignette Loop (Atmospheric Focus)</option>
+                      <option value="paper_grain">Paper Grain (Archival Parchment)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Speed ({content.speed ?? 1.0}x)</label>
+                    <input
+                      type="range"
+                      min="0.2"
+                      max="3.0"
+                      step="0.1"
+                      className="w-full accent-amber-500 cursor-pointer mt-2"
+                      value={content.speed ?? 1.0}
+                      onChange={e => updateContent(idx, 'speed', parseFloat(e.target.value))}
+                    />
+                  </div>
+                </div>
+
+                {(() => {
+                  const activePreset = content.background_preset || 'gradient_mesh';
+                  const presetPalette = BACKGROUND_PRESET_DEFAULTS[activePreset] || ['#0a0e17', '#0284c7', '#6366f1'];
+                  const currentColor0 = content.colors?.[0] || presetPalette[0];
+                  const currentColor1 = content.colors?.[1] || presetPalette[1];
+                  const currentColor2 = content.colors?.[2] || presetPalette[2];
+
+                  const updatePaletteColor = (cIdx: number, val: string) => {
+                    const next = [...(content.colors || presetPalette)];
+                    next[cIdx] = val;
+                    updateContent(idx, 'colors', next);
+                  };
+
+                  return (
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-1 min-w-0">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Base Color</label>
+                        <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-md px-1.5 py-1 focus-within:border-amber-500/50 min-w-0">
+                          <input
+                            type="color"
+                            value={currentColor0.startsWith('#') && currentColor0.length === 7 ? currentColor0 : presetPalette[0]}
+                            onChange={e => updatePaletteColor(0, e.target.value)}
+                            className="w-3.5 h-3.5 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                          />
+                          <input
+                            type="text"
+                            className="w-full bg-transparent text-[11px] text-stone-200 focus:outline-none font-mono min-w-0"
+                            value={content.colors?.[0] || ''}
+                            onChange={e => updatePaletteColor(0, e.target.value)}
+                            placeholder={presetPalette[0]}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Accent 1</label>
+                        <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-md px-1.5 py-1 focus-within:border-amber-500/50 min-w-0">
+                          <input
+                            type="color"
+                            value={currentColor1.startsWith('#') && currentColor1.length === 7 ? currentColor1 : presetPalette[1]}
+                            onChange={e => updatePaletteColor(1, e.target.value)}
+                            className="w-3.5 h-3.5 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                          />
+                          <input
+                            type="text"
+                            className="w-full bg-transparent text-[11px] text-stone-200 focus:outline-none font-mono min-w-0"
+                            value={content.colors?.[1] || ''}
+                            onChange={e => updatePaletteColor(1, e.target.value)}
+                            placeholder={presetPalette[1]}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Accent 2 / Glow</label>
+                        <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-md px-1.5 py-1 focus-within:border-amber-500/50 min-w-0">
+                          <input
+                            type="color"
+                            value={currentColor2.startsWith('#') && currentColor2.length === 7 ? currentColor2 : presetPalette[2]}
+                            onChange={e => updatePaletteColor(2, e.target.value)}
+                            className="w-3.5 h-3.5 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                          />
+                          <input
+                            type="text"
+                            className="w-full bg-transparent text-[11px] text-stone-200 focus:outline-none font-mono min-w-0"
+                            value={content.colors?.[2] || ''}
+                            onChange={e => updatePaletteColor(2, e.target.value)}
+                            placeholder={presetPalette[2]}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* Collapsible Advanced: Styling, Animations, Motion Blur, Floating & Camera Noise */}
             <div className="pt-2.5 border-t border-white/5">
               <button
@@ -2137,7 +2443,7 @@ export const AstGraphicalEditor = ({
                       isMedia={layerKind === 'Image' || layerKind === 'Video'}
                       dimensionsNote={layerCap.dimensionsNote ?? null}
                       transformNote={layerCap.transformNote ?? null}
-                      fullscreenLocked={layerKind === 'Map' || layerKind === 'Particles'}
+                      fullscreenLocked={layerKind === 'Map' || layerKind === 'Particles' || layerKind === 'Background'}
                     />
                   )}
 
@@ -2149,7 +2455,7 @@ export const AstGraphicalEditor = ({
                           ℹ️ This text already animates internally ({content.animation_mode}). Layer keyframes stack on top — prefer one system to avoid double-transform timing clashes.
                         </div>
                       )}
-                      {(layerKind === 'Particles' || layerKind === 'Map') && (
+                      {(layerKind === 'Particles' || layerKind === 'Map' || layerKind === 'Background') && (
                         <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
                           ℹ️ [{layerKind}] is a full-frame canvas — 3D tilt (rotateX/Y) or large slides rotate the whole canvas and expose rectangular clipping edges. Opacity/scale keyframes are safest here.
                         </div>

@@ -38,8 +38,12 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 │        ├── Text           ──► <KineticText>                                 │
 │        ├── Chart          ──► <ChartRenderer>                               │
 │        ├── Shape          ──► <ShapeRenderer>                               │
+│        ├── Lottie         ──► <LottieRenderer>                              │
 │        ├── Map            ──► <DataVisualizations>                          │
-│        └── HTML           ──► dangerouslySetInnerHTML                       │
+│        ├── HTML           ──► dangerouslySetInnerHTML                       │
+│        ├── Particles      ──► <ParticlesRenderer>                           │
+│        ├── Counter        ──► <CounterRenderer>                             │
+│        └── Background     ──► <BackgroundRenderer>                          │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │
                                        ▼
@@ -53,7 +57,7 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 
 ---
 
-## 2. The 8 Active Visual Layer Types
+## 2. The 11 Active Visual Layer Types
 
 | # | Layer Type | Primary Purpose | Key Fields / Parameters | Remotion Component |
 |---|---|---|---|---|
@@ -61,10 +65,13 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 | 2 | `Video` | Cinematic B-roll, timelapses, dramatic motion backgrounds | `query`, `source` (`pexels` \| `pixabay` \| `youtube`), `volume`, `yt_start_offset`, `yt_duration`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<AsyncMediaNode>` |
 | 3 | `Text` | Dynamic headlines, kinetic quotes, data callouts | `text`, `font`, `weight`, `color`, `animation_mode`, `highlight_words`, `highlight_color`, `style` | [KineticText.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/KineticText.tsx) |
 | 4 | `Chart` | Statistics, comparisons, growth trends, distributions | `chart_type` (`bar` \| `line` \| `pie` \| `donut` \| `progress`), `data`, `title`, `style` | [ChartRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ChartRenderer.tsx) |
-| 5 | `Shape` | Hardware-accelerated vector shapes & animated SVG paths | `shape_type` (`rectangle` \| `circle` \| `star` \| `triangle` \| `arrow` \| `polygon` \| `path`), `fill`, `stroke`, `stroke_width`, `radius`, `direction`, `angle`, `preset_path`, `path_d`, `draw_animation`, `glow`, `style` | [ShapeRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ShapeRenderer.tsx) |
+| 5 | `Shape` | Hardware-accelerated vector shapes & animated SVG paths | `shape_type` (`rectangle` \| `circle` \| `star` \| `triangle` \| `arrow` \| `polygon` \| `path` \| `icon`), `icon_name`, `fill`, `stroke`, `stroke_width`, `radius`, `direction`, `angle`, `preset_path`, `path_d`, `draw_animation`, `glow`, `style` | [ShapeRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ShapeRenderer.tsx) |
 | 6 | `Lottie` | 60 FPS vector micro-animations & dynamic vector icons | `lottie_url`, `animation_data`, `loop`, `playback_rate`, `direction`, `style` | [LottieRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/LottieRenderer.tsx) |
 | 7 | `Map` | Geographic territories, highlighted routes & markers | `locations` (`[{name, coord}]`), `map_style` (`modern_dark` \| `vintage` \| `minimal_light` \| `nautical_blue`), `style` | [DataVisualizations.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/DataVisualizations.tsx) |
 | 8 | `HTML` | Universal dynamic canvas: bespoke leaked memos, chat UI, comparison cards, SVG diagrams | `html_content`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<div dangerouslySetInnerHTML>` |
+| 9 | `Particles` | Canvas atmosphere overlay (confetti, embers, dust, money rain, snow, stars) | `particle_preset`, `particle_count`, `particle_colors`, `particle_size`, `particle_speed`, `particle_direction`, `particle_opacity`, `style` | [ParticlesRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ParticlesRenderer.tsx) |
+| 10 | `Counter` | Animated count-up with tabular numerals, prefix/suffix, decimals, and spring finish pop | `value`, `start_value`, `prefix`, `suffix`, `decimals`, `duration`, `format` (`standard` \| `compact` \| `currency` \| `percent`), `font_size`, `title`, `color`, `style` | [CounterRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/CounterRenderer.tsx) |
+| 11 | `Background` | Procedural kinetic canvas backgrounds (mesh, grid flow, waves, dots, blueprint, vignette, paper grain) | `background_preset` (`gradient_mesh` \| `grid_flow` \| `waves` \| `dots` \| `blueprint` \| `vignette_loop` \| `paper_grain`), `colors`, `speed`, `style` | [BackgroundRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/BackgroundRenderer.tsx) |
 
 ---
 
@@ -76,7 +83,7 @@ When adding or removing visual types, these are the **exact files and code symbo
 
 | File Path | What It Controls | Exact Sections / Lines to Update |
 |---|---|---|
-| [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/declarative-ast/SKILL.md) | Full AST specification loaded during generation | **Section 3: The 10 Valid AST Content Types** (Lines 48–315), Layer order table (Lines 38–44) |
+| [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/declarative-ast/SKILL.md) | Full AST specification loaded during generation | **Section 3: The 11 Valid AST Content Types** (Lines 48–315), Layer order table (Lines 38–44) |
 | [visual-director/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/visual-director/SKILL.md) | Visual Director prompt & type selection guide | **VALID CONTENT TYPES** (Lines 16–17), **CONTENT TYPE SELECTION GUIDE** (Lines 19–34), Rule 38, Rule 42 |
 | [storyboard-planner/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/storyboard-planner/SKILL.md) | Stage 1 visual beat archetypes | **The 6 Visual Storyboard Archetypes** (Lines 26–54) |
 | [motion-graphics-designer/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/motion-graphics-designer/SKILL.md) | Glassmorphism & styling presets | Section 1 (Line 17), Section 3 (Lines 93–105), Section 4 (Lines 113–115) |
@@ -91,14 +98,19 @@ When adding or removing visual types, these are the **exact files and code symbo
 
 | File Path | Symbol / Function | Exact Role |
 |---|---|---|
-| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `LAYER_CONTENT_SCHEMA` (Lines 173–275) | JSON Schema `enum` of valid types and per-type properties |
-| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `visuals_system_prompt` (Lines 2000–2052) | Enumeration of types (Lines 2011–2018, 2030, 2042) |
-| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `plan_system_prompt` (Lines 2169–2175) | Storyboard prompt primitive references |
-| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `_visual_rules_safety_net` (Lines 1892–1922) | Fallback layer order hierarchy and type rules |
-| [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `_fetch_ast_layer_asset()` (Lines 579–680) | Downloads media files for media-backed layer types |
-| [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `fetch_single_scene_asset()` (Lines 930–970) | Single asset fetch for editor previews |
-| [backend/agent/validators.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/agent/validators.py) | `validate_sub_visuals()` (Lines 49–110) | Structural validation and timing math normalization |
-| [backend/core/bridge.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/core/bridge.py) | `upload_sub_visual_media()` (Lines 1550–1637) | Handles user-uploaded local files in GUI for layer types |
+| [backend/agent/schemas.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/agent/schemas.py) | `LayerContent` & `FULLSCREEN_BOX_TYPES` | Pydantic model for polymorphic layer content, valid type Literal enum, and fullscreen-forced types (`Map`, `Particles`, `Background`) |
+| [backend/agent/validators.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/agent/validators.py) | `sanitize_style_keys()` | Enforces fullscreen boxes on full-frame canvases and center-card/lower-third fallback boxes on foreground layers |
+| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `LAYER_CONTENT_SCHEMA` | JSON Schema `enum` of valid types and per-type properties |
+| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `visuals_system_prompt` | Enumeration of valid AST types (all 11) and system rules |
+| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `plan_system_prompt` | Storyboard prompt primitive references |
+| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `_visual_rules_safety_net` | Fallback layer order hierarchy and type rules |
+| [backend/pipeline/genres.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/genres.py) | `GENRE_PROFILES` `primitive_weights` | Weights assigned to each primitive per documentary genre |
+| [backend/mcp/payloads.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/mcp/payloads.py) | `variety_stats()` `kinds` | MCP variety analytics tracker covering all 11 primitives |
+| [backend/mcp/server.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/mcp/server.py) | Director instruction strings | MCP variety contract enforcing at least 5 of 11 primitives per video |
+| [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `_fetch_ast_layer_asset()` | Downloads media files for media-backed layer types (`Image`, `Video`) |
+| [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `fetch_single_scene_asset()` | Single asset fetch for editor previews |
+| [backend/agent/validators.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/agent/validators.py) | `validate_sub_visuals()` | Structural validation and timing math normalization |
+| [backend/core/bridge.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/core/bridge.py) | `upload_sub_visual_media()` | Handles user-uploaded local files in GUI for layer types |
 
 ---
 
@@ -106,20 +118,23 @@ When adding or removing visual types, these are the **exact files and code symbo
 
 | File Path | Symbol / Function | Exact Role |
 |---|---|---|
-| [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) | `ASTLayerContent` interface (Lines 13–69) | TypeScript union of layer types and property definitions |
-| [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) | Dispatcher block (Lines 203–303) | `if-else` branch rendering the corresponding React component |
+| [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) | `ASTLayerContent` interface | TypeScript union of 11 layer types and property definitions |
+| [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) | `isFullFrameCanvas()` | Prevents layout boxes from constraining full-bleed canvas types (`Map`, `Particles`, `Background`) |
+| [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) | Dispatcher block | `if-else` branch rendering the corresponding React component |
 | Component Renderers | `<NewType>Renderer.tsx` | Dedicated Remotion animation component using hooks |
 
 ---
 
-### D. Frontend GUI Editor (`frontend/src/features/`)
+### D. Frontend GUI Editor & Workspace (`frontend/src/features/`)
 
 | File Path | Symbol / Function | Exact Role |
 |---|---|---|
-| [AstGraphicalEditor.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/ProjectEditor/components/AstGraphicalEditor.tsx) | Type `<select>` dropdown (Lines 223–250) | UI selector options for layer types |
-| [AstGraphicalEditor.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/ProjectEditor/components/AstGraphicalEditor.tsx) | Type change default initializer (Lines 230–236) | Sets default properties when switching to a type |
-| [AstGraphicalEditor.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/ProjectEditor/components/AstGraphicalEditor.tsx) | Dynamic Form Controls (Lines 252–904) | Dedicated visual edit controls (inputs, color pickers, sliders) |
-| [VideoAudioTrack.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/EditorWorkspace/components/VideoAudioTrack.tsx) | `getValidVisualType()` (Lines 17–25) | Audio track timeline type filter (if audio-enabled) |
+| [layerCapabilities.ts](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/ProjectEditor/components/layerCapabilities.ts) | `LayerKind` & `GUI_EXTRAS_BY_KIND` | Layer capability map, normalization, and tab definitions (Layout, Visual, Animations, Filters) |
+| [AstGraphicalEditor.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/ProjectEditor/components/AstGraphicalEditor.tsx) | Type `<select>` dropdown | UI selector options for layer types |
+| [AstGraphicalEditor.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/ProjectEditor/components/AstGraphicalEditor.tsx) | `changeType` default initializer | Sets default properties when switching to a type |
+| [AstGraphicalEditor.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/ProjectEditor/components/AstGraphicalEditor.tsx) | Dynamic Form Controls | Dedicated visual edit controls (inputs, color pickers, sliders) |
+| [VideoTrack.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/EditorWorkspace/components/VideoTrack.tsx) | `AST_PRIMITIVE_BADGES` | Timeline cut layer icons and badge pills (`Hash` for Counter, `Palette` for Background, etc.) |
+| [CanvasOverlay.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/EditorWorkspace/components/CanvasOverlay.tsx) | `isFullFrameCanvas` | Overlay bounds calculation and full-frame canvas lock |
 
 ---
 
@@ -418,14 +433,22 @@ When altering visual layer types, use this checklist to guarantee 100% codebase 
 
 - [ ] **Frontend**: Remotion Component created / updated in `frontend/src/components/video/`
 - [ ] **Frontend**: `ASTLayerContent` interface updated in `frontend/src/components/video/ASTRenderer.tsx`
-- [ ] **Frontend**: Dispatcher branch updated in `frontend/src/components/video/ASTRenderer.tsx`
-- [ ] **Frontend**: GUI Editor `<select>` option & form controls updated in `AstGraphicalEditor.tsx`
+- [ ] **Frontend**: Dispatcher branch updated in `frontend/src/components/video/ASTRenderer.tsx` (and `isFullFrameCanvas` if full-frame)
+- [ ] **Frontend**: `layerCapabilities.ts` updated with `LayerKind` and GUI tab definitions
+- [ ] **Frontend**: GUI Editor `<select>` option, defaults, & form controls updated in `AstGraphicalEditor.tsx`
+- [ ] **Frontend**: Timeline badge icon registered in `frontend/src/features/EditorWorkspace/components/VideoTrack.tsx`
+- [ ] **Frontend**: Canvas overlay bounds updated in `frontend/src/features/EditorWorkspace/components/CanvasOverlay.tsx`
+- [ ] **Backend**: `FULLSCREEN_BOX_TYPES` & `LayerContent` fields/defaults updated in `backend/agent/schemas.py`
+- [ ] **Backend**: `sanitize_style_keys()` box rules updated in `backend/agent/validators.py`
 - [ ] **Backend**: `LAYER_CONTENT_SCHEMA` enum & properties updated in `backend/pipeline/ai.py`
-- [ ] **Backend**: Prompts (`visuals_system_prompt`, `_visual_rules_safety_net`) updated in `backend/pipeline/ai.py`
+- [ ] **Backend**: Prompts (`visuals_system_prompt`, `_visual_rules_safety_net`, `plan_system_prompt`) updated in `backend/pipeline/ai.py`
+- [ ] **Backend**: `GENRE_PROFILES` `primitive_weights` updated in `backend/pipeline/genres.py`
+- [ ] **Backend**: MCP variety analytics and director rules updated in `backend/mcp/payloads.py` & `backend/mcp/server.py`
 - [ ] **Backend**: (If media-backed) `_fetch_ast_layer_asset` updated in `backend/pipeline/assets.py`
 - [ ] **Skills**: `backend/skills/declarative-ast/SKILL.md` updated
 - [ ] **Skills**: `backend/skills/visual-director/SKILL.md` updated
 - [ ] **Skills**: `backend/skills/editor-qa/SKILL.md` updated
 - [ ] **Skills**: `backend/skills/storyboard-planner/SKILL.md` updated
 - [ ] **Skills**: `backend/skills/motion-graphics-designer/SKILL.md` updated
-- [ ] **Verification**: `npx remotion bundle` runs cleanly with zero TypeScript errors
+- [ ] **Verification**: `npx tsc --project frontend/tsconfig.json --noEmit` & `npm run build` pass with 0 errors
+- [ ] **Verification**: `pytest` passes with 0 test failures

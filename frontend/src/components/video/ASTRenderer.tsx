@@ -7,6 +7,8 @@ import { ShapeRenderer } from './ShapeRenderer';
 import { KineticText } from './KineticText';
 import { LottieRenderer } from './LottieRenderer';
 import { ParticlesRenderer, ParticlePreset } from './ParticlesRenderer';
+import { CounterRenderer } from './CounterRenderer';
+import { BackgroundRenderer, BackgroundPreset } from './BackgroundRenderer';
 import { CameraShakeType } from './CameraNoise';
 import { ASTErrorBoundary } from './ASTErrorBoundary';
 import { FxFilterDefs } from './FxFilterDefs';
@@ -14,7 +16,7 @@ import { getMediaUrlSync } from '../../utils/mediaUrl';
 import { inferMediaType } from '../../utils/mediaExtensions';
 
 interface ASTLayerContent {
-  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Shape' | 'Lottie' | 'Particles';
+  type: 'Image' | 'Video' | 'Text' | 'Map' | 'HTML' | 'Chart' | 'Shape' | 'Lottie' | 'Particles' | 'Counter' | 'Background';
   local_path?: string;
   text?: string;
   font?: string;
@@ -76,6 +78,21 @@ interface ASTLayerContent {
   particle_speed?: number;
   particle_direction?: 'up' | 'down' | 'left' | 'right' | 'outward' | 'twinkle';
   particle_opacity?: number;
+
+  // Counter props
+  value?: number;
+  start_value?: number;
+  prefix?: string;
+  suffix?: string;
+  decimals?: number;
+  duration?: number;
+  format?: 'standard' | 'compact' | 'full' | 'currency' | 'percent' | 'none';
+  font_size?: number | string;
+
+  // Background props
+  background_preset?: BackgroundPreset;
+  colors?: string[];
+  speed?: number;
 }
 
 export interface ASTLayer {
@@ -381,7 +398,7 @@ const ASTLayerView: React.FC<{
         // fullscreen branch here as a render-time safety net so a stray
         // positioned box from AI/manual JSON can never crop the world map or
         // the particle emitter field.
-        const isFullFrameCanvas = content.type === 'Map' || content.type === 'Particles';
+        const isFullFrameCanvas = content.type === 'Map' || content.type === 'Particles' || content.type === 'Background';
         const hasCustomLayout = !isFullFrameCanvas && !!contentStyle && !!(
           contentStyle.width || contentStyle.height ||
           contentStyle.top || contentStyle.left || contentStyle.right || contentStyle.bottom ||
@@ -547,6 +564,33 @@ const ASTLayerView: React.FC<{
         } else if (content.type === 'HTML') {
           node = (
             <div style={htmlStyle} dangerouslySetInnerHTML={{ __html: content.html_content || '' }} />
+          );
+        } else if (content.type === 'Counter') {
+          node = (
+            <CounterRenderer
+              value={content.value}
+              start_value={content.start_value}
+              prefix={content.prefix}
+              suffix={content.suffix}
+              decimals={content.decimals}
+              duration={content.duration}
+              format={content.format}
+              title={content.title}
+              font={content.font}
+              weight={content.weight}
+              color={content.color}
+              font_size={content.font_size}
+              style={innerStyle}
+            />
+          );
+        } else if (content.type === 'Background') {
+          node = (
+            <BackgroundRenderer
+              preset={content.background_preset}
+              colors={content.colors}
+              speed={content.speed}
+              style={innerStyle}
+            />
           );
         }
 

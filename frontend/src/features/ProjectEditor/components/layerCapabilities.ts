@@ -14,6 +14,8 @@ export type LayerKind =
   | 'Shape'
   | 'Lottie'
   | 'Particles'
+  | 'Counter'
+  | 'Background'
   | 'HTML'
   | 'Map'
   | 'Unknown';
@@ -33,6 +35,8 @@ const PARTICLES_FILTER =
   'Note: SVG duotone/thermal looks expect opaque pixels — on the sparse transparent particle canvas they can look empty. CSS grades (brightness/contrast) work fine.';
 const PARTICLES_DIMS =
   'Note: resizing crops the fixed full-frame emitter field instead of refitting it — Fullscreen is recommended for Particles.';
+const BACKGROUND_DIMS =
+  'Note: procedural backgrounds render full-frame — Fullscreen layout is recommended for Background.';
 const MAP_DIMS =
   'Note: the map renders full-canvas and ignores inner sizing — shrinking this layer crops the world map instead of fitting it. Fullscreen is recommended for Map.';
 const CANVAS_ROTATE =
@@ -53,6 +57,10 @@ export function normalizeLayerKind(raw: unknown): LayerKind {
       return 'Lottie';
     case 'particles':
       return 'Particles';
+    case 'counter':
+      return 'Counter';
+    case 'background':
+      return 'Background';
     case 'html':
       return 'HTML';
     case 'map':
@@ -74,7 +82,13 @@ export function getLayerCapability(kind: LayerKind): LayerCapability {
     case 'Image':
     case 'Video':
     case 'Lottie':
+    case 'Counter':
       return {};
+    case 'Background':
+      return {
+        dimensionsNote: BACKGROUND_DIMS,
+        transformNote: CANVAS_ROTATE,
+      };
     case 'Particles':
       return {
         filterNote: PARTICLES_FILTER,
@@ -113,6 +127,7 @@ const GUI_UNIVERSAL_KEYS: ReadonlySet<string> = new Set([
 const GUI_EXTRAS_BY_KIND: Record<string, ReadonlySet<string>> = {
   Text: new Set(['fontSize', 'textAlign', 'lineHeight', 'letterSpacing', 'textShadow', 'fontStyle']),
   Chart: new Set(['color']),
+  Counter: new Set(['fontSize', 'color', 'textAlign', 'fontFamily', 'fontWeight']),
   Image: new Set(['objectFit', 'aspectRatio']),
   Video: new Set(['objectFit', 'aspectRatio']),
 };

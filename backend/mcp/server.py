@@ -730,8 +730,8 @@ If the user did not specify any of these, ASK (offer the listed options):
     accepts valid-but-boring output, so YOU must not produce it):
     - No identical layer-template more than 2 cuts in a row; vary card
       geometry, background treatment, and text animation_mode per beat.
-    - Use at least 5 of the 9 content kinds per video (Image, Video, Text,
-      Chart, Shape, Map, HTML, Lottie, Particles) wherever the story allows.
+    - Use at least 5 of the 11 content kinds per video (Image, Video, Text,
+      Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background) wherever the story allows.
     - Every section needs at least one energy moment: emphasis punch-in,
       camera_shake, motion_blur, an FX filter (emboss/sharpen/posterize/
       duotone/thermal), rack-focus blur/brightness keyframes, or a

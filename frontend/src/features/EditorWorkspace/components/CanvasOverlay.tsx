@@ -221,7 +221,7 @@ function layerToBox(
   // canvases — a stray positioned box would only crop at render time, so the
   // overlay treats them as fullscreen (select-only) until Reset to Fullscreen
   // clears the stray keys via the Layout tab.
-  const isFullFrameCanvas = cType === 'Map' || cType === 'Particles';
+  const isFullFrameCanvas = cType === 'Map' || cType === 'Particles' || cType === 'Background';
 
   // TEXT LAYERS MUST NEVER BE FULLSCREEN!
   // Text layers are content-driven typography and must always display interactive handles.

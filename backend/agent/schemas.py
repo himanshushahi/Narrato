@@ -200,6 +200,7 @@ _STYLE_EXTRAS_BY_TYPE = {
     "Chart": CHART_STYLE_KEYS,
     "Image": MEDIA_STYLE_KEYS,
     "Video": MEDIA_STYLE_KEYS,
+    "Counter": frozenset({"fontSize", "textAlign", "letterSpacing", "lineHeight", "fontStyle"}),
 }
 # Text style aliases the renderer tolerates: canonical home is the top-level
 # content field — moved there when empty, dropped when already set.
@@ -222,7 +223,7 @@ LAYER_BOX_KEYS = frozenset({
     "borderRadius", "aspectRatio", "rotate", "scale", "scaleX", "scaleY",
 })
 # Full-frame canvas types: box is forced to fullscreen, never a positioned card.
-FULLSCREEN_BOX_TYPES = frozenset({"Map", "Particles"})
+FULLSCREEN_BOX_TYPES = frozenset({"Map", "Particles", "Background"})
 # Foreground fill when a non-background layer carries no box at all.
 CENTER_CARD_FILL = {
     "position": "absolute", "left": "15%", "top": "16%",
@@ -507,15 +508,15 @@ def sanitize_layer_style(content_type: Any, style: Any,
 
 class LayerContent(AppBaseModel):
     """Rich polymorphic content payload for an AST Layer."""
-    type: Literal["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie", "Particles"] = Field(..., description="Content type: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles")
+    type: Literal["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie", "Particles", "Counter", "Background"] = Field(..., description="Content type: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background")
     query: Optional[str] = Field(default=None, min_length=2, description="REQUIRED when type is Image/Video: 1-3 broad English stock keywords (e.g. 'city skyline night'). Search query for Pexels, Wikipedia, Pixabay, or YouTube. A media layer without a query can never download an asset and breaks the cut — always provide one.")
     source: Optional[str] = Field(default=None, description="Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed.", json_schema_extra={"enum": ["pexels", "wikipedia", "pixabay", "youtube"]})
     text: Optional[str] = Field(default=None, description="Text content (if Text)")
     animation_mode: Optional[str] = Field(default=None, description="Kinetic typography animation mode (if Text)", json_schema_extra={"enum": ["static", "words_stagger", "typewriter", "marker_highlight"]})
     highlight_words: Optional[List[str]] = Field(default=None, description="Words to highlight with marker/color (if Text)")
     highlight_color: Optional[str] = Field(default=None, description="Color for marker highlight (e.g. #facc15)")
-    font: Optional[str] = Field(default=None, description="Font family (if Text)")
-    weight: Optional[str] = Field(default=None, description="Font weight (if Text)")
+    font: Optional[str] = Field(default=None, description="Font family (if Text or Counter)")
+    weight: Optional[str] = Field(default=None, description="Font weight (if Text or Counter)")
     color: Optional[str] = Field(default=None, description="Text/accent color in hex")
     
     # Shape properties
@@ -541,7 +542,7 @@ class LayerContent(AppBaseModel):
     # Chart properties
     chart_type: Optional[str] = Field(default=None, description="Type of infographic chart (if Chart)", json_schema_extra={"enum": ["bar", "line", "pie", "donut", "progress"]})
     data: Optional[List[Union[ChartDataPoint, Dict[str, Any]]]] = Field(default=None, description="Array of data points (if Chart)")
-    title: Optional[str] = Field(default=None, description="Title or headline for Chart")
+    title: Optional[str] = Field(default=None, description="Title or headline (if Chart or Counter)")
     title_size: Optional[float] = Field(default=None, description="Title font size px (if Chart, default 28)")
     bar_radius: Optional[float] = Field(default=None, description="Bar corner radius px (if Chart bar, default 10)")
     bar_gap: Optional[float] = Field(default=None, description="Gap between bars px (if Chart bar, default 16)")
@@ -568,10 +569,26 @@ class LayerContent(AppBaseModel):
     particle_speed: Optional[float] = Field(default=None, description="Global speed multiplier (if Particles)")
     particle_direction: Optional[str] = Field(default=None, description="Motion direction (if Particles)", json_schema_extra={"enum": ["up", "down", "left", "right", "outward", "twinkle"]})
     particle_opacity: Optional[float] = Field(default=None, description="Master opacity 0-1 (if Particles)")
+
+    # Counter properties (animated count-up with tabular numerals & suffix/prefix)
+    value: Optional[float] = Field(default=None, description="Target numerical value to count up to (if Counter)")
+    start_value: Optional[float] = Field(default=None, description="Starting numerical value (if Counter, default 0)")
+    prefix: Optional[str] = Field(default=None, description="Prefix string before the number, e.g. '$' (if Counter)")
+    suffix: Optional[str] = Field(default=None, description="Suffix string after the number, e.g. 'M+', '%' (if Counter)")
+    decimals: Optional[int] = Field(default=None, description="Decimal places to display (if Counter, default 0)")
+    duration: Optional[float] = Field(default=None, description="Duration in seconds of count-up animation (if Counter, default 2.0)")
+    format: Optional[str] = Field(default=None, description="Display number format: 'standard', 'compact', 'currency', 'percent' (if Counter)", json_schema_extra={"enum": ["standard", "compact", "currency", "percent", "full", "none"]})
+    font_size: Optional[float] = Field(default=None, description="Font size in pixels (if Counter or Text, default 72 for Counter)")
+
+    # Background properties (procedural kinetic canvas backgrounds)
+    background_preset: Optional[str] = Field(default=None, description="Procedural background preset: 'gradient_mesh', 'grid_flow', 'waves', 'dots', 'blueprint', 'vignette_loop', 'paper_grain' (if Background)", json_schema_extra={"enum": ["gradient_mesh", "grid_flow", "waves", "dots", "blueprint", "vignette_loop", "paper_grain"]})
+    colors: Optional[List[str]] = Field(default=None, description="Color palette hex array for procedural background (if Background)")
+    speed: Optional[float] = Field(default=None, description="Motion speed multiplier (if Background, default 1.0)")
+
     image_type: Optional[str] = Field(default=None, description="Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons.", json_schema_extra={"enum": ["all", "photo", "illustration", "vector"]})
     yt_start_offset: Optional[float] = Field(default=None, description="Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15.")
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
-    style: Optional[Dict[str, Any]] = Field(default=None, description="LayerBox SOT v1 — the ONLY geometry authority. Box keys: position/left/top/right/bottom/width/height (% strings ONLY, never px — px/unitless are normalized to % at ingest), borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors). Anchor rule: top XOR bottom, left XOR right (never both; top/left win). Background children[0] with no box = fullscreen (valid). Map/Particles MUST be fullscreen 100%x100% (their canvas ignores sizing — a positioned box only crops). Shape box = stage, content width/height/radius = glyph detail (legacy content width/height dropped when a box exists). Text lower-thirds use the bottom anchor. Center math: width 42% -> left 29% (50-width/2). NEVER transform/opacity/filter/display/mixBlendMode in style (transform stripped + overlay loses sync; style.filter hoisted to layer filters; opacity belongs in animations). Text font/weight/color are top-level content fields, plus objectFit (Image/Video), Text extras, Chart accent color.")
+    style: Optional[Dict[str, Any]] = Field(default=None, description="LayerBox SOT v1 — the ONLY geometry authority. Box keys: position/left/top/right/bottom/width/height (% strings ONLY, never px — px/unitless are normalized to % at ingest), borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors). Anchor rule: top XOR bottom, left XOR right (never both; top/left win). Background children[0] with no box = fullscreen (valid). Map/Particles/Background MUST be fullscreen 100%x100% (their canvas ignores sizing — a positioned box only crops). Shape box = stage, content width/height/radius = glyph detail (legacy content width/height dropped when a box exists). Text lower-thirds use the bottom anchor. Center math: width 42% -> left 29% (50-width/2). NEVER transform/opacity/filter/display/mixBlendMode in style (transform stripped + overlay loses sync; style.filter hoisted to layer filters; opacity belongs in animations). Text font/weight/color are top-level content fields, plus objectFit (Image/Video), Text extras, Chart accent color.")
 
     @model_validator(mode="before")
     @classmethod
@@ -595,6 +612,21 @@ class LayerContent(AppBaseModel):
             stripped = v.strip()
             return stripped or None
         return v
+
+    @field_validator("font_size", mode="before")
+    @classmethod
+    def parse_font_size(cls, v: Any) -> Optional[float]:
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            v_clean = v.strip().lower().replace("px", "").replace("pt", "")
+            try:
+                return float(v_clean)
+            except ValueError:
+                return None
+        return None
 
     @model_validator(mode="before")
     @classmethod
@@ -627,6 +659,34 @@ class LayerContent(AppBaseModel):
             for target, value in moves.items():
                 if data.get(target) in (None, ""):
                     data[target] = value
+        if data.get("type") == "Background":
+            if isinstance(data.get("colors"), str):
+                data["colors"] = [c.strip() for c in data["colors"].split(",") if c.strip()]
+            bp = data.get("background_preset")
+            if bp:
+                p = str(bp).strip().lower().replace("-", "_")
+                preset_aliases = {
+                    "mesh": "gradient_mesh",
+                    "gradient": "gradient_mesh",
+                    "grid": "grid_flow",
+                    "cyber_grid": "grid_flow",
+                    "wave": "waves",
+                    "dot": "dots",
+                    "matrix": "dots",
+                    "cad": "blueprint",
+                    "vignette": "vignette_loop",
+                    "spotlight": "vignette_loop",
+                    "paper": "paper_grain",
+                    "grain": "paper_grain",
+                }
+                data["background_preset"] = preset_aliases.get(p, p)
+            elif bp is None:
+                data["background_preset"] = "gradient_mesh"
+        if data.get("type") == "Counter":
+            if "fontSize" in data and "font_size" not in data:
+                data["font_size"] = data["fontSize"]
+            if data.get("format") == "full":
+                data["format"] = "standard"
         if data.get("type") == "Lottie" and "src" in data:
             src = data.pop("src")
             if src not in (None, "") and data.get("lottie_url") in (None, ""):
@@ -634,17 +694,56 @@ class LayerContent(AppBaseModel):
         return data
 
     @model_validator(mode="after")
-    def sanitize_shape_and_content(self) -> LayerContent:
+    def sanitize_shape_and_content(self) -> "LayerContent":
         """Auto-corrects and sanitizes vector shape and content properties to prevent rendering crashes."""
+        def _safe_set(field: str, val: Any) -> None:
+            if getattr(self, field) != val:
+                object.__setattr__(self, field, val)
+
         if self.type == "Shape":
             if self.radius is not None and self.radius <= 0:
-                self.radius = 50.0
+                _safe_set("radius", 50.0)
             if self.inner_radius is not None and self.inner_radius <= 0:
-                self.inner_radius = 25.0
+                _safe_set("inner_radius", 25.0)
             if self.stroke_width is not None and self.stroke_width < 0:
-                self.stroke_width = 2.0
+                _safe_set("stroke_width", 2.0)
             if self.corner_radius is not None and self.corner_radius < 0:
-                self.corner_radius = 0.0
+                _safe_set("corner_radius", 0.0)
+        if self.type == "Counter":
+            if self.value is None:
+                _safe_set("value", 100.0)
+            if self.start_value is None:
+                _safe_set("start_value", 0.0)
+            if self.decimals is not None and self.decimals < 0:
+                _safe_set("decimals", 0)
+            if self.duration is not None and self.duration <= 0:
+                _safe_set("duration", 2.0)
+            if self.format == "full":
+                _safe_set("format", "standard")
+            if self.font_size is not None and self.font_size <= 0:
+                _safe_set("font_size", 72.0)
+        if self.type == "Background":
+            if not self.background_preset:
+                _safe_set("background_preset", "gradient_mesh")
+            else:
+                p = self.background_preset.strip().lower().replace("-", "_")
+                preset_aliases = {
+                    "mesh": "gradient_mesh",
+                    "gradient": "gradient_mesh",
+                    "grid": "grid_flow",
+                    "cyber_grid": "grid_flow",
+                    "wave": "waves",
+                    "dot": "dots",
+                    "matrix": "dots",
+                    "cad": "blueprint",
+                    "vignette": "vignette_loop",
+                    "spotlight": "vignette_loop",
+                    "paper": "paper_grain",
+                    "grain": "paper_grain",
+                }
+                _safe_set("background_preset", preset_aliases.get(p, p))
+            if self.speed is not None and self.speed <= 0:
+                _safe_set("speed", 1.0)
         if self.type in ("Image", "Video") and not self.query:
             raise ValueError(
                 f"Media layer of type '{self.type}' requires a non-empty search "

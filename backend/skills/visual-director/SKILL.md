@@ -17,21 +17,24 @@ Every sub-visual should feel like an intentional, high-production composite with
 
 === 3-LAYER FAUX-3D PARALLAX DEPTH STANDARD (order = stacking, children[0]=bottom) ===
 1. **Background (Atmospheric Canvas, first child)**: Full-screen base layer — choose the BEST type for the narrative moment:
+   - **Background**: Procedural kinetic background canvas (`gradient_mesh`, `grid_flow`, `waves`, `dots`, `blueprint`, `vignette_loop`, `paper_grain`). Sleek procedural math animation with 0 asset downloads.
    - **Video**: Darkened B-roll footage + slow continuous camera drift (`scale: 1.0 -> 1.06`, `linear`).
    - **Image**: Darkened high-contrast photograph + camera drift (entity spotlights, evidence, historical).
    - **Map**: Vector globe with animated route (geography-central narration).
    - **HTML**: CSS gradient/grid canvas (tech/data/infographic beats without distracting footage).
-   ⚠️ VARIETY: Do NOT use the same base type for consecutive cuts. Alternate between Video, Image, HTML Gradients, and Maps.
-2. **Midground (Graphic Subject, middle children)**: Data charts (`Chart`), cards, vector shapes, vintage newspaper cutouts, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
+   ⚠️ VARIETY: Do NOT use the same base type for consecutive cuts. Alternate between Background presets, Video, Image, HTML Gradients, and Maps.
+2. **Midground (Graphic Subject, middle children)**: Data charts (`Chart`), metric counters (`Counter` with tabular numerals & spring pop), cards, vector shapes, vintage newspaper cutouts, or bespoke HTML evidence cards with physics spring entrance (`translateY: 40 -> 0`, `opacity: 0 -> 1`, `easing: "spring"`).
    * 💡 Speed Differential: Fast spring entrance on midground + slow linear drift on background creates a cinematic 3D parallax effect!
    * 💡 Set `motion_blur: true` on fast midground entrances for physical camera shutter blur.
    * 💡 Charts MUST sit as middle children over HTML gradients or darkened video. Never render a bare full-screen chart as the first child.
 3. **Foreground (Typography & Accents, last children)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`) and indicator callout pointers (staying above `bottom: 18%` safe area).
 
-=== VALID CONTENT TYPES (USE ONLY THESE 9) ===
-Image | Video | Text | Chart | Shape | Map | HTML | Lottie | Particles
+=== VALID CONTENT TYPES (USE ONLY THESE 11) ===
+Image | Video | Text | Chart | Shape | Map | HTML | Lottie | Particles | Counter | Background
 
 === CONTENT TYPE SELECTION GUIDE ===
+- **Counter**: Animated numerical count-up with tabular numerals, decimal precision, prefix/suffix (e.g. `$100M+`), and spring finish pop (`value`, `start_value`, `prefix`, `suffix`, `decimals`, `font_size: 72`, `title`, `color`, `format: "standard" | "compact" | "currency" | "percent"`, `duration`). Ideal for financial metrics, market valuation, milestone counts, growth stats.
+- **Background**: Procedural kinetic background canvas presets (`background_preset: "gradient_mesh" | "grid_flow" | "waves" | "dots" | "blueprint" | "vignette_loop" | "paper_grain"`, `colors`, `speed`). Fullscreen base canvas with fluid math animation that never fails to render.
 - **Chart**: Statistics, comparisons, growth trends, market share, distributions (`chart_type: "bar" | "line" | "pie" | "donut" | "progress"`).
 - **Shape**: Hardware-accelerated vector shapes, arrows, callout pointers, framing rectangles, animated SVG paths (`preset_path: "route_arch" | "horizontal_line" | "pointer_curve" | "corner_brackets" | "wave_pulse" | "circle_reticle"`), and Lucide vector icons (`shape_type: "icon"`, `icon_name: "trending-up" | "shield-alert" | "dollar-sign" | "coins" | "database" | "globe" | "zap" | "flame" | "gavel" | "target"`).
 - **Lottie**: 60 FPS vector micro-animations, animated icons, warning badges, checkmarks, and dynamic vector accents (`lottie_url: "..."`).
@@ -58,7 +61,7 @@ Image | Video | Text | Chart | Shape | Map | HTML | Lottie | Particles
 
 === ANIMATION DELAY & NARRATION SYNC (every cut) ===
 - `delay` is seconds from the CUT start. Cut transitions run ~0.5s — an entrance with `delay: 0` plays UNDER the transition and is never seen. Minimum entrance `delay` is `0.5`.
-- **ALWAYS pair entrance animations with opacity fade:** Whenever you animate an entrance property (such as `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`, `blur`), ALWAYS include a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` on the same layer. Never animate spatial motion alone without an opacity fade — elements must fade into view smoothly instead of abruptly popping in while moving.
+- **ALWAYS pair entrance animations with opacity fade:** Whenever animating an entrance property (`translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`, `blur`), ALWAYS include a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` on the same layer so elements fade into view smoothly instead of abruptly popping in.
 - Animate aggressively but with discipline: full `animations` keyframes on exactly ONE non-background layer per sub-visual (the midground subject or foreground callout carrying the beat). The bottom background layer gets ONLY slow continuous drift; all other layers stay static.
 - When `Exact Spoken Words with Timestamps` are provided, compute `delay` = (word timestamp − sub-visual start offset), clamped to `[0.5, cut_duration − animation_duration]`, so each visual enters exactly when the narration mentions it.
 - `delay + duration` MUST be ≤ the sub-visual's `duration`. On short cuts (≤2.5s) use a short `duration` (0.4–0.5s) at the word-timed `delay`.
@@ -74,5 +77,3 @@ Image | Video | Text | Chart | Shape | Map | HTML | Lottie | Particles
   2. *Anchor*: Does the scene include at least one of the 3 Documentary Anchors (Map, Data Chart, or Document/Timeline)?
   3. *Safe Areas*: Do all lower-third texts and card bottoms stay above `bottom: 18%` (landscape) or `bottom: 28%` (portrait)?
   4. *Pacing*: Are intro cuts fast (2.0s–2.8s) and middle cuts rhythmic (3.2s–4.5s)?
-
-
