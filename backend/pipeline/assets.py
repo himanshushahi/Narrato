@@ -1463,13 +1463,26 @@ def _fetch_ast_assets_for_sub_visual(sub_visual, assets_dir, seg_idx, sub_idx, a
 
 
 def _has_meaningful_sub_visuals(subs):
-    """Check if sub_visuals list contains non-empty compositions with children."""
+    """Check if sub_visuals list contains non-empty compositions with children.
+
+    Cuts holding ONLY the HTML gradient fallback placeholder count as blank:
+    the placeholder paints deterministically (never black), but a section
+    with nothing but placeholders must still trigger regeneration instead
+    of sticking on gradients forever.
+    """
     if not isinstance(subs, list) or len(subs) == 0:
         return False
+    try:
+        from backend.agent.validators import is_html_gradient_placeholder
+    except Exception:
+        is_html_gradient_placeholder = lambda layer: False  # noqa: E731
     for sv in subs:
         if isinstance(sv, dict):
             comp = sv.get("composition")
-            if isinstance(comp, dict) and comp.get("children"):
+            children = comp.get("children") if isinstance(comp, dict) else None
+            if isinstance(children, list) and any(
+                not is_html_gradient_placeholder(c) for c in children
+            ):
                 return True
     return False
 

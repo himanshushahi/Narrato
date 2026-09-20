@@ -396,7 +396,8 @@ class AgentRunner:
             return {"success": False, "error": str(e)}
 
     def validate_and_correct_visuals(self, system_prompt: str, user_prompt: str, schema: dict, expected_duration: float,
-                                     allowed_tools=None, max_turns: int = None) -> dict:
+                                     allowed_tools=None, max_turns: int = None,
+                                     video_format: str = "landscape") -> dict:
         """
         Runs visual generation, then normalizes the result. Duration math and
         enum mismatches are auto-corrected by the validator itself, so the
@@ -442,7 +443,8 @@ class AgentRunner:
                         corrected_result = {"sub_visuals": [corrected_result]}
 
                 if isinstance(corrected_result, dict) and "sub_visuals" in corrected_result and corrected_result["sub_visuals"]:
-                    _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
+                    _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration,
+                                                           video_format=video_format)
                     corrected_result["sub_visuals"] = final_svs
                     return corrected_result
             except Exception:
@@ -451,7 +453,8 @@ class AgentRunner:
         if not isinstance(result, dict) or "sub_visuals" not in result:
             return result
 
-        is_valid, normalized_svs, error_msg = validate_sub_visuals(result["sub_visuals"], expected_duration)
+        is_valid, normalized_svs, error_msg = validate_sub_visuals(result["sub_visuals"], expected_duration,
+                                                                   video_format=video_format)
 
         if is_valid:
             self._emit_progress("Agent: Visual duration math verified.")
@@ -475,7 +478,8 @@ class AgentRunner:
                     corrected_result = {"sub_visuals": [corrected_result]}
 
             if isinstance(corrected_result, dict) and "sub_visuals" in corrected_result:
-                _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration)
+                _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration,
+                                                       video_format=video_format)
                 corrected_result["sub_visuals"] = final_svs
                 return corrected_result
         except Exception:

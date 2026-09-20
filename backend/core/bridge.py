@@ -1657,6 +1657,13 @@ class ApiBridge:
             target_content = scenes[scene_idx] if scene_idx < len(scenes) else {}
         current_visuals = target_content.get("sub_visuals", [])
         total_duration = _get_section_duration(project_id, scene_idx, section_type, current_visuals)
+        # Legacy geometry migration (LayerBox SOT v1): normalize stored boxes
+        # without touching durations so the AI sees clean geometry.
+        try:
+            from backend.agent.validators import migrate_cut_geometry
+            migrate_cut_geometry(current_visuals, video_format=video_format)
+        except Exception:
+            pass
         prompt_struct = "Expected: { \"sub_visuals\": [{ \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": 5.0 }] } (generate as many items as needed)"
 
         # Gather word-level transcript and duration breakdown for precise AI timing
