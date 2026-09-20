@@ -107,7 +107,7 @@ export { SPATIAL_ANIMATION_PROPS } from '../../../components/video/spatialMotion
 // Keys with a real GUI control (Layout tab / type panels / canvas drag).
 const GUI_UNIVERSAL_KEYS: ReadonlySet<string> = new Set([
   'position', 'left', 'top', 'right', 'bottom', 'width', 'height',
-  'borderRadius', 'rotate', 'scale', 'scaleX', 'scaleY',
+  'borderRadius', 'aspectRatio', 'rotate', 'scale', 'scaleX', 'scaleY',
 ]);
 
 const GUI_EXTRAS_BY_KIND: Record<string, ReadonlySet<string>> = {

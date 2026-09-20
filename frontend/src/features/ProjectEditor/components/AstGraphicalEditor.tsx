@@ -920,10 +920,31 @@ export const AstGraphicalEditor = ({
                 {styleSupport.advanced.map((k) => (
                   <div key={`adv-${k}`}>
                     ⚠ <code className="font-mono font-bold">{k}</code>
-                    {ADVANCED_STYLE_HINTS[k] ? ` — ${ADVANCED_STYLE_HINTS[k]}` : ' — renders, but has no visual editor yet.'}
+                    {ADVANCED_STYLE_HINTS[k] ? ` — ${ADVANCED_STYLE_HINTS[k]}` : ' — renders; edit it in the Raw Style JSON below.'}
                   </div>
                 ))}
               </div>
+            )}
+            {/* LayerBox SOT v1: advanced (GUI-less but renderable) style keys
+                are editable here as raw JSON — filtered to advanced keys only
+                so layout keys can't be clobbered. Blocked keys (transform /
+                non-absolute position) are validator-stripped and intentionally
+                not editable. */}
+            {styleSupport.advanced.length > 0 && (
+              <MiniJsonEditor
+                label="Raw Style JSON (advanced keys)"
+                value={Object.fromEntries(
+                  Object.entries((content.style || {}) as Record<string, any>).filter(([k]) =>
+                    styleSupport.advanced.includes(k),
+                  ),
+                )}
+                onChange={(advVal: any) => {
+                  const next: Record<string, any> = { ...((content.style || {}) as Record<string, any>) };
+                  for (const k of styleSupport.advanced) delete next[k];
+                  if (advVal && typeof advVal === 'object') Object.assign(next, advVal);
+                  layerCallbacks[idx].onStyleChange(next);
+                }}
+              />
             )}
             {/* Content Type Selector */}
             <div className="space-y-1">
@@ -1749,7 +1770,23 @@ export const AstGraphicalEditor = ({
 
                 {content.shape_type === 'rectangle' && (
                   <div className="space-y-1.5">
-                    <div className="grid grid-cols-3 gap-2.5">
+                    {(() => {
+                      // LayerBox SOT v1: style box = stage. Legacy fixed-px
+                      // content width/height is dropped by the validator when
+                      // a box exists — so the inputs are hidden to prevent
+                      // silent no-op edits. Resize via the Layout tab instead.
+                      const st = (content.style || {}) as Record<string, any>;
+                      const hasBox = ['left', 'top', 'right', 'bottom', 'width', 'height'].some(
+                        k => st[k] !== undefined && st[k] !== null && String(st[k]).trim() !== '');
+                      if (hasBox) {
+                        return (
+                          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
+                            ℹ️ Layer box is the stage — fixed px size is disabled while a Layout box is set. Resize via the Layout tab below.
+                          </div>
+                        );
+                      }
+                      return (
+                    <div className="grid grid-cols-2 gap-2.5">
                     <div className="space-y-1 min-w-0">
                       <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Width (px)</label>
                       <input
@@ -1770,6 +1807,9 @@ export const AstGraphicalEditor = ({
                         placeholder="auto"
                       />
                     </div>
+                    </div>
+                      );
+                    })()}
                     <div className="space-y-1 min-w-0">
                       <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Corner R (px)</label>
                       <input
@@ -1780,8 +1820,7 @@ export const AstGraphicalEditor = ({
                         placeholder="16"
                       />
                     </div>
-                    </div>
-                    <p className="text-[9px] text-stone-500">Set both Width + Height for fixed size, else fills layer.</p>
+                    <p className="text-[9px] text-stone-500">No Layout box: set both Width + Height for fixed size, else fills layer. With a Layout box, the box is the stage.</p>
                   </div>
                 )}
 
@@ -2098,6 +2137,7 @@ export const AstGraphicalEditor = ({
                       isMedia={layerKind === 'Image' || layerKind === 'Video'}
                       dimensionsNote={layerCap.dimensionsNote ?? null}
                       transformNote={layerCap.transformNote ?? null}
+                      fullscreenLocked={layerKind === 'Map' || layerKind === 'Particles'}
                     />
                   )}
 

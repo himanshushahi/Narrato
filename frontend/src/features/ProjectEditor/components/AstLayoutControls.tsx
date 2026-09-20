@@ -10,6 +10,9 @@ interface AstLayoutControlsProps {
   dimensionsNote?: string | null;
   /** Info note for the Transform section (rotation exposes canvas edges). */
   transformNote?: string | null;
+  /** LayerBox SOT v1: Map/Particles are full-frame canvases — sliders would
+   * only crop. When true the position/size UI locks to Fullscreen. */
+  fullscreenLocked?: boolean;
 }
 
 const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> }[] = [
@@ -63,10 +66,10 @@ const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> 
     icon: '📋',
     style: {
       position: 'absolute',
-      left: '8%',
-      top: '60%',
-      width: '84%',
-      height: '22%',
+      bottom: '18%',
+      left: '6%',
+      width: '88%',
+      // No height — text auto-sizes vertically from content.
     },
   },
   {
@@ -91,14 +94,130 @@ const RADIUS_PRESETS: { label: string; value: string; displaySuffix?: string }[]
   { label: 'Circle', value: '50%' },
 ];
 
+/**
+ * Free-typed %/px input paired with a slider. Sliders are int-only with
+ * fixed ranges (0–100 position, 10–100 size) — this input reaches the rest
+ * of the LayerBox value space: decimals (`30.71%`), negatives (`-10%` for
+ * off-canvas bleed), and px passthrough (normalized to % by the validator
+ * with the correct orientation grid). Draft-only while typing (no cursor
+ * jump); commits on Enter/blur; invalid input reverts.
+ */
+const PctInputInner: React.FC<{
+  /** Raw current style value (`30.71%`, `200px`, `30`) or '' when unset. */
+  display: string;
+  placeholder?: string;
+  onCommit: (val: string) => void;
+  title?: string;
+  disabled?: boolean;
+}> = ({ display, placeholder, onCommit, title, disabled }) => {
+  const [draft, setDraft] = useState<string>(display);
+  useEffect(() => { setDraft(display); }, [display]);
+  const commit = (val: string) => {
+    const t = val.trim();
+    if (!t) { setDraft(display); return; }
+    // Strict numeric shapes only: rejects "1.2.3", "...", "-..%" etc.
+    // parseFloat("1.2.3") === 1.2 would otherwise commit a typo as "1.2%".
+    const BARE_RE = /^-?(\d+\.?\d*|\.\d+)$/;
+    const PCT_RE = /^-?(\d+\.?\d*|\.\d+)%$/;
+    const PX_RE = /^-?(\d+\.?\d*|\.\d+)px$/;
+    if (BARE_RE.test(t)) {
+      const n = parseFloat(t);
+      if (!Number.isFinite(n)) { setDraft(display); return; }
+      onCommit(`${n}%`);
+      return;
+    }
+    if (PCT_RE.test(t) || PX_RE.test(t)) {
+      const n = parseFloat(t);
+      if (!Number.isFinite(n)) { setDraft(display); return; }
+      onCommit(t);
+      return;
+    }
+    setDraft(display);
+  };
+  return (
+    <input
+      type="text"
+      value={draft}
+      placeholder={placeholder}
+      disabled={disabled}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => commit(draft)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') {
+          commit(draft);
+          (e.target as HTMLInputElement).blur();
+        }
+        if (e.key === 'Escape') {
+          setDraft(display);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      className="w-16 bg-black/60 border border-white/10 text-amber-400 text-[10px] font-mono rounded px-1.5 py-0.5 text-right focus:outline-none focus:border-amber-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
+      title={title ?? 'Type a % value (e.g. 30.71%), px, or bare number — Enter to apply, Esc to revert'}
+    />
+  );
+};
+
+const PctInput = memo(PctInputInner);
+PctInput.displayName = 'PctInput';
+
 const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
   style = {},
   onChange,
   isMedia = false,
   dimensionsNote = null,
   transformNote = null,
+  fullscreenLocked = false,
 }) => {
   const currentStyle = (style || {}) as Record<string, any>;
+
+  // LayerBox SOT v1: full-frame canvas types lock the whole Layout tab to
+  // fullscreen. A stray positioned box would only crop the canvas (renderer
+  // forces fullscreen anyway), and canvas rotation just exposes background
+  // corners — so sliders are replaced by a status + reset control.
+  if (fullscreenLocked) {
+    const st = currentStyle;
+    const isFullscreen = (st.width === '100%' || st.width === 100 || !st.width)
+      && (st.height === '100%' || st.height === 100 || !st.height)
+      && !st.left && !st.top && !(st as any).right && !(st as any).bottom;
+    const resetFullscreen = () => {
+      const next: Record<string, any> = { ...st };
+      delete next.left; delete next.top;
+      delete (next as any).right; delete (next as any).bottom;
+      delete next.borderRadius; delete next.aspectRatio;
+      next.width = '100%'; next.height = '100%';
+      onChange(next);
+    };
+    return (
+      <div className="space-y-3.5">
+        <div className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+            🖥️ Fullscreen Canvas
+          </span>
+          <p className="text-[10px] text-stone-400 leading-relaxed">
+            This layer renders full-frame — position and size are locked to fullscreen.
+            {dimensionsNote ? ` ${dimensionsNote}` : ''}
+          </p>
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${isFullscreen
+              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/40 text-red-300'}`}>
+              {isFullscreen ? '● Fullscreen' : '● Stray box (cropped)'}
+            </span>
+            {!isFullscreen && (
+              <button
+                type="button"
+                onClick={resetFullscreen}
+                className="px-2 py-0.5 bg-amber-500 text-black font-bold text-[10px] rounded hover:bg-amber-400 cursor-pointer"
+              >
+                Reset to Fullscreen
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleUpdate = (field: string, val: any) => {
     const updated = { ...currentStyle };
@@ -467,9 +586,14 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
         {/* Sliders: Left & Top/Bottom (anchor-aware: AI text layers use bottom) */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+            <div className="flex justify-between items-center text-[9px] font-bold uppercase tracking-wider text-stone-400">
               <span>Left (X)</span>
-              <span className="text-amber-400 font-mono">{leftVal}%</span>
+              <PctInput
+                display={currentStyle.left !== undefined && currentStyle.left !== null ? String(currentStyle.left) : ''}
+                placeholder={`${leftVal}%`}
+                onCommit={v => handleApplyPreset({ left: v, right: undefined })}
+                title="Left edge — % (decimals/negatives allowed), px, or bare number. Writes left, clears right anchor."
+              />
             </div>
             <input
               type="range"
@@ -490,9 +614,14 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
               const bottomVal = parseNum(rawBottom, 18);
               return (
                 <div className="space-y-1">
-                  <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                  <div className="flex justify-between items-center text-[9px] font-bold uppercase tracking-wider text-stone-400">
                     <span>Bottom (Y)</span>
-                    <span className="text-amber-400 font-mono">{bottomVal}%</span>
+                    <PctInput
+                      display={rawBottom !== undefined && rawBottom !== null ? String(rawBottom) : ''}
+                      placeholder={`${bottomVal}%`}
+                      onCommit={v => handleApplyPreset({ bottom: v })}
+                      title="Bottom anchor — % (decimals/negatives allowed), px, or bare number. Height grows upward from this edge."
+                    />
                   </div>
                   <input
                     type="range"
@@ -508,9 +637,14 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
             }
             return (
               <div className="space-y-1">
-                <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                <div className="flex justify-between items-center text-[9px] font-bold uppercase tracking-wider text-stone-400">
                   <span>Top (Y)</span>
-                  <span className="text-amber-400 font-mono">{topVal}%</span>
+                  <PctInput
+                    display={currentStyle.top !== undefined && currentStyle.top !== null ? String(currentStyle.top) : ''}
+                    placeholder={`${topVal}%`}
+                    onCommit={v => handleApplyPreset({ top: v, bottom: undefined })}
+                    title="Top edge — % (decimals/negatives allowed), px, or bare number. Writes top, clears bottom anchor."
+                  />
                 </div>
                 <input
                   type="range"
@@ -528,9 +662,14 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
         {/* Sliders: Width & Height (base box — layout, not zoom) */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+            <div className="flex justify-between items-center text-[9px] font-bold uppercase tracking-wider text-stone-400">
               <span>Width</span>
-              <span className="text-amber-400 font-mono">{widthVal}%</span>
+              <PctInput
+                display={currentStyle.width !== undefined && currentStyle.width !== null ? String(currentStyle.width) : ''}
+                placeholder={`${widthVal}%`}
+                onCommit={v => handleUpdate('width', v)}
+                title="Base box width — % with decimals (e.g. 38.58%), px, or bare number. Slider covers 10–100%."
+              />
             </div>
             <input
               type="range"
@@ -544,11 +683,17 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           </div>
 
           <div className="space-y-1">
-            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+            <div className="flex justify-between items-center text-[9px] font-bold uppercase tracking-wider text-stone-400">
               <span>Height</span>
-              <span className="text-amber-400 font-mono">
-                {isHeightLocked ? `${autoHeightVal}% (Auto)` : `${heightVal}%`}
-              </span>
+              <PctInput
+                display={isHeightLocked
+                  ? `${autoHeightVal}%`
+                  : (currentStyle.height !== undefined && currentStyle.height !== null ? String(currentStyle.height) : '')}
+                placeholder={isHeightLocked ? 'Auto' : `${heightVal}%`}
+                disabled={isHeightLocked}
+                onCommit={v => handleApplyPreset({ height: v, aspectRatio: undefined })}
+                title={isHeightLocked ? 'Aspect locked — Width drives height. Unlock for freeform height.' : 'Base box height — % with decimals, px, or bare number. Slider covers 10–100%.'}
+              />
             </div>
             <input
               type="range"
