@@ -1369,6 +1369,28 @@ class ApiBridge:
         except Exception:
             return False
 
+    def get_mcp_status(self) -> dict:
+        """Live MCP endpoint state for the Settings → Agent Control card:
+        loopback URL (None until the host thread boots), port, and the
+        registered tool inventory. Never raises."""
+        try:
+            from backend.mcp.http_host import get_mcp_url, MCP_HOST, get_tool_names
+            url = get_mcp_url()
+            tools = get_tool_names() if url else []
+            port = None
+            if url:
+                try:
+                    from urllib.parse import urlparse
+                    port = urlparse(url).port
+                except Exception:
+                    pass
+            return {"running": bool(url), "url": url, "host": MCP_HOST,
+                    "port": port, "tool_count": len(tools), "tools": tools}
+        except Exception as e:
+            logger.warning(f"get_mcp_status failed: {e}")
+            return {"running": False, "url": None, "host": "127.0.0.1",
+                    "port": None, "tool_count": 0, "tools": []}
+
     def check_whisper_downloaded(self, model_size: str) -> bool:
         from backend.pipeline.transcribe import check_whisper_assets
         return check_whisper_assets(model_size)

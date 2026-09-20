@@ -104,6 +104,14 @@ def main():
     file_server_port = start_file_server()
     logger.info(f"Media file server started on port {file_server_port}")
 
+    # Narrato MCP endpoint (localhost only) so external agents can drive
+    # the LLM-free pipeline tools with just a URL. Never raises.
+    try:
+        from backend.mcp.http_host import start_mcp_http_server
+        start_mcp_http_server()
+    except Exception as e:
+        logger.warning(f"MCP host startup skipped: {e}")
+
     icon_path = _get_icon_path()
     env = os.environ.get("ENVIRONMENT", "development")
 
