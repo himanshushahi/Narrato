@@ -1888,9 +1888,50 @@ Do NOT create static chapter title badges, scene name cards, or temporary header
 - Element entry/exit timings matching spoken content transitions.
 Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] → set `delay: 2.3` on the GDP text animation.
 
+- LAYERBOX SOT v1 (single source of truth for geometry): every non-background
+  layer MUST carry a full `%`-only style box (`left`+`top`+`width`+`height`;
+  NEVER `px`, NEVER bare numbers — they are normalized to `%` at ingest).
+  Anchor rule: `top` XOR `bottom` (lower-thirds use `bottom`, all cards use
+  `top`), `left` XOR `right` (prefer `left`; doubles resolve to `top`/`left`).
+  Center with explicit math like `left = 50 - width/2`. `Map`/`Particles`
+  MUST be fullscreen `100%`/`100%` with no position keys (positioned boxes
+  only crop them). `Shape` box = stage — NEVER set content `width`/`height`
+  alongside a style box (dropped); dots use small `%` boxes, never `px`.
+- CANVAS PIXEL GRIDS: landscape = 1920×1080, portrait = 1080×1920,
+  square = 1080×1080. Equal `%` on width and height ≠ equal pixels unless the
+  canvas is square — use `aspectRatio: "1 / 1"` (+ drop `height`) for true
+  squares/circles instead of matching width% and height%.
+- COLLISION / OVERLAP GUARD: when a cut has multiple positioned layers,
+  verify boxes DO NOT overlap unless the overlap is intentional (e.g., text
+  label over an image). For N non-overlapping cards: calculate non-overlapping
+  zones from the preset grid (A–C in the motion-graphics-designer skill).
+  Common safe splits: left card `left: "6%", width: "42%"` + right card
+  `left: "52%", width: "42%"` (6% gap). If vertical stacking: keep `top` +
+  `height` + gap ≤ 100%. Overlapping layers on the same band are acceptable
+  ONLY when a foreground element (text, badge, shape dot) intentionally sits
+  atop a background/image layer.
+- OBJECTFIT PER LAYER ROLE: `objectFit` (Image/Video only) controls how
+  media fills its box. Rules:
+  * Background (fullscreen `children[0]`): `"cover"` — fills frame, crops edges.
+  * Positioned card with `borderRadius: "50%"` (circle crop): `"cover"` — essential.
+  * Icon/illustration overlay (transparent-bg cutouts from Pixabay `illustration`):
+    `"contain"` — preserves aspect without cropping the transparent edges.
+  * Default when omitted: renderer uses `"cover"` for positioned layers.
+- TEXT HEIGHT OMISSION PATTERN: for Text lower-thirds and callout labels,
+  OMIT `height` so the text auto-sizes vertically from content. Set `height`
+  only when you intentionally want fixed-height clipping (e.g., a scrolling
+  ticker or a rigid card frame). Lower-third fills use `bottom: "18%"` anchor
+  with no height — the box grows upward from the bottom edge.
+- SUBTITLE SAFE AREA VS LAYERBOX FILL: the validator auto-fills missing
+  Text boxes with `bottom: "18%"` (landscape) / `"25%"` (portrait) — the
+  exact subtitle boundary. If you are placing a text label, position it
+  explicitly above this line to avoid overlapping kinetic captions; for
+  intentional lower-third captions anchored at the bottom, `bottom: "18%"`
+  (landscape) or `bottom: "25%"` (portrait) is correct.
 - DO NOT add arbitrary properties that are not supported — especially inside
   `style`: NEVER `transform`/`translate` (the key is removed and the overlay
-  box loses sync; center with explicit math like `left = 50 - width/2`).
+  box loses sync), NEVER `filter`/`opacity` in style (`filter` is hoisted to
+  `layer.filters`; `opacity` belongs in `animations`).
   Other renderable CSS passes through but may lack a visual editor — prefer
   `rotate`/`scale`, `animations`, and `filters`.
 - `query` in `Image` and `Video` content MUST ALWAYS be in English.
@@ -2229,6 +2270,7 @@ Generate the sub_visuals array following the APPROVED STORYBOARD PLAN precisely.
             visuals_data = runner.validate_and_correct_visuals(
                 visuals_system_prompt, user_prompt, VISUALS_ARRAY_SCHEMA, float(duration),
                 allowed_tools=PIPELINE_VISUAL_TOOLS, max_turns=PIPELINE_VISUAL_TURNS,
+                video_format=video_format,
             )
             if not isinstance(visuals_data, dict) or "sub_visuals" not in visuals_data:
                 raise ValueError(f"Unexpected visuals payload type: {type(visuals_data).__name__}")

@@ -57,7 +57,8 @@ Example AST layer for a YouTube clip:
 | `"vector"` | SVG/vector art, also returned as PNG. Good for logos, diagrams |
 | `"all"` | Default — mix of all types |
 
-Example AST layer for a transparent icon overlay:
+Example AST layer for a transparent icon overlay (LayerBox SOT v1: `%`-only
+boxes, `left` anchor — never `px`, never `right`):
 ```json
 {
   "type": "Layer",
@@ -66,7 +67,7 @@ Example AST layer for a transparent icon overlay:
     "query": "rupee coin gold",
     "source": "pixabay",
     "image_type": "illustration",
-    "style": {"width": "120px", "height": "120px", "top": "10%", "right": "8%"}
+    "style": {"position": "absolute", "width": "8%", "height": "12%", "top": "10%", "left": "84%"}
   }
 }
 ```
