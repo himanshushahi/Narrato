@@ -176,7 +176,15 @@ def init_db():
                 (k, json.dumps(v))
             )
             
-        # Cleanup stuck pipeline runs from previous application instance
+        # Cleanup stuck pipeline runs from previous application instance.
+        # Only tasks genuinely mid-flight ('running') are marked failed: a
+        # process death means they can never complete. 'pending' rows are
+        # left alone — they may be legitimate next steps (MCP-driven runs,
+        # queued stages), and blanketing them as failed paints stages like
+        # Visuals FAILED in the UI even though nothing actually broke.
+        # NOTE: projects still go blanket 'cancelled' while some tasks stay
+        # 'pending' — that pairing is intentional (interrupted run, resumable
+        # steps) and Resume re-queues from task + staleness state regardless.
         cursor.execute("""
             UPDATE projects 
             SET status = 'cancelled' 
@@ -185,9 +193,9 @@ def init_db():
         cursor.execute("""
             UPDATE tasks 
             SET status = 'failed', message = 'Interrupted', error_message = 'Pipeline execution interrupted by app restart.'
-            WHERE status IN ('running', 'pending')
+            WHERE status = 'running'
         """)
-        logger.info("Database startup cleanup: marked stuck projects as cancelled and tasks as failed.")
+        logger.info("Database startup cleanup: marked stuck projects as cancelled and running tasks as failed (pending left intact).")
     logger.info("Database initialized successfully.")
 
 # Project Operations

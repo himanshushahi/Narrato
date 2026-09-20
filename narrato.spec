@@ -62,9 +62,17 @@ a = Analysis(
         'torch',
         'requests',
         'PIL',
+        # Narrato MCP server (auto-started localhost endpoint, backend/mcp).
+        # backend.mcp.* is imported lazily at runtime (never from main.py),
+        # so static analysis misses it — collect explicitly.
+        'mcp',
+        'uvicorn',
+        'starlette',
+        'sse_starlette',
+        'anyio',
         'huggingface_hub',
         'scipy._external.array_api_compat.numpy.fft',
-    ] + collect_submodules('transformers') + collect_submodules('omnivoice'),
+    ] + collect_submodules('transformers') + collect_submodules('omnivoice') + collect_submodules('backend.mcp'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
