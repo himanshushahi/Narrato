@@ -182,7 +182,7 @@ def test_save_script_writes_and_purges(tmp_path, monkeypatch):
     assert doc["title"] == "Test Title"
     (pid, kw), = calls["update"]
     assert pid == "proj_mcp" and kw["name"] == "Test Title"
-    assert kw["audio_path"] is None and kw["status"] == "completed"
+    assert kw["audio_path"] is None and kw["status"] == "created"
     # Gap fix: the generate_script task row must exist or the GUI shows
     # WAITING forever (update_task on a missing row is a silent no-op).
     assert calls.get("task:generate_script") == ["created"]

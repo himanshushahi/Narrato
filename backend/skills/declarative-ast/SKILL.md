@@ -56,6 +56,7 @@ Every layer should move with purpose according to its role, creating a tactile *
 3. **Midground Graphics (Physics Spring Entrance & Floating)**:
     * Cards, charts, shapes, and HTML UI elements must enter via spring physics — FIRED AFTER the cut transition settles (`delay` ≥ 0.5s), NOT at cut start:
       `"animations": [{ "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring" }, { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "delay": 0.5, "easing": "ease-out" }]`
+    * **ALWAYS pair entrance animations with opacity fade:** Whenever you animate an entrance property (such as `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`, `blur`), ALWAYS include a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` animation on the same layer. Never animate spatial motion alone without an opacity fade — elements must fade into view smoothly instead of abruptly popping in while moving.
     * On high-velocity spring entrances, set `motion_blur: true` on the layer to enable physical optical shutter blur!
     * **ONE hero-motion layer per cut:** keyframe `animations` go on exactly ONE non-background layer per sub-visual (background keeps only its slow drift). Never animate every layer.
     * **Narration sync:** when `Exact Spoken Words with Timestamps` are provided, set the entrance `delay` = (spoken word time − sub-visual start offset), clamped to `[0.5, cut_duration − animation_duration]`, so the visual enters exactly when the narration mentions it.
@@ -208,7 +209,10 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "borderRadius": "20px"
           }
         },
-        "animations": [{ "property": "translateY", "from": 40, "to": 0, "duration": 0.6, "easing": "spring" }]
+        "animations": [
+          { "property": "translateY", "from": 40, "to": 0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+        ]
       },
       {
         "type": "Layer",
@@ -226,7 +230,10 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "borderRadius": "20px"
           }
         },
-        "animations": [{ "property": "translateY", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" }]
+        "animations": [
+          { "property": "translateY", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+        ]
       },
       {
         "type": "Layer",
@@ -294,7 +301,8 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
         },
         "animations": [
           { "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.6, "easing": "spring" },
-          { "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "easing": "spring" }
+          { "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
         ]
       },
       {
@@ -468,7 +476,10 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "objectFit": "contain"
           }
         },
-        "animations": [{ "property": "scale", "from": 0.9, "to": 1.0, "duration": 0.6, "easing": "spring" }]
+        "animations": [
+          { "property": "scale", "from": 0.9, "to": 1.0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+        ]
       },
       {
         "type": "Layer",
@@ -484,7 +495,10 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "height": "66%"
           }
         },
-        "animations": [{ "property": "translateX", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" }]
+        "animations": [
+          { "property": "translateX", "from": 40, "to": 0, "duration": 0.7, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+        ]
       }
     ]
   }
@@ -527,7 +541,10 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "height": "32%"
           }
         },
-        "animations": [{ "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.5, "easing": "spring" }]
+        "animations": [
+          { "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.5, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+        ]
       },
       {
         "type": "Layer",
@@ -543,7 +560,10 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "height": "32%"
           }
         },
-        "animations": [{ "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.6, "easing": "spring" }]
+        "animations": [
+          { "property": "scale", "from": 0.85, "to": 1.0, "duration": 0.6, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+        ]
       },
       {
         "type": "Layer",
@@ -565,7 +585,10 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
             "borderRadius": "18px"
           }
         },
-        "animations": [{ "property": "translateY", "from": 30, "to": 0, "duration": 0.7, "easing": "spring" }]
+        "animations": [
+          { "property": "translateY", "from": 30, "to": 0, "duration": 0.7, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "easing": "ease-out" }
+        ]
       }
     ]
   }

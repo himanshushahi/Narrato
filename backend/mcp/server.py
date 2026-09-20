@@ -738,6 +738,9 @@ If the user did not specify any of these, ASK (offer the listed options):
       Particles overlay matched to the beat's emotion.
     - Cycle transitions deliberately (whip_pan/glitch for shock beats,
       dissolve for time jumps) — never the same 2–3 on rotation.
+    - Always pair entrance animations (translateY, translateX, scale, rotate)
+      with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
+      so elements fade into view smoothly instead of abruptly popping in while moving.
     The save_visuals response reports variety stats + normalizations:
     read them and fix flat spots BEFORE moving on.
 10b. review_frame per section (mode=composition) to verify exact pre-render
@@ -756,6 +759,9 @@ If the user did not specify any of these, ASK (offer the listed options):
 ## Gotchas
 - Durations: sub_visuals durations MUST sum to the section audio duration
   (the server normalizes, but gross mismatches mean mistimed visuals).
+- Opacity fade: ALWAYS pair entrance animations (translateY, translateX, scale, etc.)
+  with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
+  so elements fade into view smoothly instead of abruptly popping in while moving.
 - generate_visuals is NOT an MCP stage — YOU author visuals via save_visuals.
 - run_stage(wait=true) blocks; over HTTP always use wait=false + stage_status
   for voiceover/fetch_assets/render (minutes long).

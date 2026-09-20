@@ -39,6 +39,10 @@ def _ffmpeg():
     return _config.get_ffmpeg_path()
 
 
+def _ffprobe():
+    return _config.get_ffprobe_path()
+
+
 def _startupinfo():
     try:
         return _config.get_startupinfo()
@@ -304,7 +308,7 @@ def grab_asset_cell(local_path: str, kind: str, width: int = 640):
 
 def _probe_duration(path: str) -> float | None:
     try:
-        ffprobe = _ffmpeg().replace("ffmpeg", "ffprobe")
+        ffprobe = _ffprobe()
         proc = subprocess.run(
             [ffprobe, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", path],

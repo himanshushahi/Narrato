@@ -58,6 +58,7 @@ Image | Video | Text | Chart | Shape | Map | HTML | Lottie | Particles
 
 === ANIMATION DELAY & NARRATION SYNC (every cut) ===
 - `delay` is seconds from the CUT start. Cut transitions run ~0.5s — an entrance with `delay: 0` plays UNDER the transition and is never seen. Minimum entrance `delay` is `0.5`.
+- **ALWAYS pair entrance animations with opacity fade:** Whenever you animate an entrance property (such as `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`, `blur`), ALWAYS include a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` on the same layer. Never animate spatial motion alone without an opacity fade — elements must fade into view smoothly instead of abruptly popping in while moving.
 - Animate aggressively but with discipline: full `animations` keyframes on exactly ONE non-background layer per sub-visual (the midground subject or foreground callout carrying the beat). The bottom background layer gets ONLY slow continuous drift; all other layers stay static.
 - When `Exact Spoken Words with Timestamps` are provided, compute `delay` = (word timestamp − sub-visual start offset), clamped to `[0.5, cut_duration − animation_duration]`, so each visual enters exactly when the narration mentions it.
 - `delay + duration` MUST be ≤ the sub-visual's `duration`. On short cuts (≤2.5s) use a short `duration` (0.4–0.5s) at the word-timed `delay`.

@@ -72,7 +72,7 @@ a = Analysis(
         'anyio',
         'huggingface_hub',
         'scipy._external.array_api_compat.numpy.fft',
-    ] + collect_submodules('transformers') + collect_submodules('omnivoice') + collect_submodules('backend.mcp'),
+    ] + collect_submodules('transformers') + collect_submodules('omnivoice') + collect_submodules('backend.mcp') + collect_submodules('uvicorn') + collect_submodules('starlette') + collect_submodules('sse_starlette') + collect_submodules('anyio'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

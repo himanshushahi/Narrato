@@ -14,7 +14,14 @@ LOG_FILE = LOGS_DIR / f"app_{os.getpid()}.log"
 # connection — without this each leaves an app_<pid>.log behind).
 NO_FILE_LOG = os.environ.get("NARRATO_NO_FILE_LOG", "").strip() == "1"
 # Hygiene: files older than this are pruned at startup (0 disables).
-LOG_RETENTION_DAYS = int(os.environ.get("NARRATO_LOG_RETENTION_DAYS", "7") or 7)
+def _get_log_retention_days() -> int:
+    val = os.environ.get("NARRATO_LOG_RETENTION_DAYS", "7")
+    try:
+        return max(0, int(val.strip() if val else 7))
+    except (ValueError, TypeError):
+        return 7
+
+LOG_RETENTION_DAYS = _get_log_retention_days()
 
 # Define log format
 LOG_FORMAT = logging.Formatter(
@@ -63,7 +70,7 @@ def setup_logger():
     # File handler (Rotating, max 5MB, keeps 3 backups)
     if not NO_FILE_LOG:
         file_handler = RotatingFileHandler(
-            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8", delay=True
         )
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(LOG_FORMAT)
@@ -87,10 +94,11 @@ def _prune_old_logs() -> int:
     import time
     cutoff = time.time() - LOG_RETENTION_DAYS * 86400
     pruned = 0
+    current_prefix = f"{LOG_FILE.name}."
     try:
         for path in LOGS_DIR.glob("app_*.log*"):
             try:
-                if path.resolve() == LOG_FILE.resolve():
+                if path.resolve() == LOG_FILE.resolve() or path.name.startswith(current_prefix):
                     continue
                 if path.stat().st_mtime < cutoff:
                     path.unlink()
@@ -118,7 +126,7 @@ def enable_file_logging() -> None:
     if any(isinstance(h, RotatingFileHandler) for h in logger.handlers):
         return
     file_handler = RotatingFileHandler(
-        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8", delay=True
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(LOG_FORMAT)

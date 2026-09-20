@@ -50,6 +50,7 @@ Prefer base position boxes (`left`, `top`, `width`, `height`, `borderRadius`) fo
 ## 2. Motion Grammar: Physics & Animation Presets
 
 Every layer should use standardized physics animations:
+* **ALWAYS pair entrance animations with opacity fade:** Whenever you animate an entrance property (such as `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`, `blur`), ALWAYS include a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` animation on the same layer. Never animate spatial motion alone without an opacity fade — elements must fade into view smoothly instead of abruptly popping in while moving.
 
 ### A. Midground Entrance Spring (Cards, Charts, Shapes, HTML UI)
 Enters with natural spring recoil — FIRES AFTER the cut transition settles (`delay` ≥ 0.5s, see Timing Rules below):
@@ -72,7 +73,8 @@ Gentle continuous motion over the cut's full duration:
 ```json
 "animations": [
   { "property": "scale", "from": 0.82, "to": 1.0, "duration": 0.65, "delay": 0.5, "easing": "spring" },
-  { "property": "translateY", "from": 50, "to": 0, "duration": 0.65, "delay": 0.5, "easing": "spring" }
+  { "property": "translateY", "from": 50, "to": 0, "duration": 0.65, "delay": 0.5, "easing": "spring" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": 0.5, "easing": "ease-out" }
 ]
 ```
 
@@ -242,7 +244,10 @@ Use `Shape` layers with `preset_path` for broadcast-grade motion graphics:
     "glow": true,
     "style": { "position": "absolute", "left": "48%", "top": "46%", "width": "60px", "height": "60px" }
   },
-  "animations": [{ "property": "translateY", "from": -20, "to": 0, "duration": 0.5, "delay": 0.5, "easing": "spring" }]
+  "animations": [
+    { "property": "translateY", "from": -20, "to": 0, "duration": 0.5, "delay": 0.5, "easing": "spring" },
+    { "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": 0.5, "easing": "ease-out" }
+  ]
 }
 ```
 

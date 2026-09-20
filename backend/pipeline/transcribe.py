@@ -89,9 +89,10 @@ def list_downloaded_whisper_models():
 # picker silently falls through to its (possibly undownloaded) fallback.
 KNOWN_WHISPER_MODELS = [
     "large-v3",
+    "large-v3-turbo",
+    "turbo",
     "large-v2",
     "large",
-    "turbo",
     "medium",
     "small.en",
     "small",

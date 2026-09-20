@@ -104,6 +104,10 @@ def purge_downstream_artifacts(project_dir: Path) -> list:
         for child in audio_dir.iterdir():
             if child.is_file():
                 _rm(child, f"audio/{child.name}")
+    # Render cache & props
+    _rm(project_dir / "render.hash.txt", "render.hash.txt")
+    _rm(project_dir / "render_props.json", "render_props.json")
+    _rm(project_dir / "render_props.still.json", "render_props.still.json")
     return removed
 
 
@@ -206,7 +210,7 @@ def save_script_payload(project_id: str, data: dict) -> dict:
         bg_music_path=None,
         music_clips=None,
         sfx_clips=None,
-        status="completed",
+        status="created",
     )
     # create_task FIRST: update_task on a missing row is a silent no-op,
     # which left the GUI stuck on WAITING for generate_script.

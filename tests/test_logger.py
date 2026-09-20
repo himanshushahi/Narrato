@@ -86,3 +86,29 @@ def test_enable_file_logging_round_trip(tmp_path, monkeypatch, _restore_handlers
     logger_mod.enable_file_logging()  # idempotent, no duplicate handler
     assert sum(isinstance(h, RotatingFileHandler)
                for h in logger_mod.logger.handlers) == 1
+
+
+def test_get_log_retention_days_fallback(monkeypatch):
+    monkeypatch.setenv("NARRATO_LOG_RETENTION_DAYS", "invalid_value")
+    assert logger_mod._get_log_retention_days() == 7
+    monkeypatch.setenv("NARRATO_LOG_RETENTION_DAYS", "-3")
+    assert logger_mod._get_log_retention_days() == 0
+    monkeypatch.setenv("NARRATO_LOG_RETENTION_DAYS", "14")
+    assert logger_mod._get_log_retention_days() == 14
+
+
+def test_prune_preserves_current_process_rotated_backups(tmp_path, monkeypatch, _restore_handlers):
+    monkeypatch.setattr(logger_mod, "LOGS_DIR", tmp_path)
+    current_file = tmp_path / "app_1234.log"
+    monkeypatch.setattr(logger_mod, "LOG_FILE", current_file)
+    monkeypatch.setattr(logger_mod, "LOG_RETENTION_DAYS", 7)
+    
+    # Simulate a rotated backup for the current process
+    rotated = tmp_path / "app_1234.log.1"
+    rotated.write_text("backup", encoding="utf-8")
+    old = time.time() - 30 * 86400
+    os.utime(rotated, (old, old))
+    
+    assert logger_mod._prune_old_logs() == 0
+    assert rotated.exists()
+

@@ -32,16 +32,28 @@ def get_tool_names() -> list:
     """Registered MCP tool names, cached after first enumeration (the set
     is static per process; re-listing per UI refresh is pure overhead)."""
     global _tool_names_cache
-    if _tool_names_cache is not None:
+    if _tool_names_cache:
         return _tool_names_cache
     try:
         import asyncio
         from backend.mcp.server import mcp as _mcp_server
-        _tool_names_cache = sorted(t.name for t in asyncio.run(_mcp_server.list_tools()))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                tools = pool.submit(lambda: asyncio.run(_mcp_server.list_tools())).result(timeout=5)
+        else:
+            tools = asyncio.run(_mcp_server.list_tools())
+
+        _tool_names_cache = sorted(t.name for t in tools)
+        return _tool_names_cache
     except Exception as e:
         logger.warning(f"MCP tool enumeration failed: {e}")
-        _tool_names_cache = []
-    return _tool_names_cache
+        return []
 
 
 def _wait_reachable(port: int, timeout_s: float = 8.0) -> bool:

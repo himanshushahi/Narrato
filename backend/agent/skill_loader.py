@@ -50,6 +50,10 @@ class Skill:
         if not matches:
             return [{"title": "full", "body": rendered.strip()}]
         chunks = []
+        if matches[0].start() > 0:
+            preamble = rendered[:matches[0].start()].strip()
+            if preamble:
+                chunks.append({"title": "Introduction", "body": preamble})
         for i, m in enumerate(matches):
             start = m.end()
             end = matches[i + 1].start() if i + 1 < len(matches) else len(rendered)
@@ -106,9 +110,9 @@ class Skill:
                             "matched_subhead": s.strip(), "body": c["body"],
                             "remaining": [x["title"] for x in chunks
                                           if x["title"] != c["title"]]}
-        # bare number ("5" / "section 5") → nth section
+        # bare number ("5" / "section 5" / "part 5" / "§5") → nth section
         import re as _re
-        m = _re.search(r"(\d+)", q)
+        m = _re.match(r"^(?:(?:section|part|§)\s*)?(\d+)$", q)
         if m:
             idx = int(m.group(1)) - 1
             numbered = [c for c in chunks if c["title"][:1].isdigit()]
