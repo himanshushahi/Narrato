@@ -4,6 +4,7 @@ import { useUIStore } from '../store/useUIStore';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GlowButton } from '../components/ui/GlowButton';
 import { AIProviderCard } from '../features/Settings/components/AIProviderCard';
+import { McpAgentCard } from '../features/Settings/components/McpAgentCard';
 import { AnimatedTabs, Tab } from '../components/ui/AnimatedTabs';
 import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
@@ -1342,6 +1343,9 @@ const SettingsPage: React.FC = () => {
               </div>
             </GlassCard>
           </div>
+
+          {/* Agent Control (MCP) Card */}
+          <McpAgentCard />
         </form>
       </div>
     </div>
