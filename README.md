@@ -87,6 +87,16 @@ All prompt intelligence is decoupled from code into **17 hot-reloadable Markdown
 - Slim default installer (~1 GB, CPU torch).
 - One-click in-app CUDA runtime download (~2.6 GB) for NVIDIA GPUs via **Settings → GPU Acceleration**, verified with sha256 checksums and zip-slip protection.
 
+### 8. MCP Agent Control (External AI Agents)
+Any MCP-compatible coding agent (Claude Code, opencode, Cursor, Gemini CLI) can drive the full pipeline — **22 tools + 1 resource + 1 prompt**, no app LLM key needed. The agent writes scripts, designs and visual ASTs; the app executes voiceover, transcription, assets and rendering:
+- **Projects**: create / list / status / delete (validated inputs, collision-proof export folders)
+- **Script, design & voice**: save/validate narration, design systems, voice + whisper settings (allowlisted, typo-proof)
+- **Mechanical stages**: voiceover → transcribe → assets → render, with background submit + poll + cancel, strictly serialized per project
+- **Visual iteration**: true audio timings, per-section save, single-cut patch, dry-run validation, contact-sheet review frames (rendered / headless-Remotion / asset lineup)
+- **Research & inspection**: stock-media query checks, web search, project file inspection
+- **Human review gate**: agents build through asset download, then stop — final render requires your explicit approval (`confirm_render=true`)
+- Auto-starts with the app on loopback only (`http://127.0.0.1:8765/mcp`); full guide in [`docs/mcp_agent_control.md`](docs/mcp_agent_control.md), live status in **Settings → Agent Control**.
+
 ---
 
 ## Tech Stack
@@ -140,6 +150,12 @@ remotion_canvas/
 │   │   ├── tools.py           # Tool definitions (web search, project files, assets)
 │   │   ├── cache.py           # LLM response caching engine
 │   │   └── telemetry.py       # Live agent activity logger
+│   ├── mcp/                   # MCP agent-control server (22 tools, see docs/mcp_agent_control.md)
+│   │   ├── server.py          # Tool/resource/prompt definitions + stdio/HTTP entrypoint
+│   │   ├── payloads.py        # LLM-free save/validate logic (scripts, designs, visuals, settings)
+│   │   ├── frames.py          # Review contact sheets (render / composition / asset)
+│   │   ├── stills.py          # Headless Remotion stills for pre-render truth checks
+│   │   └── http_host.py       # In-app localhost host (autostart, port, readiness)
 │   ├── skills/                # 17 modular SKILL.md prompt definitions
 │   │   ├── declarative-ast/   # AST schema & motion graphics specification
 │   │   ├── visual-director/   # Visual beat archetypes & composition rules
@@ -165,7 +181,7 @@ remotion_canvas/
 │   ├── src/
 │   │   ├── components/video/  # Remotion compositions & AST primitive renderers
 │   │   ├── features/          # Editor workspace, timeline, visual inspectors
-│   │   ├── pages/             # Dashboard, Settings
+│   │   ├── pages/             # Dashboard, Settings (incl. Agent Control card)
 │   │   └── store/             # Zustand state management
 │   └── render.mjs             # Headless Remotion rendering script
 ├── tests/                     # 83 pytest tests (agent core, GPU runtime, live LLM harness)
@@ -258,6 +274,7 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 | **Media Sources** | Pexels API key, Pixabay illustrations/vectors, Wikipedia images, YouTube clips |
 | **Render Engine** | Resolution, FPS, CRF, codec, concurrency, hardware acceleration (CPU / NVENC) |
 | **GPU Acceleration** | Detect NVIDIA GPU, download CUDA runtime (2.6 GB), enable/disable, remove |
+| **Agent Control (MCP)** | Live endpoint URL, connect snippets, build flow, safety rules, registered tool inventory |
 
 ---
 
