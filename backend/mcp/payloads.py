@@ -633,7 +633,8 @@ def list_project_files_payload(project_id: str) -> dict:
 
 
 def read_project_file_payload(project_id: str, path: str,
-                              max_chars: int = _MAX_READ_CHARS) -> dict:
+                              max_chars: int = _MAX_READ_CHARS,
+                              offset: int = 0) -> dict:
     """Read a text artifact (script, manifest, transcription, logs).
 
     Binary media returns size info only — use the app's file server or
@@ -665,10 +666,23 @@ def read_project_file_payload(project_id: str, path: str,
         text = resolved.read_text(encoding="utf-8")
     except Exception as e:
         return {"ok": False, "error": f"Could not read file: {e}"}
-    truncated = len(text) > max_chars
-    return {"ok": True, "project_id": project_id, "path": path,
-            "binary": False, "truncated": truncated,
-            "content": text[:max_chars]}
+    total_chars = len(text)
+    try:
+        offset = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    slice_end = offset + max_chars
+    truncated = total_chars > slice_end
+    chunk = text[offset:slice_end]
+    res = {"ok": True, "project_id": project_id, "path": path,
+           "binary": False, "total_chars": total_chars, "offset": offset,
+           "truncated": truncated, "content": chunk}
+    if truncated:
+        res["note"] = (
+            f"File truncated ({len(chunk)}/{total_chars} chars). Pass offset={slice_end} "
+            "to read further, or use structured tools like get_script / get_visuals."
+        )
+    return res
 
 # ── Visuals ───────────────────────────────────────────────────────────
 
@@ -1040,3 +1054,74 @@ def _current_section_cuts(proj_dir: Path, section_type: str, scene_index: int,
     if isinstance(fallback, list):
         return [c for c in fallback if isinstance(c, dict)]
     return []
+
+
+def get_visuals_payload(project_id: str, section_type: str,
+                        scene_index: int = 0,
+                        cut_index: int | None = None) -> dict:
+    """Retrieve saved sub_visuals for ONE section (or a SINGLE cut).
+
+    Symmetrical reader for save_visuals. Avoids agents having to read the
+    full 100KB+ script.json or run ad-hoc shell scripts.
+    """
+    if section_type not in SECTION_TYPES:
+        return {"ok": False,
+                "error": f"section_type must be one of {list(SECTION_TYPES)}."}
+    try:
+        proj_dir = _project_dir(project_id)
+        proj = _get_project_or_raise(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+    fallback_cuts = None
+    manifest_path = _active_manifest_path(proj, proj_dir)
+    if manifest_path and manifest_path.is_file():
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            if isinstance(manifest, list):
+                if section_type == "scene":
+                    scenes = [m for m in manifest if isinstance(m, dict) and m.get("section_type") == "scene"]
+                    if 0 <= scene_index < len(scenes):
+                        fallback_cuts = scenes[scene_index].get("sub_visuals")
+                else:
+                    entry = next((m for m in manifest if isinstance(m, dict) and m.get("section_type") == section_type), None)
+                    if entry:
+                        fallback_cuts = entry.get("sub_visuals")
+        except Exception:
+            pass
+
+    cuts = _current_section_cuts(proj_dir, section_type, scene_index, fallback=fallback_cuts)
+    if not cuts:
+        return {"ok": False,
+                "error": f"No visuals found for {section_type}" +
+                         (f"[{scene_index}]" if section_type == "scene" else "") +
+                         ". Author visuals with save_visuals first."}
+
+    if cut_index is not None and cut_index >= 0:
+        try:
+            cut_index = int(cut_index)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "cut_index must be an integer."}
+        if not (0 <= cut_index < len(cuts)):
+            return {"ok": False,
+                    "error": f"cut_index {cut_index} out of range (0..{len(cuts) - 1})."}
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "section_type": section_type,
+            "scene_index": scene_index if section_type == "scene" else None,
+            "cut_index": cut_index,
+            "total_cuts": len(cuts),
+            "sub_visual": cuts[cut_index],
+        }
+
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "section_type": section_type,
+        "scene_index": scene_index if section_type == "scene" else None,
+        "count": len(cuts),
+        "sub_visuals": cuts,
+    }
+

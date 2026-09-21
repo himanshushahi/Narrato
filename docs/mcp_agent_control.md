@@ -76,6 +76,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 | `stage_status` | Poll background submissions |
 | `cancel_stage` | Stop a running MCP stage at the next checkpoint |
 | `get_section_timings` | True audio durations + `start_time` + word timestamps per section |
+| `get_visuals` | Read back sub_visuals for ONE section or a SINGLE cut (symmetrical to `save_visuals`, avoids 100KB+ dumps) |
 | `save_visuals` | Per-section save; `cut_index` patches ONE cut; `dry_run` validates without writing |
 | `review_frame` | Contact-sheet snapshots: `render` (exact mp4 pixels) / `composition` (headless Remotion stills) / `asset` (media lineup) |
 
@@ -105,8 +106,8 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 3. Never restart/close the app mid-stage: `running` tasks are marked failed on startup (`pending` stages resume cleanly).
 4. `update_task` on a missing row is a silent no-op — always `create_task` first (payloads already do; keep it that way).
 5. Sub-visual durations must sum to the section's audio length (the validator normalizes, but gross mismatches mean mistimed visuals).
-6. Image/Video queries in English; prose in the project's language; exactly one Particles layer per cut max, as last child; no chapter title cards inside cuts; ALWAYS pair entrance animations (translateY, translateX, scale, rotate) with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...}) so elements fade into view smoothly.
-7. Variety contract (pipeline-guide §10): read ALL THREE visual skills — `visual-director-core` + `motion-graphics-designer` + `declarative-ast` (its 12 archetypes are the template library, card geometries alone are not enough). No identical layer-template more than 2 cuts in a row; ≥5 of the 9 content kinds per video; one energy moment (emphasis, camera_shake, motion_blur, FX filter, rack-focus, Particles) per section. Every `save_visuals` response carries non-blocking `variety` stats — fix flagged repetition before moving on.
+6. Image/Video queries in English; prose in the project's language; prefer one Particles layer per cut as last child; no chapter title cards inside cuts; pair entrances with opacity fade whenever delay > 0 (spatial-only without fade allowed at delay: 0).
+7. Variety guide (pipeline-guide §10): read ALL THREE visual skills — `visual-director-core` + `motion-graphics-designer` + `declarative-ast` (its 12 archetypes are the template library). Prefer fresh templates per cut; use as many content kinds as the story supports; prefer one energy moment (emphasis, camera_shake, motion_blur, FX filter, rack-focus, floating, Particles) per section. Every `save_visuals` response carries non-blocking `variety` stats — enrich flat spots before moving on.
 8. Review is mandatory: one `review_frame(mode=composition)` pass per section with named fixes, never first-pass. Unknown transition names are remapped (reported in `normalizations`), and palette-only designs get a `warning` — both are the server telling you to aim higher.
 
 ---

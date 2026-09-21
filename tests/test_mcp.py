@@ -433,6 +433,15 @@ def test_list_and_read_project_files(tmp_path, monkeypatch):
 
     text = payloads.read_project_file_payload("proj_mcp", "script.json")
     assert text["ok"] is True and '"title": "T"' in text["content"]
+    assert text["offset"] == 0
+    assert text["truncated"] is False
+
+    # Test reading with offset
+    paged = payloads.read_project_file_payload("proj_mcp", "script.json", offset=2, max_chars=5)
+    assert paged["ok"] is True and paged["content"] == 'title'
+    assert paged["offset"] == 2
+    assert paged["truncated"] is True
+    assert "note" in paged
 
     binary = payloads.read_project_file_payload("proj_mcp", "voiceover/segment_000.wav")
     assert binary["ok"] is True and binary["binary"] is True and binary["size"] == 10
@@ -1060,6 +1069,31 @@ def test_dry_run_failure_writes_nothing(tmp_path, monkeypatch):
     assert (proj_dir / "script.json").read_bytes() == script_before
 
 
+def test_get_visuals_section_and_single_cut(tmp_path, monkeypatch):
+    proj_dir, before = _seed_section_cuts(tmp_path, monkeypatch)
+    # Get all cuts for section
+    all_res = payloads.get_visuals_payload("proj_mcp", "scene", scene_index=0)
+    assert all_res["ok"] is True
+    assert all_res["count"] == 2
+    assert len(all_res["sub_visuals"]) == 2
+    assert all_res["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "AAA"
+
+    # Get single cut
+    cut1_res = payloads.get_visuals_payload("proj_mcp", "scene", scene_index=0, cut_index=1)
+    assert cut1_res["ok"] is True
+    assert cut1_res["cut_index"] == 1
+    assert cut1_res["total_cuts"] == 2
+    assert cut1_res["sub_visual"]["composition"]["children"][0]["content"]["text"] == "BBB"
+
+    # Bounds check
+    bad_res = payloads.get_visuals_payload("proj_mcp", "scene", scene_index=0, cut_index=5)
+    assert bad_res["ok"] is False and "out of range" in bad_res["error"]
+
+    # Invalid section
+    bad_sec = payloads.get_visuals_payload("proj_mcp", "invalid_sec")
+    assert bad_sec["ok"] is False and "section_type must be one of" in bad_sec["error"]
+
+
 # review_frame: composition stills ────────────────────────────────────
 
 def test_still_cache_key_busts_on_content_change():
@@ -1148,7 +1182,7 @@ def test_pipeline_guide_and_prompt():
     guide = server.pipeline_guide()
     assert "Stage order" in guide and "ASK" in guide
     assert "generate_visuals is NOT an MCP stage" in guide
-    assert "VARIETY CONTRACT" in guide
+    assert "VARIETY GUIDE" in guide
     assert "declarative-ast" in guide and "review_frame" in guide
     prompt = server.make_video_prompt("black holes")
     assert "black holes" in prompt and "narrato://pipeline-guide" in prompt
@@ -1177,7 +1211,7 @@ def test_get_skill_brief_maps_big_skill():
 
 def test_get_skill_brief_small_skill_returns_full():
     from backend.mcp import server
-    result = server.get_skill("visual-director-core", brief=True)
+    result = server.get_skill("scriptwriter", brief=True)
     assert result["ok"] is True and "content" in result
 
 

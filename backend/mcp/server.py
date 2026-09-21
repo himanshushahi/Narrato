@@ -656,12 +656,12 @@ def list_project_files(project_id: str) -> dict:
 
 
 @mcp.tool()
-def read_project_file(project_id: str, path: str) -> dict:
+def read_project_file(project_id: str, path: str, offset: int = 0) -> dict:
     """Read a text artifact (script/manifest/transcription/log, capped).
-    Binary media returns size info only. Paths cannot escape the project
-    folder."""
+    Pass offset to paginate through large files. Binary media returns size
+    info only. Paths cannot escape the project folder."""
     try:
-        return payloads.read_project_file_payload(project_id, path)
+        return payloads.read_project_file_payload(project_id, path, offset=offset)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     except Exception as e:
@@ -730,30 +730,32 @@ If the user did not specify any of these, ASK (offer the listed options):
    design (theme + colors + fonts, nothing else) guarantees a flat video:
    include motion language — signature transitions, text treatments,
    overlay/texture direction — or the server will warn you.
-9. search_media to verify each English query resolves BEFORE writing the cut
+ 9. search_media to verify each English query resolves BEFORE writing the cut (skip verification only if the same query already verified this session)
 10. save_visuals per section (durations auto-normalize to the audio
-    length; exactly ONE Particles layer per cut max, as LAST child; no chapter
-    title cards inside cuts; Text in English except subtitles).
-    VARIETY CONTRACT (enforced by review, not by validation — the server
-    accepts valid-but-boring output, so YOU must not produce it):
-    - No identical layer-template more than 2 cuts in a row; vary card
-      geometry, background treatment, and text animation_mode per beat.
-    - Use at least 5 of the 11 content kinds per video (Image, Video, Text,
-      Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background) wherever the story allows.
-    - Every section needs at least one energy moment: emphasis punch-in,
+    length; prefer ONE Particles layer per cut as LAST child; no chapter
+    title cards inside cuts; Text in project language except queries stay English).
+    VARIETY GUIDE (enforced by review, not by validation — the server
+    accepts valid output, but aim high):
+    - Prefer fresh layer-templates per cut; vary card
+      geometry, background treatment, and text animation_mode per beat. Reuse is fine for continuity.
+    - Use as many of the 11 content kinds per video as the story supports (Image, Video, Text,
+      Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background). Any Lucide icon, particle overrides, chart tuning, Lottie URLs, yt offsets, loop/volume are allowed.
+    - Prefer at least one energy moment per section: emphasis punch-in,
       camera_shake, motion_blur, an FX filter (emboss/sharpen/posterize/
-      duotone/thermal), rack-focus blur/brightness keyframes, or a
+      duotone/thermal), rack-focus blur/brightness keyframes, floating, or a
       Particles overlay matched to the beat's emotion.
     - Cycle transitions deliberately (whip_pan/glitch for shock beats,
-      dissolve for time jumps) — never the same 2–3 on rotation.
-    - Always pair entrance animations (translateY, translateX, scale, rotate)
+      dissolve for time jumps). Reuse is fine when the beat needs it.
+    - Pair entrance animations (translateY, translateX, scale, rotate)
       with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
-      so elements fade into view smoothly instead of abruptly popping in while moving.
+      whenever delay > 0 so elements stay hidden until they move; spatial-only
+      without fade is allowed ONLY for instant punch/whip beats at delay: 0.
     The save_visuals response reports variety stats + normalizations:
-    read them and fix flat spots BEFORE moving on.
+    read them and enrich flat spots BEFORE moving on.
 10b. review_frame per section (mode=composition) to verify exact pre-render
     pixels — MANDATORY, not optional. After each contact sheet, state what
-    you changed (or what you verified as good); fix bad cuts via
+    you changed (or what you verified as good); inspect cuts via
+    get_visuals(section_type, scene_index, cut_index=N) and fix bad cuts via
     save_visuals(cut_index=N), or trial first with
     save_visuals(dry_run=true) which validates without writing. A section
     is done only after a review pass with named fixes — never first-pass.
@@ -767,9 +769,7 @@ If the user did not specify any of these, ASK (offer the listed options):
 ## Gotchas
 - Durations: sub_visuals durations MUST sum to the section audio duration
   (the server normalizes, but gross mismatches mean mistimed visuals).
-- Opacity fade: ALWAYS pair entrance animations (translateY, translateX, scale, etc.)
-  with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
-  so elements fade into view smoothly instead of abruptly popping in while moving.
+- Opacity fade: pair entrances with opacity fade whenever delay > 0 so elements stay hidden until they enter; spatial-only allowed at delay: 0.
 - generate_visuals is NOT an MCP stage — YOU author visuals via save_visuals.
 - run_stage(wait=true) blocks; over HTTP always use wait=false + stage_status
   for voiceover/fetch_assets/render (minutes long).
@@ -835,6 +835,31 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
         return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"MCP get_section_timings failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_visuals(project_id: str, section_type: str, scene_index: int = 0,
+                cut_index: int = -1) -> dict:
+    """Read back sub_visuals for ONE section or a SINGLE cut.
+    Symmetrical reader to save_visuals. Use this to inspect existing cuts before
+    patching instead of reading the entire script.json or running shell scripts.
+
+    Args:
+        project_id: Unique project identifier.
+        section_type: introduction | scene | conclusion.
+        scene_index: 0-based scene index (used only when section_type='scene').
+        cut_index: Optional 0-based cut index (pass -1 or omit to get all cuts in the section).
+    """
+    try:
+        return payloads.get_visuals_payload(
+            project_id, section_type, scene_index,
+            cut_index=cut_index if cut_index is not None and cut_index >= 0 else None,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP get_visuals failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
 
 
