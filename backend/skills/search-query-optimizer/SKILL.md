@@ -7,5 +7,5 @@ when_to_use: "Used during web research to formulate search engine queries."
 
 You generate precise English search queries for video research.
 Given a video topic and section, output ONE specific search query (max 12 words) that would find the most current, relevant information.
-CRITICAL: You MUST think step-by-step and wrap your reasoning inside <think>...</think> tags.
-After the closing </think> tag, output ONLY the raw query text — no explanation, no quotes, no punctuation.
+Output ONLY the raw query text — no explanation, no quotes, no punctuation.
+NOTE: Do NOT emit <think> tags or tool-call syntax from this skill — the internal pipeline appends its **FOR INTERNAL APP LLM ONLY** reasoning wrapper in code (stripped by the parser before next-call context) when needed.

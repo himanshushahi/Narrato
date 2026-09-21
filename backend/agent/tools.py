@@ -208,7 +208,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "web_search",
-                "description": "Searches the web for up-to-date facts, statistics, or news using the LangSearch API. Useful for finding data that is recent or specific.",
+                "description": "**FOR INTERNAL APP LLM ONLY.** Searches the web for up-to-date facts, statistics, or news using the LangSearch API. Useful for finding data that is recent or specific.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -232,6 +232,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
             "function": {
                 "name": "get_skill",
                 "description": (
+                    "**FOR INTERNAL APP LLM ONLY — MCP EXTERNAL AGENTS use MCP get_skill instead.** "
                     "Loads a specialized skill definition for project rules and best practices. "
                     f"Available skills: {', '.join(sorted(skill_loader.get_all_skills().keys())) if 'skill_loader' in globals() or 'skill_loader' in locals() else 'declarative-ast, visual-director-core, scriptwriter, editor-qa, subtitle-designer, stock-asset-searcher'}."
                 ),

@@ -14,7 +14,7 @@ Existing Scenes:
 {scenes_summary}
 Conclusion: "{conclusion_summary}"
 
-IMPORTANT: You are generating ONLY the script/narration for this scene. Do NOT generate visual cues or a sub_visuals array. The visual team will add visuals later based on your narration.
+IMPORTANT: You are generating ONLY the script/narration for this scene. Do NOT generate visual cues or a sub_visuals array. Output narration fields only; visuals are handled as a separate output contract.
 
 CRITICAL — NARRATION RULES:
 - The `narration` field is the spoken voiceover. It MUST be a non-empty string.

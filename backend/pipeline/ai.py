@@ -103,6 +103,15 @@ def _generate_search_query(context_description: str, stage: str = "general") -> 
         client = OpenAI(api_key=api_key, base_url=base_url.rstrip('/') if base_url else None)
 
         system_prompt = skill_loader.render_skill("search-query-optimizer")
+        if system_prompt:
+            # INTERNAL APP LLM ONLY: <think> wrapper appended in code so the shared
+            # SKILL.md stays MCP-safe. Parser below strips <think>...</think> before
+            # extracting the raw query, keeping context clean for the next call.
+            system_prompt += (
+                " CRITICAL: You MUST think step-by-step and wrap your reasoning inside "
+                "<think>...</think> tags. After the closing </think> tag, output ONLY "
+                "the raw query text — no explanation, no quotes, no punctuation."
+            )
         if not system_prompt:
             system_prompt = (
                 "You generate precise English search queries for video research. "
@@ -1476,6 +1485,10 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
             sentence_rule=sentence_rule,
             genre_script_guidance=genre_script_guidance,
         )
+        if scene_system_prompt:
+            # INTERNAL APP LLM ONLY: research hint appended in code so the shared
+            # SKILL.md stays pure domain knowledge for MCP get_skill() callers.
+            scene_system_prompt += "\n- Use web_search BEFORE writing if this scene needs up-to-date or specific facts (stats, dates, names) not already given in the prompt.\n"
         if not scene_system_prompt:
             scene_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
 
@@ -1486,12 +1499,7 @@ SCENE-SPECIFIC RULES:
 - Must match the exact duration constraint: {per_scene_duration} seconds of spoken audio (roughly {per_scene_word_target} words)
 - Return ONLY valid JSON matching the provided schema
 - NO markdown backticks or explanatory text
-
-AGENT TOOL USE:
-- The tools web_search, get_skill, read_project_file, list_project_files and project_status_report are enabled for this scene.
 - Use web_search BEFORE writing if this scene needs up-to-date or specific facts (stats, dates, names) not already given in the prompt.
-- Use get_skill('scriptwriter') if you need a reminder of the writing rules.
-- To use tools, emit one or more tool blocks (or a JSON array of tool calls). You will receive all tool results in the next message, then output ONLY the final JSON.
 
 SPEAKING VISUALIZATION:
 Think about how this narration will sound when spoken:
@@ -1864,7 +1872,7 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
 - `query` in Image/Video MUST ALWAYS be in English. Use 1-3 broad descriptive stock keywords.
 - All text content MUST be in English, EXCEPT if you are specifically creating a subtitle/translation layer which must match the target language ({language}).
 - CRITICAL FONT RULE: If generating text/subtitles in a complex script (e.g., Hindi, Tamil, Bengali, Arabic), you MUST specify a Noto font (e.g., `Noto Sans Devanagari`) in the design system or layer style to prevent broken Unicode shaping.
-- Design for the {video_format} orientation (landscape 16:9, portrait 9:16, square 1:1) using responsive % widths where applicable.
+- Design for the {video_format} orientation (landscape 16:9, portrait 9:16) using responsive % widths where applicable.
   * Landscape (16:9): Split screens use `left: "6%"` & `left: "52%"`, `width: "42%"`, `height: "66%"`.
   * Portrait (9:16): Stack vertically! Top card `top: "12%"`, `height: "36%"`; Bottom card `top: "50%"`, `height: "22%"`.
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
@@ -1898,10 +1906,9 @@ Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] �
   MUST be fullscreen `100%`/`100%` with no position keys (positioned boxes
   only crop them). `Shape` box = stage — NEVER set content `width`/`height`
   alongside a style box (dropped); dots use small `%` boxes, never `px`.
-- CANVAS PIXEL GRIDS: landscape = 1920×1080, portrait = 1080×1920,
-  square = 1080×1080. Equal `%` on width and height ≠ equal pixels unless the
-  canvas is square — use `aspectRatio: "1 / 1"` (+ drop `height`) for true
-  squares/circles instead of matching width% and height%.
+- CANVAS PIXEL GRIDS: landscape = 1920×1080, portrait = 1080×1920.
+  Equal `%` on width and height ≠ equal pixels — use `aspectRatio: "1 / 1"`
+  (+ drop `height`) for true squares/circles instead of matching width% and height%.
 - COLLISION / OVERLAP GUARD: when a cut has multiple positioned layers,
   verify boxes DO NOT overlap unless the overlap is intentional (e.g., text
   label over an image). For N non-overlapping cards: calculate non-overlapping

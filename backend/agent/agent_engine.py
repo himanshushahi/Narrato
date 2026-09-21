@@ -240,7 +240,7 @@ class AgentRunner:
         tools_schema = get_tools_schema()
         if allowed_tools:
             tools_schema = [t for t in tools_schema if t["function"]["name"] in allowed_tools]
-        lines = ["\n=== AVAILABLE TOOLS ===\n"]
+        lines = ["\n=== AVAILABLE TOOLS (FOR INTERNAL APP LLM ONLY — MCP EXTERNAL AGENTS IGNORE) ===\n"]
         for t in tools_schema:
             func = t["function"]
             lines.append(f"- {func['name']}: {func['description']}")
@@ -248,6 +248,7 @@ class AgentRunner:
             lines.append(f"  Parameters: {json.dumps(props)}")
         lines.append("")
         lines.append(
+            "**FOR INTERNAL APP LLM ONLY — MCP EXTERNAL AGENTS IGNORE THIS TOOL-CALL SYNTAX.** "
             "If you need external data (web facts, declarative AST schemas, project files, "
             "media assets, design settings) to produce a correct result, BEFORE outputting the final JSON "
             "emit one or more tool call blocks (you may call multiple tools in a single turn if you need multiple pieces of data):\n"
