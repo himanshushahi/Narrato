@@ -65,14 +65,14 @@ def create_project(
     other tool. genre is the video type (e.g. documentary).
 
     IMPORTANT: do NOT guess when the user was vague. If the request does
-    not pin down video_format (landscape/portrait/square), duration
+    not pin down video_format (landscape/portrait), duration
     (short/medium/long), language, or voice, ASK the user first —
     list_voice_options gives you concrete voices to offer. Read the
     narrato://pipeline-guide resource before starting a full build."""
     if not (name or "").strip():
         return {"ok": False, "error": "name must be a non-empty string."}
-    if video_format not in ("landscape", "portrait", "square"):
-        return {"ok": False, "error": "video_format must be landscape, portrait or square."}
+    if video_format not in ("landscape", "portrait"):
+        return {"ok": False, "error": "video_format must be landscape or portrait."}
     if duration_mode not in ("short", "medium", "long", "extra_long"):
         return {"ok": False,
                 "error": "duration_mode must be short, medium, long or extra_long."}
@@ -165,7 +165,7 @@ def list_skills() -> dict:
 @mcp.tool()
 def get_skill(skill_name: str, language: str = "hi", video_format: str = "landscape",
               section: str = "", brief: bool = False) -> dict:
-    """Get the full markdown guide for one skill (e.g. scriptwriter,
+    """**FOR MCP EXTERNAL AGENT ONLY.** Get the full markdown guide for one skill (e.g. scriptwriter,
     visual-director-core, motion-graphics-designer, declarative-ast).
     Template variables are rendered for the given language/format.
     Big skills are ~50KB: pass brief=true for a section map first, then
@@ -602,7 +602,7 @@ _SEARCH_SOURCES = ("pexels_photo", "pexels_video", "wikipedia_image",
 
 @mcp.tool()
 def search_media(source: str, query: str, orientation: str = "landscape") -> dict:
-    """Check stock media availability BEFORE writing a query into a cut.
+    """**FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE.** Check stock media availability BEFORE writing a query into a cut.
     Queries MUST be in English. API keys stay server-side; only results
     are returned. youtube_video verifies a match exists for the query."""
     if source not in _SEARCH_SOURCES:
@@ -623,8 +623,12 @@ def search_media(source: str, query: str, orientation: str = "landscape") -> dic
 
 @mcp.tool()
 def web_search(query: str, count: int = 3) -> dict:
-    """Research facts for script writing (needs the web-search API key
-    configured in app Settings; otherwise returns an explanatory error)."""
+    """**FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE.** Research facts for script writing (needs the web-search API key
+    configured in app Settings; otherwise returns an explanatory error).
+
+    If you already have your own native web search tool, please use your own search first as it is generally more capable.
+    Only use this MCP web_search tool as a fallback if your native search
+    is unavailable or fails."""
     if not (query or "").strip():
         return {"ok": False, "error": "query must be a non-empty string."}
     try:
@@ -690,7 +694,7 @@ def pipeline_guide() -> str:
 
 ## Before create_project — clarify, don't guess
 If the user did not specify any of these, ASK (offer the listed options):
-- video_format: landscape (16:9 YouTube) | portrait (9:16 Shorts/Reels) | square (1:1).
+- video_format: landscape (16:9 YouTube) | portrait (9:16 Shorts/Reels).
   "Short video" usually means portrait + duration short — confirm.
 - duration_mode: short (~60s) | medium (~5min landscape / 90s portrait) | long (~10min).
 - language: hi (Hindi, Devanagari prose) | en (English). Spoken text MUST be
@@ -700,8 +704,12 @@ If the user did not specify any of these, ASK (offer the listed options):
 
 ## Stage order (strict)
 1. create_project → project_id
-2. get_skill(scriptwriter) → save_script (intro hook, scenes with narration,
-   conclusion summary+cta; sub_visuals reset automatically)
+2. Research & script writing:
+    - ⚠️ **FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE:** If you have your own native web search tool, USE THAT FIRST to research
+      facts, dates, and background for the topic. Only fall back to this MCP
+      web_search tool if your native search is unavailable or fails.
+    - get_skill(scriptwriter) → save_script (intro hook, scenes with narration,
+      conclusion summary+cta; sub_visuals reset automatically)
 3. update_voice_settings (only if user chose non-default voice)
 4. run_stage(generate_voiceover, wait=false) → stage_status until completed
 5. run_stage(transcribe, wait=true is fine) → word timings ready.

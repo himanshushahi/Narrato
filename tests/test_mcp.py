@@ -621,6 +621,7 @@ def test_server_create_project_validates(monkeypatch):
     from backend.mcp import server
     assert server.create_project("").get("ok") is False
     assert server.create_project("x", video_format="imax").get("ok") is False
+    assert server.create_project("x", video_format="square").get("ok") is False
 
 
 # update_transcribe_settings ──────────────────────────────────────────

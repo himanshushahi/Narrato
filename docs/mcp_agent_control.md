@@ -83,7 +83,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 | Tool | What it does |
 |---|---|
 | `search_media` | Pexels/Pixabay/Wikipedia/YouTube query check **before** baking queries into cuts (keys stay server-side) |
-| `web_search` | Fact research for scripts (needs app web-search key) |
+| `web_search` | **FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE.** Fact research for scripts (needs app web-search key; MCP agents should prefer their own native web search first, using this as fallback) |
 | `list_project_files` / `read_project_file` | Structured disk inspection (capped text, binaries return size-only, traversal blocked) |
 
 ### Context (not tools)
