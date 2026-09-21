@@ -432,7 +432,8 @@ def _get_cut_word_timings(project_id: str, scene_idx: int, section_type: str,
         )
     return (
         "\nWords Spoken DURING THIS CUT (seconds from CUT start — "
-        "use these values directly as animation `delay`; if a value is below 0.5, use 0.5):\n" + body + "\n"
+        "use these values directly as animation `delay`; values below ~0.3 may play "
+        "under the transition — prefer 0.3+ for visible entrances (0 allowed for cut/none transitions):\n" + body + "\n"
     )
 
 
@@ -514,8 +515,8 @@ def _clamp_cut_animation_delays(sub_visual: dict) -> bool:
     """Fit keyframe timings inside the cut duration (mutates in place).
 
     Guarantees delay + duration <= cut duration. When an overshoot is
-    found, prefers keeping the entrance visible (delay >= 0.5) by
-    shortening duration first; only pushes delay below 0.5 when the cut
+    found, prefers keeping the entrance visible (delay >= 0.3) by
+    shortening duration first; only pushes delay below 0.3 when the cut
     itself is too short for that. Returns True when anything changed.
     """
     if not isinstance(sub_visual, dict):
@@ -538,16 +539,16 @@ def _clamp_cut_animation_delays(sub_visual: dict) -> bool:
             if delay + dur <= cut_dur:
                 continue
             fit_delay = cut_dur - dur
-            if cut_dur > 0.5 and fit_delay >= 0.5:
+            if cut_dur > 0.3 and fit_delay >= 0.3:
                 # Shifting the entrance earlier keeps it visible — leave
                 # duration untouched for a minimal change.
                 anim["delay"] = round(fit_delay, 2)
-            elif cut_dur > 0.5:
-                # No visible-delay shift fits: pin delay at 0.5 and shorten
+            elif cut_dur > 0.3:
+                # No visible-delay shift fits: pin delay at 0.3 and shorten
                 # the duration instead of hiding the start under the cut
                 # transition.
-                anim["delay"] = 0.5
-                anim["duration"] = round(cut_dur - 0.5, 2)
+                anim["delay"] = 0.3
+                anim["duration"] = round(cut_dur - 0.3, 2)
             else:
                 # Cut shorter than the transition itself: fit exactly.
                 anim["delay"] = 0.0
@@ -1856,7 +1857,7 @@ class ApiBridge:
             + f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
             + next_context
             + f"Rewrite Instruction: {rewrite_prompt}\n\n"
-            f"CRITICAL: Ensure your new sub-visual layout is distinctly different from the Previous and Next Sub-Visual Layouts to avoid visual repetition.\n"
+            f"CRITICAL: Prefer a sub-visual layout distinctly different from the Previous and Next Sub-Visual Layouts to avoid visual repetition — UNLESS the rewrite instruction asks for a minimal tweak (e.g. bigger text, different color), in which case keep the layout and change only what was asked.\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS
@@ -1957,7 +1958,7 @@ class ApiBridge:
                 f"Existing Scenes:\n{scenes_summary if scenes_summary else '  (none yet)'}\n"
                 f"Conclusion: \"{conclusion_summary}\"\n\n"
                 "IMPORTANT: You are generating ONLY the script/narration for this scene. "
-                "Do NOT generate visual cues or a sub_visuals array. The visual team will add visuals later based on your narration.\n\n"
+                "Do NOT generate visual cues or a sub_visuals array. Output narration fields only; visuals are handled as a separate output contract.\n\n"
                 "CRITICAL — NARRATION RULES:\n"
                 "- The `narration` field is the spoken voiceover. It MUST be a non-empty string.\n"
                 "- Do NOT skip narration. Do NOT leave it blank or null.\n"
