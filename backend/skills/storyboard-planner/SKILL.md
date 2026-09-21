@@ -18,26 +18,26 @@ A documentary scene must **never** feel like a static slideshow of full-screen s
 
 ### ⚡ The Visual Pacing Curve (Velocity & Retention Rhythm)
 1. **The Hook (First 0–10s of Video / Introduction)**:
-   * **Rapid Cut Velocity**: Use short, high-energy cuts (**2.0s – 2.8s per sub-visual beat**).
-   * **Instant Visual Grab**: Bold kinetic typography (`words_stagger` or bright yellow `marker_highlight`), high contrast, and dynamic impact modifiers (`camera_shake="shockwave"` or `"glitch"`).
-2. **The Deep Dive & Evidence (Middle Scenes)**:
-   * **Rhythmic Pacing**: Moderate pace (**3.2s – 4.5s per sub-visual beat**) allowing complex data charts and document dossiers to be absorbed.
-   * **Contrast Rhythm**: Alternate between dark data HUDs, document spotlights, and cinematic B-roll breathers. Never use the same background primitive twice in a row.
+    * **Rapid Cut Velocity**: Prefer short, high-energy cuts (**~2.0s – 2.8s per sub-visual beat**).
+    * **Instant Visual Grab**: Bold kinetic typography (`words_stagger` / `marker_highlight` / `typewriter` / `static`), high contrast, and impact modifiers (`camera_shake="shockwave"` / `"glitch"` / `handheld`, `motion_blur`, FX filters).
+ 2. **The Deep Dive & Evidence (Middle Scenes)**:
+    * **Rhythmic Pacing**: Prefer moderate pace (**~3.2s – 4.5s per sub-visual beat**) allowing charts and dossiers to be absorbed.
+    * **Contrast Rhythm**: Alternate dark data HUDs, document spotlights, and cinematic B-roll breathers when the story allows — repetition is fine when the narrative needs continuity.
 3. **The Climax & Revelation**:
    * **High-Contrast Shifts**: Sudden color/lighting shifts, macro metric explosions (`$1.4B`, `-74%`), or leaked memo revelations.
 4. **The Conclusion & Takeaway**:
    * **Cinematic Resolution**: Elegant slow camera drift + bold typographic summary.
 
-### 🎯 The 3 Visual Anchors (Every Scene Must Use at Least One)
-To prevent abstract narration from losing audience engagement, every scene should anchor itself in at least one of the 3 Documentary Pillars:
+### 🎯 Visual Anchors (recommended — use when the story supports them)
+Every scene is stronger anchored in at least one Documentary Pillar, but pure typography / ambient / portrait beats without anchors are allowed:
 1. **Geography (Spatial Anchor)**: Vector maps (`Map`), city markers, and animated parabolic route lines (`preset_path="route_arch"`).
 2. **Data & Numbers (Quantitative Anchor)**: Animated bar/line/donut charts (`Chart`), rolling metric tickers, and percentage callouts.
 3. **Time & Evidence (Chronological Anchor)**: Tactile newspaper clippings, confidential leaked dossiers, WhatsApp chat records, and milestone routes.
 
 ### 🚫 Anti-Patterns to Avoid
 * **No Chapter Badges in Cuts**: Do NOT plan static chapter title cards or temporary scene pills inside sub-visual cuts. Chapter indicators and branding are rendered continuously at the root composition level.
-* **No Wall-to-Wall Stock**: Avoid chaining 3 identical stock videos or images in a row.
-* **No Flat/Dead Visuals**: Every graphic beat must have depth (**Background Canvas + Midground Graphic Subject + Foreground Kinetic Callout**).
+* **No Wall-to-Wall Stock**: Prefer not to chain 3+ identical stock videos/images in a row.
+* **No Flat/Dead Visuals**: Prefer depth (**Background Canvas + Graphic Subject + Kinetic Callout**) — 1–2 layer minimal beats are allowed for calm narration.
 
 ---
 

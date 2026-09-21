@@ -47,20 +47,20 @@ Great motion graphics are defined by **depth, hierarchy, and contrast**. Every s
 
 Every layer should move with purpose according to its role, creating a tactile **3D multi-plane parallax camera space**:
 
-1. **Faux-3D Parallax Depth Standard**:
-   * **Opposing / Multi-Speed Camera Drift**: When the midground graphic subject (middle child) enters with a fast spring translation (`translateY: 50 -> 0`, `easing: "spring"`), the background canvas (first child) MUST have a slow, continuous linear scale drift (`scale: 1.0 -> 1.06`, `duration: total_cut_duration`).
+1. **Faux-3D Parallax Depth (recommended)**:
+   * **Opposing / Multi-Speed Camera Drift**: When the midground subject enters with a fast spring (`translateY: 50 -> 0`, `easing: "spring"`), pairing it with a slow linear background drift (`scale: 1.0 -> 1.06`, `duration: total_cut_duration`) creates a cinematic parallax effect.
    * This speed differential between background and midground creates a cinematic parallax effect identical to high-end After Effects camera rigs.
 2. **Backgrounds (Atmospheric Drift)**:
    * Always apply subtle continuous movement over the full cut duration so the canvas never looks dead or frozen:
      `"animations": [{ "property": "scale", "from": 1.0, "to": 1.06, "duration": 4.5, "easing": "linear" }]`
 3. **Midground Graphics (Physics Spring Entrance & Floating)**:
-    * Cards, charts, counters, shapes, and HTML UI elements must enter via spring physics — FIRED AFTER the cut transition settles (`delay` ≥ 0.5s), NOT at cut start:
+    * Cards, charts, counters, shapes, and HTML UI elements enter well via spring physics — fired after the cut transition settles (`delay` ~0.3–0.5s), NOT at cut start:
       `"animations": [{ "property": "translateY", "from": 50, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring" }, { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "delay": 0.5, "easing": "ease-out" }]`
-    * **ALWAYS pair entrance animations with opacity fade:** Whenever you animate an entrance property (such as `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`, `blur`), ALWAYS include a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` animation on the same layer. Never animate spatial motion alone without an opacity fade — elements must fade into view smoothly instead of abruptly popping in while moving.
+    * **Pair entrances with opacity fade on delayed reveals:** adding a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` ensures elements stay hidden until they start moving. Whenever `delay > 0`, ALWAYS pair spatial entrances with an opacity fade at the same delay (otherwise elements sit frozen on screen at their starting offset before the delay). Spatial-only entrances without fade are allowed ONLY for instant punch/whip beats at `delay: 0`.
     * On high-velocity spring entrances, set `motion_blur: true` on the layer to enable physical optical shutter blur!
-    * **ONE hero-motion layer per cut:** keyframe `animations` go on exactly ONE non-background layer per sub-visual (background keeps only its slow drift). Never animate every layer.
-    * **Narration sync:** when `Exact Spoken Words with Timestamps` are provided, set the entrance `delay` = (spoken word time − sub-visual start offset), clamped to `[0.5, cut_duration − animation_duration]`, so the visual enters exactly when the narration mentions it.
-    * **Fit the cut:** `delay + duration` MUST be ≤ the sub-visual's `duration`.
+    * **Animate the layers that carry the beat:** 1 hero layer is the safe default; up to 3 animated layers allowed on rich cuts. Avoid animating 5+ at once.
+    * **Narration sync:** when `Exact Spoken Words with Timestamps` are provided, set the entrance `delay` = (spoken word time − sub-visual start offset), clamped to `[0, cut_duration − animation_duration]`, so the visual enters exactly when the narration mentions it.
+    * **Fit the cut:** `delay + duration` SHOULD fit inside the sub-visual's `duration` (overflow is clipped).
 4. **Foreground Typography (Selective Kinetic Accenting)**:
    * Use `animation_mode: "marker_highlight"` with `highlight_words` on high-impact keywords.
    * Use `animation_mode: "words_stagger"` for impactful statements.
@@ -122,7 +122,7 @@ The `content` object inside every `Layer` must specify one of the **11 supported
   * `pexels` (**CINEMATIC PHOTOGRAPHY & TEXTURES**): For atmospheric background photos, archival textures, and contextual photography.
 
 ### 6. `Video` (Dynamic B-Roll & Ambient Motion)
-* `sources`: `pexels` (stock video) or `youtube` (timelapses/clips). Always `"volume": 0`.
+* `sources`: `pexels` (stock video) or `youtube` (timelapses/clips). `"volume": 0` is the safe default; non-zero volume (e.g. `0.1`–`0.25` ambient sound) allowed (keep low unless `mute_voiceover: true`).
 * `loop`: `false` (default: naturally freezes on the last frame if video ends before sub-visual duration ends) | `true` (optional: loops video continuously).
 
 ### 7. `Map` (Geographic Context & Route Markers)
@@ -131,13 +131,13 @@ The `content` object inside every `Layer` must specify one of the **11 supported
 
 ### 8. `HTML` (Universal Dynamic Canvas: Evidence Memos, UI Mocks, Custom Shapes, Timelines)
 * `html_content`: Custom inline HTML/SVG/CSS markup. Ideal for bespoke leaked documents, chat bubbles, technical HUD blueprints, comparison cards, and metric tickers.
-* ONE CARD PER HTML LAYER: an HTML layer's `html_content` must contain exactly ONE card/panel/memo (one bordered container). When the beat needs multiple cards (comparison pair, KPI grid, several chat bubbles), emit ONE HTML Layer per card — each with its own `style` box and its own entrance animation (stagger `delay`s, e.g. 0.5 / 0.7 / 0.9, keeping `delay + duration` ≤ cut duration). NEVER fuse several cards into a single `html_content`: layer-level `animations`, `filters`, motion FX and the editor's per-layer controls apply to the whole Layer, so fused cards can never be animated or restyled independently. Exception: a single composite is allowed only when the pieces are truly one inseparable visual (e.g. a data table with rows, one chat thread scrolling as a unit).
-* NO REMOTE MEDIA INSIDE HTML: `html_content` must NEVER contain `<img>`, `<video>`, `<source>`, `<iframe>`, `src=`, `url(...)`, `background-image`, base64/data-URIs, or any hardcoded http(s) link. Those URLs are never downloaded by the pipeline, expire or 404, and render as blank/broken boxes. HTML layers are CSS + typography + inline-SVG-shapes only (gradients, borders, glassmorphism, text, SVG icons/diagrams). When the beat needs a photo/footage + card composite (e.g. portrait beside a bio card, product shot beside a spec panel), emit a SEPARATE `Image`/`Video` layer (query-only contract: `query` + `source`) PLUS an `HTML` layer, and place their `style` boxes side-by-side/overlapping on the same band (matching `top`/`height` + `borderRadius`) so they read as one merged visual — see Archetypes 5, 7, 9 (e.g. Image `left: "10%", width: "35%"` + HTML `left: "48%", width: "42%"`).
+* ONE CARD PER HTML LAYER (recommended): prefer one card/panel per `html_content` (one bordered container) — each HTML Layer gets its own `style` box and entrance animation (stagger `delay`s, e.g. 0.3 / 0.5 / 0.7). Fusing several cards into one `html_content` is allowed for inseparable composites (data tables, one chat thread) but fused cards can't be animated/restyled independently.
+* NO REMOTE MEDIA INSIDE HTML (technical limit — pipeline never downloads these, they render blank): keep `html_content` to CSS + typography + inline-SVG (gradients, borders, glassmorphism, text, SVG icons/diagrams); avoid `<img>`, `<video>`, `<iframe>`, `src=`, `url(...)`, `background-image`, base64/data-URIs, hardcoded http(s). For photo + card composites, emit a SEPARATE `Image`/`Video` layer (query-only: `query` + `source`) PLUS an `HTML` layer side-by-side (e.g. Image `left: "10%", width: "35%"` + HTML `left: "48%", width: "42%"`).
 
 ### 9. `Particles` (Canvas Confetti, Embers, Dust, Money Rain, Snow & Stars)
 * `particle_preset`: `"confetti"` (celebrations) | `"embers"` (fire/energy/crisis, rises) | `"dust"` (ambient depth) | `"money_rain"` (finance/profits) | `"snow"` | `"stars"` (twinkling night sky).
 * Optional tuning: `particle_count` (10–300), `particle_colors` (hex palette override), `particle_size` ([min_px, max_px] at 1080p), `particle_speed` (multiplier), `particle_direction` ("up"/"down"/"left"/"right"/"outward"/"twinkle"), `particle_opacity` (0–1).
-* RULES: exactly ONE Particles layer per cut, always LAST child (topmost), pointer-transparent overlay — it decorates, never covers key content. Match the preset to the emotion of the narration beat (profits → money_rain, scandal → embers, victory → confetti).
+* GUIDANCE: prefer ONE Particles layer per cut as LAST child (topmost), pointer-transparent, matched to emotion (profits → money_rain, scandal → embers, victory → confetti). A second layer is allowed for dense beats. Keep clear of key text.
 
 ### 10. `Counter` (Animated Numerical Count-Up with Tabular Numerals & Suffix/Prefix)
 * `value`: Target numerical value to count up to (e.g. `100`, `45000`, `99.9`).
@@ -146,7 +146,7 @@ The `content` object inside every `Layer` must specify one of the **11 supported
 * `suffix`: Suffix string after the number (e.g. `"M+"`, `"%"` or `"B"`).
 * `decimals`: Decimal places to display (default `0`).
 * `duration`: Duration in seconds of count-up animation (default `2.0`).
-* `format`: Number formatting preset: `"standard"` (e.g. `1,250`), `"compact"` (e.g. `1.2M`), `"currency"`, `"percent"`.
+* `format`: `"standard"` (e.g. `1,250`), `"compact"` (e.g. `1.2M`), `"currency"`, `"percent"`, `"full"`, `"none"`.
 * `font_size`: Numerical font size in pixels (default `72`, range `16`–`300`). Controls the scale of the counter number independently of its bounding box.
 * `title`: Uppercase headline label displayed directly above the counter (e.g. `"TOTAL LOSSES"`).
 * `color`, `font`, `weight`: Hex accent color (default `"#00d4ff"`), optional font family, and font weight (default `"900"`).
@@ -182,11 +182,11 @@ Every `Layer` can additionally specify:
   * **objectFit per role** (Image/Video only): background fullscreen → `"cover"`; circle-crop card → `"cover"`; transparent-bg icon/illustration cutout → `"contain"`; default when omitted = `"cover"` for positioned layers.
   * **Text height omission**: for Text lower-thirds and callout labels, OMIT `height` — text auto-sizes vertically. Set `height` only for fixed-height clipping. Lower-third fills anchor at `bottom: "18%"` with no height (box grows upward).
 * `mixBlendMode` via `filters` (e.g. `"mix-blend-mode: overlay"`) composites with layers beneath — no visible change on a single opaque fullscreen layer.
-* `emphasis: [...]` — **Sub-visual level** (sibling of `transition`, NOT inside layers): mid-cut punch-in zooms for MrBeast-style energy. Each mark `{"at": <seconds into cut>, "scale": <1.02–1.6 peak zoom>, "duration": <0.2–2s>}` snaps the whole cut to `scale` then settles back. Example: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]`. RULES: 0–2 marks per cut, only on cuts ≥2s, `at` + `duration` must fit inside the cut duration, place marks on the single most shocking word/stat of the narration beat — never on every cut.
+* `emphasis: [...]` — **Sub-visual level** (sibling of `transition`, NOT inside layers): mid-cut punch-in zooms. Each mark `{"at": <seconds into cut>, "scale": <1.02–1.6 peak zoom>, "duration": <0.2–2s>}`. Example: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]`. Keep `at` + `duration` inside the cut; place on high-energy words/stats.
 * `filters: [...]` — 2026 FX pack color-grade / look applied to the layer (array of CSS/SVG filter strings, combine freely):
   * Cinematic CSS looks: `Neon Glow Pop` → `["drop-shadow(0 0 22px rgba(255,0,200,0.75))", "saturate(1.5)", "contrast(1.2)"]`; `Cyberpunk` → `["hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)"]`; `Golden Hour` → `["sepia(0.45)", "saturate(1.6)", "brightness(1.05)"]`; `Bleach Bypass` → `["grayscale(0.4)", "contrast(1.5)"]`; `Night Vision` → `["sepia(1)", "hue-rotate(70deg)", "saturate(3)", "contrast(1.2)"]`; `Thermal False-Color` → `["grayscale(1)", "invert(1)", "hue-rotate(190deg)", "saturate(4)"]`; `Noir Hard` → `["grayscale(1)", "contrast(1.8)"]`; `Dream Blur` → `["blur(1.5px)", "brightness(1.15)", "saturate(1.3)"]`.
   * SVG-filter looks (rendered identically in preview + export): `"url(#fx-emboss)"` relief, `"url(#fx-sharpen)"` footage bite, `"url(#fx-posterize)"` comic quantization, `"url(#fx-duotone-midnight)"` navy→cyan grade, `"url(#fx-duotone-inferno)"` black→orange grade, `"url(#fx-thermal)"` true heat-band thermal vision.
-  * RULES: use at most ONE SVG `url(#fx-*)` look per layer (they replace each other); CSS looks compose freely after it. Prefer FX on full-bleed media layers (evidence photos, B-roll, maps) — 1 FX cut per 3–4 cuts max, so the video keeps a consistent base grade.
+  * USAGE: SVG `url(#fx-*)` looks replace each other — one per layer is the norm, stacking allowed experimentally; CSS looks compose freely. FX works best on full-bleed media (photos, B-roll, maps); use on as many cuts as the story needs.
 
 ---
 

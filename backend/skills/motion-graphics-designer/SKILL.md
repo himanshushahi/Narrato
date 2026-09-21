@@ -40,7 +40,11 @@ Prefer base position boxes (`left`, `top`, `width`, `height`, `borderRadius`) fo
 * **Right Inset (Photo / Cutout / B-Roll)**:
   `"style": { "position": "absolute", "left": "52%", "top": "16%", "width": "42%", "height": "66%", "borderRadius": "20px" }`
 
-### C. 2x1 Top KPI Grid with Bottom Comparison Bar
+### C. Portrait Presets (9:16 — use for Shorts/Reels)
+* **Top-stack**: headline `top: "8%", height: "18%"` + subject `top: "30%", height: "40%"` + caption `bottom: "30%"`.
+* **Center-punch**: one big metric `top: "35%", height: "30%"`, full width.
+* **Split-stack**: two cards `top: "12%", height: "34%"` + `top: "50%", height: "20%"`.
+### D. 2x1 Top KPI Grid with Bottom Comparison Bar
 * **Top-Left KPI**: `"style": { "position": "absolute", "left": "6%", "top": "16%", "width": "42%", "height": "32%", "borderRadius": "18px" }`
 * **Top-Right KPI**: `"style": { "position": "absolute", "left": "52%", "top": "16%", "width": "42%", "height": "32%", "borderRadius": "18px" }`
 * **Bottom Comparison Bar**: `"style": { "position": "absolute", "left": "6%", "top": "52%", "width": "88%", "height": "28%", "borderRadius": "18px" }`
@@ -49,11 +53,10 @@ Prefer base position boxes (`left`, `top`, `width`, `height`, `borderRadius`) fo
 
 ## 2. Motion Grammar: Physics & Animation Presets
 
-Every layer should use standardized physics animations:
-* **ALWAYS pair entrance animations with opacity fade:** Whenever you animate an entrance property (such as `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`, `blur`), ALWAYS include a simultaneous `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` animation on the same layer. Never animate spatial motion alone without an opacity fade — elements must fade into view smoothly instead of abruptly popping in while moving.
+* **Pair entrances with opacity fade on delayed reveals:** adding `{ "property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out" }` ensures elements stay hidden until they start moving. Whenever `delay > 0`, ALWAYS pair spatial entrances with an opacity fade at the same delay (otherwise elements sit frozen on screen at their starting offset before the delay). Spatial-only entrances without fade are allowed ONLY for instant punch/whip beats at `delay: 0`.
 
 ### A. Midground Entrance Spring (Cards, Charts, Shapes, HTML UI)
-Enters with natural spring recoil — FIRES AFTER the cut transition settles (`delay` ≥ 0.5s, see Timing Rules below):
+Enters with natural spring recoil — fires after the cut transition settles (`delay` ~0.3–0.5s, see Timing Rules below):
 ```json
 "animations": [
   { "property": "translateY", "from": 45, "to": 0, "duration": 0.6, "delay": 0.5, "easing": "spring" },
@@ -106,22 +109,22 @@ Unlike entrance animations, `emphasis` marks fire mid-cut — sudden zoom snap +
 ```json
 "emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }]
 ```
- 0–2 marks per cut, cuts ≥ 2s only, `scale` 1.02–1.6. Pair with the 2026 FX pack (`filters`: Thermal/Night-Vision/duotones) and a single topmost `Particles` layer for maximum-impact beats.
+ 0+ marks per cut on the beat's key moments, `scale` 1.02–1.6, keep `at+duration` inside the cut. Pair with the 2026 FX pack (`filters`: Thermal/Night-Vision/duotones) and `Particles` for maximum-impact beats.
 * `filters` blend note: `"mix-blend-mode: overlay/screen/multiply/..."` composites with layers beneath — invisible on a single opaque fullscreen layer, so only use on stacked cuts.
 
-### G. Animation Delay, Narration Sync & Single-Animated-Layer Rule (CRITICAL)
-`delay` is in seconds from the CUT start (not video start). Use it aggressively — but with discipline:
-* **ONE animated layer per sub-visual (plus background drift):** give full `animations` keyframes to exactly ONE non-background layer (the midground subject or the foreground callout — whichever carries the beat). The bottom background layer gets ONLY the slow continuous drift from preset B (never an entrance). All other layers stay static. Animating everything looks cheap and chaotic; one hero motion per cut looks premium.
-* **NEVER `delay: 0` on entrances:** cut transitions (fade/slide/zoom/whip) run ~0.5s. An entrance with `delay: 0` plays UNDER the transition and is invisible. Minimum entrance `delay` is `0.5`.
-* **Sync to the spoken word:** you receive `Exact Spoken Words with Timestamps (Seconds from Scene Start)` plus each sub-visual's start offset within the scene. Compute `delay` = (word timestamp − sub-visual start offset), clamped to `[0.5, cut_duration − animation_duration]`, so the layer the narration is talking about enters exactly when it is mentioned. Example: sub-visual starts at 4.0s in the scene, "GDP" is spoken at [6.3s] → `delay: 2.3` on the GDP card entrance.
-* **Must fit the cut:** `delay + duration` MUST be ≤ the sub-visual's `duration`. On short cuts (≤2.5s) prefer the word-timed `delay` with a short `duration` (0.4–0.5s) over the default 0.5s stagger.
+### G. Animation Delay, Narration Sync & Layer Motion (guidance)
+`delay` is in seconds from the CUT start (not video start). Use it freely:
+* **Animate the layers that carry the beat:** 1 hero layer is the safe default; up to 3 animated layers allowed on rich cuts (background drift + midground spring + foreground stagger is premium). Avoid animating 5+ layers at once.
+* **Small delays on entrances:** cut transitions run ~0.5s — `delay` ~0.3–0.5 keeps entrances visible; `delay: 0` is allowed for `cut`/`none` transitions and ambient drift.
+* **Sync to the spoken word:** you receive `Exact Spoken Words with Timestamps (Seconds from Scene Start)` plus each sub-visual's start offset within the scene. Compute `delay` = (word timestamp − sub-visual start offset), clamped to `[0, cut_duration − animation_duration]`, so the layer the narration is talking about enters exactly when it is mentioned. Example: sub-visual starts at 4.0s in the scene, "GDP" is spoken at [6.3s] → `delay: 2.3` on the GDP card entrance.
+* **Fit the cut:** `delay + duration` SHOULD fit inside the sub-visual's `duration` (overflow is clipped). On short cuts (≤2.5s) prefer the word-timed `delay` with a short `duration` (0.4–0.5s).
 * Foreground typography follows the same rule with a slightly later stagger (`delay`: word time, or 0.7+ when no timestamp matches).
 
 ---
 
 ## 3. Kinetic Typography Recipes
 
-Typography must be punchy, legible, and synchronized with narration beats:
+Typography must be punchy, legible, and synchronized with narration beats. All four `animation_mode` values are supported: `words_stagger`, `typewriter`, `marker_highlight`, and `static` (labels/badges/lower-thirds that should simply be legible — valid, not lazy, on calm beats).
 
 ### A. Marker Highlight Mode (High-Impact Data Callouts)
 Accentuates 1–3 punchy keywords with the design system accent color:
