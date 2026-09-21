@@ -142,13 +142,47 @@ def start_mcp_http_server(port: int | None = None):
     # Port pick → thread bind is check-then-act: a stolen port surfaces as
     # "reachable check failed" (uvicorn dies, nothing serves). Retry once
     # with a freshly resolved port before giving up.
+    _thread_error: list = []
     for attempt in (1, 2):
         try:
-            chosen = resolve_mcp_port(port if attempt == 1 else None)
+            # Second attempt must not re-pick the same preferred port that
+            # just failed — force a free loopback port instead.
+            if attempt == 1:
+                chosen = resolve_mcp_port(port)
+            else:
+                chosen = _free_port()
             url = f"http://{MCP_HOST}:{chosen}/mcp"
+
+            def _run_mcp(_server=_mcp_server, _chosen=chosen):
+                try:
+                    # Frozen windowed builds (console=False) replace
+                    # sys.stdout/stderr with NullWriter lacking isatty() —
+                    # uvicorn's ColourizedFormatter calls sys.stdout.isatty()
+                    # at Config time and crashes the thread before bind.
+                    import sys as _sys
+                    for _name in ("stdout", "stderr"):
+                        _s = getattr(_sys, _name, None)
+                        if _s is None:
+                            class _NullStream:
+                                def write(self, *a, **k):
+                                    pass
+                                def flush(self):
+                                    pass
+                                def isatty(self):
+                                    return False
+                            setattr(_sys, _name, _NullStream())
+                        elif not hasattr(_s, "isatty"):
+                            try:
+                                _s.isatty = lambda: False  # type: ignore
+                            except Exception:
+                                pass
+                    _server.run(transport="streamable-http", host=MCP_HOST, port=_chosen)
+                except Exception:
+                    logger.exception(f"MCP server thread crashed on port {_chosen}.")
+                    _thread_error.append(True)
+
             thread = threading.Thread(
-                target=_mcp_server.run,
-                kwargs={"transport": "streamable-http", "host": MCP_HOST, "port": chosen},
+                target=_run_mcp,
                 name="narrato-mcp-http",
                 daemon=True,
             )
@@ -159,7 +193,8 @@ def start_mcp_http_server(port: int | None = None):
                 logger.info(f"Narrato MCP server listening on {url} — point your agent at this URL.")
                 return thread, url
             logger.warning(f"MCP HTTP server thread started but {url} not reachable; "
-                           f"{'retrying once' if attempt == 1 else 'giving up'}.")
+                           f"{'retrying once with free port' if attempt == 1 else 'giving up'}. "
+                           f"thread_alive={thread.is_alive()} crashed={bool(_thread_error)}.")
         except Exception as e:
             logger.warning(f"MCP HTTP server failed to start: {e}")
     return _mcp_thread, None

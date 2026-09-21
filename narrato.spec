@@ -38,6 +38,15 @@ datas += copy_metadata('torchcodec')
 datas += copy_metadata('pillow')
 datas += copy_metadata('huggingface_hub')
 datas += copy_metadata('transformers')
+# MCP endpoint deps: version lookups (importlib.metadata) fail in frozen
+# builds without dist-info — bundle it like torchcodec above.
+datas += copy_metadata('mcp')
+datas += copy_metadata('mcp_types')
+datas += copy_metadata('uvicorn')
+datas += copy_metadata('starlette')
+datas += copy_metadata('sse_starlette')
+datas += copy_metadata('anyio')
+datas += copy_metadata('httpx')
 datas += collect_data_files('transformers', include_py_files=True)
 # torch: shipped as REAL FILES and excluded from the PYZ below so an external
 # GPU runtime on sys.path[0] (downloaded in-app, backend/core/gpu_runtime.py)
@@ -66,13 +75,17 @@ a = Analysis(
         # backend.mcp.* is imported lazily at runtime (never from main.py),
         # so static analysis misses it — collect explicitly.
         'mcp',
+        'mcp_types',
         'uvicorn',
         'starlette',
         'sse_starlette',
         'anyio',
+        'httpx',
+        'httpcore',
+        'h11',
         'huggingface_hub',
         'scipy._external.array_api_compat.numpy.fft',
-    ] + collect_submodules('transformers') + collect_submodules('omnivoice') + collect_submodules('backend.mcp') + collect_submodules('uvicorn') + collect_submodules('starlette') + collect_submodules('sse_starlette') + collect_submodules('anyio'),
+    ] + collect_submodules('transformers') + collect_submodules('omnivoice') + collect_submodules('backend.mcp') + collect_submodules('mcp') + collect_submodules('mcp_types') + collect_submodules('uvicorn') + collect_submodules('starlette') + collect_submodules('sse_starlette') + collect_submodules('anyio') + collect_submodules('httpx') + collect_submodules('httpcore'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
