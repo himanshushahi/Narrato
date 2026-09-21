@@ -91,7 +91,7 @@ In [**`backend/agent/agent_engine.py`**](file:///D:/Real-Life-Projects/remotion_
 
 ## 4. How to Add a New Custom Tool (Step-by-Step)
 
-Here is the exact guide for adding custom tools to empower the AI Agent. We will use the two planned features from [`docs/future_feature.md`](file:///D:/Real-Life-Projects/remotion_canvas/docs/future_feature.md):
+Here is the exact guide for adding custom tools to empower the AI Agent. We will use two example features:
 1. **`search_lucide_icons`**: Finding SVG icon names for glassmorphic cards and mockups.
 2. **`search_sfx_audio`**: Searching sound effect names to synchronize with animations.
 
