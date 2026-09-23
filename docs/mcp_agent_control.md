@@ -89,13 +89,13 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 ### Context (not tools)
 - **Resource `narrato://pipeline-guide`** — canonical build order, clarify-don't-guess rules, gotchas. Agents should read this first.
-- **Prompt `make_video(topic)`** — starter workflow: clarify options → build to assets → stop for review → render on approval.
+- **Prompt `make_video(topic)`** — starter workflow: clarify options → build to assets → composition-review → stop for review → render on approval.
 
 ---
 
 ## 4. Human review gate (render)
 
-`run_stage(render)` is **refused without `confirm_render=true`** — in both wait modes, before any DB write — returning `needs_confirmation: true` plus instructions to summarize the build and ask the user. Default agent flow therefore ends at `fetch_assets`; the user reviews/edits in the app; only explicit approval renders. The desktop app's own render path is unaffected. Long stages should use `wait=false` + `stage_status` over HTTP to avoid client timeouts.
+`run_stage(render)` is **refused without `confirm_render=true`** — in both wait modes, before any DB write — returning `needs_confirmation: true` plus instructions to fetch assets, then composition-review each section, summarize the build and ask the user. Default agent flow therefore ends at `fetch_assets` + `review_frame(composition)`; the user reviews/edits in the app; only explicit approval renders. The desktop app's own render path is unaffected. Long stages should use `wait=false` + `stage_status` over HTTP to avoid client timeouts.
 
 ---
 
@@ -108,7 +108,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 5. Sub-visual durations must sum to the section's audio length (the validator normalizes, but gross mismatches mean mistimed visuals).
 6. Image/Video queries in English; prose in the project's language; prefer one Particles layer per cut as last child; no chapter title cards inside cuts; pair entrances with opacity fade whenever delay > 0 (spatial-only without fade allowed at delay: 0).
 7. Variety guide (pipeline-guide §10): read ALL THREE visual skills — `visual-director-core` + `motion-graphics-designer` + `declarative-ast` (its 12 archetypes are the template library). Prefer fresh templates per cut; use as many content kinds as the story supports; prefer one energy moment (emphasis, camera_shake, motion_blur, FX filter, rack-focus, floating, Particles) per section. Every `save_visuals` response carries non-blocking `variety` stats — enrich flat spots before moving on.
-8. Review is mandatory: one `review_frame(mode=composition)` pass per section with named fixes, never first-pass. Unknown transition names are remapped (reported in `normalizations`), and palette-only designs get a `warning` — both are the server telling you to aim higher.
+8. Review is mandatory AND post-fetch: `save_visuals` (all sections) → `run_stage(fetch_assets)` → one `review_frame(mode=composition)` pass per section with named fixes, never first-pass and never pre-fetch (composition renders the downloaded `local_path` files — pre-fetch shows placeholders). If a fix adds a new Image/Video query, re-fetch then re-review. Unknown transition names are remapped (reported in `normalizations`), and palette-only designs get a `warning` — both are the server telling you to aim higher.
 
 ---
 

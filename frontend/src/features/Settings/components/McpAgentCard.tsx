@@ -61,12 +61,12 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
 ];
 
 const STAGE_ORDER = [
-  'create_project (+ list_voice_options → ask format/duration/language/voice)',
+  'create_project (+ list_voice_options → ask topic/genre/format/duration/language/export/voice)',
   'save_script',
   'run_stage(generate_voiceover) → run_stage(transcribe)',
   'get_section_timings + save_design + save_visuals (brief-first skills)',
-  'review_frame(composition) per section → patch bad cuts',
   'run_stage(fetch_assets)',
+  'review_frame(composition) per section AFTER fetch_assets → patch bad cuts (re-fetch if new query)',
   'STOP for human review → run_stage(render, confirm_render=true)',
 ];
 
