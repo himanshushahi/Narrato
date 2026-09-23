@@ -36,12 +36,46 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from mcp.server.mcpserver import MCPServer
 from mcp_types import ToolAnnotations
 
+from typing import Annotated, Literal
+from pydantic import Field
+
 from backend.core import config as _config
 from backend.database import db as _db
 from backend.core.logger import logger
 from backend.mcp import payloads
 
-mcp = MCPServer("narrato")
+NARRATO_SERVER_INSTRUCTIONS = """You are connected to Narrato, an automated documentary and video production system.
+
+MANDATORY PROJECT INTAKE PROTOCOL:
+When the user asks to create or make a video, you MUST NOT immediately invoke `create_project` with assumed, guessed, or default values.
+Instead, you MUST conduct the "New Narrative Build" intake interview and ask the user every project question matching the app's creation modal (unless already explicitly provided by the user):
+
+1. Narrative Topic / Name: Confirm the exact title or subject.
+2. Video Style / Genre: Present the 8 available styles and ask which one they prefer:
+   - Documentary & Geopolitics (Ken Burns, Maps, Cinematic) [`documentary`]
+   - Tech & SaaS Explainer (Vector Graphics, Fast, Neon) [`explainer`]
+   - Finance & Market Analysis (Charts, Metrics, Tickers) [`finance`]
+   - Vox-Style Editorial (Typography, Yellow/Black, Collage) [`vox`]
+   - News/Journalism (Split Screens, Lower Thirds) [`news`]
+   - True Crime / Mystery (Redacted Memos, Shockwave) [`true_crime`]
+   - Personal Story (Portraits, Warm, Soft) [`storytime`]
+   - Viral Short-Form (Fast Cuts, Kinetic Words, Punchy) [`viral_short`]
+3. Language:
+   - Hindi (हिंदी) [`hi`] (narration written in Devanagari Hindi prose)
+   - English (EN) [`en`]
+4. Video Format:
+   - Landscape (YouTube 16:9) [`landscape`]
+   - Portrait (Reels/Shorts 9:16) [`portrait`]
+5. Duration Mode (recommend based on format):
+   - For Landscape: Medium (~5m), Long (~10m), or Extra Long (~15m)
+   - For Portrait: Short (~60s), Medium (~90s), or Long (~2m)
+6. Export Destination Folder: Confirm if the user wants a specific directory or default project exports folder.
+7. Voice: Call `list_voice_options` to offer concrete voice choices (set with `update_voice_settings`).
+
+ONLY after the user confirms these preferences (or if already explicitly specified), invoke `create_project`.
+"""
+
+mcp = MCPServer("narrato", instructions=NARRATO_SERVER_INSTRUCTIONS)
 
 
 # ── Projects ──────────────────────────────────────────────────────────
@@ -51,24 +85,120 @@ def _db_short_id_suffix() -> str:
     return uuid.uuid4().hex[:8]
 
 
+GenreType = Literal[
+    "documentary",
+    "explainer",
+    "finance",
+    "vox",
+    "news",
+    "true_crime",
+    "storytime",
+    "viral_short",
+]
+LanguageType = Literal["hi", "en"]
+VideoFormatType = Literal["landscape", "portrait"]
+DurationModeType = Literal["short", "medium", "long", "extra_long"]
+
+
 @mcp.tool()
 def create_project(
-    name: str,
-    genre: str = "documentary",
-    language: str = "hi",
-    style: str = "nitish_rajput",
-    duration_mode: str = "medium",
-    video_format: str = "landscape",
-    export_folder: str = "",
+    name: Annotated[
+        str,
+        Field(description="Narrative Topic / Name (e.g. 'The Rise and Fall of Rome', 'How Bitcoin Works')"),
+    ],
+    genre: Annotated[
+        GenreType,
+        Field(
+            ...,
+            description=(
+                "Video Style / Genre. MANDATORY: Ask user first! Options: "
+                "documentary (Documentary & Geopolitics: Ken Burns, Maps, Cinematic), "
+                "explainer (Tech & SaaS Explainer: Vector Graphics, Fast, Neon), "
+                "finance (Finance & Market Analysis: Charts, Metrics, Tickers), "
+                "vox (Vox-Style Editorial: Typography, Yellow/Black, Collage), "
+                "news (News/Journalism: Split Screens, Lower Thirds), "
+                "true_crime (True Crime / Mystery: Redacted Memos, Shockwave), "
+                "storytime (Personal Story: Portraits, Warm, Soft), "
+                "viral_short (Viral Short-Form: Fast Cuts, Kinetic Words, Punchy)."
+            ),
+        ),
+    ] = ...,
+    language: Annotated[
+        LanguageType,
+        Field(
+            ...,
+            description="Language code: 'hi' (Hindi / हिंदी) or 'en' (English). MANDATORY: Ask user first!",
+        ),
+    ] = ...,
+    video_format: Annotated[
+        VideoFormatType,
+        Field(
+            ...,
+            description="Video Format: 'landscape' (YouTube 16:9) or 'portrait' (Reels/Shorts 9:16). MANDATORY: Ask user first!",
+        ),
+    ] = ...,
+    duration_mode: Annotated[
+        DurationModeType,
+        Field(
+            ...,
+            description=(
+                "Duration Mode. MANDATORY: Ask user first! "
+                "For landscape: 'medium' (~5m), 'long' (~10m), 'extra_long' (~15m). "
+                "For portrait: 'short' (~60s), 'medium' (~90s), 'long' (~2m)."
+            ),
+        ),
+    ] = ...,
+    export_folder: Annotated[
+        str,
+        Field(
+            default="",
+            description="Export destination folder path. Leave empty to use default exports folder.",
+        ),
+    ] = "",
+    style: Annotated[
+        str,
+        Field(
+            default="nitish_rajput",
+            description="Visual design style preset (default: 'nitish_rajput').",
+        ),
+    ] = "nitish_rajput",
 ) -> dict:
     """Create a new video project. Returns the project_id used by every
-    other tool. genre is the video type (e.g. documentary).
+    other tool.
 
-    IMPORTANT: do NOT guess when the user was vague. If the request does
-    not pin down video_format (landscape/portrait), duration
-    (short/medium/long), language, or voice, ASK the user first —
-    list_voice_options gives you concrete voices to offer. Read the
-    narrato://pipeline-guide resource before starting a full build."""
+    MANDATORY INTAKE RULE - ASK BEFORE CALLING:
+    Do NOT call this tool with guessed or silent default values.
+    Before invoking create_project, you MUST ask the user all questions
+    matching the app's 'New Narrative Build' modal (unless already specified):
+    1. Topic / Name: Confirm the narrative topic or title.
+    2. Video Style / Genre: Offer the 8 styles (documentary, explainer,
+       finance, vox, news, true_crime, storytime, viral_short).
+    3. Language: 'hi' (Hindi) or 'en' (English).
+    4. Video Format: 'landscape' (YouTube 16:9) or 'portrait' (Reels/Shorts 9:16).
+    5. Duration Mode: 'short', 'medium', 'long', 'extra_long' (matched to format).
+    6. Export Destination Folder: Confirm custom path or default exports dir.
+    7. Voice: Offer choices via list_voice_options.
+
+    Read the narrato://pipeline-guide resource before starting a full build."""
+    # Required intake fields: Ellipsis/None means the agent skipped the
+    # mandatory interview — fail fast instead of silently defaulting.
+    # (MCP schema already marks these required; this covers direct callers.)
+    if genre is ... or genre is None:
+        return {"ok": False, "error": "genre is required — ask the user (documentary, explainer, finance, vox, news, true_crime, storytime, viral_short)."}
+    if language is ... or language is None:
+        return {"ok": False, "error": "language is required — ask the user (hi, en)."}
+    if video_format is ... or video_format is None:
+        return {"ok": False, "error": "video_format is required — ask the user (landscape, portrait)."}
+    if duration_mode is ... or duration_mode is None:
+        return {"ok": False, "error": "duration_mode is required — ask the user (short, medium, long, extra_long)."}
+    if export_folder is ... or export_folder is None:
+        export_folder = ""
+    if style is ... or style is None:
+        style = "nitish_rajput"
+
+    _ALLOWED_GENRES = ("documentary", "explainer", "finance", "vox",
+                       "news", "true_crime", "storytime", "viral_short")
+
     if not (name or "").strip():
         return {"ok": False, "error": "name must be a non-empty string."}
     if video_format not in ("landscape", "portrait"):
@@ -76,11 +206,11 @@ def create_project(
     if duration_mode not in ("short", "medium", "long", "extra_long"):
         return {"ok": False,
                 "error": "duration_mode must be short, medium, long or extra_long."}
-    import re
-    if not re.match(r"^[a-z]{2}$", (language or "")):
-        return {"ok": False, "error": "language must be a 2-letter code (hi, en, …)."}
-    if not (genre or "").strip():
-        return {"ok": False, "error": "genre must be a non-empty string."}
+    if language not in ("hi", "en"):
+        return {"ok": False, "error": "language must be 'hi' or 'en'."}
+    if genre not in _ALLOWED_GENRES:
+        return {"ok": False,
+                "error": f"genre must be one of {list(_ALLOWED_GENRES)}."}
     if not (style or "").strip():
         return {"ok": False, "error": "style must be a non-empty string."}
     if export_folder:
@@ -421,8 +551,8 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
               confirm_render: bool = False) -> dict:
     """Execute one mechanical pipeline stage: generate_voiceover →
     transcribe → fetch_assets → render (in that order; run
-    get_section_timings + save_visuals between transcribe and
-    fetch_assets).
+    get_section_timings + save_design + save_visuals between transcribe and
+    fetch_assets, and review_frame(mode=composition) AFTER fetch_assets).
 
     wait=true (default) blocks until the stage finishes — fine over
     stdio, but HTTP clients should pass wait=false for long stages and
@@ -443,10 +573,12 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
                 "error": (
                     "Render is gated by human review. Do NOT render yet. "
                     "Instead: (1) confirm fetch_assets completed, "
-                    "(2) summarize the build for the user (title, scenes, "
+                    "(2) run review_frame(mode=composition) per section and fix bad cuts "
+                    "(re-fetch if a fix adds a new query), "
+                    "(3) summarize the build for the user (title, scenes, "
                     "voice, design, review_frame highlights), "
-                    "(3) ask them to review/edit in the app, and "
-                    "(4) only re-call run_stage(render) with confirm_render=true "
+                    "(4) ask them to review/edit in the app, and "
+                    "(5) only re-call run_stage(render) with confirm_render=true "
                     "after they explicitly approve.")}
     try:
         if not _db.get_project(project_id):
@@ -693,14 +825,31 @@ def pipeline_guide() -> str:
     return """# Narrato MCP build guide
 
 ## Before create_project — clarify, don't guess
-If the user did not specify any of these, ASK (offer the listed options):
-- video_format: landscape (16:9 YouTube) | portrait (9:16 Shorts/Reels).
-  "Short video" usually means portrait + duration short — confirm.
-- duration_mode: short (~60s) | medium (~5min landscape / 90s portrait) | long (~10min).
-- language: hi (Hindi, Devanagari prose) | en (English). Spoken text MUST be
-  in the project's language; Image/Video search queries MUST be in English.
-- voice: call list_voice_options and offer engines + voices. NEVER silently
-  default — the voice defines the video.
+You MUST interview the user and ASK every question corresponding to the
+app's 'New Narrative Build' form before calling `create_project` (unless
+already explicitly specified in the user's request):
+1. Narrative Topic / Name: Confirm the core video topic or title.
+2. Video Style / Genre: Offer the 8 specific genre presets:
+   - documentary: Documentary & Geopolitics (Ken Burns, Maps, Cinematic)
+   - explainer: Tech & SaaS Explainer (Vector Graphics, Fast, Neon)
+   - finance: Finance & Market Analysis (Charts, Metrics, Tickers)
+   - vox: Vox-Style Editorial (Typography, Yellow/Black, Collage)
+   - news: News/Journalism (Split Screens, Lower Thirds)
+   - true_crime: True Crime / Mystery (Redacted Memos, Shockwave)
+   - storytime: Personal Story (Portraits, Warm, Soft)
+   - viral_short: Viral Short-Form (Fast Cuts, Kinetic Words, Punchy)
+3. Language:
+   - hi: Hindi (Devanagari prose for voiceover)
+   - en: English
+4. Video Format:
+   - landscape: 16:9 YouTube video
+   - portrait: 9:16 Shorts/Reels/TikTok
+5. Duration Mode (recommend based on format):
+   - For landscape: medium (~5m) | long (~10m) | extra_long (~15m)
+   - For portrait: short (~60s) | medium (~90s) | long (~2m)
+6. Export Destination Folder: Confirm if user wants a specific path or the default exports directory.
+7. Voice: Call list_voice_options and offer engines + voices. NEVER silently
+   default — the voice defines the video.
 
 ## Stage order (strict)
 1. create_project → project_id
@@ -752,15 +901,22 @@ If the user did not specify any of these, ASK (offer the listed options):
       without fade is allowed ONLY for instant punch/whip beats at delay: 0.
     The save_visuals response reports variety stats + normalizations:
     read them and enrich flat spots BEFORE moving on.
-10b. review_frame per section (mode=composition) to verify exact pre-render
-    pixels — MANDATORY, not optional. After each contact sheet, state what
-    you changed (or what you verified as good); inspect cuts via
+11. run_stage(fetch_assets, wait=false) → stage_status until completed.
+    Fetch AFTER all sections are saved so every query resolves to a
+    downloaded local_path. Composition review without this step shows
+    placeholders, not final visuals.
+12. review_frame per section (mode=composition) to verify exact pre-render
+    pixels — MANDATORY, not optional, and ONLY AFTER fetch_assets.
+    After each contact sheet, state what you changed (or what you
+    verified as good); inspect cuts via
     get_visuals(section_type, scene_index, cut_index=N) and fix bad cuts via
     save_visuals(cut_index=N), or trial first with
-    save_visuals(dry_run=true) which validates without writing. A section
-    is done only after a review pass with named fixes — never first-pass.
-11. run_stage(fetch_assets, wait=false) → stage_status
-12. STOP. Do not render. Summarize the build (title, scene count, voice,
+    save_visuals(dry_run=true) which validates without writing. If a fix
+    adds a NEW Image/Video query, re-run fetch_assets then re-review that
+    cut (composition renders the downloaded files). A section is done only
+    after a post-fetch review pass with named fixes — never first-pass,
+    never pre-fetch.
+13. STOP. Do not render. Summarize the build (title, scene count, voice,
     design, review_frame highlights) and ask the user to review/edit in
     the app. Only after explicit approval: run_stage(render,
     confirm_render=true) → stage_status → video_path.
@@ -784,14 +940,21 @@ def make_video_prompt(topic: str) -> str:
     """Starter prompt for a full video build on a user-supplied topic."""
     return (
         f"Build a Narrato video about: {topic}\n\n"
-        "Follow the narrato://pipeline-guide resource exactly. "
-        "First: if video format, duration, language, or voice are not specified, "
-        "ASK the user (use list_voice_options for concrete voice choices) — "
-        "do not guess landscape or default voices. Drive every stage through "
-        "fetch_assets, verifying with project_status — then STOP, present a "
-        "review summary, and ask the user to review/edit in the app. "
-        "Only render after explicit approval "
-        "(run_stage(render, confirm_render=true))."
+        "Follow the narrato://pipeline-guide resource exactly.\n"
+        "MANDATORY FIRST STEP: Do NOT call create_project yet! "
+        "Ask the user every question matching the 'New Narrative Build' form (unless already specified):\n"
+        "1. Topic / Name: Confirm topic or title.\n"
+        "2. Video Style / Genre: Offer the 8 styles (documentary, explainer, finance, vox, news, true_crime, storytime, viral_short).\n"
+        "3. Language: hi (Hindi) or en (English).\n"
+        "4. Video Format: landscape (YouTube 16:9) or portrait (Reels/Shorts 9:16).\n"
+        "5. Duration Mode: short/medium/long/extra_long based on format.\n"
+        "6. Export Destination Folder: custom path or default exports dir.\n"
+        "7. Voice: call list_voice_options and offer concrete voice choices.\n\n"
+        "Wait for the user's answers, then call create_project and update_voice_settings. "
+        "Drive every stage through fetch_assets, then review_frame(mode=composition) per section, "
+        "verifying with project_status — then STOP, present a review summary, "
+        "and ask the user to review/edit in the app. "
+        "Only render after explicit approval (run_stage(render, confirm_render=true))."
     )
 
 
@@ -806,8 +969,14 @@ def review_frame(project_id: str, section_type: str = "scene", scene_index: int 
     to max_cells). mode=auto prefers exact rendered pixels, else the
     pre-render asset lineup; mode=composition renders exact pre-render
     composition pixels headlessly (seconds per call, cached — the truth
-    check before render); procedural (text-only) cuts report that
+    check before render, REQUIRES fetch_assets first so Image/Video
+    local_path files exist); procedural (text-only) cuts report that
     explicitly. Returns metadata + a single JPEG (strip or grid).
+
+    WORKFLOW: save_visuals (all sections) → fetch_assets → review_frame
+    (mode=composition) per section. Reviewing before fetch_assets shows
+    placeholders, not final visuals. If a fix adds a new query, re-run
+    fetch_assets then re-review.
     """
     try:
         from backend.mcp import frames as _frames
@@ -871,11 +1040,13 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     (section_type: introduction | scene | conclusion; scene_index used
     only for scene). Durations are auto-normalized to the section's audio
     length; Image/Video layers MUST carry an English search `query`.
-    Repeat per section, then run fetch_assets.
+    Repeat per section, then run fetch_assets BEFORE review_frame
+    (mode=composition needs downloaded local_path files).
 
     cut_index >= 0 patches a SINGLE cut (pass sub_visuals as a 1-element
     array holding just that cut) instead of resending the whole section —
-    use after review_frame flags one bad cut. dry_run=true validates and
+    use after review_frame flags one bad cut (re-run fetch_assets if the
+    patch adds a new query, then re-review). dry_run=true validates and
     returns the normalized result WITHOUT writing anything.
     The response ALWAYS includes variety stats + normalizations — read
     them: fix template repetition and flat (effect-free) sections before

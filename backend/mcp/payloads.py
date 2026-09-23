@@ -1025,6 +1025,33 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                 f"{longest['from_cut'] + longest['length'] - 1} share one "
                 f"layer template — vary geometry, text treatment, or FX per "
                 f"the pipeline-guide variety contract.")
+        # Source-matrix check (non-blocking): crossed sources are ignored
+        # with a wrong-type Pexels fallback — flag so the agent fixes intent.
+        for i, cut in enumerate(normalized):
+            if not isinstance(cut, dict):
+                continue
+            comp = cut.get("composition") or {}
+            children = comp.get("children") or []
+            if not isinstance(children, list):
+                continue
+            for layer in children:
+                if not isinstance(layer, dict):
+                    continue
+                content = layer.get("content") or {}
+                if not isinstance(content, dict):
+                    continue
+                ctype = content.get("type")
+                src = str(content.get("source") or "").strip().lower()
+                if ctype == "Image" and src == "youtube":
+                    report["normalizations"].append(
+                        f"cut#{i}: source 'youtube' on Image is ignored "
+                        f"(falls back to Pexels photo) — use "
+                        f"pexels|pixabay|wikipedia for Image, youtube is Video-only.")
+                elif ctype == "Video" and src == "wikipedia":
+                    report["normalizations"].append(
+                        f"cut#{i}: source 'wikipedia' on Video is ignored "
+                        f"(falls back to Pexels video) — use "
+                        f"pexels|pixabay|youtube for Video, wikipedia is Image-only.")
     except Exception as e:
         logger.warning(f"MCP variety report skipped: {e}")
     return report

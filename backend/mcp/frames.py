@@ -159,6 +159,9 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
     has_video = bool(video_path) and Path(video_path).is_file()
     if mode == "auto":
         # Prefer exact rendered pixels; fall back to the asset lineup.
+        # NOTE: composition is never auto-picked — the pipeline-guide
+        # mandates an explicit mode=composition pass AFTER fetch_assets,
+        # because only that shows exact pre-render pixels with downloads.
         if has_video:
             mode = "render"
         elif _cut_media(section, cut_index):
@@ -166,11 +169,20 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
         else:
             raise ValueError(
                 "Nothing to snapshot: no rendered video yet and cut "
-                f"{cut_index} has no downloaded media layers. Run render, or "
-                "pick a cut with Image/Video layers that fetch_assets resolved.")
+                f"{cut_index} has no downloaded media layers. Run "
+                "run_stage(fetch_assets) first, then review_frame(mode=composition) "
+                "for proper final visuals (or pick a cut with Image/Video layers "
+                "that fetch_assets resolved).")
     elif mode == "render" and not has_video:
         raise ValueError("No rendered video yet (video_path missing). Run render first, "
-                         "or use mode='asset'.")
+                         "or use mode='composition' AFTER fetch_assets "
+                         "(mode='asset' for the instant lineup).")
+    elif mode == "composition":
+        # Composition renders downloaded local_path files — reviewing before
+        # fetch_assets yields placeholders, not final visuals. Fail fast.
+        # Guard ALL cuts (not just the sampled contact-sheet cells) so a
+        # broken cut outside the sample can't slip through to render.
+        _require_fetched_assets(section, list(range(len(durations))))
     plan = {"mode": mode, "section_type": section_type,
             "scene_index": scene_index if section_type == "scene" else None,
             "section_start": section_start,
@@ -224,9 +236,17 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
         else:
             media = _cut_media(section, cut_index)
             if not media:
+                missing = _unresolved_media(section, cut_index)
+                if missing:
+                    raise ValueError(
+                        f"Cut {cut_index} has {len(missing)} Image/Video layer(s) "
+                        f"with no downloaded file (e.g. {missing[0]!r}). Run "
+                        "run_stage(fetch_assets) first, then review — "
+                        "mode=composition for proper final visuals.")
                 raise ValueError(
                     f"Cut {cut_index} is procedural (Text/HTML/Chart only) — "
-                    "no media frame to snapshot. Review the rendered video instead.")
+                    "no media frame to snapshot. Use mode='composition' AFTER "
+                    "fetch_assets for exact pre-render pixels.")
             for kind, local_path in media[:max_cells]:
                 plan["cells"].append({
                     "cut_index": cut_index,
@@ -274,6 +294,53 @@ def _cut_media(section: dict, cut_index: int) -> list:
         if isinstance(local_path, str) and local_path and Path(local_path).is_file():
             found.append((content["type"], local_path))
     return found
+
+
+def _unresolved_media(section: dict, cut_index: int) -> list:
+    """Image/Video queries with no downloaded file yet (need fetch_assets).
+
+    Returns the list of query strings missing a local_path file. Empty means
+    the cut is either procedural (no media layers) or fully fetched.
+    """
+    subs = [sv for sv in (section.get("sub_visuals") or []) if isinstance(sv, dict)]
+    if not 0 <= cut_index < len(subs):
+        return []
+    comp = subs[cut_index].get("composition") or {}
+    children = comp.get("children") or []
+    missing = []
+    for layer in children:
+        if not isinstance(layer, dict):
+            continue
+        content = layer.get("content") or {}
+        if not isinstance(content, dict) or content.get("type") not in ("Image", "Video"):
+            continue
+        local_path = content.get("local_path")
+        if not (isinstance(local_path, str) and local_path and Path(local_path).is_file()):
+            query = content.get("query")
+            missing.append(str(query) if query else content.get("type", "media"))
+    return missing
+
+
+def _require_fetched_assets(section: dict, cut_indices: list) -> None:
+    """Guard for composition review: fail fast with an actionable message
+    when targeted cuts still have unfetched Image/Video queries.
+
+    Composition stills render the downloaded local_path files — reviewing
+    before fetch_assets shows placeholders, not final visuals.
+    """
+    lacking = {}
+    for ci in cut_indices:
+        missing = _unresolved_media(section, ci)
+        if missing:
+            lacking[ci] = missing
+    if lacking:
+        bits = "; ".join(
+            f"cut {ci} ({len(qs)} missing, e.g. {qs[0]!r})"
+            for ci, qs in sorted(lacking.items())
+        )
+        raise ValueError(
+            f"Assets not fetched yet: {bits}. Run run_stage(fetch_assets) "
+            "first, then review_frame(mode=composition) for proper final visuals.")
 
 
 def grab_render_frame(video_path: str, timestamp: float, width: int = 640):
