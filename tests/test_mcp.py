@@ -575,10 +575,36 @@ def test_project_not_completed_by_single_stage(monkeypatch):
 
 def test_create_project_validates_all_fields(monkeypatch):
     from backend.mcp import server
-    assert server.create_project("x", duration_mode="huge").get("ok") is False
-    assert server.create_project("x", language="hindi").get("ok") is False
-    assert server.create_project("x", genre="  ").get("ok") is False
-    assert server.create_project("x", export_folder="../evil").get("ok") is False
+    base = dict(genre="documentary", language="hi",
+                video_format="landscape", duration_mode="medium")
+    assert server.create_project("x", **{**base, "duration_mode": "huge"}).get("ok") is False
+    assert server.create_project("x", **{**base, "language": "hindi"}).get("ok") is False
+    assert server.create_project("x", **{**base, "language": "fr"}).get("ok") is False
+    assert server.create_project("x", **{**base, "genre": "bogus"}).get("ok") is False
+    assert server.create_project("x", **{**base, "genre": "  "}).get("ok") is False
+    assert server.create_project("x", **{**base, "export_folder": "../evil"}).get("ok") is False
+    # Missing required intake fields must fail fast, not silently default.
+    assert server.create_project("x").get("ok") is False
+
+
+def test_create_project_schema_and_instructions():
+    from backend.mcp import server
+    assert server.mcp.instructions is not None
+    assert "MANDATORY PROJECT INTAKE PROTOCOL" in server.mcp.instructions
+    tools = [t for t in server.mcp._tool_manager.list_tools()]
+    cp = next(t for t in tools if t.name == "create_project")
+    params = cp.parameters
+    assert "name" in params["required"]
+    assert "genre" in params["required"]
+    assert "language" in params["required"]
+    assert "video_format" in params["required"]
+    assert "duration_mode" in params["required"]
+    assert set(params["properties"]["genre"]["enum"]) == {
+        "documentary", "explainer", "finance", "vox", "news", "true_crime", "storytime", "viral_short"
+    }
+    assert set(params["properties"]["language"]["enum"]) == {"hi", "en"}
+    assert set(params["properties"]["video_format"]["enum"]) == {"landscape", "portrait"}
+    assert set(params["properties"]["duration_mode"]["enum"]) == {"short", "medium", "long", "extra_long"}
 
 
 def test_manifest_resolver_matches_pipeline(tmp_path, monkeypatch):
@@ -629,8 +655,11 @@ def test_build_review_pairs_cells_on_partial_failure(tmp_path, monkeypatch):
 def test_server_create_project_validates(monkeypatch):
     from backend.mcp import server
     assert server.create_project("").get("ok") is False
-    assert server.create_project("x", video_format="imax").get("ok") is False
-    assert server.create_project("x", video_format="square").get("ok") is False
+    base = dict(genre="documentary", language="hi",
+                duration_mode="medium")
+    assert server.create_project("", **base, video_format="landscape").get("ok") is False
+    assert server.create_project("x", **{**base, "video_format": "imax"}).get("ok") is False
+    assert server.create_project("x", **{**base, "video_format": "square"}).get("ok") is False
 
 
 # update_transcribe_settings ──────────────────────────────────────────
