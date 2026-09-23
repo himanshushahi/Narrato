@@ -760,7 +760,90 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
         sections.append(info)
         cursor += duration
     return {"ok": True, "project_id": project_id,
-            "total_duration": round(cursor, 2), "sections": sections}
+            "total_duration": round(cursor, 2), "sections": sections,
+            "creative_blueprint": _creative_blueprint_for_project(proj),
+            "required_reading": {
+                "message": ("MANDATORY before save_visuals: "
+                            "get_stage_skills('visuals', project_id) or all three "
+                            "get_skill(declarative-ast + visual-director-core + "
+                            "motion-graphics-designer, brief=true)."),
+                "easy_one_call": {"tool": "get_stage_skills",
+                                  "arguments": {"stage": "visuals",
+                                                "project_id": project_id}},
+            }}
+
+
+def _creative_blueprint_for_project(proj: dict) -> dict:
+    """Pushed cheat-sheet: genre-matched archetypes + sample cut + hard rules.
+
+    Lives on get_section_timings (the mandatory step right before visual
+    authoring) so the agent gets the creative template without digging
+    through the 50KB declarative-ast file first."""
+    genre = str((proj or {}).get("genre") or (proj or {}).get("style")
+                or "documentary").strip().lower()
+    video_format = str((proj or {}).get("video_format") or "landscape")
+    table = {
+        "documentary": ["Archetype 7 Entity Spotlight (ken_burns_focus)",
+                        "Archetype 4 Geographic Route (map_journey)",
+                        "Archetype 11 Leaked Audit Dossier (document_redaction)"],
+        "explainer": ["Archetype 3 Macro Metric Callout (stat_callout)",
+                      "Archetype 1 Split-Screen Data HUD (split_comparison)",
+                      "Archetype 6 Infographic Grid (isometric_card)"],
+        "finance": ["Archetype 3 Macro Metric Callout",
+                    "Archetype 8 Hero Data Reveal",
+                    "Archetype 6 Multi-Metric Grid"],
+        "vox": ["Archetype 10 Vintage Newspaper Headline",
+                "Archetype 1 Split-Screen Data HUD",
+                "Archetype 3 Macro Metric Callout"],
+        "news": ["Archetype 1 Split-Screen Data HUD",
+                 "Archetype 7 Entity Spotlight",
+                 "Archetype 3 Macro Metric Callout"],
+        "true_crime": ["Archetype 11 Confidential Dossier + Redaction",
+                       "Archetype 2 Investigative Dossier Spotlight",
+                       "Archetype 12 Encrypted Chat Leak"],
+        "storytime": ["Archetype 7 Entity Spotlight",
+                      "Archetype 4 Geographic Route (sparingly)",
+                      "Archetype 3 Callout (sparingly)"],
+        "viral_short": ["Archetype 3 Macro Metric Callout",
+                        "Archetype 1 Split-Screen Data HUD",
+                        "Archetype 7 Entity Spotlight"],
+    }
+    return {
+        "genre": genre,
+        "recommended_archetypes": table.get(genre, table["documentary"]),
+        "hard_rules": [
+            "LayerBox geometry %-only; max ONE Particles layer per cut, LAST child.",
+            "No chapter title cards inside cuts.",
+            "Image/Video need English search `query` (verify via search_media).",
+            "Entrances with delay>0 need opacity fade 0->1; spatial-only at delay 0.",
+            ">=2 content kinds per section + 1 energy moment (punch-in/shake/blur/FX/rack-focus/floating/Particles).",
+        ],
+        "sample_cut": {
+            "duration": 4.0,
+            "transition": "whip_pan",
+            "layers": [
+                {"type": "Background", "props": {"color": "#0B0F1A"},
+                 "animations": []},
+                {"type": "Image",
+                 "query": "parliament building new delhi wide",
+                 "layout": {"x": 4, "y": 6, "w": 92, "h": 52},
+                 "animations": [{"property": "opacity", "from": 0, "to": 1,
+                                  "start": 0, "duration": 0.6}]},
+                {"type": "Text", "text": "Beat callout here",
+                 "layout": {"x": 6, "y": 62, "w": 88, "h": 20},
+                 "style": {"fontSize": 7 if video_format != "portrait" else 6,
+                           "fontWeight": 800},
+                 "animations": [
+                     {"property": "translateY", "from": 8, "to": 0,
+                      "start": 0.1, "duration": 0.5},
+                     {"property": "opacity", "from": 0, "to": 1,
+                      "start": 0.1, "duration": 0.5}]},
+                {"type": "Particles", "preset": "dust",
+                 "layout": {"x": 0, "y": 0, "w": 100, "h": 100},
+                 "animations": []},
+            ],
+        },
+    }
 
 
 def save_visuals_payload(project_id: str, section_type: str,

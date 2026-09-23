@@ -73,9 +73,123 @@ Instead, you MUST conduct the "New Narrative Build" intake interview and ask the
 7. Voice: Call `list_voice_options` to offer concrete voice choices (set with `update_voice_settings`).
 
 ONLY after the user confirms these preferences (or if already explicitly specified), invoke `create_project`.
+
+MANDATORY SKILL GROUNDING (hard gate, not guidance):
+- save_script REQUIRES scriptwriter first.
+- save_design REQUIRES art-director-design-system first.
+- save_visuals REQUIRES declarative-ast + visual-director-core + motion-graphics-designer first (brief=true counts).
+- EASIEST: one call get_stage_skills(stage, project_id) per stage — it returns the starter pack AND satisfies the gate.
+  script -> get_stage_skills('script', project_id); design -> get_stage_skills('design', project_id); visuals -> get_stage_skills('visuals', project_id).
+- The server REJECTS save_* with SKILL_REQUIRED if you skip this. get_section_timings also pushes a genre-matched creative_blueprint (archetypes + sample cut) — use it.
 """
 
 mcp = MCPServer("narrato", instructions=NARRATO_SERVER_INSTRUCTIONS)
+
+
+# ── Skill-read gate (mandatory grounding + easy bundle) ──────────────
+# Agents skip advisory "read the skill first" docs and go straight for
+# save_script/save_visuals because the server used to accept flat output
+# with ok:true. This gate makes grounding a hard precondition per stage,
+# while get_stage_skills() makes it a single cheap call.
+import threading as _gate_threading
+
+_SKILL_GATE_LOCK = _gate_threading.Lock()
+# project_id -> set(normalized skill names read via get_skill/get_stage_skills)
+_SKILL_READS: dict = {}
+# Reads without a project_id (older clients) fall back here.
+_GLOBAL_SKILL_READS: set = set()
+
+_SKILL_ALIASES = {
+    "visual-director": "visual-director-core",
+    "visual_director": "visual-director-core",
+    "declarative_ast": "declarative-ast",
+    "motion_graphics": "motion-graphics-designer",
+    "art_director": "art-director-design-system",
+    "script_writer": "scriptwriter",
+}
+
+# stage -> skills that MUST have been read first (brief=true counts).
+# visuals needs all three: AST (archetypes+layers), director (composition),
+# motion (card geometry + kinetic text + FX).
+STAGE_SKILL_REQUIREMENTS: dict = {
+    "script": ["scriptwriter"],
+    "design": ["art-director-design-system"],
+    "visuals": ["declarative-ast", "visual-director-core",
+                "motion-graphics-designer"],
+}
+# Acceptable alternates (any-of) per stage requirement entry.
+STAGE_SKILL_ALTERNATES: dict = {
+    "scriptwriter": ["scriptwriter", "script-base-writer"],
+}
+
+
+def _norm_skill(name: str) -> str:
+    n = (name or "").strip().lower()
+    return _SKILL_ALIASES.get(n, n)
+
+
+def _record_skill_read(project_id: str, skill_name: str) -> None:
+    norm = _norm_skill(skill_name)
+    if not norm:
+        return
+    with _SKILL_GATE_LOCK:
+        _GLOBAL_SKILL_READS.add(norm)
+        pid = (project_id or "").strip()
+        if pid:
+            _SKILL_READS.setdefault(pid, set()).add(norm)
+
+
+def _skills_read_for(project_id: str) -> set:
+    pid = (project_id or "").strip()
+    with _SKILL_GATE_LOCK:
+        own = set(_SKILL_READS.get(pid, set())) if pid else set()
+        return own | set(_GLOBAL_SKILL_READS)
+
+
+def _missing_stage_skills(stage: str, project_id: str) -> list:
+    required = STAGE_SKILL_REQUIREMENTS.get(stage, [])
+    have = {_norm_skill(s) for s in _skills_read_for(project_id)}
+    missing = []
+    for req in required:
+        alts = STAGE_SKILL_ALTERNATES.get(req, [req])
+        if not any(_norm_skill(a) in have for a in alts):
+            missing.append(req)
+    return missing
+
+
+def _skill_required_error(stage: str, project_id: str, missing: list) -> dict:
+    bundle_call = (f"get_stage_skills(stage='{stage}', "
+                   f"project_id='{project_id}')")
+    granular = " + ".join(f"get_skill('{m}', brief=true)" for m in missing)
+    return {
+        "ok": False,
+        "error": (
+            f"SKILL_REQUIRED: stage '{stage}' needs grounding first. "
+            f"Missing: {missing}. "
+            f"EASY FIX (1 call): {bundle_call} — returns the starter pack "
+            f"and satisfies the gate. "
+            f"Or granular: {granular}, then pull sections you need via "
+            f"get_skill(NAME, section='...'). "
+            f"Authoring without the skill produces flat/broken output."
+        ),
+        "error_code": "SKILL_REQUIRED",
+        "stage": stage,
+        "project_id": project_id,
+        "required_skills": list(STAGE_SKILL_REQUIREMENTS.get(stage, [])),
+        "missing": missing,
+        "fix": {
+            "easy_one_call": {
+                "tool": "get_stage_skills",
+                "arguments": {"stage": stage, "project_id": project_id},
+            },
+            "granular_calls": [
+                {"tool": "get_skill",
+                 "arguments": {"skill_name": m, "brief": True,
+                               "project_id": project_id}}
+                for m in missing
+            ],
+        },
+    }
 
 
 # ── Projects ──────────────────────────────────────────────────────────
@@ -294,17 +408,22 @@ def list_skills() -> dict:
 
 @mcp.tool()
 def get_skill(skill_name: str, language: str = "hi", video_format: str = "landscape",
-              section: str = "", brief: bool = False) -> dict:
+              section: str = "", brief: bool = False, project_id: str = "") -> dict:
     """**FOR MCP EXTERNAL AGENT ONLY.** Get the full markdown guide for one skill (e.g. scriptwriter,
     visual-director-core, motion-graphics-designer, declarative-ast).
     Template variables are rendered for the given language/format.
     Big skills are ~50KB: pass brief=true for a section map first, then
     section="..." (fuzzy: title, subhead like "particles", or number)
-    to pull ONE part instead of the whole file."""
+    to pull ONE part instead of the whole file.
+    MANDATORY GATE: save_script requires scriptwriter; save_design requires
+    art-director-design-system; save_visuals requires declarative-ast +
+    visual-director-core + motion-graphics-designer (brief=true counts).
+    EASIEST: one call get_stage_skills(stage, project_id) instead."""
     from backend.agent.skill_loader import skill_loader
     skill = skill_loader.get_skill(skill_name, context="tool")
     if not skill:
         return {"ok": False, "error": f"Skill {skill_name!r} not found. Use list_skills."}
+    _record_skill_read(project_id, skill.name)
     ctx = {"language": language, "video_format": video_format}
     if brief:
         out = skill.brief(**ctx)
@@ -336,6 +455,134 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
 # ── Script (agent-authored, server-validated) ─────────────────────────
 
 @mcp.tool()
+def get_stage_skills(stage: str = "visuals", project_id: str = "",
+                     language: str = "hi",
+                     video_format: str = "landscape") -> dict:
+    """EASIEST grounding in ONE call: starter pack for a pipeline stage.
+
+    stage: script | design | visuals.
+    Returns the minimum must-read content + brief TOCs, and SATISFIES the
+    SKILL_REQUIRED gate for save_script / save_design / save_visuals.
+    Prefer this over 3 separate get_skill calls when moving fast.
+    After this, pull deeper sections only as needed via
+    get_skill(NAME, section="...")."""
+    from backend.agent.skill_loader import skill_loader
+    stage = (stage or "").strip().lower()
+    if stage not in STAGE_SKILL_REQUIREMENTS:
+        return {"ok": False,
+                "error": f"stage must be one of {sorted(STAGE_SKILL_REQUIREMENTS)}."}
+    ctx = {"language": language, "video_format": video_format}
+    genre = ""
+    if project_id:
+        try:
+            proj = _db.get_project(project_id) or {}
+            genre = (proj.get("genre") or proj.get("style") or "")
+        except Exception:
+            genre = ""
+    bundle: dict = {"ok": True, "stage": stage, "project_id": project_id,
+                    "genre": genre, "satisfies_gate_for": list(
+                        STAGE_SKILL_REQUIREMENTS[stage])}
+    try:
+        if stage == "script":
+            sk = skill_loader.get_skill("scriptwriter", context="tool")
+            bundle["scriptwriter"] = sk.render(**ctx) if sk else ""
+            _record_skill_read(project_id, "scriptwriter")
+            bundle["next"] = ("Now call save_script. No further sections needed "
+                              "for most scripts.")
+        elif stage == "design":
+            sk = skill_loader.get_skill("art-director-design-system",
+                                        context="tool")
+            bundle["art_director"] = sk.render(**ctx) if sk else ""
+            _record_skill_read(project_id, "art-director-design-system")
+            bundle["next"] = ("Include motion language (transitions, text "
+                              "treatments, overlays) or the server warns. "
+                              "Then call save_design.")
+        else:  # visuals: cheap starter pack, not the full 50KB dump
+            briefs = {}
+            for name in STAGE_SKILL_REQUIREMENTS["visuals"]:
+                sk = skill_loader.get_skill(name, context="tool")
+                if sk:
+                    briefs[name] = sk.brief(**ctx)
+                    _record_skill_read(project_id, name)
+            bundle["briefs"] = briefs
+            # Must-not-skim rules inline so the agent gets them even if it
+            # never pulls another section.
+            bundle["must_follow"] = [
+                "LayerBox geometry is %-only (no px); one Particles layer per cut max, LAST child.",
+                "No chapter title cards inside cuts.",
+                "Image/Video layers MUST carry an English search `query`; verify with search_media.",
+                "Pair entrance animations (delay>0) with opacity fade 0->1; spatial-only allowed at delay 0.",
+                "Prefer >=2 content kinds per section + 1 energy moment (punch-in, shake, motion_blur, FX filter, rack-focus, floating, Particles).",
+            ]
+            bundle["genre_archetypes"] = _genre_archetypes(genre or "documentary")
+            bundle["sample_cut"] = _sample_cut_template(video_format)
+            bundle["next"] = ("Then: get_section_timings -> save_design -> "
+                              "save_visuals per section. Pull deeper detail only as needed, "
+                              "e.g. get_skill('declarative-ast', section='archetypes').")
+    except Exception as e:
+        logger.error(f"MCP get_stage_skills failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+    return bundle
+
+
+def _genre_archetypes(genre: str) -> dict:
+    g = (genre or "").strip().lower()
+    table = {
+        "documentary": ["ken_burns_focus (Archetype 7: Entity Spotlight)",
+                        "map_journey (Archetype 4: Geographic Route)",
+                        "document_redaction (Archetype 11: Leaked Audit Dossier)"],
+        "explainer": ["stat_callout (Archetype 3: Macro Metric)",
+                      "split_comparison (Archetype 1: Split-Screen Data HUD)",
+                      "isometric_card (Archetype 6: Infographic Grid)"],
+        "finance": ["stat_callout (Archetype 3)", "hero_data_reveal (Archetype 8)",
+                    "infographic_grid (Archetype 6)"],
+        "vox": ["newspaper_cutout (Archetype 10: Vintage Headline)",
+                "split_comparison (Archetype 1)", "stat_callout (Archetype 3)"],
+        "news": ["split_comparison (Archetype 1)", "entity_spotlight (Archetype 7)",
+                 "stat_callout (Archetype 3)"],
+        "true_crime": ["document_redaction (Archetype 11)",
+                       "dossier_spotlight (Archetype 2)",
+                       "chat_leak (Archetype 12: Encrypted Chat)"],
+        "storytime": ["entity_spotlight (Archetype 7)", "ken_burns_focus",
+                      "stat_callout (Archetype 3, sparingly)"],
+        "viral_short": ["stat_callout (Archetype 3)", "split_comparison (Archetype 1)",
+                        "entity_spotlight (Archetype 7)"],
+    }
+    recs = table.get(g, table["documentary"])
+    return {"genre": g or "documentary", "recommended": recs,
+            "tip": "Cycle archetypes per cut; don't reuse one card geometry for a whole video."}
+
+
+def _sample_cut_template(video_format: str) -> dict:
+    portrait = (video_format or "").strip().lower() == "portrait"
+    return {
+        "duration": 4.0,
+        "transition": "whip_pan",
+        "layers": [
+            {"type": "Background", "props": {"color": "#0B0F1A"},
+             "animations": []},
+            {"type": "Image", "query": "parliament building new delhi wide",
+             "layout": {"x": 4, "y": 6, "w": 92, "h": 52},
+             "animations": [{"property": "opacity", "from": 0, "to": 1,
+                              "start": 0, "duration": 0.6}]},
+            {"type": "Text", "text": "Sample beat callout",
+             "layout": {"x": 6, "y": 62 if not portrait else 58,
+                        "w": 88, "h": 20},
+             "style": {"fontSize": 7, "fontWeight": 800},
+             "animations": [{"property": "translateY", "from": 8, "to": 0,
+                              "start": 0.1, "duration": 0.5},
+                             {"property": "opacity", "from": 0, "to": 1,
+                              "start": 0.1, "duration": 0.5}]},
+            {"type": "Particles", "preset": "dust",
+             "layout": {"x": 0, "y": 0, "w": 100, "h": 100},
+             "animations": []},
+        ],
+        "note": "Background + Subject + Kinetic Text + Particles(last). "
+                "Replace query/text per beat; vary archetype + transition.",
+    }
+
+
+@mcp.tool()
 def save_script(project_id: str, script: dict) -> dict:
     """Validate and persist a complete video script.
 
@@ -344,7 +591,12 @@ def save_script(project_id: str, script: dict) -> dict:
     project's language. Sub-visuals are reset to empty; downstream
     artifacts (voiceover, transcription, assets, design) are purged and the
     pipeline stage resets to post-script.
+    MANDATORY FIRST: get_stage_skills('script', project_id) or
+    get_skill('scriptwriter').
     """
+    missing = _missing_stage_skills("script", project_id)
+    if missing:
+        return _skill_required_error("script", project_id, missing)
     try:
         return payloads.save_script_payload(project_id, script)
     except ValueError as e:
@@ -380,7 +632,12 @@ def get_script(project_id: str, include_visuals: bool = False) -> dict:
 def save_design(project_id: str, design: dict) -> dict:
     """Validate and persist the global design system
     ({theme_name, color_palette, typography, css_guidelines, fonts?}).
-    Required before save_visuals so cuts bind to a design hash."""
+    Required before save_visuals so cuts bind to a design hash.
+    MANDATORY FIRST: get_stage_skills('design', project_id) or
+    get_skill('art-director-design-system')."""
+    missing = _missing_stage_skills("design", project_id)
+    if missing:
+        return _skill_required_error("design", project_id, missing)
     try:
         return payloads.save_design_payload(project_id, design)
     except ValueError as e:
@@ -853,11 +1110,12 @@ already explicitly specified in the user's request):
 
 ## Stage order (strict)
 1. create_project → project_id
-2. Research & script writing:
+ 2. Research & script writing:
     - ⚠️ **FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE:** If you have your own native web search tool, USE THAT FIRST to research
       facts, dates, and background for the topic. Only fall back to this MCP
       web_search tool if your native search is unavailable or fails.
-    - get_skill(scriptwriter) → save_script (intro hook, scenes with narration,
+    - MANDATORY GATE (server rejects without it): get_stage_skills('script', project_id)
+      [or get_skill(scriptwriter)] → save_script (intro hook, scenes with narration,
       conclusion summary+cta; sub_visuals reset automatically)
 3. update_voice_settings (only if user chose non-default voice)
 4. run_stage(generate_voiceover, wait=false) → stage_status until completed
@@ -874,24 +1132,29 @@ already explicitly specified in the user's request):
    spelling/matra variants in one pass, or pass targeted `replacements` to fix
    specific words. This keeps transcription.json, subtitles.srt, and
    subtitles.vtt synchronized before authoring visuals and rendering.
-6. Skills brief-first (they are big — declarative-ast is ~50KB, and a
-   truncated skill is worse than none): get_skill(NAME, brief=true) for
-   visual-director-core + motion-graphics-designer + declarative-ast, then
-   pull ONLY the sections you need via get_skill(NAME, section="...").
-   Required reading: declarative-ast §5 archetypes (your template library —
-   motion-graphics card geometries alone are NOT enough variety for a
-   whole video) + the motion/FX sections. Rules you must not skim past:
-   LayerBox %-only geometry, one Particles layer per cut max (last child),
-   no chapter title cards inside cuts.
-7. get_section_timings (TRUE audio durations + word timestamps per section)
-8. save_design (required once — cuts bind to its hash). A palette-only
+ 6. MANDATORY grounding — EASY 1-call path (server rejects save_visuals without it):
+    get_stage_skills('visuals', project_id) returns briefs for
+    visual-director-core + motion-graphics-designer + declarative-ast PLUS
+    must-follow rules, genre archetypes, and a sample cut — and satisfies the gate.
+    Granular alternative: get_skill(NAME, brief=true) for each of the three, then
+    pull ONLY the sections you need via get_skill(NAME, section="...").
+    Required reading: declarative-ast §5 archetypes (your template library —
+    motion-graphics card geometries alone are NOT enough variety for a
+    whole video) + the motion/FX sections. Rules you must not skim past:
+    LayerBox %-only geometry, one Particles layer per cut max (last child),
+    no chapter title cards inside cuts.
+ 7. get_section_timings (TRUE audio durations + word timestamps per section
+    + pushed creative_blueprint with genre archetypes + sample cut — use it)
+ 8. save_design (required once — cuts bind to its hash; MANDATORY GATE:
+    get_stage_skills('design', project_id) first). A palette-only
    design (theme + colors + fonts, nothing else) guarantees a flat video:
    include motion language — signature transitions, text treatments,
    overlay/texture direction — or the server will warn you.
  9. search_media to verify each English query resolves BEFORE writing the cut (skip verification only if the same query already verified this session)
-10. save_visuals per section (durations auto-normalize to the audio
-    length; prefer ONE Particles layer per cut as LAST child; no chapter
-    title cards inside cuts; Text in project language except queries stay English).
+ 10. save_visuals per section (MANDATORY GATE already satisfied in step 6;
+     durations auto-normalize to the audio
+     length; prefer ONE Particles layer per cut as LAST child; no chapter
+     title cards inside cuts; Text in project language except queries stay English).
     VARIETY GUIDE (enforced by review, not by validation — the server
     accepts valid output, but aim high):
     - Prefer fresh layer-templates per cut; vary card
@@ -1133,6 +1396,8 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     Repeat per section, then run fetch_assets BEFORE review_frame
     (mode=composition needs downloaded local_path files).
 
+    MANDATORY FIRST: get_stage_skills('visuals', project_id) or all three
+    get_skill(declarative-ast + visual-director-core + motion-graphics-designer).
     cut_index >= 0 patches a SINGLE cut (pass sub_visuals as a 1-element
     array holding just that cut) instead of resending the whole section —
     use after review_frame flags one bad cut (re-run fetch_assets if the
@@ -1142,6 +1407,10 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     them: fix template repetition and flat (effect-free) sections before
     moving on. Richness rules live in the pipeline-guide variety contract
     and the declarative-ast archetypes, not in this description."""
+    if not dry_run:
+        missing = _missing_stage_skills("visuals", project_id)
+        if missing:
+            return _skill_required_error("visuals", project_id, missing)
     try:
         return payloads.save_visuals_payload(
             project_id, section_type, sub_visuals, scene_index,
