@@ -1881,6 +1881,14 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
   * Middle: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with corner rounding (`borderRadius: "20px"`) + spring entrance (`delay: 0.5` minimum, `easing: "spring"`)
   * Top: Foreground typography / callouts (respect subtitle safe area) with staggered reveal (`delay: 0.7` to `1.0`, or the exact spoken-word time)
 
+=== ANTI-TEMPLATE CONTRACT (Phase 0 variety — hard rules, not suggestions) ===
+- NEVER emit two consecutive cuts with the same layer signature (e.g. Video→HTML→Text twice). Change the background type, geometry preset, or text animation_mode.
+- Cycle children[0] across cuts (Video → Background preset → Image → HTML gradient → Map). Same bg twice in a row needs a story reason.
+- One viral breaker per 3+-cut scene: full-bleed impact word with NO card (giant 150–220px Text over graded B-roll + emphasis punch), OR asymmetric duotone collage (transparent pixabay cutout + outline headline, no centered card), OR ticker/timeline rail (full-width HTML strip + staggered mini-cards). Full specs: declarative-ast Archetypes 13–15.
+- HTML SHELL BAN: the default navy glass card (rgba(15,23,42,0.85) + blur(20px) + radius 20px) is BANNED as a fallback. Pick per beat: Brutalist solid banner / Noir redacted / Terminal HUD / Paper editorial / Neon outline stat / Ticker strip. Never reuse the same shell twice in a row; a cut with zero HTML layers beats a repeated card.
+- MOTION VOCAB QUOTA: ≥1 non-translateY entrance per scene (slam-zoom scale 1.6→1.0 + motion_blur; tilt rotate -6→0; rack-focus blur 12→0; flash brightness 0.3→1.0; lateral whip translateX ±60→0; stagger cascade delays 0.3/0.55/0.8). ≥1 energy moment per 3 cuts (emphasis punch-in, camera_shake, motion_blur spring, FX filters look beyond brightness, floating, or emotion-matched Particles).
+- LOTTIE RULE: one small accent badge per cut max (8–18% box) with spring entrance, never fullscreen. Safe starters: lf20_qp1q7mct (checkmark), lf20_5tkuno (alert) at assets10/9.lottiefiles.com; same-CDN-shape extras (spinner/money/confetti/arrow/bell) allowed. Unsure a URL loads → use a Lucide Shape icon instead.
+
 === NO STATIC CHAPTER TITLE CARDS IN SUB-VISUALS ===
 Do NOT create static chapter title badges, scene name cards, or temporary header pills inside sub-visual cuts. Chapter indicators and video branding are managed continuously at the root composition level. Dedicate sub-visual cuts entirely to motion graphics, infographics, evidence mockups, b-roll, and visual storytelling.
 
@@ -2069,6 +2077,9 @@ Vary your spatial layouts across cuts using these master blueprints:
 - **Cinematic Atmosphere Beat**: Graded high-contrast ambient footage with continuous Ken Burns drift (when narrative calls for a breather).
 - **Entity Spotlight**: Darkened full-screen Image (portrait/evidence photo as first child with `brightness(0.35)`) + bio card overlay + kinetic text.
 - **Data Infographic Showcase**: High-tech HTML gradient background (first child) + Chart card (middle child) + floating kinetic headline callout (last child).
+- **Full-Bleed Impact Word (breaker — NO card)**: Graded B-roll + ONE giant 150–220px kinetic word + tiny kicker + emphasis punch + slam-zoom spring. For shock stats/crashes.
+- **Duotone Collage Cutout (breaker — NO centered card)**: Procedural Background base + transparent pixabay cutout LEFT + oversized marker-highlight headline RIGHT + corner-bracket frame. Asymmetric editorial.
+- **Ticker / Timeline Rail (breaker — motion strip)**: Full-width HTML rail + `horizontal_line` draw-on path + 2–3 staggered mini HTML steps (delays 0.3/0.55/0.8). For sequences, rankings, processes.
 
 RULES:
 - COUNT: One sub-visual per visual beat
@@ -2080,7 +2091,8 @@ RULES:
 - DESIGN SYSTEM: Use `primary`, `accent`, `surface`, `glow`, `fontFamily` tokens when available; custom palettes allowed per beat.
 - VIDEO: `"volume": 0` is a safe default; non-zero volume (e.g. `0.1`–`0.25` ambient sound) + `loop` allowed (keep low so voiceover stays clear unless `mute_voiceover: true`).
 - Supported content types (use any, combine freely): Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background. Particles: prefer ONE per cut LAST child matched to emotion; second layer allowed. Stacking is children array order.
-- MOTION MODIFIERS: `"motion_blur": true` on fast cards/entrances; `"camera_shake": "handheld" | "shockwave" | "glitch"` freely; 2026 FX pack in `"filters"` (CSS + SVG looks, combine as needed). Punch-in emphasis at sub-visual level: `"emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}]` — any count, keep `at+duration` inside the cut.
+- ANTI-TEMPLATE: never repeat the same layer signature twice in a row; cycle children[0] bg type across cuts; one viral breaker (impact word / collage / ticker-rail) per 3+-cut scene; never reuse the same HTML shell or the same text animation_mode+position twice in a row. The navy glass card is banned as a default.
+- MOTION MODIFIERS: `"motion_blur": true` on fast cards/entrances; `"camera_shake": "handheld" | "shockwave" | "glitch"` freely; 2026 FX pack in `"filters"` (CSS + SVG looks, combine as needed — go beyond plain brightness at least once per scene). Punch-in emphasis at sub-visual level: `"emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}]` — any count, keep `at+duration` inside the cut. Motion vocab: slam-zoom / tilt / rack-focus / flash / lateral-whip / stagger-cascade (>=1 non-translateY entrance per scene, >=1 energy moment per 3 cuts).
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
@@ -2233,6 +2245,7 @@ You are an expert Visual Director and Cinematographer. Your job is to read the n
 
 Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Lottie, Footage, Counters, Procedural Backgrounds, Particles atmosphere overlays) with cinematic motion blur and camera shake modifiers aligned with the {genre_profile['name']} style.
 Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling.
+Plan against the template trap: never plan two consecutive beats with the same layer signature (Video+card+text twice is rejected) — cycle backgrounds, alternate geometries, and include one viral breaker (full-bleed impact word with no card, asymmetric collage cutout, or ticker/timeline rail) per 3+-beat scene.
 Do not output AST JSON, just output a detailed text description of what each sub-visual should look like.{storyboard_guidance}"""
 
         plan_user_prompt = f"Topic: {topic}\nGenre: {genre_profile['name']}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n\nWrite a storyboard plan for each sub-visual beat."

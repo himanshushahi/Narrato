@@ -70,6 +70,7 @@ ADVANCED FX (optional but encouraged — full spec in `declarative-ast` § Unive
 ## 5. Composition Depth & Stacking Standards
 
 - **DEPTH**: Construct visually rich compositions with Background (first child), Midground Motion Primitives (middle children), and Foreground Typography (last children). Stacking is children array order (`children[0]` = bottom, `children[N-1]` = top).
+- **VARIETY VS NEIGHBORS**: The rewritten cut MUST NOT clone adjacent cuts' template — change the bg type, geometry preset, HTML shell (or drop the card for an impact-word/collage breaker), and text `animation_mode` + position.
 - Keep text and cards above the subtitle safe area (`bottom: 18%` for landscape, `28%` for portrait).
 
 ---

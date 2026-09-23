@@ -1,7 +1,7 @@
 ---
 name: visual-director-core
-version: "2.0"
-description: "Master Visual Director rules for 3-layer parallax depth, 11 AST content primitives, camera pacing curves, and motion sync."
+version: "2.1"
+description: "Master Visual Director rules for 3-layer parallax depth, 15 AST archetypes incl. viral breakers, anti-template variety contract, motion vocabulary v2, camera pacing curves, and motion sync."
 when_to_use: "Always loaded during bulk scene visual generation, storyboarding, and visual direction."
 ---
 
@@ -108,7 +108,7 @@ The renderer supports **11 distinct content types**. Combine them freely across 
 ### 5. Lottie
 - 60 FPS vector micro-animations, animated icons, warning badges, checkmarks, dynamic accents.
 - `lottie_url` or inline `animation_data` which takes precedence, `loop` default true, `playback_rate` default 1.0, playback `direction: "forward" | "backward"` (`lottie_direction` is an accepted alias).
-- Safe starter URLs: `https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json` (checkmark), `https://assets9.lottiefiles.com/packages/lf20_5tkuno.json` (alert). Any LottieFiles URL works. NEVER emit a `src` field (folded into `lottie_url` by the validator).
+- Safe starter URLs: `https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json` (checkmark), `https://assets9.lottiefiles.com/packages/lf20_5tkuno.json` (alert). Same-CDN-shape extras that work: loading spinner (`lf20_p8bfn5to`), money (`lf20_9xrenieu`), confetti burst (`lf20_rovf9gzu`), trend arrow (`lf20_sj0rwar7`), bell CTA (`lf20_myeuhs7h`) under `https://assets*.lottiefiles.com/packages/`. Any LottieFiles URL works. RULE: one small accent badge per cut (8–18% box) with spring entrance — never fullscreen. When unsure a URL loads, use a Lucide `Shape icon` instead. NEVER emit a `src` field (folded into `lottie_url` by the validator).
 
 ### 6. Particles
 - Canvas atmosphere overlay — `particle_preset: "confetti" | "embers" | "dust" | "money_rain" | "snow" | "stars"`, plus full overrides: `particle_count` (10–300), `particle_size`, `particle_speed` (0.1–3), `particle_direction` (`up|down|left|right|outward|twinkle`), `particle_opacity`, `particle_colors[]`.
@@ -163,6 +163,31 @@ The renderer supports **11 distinct content types**. Combine them freely across 
 - **Camera Shake**: Set `camera_shake: "handheld"` on ambient footage layers for organic documentary breathing, `camera_shake: "shockwave"` for high-impact market crash / explosion reveals, or `camera_shake: "glitch"` for fast digital tech jitter.
 - **2026 FX Pack** (layer `filters` array): cinematic CSS looks — `Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur` (compose freely) — plus 6 SVG looks `url(#fx-emboss)`, `url(#fx-sharpen)`, `url(#fx-posterize)`, `url(#fx-duotone-midnight)`, `url(#fx-duotone-inferno)`, `url(#fx-thermal)` (one per layer is the norm, stacking allowed experimentally; disabled on transparent Particles canvas). Use freely wherever the beat needs energy; combine CSS + SVG looks on stacked cuts (blend modes need a layer beneath to be visible).
 - **Punch-In Emphasis** (sub-visual level, sibling of `transition`, NOT inside layers): `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]` — 0+ marks on any cut length, `scale` 1.02–1.6, `duration` 0.2–2s, keep `at+duration` inside the cut; place on the most shocking word/stat.
+
+---
+
+## 6B. Motion Vocabulary v2 (beyond slide-up cards)
+
+`translateY spring` alone reads as a slide deck. Reach for these on at least 1 cut per scene:
+
+| Move | Recipe | When |
+|---|---|---|
+| **Slam Zoom** | Text `scale: 1.6 -> 1.0 spring 0.5s` + `motion_blur: true` + `emphasis` punch | shock stats, crash words (Archetype 13) |
+| **Tilt Reveal** | `rotate: -6 -> 0` + `translateY` + opacity, `transform_origin: "center center"` | paper memos, editorial cutouts |
+| **Rack-Focus** | `blur: 12 -> 0` + opacity `0.5s ease-out` (no shutter blur — pair with a scale drift if you want blur) | archival photos, evidence reveals |
+| **Flash Reveal** | `brightness: 0.3 -> 1.0` + opacity | leaked docs, dawn/triumph beats |
+| **Lateral Whip** | `translateX: -60/60 -> 0 spring` on collage halves with opposite signs | split-screens, comparisons (Archetype 14) |
+| **Stagger Cascade** | 2–3 one-card HTML layers with delays `0.3 / 0.55 / 0.8` + shared `horizontal_line` draw-on | timelines, rankings (Archetype 15) |
+
+Quota: ≥1 non-`translateY` entrance per scene, ≥1 `emphasis` or `camera_shake` moment per 3 cuts.
+
+## 6C. Anti-Template Contract (hard variety rules)
+
+1. NEVER emit two consecutive cuts with the same layer signature (e.g. `Video→HTML→Text` twice). Change bg type, geometry preset, or text mode.
+2. Cycle `children[0]` across cuts (`Video` → `Background` preset → `Image` → `HTML` gradient → `Map`). Same bg twice in a row needs a story reason.
+3. One viral breaker per 3+-cut scene: full-bleed impact word (no card), duotone collage cutout, or ticker/timeline rail (`declarative-ast` Archetypes 13–15).
+4. Never reuse the same HTML shell twice in a row (Brutalist / Noir / Terminal / Paper / Neon Outline / Ticker — see `declarative-ast §5B`). The default navy glass card is banned unless the beat is a genuine dossier.
+5. Never repeat `animation_mode` + position twice in a row (two centered `marker_highlight` headlines back-to-back is rejected).
 
 ---
 

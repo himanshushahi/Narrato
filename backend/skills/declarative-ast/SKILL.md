@@ -1,7 +1,7 @@
 ---
 name: declarative-ast
-description: Complete specification, 3-layer depth standard, motion grammar, and master visual archetypes for the Declarative AST rendering engine in Remotion.
-version: "2.0"
+description: Complete specification, 3-layer depth standard, motion grammar, anti-template variety rules, HTML template library, and 15 master visual archetypes for the Declarative AST rendering engine in Remotion.
+version: "2.1"
 when_to_use: "Always loaded during scene visual generation, sub-visual rewrites, and motion graphics planning."
 ---
 
@@ -107,6 +107,16 @@ The `content` object inside every `Layer` must specify one of the **11 supported
 * `playback_rate`: Speed multiplier (e.g. `1.0`, `1.5`)
 * `direction`: `"forward"` | `"backward"` (`lottie_direction` is an accepted alias — same enum)
 * `animation_data`: Inline Lottie JSON override (takes precedence over `lottie_url`). Use for bespoke micro-animations when no CDN asset fits.
+* CURATED STARTER URLS (the first two are long-standing safe defaults; the rest follow the same LottieFiles CDN shape — any LottieFiles URL works, and when in doubt prefer a Lucide `Shape icon`):
+  * checkmark/success: `https://assets10.lottiefiles.com/packages/lf20_qp1q7mct.json`
+  * alert/warning: `https://assets9.lottiefiles.com/packages/lf20_5tkuno.json`
+  * loading spinner: `https://assets4.lottiefiles.com/packages/lf20_p8bfn5to.json`
+  * money/finance: `https://assets3.lottiefiles.com/packages/lf20_9xrenieu.json`
+  * celebration/confetti burst: `https://assets2.lottiefiles.com/packages/lf20_rovf9gzu.json`
+  * arrow/market trend up: `https://assets1.lottiefiles.com/packages/lf20_sj0rwar7.json`
+  * subscribe/bell CTA: `https://assets7.lottiefiles.com/packages/lf20_myeuhs7h.json`
+  * fire/energy, trophy, rocket: browse lottiefiles.com and use any Irrlicht/file URL in the same `assets*.lottiefiles.com/packages/*.json` shape
+  * RULE: use Lottie as a small accent badge (`left`/`top`/`width` 8–18%) with spring entrance — NEVER fullscreen, NEVER more than one per cut. Verify via `search_media`-style reasoning: if unsure the URL loads, prefer a Lucide `Shape icon` instead.
 
 ### 4. `Text` (Kinetic Typography & Lower-Thirds)
 * `text`: Content string
@@ -210,7 +220,11 @@ Every `Layer` can additionally specify:
 
 ## 5. Master Visual Archetypes (Design Blueprints)
 
-Use these 6 master patterns as architectural blueprints. Adapt coordinates, colors, and content to fit the specific narrative moment:
+Use these 15 master patterns as architectural blueprints. Adapt coordinates, colors, and content to fit the specific narrative moment. Archetypes 1–12 are card/composite classics; **Archetypes 13–15 are viral breakers — use at least one breaker per scene** so the video never reads as a slide deck:
+
+### Archetype 13: Full-Bleed Impact Word (no card — type IS the visual)
+### Archetype 14: Duotone Collage Cutout (no centered card — asymmetric editorial)
+### Archetype 15: Ticker Breaker + Timeline Rail (motion strip, not a card)
 
 ### Archetype 1: Split-Screen Data HUD (Comparison & Technical Breakdown)
 ```json
@@ -1026,6 +1040,278 @@ Use these 6 master patterns as architectural blueprints. Adapt coordinates, colo
   }
 }
 ```
+---
+
+### Archetype 13: Full-Bleed Impact Word (viral breaker — NO card, type IS the visual)
+Use when narration lands a single shocking word/stat. Fullscreen B-roll + one giant `Text` + tiny kicker. No HTML card at all.
+```json
+{
+  "duration": 2.6,
+  "transition": "whip_pan",
+  "emphasis": [{ "at": 0.9, "scale": 1.14, "duration": 0.5 }],
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Video",
+          "query": "stock market crash trading floor panic",
+          "source": "pexels",
+          "volume": 0,
+          "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
+        },
+        "filters": ["brightness(0.32)", "contrast(1.35)", "saturate(1.4)"],
+        "camera_shake": "shockwave",
+        "animations": [{ "property": "scale", "from": 1.0, "to": 1.1, "duration": 2.6, "easing": "linear" }]
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Text",
+          "text": "CRASH",
+          "font": "Inter",
+          "weight": "900",
+          "color": "#ffffff",
+          "animation_mode": "words_stagger",
+          "style": {
+            "position": "absolute",
+            "left": "6%",
+            "top": "30%",
+            "width": "88%",
+            "fontSize": "220px",
+            "textAlign": "center",
+            "letterSpacing": "-4px",
+            "textShadow": "0 0 60px rgba(239,68,68,0.9), 0 10px 40px rgba(0,0,0,0.9)"
+          }
+        },
+        "motion_blur": true,
+        "animations": [
+          { "property": "scale", "from": 1.6, "to": 1.0, "duration": 0.5, "delay": 0.3, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.3, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Text",
+          "text": "MARKET LOST $2 TRILLION IN 48 HOURS",
+          "font": "Inter",
+          "weight": "700",
+          "color": "#facc15",
+          "animation_mode": "static",
+          "style": {
+            "position": "absolute",
+            "left": "10%",
+            "top": "12%",
+            "width": "80%",
+            "fontSize": "30px",
+            "textAlign": "center",
+            "letterSpacing": "3px",
+            "textShadow": "0 4px 20px rgba(0,0,0,0.9)"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 14: Duotone Collage Cutout (viral breaker — asymmetric, NO centered card)
+Use for entity/concept intros. Transparent Pixabay cutout LEFT + oversized outline headline RIGHT over a procedural `Background` (zero downloads for the base). The two boxes must NOT overlap-center — they sit side by side.
+```json
+{
+  "duration": 3.6,
+  "transition": "slide_left",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Background",
+          "background_preset": "dots",
+          "colors": ["#09090b", "#facc15", "#f43f5e"],
+          "speed": 1.2,
+          "style": { "width": "100%", "height": "100%" }
+        }
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Image",
+          "query": "robot humanoid isolated",
+          "source": "pixabay",
+          "image_type": "illustration",
+          "style": {
+            "position": "absolute",
+            "left": "4%",
+            "top": "18%",
+            "width": "40%",
+            "height": "64%",
+            "objectFit": "contain"
+          }
+        },
+        "filters": ["drop-shadow(0 20px 50px rgba(0,0,0,0.7))"],
+        "motion_blur": true,
+        "animations": [
+          { "property": "translateX", "from": -60, "to": 0, "duration": 0.6, "delay": 0.35, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.35, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Shape",
+          "shape_type": "path",
+          "preset_path": "corner_brackets",
+          "stroke": "#facc15",
+          "stroke_width": 3,
+          "draw_animation": true,
+          "glow": true,
+          "style": { "position": "absolute", "left": "2%", "top": "14%", "width": "44%", "height": "72%" }
+        }
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Text",
+          "text": "MACHINES THAT THINK",
+          "font": "Inter",
+          "weight": "900",
+          "color": "#ffffff",
+          "animation_mode": "marker_highlight",
+          "highlight_words": ["THINK"],
+          "highlight_color": "#facc15",
+          "style": {
+            "position": "absolute",
+            "left": "48%",
+            "top": "30%",
+            "width": "46%",
+            "fontSize": "64px",
+            "textAlign": "left",
+            "lineHeight": "1.05",
+            "textShadow": "0 8px 30px rgba(0,0,0,0.9)"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Archetype 15: Ticker Breaker + Timeline Rail (viral breaker — motion strip, not a card)
+Use for sequences, rankings, multi-step processes. A full-width HTML rail with steps + animated connector path underneath. Stagger each step via separate one-card HTML layers.
+```json
+{
+  "duration": 4.0,
+  "transition": "slide_up",
+  "composition": {
+    "type": "Sequence",
+    "children": [
+      {
+        "type": "Layer",
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:linear-gradient(180deg,#06090e 0%,#0b1220 100%);border-top:1px solid rgba(16,185,129,0.4);border-bottom:1px solid rgba(16,185,129,0.4);'></div>"
+        }
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Shape",
+          "shape_type": "path",
+          "preset_path": "horizontal_line",
+          "stroke": "#10b981",
+          "stroke_width": 4,
+          "draw_animation": true,
+          "glow": true,
+          "style": { "position": "absolute", "left": "8%", "top": "52%", "width": "84%", "height": "8%" }
+        }
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:#10b981;color:#06090e;font-weight:900;font-size:15px;display:flex;align-items:center;justify-content:center;border-radius:12px;box-shadow:0 0 24px rgba(16,185,129,0.6);'>2019 • LEAK</div>",
+          "style": { "position": "absolute", "left": "8%", "top": "30%", "width": "24%", "height": "16%" }
+        },
+        "animations": [
+          { "property": "translateY", "from": 30, "to": 0, "duration": 0.5, "delay": 0.3, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.35, "delay": 0.3, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.5);color:#f1f5f9;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;border-radius:12px;'>2022 • RAID</div>",
+          "style": { "position": "absolute", "left": "38%", "top": "30%", "width": "24%", "height": "16%" }
+        },
+        "animations": [
+          { "property": "translateY", "from": 30, "to": 0, "duration": 0.5, "delay": 0.55, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.35, "delay": 0.55, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "HTML",
+          "html_content": "<div style='width:100%;height:100%;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.5);color:#f1f5f9;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;border-radius:12px;'>2026 • TRIAL</div>",
+          "style": { "position": "absolute", "left": "68%", "top": "30%", "width": "24%", "height": "16%" }
+        },
+        "animations": [
+          { "property": "translateY", "from": 30, "to": 0, "duration": 0.5, "delay": 0.8, "easing": "spring" },
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.35, "delay": 0.8, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "content": {
+          "type": "Text",
+          "text": "THREE RAIDS THAT BROKE THE CARTEL",
+          "font": "Inter",
+          "weight": "800",
+          "color": "#ffffff",
+          "animation_mode": "words_stagger",
+          "style": { "position": "absolute", "left": "8%", "top": "66%", "width": "84%", "fontSize": "36px", "textAlign": "center", "textShadow": "0 6px 24px rgba(0,0,0,0.9)" }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 5B. HTML Template Library (stop cloning one glass card)
+
+The `rgba(15,23,42,0.85) + backdrop-blur(20px) + radius 20px` glass card is BANNED as a default. Pick the shell that matches the beat — never use the same shell twice in a row:
+
+| Shell | When | Signature CSS (adapt colors to design.json) |
+|---|---|---|
+| **Brutalist Banner** | shocks, crashes, warnings | solid `#ef4444` or `#facc15` bg, black 900 text, hard `box-shadow: 8px 8px 0 #000`, no blur, no radius (or `4px`) |
+| **Noir Redacted** | crime, leaks, audits | `#050505` bg, monospace, black redaction bars `<span style='background:#000;color:#000'>`, `border:1px solid #991b1b` |
+| **Terminal HUD** | tech, code, systems | `#06090e` bg, `border:1px solid rgba(0,212,255,0.5)`, monospace green/cyan text, `>` prompt prefix, scanline gradient |
+| **Paper Editorial** | history, newspapers | `#f4ebd0` bg, Georgia serif, dark ink `#1c1917`, `transform:rotate(-1.5deg)`, hard offset shadow |
+| **Neon Outline** | viral stats, CTAs | transparent bg, `border:2px solid <accent>`, giant number with `text-shadow:0 0 30px <accent>`, no fill |
+| **Ticker Strip** | rankings, steps, prices | full-width short bar (`height:14–18%`), solid accent bg, bold single-line text, slides via `translateX` |
+
+One card per HTML layer still holds — but a cut with zero HTML layers (Archetype 13) or three staggered mini-cards (Archetype 15) beats one big glass card every time.
+
+---
+
+## 5C. Anti-Template Rules (hard variety contract)
+
+1. **Never repeat the layer signature twice in a row.** `(Video, HTML, Text)` followed by `(Video, HTML, Text)` is REJECTED — change bg type, geometry preset, or text mode.
+2. **Cycle the background.** Consecutive cuts MUST use different `children[0]` types when the story allows (`Video` → `Background` → `Image` → `HTML` → `Map`). Two identical bg types in a row needs a story reason.
+3. **One breaker per scene.** Every scene with 3+ cuts MUST contain ≥1 of Archetypes 13/14/15 (or Map full-bleed, Counter hero, Particles energy beat).
+4. **One energy moment per 3 cuts.** `emphasis` punch-in, `camera_shake`, `motion_blur` on a spring, an FX `filters` look beyond `brightness`, rack-focus `blur`/`brightness` keyframes, `floating`, or emotion-matched `Particles`.
+5. **Vary the text.** No two consecutive cuts may share the same `animation_mode` + position (e.g. two centered `marker_highlight` headlines in a row is rejected — switch to `typewriter` lower-third, `words_stagger` top banner, or `static` kicker).
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: motion-graphics-designer
-description: "Comprehensive styling guidelines, physics spring presets, split-screen geometries, card layout presets, kinetic typography recipes, and layer composition rules for Remotion AST."
-version: "2.0"
+description: "Comprehensive styling guidelines, physics spring presets, motion vocabulary v2 (slam/tilt/rack-focus/flash/whip/cascade), HTML template shells, split-screen geometries, card layout presets, kinetic typography recipes, and layer composition rules for Remotion AST."
+version: "2.1"
 when_to_use: "Used during visual generation and styling to create cohesive, high-production motion graphics."
 ---
 
@@ -141,6 +141,56 @@ Unlike entrance animations, `emphasis` marks fire mid-cut — sudden zoom snap +
  0+ marks per cut on the beat's key moments, `scale` 1.02–1.6, keep `at+duration` inside the cut. Pair with the 2026 FX pack (`filters`: Thermal/Night-Vision/duotones) and `Particles` for maximum-impact beats.
 * `filters` blend note: `"mix-blend-mode: overlay/screen/multiply/..."` composites with layers beneath — invisible on a single opaque fullscreen layer, so only use on stacked cuts.
 
+### F2. Motion Vocabulary v2 Presets (copy-paste keyframes)
+
+**Slam Zoom (shock words — pair with cut-level `emphasis`):**
+```json
+"animations": [
+  { "property": "scale", "from": 1.6, "to": 1.0, "duration": 0.5, "delay": 0.3, "easing": "spring" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.3, "easing": "ease-out" }
+],
+"motion_blur": true
+```
+
+**Tilt Reveal (paper / editorial memos):**
+```json
+"animations": [
+  { "property": "rotate", "from": -6, "to": 0, "duration": 0.6, "delay": 0.4, "easing": "spring" },
+  { "property": "translateY", "from": 40, "to": 0, "duration": 0.6, "delay": 0.4, "easing": "spring" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.4, "easing": "ease-out" }
+],
+"transform_origin": "center center"
+```
+
+**Rack-Focus Entrance (archival / evidence photos):**
+```json
+"animations": [
+  { "property": "blur", "from": 12, "to": 0, "duration": 0.6, "delay": 0.4, "easing": "ease-out" },
+  { "property": "scale", "from": 1.08, "to": 1.0, "duration": 0.8, "delay": 0.4, "easing": "ease-out" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.5, "delay": 0.4, "easing": "ease-out" }
+]
+```
+
+**Flash Reveal (leaks / triumphs):**
+```json
+"animations": [
+  { "property": "brightness", "from": 0.3, "to": 1.0, "duration": 0.5, "delay": 0.4, "easing": "ease-out" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.4, "easing": "ease-out" }
+]
+```
+
+**Lateral Whip (split-screen halves enter from opposite sides):**
+```json
+"animations": [
+  { "property": "translateX", "from": -60, "to": 0, "duration": 0.6, "delay": 0.35, "easing": "spring" },
+  { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.35, "easing": "ease-out" }
+]
+```
+
+**Stagger Cascade (timeline steps — delays 0.3 / 0.55 / 0.8 across 3 mini HTML cards + `horizontal_line` draw-on beneath).**
+
+Quota reminder: ≥1 non-`translateY` entrance per scene. `blur`/`brightness` alone never trigger shutter blur — that is fine, they are fades; add a scale drift on the same layer when you want `motion_blur` to bite.
+
 ### G. Animation Delay, Narration Sync & Layer Motion (guidance)
 `delay` is in seconds from the CUT start (not video start). Use it freely:
 * **Animate the layers that carry the beat:** 1 hero layer is the safe default; up to 3 animated layers allowed on rich cuts (background drift + midground spring + foreground stagger is premium). Avoid animating 5+ layers at once.
@@ -223,7 +273,7 @@ Always apply the project's generated **Art Director Design System** (`design.jso
 
 * **Primary Color (`color_palette.primary`)**: Apply to main chart bars, indicator paths, and key glowing borders.
 * **Accent Color (`color_palette.accent`)**: Apply to highlight marker text, alert callout badges, and contrasting chart bars.
-* **Surface Background (`color_palette.surface`)**: Reserved for bespoke HTML evidence UI backgrounds.
+* **Surface Background (`color_palette.surface`)**: Reserved for bespoke HTML evidence UI backgrounds — but rotate shells per `declarative-ast §5B` (Brutalist / Noir / Terminal / Paper / Neon Outline / Ticker). The default navy glass card (`rgba(15,23,42,0.85) + blur(20px)`) is banned as a fallback; a cut with zero HTML layers beats a repeated card.
 * **Typography (`typography.heading_font`)**: Use for all header cards, callouts, and kinetic text (`Inter`, `Montserrat`, `Oswald`, etc.).
 
 ---

@@ -37,6 +37,9 @@ Every scene is stronger anchored in at least one Documentary Pillar, but pure ty
 ### 🚫 Anti-Patterns to Avoid
 * **No Chapter Badges in Cuts**: Do NOT plan static chapter title cards or temporary scene pills inside sub-visual cuts. Chapter indicators and branding are rendered continuously at the root composition level.
 * **No Wall-to-Wall Stock**: Prefer not to chain 3+ identical stock videos/images in a row.
+* **No Repeated Layer Signature**: NEVER plan two consecutive beats with the same layer template (e.g. `Video → HTML card → Text` twice). Cycle backgrounds (`Video` → `Background` → `Image` → `HTML` → `Map`), alternate geometry presets, and vary `animation_mode` + text position every beat.
+* **No Glass-Card Default**: The navy glass HTML card is banned as a fallback — plan a shell per beat (Brutalist / Noir / Terminal / Paper / Neon Outline / Ticker) or a zero-card breaker beat.
+* **One Breaker Per Scene**: Every 3+-beat scene MUST include ≥1 breaker (archetypes 11–13 above).
 * **No Flat/Dead Visuals**: Prefer depth (**Background Canvas + Graphic Subject + Kinetic Callout**) — 1–2 layer minimal beats are allowed for calm narration.
 
 ---
@@ -55,6 +58,9 @@ Every scene is stronger anchored in at least one Documentary Pillar, but pure ty
 | **8** | **Archival & Route** | `Image` + `Map` | Entity introductions, travel routes, global expansion |
 | **9** | **Brand Spotlight** | Wikipedia Logo + Inset | Major corporate profiles, regulatory bodies, market caps |
 | **10** | **Cinematic Ambient** | Darkened `Video` / `Image` | Emotional breathers, contemplative transitions, tone setting |
+| **11** | **Full-Bleed Impact Word (breaker)** | Graded `Video` + giant `Text` (no card) | Shock stats, crashes, single-word punches — type IS the visual |
+| **12** | **Duotone Collage Cutout (breaker)** | `Background` + pixabay cutout + headline | Entity/concept intros, asymmetric editorial energy |
+| **13** | **Ticker / Timeline Rail (breaker)** | HTML strip + `Shape` draw-on path | Sequences, rankings, multi-step processes |
 
 ### Detailed Archetype Blueprints
 
@@ -98,6 +104,18 @@ Every scene is stronger anchored in at least one Documentary Pillar, but pure ty
 * **When to Use**: Emotional pauses, contemplative narration shifts, or establishing sweeping geographical mood.
 * **Visual Direction**: High-production cinematic footage with high contrast / darkening vignette and subtle continuous Ken Burns drift (`camera_shake="handheld"`).
 
+### 11. Full-Bleed Impact Word Breaker (NO card — type IS the visual)
+* **When to Use**: Single shocking word/stat the narration lands like a punch.
+* **Visual Direction**: Graded fullscreen B-roll + ONE giant 150–220px kinetic word (`words_stagger`) + tiny kicker + `emphasis` punch-in + slam-zoom spring entrance. Zero HTML cards.
+
+### 12. Duotone Collage Cutout Breaker (asymmetric — NO centered card)
+* **When to Use**: Entity or concept intros that need editorial energy, not a dossier.
+* **Visual Direction**: Procedural `Background` base + transparent pixabay cutout (`illustration`, `contain`) on one side + oversized `marker_highlight` headline on the other + `corner_brackets` frame. Boxes sit side-by-side, never center-stacked.
+
+### 13. Ticker / Timeline Rail Breaker (motion strip — not a card)
+* **When to Use**: Sequences of events, rankings, prices, multi-step processes.
+* **Visual Direction**: Full-width HTML rail + `horizontal_line` draw-on connector + 2–3 staggered one-card HTML steps (delays `0.3/0.55/0.8`) + `words_stagger` headline below.
+
 ---
 
 ## 3. Storyboard Plan Structure
@@ -113,6 +131,8 @@ For each scene, output a detailed storyboard plan that describes:
 
 - [ ] Sub-visual durations sum exactly to total scene duration
 - [ ] Pacing curve follows section rhythm (fast intro, steady middle, punchy climax)
+- [ ] No two consecutive beats share the same layer signature / bg type / text treatment
+- [ ] 3+-beat scenes include ≥1 viral breaker (impact word / collage / ticker-rail)
 - [ ] At least one documentary anchor (Map, Chart, or Evidence Memo) planned per scene
 - [ ] No static chapter title cards embedded in sub-visual cuts
 - [ ] Multi-layer depth (background, midground, foreground) established for each cut

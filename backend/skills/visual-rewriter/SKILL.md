@@ -20,7 +20,7 @@ when_to_use: "Used during interactive visual rewrites and sub-visual modificatio
 You will receive a script segment (narration) along with surrounding context and a prompt explaining how to modify or rewrite its visuals.
 - Your task is to generate valid AST JSON following the requested schema.
 - **IMPORTANT**: Every sub_visual must have a `composition` object (AST format) and a `duration` (in seconds).
-- **VARIETY**: Ensure your new visual layout is distinctly different from surrounding sub-visuals to maintain engagement.
+- **VARIETY**: Ensure your new visual layout is distinctly different from surrounding sub-visuals to maintain engagement. NEVER repeat the neighboring cuts' layer signature (bg type + geometry + text treatment) — cycle the background type, pick a fresh HTML shell or go zero-card (impact word / collage / ticker-rail breaker), and vary `animation_mode` + position.
 
 ---
 
