@@ -245,7 +245,7 @@ Use `Shape` layers with `preset_path` for broadcast-grade motion graphics:
     "stroke": "#ffffff",
     "stroke_width": 2,
     "glow": true,
-    "style": { "position": "absolute", "left": "48%", "top": "46%", "width": "60px", "height": "60px" }
+    "style": { "position": "absolute", "left": "46%", "top": "44%", "width": "8%", "height": "12%" }
   },
   "animations": [
     { "property": "translateY", "from": -20, "to": 0, "duration": 0.5, "delay": 0.5, "easing": "spring" },

@@ -97,36 +97,45 @@ The `content` object inside every `Layer` must specify one of the **11 supported
   * `"wave_pulse"`: Oscillating waveform.
   * `"circle_reticle"`: Target focus ring.
 * `path_d` (for custom SVG curves in 1920x1080 canvas): e.g. `"M 250 800 Q 960 250 1670 800"`
-* `draw_animation`: `true` (animates line drawing smoothly)
-* `glow`: `true` (adds neon bloom / drop-shadow glow)
+* `draw_animation`: `true` (animates line drawing smoothly; default `true` when omitted — editor checkbox defaults ON)
+* `glow`: `true` (adds neon bloom / drop-shadow glow; default `true` when omitted)
+* Glyph sizing defaults (editor): `radius` 50, `points` 5 (star/polygon), `inner_radius` 25 (star), `corner_radius` 16 (rectangle), `stroke_width` 2. `direction` on arrows/triangles is `up|down|left|right` (the schema enum also lists `forward|backward` for the shared Lottie field — never use those on Shapes, the editor can't represent them).
 
 ### 3. `Lottie` (60 FPS Vector Motion Graphics & Micro-Animations)
 * `lottie_url`: Remote CDN URL (e.g. LottieFiles) or local JSON asset path
 * `loop`: `true` | `false` (default `true`)
 * `playback_rate`: Speed multiplier (e.g. `1.0`, `1.5`)
-* `direction`: `"forward"` | `"backward"`
+* `direction`: `"forward"` | `"backward"` (`lottie_direction` is an accepted alias — same enum)
 * `animation_data`: Inline Lottie JSON override (takes precedence over `lottie_url`). Use for bespoke micro-animations when no CDN asset fits.
 
 ### 4. `Text` (Kinetic Typography & Lower-Thirds)
 * `text`: Content string
-* `font`: Font family name (e.g. `"Inter"`, `"Oswald"`, `"Montserrat"`)
+* `font`: Font family name — prefer the editor's 17 supported families (`Inter`, `Montserrat`, `Outfit`, `Poppins`, `Roboto`, `Oswald`, `Anton`, `Bebas Neue`, `Space Grotesk`, `Playfair Display`, `Merriweather`, `Cinzel`, `Fira Code`, `JetBrains Mono`) plus Noto CTL fonts below; other Google fonts may not load in export.
+* `weight`: `"400"` | `"500"` | `"600"` | `"700"` | `"800"` | `"900"` (default `"700"`).
+* SIZE RULE (renderer truth): Text size is `style.fontSize` (`"64px"`-style string, range 8–500; renderer default 64px with a layout box, 100px free text). NEVER write top-level `content.font_size` on Text — the renderer ignores it (`KineticText` reads `style.fontSize` only).
 * `animation_mode`: `"words_stagger"` | `"typewriter"` | `"marker_highlight"` | `"static"`
-* `highlight_words` (optional): Words to accentuate with marker color
+* `highlight_words` (optional, ONLY read by `marker_highlight`/`words_stagger` — ignored on `static`/`typewriter`): Words to accentuate with marker color
 * `highlight_color` (optional): Accent color (e.g. `"#facc15"`)
+* `style.textShadow`: presets the editor offers — default soft `0 4px 20px rgba(0,0,0,0.8)`, `none`, strong `0 6px 30px rgba(0,0,0,0.9)`, neon cyan `0 0 40px rgba(0,212,255,0.8), 0 0 80px rgba(0,212,255,0.5)`, neon amber `0 0 30px rgba(250,204,21,0.8), 0 4px 20px rgba(0,0,0,0.8)`, or any custom CSS string.
 * **CTL/Indic Fonts**: For Hindi, Tamil, Bengali, Arabic, etc., ALWAYS use Noto fonts (e.g. `Noto Sans Devanagari`).
 
 ### 5. `Image` (Photos, Evidence, Cutouts & Official Brand/Company Logos)
-* `sources`: 
+* SOURCE MATRIX (hard constraint — the editor enforces it, the pipeline assumes it): `Image` accepts `pexels` | `pixabay` | `wikipedia` (NO `youtube`); `Video` accepts `pexels` | `pixabay` | `youtube` (NO `wikipedia`). A `youtube` source on Image or `wikipedia` on Video is ignored with a wrong-type Pexels fallback — intended source lost, fetch time wasted.
+* `sources`:
+* `objectFit` (in `style`, Image/Video only): `"cover"` | `"contain"` | `"fill"` (default `"cover"` when omitted).
+* `image_type` (only applies with `source: "pixabay"`): `"all"` | `"photo"` | `"illustration"` | `"vector"`. Transparent cutouts need `"illustration"`/`"vector"`. 
   * `wikipedia` (**OFFICIAL COMPANY & INSTITUTION LOGOS / PORTRAITS**): When the narration discusses a real company, tech giant, bank, regulatory agency, or brand (e.g. Apple, Google, Tesla, OpenAI, Microsoft, Meta, Nvidia, SEBI, Reserve Bank of India, State Bank of India), set `source: "wikipedia"` with the **exact official entity name** (e.g. `"Apple Inc."`, `"Tesla, Inc."`, `"OpenAI"`, `"Nvidia"`, `"Reserve Bank of India"`). The pipeline automatically queries Wikimedia Commons and downloads the official high-resolution transparent vector SVG / PNG logo!
   * `pixabay` (**TRANSPARENT VECTOR CUTOUTS & CRYPTO ICONS**): For generic brand concepts, crypto emblems (e.g. `"bitcoin logo"`, `"ethereum logo"`), or vector cutouts, set `source: "pixabay"` with `image_type: "vector"` or `image_type: "illustration"`.
   * `pexels` (**CINEMATIC PHOTOGRAPHY & TEXTURES**): For atmospheric background photos, archival textures, and contextual photography.
 
 ### 6. `Video` (Dynamic B-Roll & Ambient Motion)
-* `sources`: `pexels` (stock video) or `youtube` (timelapses/clips). `"volume": 0` is the safe default; non-zero volume (e.g. `0.1`–`0.25` ambient sound) allowed (keep low unless `mute_voiceover: true`).
+* `sources`: `pexels` (stock video) or `youtube` (timelapses/clips — Video ONLY, never Image). `"volume"`: 0–1 slider (default `0`; ambient `0.1`–`0.25` allowed, keep low unless `mute_voiceover: true`).
 * `loop`: `false` (default: naturally freezes on the last frame if video ends before sub-visual duration ends) | `true` (optional: loops video continuously).
+* YouTube-only trims: `yt_start_offset` (default 15s), `yt_duration` (default 15s, max 30s — pipeline caps at 30s).
+* NEVER emit a `src` field on any type (validator folds Lottie `src` into `lottie_url`; elsewhere it is dead weight).
 
 ### 7. `Map` (Geographic Context & Route Markers)
-* `map_style`: `"modern_dark"`, `"vintage"`, `"minimal_light"`, `"nautical_blue"`
+* `map_style`: `"modern_dark"`, `"vintage"`, `"minimal_light"`, `"nautical_blue"` — ALWAYS set explicitly (editor defaults to `modern_dark`, renderer falls back to `vintage` when omitted; an unset style renders differently in preview vs export).
 * `locations`: `[{"name": "City", "coord": [lat, lon]}]`
 
 ### 8. `HTML` (Universal Dynamic Canvas: Evidence Memos, UI Mocks, Custom Shapes, Timelines)
@@ -136,7 +145,7 @@ The `content` object inside every `Layer` must specify one of the **11 supported
 
 ### 9. `Particles` (Canvas Confetti, Embers, Dust, Money Rain, Snow & Stars)
 * `particle_preset`: `"confetti"` (celebrations) | `"embers"` (fire/energy/crisis, rises) | `"dust"` (ambient depth) | `"money_rain"` (finance/profits) | `"snow"` | `"stars"` (twinkling night sky).
-* Optional tuning: `particle_count` (10–300), `particle_colors` (hex palette override), `particle_size` ([min_px, max_px] at 1080p), `particle_speed` (multiplier), `particle_direction` ("up"/"down"/"left"/"right"/"outward"/"twinkle"), `particle_opacity` (0–1).
+* Optional tuning (editor ranges — stay inside them): `particle_count` (10–300), `particle_colors` (hex palette override, `undefined` = preset palette), `particle_size` ([min_px, max_px] at 1080p, min 1–40 / max 1–60), `particle_speed` (0.1–3), `particle_direction` ("up"/"down"/"left"/"right"/"outward"/"twinkle"), `particle_opacity` (0.05–1).
 * GUIDANCE: prefer ONE Particles layer per cut as LAST child (topmost), pointer-transparent, matched to emotion (profits → money_rain, scandal → embers, victory → confetti). A second layer is allowed for dense beats. Keep clear of key text.
 
 ### 10. `Counter` (Animated Numerical Count-Up with Tabular Numerals & Suffix/Prefix)
@@ -145,11 +154,11 @@ The `content` object inside every `Layer` must specify one of the **11 supported
 * `prefix`: Prefix string before the number (e.g. `"$"` or `"+"`, or `"₹"`).
 * `suffix`: Suffix string after the number (e.g. `"M+"`, `"%"` or `"B"`).
 * `decimals`: Decimal places to display (default `0`).
-* `duration`: Duration in seconds of count-up animation (default `2.0`).
-* `format`: `"standard"` (e.g. `1,250`), `"compact"` (e.g. `1.2M`), `"currency"`, `"percent"`, `"full"`, `"none"`.
-* `font_size`: Numerical font size in pixels (default `72`, range `16`–`300`). Controls the scale of the counter number independently of its bounding box.
+* `duration`: Duration in seconds of count-up animation (editor slider 0.2–10, default `1.4` in new layers / `2.0` schema fallback — always set explicitly).
+* `format`: `"standard"` (e.g. `1,250`), `"compact"` (e.g. `1.2M`), `"currency"`, `"percent"`, `"full"` (normalized to `standard` — the editor hides it, prefer `standard`), `"none"`.
+* `font_size`: Numerical font size in pixels (default `72`, range `16`–`300`). Controls the scale of the counter number independently of its bounding box. (`font_size`/`fontSize`/`style.fontSize` all work on Counter — unlike Text.)
 * `title`: Uppercase headline label displayed directly above the counter (e.g. `"TOTAL LOSSES"`).
-* `color`, `font`, `weight`: Hex accent color (default `"#00d4ff"`), optional font family, and font weight (default `"900"`).
+* `color`, `font`, `weight`: Hex accent color (default `"#00d4ff"`), optional font family, and font weight (default `"900"`). NOTE: the graphical editor has inputs for `color`/`title`/`font_size` only — `font`/`weight` render fine but are invisible in the editor (no control yet), so prefer the editable fields unless the beat needs them.
 * Tabular numerals (`tabular-nums` / font-variant-numeric: `tnum`) prevent layout jitter as numbers spin up. Finishes with a subtle spring punch-in scale pop.
 * Use for financial metrics, user growth stats, casualty numbers, valuations, and milestone metrics.
 
@@ -162,8 +171,8 @@ The `content` object inside every `Layer` must specify one of the **11 supported
   - `"blueprint"`: Technical engineering graph grid with primary and minor subdivisions.
   - `"vignette_loop"`: Deep cinematic darkened vignette with breathing ambient light.
   - `"paper_grain"`: Warm tactile editorial paper and film noise texture.
-* `colors`: Optional custom hex palette array (e.g. `["#0a0e17", "#0284c7", "#6366f1"]`).
-* `speed`: Speed multiplier (default `1.0`).
+* `colors`: 3-hex palette override `[base, accent1, accent2]` (e.g. `["#0a0e17", "#0284c7", "#6366f1"]`) — the editor exposes exactly 3 slots with per-preset defaults; longer/shorter arrays still render (renderer reads indices 0–2) but can't be round-tripped in the editor.
+* `speed`: Speed multiplier (editor slider 0.2–3.0, default `1.0`).
 * RULES: Always full-screen (`{"width": "100%", "height": "100%"}`), placed as the bottom layer (`children[0]`). Procedural math animation runs continuously with 0 asset downloads and zero risk of broken links.
 
 ---
@@ -171,22 +180,31 @@ The `content` object inside every `Layer` must specify one of the **11 supported
 ### Universal Layer Motion Modifiers
 Every `Layer` can additionally specify:
 * `motion_blur: true` — Applies realistic camera shutter motion blur to moving elements and fast spring entrances (`shutter_angle: 180`). No-op on static layers — needs spatial motion (keyframe, `floating`, or `camera_shake`).
-* `shutter_angle`: `45`–`360` (default `180`; `90` crisp, `180` cinematic 24fps, `360` dreamy). Only visible when `motion_blur` + motion are both active.
+* `shutter_angle`: `45`–`360` in 45° steps (default `180`; `90` crisp, `180` cinematic 24fps, `360` dreamy). Only visible when `motion_blur` + motion are both active.
 * `floating: true` — Slow harmonic bob drift. Counts as spatial motion, activates `motion_blur`. Best for midground cards, badges, icons over a static canvas.
-* `transform_origin`: Pivot for scale/rotate (e.g. `"center center"` default, `"top left"`, `"bottom center"`). Only visible with motion.
-* `camera_shake: "handheld" | "shockwave" | "glitch"` — Procedural Perlin noise camera drift or impact shock.
+* `transform_origin`: Pivot for scale/rotate — one of `"center center"` (default), `"top left"`, `"top center"`, `"top right"`, `"bottom left"`, `"bottom center"`, `"bottom right"`. Only visible with motion.
+* `camera_shake: "handheld" | "shockwave" | "glitch" | "none"` — Procedural Perlin noise camera drift or impact shock (`none` = rock solid).
 * Keyframe props: `scale`, `opacity`, `translateX`, `translateY`, `rotate`, `rotateX`, `rotateY` (spatial — drive shutter blur) plus `blur` (px rack-focus, e.g. `10 -> 0`) and `brightness` (multiplier flash, e.g. `0.3 -> 1.0`) which are non-spatial fades and do NOT trigger shutter blur alone.
 * `style` layout box — LayerBox SOT v1, the ONLY geometry authority (optional but powerful): `left/top/width/height` (`%` strings ONLY — NEVER `px`, NEVER bare numbers; position is always absolute, omit it), `objectFit` (Image/Video only), `borderRadius`, `aspectRatio` (e.g. `"1 / 1"` for circles), `rotate` (deg static tilt), `scale`/`scaleX`/`scaleY` (multiplier; negative mirrors, e.g. `scaleX: -1` flips H). ANCHOR RULE: `top` XOR `bottom` (never both — lower-thirds use `bottom`, everything else uses `top`); `left` XOR `right` (never both — prefer `left`). Every non-background layer MUST carry a full box (`left`+`top`+`width`+`height`); background `children[0]` with no box = fullscreen (valid). `Map`/`Particles`/`Background` MUST be fullscreen `{"width": "100%", "height": "100%"}` with no position keys (their canvas ignores sizing — a positioned box only crops). Shape box = stage, content fields = glyph: NEVER set content `width`/`height` alongside a style box (it is dropped); dots/badges use small `%` boxes, never `px`. Prefer base boxes for layout; use static scale/rotate sparingly for emphasis. Center with explicit math — box width `40%` → `left: "30%"` (`50 − width/2`); same vertically with `top`. Per-type extras: Text → `fontSize`, `textAlign` (`center|left|right`), `lineHeight`, `letterSpacing`, `textShadow`, `fontStyle` (`normal|italic`); Counter → `fontSize`, `textAlign`, `letterSpacing`; Chart → `color` (accent/line color). Other renderable CSS passes through but has no visual editor — prefer `animations` over style-`opacity`, the Filters tab over style-`filter` (style-`filter` is hoisted into `filters` automatically), and `filters: "mix-blend-mode: X"` over `mixBlendMode`. NEVER write `transform`/`translate` — the key is removed and the canvas overlay box loses sync. Text `font`/`weight`/`color` are top-level content fields, never style keys.
   * Canvas pixel grids: landscape = 1920×1080, portrait = 1080×1920. Equal `%` on width and height ≠ equal pixels — use `aspectRatio: "1 / 1"` (+ drop `height`) for true squares/circles.
+  * Circle recipe (what the editor's Circle preset writes): `borderRadius: "50%"` + `aspectRatio: "1 / 1"` + NO `height` key. `50%` radius on a non-square box renders an oval.
+  * Static zoom/emphasis without keyframes: `scale`/`scaleX`/`scaleY` 10–500% (`1.0` = box size; negative mirrors, e.g. `scaleX: -1` = Flip-H), `rotate` ±180°. They compose with `animations` keyframes on the container. Pivot = `transform_origin` when set, else center.
+  * Layout presets to reach for (same geometry the editor offers): Fullscreen (`0/0/100/100`), Center Card (`15/16/70/66`), Left/Right Split (`6/16/42/66` + `52/16/42/66`), Lower Third (`bottom: 18%`, `left: 6%`, `width: 88%`, NO height — grows upward), Top Banner (`8/8/84/16`).
   * **Collision / Overlap guard**: when a cut has multiple positioned layers, verify boxes do NOT overlap unless the overlap is intentional (e.g., text label over an image, badge dot on a card corner). For safe splits use the motion-graphics-designer presets. Vertical stacking: `top` + `height` + gap ≤ 100%.
-  * **objectFit per role** (Image/Video only): background fullscreen → `"cover"`; circle-crop card → `"cover"`; transparent-bg icon/illustration cutout → `"contain"`; default when omitted = `"cover"` for positioned layers.
+  * **objectFit per role** (Image/Video only): background fullscreen → `"cover"`; circle-crop card → `"cover"`; transparent-bg icon/illustration cutout → `"contain"`; stretch-to-box → `"fill"`; default when omitted = `"cover"` for positioned layers.
   * **Text height omission**: for Text lower-thirds and callout labels, OMIT `height` — text auto-sizes vertically. Set `height` only for fixed-height clipping. Lower-third fills anchor at `bottom: "18%"` with no height (box grows upward).
 * `mixBlendMode` via `filters` (e.g. `"mix-blend-mode: overlay"`) composites with layers beneath — no visible change on a single opaque fullscreen layer.
 * `emphasis: [...]` — **Sub-visual level** (sibling of `transition`, NOT inside layers): mid-cut punch-in zooms. Each mark `{"at": <seconds into cut>, "scale": <1.02–1.6 peak zoom>, "duration": <0.2–2s>}`. Example: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]`. Keep `at` + `duration` inside the cut; place on high-energy words/stats.
+* `subtitle_position` — **Sub-visual level** (sibling of `transition`): `"bottom"` | `"top"` | `"hidden"`. Overrides kinetic-caption placement for this cut only (e.g. `"top"` when the lower third holds a key card, `"hidden"` on full-bleed typography beats). Omit = project default.
+* Harness cautions (mirrors the editor's own warnings — AI output must respect them):
+  * Full-frame canvases (`Map`/`Particles`/`Background`): prefer `opacity`/`scale` keyframes here — `rotateX`/`rotateY` tilts and large slides rotate the whole canvas and expose rectangular clipping edges.
+  * Text with `animation_mode ≠ static` already animates internally — layer keyframes stack ON TOP of it. Prefer ONE system per layer or the timing double-transforms and clashes.
 * `filters: [...]` — 2026 FX pack color-grade / look applied to the layer (array of CSS/SVG filter strings, combine freely):
   * Cinematic CSS looks: `Neon Glow Pop` → `["drop-shadow(0 0 22px rgba(255,0,200,0.75))", "saturate(1.5)", "contrast(1.2)"]`; `Cyberpunk` → `["hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)"]`; `Golden Hour` → `["sepia(0.45)", "saturate(1.6)", "brightness(1.05)"]`; `Bleach Bypass` → `["grayscale(0.4)", "contrast(1.5)"]`; `Night Vision` → `["sepia(1)", "hue-rotate(70deg)", "saturate(3)", "contrast(1.2)"]`; `Thermal False-Color` → `["grayscale(1)", "invert(1)", "hue-rotate(190deg)", "saturate(4)"]`; `Noir Hard` → `["grayscale(1)", "contrast(1.8)"]`; `Dream Blur` → `["blur(1.5px)", "brightness(1.15)", "saturate(1.3)"]`.
   * SVG-filter looks (rendered identically in preview + export): `"url(#fx-emboss)"` relief, `"url(#fx-sharpen)"` footage bite, `"url(#fx-posterize)"` comic quantization, `"url(#fx-duotone-midnight)"` navy→cyan grade, `"url(#fx-duotone-inferno)"` black→orange grade, `"url(#fx-thermal)"` true heat-band thermal vision.
   * USAGE: SVG `url(#fx-*)` looks replace each other — one per layer is the norm, stacking allowed experimentally; CSS looks compose freely. FX works best on full-bleed media (photos, B-roll, maps); use on as many cuts as the story needs.
+  * Base grade presets (exact tokens the editor applies — reuse verbatim): Cinematic Dark Base `["brightness(0.35)", "contrast(1.2)"]`; Archival Monochrome `["grayscale(0.85)", "contrast(1.25)", "brightness(0.8)"]`; Vintage Sepia `["sepia(0.65)", "contrast(1.15)", "brightness(0.85)"]`; Vibrant Tech Glow `["contrast(1.3)", "brightness(1.15)"]`; Ghostly Overlay `["mix-blend-mode: overlay"]`.
+  * Blend modes (all 10 the editor offers — `normal` + `overlay`, `screen`, `color-dodge`, `multiply`, `color-burn`, `soft-light`, `hard-light`, `difference`, `luminosity`): written as `filters: ["mix-blend-mode: X"]`.
 
 ---
 

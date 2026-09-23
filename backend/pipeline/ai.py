@@ -1943,9 +1943,13 @@ Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] �
   Other renderable CSS passes through but may lack a visual editor — prefer
   `rotate`/`scale`, `animations`, and `filters`.
 - `query` in `Image` and `Video` content MUST ALWAYS be in English.
+- SOURCE MATRIX (hard): `Image` ← `pexels|pixabay|wikipedia` (never `youtube`); `Video` ← `pexels|pixabay|youtube` (never `wikipedia`). Crossed sources are ignored with a wrong-type Pexels fallback (intended source lost, fetch time wasted) — always match the matrix.
+- `subtitle_position` (sub-visual level, sibling of `transition`): `"bottom"|"top"|"hidden"` — per-cut caption override (`"top"` when a key card sits in the lower third, `"hidden"` on full-bleed typography). Omit = default.
 - All text content: project language for narration-matched text; English for search queries. For complex scripts (Hindi, Marathi, Bengali, Tamil, Arabic, etc.), MUST specify the corresponding Noto font (e.g. `Noto Sans Devanagari`) to guarantee proper Unicode shaping.
 - QUERY-ONLY MEDIA CONTRACT (critical): for `Image`/`Video` layers output ONLY
-  `{{"type": ..., "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"wikipedia"|"youtube"}}`.
+  `{{"type": "Image", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"wikipedia"}}`
+  or `{{"type": "Video", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"youtube"}}`
+  (per-type matrix — never `youtube` on Image, never `wikipedia` on Video).
   NEVER emit `sources[]`, `url`, `local_path`, `asset_url`, `visual_path` or
   `visual_url` — no hardcoded remote links. Search-tool URLs are for
   verification only, never to be copied into the JSON. The pipeline downloads

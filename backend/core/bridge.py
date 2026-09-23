@@ -1889,7 +1889,7 @@ class ApiBridge:
                         f"{user_prompt}\n\nCORRECTION REQUIRED: your previous output has "
                         f"Image/Video layer(s) {bad} with no `query` (and no local asset). "
                         "Every Image/Video layer MUST include a 1-3 word English `query` with a "
-                        "`source` (pexels|pixabay|wikipedia|youtube). Fix ONLY that — keep "
+                        "`source` (Image: pexels|pixabay|wikipedia; Video: pexels|pixabay|youtube). Fix ONLY that — keep "
                         "everything else identical. Previous output:\n"
                         f"{json.dumps(result['data'])}\n"
                     )

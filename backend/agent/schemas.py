@@ -510,7 +510,7 @@ class LayerContent(AppBaseModel):
     """Rich polymorphic content payload for an AST Layer."""
     type: Literal["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie", "Particles", "Counter", "Background"] = Field(..., description="Content type: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background")
     query: Optional[str] = Field(default=None, min_length=2, description="REQUIRED when type is Image/Video: 1-3 broad English stock keywords (e.g. 'city skyline night'). Search query for Pexels, Wikipedia, Pixabay, or YouTube. A media layer without a query can never download an asset and breaks the cut — always provide one.")
-    source: Optional[str] = Field(default=None, description="Source of media (if Image/Video). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed.", json_schema_extra={"enum": ["pexels", "wikipedia", "pixabay", "youtube"]})
+    source: Optional[str] = Field(default=None, description="Source of media (if Image/Video). MATRIX: Image accepts pexels|pixabay|wikipedia (never youtube); Video accepts pexels|pixabay|youtube (never wikipedia). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed.", json_schema_extra={"enum": ["pexels", "wikipedia", "pixabay", "youtube"]})
     text: Optional[str] = Field(default=None, description="Text content (if Text)")
     animation_mode: Optional[str] = Field(default=None, description="Kinetic typography animation mode (if Text)", json_schema_extra={"enum": ["static", "words_stagger", "typewriter", "marker_highlight"]})
     highlight_words: Optional[List[str]] = Field(default=None, description="Words to highlight with marker/color (if Text)")
@@ -558,8 +558,8 @@ class LayerContent(AppBaseModel):
     
     # HTML / Map / Media properties
     html_content: Optional[str] = Field(default=None, description="Raw HTML/SVG markup (if HTML), e.g. custom tables, dossiers, badges, or SVG diagrams")
-    volume: Optional[float] = Field(default=None, description="Audio volume from 0 to 1 (default 0 for Video)")
-    locations: Optional[List[Union[MapLocation, Dict[str, Any]]]] = Field(default=None, description="Locations to map (if Map)")
+    volume: Optional[float] = Field(default=None, description="Audio volume 0-1 slider (Video only, default 0; ambient 0.1-0.25 unless mute_voiceover)")
+    locations: Optional[List[Union[MapLocation, Dict[str, Any]]]] = Field(default=None, description="Locations to map (if Map). ALWAYS set map_style explicitly (editor modern_dark vs renderer vintage fallback).")
     map_style: Optional[str] = Field(default=None, description="Style of map (if Map)", json_schema_extra={"enum": ["vintage", "modern_dark", "minimal_light", "nautical_blue"]})
     # Particles properties (canvas confetti / embers / dust / money / snow / stars)
     particle_preset: Optional[str] = Field(default=None, description="Particle preset (if Particles)", json_schema_extra={"enum": ["confetti", "embers", "dust", "money_rain", "snow", "stars"]})
@@ -577,13 +577,13 @@ class LayerContent(AppBaseModel):
     suffix: Optional[str] = Field(default=None, description="Suffix string after the number, e.g. 'M+', '%' (if Counter)")
     decimals: Optional[int] = Field(default=None, description="Decimal places to display (if Counter, default 0)")
     duration: Optional[float] = Field(default=None, description="Duration in seconds of count-up animation (if Counter, default 2.0)")
-    format: Optional[str] = Field(default=None, description="Display number format: 'standard', 'compact', 'currency', 'percent' (if Counter)", json_schema_extra={"enum": ["standard", "compact", "currency", "percent", "full", "none"]})
-    font_size: Optional[float] = Field(default=None, description="Font size in pixels (if Counter or Text, default 72 for Counter)")
+    format: Optional[str] = Field(default=None, description="Display number format (if Counter): 'standard', 'compact', 'currency', 'percent', 'full' (=standard, editor hides it), 'none'", json_schema_extra={"enum": ["standard", "compact", "currency", "percent", "full", "none"]})
+    font_size: Optional[float] = Field(default=None, description="Font size px (Counter ONLY: default 72, range 16-300; content.font_size/fontSize/style.fontSize all work). Text size is style.fontSize instead — content.font_size on Text is ignored by the renderer.")
 
     # Background properties (procedural kinetic canvas backgrounds)
     background_preset: Optional[str] = Field(default=None, description="Procedural background preset: 'gradient_mesh', 'grid_flow', 'waves', 'dots', 'blueprint', 'vignette_loop', 'paper_grain' (if Background)", json_schema_extra={"enum": ["gradient_mesh", "grid_flow", "waves", "dots", "blueprint", "vignette_loop", "paper_grain"]})
     colors: Optional[List[str]] = Field(default=None, description="Color palette hex array for procedural background (if Background)")
-    speed: Optional[float] = Field(default=None, description="Motion speed multiplier (if Background, default 1.0)")
+    speed: Optional[float] = Field(default=None, description="Motion speed multiplier (if Background, editor slider 0.2-3.0, default 1.0)")
 
     image_type: Optional[str] = Field(default=None, description="Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons.", json_schema_extra={"enum": ["all", "photo", "illustration", "vector"]})
     yt_start_offset: Optional[float] = Field(default=None, description="Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15.")
