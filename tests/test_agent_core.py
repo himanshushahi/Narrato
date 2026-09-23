@@ -932,11 +932,12 @@ def test_skill_telemetry_labels_preload_vs_tool():
     feed = get_agent_activity()
     skills = [e for e in feed if e["kind"] == "skill" and e["name"] == "scriptwriter"]
     assert len(skills) == 2
+    version = skill_loader.get_skill("scriptwriter").version
     # feed is newest-first: the tool call is the most recent entry
-    assert "Agent Tool Call (v1.0)" in skills[0]["detail"]
-    assert skills[0]["args"] == {"version": "1.0", "scope": "tool"}
-    assert "System Prompt Preload (v1.0)" in skills[1]["detail"]
-    assert skills[1]["args"] == {"version": "1.0", "scope": "preload"}
+    assert f"Agent Tool Call (v{version})" in skills[0]["detail"]
+    assert skills[0]["args"] == {"version": version, "scope": "tool"}
+    assert f"System Prompt Preload (v{version})" in skills[1]["detail"]
+    assert skills[1]["args"] == {"version": version, "scope": "preload"}
 
 
 # ---------------------------------------------------------------------------
