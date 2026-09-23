@@ -865,6 +865,15 @@ already explicitly specified in the user's request):
    If it fails with "model ... is not downloaded", use
    update_transcribe_settings (whisper_model must be downloaded) and retry.
    Never edit the DB by hand.
+   SUBTITLE QUALITY AUDIT & REPAIR:
+   Whisper (especially for Hindi or complex scripts) often misrecognizes matras
+   ('भारतिय' vs 'भारतीय', 'भाशा' vs 'भाषा'), turns Hindi number words into
+   digits ('1975', '23'), or truncates words at segment boundaries.
+   Run `compare_transcription` to get an exact word-level discrepancy report
+   against script.json. Use `update_transcription(auto_align=true)` to heal
+   spelling/matra variants in one pass, or pass targeted `replacements` to fix
+   specific words. This keeps transcription.json, subtitles.srt, and
+   subtitles.vtt synchronized before authoring visuals and rendering.
 6. Skills brief-first (they are big — declarative-ast is ~50KB, and a
    truncated skill is worse than none): get_skill(NAME, brief=true) for
    visual-director-core + motion-graphics-designer + declarative-ast, then
@@ -1004,6 +1013,87 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
         return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"MCP get_section_timings failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_transcription(
+    project_id: str,
+    section_type: str = "",
+    scene_index: int = 0,
+    segment_id: int | None = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> dict:
+    """Read word-level transcription data produced by the transcribe stage.
+
+    Can be section-scoped (section_type: introduction | scene | conclusion;
+    scene_index used for scenes) to inspect words and timestamps for ONE section,
+    or by segment_id, or paginated across the whole video. Use to inspect word
+    timings before designing kinetic text or repairing subtitles."""
+    try:
+        from backend.mcp import subtitles as _subtitles
+        return _subtitles.get_transcription_payload(
+            project_id, section_type, scene_index, segment_id, offset, limit
+        )
+    except Exception as e:
+        logger.error(f"MCP get_transcription failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def compare_transcription(project_id: str) -> dict:
+    """Audit Whisper transcription against ground-truth script.json narration.
+
+    Performs word-level alignment across sections to detect:
+    - Spelling / matra discrepancies (e.g. 'भारतिय' vs 'भारतीय', 'भाशा' vs 'भाषा')
+    - Number-to-digit conversions (e.g. 'उन्नीस सौ पचहत्तर' vs '1975')
+    - Missing / omitted words dropped by Whisper
+    - Segment boundary truncations (e.g. words cut off at 30s limits like 'पाकि')
+    - Audio/timing gaps between segments.
+    Run this after transcribe to see where Whisper hallucinated or missed words."""
+    try:
+        from backend.mcp import subtitles as _subtitles
+        return _subtitles.compare_transcription_payload(project_id)
+    except Exception as e:
+        logger.error(f"MCP compare_transcription failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def update_transcription(
+    project_id: str,
+    replacements: list | None = None,
+    segments: list | None = None,
+    auto_align: bool = False,
+    dry_run: bool = False,
+    fill_gaps: bool = False,
+    expand_numbers: bool = False,
+    repair_truncations: bool = False,
+) -> dict:
+    """Fix and update transcription.json, automatically syncing subtitles.srt and subtitles.vtt.
+
+    Supports:
+    - auto_align=true: automatically heals spelling/matra errors and near-misses
+      by projecting canonical script.json text onto Whisper timestamps.
+      Auto-enables fill_gaps, expand_numbers, and repair_truncations.
+    - fill_gaps=true: interpolate missing script words across uncaptioned time
+      windows using character-weighted timing (zero subtitle blanking).
+    - expand_numbers=true: split numeric tokens (e.g. '1975') into Hindi script
+      words with proportional sub-timings.
+    - repair_truncations=true: complete truncated segment tails.
+    - replacements: list of custom find/replace dicts:
+      [{"find": "भारतिय", "replace": "भारतीय"}, {"segment_id": 1, "find": "भाशा", "replace": "भाषा"}]
+    - segments: full replacement of segments list if custom timings were constructed.
+    - dry_run=true: validates and previews fixes without writing to disk."""
+    try:
+        from backend.mcp import subtitles as _subtitles
+        return _subtitles.update_transcription_payload(
+            project_id, replacements, segments, auto_align, dry_run,
+            fill_gaps, expand_numbers, repair_truncations,
+        )
+    except Exception as e:
+        logger.error(f"MCP update_transcription failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
 
 

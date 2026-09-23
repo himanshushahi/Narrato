@@ -1333,3 +1333,117 @@ def test_create_and_list_projects_via_server(tmp_path, monkeypatch):
     assert detail["ok"] is True
     assert detail["project"]["name"] == "My Cool Doc"
     assert "tasks" in detail
+
+
+def test_transcription_tools_lifecycle(tmp_path, monkeypatch):
+    from backend.mcp import server
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+
+    proj_dir = tmp_path / "proj_mcp"
+    sub_dir = proj_dir / "subtitles"
+    sub_dir.mkdir(parents=True)
+    vo_dir = proj_dir / "voiceover"
+    vo_dir.mkdir(parents=True)
+
+    # Write script.json
+    script_data = {
+        "title": "Test Doc",
+        "introduction": {"hook": "सन उन्नीस सौ पचहत्तर। तेईस साल का एक भारतीय युवक पाकिस्तान में दाखिल हुआ।"},
+        "scenes": [
+            {"title": "Scene 1", "narration": "उसने वहां कानून पढ़ा और सेना में नौकरी की।"}
+        ],
+        "conclusion": {"summary": "यह कहानी है एक देशभक्त की।", "cta": "जय हिंद।"}
+    }
+    (proj_dir / "script.json").write_text(json.dumps(script_data, ensure_ascii=False), encoding="utf-8")
+
+    # Write manifest.json
+    manifest_data = [
+        {"section_type": "introduction", "duration": 10.0, "text": "सन उन्नीस सौ पचहत्तर। तेईस साल का एक भारतीय युवक पाकिस्तान में दाखिल हुआ।"},
+        {"section_type": "scene", "duration": 10.0, "text": "उसने वहां कानून पढ़ा और सेना में नौकरी की।"},
+        {"section_type": "conclusion", "duration": 10.0, "text": "यह कहानी है एक देशभक्त की। जय हिंद।"}
+    ]
+    (vo_dir / "manifest.json").write_text(json.dumps(manifest_data, ensure_ascii=False), encoding="utf-8")
+
+    # Write transcription.json with Whisper variations (digits, spelling errors, truncation)
+    trans_data = {
+        "language": "hi",
+        "segments": [
+            {
+                "id": 1,
+                "start": 0.0,
+                "end": 8.5,
+                "text": "सन 1975, 23 साल का एक भारतिय युवक पाकि",
+                "words": [
+                    {"start": 0.0, "end": 0.5, "word": "सन"},
+                    {"start": 0.5, "end": 1.2, "word": " 1975,"},
+                    {"start": 1.5, "end": 2.0, "word": " 23"},
+                    {"start": 2.0, "end": 2.5, "word": " साल"},
+                    {"start": 2.5, "end": 2.8, "word": " का"},
+                    {"start": 2.8, "end": 3.1, "word": " एक"},
+                    {"start": 3.1, "end": 3.8, "word": " भारतिय"},
+                    {"start": 3.8, "end": 4.5, "word": " युवक"},
+                    {"start": 4.5, "end": 5.0, "word": " पाकि"},
+                ]
+            },
+            {
+                "id": 2,
+                "start": 10.0,
+                "end": 16.0,
+                "text": "उसने वहां कानून पड़ा और सेना में नौकरी की",
+                "words": [
+                    {"start": 10.0, "end": 10.5, "word": "उसने"},
+                    {"start": 10.5, "end": 11.0, "word": " वहां"},
+                    {"start": 11.0, "end": 11.5, "word": " कानून"},
+                    {"start": 11.5, "end": 12.0, "word": " पड़ा"},
+                    {"start": 12.0, "end": 12.5, "word": " और"},
+                    {"start": 12.5, "end": 13.0, "word": " सेना"},
+                    {"start": 13.0, "end": 13.5, "word": " में"},
+                    {"start": 13.5, "end": 14.0, "word": " नौकरी"},
+                    {"start": 14.0, "end": 14.5, "word": " की"},
+                ]
+            }
+        ]
+    }
+    (sub_dir / "transcription.json").write_text(json.dumps(trans_data, ensure_ascii=False), encoding="utf-8")
+
+    # 1. Test get_transcription
+    got_all = server.get_transcription("proj_mcp")
+    assert got_all["ok"] is True
+    assert got_all["total_segments"] == 2
+    assert got_all["total_words"] == 18
+
+    got_intro = server.get_transcription("proj_mcp", section_type="introduction")
+    assert got_intro["ok"] is True
+    assert got_intro["total_section_segments"] == 1
+    assert got_intro["total_section_words"] == 9
+
+    # 2. Test compare_transcription
+    cmp_res = server.compare_transcription("proj_mcp")
+    assert cmp_res["ok"] is True
+    assert cmp_res["summary"]["spelling_variants_count"] >= 1
+    variants = {v["transcript"]: v["script"] for v in cmp_res["spelling_variants"]}
+    assert "भारतिय" in variants and variants["भारतिय"] == "भारतीय"
+
+    # 3. Test update_transcription with dry_run
+    dry = server.update_transcription("proj_mcp", replacements=[{"find": "भारतिय", "replace": "भारतीय"}], dry_run=True)
+    assert dry["ok"] is True
+    assert dry["dry_run"] is True
+    assert dry["replacements_applied"] >= 1
+    assert not (sub_dir / "subtitles.srt").exists()
+
+    # 4. Test update_transcription with auto_align=True (writes files)
+    live = server.update_transcription("proj_mcp", auto_align=True)
+    assert live["ok"] is True
+    assert live["dry_run"] is False
+    assert (sub_dir / "subtitles.srt").exists()
+    assert (sub_dir / "subtitles.vtt").exists()
+
+    # Check updated transcription.json
+    updated_trans = json.loads((sub_dir / "transcription.json").read_text(encoding="utf-8"))
+    seg1_words = [w["word"].strip() for w in updated_trans["segments"][0]["words"]]
+    assert "भारतीय" in seg1_words
+
+    srt_content = (sub_dir / "subtitles.srt").read_text(encoding="utf-8")
+    assert "भारतीय" in srt_content
+
