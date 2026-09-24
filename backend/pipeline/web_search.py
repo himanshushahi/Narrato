@@ -4,7 +4,6 @@ Integrates with LangSearch Web Search API (https://docs.langsearch.com/api/web-s
 Search failures are non-fatal — return empty string so script generation can proceed.
 """
 
-import json
 import re
 from datetime import datetime
 

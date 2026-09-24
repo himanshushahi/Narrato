@@ -762,7 +762,7 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
 
     def _progress(pct, msg=None):
         try:
-            _db.update_task(task_id, progress=float(pct))
+            _db.update_task(task_id, progress=float(pct), message=msg or "")
         except Exception:
             pass
 

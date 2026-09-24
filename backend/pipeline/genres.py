@@ -5,7 +5,7 @@ Defines narrative formulas, pacing, design system guidelines, AST visual archety
 and motion defaults for each supported video style.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 
 GENRE_PROFILES: Dict[str, Dict[str, Any]] = {

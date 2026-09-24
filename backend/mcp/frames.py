@@ -218,7 +218,6 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
                              f"({int(frac * 100)}% through cut)",
                 })
     else:
-        subs = [sv for sv in (section.get("sub_visuals") or []) if isinstance(sv, dict)]
         if scope == "section" and len(durations) > 1:
             picked = _even_pick(len(durations), max_cells)
             for ci in picked:

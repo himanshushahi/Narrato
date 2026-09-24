@@ -12,7 +12,7 @@ via download_sfx_url() — used for manual add + AI fallback.
 """
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,25 @@ def probe_audio_seconds(path: Path) -> float:
     return -1.0
 
 
+def build_sfx_clip_dict(clip_id: str, name: str, dest: Path, start_frame: int,
+                        dur_frames: int, dur_sec: float, sfx_vol: float = 0.5) -> Dict[str, Any]:
+    """Single constructor for sfx_clips entries (shared by bridge + download flows)."""
+    return {
+        "id": clip_id,
+        "name": name or clip_id,
+        "audio_path": str(dest),
+        "start_frame": max(0, int(start_frame or 0)),
+        "duration_frames": dur_frames,
+        "source_start_seconds": 0.0,
+        "source_duration_seconds": dur_sec,
+        "volume": sfx_vol,
+        "loop": False,
+        "fade_in_seconds": 0.0,
+        "fade_out_seconds": 0.0,
+        "is_muted": False,
+    }
+
+
 def download_preview_to_project(project_id: str, audio_url: str, name: str = "sfx",
                                 start_frame: int = 0) -> Dict[str, Any]:
     """Download a preview/CDN URL into storage/<id>/sfx/ and append to sfx_clips.
@@ -169,7 +188,6 @@ def download_preview_to_project(project_id: str, audio_url: str, name: str = "sf
     Used by bridge.download_sfx_to_project (SFX tab manual flow).
     """
     import uuid
-    import shutil
     from urllib.parse import urlparse
     from backend.core.config import get_storage_dir
     from backend.database.db import get_project, update_project
@@ -224,20 +242,10 @@ def download_preview_to_project(project_id: str, audio_url: str, name: str = "sf
                 clips = _json.loads(raw) if isinstance(raw, str) else list(raw)
             except Exception:
                 clips = []
-        new_clip = {
-            "id": clip_id,
-            "name": name or Path(path_part).name or clip_id,
-            "audio_path": str(dest),
-            "start_frame": max(0, int(start_frame or 0)),
-            "duration_frames": dur_frames,
-            "source_start_seconds": 0.0,
-            "source_duration_seconds": dur_sec,
-            "volume": sfx_vol,
-            "loop": False,
-            "fade_in_seconds": 0.0,
-            "fade_out_seconds": 0.0,
-            "is_muted": False,
-        }
+        new_clip = build_sfx_clip_dict(
+            clip_id, name or Path(path_part).name or clip_id, dest,
+            start_frame, dur_frames, dur_sec, sfx_vol,
+        )
         clips.append(new_clip)
         update_project(project_id, sfx_clips=_json.dumps(clips))
         return {"success": True, "clip": new_clip, "clips": clips}

@@ -4,7 +4,6 @@ import re
 import threading
 import queue
 import time
-import requests
 from pathlib import Path
 from typing import Any
 
@@ -12,15 +11,11 @@ from backend.core.logger import logger, register_log_callback
 from backend.core.media_types import IMAGE_EXTS, VIDEO_EXTS
 from backend.database.db import (
     get_all_projects, get_project, delete_project, create_project, update_project,
-    get_project_tasks, get_all_settings, update_settings, get_setting
+    get_project_tasks, get_all_settings, update_settings
 )
 from backend.pipeline.queue import global_queue_manager
-from backend.pipeline.tts import (
-    download_file_with_progress
-)
 from backend.pipeline.ai import (
-    SCRIPT_INTRO_JSON_SCHEMA, SCRIPT_CONCLUSION_JSON_SCHEMA, SCRIPT_SCENE_JSON_SCHEMA,
-    SUB_VISUAL_SCHEMA, VISUALS_ARRAY_SCHEMA, _call_llm_json, _get_web_context_for_topic,
+    _call_llm_json, _get_web_context_for_topic,
     get_shared_visual_rules
 )
 from backend.agent.schemas import (
@@ -990,7 +985,6 @@ class ApiBridge:
     def upload_sfx_clip(self, project_id: str, start_frame: int = 0) -> dict:
         logger.info(f"Bridge API: upload_sfx_clip called for project {project_id} at frame {start_frame}")
         import webview
-        import uuid
         window = self._get_window()
         if not window:
             return {"success": False, "error": "No window"}
@@ -1013,6 +1007,7 @@ class ApiBridge:
         import uuid
         import shutil
         from backend.core.config import get_storage_dir
+        from backend.pipeline.sfx import build_sfx_clip_dict
         src = Path(file_path)
         if not src.exists():
             return {"success": False, "error": f"File does not exist: {file_path}"}
@@ -1037,20 +1032,9 @@ class ApiBridge:
                     clips = json.loads(raw) if isinstance(raw, str) else list(raw)
                 except Exception:
                     clips = []
-            new_clip = {
-                "id": clip_id,
-                "name": src.name,
-                "audio_path": str(dest),
-                "start_frame": max(0, int(start_frame or 0)),
-                "duration_frames": dur_frames,
-                "source_start_seconds": 0.0,
-                "source_duration_seconds": dur_sec,
-                "volume": sfx_vol,
-                "loop": False,
-                "fade_in_seconds": 0.0,
-                "fade_out_seconds": 0.0,
-                "is_muted": False,
-            }
+            new_clip = build_sfx_clip_dict(
+                clip_id, src.name, dest, start_frame, dur_frames, dur_sec, sfx_vol,
+            )
             clips.append(new_clip)
             update_project(project_id, sfx_clips=json.dumps(clips))
             return {"success": True, "clip": new_clip, "clips": clips}

@@ -9,12 +9,10 @@ Provides tools for:
 """
 
 import json
-import os
 import re
 import unicodedata
 import difflib
 from pathlib import Path
-from typing import Any
 
 from backend.database import db as _db
 from backend.core.logger import logger
@@ -1288,7 +1286,6 @@ def update_transcription_payload(
                         gaps_filled += 1
                         updated_segments_count += 1
                         continue
-                    total_free = sum(ge - gs for gs, ge in windows_free)
                     # Allocate missing words across windows weighted by duration
                     # (words are placed once; empty windows stay empty).
                     alloc = _split_across_windows(missing, windows_free)

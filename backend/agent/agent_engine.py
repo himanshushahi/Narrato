@@ -1,12 +1,12 @@
 import json
 import re
 import concurrent.futures
-from typing import Dict, Any, Callable, Union
+from typing import Any, Callable
 from backend.core.logger import logger
 from backend.agent.tools import get_tools_schema, execute_tool
 from backend.agent.validators import validate_sub_visuals
 from backend.pipeline.ai import _call_llm_json, clean_json_response
-from backend.agent.schemas import get_model_json_schema, parse_and_validate_model, VisualsArrayResponse, SubVisualAST
+from backend.agent.schemas import parse_and_validate_model
 
 # Any fenced block (```tool / ```json / plain ```) that may hold a tool call.
 FENCED_BLOCK_RE = re.compile(r"```(?:json|tool)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)

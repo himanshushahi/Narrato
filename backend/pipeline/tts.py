@@ -6,9 +6,9 @@ import asyncio
 import subprocess
 import urllib.request
 from pathlib import Path
-from backend.core.config import get_models_dir, get_temp_dir, get_ffmpeg_path, get_startupinfo
+from backend.core.config import get_temp_dir, get_ffmpeg_path, get_startupinfo
 from backend.core.logger import logger
-from backend.database.db import get_setting, update_project
+from backend.database.db import update_project
 
 
 

@@ -1,7 +1,6 @@
 import logging
 import sys
 import os
-from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from backend.core.config import BASE_DIR
 

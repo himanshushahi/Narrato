@@ -23,7 +23,7 @@ import shutil
 import threading
 from pathlib import Path
 
-from backend.core.config import get_assets_dir, get_models_dir, get_temp_dir
+from backend.core.config import get_assets_dir, get_models_dir
 from backend.core.logger import logger
 
 # Small-GPU fragmentation guard: must be set before the first CUDA allocation

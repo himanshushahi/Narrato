@@ -12,8 +12,8 @@ from backend.database.db import init_db
 from backend.pipeline.queue import global_queue_manager
 from backend.core.bridge import ApiBridge, setup_bridge_callbacks, ui_update_loop
 from backend.core.logger import logger
-from backend.core.file_server import start_file_server, get_file_server_port
-from backend.core.config import BASE_DIR, BUNDLE_DIR
+from backend.core.file_server import start_file_server
+from backend.core.config import BASE_DIR
 from backend.core.power import power_manager
 
 NUM_WINDOWS = int(os.environ.get("NARRATO_NUM_WINDOWS", "1"))

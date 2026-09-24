@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple
 from backend.agent.schemas import SubVisualAST, sanitize_layer_style
 
 logger = logging.getLogger(__name__)
@@ -381,7 +381,6 @@ def sanitize_style_keys(children: List[Any], cut_label: str = "",
     if not isinstance(children, list):
         return 0
     fixed = 0
-    total = len(children)
     for idx, layer in enumerate(children):
         if not isinstance(layer, dict):
             continue

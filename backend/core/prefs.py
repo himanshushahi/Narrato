@@ -1,7 +1,6 @@
 import json
 import os
 import threading
-from pathlib import Path
 
 from backend.core.config import BASE_DIR, is_production
 

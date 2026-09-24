@@ -16,7 +16,6 @@ from its own cache dir and a ``render_props.still.json`` sidecar.
 import hashlib
 import json
 import os
-import re
 import subprocess
 import threading
 from pathlib import Path
@@ -58,7 +57,6 @@ def still_cache_key(script_hash: str, design_hash: str, frame: int,
 
 def _render_context(project_id: str):
     """Shared node/bundle/ffmpeg resolution (mirrors render.render_pipeline)."""
-    from backend.core.config import is_production, get_remotion_cache_dir
     proj = _db.get_project(project_id)
     if not proj:
         raise ValueError(f"Project {project_id!r} not found in database.")

@@ -1,8 +1,5 @@
-import os
 import time
 import threading
-import traceback
-from pathlib import Path
 from backend.core.logger import logger
 from backend.database.db import (
     get_project, update_project, create_task, update_task, get_project_tasks, get_task
@@ -259,7 +256,7 @@ class QueueManager:
                 time.sleep(0.5)
                 continue
 
-            project_id, steps, is_resume = self._queue.pop(0)
+            project_id, steps, _is_resume = self._queue.pop(0)
             self._active_project_id = project_id
             self._broadcast_queue_status()
 
@@ -301,8 +298,8 @@ class QueueManager:
                     except Exception as e:
                         logger.error(f"Error executing step {step} for project {project_id}: {e}", exc_info=True)
                         err_msg = str(e)
-                        stack = traceback.format_exc()
-                        
+                        # Full traceback already captured via exc_info=True above; no
+                        # separate stack variable needed.
                         # Don't reset progress to 0.0 on failure
                         update_task(task_id, status='failed', error_message=err_msg, message=f'Failed: {err_msg[:50]}...')
                         

@@ -1,16 +1,12 @@
 import concurrent.futures
 import json
 import re
-import requests
 import time
 import random
 import ast
 import hashlib
 import threading
-from backend.database.db import get_setting, update_project
 from backend.core.logger import logger
-import urllib.request
-import urllib.parse
 from pathlib import Path
 from backend.agent.skill_loader import skill_loader
 from backend.pipeline.assets import _has_meaningful_sub_visuals
@@ -170,7 +166,7 @@ from backend.agent.schemas import (
     ScriptIntroResponse, ScriptConclusionResponse, ScriptSceneResponse,
     BaseScriptResponse, OutlineResponse, StoryboardPlanResponse,
     DesignSystemResponse, SubVisualAST, VisualsArrayResponse,
-    AnimationNode, ASTLayerNode, LayerContent, SequenceComposition,
+    AnimationNode, ASTLayerNode, LayerContent,
     get_model_json_schema, parse_and_validate_model
 )
 
@@ -419,6 +415,7 @@ def _safe_str(val):
 
 def _extract_chapters_from_outline(outline_data, min_scenes: int = 4, max_scenes: int = 8, topic: str = ""):
     """Robustly extracts and normalizes chapter objects from diverse LLM outline structures."""
+    _ = max_scenes  # kept for API compatibility; callers apply the cap
     raw_chapters = None
     if isinstance(outline_data, list):
         raw_chapters = outline_data
@@ -848,6 +845,7 @@ def _resolve_llm_config(provider_override=None):
     Returns a dict with: provider, api_key, base_url, model, temperature, max_tokens, top_p
     Raises ValueError if no API key is configured.
     """
+    _ = provider_override  # reserved; config currently resolves from DB settings
     from backend.database.db import get_setting
 
     api_key = get_setting("openai_api_key")
@@ -1853,6 +1851,7 @@ def _skill_content(name: str) -> str:
 
 def _visual_rules_legacy_fallback(video_format: str, language: str) -> str:
     """Fallback rules if declarative-ast skill is missing."""
+    _ = language  # kept for signature parity with _visual_rules_safety_net
     return f"""
 === VISUAL COMPOSITION SCHEMA ===
 You must use the declarative AST format for all visual compositions.
@@ -1982,6 +1981,7 @@ def get_shared_visual_rules(video_format: str, language: str = "hi") -> str:
 
 
 def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=False):
+    _ = force  # kept for API parity with queue reruns; visuals always regenerate
     from backend.database.db import get_setting, update_project, get_project
     from backend.core.logger import logger
 
@@ -2118,8 +2118,6 @@ ERROR PREVENTION:
                 transcription_data = json.load(f)
         except Exception as e:
             logger.error(f"Failed to load transcription: {e}")
-
-    cumulative_time = 0.0
 
     def _throttled_progress(pct, msg):
         """Throttle progress updates to max every 500ms to avoid UI flooding."""

@@ -1,5 +1,4 @@
 import os
-import sys
 import json
 import re
 import subprocess
@@ -9,7 +8,7 @@ import math
 import threading
 from pathlib import Path
 from backend.database.db import get_setting, update_project
-from backend.core.config import get_temp_dir, get_node_path, get_remotion_cache_dir, get_startupinfo, is_production
+from backend.core.config import get_node_path, get_remotion_cache_dir, get_startupinfo, is_production
 from backend.core.logger import logger
 from backend.core.media_types import VIDEO_EXTS, infer_media_type
 from backend.pipeline.assets import normalize_video_asset
@@ -230,6 +229,7 @@ def compute_frame_hash(props_dict, render_settings):
 def compute_audio_hash(props_dict, render_settings):
     """Hash of audio-relevant properties only (bg_music, volumes, narration path, video audio).
     Scene visuals and encode settings don't affect the audio mix."""
+    _ = render_settings  # kept for caller parity; only props_dict affects the hash
     scene_durations = [sc.get("duration") for sc in props_dict.get("scenes", [])]
     mute_video_audio = props_dict.get("muteVideoAudio", False)
     audio_props = {
@@ -919,7 +919,7 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
 
     project_dir = Path(project_dir)
     (
-        props, render_settings, scenes, transcript, audio_path,
+        props, render_settings, scenes, _transcript, audio_path,
         render_track_overrides, project_settings, cleaned_music_clips,
         cleaned_sfx_clips
     ) = prepare_render_props_and_settings(project_dict, project_dir, normalize_assets=True, progress_cb=progress_cb, cancel_event=cancel_event)

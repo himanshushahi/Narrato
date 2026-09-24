@@ -4,7 +4,6 @@ import hashlib
 import requests
 import subprocess
 from pathlib import Path
-from urllib.parse import urlparse
 from backend.database.db import get_setting, get_project, update_project
 from backend.core.logger import logger
 from backend.core.config import get_ytdlp_path, get_ffmpeg_path, get_startupinfo
@@ -721,6 +720,7 @@ def search_pixabay_photo(query, api_key, video_format=None, image_type: str = "a
 
 def search_pixabay_video(query, api_key, video_format=None):
     """Searches Pixabay for a video matching the query. Returns url to download."""
+    _ = video_format  # kept for caller parity; Pixabay video API takes no orientation param
     if not api_key:
         return None
     import random
@@ -924,6 +924,7 @@ def download_youtube_video(query, dest_path, start_offset=15, duration=15, cance
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, startupinfo=startupinfo)
 
         stdout, stderr = "", ""
+        _ = stdout  # stdout is captured but only stderr is read; keep the drain
         while True:
             if cancel_event and cancel_event.is_set():
                 process.terminate()
