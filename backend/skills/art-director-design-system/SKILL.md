@@ -20,7 +20,7 @@ when_to_use: "Used during project initialization to generate the global design.j
 
 | Field | Sub-Property | Type | Required | Description & Standard Defaults |
 |---|---|---|---|---|
-| `theme_name` | — | `string` | Yes | Descriptive 2–4 word aesthetic title (e.g., `"Oceanic Deep Tech"`, `"Cyberpunk Glow"`, `"Editorial Minimalist"`, `"Warm Amber Narrative"`, `"Paper Daylight"`). |
+| `theme_name` | — | `string` | Yes | Novel 2–4 word aesthetic title YOU INVENT for this topic (never reuse suggestion-list names or past outputs). |
 | `color_palette` | `background` | `string (hex)` | Yes | Canvas base: Dark cinematic (e.g. `#0b0b1a`, `#0f172a`) or light editorial (`#faf7f0`, `#f8fafc`). |
 | | `primary` | `string (hex)` | Yes | High-contrast brand anchor (`#facc15`, `#00d4ff`, `#10b981`, `#f59e0b`). |
 | | `secondary` | `string (hex)` | Yes | Complementary tone (`#818cf8`, `#8b5cf6`, `#fbbf24`). |
@@ -34,8 +34,15 @@ when_to_use: "Used during project initialization to generate the global design.j
 
 ## 2. Design System Guidelines & Token Roles
 
-DESIGN GUIDELINES (any genre-fitting palette allowed — dark cinematic is a strong default, light/editorial/mono themes allowed):
-- **theme_name**: A descriptive 2-4 word aesthetic title for the theme (e.g., "Oceanic Deep Tech", "Cyberpunk Glow", "Editorial Minimalist", "Warm Amber Narrative", "Paper Daylight").
+VARIETY & ANTI-REPETITION RULES (highest priority — the user complains every theme looks the same):
+- NEVER copy the example hex codes in this spec (`#0b0b1a`, `#0f172a`, `#00d4ff`, `#facc15`, `#ef4444`, `#faf7f0`) or the genre reference palette verbatim. They are genre anchors, not outputs. Every generation MUST emit a visibly fresh palette.
+- ALWAYS honor the `ASSIGNED VARIETY DIRECTION` from the genre block (lighting + hue lane). It overrides the "dark cinematic" default. Dark cinematic is only ONE of many allowed looks — light editorial, mono+pop, earth, teal, plum, frost, duotone, moss, noir, slate, and sand are equally valid.
+- theme_name MUST be novel (2–4 words you invent for this topic). NEVER reuse the suggestion list verbatim and NEVER repeat "Oceanic Deep Tech" / "Cyberpunk Glow" style names across projects.
+- Derive at least one hue cue from the video Topic/Title (e.g. finance+gold, ocean+teal, crime+crimson) so different topics never converge to one palette.
+- Keep WCAG AA contrast: text vs background ≥ 4.5:1, primary vs background ≥ 3:1. banned pairs: near-identical background+text, two neon primaries that vibrate.
+
+DESIGN GUIDELINES (any genre-fitting palette allowed):
+- **theme_name**: A novel 2-4 word aesthetic title you invent for THIS topic (never a suggestion-list copy).
 - **color_palette**: Modern, vibrant, highly readable hex codes aligned with genre.
   * **background**: Any readable canvas — dark cinematic (e.g. `#0b0b1a`, `#0f172a`) or light editorial (e.g. `#faf7f0`, `#f8fafc`) when the story fits.
   * **primary**: High-contrast primary brand color (e.g., `#facc15`, `#00d4ff`, `#10b981`, `#f59e0b`).
@@ -60,7 +67,8 @@ CRITICAL COMPLEX SCRIPT (CTL) FONT RULE:
 
 ## 4. Output JSON Contract
 
-Return ONLY valid JSON matching this schema:
+Return ONLY valid JSON matching this schema.
+NOTE: the values below are a SHAPE EXAMPLE ONLY — DO NOT copy these hex codes, theme name, or fonts into your answer. Invent fresh values per the variety rules above.
 
 ```json
 {

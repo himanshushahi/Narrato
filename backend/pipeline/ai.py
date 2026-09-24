@@ -327,7 +327,10 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
     is_new = True
     from backend.agent.skill_loader import skill_loader
     from backend.pipeline.genres import format_genre_design_prompt
-    genre_guidance = format_genre_design_prompt(video_type)
+    import uuid
+    _variety_seed = uuid.uuid4().hex
+    _video_title = script_data.get('title', 'Untitled')
+    genre_guidance = format_genre_design_prompt(video_type, topic=topic, title=_video_title, seed_hint=_variety_seed)
 
     system_prompt = skill_loader.render_skill(
         "art-director-design-system",
@@ -346,9 +349,15 @@ DESIGN GUIDELINES:
 - color_palette: Must use modern, vibrant, or highly readable hex codes aligned with the genre.
 - css_guidelines: Provide brief layout and aesthetic styling rules (e.g. contrast, accents, card borders, typography scales).
 - fonts: CRITICAL - If Language is a complex script (like Hindi/hi, Tamil/ta, Bengali/bn, Arabic), you MUST specify Noto fonts (e.g. `Noto Sans Devanagari`) to prevent broken rendering. For English, use modern fonts (e.g. Inter, Outfit, Oswald).
+- VARIETY: invent a FRESH palette + novel theme_name for this exact topic. NEVER copy example hex codes or suggestion-list names. Surprise the user.
 """
-    import uuid
-    user_prompt = f"Topic: {topic}\nGenre: {video_type.upper()}\nLanguage: {language}\nVideo Title: {script_data.get('title', 'Untitled')}\nRequest ID: {uuid.uuid4().hex}\n"
+    user_prompt = (
+        f"Topic: {topic}\nGenre: {video_type.upper()}\nLanguage: {language}\n"
+        f"Video Title: {_video_title}\nRequest ID: {_variety_seed}\n"
+        f"VARIETY BRIEF: This must look unmistakably different from a generic dark-navy/cyan theme. "
+        f"Follow the ASSIGNED VARIETY DIRECTION in the genre block, invent never-before-used hex codes, "
+        f"and give a surprising 2-4 word theme_name tied to '{topic}'.\n"
+    )
     
     from backend.core.logger import logger
     logger.info("Generating global Design System...")

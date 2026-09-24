@@ -6,6 +6,8 @@ and motion defaults for each supported video style.
 """
 
 from typing import Dict, Any
+import hashlib
+import random
 
 
 GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -309,16 +311,60 @@ def get_genre_profile(genre: str) -> Dict[str, Any]:
     return GENRE_PROFILES.get(key, GENRE_PROFILES["documentary"])
 
 
-def format_genre_design_prompt(genre: str) -> str:
-    """Formats genre-tailored aesthetic guidance for the Art Director design system prompt."""
+def format_genre_design_prompt(genre: str, topic: str = "", title: str = "", seed_hint: str = "") -> str:
+    """Formats genre-tailored aesthetic guidance for the Art Director design system prompt.
+
+    Variety mechanism: every call assigns ONE deterministic-but-rotating color
+    direction derived from topic/title/seed so the LLM cannot fall back to the
+    same dark-navy + cyan palette each time. The per-genre palette_guide is kept
+    as a genre anchor but is explicitly labeled REFERENCE-ONLY (do not copy).
+    """
     profile = get_genre_profile(genre)
     ds = profile["design_system"]
     themes = ", ".join(f'"{t}"' for t in ds["theme_suggestions"])
+    direction = pick_variety_direction(topic, title, seed_hint)
     return f"""GENRE CONTEXT ({profile['name'].upper()}):
 - Target Style: {profile['name']} — {profile['tagline']}
-- Theme Suggestions: {themes}
-- Recommended Palette: {ds['palette_guide']}
-- Aesthetic Guidelines: {ds['css_guidelines']}"""
+- Theme Suggestions (invent your own 2-4 word name — do NOT reuse these verbatim): {themes}
+- Reference Palette (GENRE ANCHOR ONLY — DO NOT COPY these hex values verbatim, invent a fresh palette in the same spirit): {ds['palette_guide']}
+- Aesthetic Guidelines: {ds['css_guidelines']}
+- ASSIGNED VARIETY DIRECTION (MUST FOLLOW — this is how you surprise the user): {direction}
+  * Honor the genre mood above AND the lighting/hue constraint of this direction.
+  * Your background/primary/secondary/accent hex codes MUST be visibly different from the reference palette.
+  * Never emit #0b0b1a / #0f172a / #00d4ff / #facc15 unless the assigned direction explicitly calls for them."""
+
+
+# Distinct lighting + hue lanes the Art Director must rotate through.
+# Each lane stays WCAG-readable but forces a visibly different first impression
+# (dark cinematic is only ONE of many allowed looks).
+VARIETY_DIRECTIONS = [
+    "DARK CINEMATIC — near-black background, one hot neon primary, cool secondary",
+    "LIGHT EDITORIAL — warm paper background (#faf7f0 family), ink text, one saturated primary",
+    "MIDNIGHT MONO + SINGLE POP — charcoal/graphite background, grayscale secondary, exactly one vivid accent",
+    "DEEP EARTH — espresso/forest background, amber/honey primary, sage secondary",
+    "OCEANIC TEAL — deep teal/petrol background, aqua primary, coral accent",
+    "ROYAL PLUM — dark plum/eggplant background, gold primary, orchid secondary",
+    "ARCTIC FROST — pale icy background, navy ink text, electric-blue primary",
+    "SUNSET DUOTONE — warm dusk background, tangerine primary, magenta accent",
+    "FOREST MOSS — dark moss background, lime/mint primary, sand secondary",
+    "CRIMSON NOIR — black-red background, crimson primary, bone text",
+    "SLATE MINIMAL — light slate background, slate-900 text, single indigo primary",
+    "DESERT SAND — sandy beige background, burnt-orange primary, olive secondary",
+]
+
+
+def pick_variety_direction(topic: str = "", title: str = "", seed_hint: str = "") -> str:
+    """Deterministically pick a variety lane from topic/title/seed.
+
+    Same topic+title reuses its lane (stable regenerations); different topics
+    spread across lanes. A random seed_hint (e.g. uuid per request) further
+    rotates the lane so consecutive 'Regenerate' clicks surprise the user.
+    """
+    key = f"{topic or ''}|{title or ''}|{seed_hint or ''}".strip("|")
+    if not key:
+        return random.choice(VARIETY_DIRECTIONS)
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    return VARIETY_DIRECTIONS[int.from_bytes(digest[:2], "big") % len(VARIETY_DIRECTIONS)]
 
 
 def format_genre_script_prompt(genre: str) -> str:
