@@ -21,11 +21,11 @@ when_to_use: "Used during project initialization to generate the global design.j
 | Field | Sub-Property | Type | Required | Description & Standard Defaults |
 |---|---|---|---|---|
 | `theme_name` | — | `string` | Yes | Novel 2–4 word aesthetic title YOU INVENT for this topic (never reuse suggestion-list names or past outputs). |
-| `color_palette` | `background` | `string (hex)` | Yes | Canvas base: Dark cinematic (e.g. `#0b0b1a`, `#0f172a`) or light editorial (`#faf7f0`, `#f8fafc`). |
-| | `primary` | `string (hex)` | Yes | High-contrast brand anchor (`#facc15`, `#00d4ff`, `#10b981`, `#f59e0b`). |
-| | `secondary` | `string (hex)` | Yes | Complementary tone (`#818cf8`, `#8b5cf6`, `#fbbf24`). |
-| | `accent` | `string (hex)` | Yes | High-visibility callout (`#ef4444`, `#f43f5e`, `#10b981`). |
-| | `text` | `string (hex)` | Yes | Maximum contrast text (`#f8fafc` on dark backgrounds, `#0f172a` on light). |
+| `color_palette` | `background` | `string (hex)` | Yes | Canvas base YOU INVENT per the assigned variety direction (dark, light, or mid-tone — any `#RRGGBB` with strong text contrast). |
+| | `primary` | `string (hex)` | Yes | High-contrast brand anchor YOU INVENT (any saturated `#RRGGBB`, never a spec-example copy). |
+| | `secondary` | `string (hex)` | Yes | Complementary tone YOU INVENT (distinct hue family from primary). |
+| | `accent` | `string (hex)` | Yes | High-visibility callout YOU INVENT (highest contrast against background). |
+| | `text` | `string (hex)` | Yes | Maximum contrast text YOU INVENT (light `#RRGGBB` on dark backgrounds, dark `#RRGGBB` on light). |
 | `typography` | `heading_font` | `string` | Yes | Main display font for titles/headers. |
 | | `body_font` | `string` | Yes | Highly readable body font for cards and subtitles. |
 | `css_guidelines` | — | `string` | Yes | Brief layout, border radius, contrast, and typography styling rules. |
@@ -43,12 +43,12 @@ VARIETY & ANTI-REPETITION RULES (highest priority — the user complains every t
 
 DESIGN GUIDELINES (any genre-fitting palette allowed):
 - **theme_name**: A novel 2-4 word aesthetic title you invent for THIS topic (never a suggestion-list copy).
-- **color_palette**: Modern, vibrant, highly readable hex codes aligned with genre.
-  * **background**: Any readable canvas — dark cinematic (e.g. `#0b0b1a`, `#0f172a`) or light editorial (e.g. `#faf7f0`, `#f8fafc`) when the story fits.
-  * **primary**: High-contrast primary brand color (e.g., `#facc15`, `#00d4ff`, `#10b981`, `#f59e0b`).
-  * **secondary**: Complementary secondary tone (e.g., `#818cf8`, `#8b5cf6`, `#fbbf24`).
-  * **accent**: High-visibility callout accent (e.g., `#ef4444`, `#f43f5e`, `#10b981`).
-  * **text**: Readable text color with strong contrast on background (e.g. `#f8fafc` on dark, `#0f172a` on light).
+- **color_palette**: Modern, vibrant, highly readable hex codes aligned with genre AND the assigned variety direction.
+  * **background**: A canvas YOU INVENT to match the assigned lighting lane (dark, light, or mid-tone — never a spec-example copy).
+  * **primary**: A high-contrast brand color YOU INVENT (saturated, genre-fitting, distinct from the reference palette).
+  * **secondary**: A complementary tone YOU INVENT (different hue family from primary).
+  * **accent**: A high-visibility callout YOU INVENT (maximum pop against background).
+  * **text**: A readable color YOU INVENT with strong contrast on background (light on dark, dark on light).
 - **typography**:
   * **heading_font**: Main display font for titles/headers.
   * **body_font**: Highly readable body font for cards/subtitles.
@@ -72,19 +72,19 @@ NOTE: the values below are a SHAPE EXAMPLE ONLY — DO NOT copy these hex codes,
 
 ```json
 {
-  "theme_name": "Oceanic Deep Tech",
+  "theme_name": "Copper Atlas Memoir",
   "color_palette": {
-    "background": "#0b0b1a",
-    "primary": "#00d4ff",
-    "secondary": "#818cf8",
-    "accent": "#ef4444",
-    "text": "#f8fafc"
+    "background": "#17352a",
+    "primary": "#e07a2c",
+    "secondary": "#7fb069",
+    "accent": "#d6495b",
+    "text": "#f4f1e8"
   },
   "typography": {
     "heading_font": "Outfit",
     "body_font": "Inter"
   },
-  "css_guidelines": "High-contrast dark canvas with subtle glowing cyan accents and rounded 16px cards."
+  "css_guidelines": "Warm moss canvas with copper accents and rounded 16px cards."
 }
 ```
 
@@ -92,7 +92,8 @@ NOTE: the values below are a SHAPE EXAMPLE ONLY — DO NOT copy these hex codes,
 
 ## 5. Verification Checklist
 
-- [ ] Theme name is descriptive (2–4 words)
+- [ ] Theme name is novel (2–4 words, not a suggestion-list copy)
+- [ ] Palette is visibly different from the genre reference palette and honors the assigned variety direction
 - [ ] Hex colors provide sufficient contrast ratio (WCAG AA compliant)
 - [ ] If language is non-Latin, fonts use appropriate Noto family (`Noto Sans Devanagari`, etc.)
 - [ ] Output is 100% valid JSON without markdown wrapping or backticks

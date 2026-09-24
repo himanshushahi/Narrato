@@ -314,22 +314,26 @@ def get_genre_profile(genre: str) -> Dict[str, Any]:
 def format_genre_design_prompt(genre: str, topic: str = "", title: str = "", seed_hint: str = "") -> str:
     """Formats genre-tailored aesthetic guidance for the Art Director design system prompt.
 
-    Variety mechanism: every call assigns ONE deterministic-but-rotating color
-    direction derived from topic/title/seed so the LLM cannot fall back to the
-    same dark-navy + cyan palette each time. The per-genre palette_guide is kept
-    as a genre anchor but is explicitly labeled REFERENCE-ONLY (do not copy).
+    Variety mechanism: every call assigns ONE rotating color direction derived
+    from topic/title/seed so the LLM cannot fall back to the same dark-navy +
+    cyan palette each time. A fresh seed_hint per request means consecutive
+    regenerations rotate lanes; repeat stability comes from the design.json
+    cache (generate_project_design_system reuses the saved design instead of
+    calling the LLM again), not from lane reuse. The per-genre palette_guide
+    is kept as a genre anchor but is explicitly labeled REFERENCE-ONLY
+    (do not copy).
     """
     profile = get_genre_profile(genre)
     ds = profile["design_system"]
     themes = ", ".join(f'"{t}"' for t in ds["theme_suggestions"])
-    direction = pick_variety_direction(topic, title, seed_hint)
+    direction = pick_variety_direction(topic, title, seed_hint, genre=normalize_genre_key(genre))
     return f"""GENRE CONTEXT ({profile['name'].upper()}):
 - Target Style: {profile['name']} — {profile['tagline']}
 - Theme Suggestions (invent your own 2-4 word name — do NOT reuse these verbatim): {themes}
 - Reference Palette (GENRE ANCHOR ONLY — DO NOT COPY these hex values verbatim, invent a fresh palette in the same spirit): {ds['palette_guide']}
 - Aesthetic Guidelines: {ds['css_guidelines']}
 - ASSIGNED VARIETY DIRECTION (MUST FOLLOW — this is how you surprise the user): {direction}
-  * Honor the genre mood above AND the lighting/hue constraint of this direction.
+  * Honor the genre mood above AND the lighting/hue constraint of this direction. If they clash, keep the direction's lighting but preserve one genre-anchor hue family so the result stays on-brand.
   * Your background/primary/secondary/accent hex codes MUST be visibly different from the reference palette.
   * Never emit #0b0b1a / #0f172a / #00d4ff / #facc15 unless the assigned direction explicitly calls for them."""
 
@@ -352,19 +356,35 @@ VARIETY_DIRECTIONS = [
     "DESERT SAND — sandy beige background, burnt-orange primary, olive secondary",
 ]
 
+# Genre -> lane keywords excluded so dark-brand genres never get light lanes
+# and warm personal genres never get harsh noir/mono lanes.
+_GENRE_LANE_EXCLUSIONS = {
+    "true_crime": ("LIGHT EDITORIAL", "ARCTIC FROST", "SLATE MINIMAL", "DESERT SAND"),
+    "viral_short": ("LIGHT EDITORIAL", "ARCTIC FROST", "SLATE MINIMAL", "DESERT SAND"),
+    "news": ("DESERT SAND", "DEEP EARTH", "FOREST MOSS", "SUNSET DUOTONE"),
+    "storytime": ("CRIMSON NOIR", "MIDNIGHT MONO"),
+}
 
-def pick_variety_direction(topic: str = "", title: str = "", seed_hint: str = "") -> str:
+
+def pick_variety_direction(topic: str = "", title: str = "", seed_hint: str = "", genre: str = "") -> str:
     """Deterministically pick a variety lane from topic/title/seed.
 
-    Same topic+title reuses its lane (stable regenerations); different topics
-    spread across lanes. A random seed_hint (e.g. uuid per request) further
-    rotates the lane so consecutive 'Regenerate' clicks surprise the user.
+    Every distinct seed_hint rotates the lane, so consecutive 'Regenerate'
+    clicks surprise the user. Repeat stability is provided by the design.json
+    cache (no new LLM call), not by lane reuse. Lanes that clash with the
+    genre brand (e.g. light editorial on true_crime) are filtered out first.
     """
+    lanes = list(VARIETY_DIRECTIONS)
+    excluded = _GENRE_LANE_EXCLUSIONS.get((genre or "").strip().lower(), ())
+    if excluded:
+        filtered = [lane for lane in lanes if not lane.startswith(excluded)]
+        if filtered:
+            lanes = filtered
     key = f"{topic or ''}|{title or ''}|{seed_hint or ''}".strip("|")
     if not key:
-        return random.choice(VARIETY_DIRECTIONS)
+        return random.choice(lanes)
     digest = hashlib.sha256(key.encode("utf-8")).digest()
-    return VARIETY_DIRECTIONS[int.from_bytes(digest[:2], "big") % len(VARIETY_DIRECTIONS)]
+    return lanes[int.from_bytes(digest[:2], "big") % len(lanes)]
 
 
 def format_genre_script_prompt(genre: str) -> str:

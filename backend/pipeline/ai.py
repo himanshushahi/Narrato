@@ -6,6 +6,7 @@ import random
 import ast
 import hashlib
 import threading
+import uuid
 from backend.core.logger import logger
 from pathlib import Path
 from backend.agent.skill_loader import skill_loader
@@ -327,9 +328,8 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
     is_new = True
     from backend.agent.skill_loader import skill_loader
     from backend.pipeline.genres import format_genre_design_prompt
-    import uuid
     _variety_seed = uuid.uuid4().hex
-    _video_title = script_data.get('title', 'Untitled')
+    _video_title = (script_data or {}).get('title', 'Untitled')
     genre_guidance = format_genre_design_prompt(video_type, topic=topic, title=_video_title, seed_hint=_variety_seed)
 
     system_prompt = skill_loader.render_skill(
