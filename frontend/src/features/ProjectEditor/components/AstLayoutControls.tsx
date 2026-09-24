@@ -296,9 +296,8 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
       setDraftRadius('');
       return;
     }
-    // Unitless bare number: "24", "-10", etc.
-    if (/^[-\d.]+$/.test(t)) {
-      const num = parseFloat(t);
+    // Shared positive-number commit for the unitless and px branches.
+    const commitPositivePx = (num: number) => {
       if (!Number.isFinite(num) || num <= 0) {
         handleUpdate('borderRadius', undefined);
         setDraftRadius('');
@@ -307,6 +306,10 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
       const formatted = `${num}px`;
       handleUpdate('borderRadius', formatted);
       setDraftRadius(formatted);
+    };
+    // Unitless bare number: "24", "-10", etc.
+    if (/^[-\d.]+$/.test(t)) {
+      commitPositivePx(parseFloat(t));
       return;
     }
     // Ends with %
@@ -333,15 +336,7 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
     }
     // Ends with px
     if (t.endsWith('px')) {
-      const num = parseFloat(t.slice(0, -2));
-      if (!Number.isFinite(num) || num <= 0) {
-        handleUpdate('borderRadius', undefined);
-        setDraftRadius('');
-        return;
-      }
-      const formatted = `${num}px`;
-      handleUpdate('borderRadius', formatted);
-      setDraftRadius(formatted);
+      commitPositivePx(parseFloat(t.slice(0, -2)));
       return;
     }
     // Fallback: any other valid CSS string

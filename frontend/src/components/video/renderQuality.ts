@@ -16,7 +16,7 @@
 
 export type QualityMode = 'preview' | 'export';
 
-export type MotionBlurMode = 'off' | 'balanced' | 'full';
+type MotionBlurMode = 'off' | 'balanced' | 'full';
 
 export interface QualityPolicy {
   motionBlur: MotionBlurMode;

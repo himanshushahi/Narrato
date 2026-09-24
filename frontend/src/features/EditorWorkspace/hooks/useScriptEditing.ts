@@ -14,6 +14,29 @@ function isTempPreviewFile(filePath: string | undefined | null): boolean {
   return lower.includes('/previews/') || lower.includes('\\previews\\') || lower.includes('preview_') || lower.includes('upload_');
 }
 
+/**
+ * Shared temp-preview cleanup (layer + cut eviction paths): only delete
+ * physical files no surviving preview entry still references, then ask the
+ * backend to remove the owned ones. Keeps the StrictMode-safe updater pure.
+ */
+function cleanupOwnedTempPaths(
+  current: Record<string, { visual_path?: string }>,
+  toCleanup: string[],
+  evictedKeys: Set<string>,
+  projectId: string | undefined,
+): void {
+  const survivingPaths = new Set(
+    Object.entries(current)
+      .filter(([k, v]) => !evictedKeys.has(k) && !!v?.visual_path)
+      .map(([, v]) => v.visual_path as string),
+  );
+  const ownedCleanup = toCleanup.filter((p) => !survivingPaths.has(p));
+
+  if (ownedCleanup.length > 0 && projectId) {
+    callApi('cleanup_preview_assets', projectId, ownedCleanup).catch(() => {});
+  }
+}
+
 /** Canonical section type: 'scenes' (script docs + Visuals tab) and 'scene'
  * (manifest entries) refer to the same thing. Normalize once so every
  * branch below only deals with 'scene'. */
@@ -1732,16 +1755,7 @@ export function useScriptEditing(
     // counts as surviving unless it is itself evicted below.
     const cutEvicted = (current[cutKey]?.layerIdx === layerIdx);
     const evictedKeys = new Set(cutEvicted ? [targetKey, cutKey] : [targetKey]);
-    const survivingPaths = new Set(
-      Object.entries(current)
-        .filter(([k, v]) => !evictedKeys.has(k) && !!v?.visual_path)
-        .map(([, v]) => v.visual_path as string),
-    );
-    const ownedCleanup = toCleanup.filter((p) => !survivingPaths.has(p));
-
-    if (ownedCleanup.length > 0 && projectId) {
-      callApi('cleanup_preview_assets', projectId, ownedCleanup).catch(() => {});
-    }
+    cleanupOwnedTempPaths(current, toCleanup, evictedKeys, projectId);
 
     // 2. Pure state transition
     setPreviewAssets(prev => {
@@ -1888,16 +1902,7 @@ export function useScriptEditing(
     }
     // Duplicated cuts/layers can share one physical temp file — only delete
     // paths no surviving entry still references.
-    const survivingPaths = new Set(
-      Object.entries(current)
-        .filter(([k, v]) => !evictedCutKeys.has(k) && !!v?.visual_path)
-        .map(([, v]) => v.visual_path as string),
-    );
-    const ownedCleanup = toCleanup.filter((p) => !survivingPaths.has(p));
-
-    if (ownedCleanup.length > 0 && projectId) {
-      callApi('cleanup_preview_assets', projectId, ownedCleanup).catch(() => {});
-    }
+    cleanupOwnedTempPaths(current, toCleanup, evictedCutKeys, projectId);
 
     // 2. Pure state transition
     setPreviewAssets(prev => {

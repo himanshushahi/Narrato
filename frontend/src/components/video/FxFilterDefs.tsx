@@ -10,15 +10,6 @@ import React from 'react';
  *
  * IDs are fixed on purpose (defs are static presets, never per-instance).
  */
-export const FX_FILTER_IDS = [
-  'fx-emboss',
-  'fx-sharpen',
-  'fx-posterize',
-  'fx-duotone-midnight',
-  'fx-duotone-inferno',
-  'fx-thermal',
-] as const;
-
 export const FxFilterDefs: React.FC = () => (
   <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
     <defs>

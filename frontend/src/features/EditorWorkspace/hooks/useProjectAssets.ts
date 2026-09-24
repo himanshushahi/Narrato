@@ -127,7 +127,8 @@ export function useProjectAssets(
               const contentType = content.type;
               const layerKey = `sc-${sceneIdx}-sub-${subIdx}-lay-${layerIdx}`;
 
-              if (contentType === 'Video') {
+              if (contentType === 'Video' || contentType === 'Image') {
+                const isVideo = contentType === 'Video';
                 const filePath = content.local_path || sv.visual_path || '';
                 const filename = filePath ? filePath.split(/[/\\]/).pop() || '' : '';
                 if (filename) claimedFilenames.add(filename);
@@ -140,9 +141,9 @@ export function useProjectAssets(
                   sectionType,
                   subIndex: subIdx,
                   layerIndex: layerIdx,
-                  category: 'video',
-                  assetType: 'Video',
-                  title: content.query || filename || `Video Layer ${layerIdx + 1}`,
+                  category: isVideo ? 'video' : 'image',
+                  assetType: contentType,
+                  title: content.query || filename || `${contentType} Layer ${layerIdx + 1}`,
                   source: content.source ? (content.source.charAt(0).toUpperCase() + content.source.slice(1)) : 'Pexels',
                   filePath: filePath || diskInfo?.path,
                   filename: filename || diskInfo?.filename,
@@ -151,35 +152,7 @@ export function useProjectAssets(
                   fileExists: !!diskInfo || (!!filePath && !filePath.startsWith('http')),
                   fileSize: diskInfo?.size_bytes,
                   lastModified: diskInfo?.last_modified,
-                  extension: diskInfo?.extension || (filePath ? '.' + filePath.split('.').pop()?.toLowerCase() : '.mp4'),
-                  timing: subTiming,
-                  isProgrammatic: false,
-                });
-              } else if (contentType === 'Image') {
-                const filePath = content.local_path || sv.visual_path || '';
-                const filename = filePath ? filePath.split(/[/\\]/).pop() || '' : '';
-                if (filename) claimedFilenames.add(filename);
-                const diskInfo = filename ? diskFilesMap[filename] : undefined;
-
-                result.push({
-                  key: layerKey,
-                  sceneIndex: sceneIdx,
-                  sceneTitle,
-                  sectionType,
-                  subIndex: subIdx,
-                  layerIndex: layerIdx,
-                  category: 'image',
-                  assetType: 'Image',
-                  title: content.query || filename || `Image Layer ${layerIdx + 1}`,
-                  source: content.source ? (content.source.charAt(0).toUpperCase() + content.source.slice(1)) : 'Pexels',
-                  filePath: filePath || diskInfo?.path,
-                  filename: filename || diskInfo?.filename,
-                  mediaUrl: filePath ? getMediaUrlSync(filePath) : (diskInfo?.path ? getMediaUrlSync(diskInfo.path) : ''),
-                  duration: sv.duration,
-                  fileExists: !!diskInfo || (!!filePath && !filePath.startsWith('http')),
-                  fileSize: diskInfo?.size_bytes,
-                  lastModified: diskInfo?.last_modified,
-                  extension: diskInfo?.extension || (filePath ? '.' + filePath.split('.').pop()?.toLowerCase() : '.jpg'),
+                  extension: diskInfo?.extension || (filePath ? '.' + filePath.split('.').pop()?.toLowerCase() : (isVideo ? '.mp4' : '.jpg')),
                   timing: subTiming,
                   isProgrammatic: false,
                 });

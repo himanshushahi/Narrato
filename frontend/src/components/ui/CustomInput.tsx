@@ -6,30 +6,41 @@ interface CustomInputProps extends InputHTMLAttributes<HTMLInputElement> {
   icon?: React.ReactNode;
 }
 
-export const CustomInput: React.FC<CustomInputProps> = React.memo(({ label, icon, className = '', type, value, onChange, onFocus, onBlur, ...props }) => {
-  const [showPassword, setShowPassword] = useState(false);
+/**
+ * Shared external-sync state for CustomInput/CustomTextarea: resync only when
+ * the prop value differs from the last value reported, never while focused.
+ * (A transforming/debouncing parent would otherwise echo a different value
+ * and clobber in-flight text.)
+ */
+function useSyncedFieldValue<T>(value: T | undefined, defaultValue: T) {
   const [isFocused, setIsFocused] = useState(false);
-  const [localValue, setLocalValue] = useState(value ?? '');
-  const lastReportedRef = useRef(value ?? '');
+  const [localValue, setLocalValue] = useState(value ?? defaultValue);
+  const lastReportedRef = useRef(value ?? defaultValue);
 
-  // Keep the input in sync with external value changes (AI rewrites, resets,
-  // async updates) without clobbering the user's own typing: only resync when
-  // the prop value differs from the last value this input reported. The focus
-  // guard is essential: a parent that transforms or debounces its updates
-  // (e.g. stores parseFloat(v)) echoes a value that differs from what we
-  // reported, and syncing to it while the user is typing would strip
-  // characters mid-keystroke.
+  // Keep the field in sync with external value changes (AI rewrites, resets,
+  // async updates) without clobbering the user's own typing.
   useEffect(() => {
     if (!isFocused && value !== lastReportedRef.current) {
-      setLocalValue(value ?? '');
-      lastReportedRef.current = value ?? '';
+      setLocalValue(value ?? defaultValue);
+      lastReportedRef.current = value ?? defaultValue;
     }
-  }, [value, isFocused]);
+  }, [value, isFocused, defaultValue]);
+
+  const reportChange = (v: T) => {
+    setLocalValue(v);
+    lastReportedRef.current = v;
+  };
+
+  return { isFocused, setIsFocused, localValue, reportChange };
+}
+
+export const CustomInput: React.FC<CustomInputProps> = React.memo(({ label, icon, className = '', type, value, onChange, onFocus, onBlur, ...props }) => {
+  const [showPassword, setShowPassword] = useState(false);
+  const { setIsFocused, localValue, reportChange } = useSyncedFieldValue(value, '');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
-    setLocalValue(v);
-    lastReportedRef.current = v;
+    reportChange(v);
     if (onChange) {
       onChange(e);
     }
@@ -77,25 +88,11 @@ interface CustomTextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement
 }
 
 export const CustomTextarea: React.FC<CustomTextareaProps> = React.memo(({ label, className = '', value, onChange, onFocus, onBlur, ...props }) => {
-  const [isFocused, setIsFocused] = useState(false);
-  const [localValue, setLocalValue] = useState(value ?? '');
-  const lastReportedRef = useRef(value ?? '');
-
-  // Same external-sync rule as CustomInput: resync only when the prop value
-  // differs from the last value this textarea reported, and never while the
-  // user is typing (a transforming/debouncing parent would otherwise echo a
-  // value that differs from what we reported and clobber in-flight text).
-  useEffect(() => {
-    if (!isFocused && value !== lastReportedRef.current) {
-      setLocalValue(value ?? '');
-      lastReportedRef.current = value ?? '';
-    }
-  }, [value, isFocused]);
+  const { setIsFocused, localValue, reportChange } = useSyncedFieldValue(value, '');
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value;
-    setLocalValue(v);
-    lastReportedRef.current = v;
+    reportChange(v);
     if (onChange) {
       onChange(e);
     }

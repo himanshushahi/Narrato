@@ -1,5 +1,6 @@
 import React from 'react';
 import { useCurrentFrame, useVideoConfig, interpolate, spring, Easing } from 'remotion';
+import { withAlphaHex } from './BackgroundRenderer';
 
 export interface CounterRendererProps {
   value?: number;
@@ -19,25 +20,11 @@ export interface CounterRendererProps {
 }
 
 /**
- * Safely applies an alpha channel to any color (including 3-digit and 6-digit hex).
- * Prevents invalid 5-digit hex syntax like #fff55.
+ * Counter glow fallback uses a brighter cyan than BackgroundRenderer's
+ * default; both go through the shared withAlphaHex helper.
  */
 function withAlpha(color: string, alphaHex: string, fallbackAlpha = 0.35): string {
-  if (!color) return `rgba(0, 212, 255, ${fallbackAlpha})`;
-  const trimmed = color.trim();
-  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
-    const r = trimmed[1];
-    const g = trimmed[2];
-    const b = trimmed[3];
-    return `#${r}${r}${g}${g}${b}${b}${alphaHex}`;
-  }
-  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
-    return `${trimmed}${alphaHex}`;
-  }
-  if (/^#[0-9a-fA-F]{8}$/.test(trimmed)) {
-    return `${trimmed.slice(0, 7)}${alphaHex}`;
-  }
-  return trimmed;
+  return withAlphaHex(color, alphaHex, '0, 212, 255', fallbackAlpha);
 }
 
 /**

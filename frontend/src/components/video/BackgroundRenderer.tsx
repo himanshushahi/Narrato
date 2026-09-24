@@ -20,9 +20,10 @@ export interface BackgroundRendererProps {
 /**
  * Safely applies an alpha channel to any color (including 3-digit and 6-digit hex).
  * Prevents invalid 5-digit hex syntax like #fff88.
+ * Shared by CounterRenderer — keep behavior stable when editing.
  */
-function withAlpha(color: string, alphaHex: string, fallbackAlpha = 0.5): string {
-  if (!color) return `rgba(2, 132, 199, ${fallbackAlpha})`;
+export function withAlphaHex(color: string, alphaHex: string, fallbackRgb = '2, 132, 199', fallbackAlpha = 0.5): string {
+  if (!color) return `rgba(${fallbackRgb}, ${fallbackAlpha})`;
   const trimmed = color.trim();
   if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
     const r = trimmed[1];
@@ -37,6 +38,11 @@ function withAlpha(color: string, alphaHex: string, fallbackAlpha = 0.5): string
     return `${trimmed.slice(0, 7)}${alphaHex}`;
   }
   return trimmed;
+}
+
+/** Back-compat alias for existing BackgroundRenderer call sites. */
+function withAlpha(color: string, alphaHex: string, fallbackAlpha = 0.5): string {
+  return withAlphaHex(color, alphaHex, '2, 132, 199', fallbackAlpha);
 }
 
 /**

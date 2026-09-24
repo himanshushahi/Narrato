@@ -3,7 +3,7 @@ import { AbsoluteFill, Img, Video } from 'remotion';
 import { ASTAnimator, ASTAnimation } from './ASTAnimator';
 import { DataVisualizations } from './DataVisualizations';
 import { ChartRenderer, ChartDataItem } from './ChartRenderer';
-import { ShapeRenderer } from './ShapeRenderer';
+import { ShapeRenderer, ShapeProps, PresetPathType } from './ShapeRenderer';
 import { KineticText } from './KineticText';
 import { LottieRenderer } from './LottieRenderer';
 import { ParticlesRenderer, ParticlePreset } from './ParticlesRenderer';
@@ -35,25 +35,26 @@ interface ASTLayerContent {
   playback_rate?: number;
   lottie_direction?: 'forward' | 'backward';
 
-  // Shape props
-  shape_type?: 'rectangle' | 'circle' | 'star' | 'triangle' | 'arrow' | 'polygon' | 'path' | 'icon';
-  icon_name?: string;
-  fill?: string;
-  stroke?: string;
-  stroke_width?: number;
-  radius?: number;
-  width?: number | string;
-  height?: number | string;
-  corner_radius?: number;
-  points?: number;
-  inner_radius?: number;
-  direction?: 'up' | 'down' | 'left' | 'right' | 'forward' | 'backward';
-  angle?: number;
-  preset_path?: 'route_arch' | 'horizontal_line' | 'pointer_curve' | 'corner_brackets' | 'wave_pulse' | 'circle_reticle';
-  path_d?: string;
-  view_box?: string;
-  draw_animation?: boolean;
-  glow?: boolean;
+  // Shape props (single source of truth: ShapeProps in ShapeRenderer;
+  // direction additionally allows lottie-style forward/backward here)
+  shape_type?: ShapeProps['shape_type'];
+  icon_name?: ShapeProps['icon_name'];
+  fill?: ShapeProps['fill'];
+  stroke?: ShapeProps['stroke'];
+  stroke_width?: ShapeProps['stroke_width'];
+  radius?: ShapeProps['radius'];
+  width?: ShapeProps['width'];
+  height?: ShapeProps['height'];
+  corner_radius?: ShapeProps['corner_radius'];
+  points?: ShapeProps['points'];
+  inner_radius?: ShapeProps['inner_radius'];
+  direction?: ShapeProps['direction'] | 'forward' | 'backward';
+  angle?: ShapeProps['angle'];
+  preset_path?: PresetPathType;
+  path_d?: ShapeProps['path_d'];
+  view_box?: ShapeProps['view_box'];
+  draw_animation?: ShapeProps['draw_animation'];
+  glow?: ShapeProps['glow'];
 
   // Chart props
   chart_type?: 'bar' | 'line' | 'pie' | 'donut' | 'progress';

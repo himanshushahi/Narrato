@@ -10,17 +10,6 @@ export function getCleanAudioKey(url?: string): string {
   return url.replace(/([?&])t=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
 }
 
-export function clearWaveformCache(url?: string) {
-  if (url) {
-    const key = getCleanAudioKey(url);
-    waveformCache.delete(key);
-    pendingFetches.delete(key);
-  } else {
-    waveformCache.clear();
-    pendingFetches.clear();
-  }
-}
-
 export function useAudioWaveform(audioUrl?: string) {
   const cleanKey = getCleanAudioKey(audioUrl);
 
