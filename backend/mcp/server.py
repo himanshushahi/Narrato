@@ -293,6 +293,21 @@ def create_project(
     if duration_mode not in ("short", "medium", "long", "extra_long"):
         return {"ok": False,
                 "error": "duration_mode must be short, medium, long or extra_long."}
+    # Mode must match format — otherwise pacing would silently remap
+    # (e.g. landscape/short stored as short but enforced as medium/300s).
+    try:
+        from backend.mcp.pacing import VALID_COMBOS
+        if duration_mode not in VALID_COMBOS.get(video_format, set()):
+            return {"ok": False,
+                    "error": (
+                        f"duration_mode {duration_mode!r} is not valid for "
+                        f"video_format {video_format!r}. Valid: "
+                        f"landscape={sorted(VALID_COMBOS['landscape'])}, "
+                        f"portrait={sorted(VALID_COMBOS['portrait'])}.")}
+    except Exception as e:
+        err = str(e)
+        if "not valid for" in err:
+            return {"ok": False, "error": err}
     if language not in ("hi", "en"):
         return {"ok": False, "error": "language must be 'hi' or 'en'."}
     if not (style or "").strip():
@@ -324,7 +339,24 @@ def create_project(
         logger.error(f"MCP create_project failed: {e}")
         return {"ok": False, "error": str(e)}
     (_config.get_storage_dir() / project_id).mkdir(parents=True, exist_ok=True)
-    return {"ok": True, "project_id": project_id, "name": name.strip()}
+    try:
+        from backend.mcp.pacing import get_pacing
+        _pacing = get_pacing(duration_mode, video_format, language)
+    except Exception:
+        _pacing = None
+    result: dict = {"ok": True, "project_id": project_id, "name": name.strip()}
+    if _pacing:
+        result.update({
+            "duration_mode": _pacing["duration_mode"],
+            "video_format": _pacing["video_format"],
+            "target_duration_seconds": _pacing["target_duration_seconds"],
+            "target_scene_count": {"min": _pacing["min_scenes"],
+                                   "max": _pacing["max_scenes"]},
+            "target_per_scene_seconds": _pacing["per_scene_duration_label"],
+            "target_per_scene_words": _pacing["per_scene_words_label"],
+            "next_step": "Call get_stage_skills('script', project_id) before authoring the script.",
+        })
+    return result
 
 
 @mcp.tool()
@@ -395,6 +427,41 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
         return {"ok": False, "error": f"Skill {skill_name!r} not found. Use list_skills."}
     _record_skill_read(project_id, skill.name)
     ctx = {"language": language, "video_format": video_format}
+    # Project-aware template rendering: fill pacing placeholders
+    # ({target_duration}, {min_scenes}, ...) from the stored project (or defaults)
+    # so outline-director / scene-writer never leak raw {tags} to the agent.
+    _dm = "medium"
+    _vf = video_format or "landscape"
+    _lang = language or "en"
+    if (project_id or "").strip():
+        try:
+            proj = _db.get_project((project_id or "").strip()) or {}
+            if proj:
+                _dm = proj.get("duration_mode", _dm)
+                _vf = proj.get("video_format", _vf)
+                _lang = proj.get("language", _lang)
+        except Exception as e:
+            logger.warning(f"MCP get_skill project lookup failed: {e}")
+    try:
+        from backend.mcp.pacing import get_pacing
+        _p = get_pacing(_dm, _vf, _lang)
+        ctx.update({
+            "target_duration": _p["target_duration_seconds"],
+            "min_scenes": _p["min_scenes"],
+            "max_scenes": _p["max_scenes"],
+            "per_scene_time": _p["per_scene_time"],
+            "per_scene_words": _p["per_scene_words"],
+            "per_scene_duration": _p["per_scene_time"],
+            "per_scene_word_target": _p["per_scene_words"],
+            "language": _lang,
+            "video_format": _vf,
+        })
+    except Exception as e:
+        logger.warning(f"MCP get_skill pacing injection failed: {e}")
+    ctx.setdefault("script_rules_block", "")
+    ctx.setdefault("design_guidance", "")
+    ctx.setdefault("sentence_rule", "")
+    ctx.setdefault("genre_script_guidance", "")
     if brief:
         out = skill.brief(**ctx)
         out.update({"ok": True, "brief": True,
@@ -443,6 +510,7 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 "error": f"stage must be one of {sorted(STAGE_SKILL_REQUIREMENTS)}."}
     ctx = {"language": language, "video_format": video_format}
     style_hint = ""
+    pacing = None
     if project_id:
         try:
             proj = _db.get_project(project_id) or {}
@@ -454,18 +522,89 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
             }:
                 _raw = ""
             style_hint = _raw
-        except Exception:
+            if proj:
+                from backend.mcp.pacing import get_pacing as _get_pacing
+                pacing = _get_pacing(proj.get("duration_mode", "medium"),
+                                     proj.get("video_format", video_format),
+                                     proj.get("language", language))
+                ctx.update({"language": proj.get("language", language),
+                            "video_format": proj.get("video_format", video_format)})
+        except Exception as e:
+            logger.warning(f"MCP get_stage_skills project lookup failed: {e}")
             style_hint = ""
+    if pacing is None and stage == "script":
+        # No project_id (older clients): still give default targets so the
+        # agent is not surprised by the save_script guardrail, which enforces
+        # medium/landscape by default. Flag them as defaults.
+        try:
+            from backend.mcp.pacing import get_pacing as _get_pacing_default
+            pacing = _get_pacing_default("medium", "landscape", language)
+        except Exception as e:
+            logger.warning(f"MCP get_stage_skills default pacing failed: {e}")
+            pacing = None
     bundle: dict = {"ok": True, "stage": stage, "project_id": project_id,
                     "style_hint": style_hint, "satisfies_gate_for": list(
                         STAGE_SKILL_REQUIREMENTS[stage])}
+    if pacing and stage == "script":
+        bundle["outline_targets"] = {
+            "target_duration_seconds": pacing["target_duration_seconds"],
+            # Canonical key + alias matching create_project's target_scene_count.
+            "recommended_scenes": {"min": pacing["min_scenes"],
+                                   "max": pacing["max_scenes"]},
+            "target_scene_count": {"min": pacing["min_scenes"],
+                                   "max": pacing["max_scenes"]},
+            "per_scene_duration": pacing["per_scene_duration_label"],
+            "target_per_scene_seconds": pacing["per_scene_duration_label"],
+            "per_scene_words": pacing["per_scene_words_label"],
+            "target_per_scene_words": pacing["per_scene_words_label"],
+            "total_script_words": pacing["total_script_words_label"],
+            "duration_mode": pacing["duration_mode"],
+            "video_format": pacing["video_format"],
+        }
+        if not (project_id or "").strip():
+            bundle["outline_targets"]["note"] = (
+                "Default targets (no project_id supplied). "
+                "Pass project_id for project-specific counts.")
     try:
         if stage == "script":
             sk = skill_loader.get_skill("scriptwriter", context="tool")
             bundle["scriptwriter"] = sk.render(**ctx) if sk else ""
             _record_skill_read(project_id, "scriptwriter")
-            bundle["next"] = ("Now call save_script. No further sections needed "
-                              "for most scripts.")
+            if pacing:
+                # Render outline-director with real numbers so the agent sees
+                # exact chapter counts instead of {min_scenes} placeholders.
+                # Reuse the scriptwriter render for rules (no double fetch).
+                try:
+                    _rules = bundle.get("scriptwriter", "")
+                    _od = skill_loader.get_skill("script-outline-director",
+                                                 context="tool")
+                    if _od:
+                        bundle["outline_director"] = _od.render(
+                            **{**ctx,
+                               "script_rules_block": f"=== WRITING RULES ===\n{_rules}\n" if _rules else "",
+                               "target_duration": pacing["target_duration_seconds"],
+                               "min_scenes": pacing["min_scenes"],
+                               "max_scenes": pacing["max_scenes"],
+                               "per_scene_time": pacing["per_scene_time"],
+                               "per_scene_words": pacing["per_scene_words"]})
+                        _record_skill_read(project_id, "script-outline-director")
+                except Exception as e:
+                    logger.warning(f"MCP outline-director render failed: {e}")
+                bundle["must_follow"] = [
+                    f"A {pacing['target_duration_seconds']}s "
+                    f"({pacing['duration_mode']}/{pacing['video_format']}) video "
+                    f"REQUIRES {pacing['min_scenes']}-{pacing['max_scenes']} scenes "
+                    f"at ~{pacing['per_scene_time']}s each "
+                    f"({pacing['per_scene_words']} words). Do NOT create 5 long scenes.",
+                    "A scene is a short visual beat (~7-12s, see outline_targets for exact), NOT a 60-second essay chapter.",
+                ]
+                bundle["next"] = (
+                    f"Generate {pacing['min_scenes']}-{pacing['max_scenes']} scenes "
+                    f"matching outline_targets (~{pacing['per_scene_time']}s / "
+                    f"{pacing['per_scene_words']} words each), then call save_script.")
+            else:
+                bundle["next"] = ("Now call save_script. No further sections needed "
+                                  "for most scripts.")
         elif stage == "design":
             sk = skill_loader.get_skill("art-director-design-system",
                                         context="tool")
@@ -559,7 +698,7 @@ def _sample_cut_template(video_format: str) -> dict:
 
 
 @mcp.tool()
-def save_script(project_id: str, script: dict) -> dict:
+def save_script(project_id: str, script: dict, force: bool = False) -> dict:
     """Validate and persist a complete video script.
 
     script = {title, introduction: {hook}, scenes: [{title, narration}],
@@ -569,12 +708,16 @@ def save_script(project_id: str, script: dict) -> dict:
     pipeline stage resets to post-script.
     MANDATORY FIRST: get_stage_skills('script', project_id) or
     get_skill('scriptwriter').
+    Scene pacing: a 5-min landscape video REQUIRES 20-30 scenes at ~9s
+    each (see outline_targets for exact per-format budgets). Under/over-scened
+    or thin-narration scripts are rejected with SCRIPT_PACING_ERROR unless
+    force=true (audited override — success carries a warning).
     """
     missing = _missing_stage_skills("script", project_id)
     if missing:
         return _skill_required_error("script", project_id, missing)
     try:
-        return payloads.save_script_payload(project_id, script)
+        return payloads.save_script_payload(project_id, script, force=force)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     except Exception as e:
@@ -1085,6 +1228,14 @@ already explicitly specified in the user's request):
     - MANDATORY GATE (server rejects without it): get_stage_skills('script', project_id)
       [or get_skill(scriptwriter)] → save_script (intro hook, scenes with narration,
       conclusion summary+cta; sub_visuals reset automatically)
+    - SCENE PACING CONTRACT (all formats — a scene is a short visual beat ~7-12s, NOT a 60s chapter):
+      landscape medium (~5m/300s): 20-30 scenes (~9s/~27w) | landscape long (~10m/600s): 40-55 scenes (~10s/~30w)
+      | landscape extra_long (~15m/900s): 60-75 scenes (~11s/~33w)
+      | portrait short (~60s): 4-6 scenes (~7s/~21w) | portrait medium (~90s): 6-8 scenes (~9s/~27w)
+      | portrait long (~2m/120s): 8-12 scenes (~8s/~24w).
+      create_project returns the exact target_scene_count and get_stage_skills('script', project_id)
+      returns outline_targets (authoritative) — match them. save_script rejects under/over-scened
+      or thin-narration scripts with SCRIPT_PACING_ERROR.
 3. update_voice_settings (only if user chose non-default voice)
 4. run_stage(generate_voiceover, wait=false) → stage_status until completed
 5. run_stage(transcribe, wait=true is fine) → word timings ready.
@@ -1163,6 +1314,12 @@ already explicitly specified in the user's request):
     (review_frame on the mp4 for the final check)
 
 ## Gotchas
+- Scene pacing: a scene is a short visual beat (~7-12s, exact in outline_targets), NOT a 60-second
+  chapter. 5 scenes for a 5-minute video (or 3 scenes for a 90s portrait, 8 scenes for a
+  10-minute video) is rejected by the pacing guardrail (SCRIPT_PACING_ERROR, floor 70% of min,
+  ceiling 130% of max, min 40% of target words). Always match outline_targets
+  scene counts: landscape medium 20-30 / long 40-55 / extra_long 60-75; portrait short
+  4-6 / medium 6-8 / long 8-12.
 - Durations: sub_visuals durations MUST sum to the section audio duration
   (the server normalizes, but gross mismatches mean mistimed visuals).
 - Opacity fade: pair entrances with opacity fade whenever delay > 0 so elements stay hidden until they enter; spatial-only allowed at delay: 0.
@@ -1191,6 +1348,9 @@ def make_video_prompt(topic: str) -> str:
         "6. Export Destination Folder: custom path or default exports dir.\n"
         "7. Voice: call list_voice_options and offer concrete voice choices.\n\n"
         "Wait for the user's answers, then call create_project and update_voice_settings. "
+        "After create_project, read target_scene_count; after get_stage_skills('script', project_id), "
+        "match outline_targets exactly (landscape medium 20-30 / long 40-55 / extra_long 60-75; "
+        "portrait short 4-6 / medium 6-8 / long 8-12; each scene short (~7-12s per outline_targets), never 5 long scenes). "
         "Drive every stage through fetch_assets, then review_frame(mode=composition) per section, "
         "verifying with project_status — then STOP, present a review summary, "
         "and ask the user to review/edit in the app. "

@@ -140,6 +140,111 @@ def validate_script_payload(data: dict) -> list:
     return errors
 
 
+def _script_pacing_for_project(project_dict: dict | None) -> dict:
+    """Pacing targets for a project row. Local import keeps payloads light."""
+    proj = project_dict or {}
+    try:
+        from backend.mcp.pacing import get_pacing
+        return get_pacing(proj.get("duration_mode", "medium"),
+                          proj.get("video_format", "landscape"),
+                          proj.get("language", "en"))
+    except Exception as e:
+        logger.warning(f"_script_pacing_for_project fallback: {e}")
+        dm = str(proj.get("duration_mode") or "medium")
+        vf = str(proj.get("video_format") or "landscape")
+        return {"target_duration_seconds": 300, "min_scenes": 20,
+                "max_scenes": 30, "per_scene_time": 9,
+                "per_scene_words": 27, "speaking_rate": 3.0,
+                "duration_mode": dm, "video_format": vf}
+
+
+def compute_script_pacing_stats(data: dict, pacing: dict) -> dict:
+    scenes = data.get("scenes") if isinstance(data, dict) else []
+    count = len(scenes) if isinstance(scenes, list) else 0
+    words = 0
+    if isinstance(scenes, list):
+        for s in scenes:
+            if isinstance(s, dict):
+                words += len(_safe_str(s.get("narration")).split())
+    intro_words = 0
+    concl_words = 0
+    try:
+        intro_words = len(_safe_str(data.get("introduction", {}).get("hook")).split())
+        concl = data.get("conclusion", {}) or {}
+        concl_words = len(_safe_str(concl.get("summary")).split()) + len(
+            _safe_str(concl.get("cta")).split())
+    except Exception:
+        pass
+    total = words + intro_words + concl_words
+    avg = round(words / count, 1) if count else 0.0
+    rate = float(pacing.get("speaking_rate") or 3.0)
+    estimated = round(total / rate, 1) if rate else 0.0
+    return {"scene_count": count, "scene_words": words,
+            "total_words": total, "average_words_per_scene": avg,
+            "estimated_duration_seconds": estimated,
+            "target_duration_seconds": pacing.get("target_duration_seconds")}
+
+
+def validate_script_pacing(data: dict, project_dict: dict) -> dict | None:
+    """Anti-gross-mispacing guard (not a full duration prover).
+
+    Hard rejects:
+    - count < floor(min*0.70) (e.g. <14 for 5m/20-30) -> under-scened.
+    - count > ceil(max*1.30) -> over-scened (cost blowup, 3s micro-scenes).
+    - total words < 40% of target words -> thin narration (right count,
+      minute-long video missing). Estimated duration uses words/rate.
+    Returns a SCRIPT_PACING_ERROR dict, else None.
+    """
+    pacing = _script_pacing_for_project(project_dict or {})
+    scenes = data.get("scenes") if isinstance(data, dict) else []
+    count = len(scenes) if isinstance(scenes, list) else 0
+    min_scenes = int(pacing.get("min_scenes") or 1)
+    max_scenes = int(pacing.get("max_scenes") or min_scenes)
+    import math
+    floor = max(1, math.ceil(min_scenes * 0.70))
+    ceiling = max(max_scenes, math.ceil(max_scenes * 1.30))
+    stats = compute_script_pacing_stats(data, pacing)
+    reason = ""
+    if count < floor:
+        reason = (f"Under-scened: got {count} scene(s), minimum accepted is "
+                  f"{floor} (target range {min_scenes}-{max_scenes}). ")
+    elif count > ceiling:
+        reason = (f"Over-scened: got {count} scene(s), maximum accepted is "
+                  f"{ceiling} (target range {min_scenes}-{max_scenes}). "
+                  f"Merge beats instead of micro-scenes. ")
+    else:
+        target_words = float(pacing.get("total_script_words") or 0)
+        if target_words and stats.get("total_words", 0) < target_words * 0.40:
+            reason = (f"Thin narration: {stats.get('total_words')} words total "
+                      f"vs ~{int(target_words)} expected for "
+                      f"{pacing.get('target_duration_seconds')}s "
+                      f"(estimated {stats.get('estimated_duration_seconds')}s). "
+                      f"Fill each scene to ~{pacing.get('per_scene_words')} words. ")
+    if not reason:
+        return None
+    return {
+        "ok": False,
+        "error_code": "SCRIPT_PACING_ERROR",
+        "error": (
+            f"{reason}"
+            f"{pacing.get('duration_mode')}/{pacing.get('video_format')} "
+            f"(~{pacing.get('target_duration_seconds')}s) requires "
+            f"{pacing.get('min_scenes')}-{pacing.get('max_scenes')} scenes "
+            f"at ~{pacing.get('per_scene_time')}s each. "
+            f"A scene is a short visual beat (~7-12s), not a 60s chapter. "
+            f"Split/merge the narration into {pacing.get('min_scenes')}-"
+            f"{pacing.get('max_scenes')} beats (~{pacing.get('per_scene_words')} "
+            f"words each) or re-call with force=true to override."),
+        "expected_scenes": {"min": pacing.get("min_scenes"),
+                            "max": pacing.get("max_scenes"),
+                            "floor": floor, "ceiling": ceiling},
+        "provided_scenes": count,
+        "pacing_stats": stats,
+        "fix": {"hint": "Call get_stage_skills('script', project_id) for outline_targets, "
+                        "then re-author with the required scene count."},
+    }
+
+
 def build_script_document(data: dict, project_dict: dict) -> dict:
     """Normalize agent content into the on-disk script.json shape.
 
@@ -172,13 +277,31 @@ def build_script_document(data: dict, project_dict: dict) -> dict:
     }
 
 
-def save_script_payload(project_id: str, data: dict) -> dict:
+def save_script_payload(project_id: str, data: dict, force: bool = False) -> dict:
     """Validate + persist an agent-authored script and reset the project to
     the post-script stage. Returns a summary dict (raises on DB miss)."""
     errors = validate_script_payload(data)
     if errors:
         return {"ok": False, "error": "Script validation failed: " + "; ".join(errors)}
     proj = _get_project_or_raise(project_id)
+    bypass_warning = None
+    if not force:
+        pacing_error = validate_script_pacing(data, proj)
+        if pacing_error:
+            return pacing_error
+    else:
+        # force=true is an audited escape hatch, not a silent bypass.
+        pacing_error = validate_script_pacing(data, proj)
+        if pacing_error:
+            bypass_warning = (
+                f"force=true bypassed pacing guard "
+                f"(expected {pacing_error.get('expected_scenes')}, "
+                f"got {pacing_error.get('provided_scenes')}).")
+            logger.warning(f"MCP save_script force-bypass: project {project_id} "
+                           f"{pacing_error.get('provided_scenes')} scenes vs "
+                           f"expected {pacing_error.get('expected_scenes')}.")
+    pacing = _script_pacing_for_project(proj)
+    pacing_stats = compute_script_pacing_stats(data, pacing)
     proj_dir = _project_dir(project_id)
     proj_dir.mkdir(parents=True, exist_ok=True)
 
@@ -229,13 +352,17 @@ def save_script_payload(project_id: str, data: dict) -> dict:
             error_message=None,
         )
     logger.info(f"MCP save_script: project {project_id} now has {len(document['scenes'])} scenes.")
-    return {
+    result = {
         "ok": True,
         "project_id": project_id,
         "title": title,
         "scene_count": len(document["scenes"]),
+        "pacing_stats": pacing_stats,
         "purged": removed,
     }
+    if bypass_warning:
+        result["warning"] = bypass_warning
+    return result
 
 
 def strip_script_for_agent(script: dict, include_visuals: bool = False) -> dict:

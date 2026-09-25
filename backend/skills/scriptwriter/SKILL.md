@@ -62,6 +62,30 @@ when_to_use: "When writing or rewriting narration, hooks, summaries, CTAs, or sc
 
 ---
 
+## 4b. Video Architecture & Scene Breakdown Matrix (Critical)
+
+In Narrato, a **scene is a ~7–12 second visual chapter/beat**, NOT an essay section.
+Never write 4–6 long 60-second scenes for a multi-minute video.
+Exact per-scene budgets come from `get_stage_skills('script', project_id)` →
+`outline_targets` (authoritative). This table is the overview.
+
+| Format | Duration Mode | Total Seconds | Required Scenes | Per-Scene | Words/Scene (EN) | Total Words (EN) |
+|---|---|---|---|---|---|---|
+| Landscape | medium (~5m) | 300 | 20–30 | ~9s | ~27 | ~900 |
+| Landscape | long (~10m) | 600 | 40–55 | ~10s | ~30 | ~1800 |
+| Landscape | extra_long (~15m) | 900 | 60–75 | ~11s | ~33 | ~2700 |
+| Portrait | short (~60s) | 60 | 4–6 | ~7s | ~21 | ~180 |
+| Portrait | medium (~90s) | 90 | 6–8 | ~9s | ~27 | ~270 |
+| Portrait | long (~2m) | 120 | 8–12 | ~8s | ~24 | ~360 |
+
+### Scene-count rules
+- For a 5-minute landscape video: generate **20 to 30 scenes (~27 words each)**. Never 5 scenes.
+- Each scene gets roughly equal screen time with its own chapter title and narrative beat.
+- A 60-second scene breaks visual pacing (frozen cuts, minute-long voiceover chunk, broken subtitles). Keep scenes short (~7–12s).
+- Hindi uses ~2.5 words/sec: same scene counts, ~18–28 words per scene. Follow `outline_targets` exactly.
+
+---
+
 ## 5. Anti-AI-Isms & Natural Human Voice (Critical)
 
 | Category | Forbidden AI Clichés (NEVER USE) | Preferred Natural Phrasing |
@@ -87,5 +111,7 @@ when_to_use: "When writing or rewriting narration, hooks, summaries, CTAs, or sc
 - [ ] Spoken text is in target native script (Devanagari for Hindi; no Hinglish/transliterations)
 - [ ] Numbers, dates, and symbols are converted to spoken phonetic words
 - [ ] Word count matches target seconds × speaking rate
+- [ ] Scene count matches Duration Mode matrix (e.g. 20–30 scenes for 5m landscape, never 5)
+- [ ] Each scene is short (~7–12s, ~21–33 EN words — follow outline_targets), not a 60s chapter
 - [ ] Zero forbidden AI buzzwords ("delve", "tapestry", etc.)
 - [ ] Facts are verifiable with no fabricated claims

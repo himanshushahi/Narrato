@@ -171,9 +171,12 @@ def test_save_script_writes_and_purges(tmp_path, monkeypatch):
     (proj_dir / "assets" / "asset_001_00_00.mp4").write_bytes(b"z")
     (proj_dir / "assets" / "assets_manifest.json").write_text("[]")
 
-    result = payloads.save_script_payload("proj_mcp", _script())
+    # Pacing guardrail: 2 scenes is under-scened for medium/landscape, so
+    # purge-path tests use force=True (override) explicitly.
+    result = payloads.save_script_payload("proj_mcp", _script(), force=True)
     assert result["ok"] is True
     assert result["scene_count"] == 2
+    assert "pacing_stats" in result
     assert not (proj_dir / "voiceover.wav").exists()
     assert not (proj_dir / "design.json").exists()
     assert not (proj_dir / "assets" / "asset_001_00_00.mp4").exists()
@@ -197,6 +200,171 @@ def test_save_script_rejects_invalid_without_touching_disk(tmp_path, monkeypatch
     result = payloads.save_script_payload("proj_mcp", bad)
     assert result["ok"] is False
     assert not (tmp_path / "proj_mcp" / "script.json").exists()
+
+
+def _script_n(n, words_per_scene=35):
+    filler = " ".join(["word"] * words_per_scene)
+    return {
+        "title": "Pacing Test",
+        "introduction": {"hook": "Hook here for pacing test."},
+        "scenes": [
+            {"title": f"Scene {i + 1}", "narration": f"{filler} {i}."}
+            for i in range(n)
+        ],
+        "conclusion": {"summary": "Closing summary.", "cta": "Subscribe."},
+    }
+
+
+def test_pacing_matrix_all_formats():
+    from backend.mcp.pacing import get_pacing
+    cases = [
+        # dm, vf, secs, min, max, per_scene_time, per_scene_words(en)
+        ("medium", "landscape", 300, 20, 30, 9, 27),
+        ("long", "landscape", 600, 40, 55, 10, 30),
+        ("extra_long", "landscape", 900, 60, 75, 11, 33),
+        ("short", "portrait", 60, 4, 6, 7, 21),
+        ("medium", "portrait", 90, 6, 8, 9, 27),
+        ("long", "portrait", 120, 8, 12, 8, 24),
+    ]
+    for dm, vf, secs, mn, mx, pst, psw in cases:
+        p = get_pacing(dm, vf, "en")
+        assert p["target_duration_seconds"] == secs, (dm, vf)
+        assert (p["min_scenes"], p["max_scenes"]) == (mn, mx), (dm, vf)
+        assert p["per_scene_time"] == pst, (dm, vf, p["per_scene_time"])
+        assert p["per_scene_words"] == psw, (dm, vf, p["per_scene_words"])
+        assert "{min_scenes}" not in str(p)
+
+
+def test_save_script_rejects_under_scened_5min(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())  # medium/landscape -> 20-30 scenes
+    result = payloads.save_script_payload("proj_mcp", _script_n(5))
+    assert result["ok"] is False
+    assert result.get("error_code") == "SCRIPT_PACING_ERROR"
+    assert result["expected_scenes"]["min"] == 20
+    assert result["expected_scenes"]["max"] == 30
+    assert result["expected_scenes"]["floor"] == 14  # ceil(20*0.7)
+    assert result["provided_scenes"] == 5
+    assert not (tmp_path / "proj_mcp" / "script.json").exists()
+
+
+def test_save_script_boundary_floor_ceiling(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())  # floor 14, ceiling 39
+    assert payloads.save_script_payload("proj_mcp", _script_n(13))["ok"] is False
+    import shutil
+    shutil.rmtree(tmp_path / "proj_mcp", ignore_errors=True)
+    assert payloads.save_script_payload("proj_mcp", _script_n(14))["ok"] is True
+    shutil.rmtree(tmp_path / "proj_mcp", ignore_errors=True)
+    assert payloads.save_script_payload("proj_mcp", _script_n(39))["ok"] is True
+    shutil.rmtree(tmp_path / "proj_mcp", ignore_errors=True)
+    assert payloads.save_script_payload("proj_mcp", _script_n(40))["ok"] is False
+
+
+def test_save_script_rejects_thin_narration(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    # Right count (20) but 2 words/scene -> ~45 words vs ~900 expected.
+    result = payloads.save_script_payload("proj_mcp", _script_n(20, words_per_scene=2))
+    assert result["ok"] is False
+    assert result.get("error_code") == "SCRIPT_PACING_ERROR"
+    assert "Thin narration" in result["error"]
+
+
+def test_save_script_accepts_proper_5min(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    result = payloads.save_script_payload("proj_mcp", _script_n(20))
+    assert result["ok"] is True
+    assert result["scene_count"] == 20
+    assert result["pacing_stats"]["scene_count"] == 20
+    assert result["pacing_stats"]["estimated_duration_seconds"] > 0
+
+
+def test_save_script_pacing_all_formats(tmp_path, monkeypatch):
+    cases = [
+        ({"duration_mode": "long", "video_format": "landscape"}, 8, False),
+        ({"duration_mode": "long", "video_format": "landscape"}, 40, True),
+        ({"duration_mode": "extra_long", "video_format": "landscape"}, 10, False),
+        ({"duration_mode": "extra_long", "video_format": "landscape"}, 60, True),
+        ({"duration_mode": "short", "video_format": "portrait"}, 2, False),
+        ({"duration_mode": "short", "video_format": "portrait"}, 5, True),
+        ({"duration_mode": "medium", "video_format": "portrait"}, 3, False),
+        ({"duration_mode": "medium", "video_format": "portrait"}, 7, True),
+        ({"duration_mode": "long", "video_format": "portrait"}, 4, False),
+        ({"duration_mode": "long", "video_format": "portrait"}, 9, True),
+    ]
+    for overrides, n, should_pass in cases:
+        proj = _proj()
+        proj.update(overrides)
+        _patch_storage(monkeypatch, tmp_path)
+        _patch_db(monkeypatch, proj)
+        # wipe previous script.json between sub-cases
+        import shutil
+        shutil.rmtree(tmp_path / "proj_mcp", ignore_errors=True)
+        result = payloads.save_script_payload("proj_mcp", _script_n(n))
+        assert (result["ok"] is True) == should_pass, (overrides, n, result)
+
+
+def test_save_script_force_bypasses_pacing(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    result = payloads.save_script_payload("proj_mcp", _script_n(5), force=True)
+    assert result["ok"] is True and result["scene_count"] == 5
+    assert "warning" in result and "force" in result["warning"].lower()
+
+
+def test_create_project_rejects_invalid_combo(monkeypatch, tmp_path):
+    from backend.mcp import server
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, None)
+    res = server.create_project("Bad Combo", language="en",
+                                video_format="landscape", duration_mode="short")
+    assert res["ok"] is False and "not valid for" in res["error"]
+    res2 = server.create_project("Bad Combo 2", language="en",
+                                 video_format="portrait", duration_mode="extra_long")
+    assert res2["ok"] is False and "not valid for" in res2["error"]
+
+
+def test_get_stage_skills_no_project_returns_defaults(monkeypatch):
+    from backend.mcp import server
+    bundle = server.get_stage_skills("script", "")
+    assert bundle["ok"] is True
+    assert bundle["outline_targets"]["target_duration_seconds"] == 300
+    assert bundle["outline_targets"]["recommended_scenes"] == {"min": 20, "max": 30}
+
+
+def test_create_project_returns_pacing_targets(monkeypatch, tmp_path):
+    from backend.mcp import server
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, None)
+    import uuid
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.core.config.get_exports_dir", lambda: tmp_path / "exports")
+    res = server.create_project("Pacing Topic", language="en",
+                                video_format="landscape", duration_mode="medium")
+    assert res["ok"] is True
+    assert res["target_duration_seconds"] == 300
+    assert res["target_scene_count"] == {"min": 20, "max": 30}
+    assert "get_stage_skills" in res["next_step"]
+
+
+def test_get_stage_skills_script_returns_outline_targets(monkeypatch):
+    from backend.mcp import server
+    proj = _proj()
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: dict(proj))
+    # satisfy gate irrelevant here; get_stage_skills always returns bundle
+    bundle = server.get_stage_skills("script", "proj_mcp")
+    assert bundle["ok"] is True
+    assert bundle["outline_targets"]["target_duration_seconds"] == 300
+    assert bundle["outline_targets"]["recommended_scenes"] == {"min": 20, "max": 30}
+    assert "20-30" in bundle["must_follow"][0] or "20" in bundle["must_follow"][0]
+    assert "{min_scenes}" not in bundle.get("outline_director", "")
+    # portrait short variant
+    proj2 = dict(proj, duration_mode="short", video_format="portrait")
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: dict(proj2))
+    bundle2 = server.get_stage_skills("script", "proj_mcp")
+    assert bundle2["outline_targets"]["recommended_scenes"] == {"min": 4, "max": 6}
 
 
 def test_project_dir_rejects_escape(tmp_path, monkeypatch):
