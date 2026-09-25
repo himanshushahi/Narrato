@@ -283,17 +283,77 @@ def format_design_system_prompt(design_data: dict) -> str:
         f"{json.dumps(clean, indent=2)}\n"
     )
 
+def _get_style_hint(project_dict: dict | None) -> str:
+    """Free-text visual style hint stored in the `prompt` column.
+
+    Legacy rows (pre genre-removal) store a genre token like
+    "documentary" there — those are NOT style hints and must not leak
+    back into prompts. Return "" for them.
+    """
+    raw = str((project_dict or {}).get("prompt") or "").strip()
+    if raw.lower() in {
+        "documentary", "explainer", "finance", "vox",
+        "news", "true_crime", "storytime", "viral_short",
+    }:
+        return ""
+    return raw
+
+
+def _pick_design_direction(topic: str = "", title: str = "", seed_hint: str = "") -> str:
+    """Pick a lighting+hue lane from topic/title/seed so consecutive
+    generations don't converge on one predictable palette.
+
+    Topic-derived (no genre presets): the LLM invents all hex codes from
+    the topic + assigned lane. Repeat stability comes from the design.json
+    cache, not lane reuse.
+    """
+    lanes = [
+        "DARK CINEMATIC — near-black background, one hot neon primary, cool secondary",
+        "LIGHT EDITORIAL — warm paper background (#faf7f0 family), ink text, one saturated primary",
+        "MIDNIGHT MONO + SINGLE POP — charcoal/graphite background, grayscale secondary, exactly one vivid accent",
+        "DEEP EARTH — espresso/forest background, amber/honey primary, sage secondary",
+        "OCEANIC TEAL — deep teal/petrol background, aqua primary, coral accent",
+        "ROYAL PLUM — dark plum/eggplant background, gold primary, orchid secondary",
+        "ARCTIC FROST — pale icy background, navy ink text, electric-blue primary",
+        "SUNSET DUOTONE — warm dusk background, tangerine primary, magenta accent",
+        "FOREST MOSS — dark moss background, lime/mint primary, sand secondary",
+        "CRIMSON NOIR — black-red background, crimson primary, bone text",
+        "SLATE MINIMAL — light slate background, slate-900 text, single indigo primary",
+        "DESERT SAND — sandy beige background, burnt-orange primary, olive secondary",
+    ]
+    key = f"{topic or ''}|{title or ''}|{seed_hint or ''}".strip("|")
+    if not key:
+        return random.choice(lanes)
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    return lanes[int.from_bytes(digest[:2], "big") % len(lanes)]
+
+
+def _format_design_guidance(topic: str = "", title: str = "", seed_hint: str = "", style_hint: str = "") -> str:
+    """Topic-driven aesthetic guidance for the Art Director prompt.
+
+    No genre presets: the model derives mood, palette story, and theme
+    name from the topic/title itself, constrained only by the assigned
+    variety lane (lighting + hue family). An optional free-text
+    style_hint narrows the look without reintroducing presets.
+    """
+    direction = _pick_design_direction(topic, title, seed_hint)
+    hint_line = f"\n- User style hint (honor when present, never a preset): {style_hint}" if (style_hint or "").strip() else ""
+    return f"""CREATIVE BRIEF (TOPIC-DRIVEN — no style preset):
+- Topic: {topic or 'Unknown'} | Working title: {title or 'Untitled'}{hint_line}
+- Invent a fresh 2-4 word theme name tied to THIS topic. Never reuse past names.
+- Derive at least one hue cue from the topic itself (e.g. ocean->teal, finance->gold, crime->crimson) so different topics never converge to one palette.
+- ASSIGNED VARIETY DIRECTION (MUST FOLLOW): {direction}
+  * Honor the topic mood AND this lighting/hue lane. Your background/primary/secondary/accent hex codes MUST be invented fresh — never emit #0b0b1a / #0f172a / #00d4ff / #facc15 unless the assigned direction explicitly calls for them."""
+
+
 def generate_project_design_system(project_dict, script_data, project_dir, progress_cb, cancel_event):
     design_path = project_dir / "design.json"
     is_new = False
-    
+
     topic = project_dict.get('name', 'Unknown')
     language = project_dict.get('language', 'hi')
     video_format = project_dict.get('video_format', 'landscape')
-    video_type = project_dict.get('prompt') or 'documentary'
-
-    from backend.pipeline.genres import normalize_genre_key
-    norm_genre = normalize_genre_key(video_type)
+    style_hint = _get_style_hint(project_dict)
 
     if design_path.exists():
         try:
@@ -305,57 +365,43 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
                 raise ValueError("Previous design generation failed, regenerating")
             if data.get('_language') != language or data.get('_video_format') != video_format:
                 raise ValueError("Language or format changed, invalidating design")
-            
-            # Check genre only if previously set in design.json
-            saved_genre = data.get('_genre')
-            if saved_genre and normalize_genre_key(saved_genre) != norm_genre:
-                raise ValueError(f"Genre changed from {saved_genre} to {video_type}, invalidating design")
-            
-            # If _genre was not previously persisted, backfill it in memory and file
-            if not saved_genre:
-                data['_genre'] = norm_genre
-                try:
-                    with open(design_path, "w", encoding="utf-8") as f:
-                        json.dump(data, f, indent=2)
-                except Exception:
-                    pass
 
             return data, is_new
         except Exception as e:
             from backend.core.logger import logger
             logger.warning(f"Invalidating existing design.json: {e}")
-            
+
     is_new = True
     from backend.agent.skill_loader import skill_loader
-    from backend.pipeline.genres import format_genre_design_prompt
     _variety_seed = uuid.uuid4().hex
     _video_title = (script_data or {}).get('title', 'Untitled')
-    genre_guidance = format_genre_design_prompt(video_type, topic=topic, title=_video_title, seed_hint=_variety_seed)
+    design_guidance = _format_design_guidance(topic=topic, title=_video_title, seed_hint=_variety_seed, style_hint=style_hint)
 
     system_prompt = skill_loader.render_skill(
         "art-director-design-system",
         video_format=video_format,
         language=language,
-        genre_guidance=genre_guidance,
+        design_guidance=design_guidance,
     )
     if not system_prompt:
         system_prompt = f"""You are an expert Art Director. Create a cohesive Design System for a YouTube video.
 The format is {video_format} (e.g. landscape means 16:9, portrait means 9:16) and the language is {language}.
 Return ONLY valid JSON matching the schema. No markdown backticks.
 
-{genre_guidance}
+{design_guidance}
 
 DESIGN GUIDELINES:
-- color_palette: Must use modern, vibrant, or highly readable hex codes aligned with the genre.
+- color_palette: Must use modern, vibrant, highly readable hex codes invented for THIS topic.
 - css_guidelines: Provide brief layout and aesthetic styling rules (e.g. contrast, accents, card borders, typography scales).
 - fonts: CRITICAL - If Language is a complex script (like Hindi/hi, Tamil/ta, Bengali/bn, Arabic), you MUST specify Noto fonts (e.g. `Noto Sans Devanagari`) to prevent broken rendering. For English, use modern fonts (e.g. Inter, Outfit, Oswald).
-- VARIETY: invent a FRESH palette + novel theme_name for this exact topic. NEVER copy example hex codes or suggestion-list names. Surprise the user.
+- VARIETY: invent a FRESH palette + novel theme_name for this exact topic. NEVER copy example hex codes. Surprise the user.
 """
     user_prompt = (
-        f"Topic: {topic}\nGenre: {video_type.upper()}\nLanguage: {language}\n"
+        f"Topic: {topic}\nLanguage: {language}\n"
         f"Video Title: {_video_title}\nRequest ID: {_variety_seed}\n"
+        + (f"Style hint: {style_hint}\n" if style_hint else "") +
         f"VARIETY BRIEF: This must look unmistakably different from a generic dark-navy/cyan theme. "
-        f"Follow the ASSIGNED VARIETY DIRECTION in the genre block, invent never-before-used hex codes, "
+        f"Follow the ASSIGNED VARIETY DIRECTION in the creative brief, invent never-before-used hex codes, "
         f"and give a surprising 2-4 word theme_name tied to '{topic}'.\n"
     )
     
@@ -369,18 +415,17 @@ DESIGN GUIDELINES:
         if isinstance(e, InterruptedError):
             raise e
         logger.warning(f"Design generation failed, falling back to default: {e}")
-        return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
-    
+        return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
+
     if isinstance(design_data, dict) and design_data.get('theme_name'):
         design_data = _repair_design_data(design_data, language)
         # Validate that all required schema fields are present
         required_keys = {'color_palette', 'typography', 'css_guidelines'}
         if not required_keys.issubset(design_data.keys()):
             logger.warning(f"Design system response missing required keys: {required_keys - design_data.keys()}")
-            return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
+            return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
         design_data['_language'] = language
         design_data['_video_format'] = video_format
-        design_data['_genre'] = norm_genre
         return design_data, True
 
     if isinstance(design_data, dict):
@@ -392,11 +437,10 @@ DESIGN GUIDELINES:
             logger.warning("Design system was missing top-level keys — repaired from defaults.")
             design_data['_language'] = language
             design_data['_video_format'] = video_format
-            design_data['_genre'] = norm_genre
             return design_data, True
 
     logger.warning("Failed to generate design system, returning default.")
-    return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format, "_genre": norm_genre}, True
+    return {"theme_name": "default", "_failed": True, "_language": language, "_video_format": video_format}, True
 
 OUTLINE_JSON_SCHEMA = OutlineResponse.model_json_schema()
 BASE_SCRIPT_JSON_SCHEMA = BaseScriptResponse.model_json_schema()
@@ -1195,7 +1239,6 @@ def generate_script_pipeline(project_dict, project_dir, progress_cb, cancel_even
     from backend.core.logger import logger
 
     topic = project_dict['name']
-    video_type = project_dict.get('prompt') or "DOCUMENTARY"
     language = project_dict.get('language', 'hi')
     duration_mode = project_dict.get('duration_mode', 'medium')
     video_format = project_dict.get('video_format', 'landscape')
@@ -1262,8 +1305,13 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
     per_scene_words = max(10, int(per_scene_time * speaking_rate))
 
     from backend.agent.skill_loader import skill_loader
-    from backend.pipeline.genres import format_genre_script_prompt
-    genre_script_guidance = format_genre_script_prompt(video_type)
+    # Topic-driven narrative: let the LLM choose tone/pacing from the topic
+    # instead of a preset genre formula.
+    narrative_guidance = (
+        "NARRATIVE DIRECTIVE (TOPIC-DRIVEN): Adapt tone, hook, and pacing to "
+        "fit THIS topic. Open with the most gripping fact or question the "
+        "topic offers; keep pacing natural for the language's speaking rate."
+    )
 
     scriptwriter_rules = _skill_content("scriptwriter")
     script_rules_block = f"""=== WRITING RULES ===
@@ -1280,12 +1328,11 @@ CRITICAL — NARRATION IS THE PRIMARY OUTPUT:
         per_scene_time=per_scene_time,
         per_scene_words=per_scene_words,
         language=language,
-        genre_script_guidance=genre_script_guidance,
     )
     if not outline_system_prompt:
         outline_system_prompt = f"""{script_rules_block}You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
 
-{genre_script_guidance}
+{narrative_guidance}
 
 CRITICAL RULES:
 - Return ONLY valid JSON matching the provided schema
@@ -1306,11 +1353,8 @@ BREAKDOWN REQUIREMENTS:
 """
 
     outline_user_prompt = f"""Topic: "{topic}"
-Video Type / Genre: "{video_type.upper()}"
 
-{genre_script_guidance}
-
-Adapt the narrative style and tone specifically to fit the "{video_type.upper()}" genre.
+{narrative_guidance}
 
 VIDEO SPECIFICATIONS:
 - Target Duration: {target_duration} seconds
@@ -1333,7 +1377,7 @@ NO markdown blocks (` ```json `), NO conversational text. Just the JSON object.
 NO generic phrases, no clickbait, no assumptions or unverified claims. Be precise and factual."""
 
     # Optionally augment with web search context
-    _web_ctx = _get_web_context_for_topic(f"{topic} {video_type}", "outline generation")
+    _web_ctx = _get_web_context_for_topic(f"{topic}", "outline generation")
     if _web_ctx:
         outline_user_prompt += f"\n\nRelevant web context to inform your outline:\n{_web_ctx}"
 
@@ -1490,7 +1534,6 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
             prev_context=prev_context,
             language=language,
             sentence_rule=sentence_rule,
-            genre_script_guidance=genre_script_guidance,
         )
         if scene_system_prompt:
             # INTERNAL APP LLM ONLY: research hint appended in code so the shared
@@ -1499,7 +1542,7 @@ Structure should be: {{ "introduction": {{ "hook": "text" }}, "conclusion": {{ "
         if not scene_system_prompt:
             scene_system_prompt = f"""{script_rules_block}You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
 
-{genre_script_guidance}
+{narrative_guidance}
 
 SCENE-SPECIFIC RULES:
 - This is Scene {scene_num}: {chapter_title}
@@ -1820,7 +1863,9 @@ def compute_project_script_hash(project_dict):
     import hashlib
     key_data = {
         "name": project_dict.get('name', ''),
-        "prompt": project_dict.get('prompt', ''),
+        # NOTE: `prompt` now stores a visual-only style_hint (genre removed).
+        # It must not invalidate the script hash — changing the visual hint
+        # should never wipe/regenerate narration.
         "language": project_dict.get('language', 'hi'),
         "duration_mode": project_dict.get('duration_mode', 'medium'),
         "video_format": project_dict.get('video_format', 'landscape'),
@@ -2214,7 +2259,7 @@ ERROR PREVENTION:
         # NOTE: preservation applies regardless of `force`. Content hashes fully
         # decide what needs LLM work: an explicitly re-requested visuals run
         # regenerates only scenes whose narration/design actually changed.
-        # To force a full stylistic regen, change the design (genre/format) or
+        # To force a full stylistic regen, change the design or
         # clear the scene's sub_visuals first.
         if existing_sub_visuals and not is_default and not narration_changed and not design_changed and not is_new_design:
             logger.info(f"Preserving existing sub-visuals for scene '{scene_title}'. Scaling durations to new total {duration}s.")
@@ -2238,24 +2283,34 @@ ERROR PREVENTION:
         # --- End Smart Preservation Logic ---
 
         # --- STAGE 1: Visual Storyboard Planning ---
-        genre_key = project_dict.get('prompt') or 'documentary'
-        from backend.pipeline.genres import format_genre_storyboard_prompt, get_genre_profile
-        genre_profile = get_genre_profile(genre_key)
-        genre_storyboard_guidance = format_genre_storyboard_prompt(genre_key)
+        # Topic-driven: no genre presets. The planner picks archetypes,
+        # primitives, and motion to fit THIS narration + design system.
+        # An optional free-text style_hint narrows the look.
+        _style_hint = _get_style_hint(project_dict)
+        storyboard_guidance_text = (
+            "VISUAL STORYBOARD DIRECTIVE (TOPIC-DRIVEN — no style preset):\n"
+            "- Choose visual archetypes to fit THIS narration (maps for geography, "
+            "charts for numbers, dossiers for evidence, portraits for people, "
+            "kinetic typography for punchy claims).\n"
+            "- Use the full primitive library freely: Charts, Shapes, HTML UI, "
+            "Kinetic Text, Maps, Lottie, Footage, Counters, Procedural "
+            "Backgrounds, Particles. Match the active design system's palette."
+            + (f"\n- User style hint (honor when present): {_style_hint}" if _style_hint else "")
+        )
 
         storyboard_skill = skill_loader.get_skill("storyboard-planner")
         storyboard_guidance = f"\n\n{storyboard_skill.content}" if storyboard_skill else ""
         plan_system_prompt = f"""[System Context: Project ID is '{project_dict.get('id')}']
 You are an expert Visual Director and Cinematographer. Your job is to read the narration for this scene and write a highly creative, detailed storyboard plan describing the sub-visual beats needed.
 
-{genre_storyboard_guidance}
+{storyboard_guidance_text}
 
-Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Lottie, Footage, Counters, Procedural Backgrounds, Particles atmosphere overlays) with cinematic motion blur and camera shake modifiers aligned with the {genre_profile['name']} style.
+Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Lottie, Footage, Counters, Procedural Backgrounds, Particles atmosphere overlays) with cinematic motion blur and camera shake modifiers chosen to fit this narration.
 Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling.
 Plan against the template trap: never plan two consecutive beats with the same layer signature (Video+card+text twice is rejected) — cycle backgrounds, alternate geometries, and include one viral breaker (full-bleed impact word with no card, asymmetric collage cutout, or ticker/timeline rail) per 3+-beat scene.
 Do not output AST JSON, just output a detailed text description of what each sub-visual should look like.{storyboard_guidance}"""
 
-        plan_user_prompt = f"Topic: {topic}\nGenre: {genre_profile['name']}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n\nWrite a storyboard plan for each sub-visual beat."
+        plan_user_prompt = f"Topic: {topic}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n" + (f"Style hint: {_style_hint}\n" if _style_hint else "") + "\nWrite a storyboard plan for each sub-visual beat."
 
         plan_schema = {
             "type": "object",
@@ -2275,7 +2330,6 @@ Do not output AST JSON, just output a detailed text description of what each sub
 
         # --- STAGE 2: AST Generation ---
         user_prompt = f"""Topic: "{topic}"
-Genre: "{genre_profile['name']}"
 Scene: {scene_title} ({scene_type})
 Total Scene Duration: {duration} seconds
 

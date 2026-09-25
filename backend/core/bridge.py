@@ -432,21 +432,16 @@ def _get_cut_word_timings(project_id: str, scene_idx: int, section_type: str,
     )
 
 
-def _get_genre_pacing_line(project_id: str, full_script: dict, sub_visuals: list) -> str:
-    """Compact genre + rhythm line so rewrites match the project's pacing."""
+def _get_pacing_line(project_id: str, full_script: dict, sub_visuals: list) -> str:
+    """Compact format + rhythm line so rewrites match the project's pacing."""
     try:
-        from backend.pipeline.genres import get_genre_profile
-        project = get_project(project_id)
-        genre_key = (project.get("prompt", "") if project else "") or "documentary"
-        profile = get_genre_profile(genre_key)
         durs = [_safe_float(sv.get("duration", 0)) for sv in (sub_visuals or []) if isinstance(sv, dict) and _safe_float(sv.get("duration", 0)) > 0]
         rhythm = f" Match the surrounding rhythm (~{sum(durs) / len(durs):.1f}s per cut)." if durs else ""
         return (
-            f"Genre: {profile.get('name', genre_key)} — {profile.get('tagline', '')} "
             f"Format: {full_script.get('video_format', 'landscape')}.{rhythm}\n"
         )
     except Exception as e:
-        logger.warning(f"Genre pacing line skipped: {e}")
+        logger.warning(f"Pacing line skipped: {e}")
         return ""
 
 
@@ -1100,9 +1095,9 @@ class ApiBridge:
         update_settings(settings_dict)
         return True
 
-    def create_new_project(self, name: str, video_type: str, export_folder: str, language: str = "hi", style: str = "nitish_rajput", duration_mode: str = "medium", video_format: str = "landscape") -> dict:
+    def create_new_project(self, name: str, style_hint: str, export_folder: str, language: str = "hi", style: str = "nitish_rajput", duration_mode: str = "medium", video_format: str = "landscape") -> dict:
         try:
-            project_id = create_project(name, video_type, export_folder, language, style, duration_mode, video_format)
+            project_id = create_project(name, style_hint, export_folder, language, style, duration_mode, video_format)
             return {"project_id": project_id, "success": True}
         except Exception as e:
             logger.error(f"Error creating project: {e}")
@@ -1678,7 +1673,7 @@ class ApiBridge:
         word_timings = _get_scene_word_timings(project_id, scene_idx, section_type, full_script)
         if not word_timings:
             word_timings = NO_TIMINGS_FALLBACK + "\n"
-        genre_line = _get_genre_pacing_line(project_id, full_script, current_visuals)
+        pacing_line = _get_pacing_line(project_id, full_script, current_visuals)
         duration_table = _format_sub_visual_durations(current_visuals)
         if section_type == "introduction":
             section_title = "Introduction"
@@ -1700,7 +1695,7 @@ class ApiBridge:
         user_prompt = (
             f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
             f"Scene Title: \"{section_title}\"\n"
-            + (f"{genre_line}" if genre_line else "")
+            + (f"{pacing_line}" if pacing_line else "")
             + f"Narration for this segment:\n\"{narration_text}\"\n"
             + (f"{word_timings}\n" if word_timings else "")
             + (f"{duration_table}\n" if duration_table else "")
@@ -1814,7 +1809,7 @@ class ApiBridge:
             word_timings = ""
         if not word_timings and not cut_timings:
             word_timings = NO_TIMINGS_FALLBACK + "\n"
-        genre_line = _get_genre_pacing_line(project_id, full_script, sub_visuals)
+        pacing_line = _get_pacing_line(project_id, full_script, sub_visuals)
         duration_table = _format_sub_visual_durations(sub_visuals, highlight_idx=sub_idx)
 
         # Compute cumulative start offset for the target sub-visual within the scene
@@ -1831,7 +1826,7 @@ class ApiBridge:
         user_prompt = (
             f"Video Title: \"{doc_title}\"\n"
             f"Scene Title: \"{scene_title}\"\n"
-            + (f"{genre_line}" if genre_line else "")
+            + (f"{pacing_line}" if pacing_line else "")
             + f"Context (Narration of this scene):\n\"{narration_text}\"\n"
             + (f"{word_timings}\n" if word_timings else "")
             + (f"{cut_timings}\n" if cut_timings else "")

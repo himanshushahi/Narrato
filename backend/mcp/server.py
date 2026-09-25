@@ -44,33 +44,25 @@ from backend.database import db as _db
 from backend.core.logger import logger
 from backend.mcp import payloads
 
-NARRATO_SERVER_INSTRUCTIONS = """You are connected to Narrato, an automated documentary and video production system.
+NARRATO_SERVER_INSTRUCTIONS = """You are connected to Narrato, an automated video production system.
 
 MANDATORY PROJECT INTAKE PROTOCOL:
 When the user asks to create or make a video, you MUST NOT immediately invoke `create_project` with assumed, guessed, or default values.
 Instead, you MUST conduct the "New Narrative Build" intake interview and ask the user every project question matching the app's creation modal (unless already explicitly provided by the user):
 
 1. Narrative Topic / Name: Confirm the exact title or subject.
-2. Video Style / Genre: Present the 8 available styles and ask which one they prefer:
-   - Documentary & Geopolitics (Ken Burns, Maps, Cinematic) [`documentary`]
-   - Tech & SaaS Explainer (Vector Graphics, Fast, Neon) [`explainer`]
-   - Finance & Market Analysis (Charts, Metrics, Tickers) [`finance`]
-   - Vox-Style Editorial (Typography, Yellow/Black, Collage) [`vox`]
-   - News/Journalism (Split Screens, Lower Thirds) [`news`]
-   - True Crime / Mystery (Redacted Memos, Shockwave) [`true_crime`]
-   - Personal Story (Portraits, Warm, Soft) [`storytime`]
-   - Viral Short-Form (Fast Cuts, Kinetic Words, Punchy) [`viral_short`]
-3. Language:
+2. Language:
    - Hindi (हिंदी) [`hi`] (narration written in Devanagari Hindi prose)
    - English (EN) [`en`]
-4. Video Format:
+3. Video Format:
    - Landscape (YouTube 16:9) [`landscape`]
    - Portrait (Reels/Shorts 9:16) [`portrait`]
-5. Duration Mode (recommend based on format):
+4. Duration Mode (recommend based on format):
    - For Landscape: Medium (~5m), Long (~10m), or Extra Long (~15m)
    - For Portrait: Short (~60s), Medium (~90s), or Long (~2m)
-6. Export Destination Folder: Confirm if the user wants a specific directory or default project exports folder.
-7. Voice: Call `list_voice_options` to offer concrete voice choices (set with `update_voice_settings`).
+5. Export Destination Folder: Confirm if the user wants a specific directory or default project exports folder.
+6. Voice: Call `list_voice_options` to offer concrete voice choices (set with `update_voice_settings`).
+7. Visual Style (optional free text): Ask what look/mood they want (e.g. "warm editorial", "dark cinematic"). There are NO preset genres — invent palettes, typography, and visual archetypes from the topic + this hint.
 
 ONLY after the user confirms these preferences (or if already explicitly specified), invoke `create_project`.
 
@@ -80,7 +72,7 @@ MANDATORY SKILL GROUNDING (hard gate, not guidance):
 - save_visuals REQUIRES declarative-ast + visual-director-core + motion-graphics-designer first (brief=true counts).
 - EASIEST: one call get_stage_skills(stage, project_id) per stage — it returns the starter pack AND satisfies the gate.
   script -> get_stage_skills('script', project_id); design -> get_stage_skills('design', project_id); visuals -> get_stage_skills('visuals', project_id).
-- The server REJECTS save_* with SKILL_REQUIRED if you skip this. get_section_timings also pushes a genre-matched creative_blueprint (archetypes + sample cut) — use it.
+- The server REJECTS save_* with SKILL_REQUIRED if you skip this. get_section_timings also pushes a creative_blueprint (archetypes + sample cut) — use it.
 """
 
 mcp = MCPServer("narrato", instructions=NARRATO_SERVER_INSTRUCTIONS)
@@ -199,16 +191,6 @@ def _db_short_id_suffix() -> str:
     return uuid.uuid4().hex[:8]
 
 
-GenreType = Literal[
-    "documentary",
-    "explainer",
-    "finance",
-    "vox",
-    "news",
-    "true_crime",
-    "storytime",
-    "viral_short",
-]
 LanguageType = Literal["hi", "en"]
 VideoFormatType = Literal["landscape", "portrait"]
 DurationModeType = Literal["short", "medium", "long", "extra_long"]
@@ -220,23 +202,6 @@ def create_project(
         str,
         Field(description="Narrative Topic / Name (e.g. 'The Rise and Fall of Rome', 'How Bitcoin Works')"),
     ],
-    genre: Annotated[
-        GenreType,
-        Field(
-            ...,
-            description=(
-                "Video Style / Genre. MANDATORY: Ask user first! Options: "
-                "documentary (Documentary & Geopolitics: Ken Burns, Maps, Cinematic), "
-                "explainer (Tech & SaaS Explainer: Vector Graphics, Fast, Neon), "
-                "finance (Finance & Market Analysis: Charts, Metrics, Tickers), "
-                "vox (Vox-Style Editorial: Typography, Yellow/Black, Collage), "
-                "news (News/Journalism: Split Screens, Lower Thirds), "
-                "true_crime (True Crime / Mystery: Redacted Memos, Shockwave), "
-                "storytime (Personal Story: Portraits, Warm, Soft), "
-                "viral_short (Viral Short-Form: Fast Cuts, Kinetic Words, Punchy)."
-            ),
-        ),
-    ] = ...,
     language: Annotated[
         LanguageType,
         Field(
@@ -276,6 +241,14 @@ def create_project(
             description="Visual design style preset (default: 'nitish_rajput').",
         ),
     ] = "nitish_rajput",
+    style_hint: Annotated[
+        str,
+        Field(
+            default="",
+            description="Optional free-text visual style/mood hint (e.g. 'warm editorial', 'dark cinematic'). No presets — invent from topic + hint.",
+        ),
+    ] = "",
+    **legacy_kwargs,
 ) -> dict:
     """Create a new video project. Returns the project_id used by every
     other tool.
@@ -285,20 +258,21 @@ def create_project(
     Before invoking create_project, you MUST ask the user all questions
     matching the app's 'New Narrative Build' modal (unless already specified):
     1. Topic / Name: Confirm the narrative topic or title.
-    2. Video Style / Genre: Offer the 8 styles (documentary, explainer,
-       finance, vox, news, true_crime, storytime, viral_short).
-    3. Language: 'hi' (Hindi) or 'en' (English).
-    4. Video Format: 'landscape' (YouTube 16:9) or 'portrait' (Reels/Shorts 9:16).
-    5. Duration Mode: 'short', 'medium', 'long', 'extra_long' (matched to format).
-    6. Export Destination Folder: Confirm custom path or default exports dir.
-    7. Voice: Offer choices via list_voice_options.
+    2. Language: 'hi' (Hindi) or 'en' (English).
+    3. Video Format: 'landscape' (YouTube 16:9) or 'portrait' (Reels/Shorts 9:16).
+    4. Duration Mode: 'short', 'medium', 'long', 'extra_long' (matched to format).
+    5. Export Destination Folder: Confirm custom path or default exports dir.
+    6. Voice: Offer choices via list_voice_options.
+    7. Visual Style (optional): free-text mood hint — there are no preset genres.
 
     Read the narrato://pipeline-guide resource before starting a full build."""
     # Required intake fields: Ellipsis/None means the agent skipped the
     # mandatory interview — fail fast instead of silently defaulting.
     # (MCP schema already marks these required; this covers direct callers.)
-    if genre is ... or genre is None:
-        return {"ok": False, "error": "genre is required — ask the user (documentary, explainer, finance, vox, news, true_crime, storytime, viral_short)."}
+    # Legacy `genre=...` kwarg (removed preset) is swallowed by
+    # **legacy_kwargs and ignored so old callers fail soft, not with TypeError.
+    if legacy_kwargs:
+        logger.warning(f"create_project ignoring removed legacy args: {sorted(legacy_kwargs)}")
     if language is ... or language is None:
         return {"ok": False, "error": "language is required — ask the user (hi, en)."}
     if video_format is ... or video_format is None:
@@ -309,9 +283,8 @@ def create_project(
         export_folder = ""
     if style is ... or style is None:
         style = "nitish_rajput"
-
-    _ALLOWED_GENRES = ("documentary", "explainer", "finance", "vox",
-                       "news", "true_crime", "storytime", "viral_short")
+    if style_hint is ... or style_hint is None:
+        style_hint = ""
 
     if not (name or "").strip():
         return {"ok": False, "error": "name must be a non-empty string."}
@@ -322,9 +295,6 @@ def create_project(
                 "error": "duration_mode must be short, medium, long or extra_long."}
     if language not in ("hi", "en"):
         return {"ok": False, "error": "language must be 'hi' or 'en'."}
-    if genre not in _ALLOWED_GENRES:
-        return {"ok": False,
-                "error": f"genre must be one of {list(_ALLOWED_GENRES)}."}
     if not (style or "").strip():
         return {"ok": False, "error": "style must be a non-empty string."}
     if export_folder:
@@ -345,7 +315,7 @@ def create_project(
             export_folder = str(_config.get_exports_dir() / f"{safe}_{_db_short_id_suffix()}")
     try:
         project_id = _db.create_project(
-            name.strip(), genre or "documentary", export_folder,
+            name.strip(), (style_hint or "").strip(), export_folder,
             language=language or "hi", style=style or "nitish_rajput",
             duration_mode=duration_mode or "medium",
             video_format=video_format,
@@ -472,15 +442,22 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
         return {"ok": False,
                 "error": f"stage must be one of {sorted(STAGE_SKILL_REQUIREMENTS)}."}
     ctx = {"language": language, "video_format": video_format}
-    genre = ""
+    style_hint = ""
     if project_id:
         try:
             proj = _db.get_project(project_id) or {}
-            genre = (proj.get("genre") or proj.get("style") or "")
+            _raw = str(proj.get("prompt") or "")
+            # Legacy rows store a removed genre token in `prompt` — hide it.
+            if _raw.strip().lower() in {
+                "documentary", "explainer", "finance", "vox",
+                "news", "true_crime", "storytime", "viral_short",
+            }:
+                _raw = ""
+            style_hint = _raw
         except Exception:
-            genre = ""
+            style_hint = ""
     bundle: dict = {"ok": True, "stage": stage, "project_id": project_id,
-                    "genre": genre, "satisfies_gate_for": list(
+                    "style_hint": style_hint, "satisfies_gate_for": list(
                         STAGE_SKILL_REQUIREMENTS[stage])}
     try:
         if stage == "script":
@@ -492,7 +469,14 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
         elif stage == "design":
             sk = skill_loader.get_skill("art-director-design-system",
                                         context="tool")
-            bundle["art_director"] = sk.render(**ctx) if sk else ""
+            # The skill template contains a {design_guidance} placeholder.
+            # Rendering without it would leak the raw placeholder to the agent,
+            # so substitute a style-hint line (or empty string).
+            design_guidance = (
+                f"User style hint (honor when present, never a preset): {style_hint}"
+                if (style_hint or "").strip() else ""
+            )
+            bundle["art_director"] = sk.render(**{**ctx, "design_guidance": design_guidance}) if sk else ""
             _record_skill_read(project_id, "art-director-design-system")
             bundle["next"] = ("Include motion language (transitions, text "
                               "treatments, overlays) or the server warns. "
@@ -514,7 +498,7 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 "Pair entrance animations (delay>0) with opacity fade 0->1; spatial-only allowed at delay 0.",
                 "Prefer >=2 content kinds per section + 1 energy moment (punch-in, shake, motion_blur, FX filter, rack-focus, floating, Particles).",
             ]
-            bundle["genre_archetypes"] = _genre_archetypes(genre or "documentary")
+            bundle["visual_archetypes"] = _visual_archetypes()
             bundle["sample_cut"] = _sample_cut_template(video_format)
             bundle["next"] = ("Then: get_section_timings -> save_design -> "
                               "save_visuals per section. Pull deeper detail only as needed, "
@@ -525,32 +509,24 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
     return bundle
 
 
-def _genre_archetypes(genre: str) -> dict:
-    g = (genre or "").strip().lower()
-    table = {
-        "documentary": ["ken_burns_focus (Archetype 7: Entity Spotlight)",
-                        "map_journey (Archetype 4: Geographic Route)",
-                        "document_redaction (Archetype 11: Leaked Audit Dossier)"],
-        "explainer": ["stat_callout (Archetype 3: Macro Metric)",
-                      "split_comparison (Archetype 1: Split-Screen Data HUD)",
-                      "isometric_card (Archetype 6: Infographic Grid)"],
-        "finance": ["stat_callout (Archetype 3)", "hero_data_reveal (Archetype 8)",
-                    "infographic_grid (Archetype 6)"],
-        "vox": ["newspaper_cutout (Archetype 10: Vintage Headline)",
-                "split_comparison (Archetype 1)", "stat_callout (Archetype 3)"],
-        "news": ["split_comparison (Archetype 1)", "entity_spotlight (Archetype 7)",
-                 "stat_callout (Archetype 3)"],
-        "true_crime": ["document_redaction (Archetype 11)",
-                       "dossier_spotlight (Archetype 2)",
-                       "chat_leak (Archetype 12: Encrypted Chat)"],
-        "storytime": ["entity_spotlight (Archetype 7)", "ken_burns_focus",
-                      "stat_callout (Archetype 3, sparingly)"],
-        "viral_short": ["stat_callout (Archetype 3)", "split_comparison (Archetype 1)",
-                        "entity_spotlight (Archetype 7)"],
+def _visual_archetypes() -> dict:
+    """Topic-driven archetype starter set (no genre presets).
+
+    The agent picks archetypes to fit each narration beat; this is a
+    variety starter, not a constraint. Kept generic so outputs don't
+    converge on one predictable look.
+    """
+    return {
+        "recommended": [
+            "entity_spotlight (Archetype 7: portrait/evidence focus)",
+            "split_comparison (Archetype 1: Split-Screen Data HUD)",
+            "stat_callout (Archetype 3: Macro Metric)",
+            "map_journey (Archetype 4: Geographic Route)",
+            "document_dossier (Archetype 2/11: evidence memo)",
+            "infographic_grid (Archetype 6)",
+        ],
+        "tip": "Pick archetypes to fit each beat's narration; cycle archetypes per cut; don't reuse one card geometry for a whole video.",
     }
-    recs = table.get(g, table["documentary"])
-    return {"genre": g or "documentary", "recommended": recs,
-            "tip": "Cycle archetypes per cut; don't reuse one card geometry for a whole video."}
 
 
 def _sample_cut_template(video_format: str) -> dict:
@@ -1086,15 +1062,7 @@ You MUST interview the user and ASK every question corresponding to the
 app's 'New Narrative Build' form before calling `create_project` (unless
 already explicitly specified in the user's request):
 1. Narrative Topic / Name: Confirm the core video topic or title.
-2. Video Style / Genre: Offer the 8 specific genre presets:
-   - documentary: Documentary & Geopolitics (Ken Burns, Maps, Cinematic)
-   - explainer: Tech & SaaS Explainer (Vector Graphics, Fast, Neon)
-   - finance: Finance & Market Analysis (Charts, Metrics, Tickers)
-   - vox: Vox-Style Editorial (Typography, Yellow/Black, Collage)
-   - news: News/Journalism (Split Screens, Lower Thirds)
-   - true_crime: True Crime / Mystery (Redacted Memos, Shockwave)
-   - storytime: Personal Story (Portraits, Warm, Soft)
-   - viral_short: Viral Short-Form (Fast Cuts, Kinetic Words, Punchy)
+2. Visual Style (optional free text): Ask what look/mood they want (e.g. "warm editorial", "dark cinematic"). There are NO preset genres — invent palettes, typography, and archetypes from the topic + hint.
 3. Language:
    - hi: Hindi (Devanagari prose for voiceover)
    - en: English
@@ -1134,8 +1102,8 @@ already explicitly specified in the user's request):
    subtitles.vtt synchronized before authoring visuals and rendering.
  6. MANDATORY grounding — EASY 1-call path (server rejects save_visuals without it):
     get_stage_skills('visuals', project_id) returns briefs for
-    visual-director-core + motion-graphics-designer + declarative-ast PLUS
-    must-follow rules, genre archetypes, and a sample cut — and satisfies the gate.
+     visual-director-core + motion-graphics-designer + declarative-ast PLUS
+     must-follow rules, visual archetypes, and a sample cut — and satisfies the gate.
     Granular alternative: get_skill(NAME, brief=true) for each of the three, then
     pull ONLY the sections you need via get_skill(NAME, section="...").
     Required reading: declarative-ast §5 archetypes (your template library —
@@ -1143,8 +1111,8 @@ already explicitly specified in the user's request):
     whole video) + the motion/FX sections. Rules you must not skim past:
     LayerBox %-only geometry, one Particles layer per cut max (last child),
     no chapter title cards inside cuts.
- 7. get_section_timings (TRUE audio durations + word timestamps per section
-    + pushed creative_blueprint with genre archetypes + sample cut — use it)
+  7. get_section_timings (TRUE audio durations + word timestamps per section
+     + pushed creative_blueprint with visual archetypes + sample cut — use it)
  8. save_design (required once — cuts bind to its hash; MANDATORY GATE:
     get_stage_skills('design', project_id) first). A palette-only
    design (theme + colors + fonts, nothing else) guarantees a flat video:
@@ -1216,7 +1184,7 @@ def make_video_prompt(topic: str) -> str:
         "MANDATORY FIRST STEP: Do NOT call create_project yet! "
         "Ask the user every question matching the 'New Narrative Build' form (unless already specified):\n"
         "1. Topic / Name: Confirm topic or title.\n"
-        "2. Video Style / Genre: Offer the 8 styles (documentary, explainer, finance, vox, news, true_crime, storytime, viral_short).\n"
+        "2. Visual Style (optional): free-text mood hint — no preset genres.\n"
         "3. Language: hi (Hindi) or en (English).\n"
         "4. Video Format: landscape (YouTube 16:9) or portrait (Reels/Shorts 9:16).\n"
         "5. Duration Mode: short/medium/long/extra_long based on format.\n"

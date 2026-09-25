@@ -127,7 +127,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 ## 7. What else MCP *could* do (future tools)
 
-Practical next candidates, roughly by value: environment **preflight** (whisper/model/ffmpeg/GPU present? — prevents doomed 10-minute stages), **voice preview** (audition a voice without a full voiceover run), **music/SFX** search + attach, **render settings** (fps/crf/codec/motion-blur), **scene add/remove/reorder**, single-asset `fetch` verify, `update_project` basics (rename/genre/duration), font download. All follow the §6 checklist; none require pipeline changes.
+Practical next candidates, roughly by value: environment **preflight** (whisper/model/ffmpeg/GPU present? — prevents doomed 10-minute stages), **voice preview** (audition a voice without a full voiceover run), **music/SFX** search + attach, **render settings** (fps/crf/codec/motion-blur), **scene add/remove/reorder**, single-asset `fetch` verify, `update_project` basics (rename/style-hint/duration), font download. All follow the §6 checklist; none require pipeline changes.
 
 ---
 

@@ -12,7 +12,7 @@ when_to_use: "Used during project initialization to generate the global design.j
 > **Target Language**: `{language}`  
 > **Output Contract**: Return ONLY valid JSON matching the schema. No markdown backticks or commentary.
 
-{genre_guidance}
+{design_guidance}
 
 ---
 
@@ -35,17 +35,17 @@ when_to_use: "Used during project initialization to generate the global design.j
 ## 2. Design System Guidelines & Token Roles
 
 VARIETY & ANTI-REPETITION RULES (highest priority — the user complains every theme looks the same):
-- NEVER copy the example hex codes in this spec (`#0b0b1a`, `#0f172a`, `#00d4ff`, `#facc15`, `#ef4444`, `#faf7f0`) or the genre reference palette verbatim. They are genre anchors, not outputs. Every generation MUST emit a visibly fresh palette.
-- ALWAYS honor the `ASSIGNED VARIETY DIRECTION` from the genre block (lighting + hue lane). It overrides the "dark cinematic" default. Dark cinematic is only ONE of many allowed looks — light editorial, mono+pop, earth, teal, plum, frost, duotone, moss, noir, slate, and sand are equally valid.
-- theme_name MUST be novel (2–4 words you invent for this topic). NEVER reuse the suggestion list verbatim and NEVER repeat "Oceanic Deep Tech" / "Cyberpunk Glow" style names across projects.
+- NEVER copy the example hex codes in this spec (`#0b0b1a`, `#0f172a`, `#00d4ff`, `#facc15`, `#ef4444`, `#faf7f0`) verbatim. They are shape examples, not outputs. Every generation MUST emit a visibly fresh palette.
+- ALWAYS honor the `ASSIGNED VARIETY DIRECTION` from the creative brief (lighting + hue lane). It overrides the "dark cinematic" default. Dark cinematic is only ONE of many allowed looks — light editorial, mono+pop, earth, teal, plum, frost, duotone, moss, noir, slate, and sand are equally valid.
+- theme_name MUST be novel (2–4 words you invent for this topic). NEVER repeat past names across projects.
 - Derive at least one hue cue from the video Topic/Title (e.g. finance+gold, ocean+teal, crime+crimson) so different topics never converge to one palette.
 - Keep WCAG AA contrast: text vs background ≥ 4.5:1, primary vs background ≥ 3:1. banned pairs: near-identical background+text, two neon primaries that vibrate.
 
-DESIGN GUIDELINES (any genre-fitting palette allowed):
-- **theme_name**: A novel 2-4 word aesthetic title you invent for THIS topic (never a suggestion-list copy).
-- **color_palette**: Modern, vibrant, highly readable hex codes aligned with genre AND the assigned variety direction.
+DESIGN GUIDELINES (any topic-fitting palette allowed):
+- **theme_name**: A novel 2-4 word aesthetic title you invent for THIS topic.
+- **color_palette**: Modern, vibrant, highly readable hex codes invented for THIS topic AND the assigned variety direction.
   * **background**: A canvas YOU INVENT to match the assigned lighting lane (dark, light, or mid-tone — never a spec-example copy).
-  * **primary**: A high-contrast brand color YOU INVENT (saturated, genre-fitting, distinct from the reference palette).
+  * **primary**: A high-contrast brand color YOU INVENT (saturated, topic-fitting).
   * **secondary**: A complementary tone YOU INVENT (different hue family from primary).
   * **accent**: A high-visibility callout YOU INVENT (maximum pop against background).
   * **text**: A readable color YOU INVENT with strong contrast on background (light on dark, dark on light).
@@ -93,7 +93,7 @@ NOTE: the values below are a SHAPE EXAMPLE ONLY — DO NOT copy these hex codes,
 ## 5. Verification Checklist
 
 - [ ] Theme name is novel (2–4 words, not a suggestion-list copy)
-- [ ] Palette is visibly different from the genre reference palette and honors the assigned variety direction
+- [ ] Palette is visibly different from past outputs and honors the assigned variety direction
 - [ ] Hex colors provide sufficient contrast ratio (WCAG AA compliant)
 - [ ] If language is non-Latin, fonts use appropriate Noto family (`Noto Sans Devanagari`, etc.)
 - [ ] Output is 100% valid JSON without markdown wrapping or backticks

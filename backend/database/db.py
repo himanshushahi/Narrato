@@ -199,7 +199,7 @@ def init_db():
     logger.info("Database initialized successfully.")
 
 # Project Operations
-def create_project(name, video_type, export_folder, language="hi", style="nitish_rajput", duration_mode="medium", video_format="landscape"):
+def create_project(name, style_hint, export_folder, language="hi", style="nitish_rajput", duration_mode="medium", video_format="landscape"):
     project_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
     
@@ -251,7 +251,7 @@ def create_project(name, video_type, export_folder, language="hi", style="nitish
         conn.execute("""
             INSERT INTO projects (id, name, prompt, created_at, updated_at, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, project_settings, export_folder)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (project_id, name, video_type, now, now, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, project_settings, export_folder))
+        """, (project_id, name, style_hint, now, now, language, style, duration_mode, video_format, tts_engine, tts_voice, tts_speed, bg_music_path, bg_music_volume, project_settings, export_folder))
     logger.info(f"Created project in database: {name} (ID: {project_id}, Lang: {language}, Style: {style}, Format: {video_format}, ExportFolder: {export_folder})")
     return project_id
 

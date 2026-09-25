@@ -104,7 +104,7 @@ When adding or removing visual types, these are the **exact files and code symbo
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `visuals_system_prompt` | Enumeration of valid AST types (all 11) and system rules |
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `plan_system_prompt` | Storyboard prompt primitive references |
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `_visual_rules_safety_net` | Fallback layer order hierarchy and type rules |
-| [backend/pipeline/genres.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/genres.py) | `GENRE_PROFILES` `primitive_weights` | Weights assigned to each primitive per documentary genre |
+| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `storyboard_guidance_text` | Topic-driven archetype selection (no preset style weights) |
 | [backend/mcp/payloads.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/mcp/payloads.py) | `variety_stats()` `kinds` | MCP variety analytics tracker covering all 11 primitives |
 | [backend/mcp/server.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/mcp/server.py) | Director instruction strings | MCP variety contract enforcing at least 5 of 11 primitives per video |
 | [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `_fetch_ast_layer_asset()` | Downloads media files for media-backed layer types (`Image`, `Video`) |
@@ -442,7 +442,7 @@ When altering visual layer types, use this checklist to guarantee 100% codebase 
 - [ ] **Backend**: `sanitize_style_keys()` box rules updated in `backend/agent/validators.py`
 - [ ] **Backend**: `LAYER_CONTENT_SCHEMA` enum & properties updated in `backend/pipeline/ai.py`
 - [ ] **Backend**: Prompts (`visuals_system_prompt`, `_visual_rules_safety_net`, `plan_system_prompt`) updated in `backend/pipeline/ai.py`
-- [ ] **Backend**: `GENRE_PROFILES` `primitive_weights` updated in `backend/pipeline/genres.py`
+- [ ] **Backend**: Topic-driven archetype guidance updated in `backend/pipeline/ai.py` (`storyboard_guidance_text`)
 - [ ] **Backend**: MCP variety analytics and director rules updated in `backend/mcp/payloads.py` & `backend/mcp/server.py`
 - [ ] **Backend**: (If media-backed) `_fetch_ast_layer_asset` updated in `backend/pipeline/assets.py`
 - [ ] **Skills**: `backend/skills/declarative-ast/SKILL.md` updated

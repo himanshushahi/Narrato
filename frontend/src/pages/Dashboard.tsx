@@ -22,7 +22,7 @@ const Dashboard: React.FC = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
-  const [videoType, setVideoType] = useState('documentary');
+  const [styleHint, setStyleHint] = useState('');
   const [language, setLanguage] = useState('hi');
   const [videoFormat, setVideoFormat] = useState('landscape');
   const [durationMode, setDurationMode] = useState('medium');
@@ -35,7 +35,7 @@ const Dashboard: React.FC = () => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !videoType.trim()) return;
+    if (!name.trim()) return;
     if (!exportFolder.trim()) {
       addToast("Please select an export destination folder", "error");
       return;
@@ -43,12 +43,12 @@ const Dashboard: React.FC = () => {
 
     setLoading(true);
     try {
-      const res = await callApi<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, videoType, exportFolder, language, 'nitish_rajput', durationMode, videoFormat);
+      const res = await callApi<{ success: boolean; project_id?: string; error?: string }>('create_new_project', name, styleHint, exportFolder, language, 'nitish_rajput', durationMode, videoFormat);
       if (res?.success && res.project_id) {
         fetchProjects();
         setShowModal(false);
         setName('');
-        setVideoType('documentary');
+        setStyleHint('');
         setExportFolder('');
         
         // Open export tab for newly created project
@@ -156,7 +156,7 @@ const Dashboard: React.FC = () => {
                       </h3>
 
                       <p className="text-xs text-stone-400 line-clamp-2 leading-relaxed">
-                        {project.prompt}
+                        {project.prompt?.trim() ? project.prompt : 'Topic-driven visuals · style invented from topic'}
                       </p>
                     </div>
 
@@ -268,20 +268,13 @@ const Dashboard: React.FC = () => {
                       className="bg-stone-950"
                     />
 
-                    <CustomSelect
-                      label="Video Style / Genre"
-                      options={[
-                        { value: 'documentary', label: 'Documentary & Geopolitics (Ken Burns, Maps, Cinematic)' },
-                        { value: 'explainer', label: 'Tech & SaaS Explainer (Vector Graphics, Fast, Neon)' },
-                        { value: 'finance', label: 'Finance & Market Analysis (Charts, Metrics, Tickers)' },
-                        { value: 'vox', label: 'Vox-Style Editorial (Typography, Yellow/Black, Collage)' },
-                        { value: 'news', label: 'News/Journalism (Split Screens, Lower Thirds)' },
-                        { value: 'true_crime', label: 'True Crime / Mystery (Redacted Memos, Shockwave)' },
-                        { value: 'storytime', label: 'Personal Story (Portraits, Warm, Soft)' },
-                        { value: 'viral_short', label: 'Viral Short-Form (Fast Cuts, Kinetic Words, Punchy)' }
-                      ]}
-                      value={videoType}
-                      onChange={(val) => setVideoType(val)}
+                    <CustomInput
+                      label="Visual Style Hint (optional)"
+                      type="text"
+                      placeholder="e.g. warm editorial, dark cinematic, playful neon — leave blank to invent from topic"
+                      value={styleHint}
+                      onChange={(e) => setStyleHint(e.target.value)}
+                      className="bg-stone-950"
                     />
 
                     <div>

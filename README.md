@@ -136,7 +136,7 @@ Any MCP-compatible coding agent (Claude Code, opencode, Cursor, Gemini CLI) can 
   • tools.py       • transcribe.py     • safe templating    • gpu_runtime.py
   • cache.py       • assets.py         • hot-reload         • file_server.py
   • telemetry.py   • render.py (Remotion)                   • database/db.py
-  • validators.py  • genres / sfx / icons                   • mcp/server.py
+  • validators.py  • sfx / icons                        • mcp/server.py
 ```
 
 ---
@@ -175,7 +175,6 @@ Narrato/
 │   │   ├── transcribe.py      # Faster-Whisper word-level transcription & subtitles
 │   │   ├── assets.py          # Media asset search & download (Pexels, Pixabay, Wikipedia)
 │   │   ├── render.py          # Chunked Remotion rendering & FFmpeg muxing
-│   │   ├── genres.py          # 8 genre profiles & creative presets
 │   │   ├── icons.py           # Lucide icon registry & search
 │   │   ├── sfx.py             # Audio sound effect triggers & ducking
 │   │   └── queue.py           # Serialized background task execution queue

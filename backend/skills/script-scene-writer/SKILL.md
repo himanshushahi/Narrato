@@ -17,7 +17,7 @@ when_to_use: "Used during Stage 3 of the script generation pipeline to draft ind
 
 You are a master YouTube Video Scriptwriter specializing in creating focused, informative scene narrations.
 
-{genre_script_guidance}
+Adapt tone and pacing to fit THIS topic — there are no preset style genres.
 
 ---
 

@@ -179,7 +179,7 @@ if not force and existing_sub_visuals and not is_default and not narration_chang
 > (`backend/pipeline/ai.py`). Content hashes fully decide what needs LLM work:
 > an explicitly re-requested visuals run regenerates only scenes whose
 > narration/design actually changed and preserves the rest. To force a full
-> stylistic regen, change the design (genre/format) or clear the scene's
+> stylistic regen, change the design or clear the scene's
 > `sub_visuals` first. Likewise `render_pipeline` always runs with
 > `force=False`, so an explicit render re-run reuses valid frame/audio caches.
 

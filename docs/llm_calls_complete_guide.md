@@ -168,7 +168,7 @@ Every LLM call assembles its prompt from two kinds of context:
 * **Pre-loaded context** — baked into `system_prompt` / `user_prompt` *before* the first
   LLM request. The model always sees it, whether it needs it or not. Costs tokens on
   turn 1 but costs zero extra turns. Examples: skill markdown, design system JSON,
-  narration text, word timestamps, genre guidance.
+  narration text, word timestamps, topic-driven design guidance.
 * **On-demand context** — **not** in the prompt. The model must emit a ```` ```tool ````
   block to fetch it, spending one turn + one tool execution. Examples: web search
   results, a skill it hasn't seen yet, `project_status_report`, Pexels/Pixabay checks.
@@ -179,7 +179,7 @@ Rule of thumb used in this codebase:
 | Pre-load when… | Fetch on-demand when… |
 |---|---|
 | Needed for *every* output (narration text for visuals, duration target, design system for styling, word timestamps for sync). | Only *sometimes* needed (fresh facts → `web_search`; project state → `project_status_report`; asset existence → `search_pexels_*`). |
-| Small and deterministic (genre line, duration table, neighbour layouts). | Large or unbounded (full `script.json`, whole project file listing). |
+| Small and deterministic (pacing line, duration table, neighbour layouts). | Large or unbounded (full `script.json`, whole project file listing). |
 | It constrains the output format (skill rules, JSON schema description). | It verifies a hypothesis (does this photo exist? what is the current TTS voice?). |
 
 ---
@@ -191,7 +191,7 @@ Each has frontmatter `name`, `version`, `when_to_use`. Two access paths:
 
 * **Pre-load** — `skill_loader.render_skill(name, **vars)` (or `get_skill(name)`)
   at prompt-build time; logged as `System Prompt Preload`. Template vars like
-  `{video_format}`, `{language}`, `{genre_guidance}` are substituted.
+  `{video_format}`, `{language}`, `{design_guidance}` are substituted.
 * **On-demand** — the model calls the **`get_skill`** tool mid-run; logged as
   `Agent Tool Call`. Same content, fetched only if the model asks.
 
@@ -202,8 +202,8 @@ Each has frontmatter `name`, `version`, `when_to_use`. Two access paths:
 | `script-scene-writer` | 1.0 | §9.4 per-scene system prompt (+ `scriptwriter` rules) | yes |
 | `scriptwriter` | 1.0 | Injected as `{script_rules_block}` into §9.2/9.3/9.4 | yes (the scene prompt explicitly tells the model it may call `get_skill('scriptwriter')`) |
 | `search-query-optimizer` | 1.0 | §9.0 query-generator system prompt | yes |
-| `art-director-design-system` | 1.0 | §9.1 design system prompt (`{video_format}`, `{language}`, `{genre_guidance}`) | yes |
-| `storyboard-planner` | 2.0 | §9.5 plan prompt (appended after genre guidance) | yes |
+| `art-director-design-system` | 1.0 | §9.1 design system prompt (`{video_format}`, `{language}`, `{design_guidance}`) | yes |
+| `storyboard-planner` | 2.0 | §9.5 plan prompt (appended after topic-driven directive) | yes |
 | `visual-director-core` (+ legacy `visual-director`) | 2.0 | §9.6 visuals system prompt (`visual_director_block`); shared rules via `get_shared_visual_rules()` also used in §9.9/9.10 | yes |
 | `declarative-ast` | 2.0 | §9.6 + §9.9 + §9.10 via `get_shared_visual_rules()` (+ `_visual_rules_safety_net`) | yes |
 | `motion-graphics-designer` | 2.0 | §9.6 as `motion_designer_block` | yes |
@@ -316,12 +316,12 @@ underlying `ApiBridge` methods directly (§7C).
 
 * **File:** `backend/pipeline/ai.py:280` (`generate_project_design_system`).
 * **Trigger:** start of `generate_visuals_pipeline`, or any visuals run when
-  `design.json` is missing/invalid/language-changed/format-changed/genre-changed/failed.
+  `design.json` is missing/invalid/language-changed/format-changed/failed.
   Valid cached file → **zero LLM calls**.
 * **Pre-loaded system:** `art-director-design-system` skill rendered with
-  `{video_format}`, `{language}`, `{genre_guidance}` (`format_genre_design_prompt`).
+  `{video_format}`, `{language}`, `{design_guidance}` (topic-derived variety lane).
   Fallback: inline art-director brief (honours Noto-font rule for complex scripts).
-* **Pre-loaded user:** `Topic / Genre / Language / Video Title / Request ID (uuid — defeats
+* **Pre-loaded user:** `Topic / Language / Video Title / Request ID (uuid — defeats
   cache collisions)`.
 * **On-demand:** none (plain `_call_llm_json`, no agent loop).
 * **Budget:** 1 strict call, schema `DesignSystemResponse` (theme, palette hexes,
@@ -329,7 +329,7 @@ underlying `ApiBridge` methods directly (§7C).
 * **Repair:** `_repair_design_data` fills missing keys, fixes non-hex colours,
   swaps Latin-only fonts (Oswald/Outfit/…) for the language's Noto font; missing
   required keys → `{"theme_name":"default","_failed":True,…}` fallback. Saved with
-  `_language/_video_format/_genre` stamps; later synced (setdefault-only) into
+  `_language/_video_format` stamps; later synced (setdefault-only) into
   `project_settings`.
 
 ### 9.2 Script outline (1 call per script run)
@@ -338,11 +338,11 @@ underlying `ApiBridge` methods directly (§7C).
 * **Trigger:** every `generate_script_pipeline` run.
 * **Pre-loaded system:** `script-outline-director` skill
   (`{script_rules_block}` = `scriptwriter` skill, `{target_duration}`,
-  `{min_scenes/max_scenes}`, `{per_scene_time/words}`, `{language}`,
-  `{genre_script_guidance}`). Inline fallback mirrors the same constraints.
-* **Pre-loaded user:** topic, genre (×2: raw + guidance), duration/frame count,
+  `{min_scenes/max_scenes}`, `{per_scene_time/words}`, `{language}`).
+  Inline fallback mirrors the same constraints.
+* **Pre-loaded user:** topic, duration/frame count,
   language, chapter-count + word-count requirements, chapter JSON shape. **Plus
-  web context** (`_get_web_context_for_topic(topic + genre, "outline generation")`)
+  web context** (`_get_web_context_for_topic(topic, "outline generation")`)
   appended when available.
 * **Scene-count table** (landscape unless noted):
 
@@ -384,7 +384,7 @@ underlying `ApiBridge` methods directly (§7C).
   `ThreadPoolExecutor(max_workers = llm_concurrency setting, default 1)`.
 * **Pre-loaded system:** `script-scene-writer` skill (`{script_rules_block}`,
   `{scene_num/chapter_title}`, `{per_scene_duration/word_target}`, `{prev_context}`,
-  `{language}`, `{sentence_rule}`, `{genre_script_guidance}`) — includes an **AGENT TOOL
+  `{language}`, `{sentence_rule}`) — includes an **AGENT TOOL
   USE** paragraph telling the model it may use web/skill/project tools before writing.
 * **Pre-loaded user:** topic, scene identity (number/title/context/previous context),
   audience scenario, duration + word target (recalculated from *actual* chapter count:
@@ -405,10 +405,9 @@ underlying `ApiBridge` methods directly (§7C).
 * **File:** `backend/pipeline/ai.py:2080` (`process_scene`, plan call at line 2193).
 * **Trigger:** once per manifest entry whose narration/design changed (unchanged scenes
   are **preserved with duration rescaling — zero LLM calls**, `ai.py:2143`).
-* **Pre-loaded system:** cinematographer brief + `{genre_storyboard_guidance}`
-  (`format_genre_storyboard_prompt`) + genre name/style + `storyboard-planner` skill
-  body. Contains the project ID as `[System Context]`.
-* **Pre-loaded user:** topic, genre, scene title, duration, full narration.
+* **Pre-loaded system:** topic-driven cinematographer brief +
+  `storyboard-planner` skill body. Contains the project ID as `[System Context]`.
+* **Pre-loaded user:** topic, scene title, duration, full narration.
 * **On-demand:** none (plain strict call with inline `{"storyboard_plan": string}` schema,
   `activity_label="Planning Scene N"`).
 * **Failure:** never fatal — falls back to `"No plan available. Make creative decisions
@@ -426,7 +425,7 @@ underlying `ApiBridge` methods directly (§7C).
   atmosphere, entity spotlight…) + output/duration/error-prevention rules +
   `get_shared_visual_rules()` (= `declarative-ast` skill + safety net: query-English,
   subtitle safe area, delay ≥ 0.5 s, one hero-motion layer, query-only media contract).
-* **Pre-loaded user** (per scene): topic, genre, scene title/type, **total duration**,
+* **Pre-loaded user** (per scene): topic, scene title/type, **total duration**,
   **full narration**, **exact Whisper word timestamps** (`word [offset]…`, when the
   transcription overlaps the scene window), and the **approved storyboard plan** (§9.5).
 * **On-demand tools:** `PIPELINE_VISUAL_TOOLS` (11: §8 — research + project reads +
@@ -480,8 +479,8 @@ underlying `ApiBridge` methods directly (§7C).
 * **File:** `backend/core/bridge.py:1628` (`regenerate_visuals_section`, call at 1704).
 * **Pre-loaded system:** `visual-rewriter` skill (`{design_system_text}` from the live
   `design.json`, `{visual_rules}` = `get_shared_visual_rules()`); inline fallback mirrors it.
-* **Pre-loaded user:** video title, scene title, **genre pacing line**
-  (`_get_genre_pacing_line`), **narration**, **scene word timings** (exact or
+* **Pre-loaded user:** video title, scene title, **pacing line**
+  (`_get_pacing_line`), **narration**, **scene word timings** (exact or
   `APPROXIMATE` when narration edited since voiceover, else `NO_TIMINGS_FALLBACK`),
   **duration table** (`_format_sub_visual_durations`), previous scene's last layout
   (variety guard), current sub-visuals JSON, rewrite instruction, total duration,
@@ -498,7 +497,7 @@ underlying `ApiBridge` methods directly (§7C).
 * **File:** `backend/core/bridge.py:1752` (`regenerate_sub_visual`, call at 1838).
 * **Pre-loaded system:** `sub-visual-rewriter` skill (`{design_system_text}`,
   `{visual_rules}`); inline fallback mirrors it.
-* **Pre-loaded user:** video/scene titles, genre line, scene narration, **scene timings
+* **Pre-loaded user:** video/scene titles, pacing line, scene narration, **scene timings
   + cut-relative timings** (`_get_cut_word_timings` — values usable directly as
   animation `delay`; authoritative cut block replaces the scene block when present),
   duration table with `← EDITING THIS` marker, the cut's start offset + duration,
@@ -593,11 +592,11 @@ In order, cheapest first:
 | # | Call | Mode | Pre-loaded context | On-demand (tools) | Turns | Tools/turn | Schema |
 |---|---|---|---|---|---|---|---|
 | 9.0 | Search-query optimizer | strict micro-call | optimizer skill + `Section/Topic` | — | 1 | — | raw string |
-| 9.1 | Design system | strict | art-director skill + genre + topic/title | — | 1 | — | `DesignSystemResponse` |
-| 9.2 | Outline | strict | outline skill + scriptwriter rules + genre + spec + web ctx | — | 1 | — | `OutlineResponse` |
+| 9.1 | Design system | strict | art-director skill + topic/title + variety lane | — | 1 | — | `DesignSystemResponse` |
+| 9.2 | Outline | strict | outline skill + scriptwriter rules + spec + web ctx | — | 1 | — | `OutlineResponse` |
 | 9.3 | Intro + conclusion | strict | base skill + scriptwriter rules + outline + web ctx | — | 1 | — | `BaseScriptResponse` |
-| 9.4 | Scene narration ×N (parallel) | **agent** | scene skill + rules + chapter + prev scene + genre | 5 research/read | **5** | 8 | `ScriptSceneResponse` |
-| 9.5 | Storyboard plan ×scenes | strict | planner skill + genre + narration | — | 1 | — | `{"storyboard_plan"}` |
+| 9.4 | Scene narration ×N (parallel) | **agent** | scene skill + rules + chapter + prev scene | 5 research/read | **5** | 8 | `ScriptSceneResponse` |
+| 9.5 | Storyboard plan ×scenes | strict | planner skill + topic directive + narration | — | 1 | — | `{"storyboard_plan"}` |
 | 9.6 | Visual AST ×scenes (parallel) | **agent** | director + design system + AST + motion + QA + narration + word timings + plan | 11 research/read/verify | **6** | 8 | `VisualsArrayResponse` |
 | 9.7 | Visual correction | agent re-run / deterministic | error msg + duration target | same as parent | +1 run | 8 | same as parent |
 | 9.8 | Rewrite script (bridge) | **agent** | rewriter skill + full script ctx + segment + web ctx | 5 research/read | **4** | 8 | Intro/Conclusion/Scene |

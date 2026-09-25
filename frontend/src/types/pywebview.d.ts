@@ -19,7 +19,7 @@ interface PywebviewApi {
   db_get_project_tasks(project_id: string): Promise<any[]>;
   db_get_settings(): Promise<any>;
   db_update_settings(settings_dict: any): Promise<boolean>;
-  create_new_project(name: string, prompt: string, export_folder: string, language: string, style: string, duration_mode: string, video_format: string): Promise<{ project_id?: string; success: boolean; error?: string }>;
+  create_new_project(name: string, style_hint: string, export_folder: string, language: string, style: string, duration_mode: string, video_format: string): Promise<{ project_id?: string; success: boolean; error?: string }>;
   start_processing_pipeline(project_id: string, steps: string[]): Promise<{ success: boolean }>;
   resume_processing_pipeline(project_id: string, steps: string[]): Promise<{ success: boolean }>;
   cancel_processing_pipeline(project_id: string): Promise<boolean>;

@@ -288,12 +288,11 @@ def save_design_payload(project_id: str, data: dict) -> dict:
     proj_dir = _project_dir(project_id)
     proj_dir.mkdir(parents=True, exist_ok=True)
 
-    from backend.pipeline.genres import normalize_genre_key
     document = dict(data)
     document["_language"] = proj.get("language", "hi")
     document["_video_format"] = proj.get("video_format", "landscape")
-    document["_genre"] = normalize_genre_key(proj.get("prompt") or "documentary")
     document.pop("_failed", None)
+    document.pop("_genre", None)
 
     design_path = proj_dir / "design.json"
     tmp_path = design_path.with_suffix(".tmp")
@@ -774,43 +773,33 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
 
 
 def _creative_blueprint_for_project(proj: dict) -> dict:
-    """Pushed cheat-sheet: genre-matched archetypes + sample cut + hard rules.
+    """Pushed cheat-sheet: topic-driven archetypes + sample cut + hard rules.
 
     Lives on get_section_timings (the mandatory step right before visual
     authoring) so the agent gets the creative template without digging
-    through the 50KB declarative-ast file first."""
-    genre = str((proj or {}).get("genre") or (proj or {}).get("style")
-                or "documentary").strip().lower()
+    through the 50KB declarative-ast file first. No genre presets — the
+    agent picks archetypes to fit each narration beat.
+    """
     video_format = str((proj or {}).get("video_format") or "landscape")
-    table = {
-        "documentary": ["Archetype 7 Entity Spotlight (ken_burns_focus)",
-                        "Archetype 4 Geographic Route (map_journey)",
-                        "Archetype 11 Leaked Audit Dossier (document_redaction)"],
-        "explainer": ["Archetype 3 Macro Metric Callout (stat_callout)",
-                      "Archetype 1 Split-Screen Data HUD (split_comparison)",
-                      "Archetype 6 Infographic Grid (isometric_card)"],
-        "finance": ["Archetype 3 Macro Metric Callout",
-                    "Archetype 8 Hero Data Reveal",
-                    "Archetype 6 Multi-Metric Grid"],
-        "vox": ["Archetype 10 Vintage Newspaper Headline",
-                "Archetype 1 Split-Screen Data HUD",
-                "Archetype 3 Macro Metric Callout"],
-        "news": ["Archetype 1 Split-Screen Data HUD",
-                 "Archetype 7 Entity Spotlight",
-                 "Archetype 3 Macro Metric Callout"],
-        "true_crime": ["Archetype 11 Confidential Dossier + Redaction",
-                       "Archetype 2 Investigative Dossier Spotlight",
-                       "Archetype 12 Encrypted Chat Leak"],
-        "storytime": ["Archetype 7 Entity Spotlight",
-                      "Archetype 4 Geographic Route (sparingly)",
-                      "Archetype 3 Callout (sparingly)"],
-        "viral_short": ["Archetype 3 Macro Metric Callout",
-                        "Archetype 1 Split-Screen Data HUD",
-                        "Archetype 7 Entity Spotlight"],
-    }
+    _raw_hint = str((proj or {}).get("prompt") or "").strip()
+    # Legacy rows store a removed genre token in `prompt` — never surface it
+    # as a style hint.
+    if _raw_hint.lower() in {
+        "documentary", "explainer", "finance", "vox",
+        "news", "true_crime", "storytime", "viral_short",
+    }:
+        _raw_hint = ""
+    style_hint = _raw_hint
     return {
-        "genre": genre,
-        "recommended_archetypes": table.get(genre, table["documentary"]),
+        "style_hint": style_hint,
+        "recommended_archetypes": [
+            "Archetype 7 Entity Spotlight (portrait/evidence focus)",
+            "Archetype 1 Split-Screen Data HUD (split_comparison)",
+            "Archetype 3 Macro Metric Callout (stat_callout)",
+            "Archetype 4 Geographic Route (map_journey)",
+            "Archetype 2/11 Evidence Dossier (document memo)",
+            "Archetype 6 Infographic Grid",
+        ],
         "hard_rules": [
             "LayerBox geometry %-only; max ONE Particles layer per cut, LAST child.",
             "No chapter title cards inside cuts.",

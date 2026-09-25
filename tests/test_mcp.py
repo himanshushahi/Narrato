@@ -12,7 +12,7 @@ from backend.mcp import payloads
 
 
 def _proj(pid="proj_mcp"):
-    return {"id": pid, "name": "Test Topic", "prompt": "documentary",
+    return {"id": pid, "name": "Test Topic", "prompt": "",
             "language": "hi", "style": "nitish_rajput",
             "duration_mode": "medium", "video_format": "landscape"}
 
@@ -80,10 +80,10 @@ def _patch_db(monkeypatch, proj):
         if pid in records["projects"]:
             records["projects"][pid].update(kw)
 
-    def fake_create_project(name, genre="documentary", export_folder="", **kw):
+    def fake_create_project(name, video_type="", export_folder="", **kw):
         pid = kw.get("id") or f"proj_{len(records['projects']) + 1}"
         p = {
-            "id": pid, "name": name, "genre": genre, "export_folder": export_folder,
+            "id": pid, "name": name, "prompt": video_type, "export_folder": export_folder,
             "status": "created", "language": kw.get("language", "hi"),
             "style": kw.get("style", "nitish_rajput"),
             "duration_mode": kw.get("duration_mode", "medium"),
@@ -224,7 +224,7 @@ def test_save_design_writes_metadata(tmp_path, monkeypatch):
     assert result["ok"] is True and len(result["design_hash"]) == 12
     doc = json.loads((tmp_path / "proj_mcp" / "design.json").read_text(encoding="utf-8"))
     assert doc["_language"] == "hi" and doc["_video_format"] == "landscape"
-    assert doc["_genre"] == "documentary"
+    assert "_genre" not in doc
 
 
 # ── visuals ─────────────────────────────────────────────────────────
@@ -575,13 +575,11 @@ def test_project_not_completed_by_single_stage(monkeypatch):
 
 def test_create_project_validates_all_fields(monkeypatch):
     from backend.mcp import server
-    base = dict(genre="documentary", language="hi",
+    base = dict(language="hi",
                 video_format="landscape", duration_mode="medium")
     assert server.create_project("x", **{**base, "duration_mode": "huge"}).get("ok") is False
     assert server.create_project("x", **{**base, "language": "hindi"}).get("ok") is False
     assert server.create_project("x", **{**base, "language": "fr"}).get("ok") is False
-    assert server.create_project("x", **{**base, "genre": "bogus"}).get("ok") is False
-    assert server.create_project("x", **{**base, "genre": "  "}).get("ok") is False
     assert server.create_project("x", **{**base, "export_folder": "../evil"}).get("ok") is False
     # Missing required intake fields must fail fast, not silently default.
     assert server.create_project("x").get("ok") is False
@@ -591,17 +589,16 @@ def test_create_project_schema_and_instructions():
     from backend.mcp import server
     assert server.mcp.instructions is not None
     assert "MANDATORY PROJECT INTAKE PROTOCOL" in server.mcp.instructions
+    assert "preset genre" in server.mcp.instructions.lower() or "no preset" in server.mcp.instructions.lower()
     tools = [t for t in server.mcp._tool_manager.list_tools()]
     cp = next(t for t in tools if t.name == "create_project")
     params = cp.parameters
     assert "name" in params["required"]
-    assert "genre" in params["required"]
+    assert "genre" not in params["required"]
+    assert "genre" not in params["properties"]
     assert "language" in params["required"]
     assert "video_format" in params["required"]
     assert "duration_mode" in params["required"]
-    assert set(params["properties"]["genre"]["enum"]) == {
-        "documentary", "explainer", "finance", "vox", "news", "true_crime", "storytime", "viral_short"
-    }
     assert set(params["properties"]["language"]["enum"]) == {"hi", "en"}
     assert set(params["properties"]["video_format"]["enum"]) == {"landscape", "portrait"}
     assert set(params["properties"]["duration_mode"]["enum"]) == {"short", "medium", "long", "extra_long"}
@@ -655,7 +652,7 @@ def test_build_review_pairs_cells_on_partial_failure(tmp_path, monkeypatch):
 def test_server_create_project_validates(monkeypatch):
     from backend.mcp import server
     assert server.create_project("").get("ok") is False
-    base = dict(genre="documentary", language="hi",
+    base = dict(language="hi",
                 duration_mode="medium")
     assert server.create_project("", **base, video_format="landscape").get("ok") is False
     assert server.create_project("x", **{**base, "video_format": "imax"}).get("ok") is False
@@ -1317,7 +1314,7 @@ def test_create_and_list_projects_via_server(tmp_path, monkeypatch):
     from backend.mcp import server
     _patch_storage(monkeypatch, tmp_path)
     calls = _patch_db(monkeypatch, None)
-    res = server.create_project("My Cool Doc", genre="documentary", language="hi",
+    res = server.create_project("My Cool Doc", language="hi",
                                 style="nitish_rajput", duration_mode="medium",
                                 video_format="landscape")
     assert res["ok"] is True

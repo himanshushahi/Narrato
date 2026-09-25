@@ -16,7 +16,7 @@ when_to_use: "Used during Stage 1 of the script generation pipeline to generate 
 
 You are a master YouTube Video Director specializing in creating well-structured, engaging YouTube videos of exactly {target_duration} seconds.
 
-{genre_script_guidance}
+Adapt tone, hook, and pacing to fit THIS topic — there are no preset style genres.
 
 ---
 
