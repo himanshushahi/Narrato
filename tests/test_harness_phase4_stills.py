@@ -33,21 +33,38 @@ def test_visuals_hash_changes_on_edit():
     assert h1 != "novisuals"
 
 
-def test_visuals_hash_ignores_local_path():
+def test_visuals_hash_ignores_local_path_and_asset_url():
     a = _script_with([_cut()])
     b = copy.deepcopy(a)
     b["scenes"][0]["sub_visuals"][0]["composition"]["children"][1][
         "content"]["local_path"] = "C:/x/asset_1.jpg"
+    b["scenes"][0]["sub_visuals"][0]["composition"]["children"][1][
+        "content"]["asset_url"] = "https://example.com/x.jpg"
+    assert compute_visuals_hash(a) == compute_visuals_hash(b)
+
+
+def test_visuals_hash_busts_on_overlay_edit():
+    a = _script_with([_cut()])
+    b = copy.deepcopy(a)
+    b["overlays"] = [{"type": "watermark", "text": "NEW"}]
+    assert compute_visuals_hash(a) != compute_visuals_hash(b)
+
+
+def test_missing_vs_empty_sub_visuals_hash_same():
+    a = {"title": "T", "scenes": []}
+    b = {"title": "T", "introduction": {"sub_visuals": []},
+         "scenes": [], "conclusion": {}}
     assert compute_visuals_hash(a) == compute_visuals_hash(b)
 
 
 def test_cache_key_busts_on_visuals_change():
+    import pytest
     k1 = still_cache_key("s", "d", 90, visuals_hash="aaa")
     k2 = still_cache_key("s", "d", 90, visuals_hash="bbb")
     assert k1 != k2
-    # Legacy callers without visuals_hash keep working.
-    k0 = still_cache_key("s", "d", 90)
-    assert k0.endswith(".jpg")
+    # visuals_hash is required — no silent pre-visuals key family.
+    with pytest.raises(TypeError):
+        still_cache_key("s", "d", 90)
 
 
 def test_probe_visuals_hash_tracks_save(tmp_path, monkeypatch):
@@ -105,3 +122,26 @@ def test_describe_cache_reports_miss_without_render(tmp_path, monkeypatch):
     assert info["visuals_hash"] != "novisuals"
     assert info["frames"] == [30]
     assert info["misses"] == [30] and info["hits"] == []
+    assert len(info["script_hash"]) > 16  # full hash, not truncated
+
+
+def test_describe_has_no_side_effects_and_fps_fallback(tmp_path, monkeypatch):
+    pid = "proj_nodesc"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project",
+                        lambda _pid: {"id": pid, "name": "T"})
+    proj_dir = tmp_path / pid
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps(_script_with([_cut()])),
+                                          encoding="utf-8")
+    (proj_dir / "design.json").write_text(json.dumps(
+        {"theme_name": "T", "color_palette": {}, "typography": {},
+         "css_guidelines": "x"}), encoding="utf-8")
+
+    def _boom(proj, _dir):
+        raise RuntimeError("no manifest yet")
+    monkeypatch.setattr(
+        "backend.pipeline.render.prepare_render_props_and_settings", _boom)
+    info = describe_stills_cache(pid, [2.0])
+    assert info["fps"] == 30  # lightweight fallback, not a crash
+    assert not (proj_dir / "assets" / "previews" / "stills").exists()

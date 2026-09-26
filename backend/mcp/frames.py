@@ -460,7 +460,7 @@ def build_review(project_id: str, section_type: str = "scene", scene_index: int 
             stills = _stills.grab_composition_stills(
                 project_id, [c["timestamp"] for c in plan["cells"]])
         except Exception as e:
-            raise RuntimeError(str(e))
+            raise RuntimeError(str(e)) from e
         paired = list(zip(plan["cells"], stills))
     else:
         for cell in plan["cells"]:
@@ -484,13 +484,22 @@ def build_review(project_id: str, section_type: str = "scene", scene_index: int 
                        **({"kind": c["kind"]} if "kind" in c else {})}
                       for c, _ in paired]}
     if cache_info is not None:
+        pre_misses = cache_info.get("misses", [])
         meta["cache"] = {
             "visuals_hash": cache_info.get("visuals_hash"),
             "design_hash": cache_info.get("design_hash"),
+            "script_hash": cache_info.get("script_hash"),
+            "fps": cache_info.get("fps"),
+            "frames": cache_info.get("frames", []),
+            # hits/misses describe the PRE-render cache state. Returned
+            # pixels are always current (missing frames were just rendered
+            # under this visuals_hash), so fresh is unconditionally true —
+            # was_cached tells whether they came straight from cache.
             "hits": cache_info.get("hits", []),
-            "misses": cache_info.get("misses", []),
-            "fresh": not cache_info.get("misses", []),
-            "note": ("fresh render" if not cache_info.get("misses", [])
-                     else "rendered missing frames; re-review hits cache"),
+            "misses": pre_misses,
+            "was_cached": not pre_misses,
+            "fresh": True,
+            "note": ("served from cache" if not pre_misses
+                     else "rendered missing frames under current visuals_hash"),
         }
     return meta, jpeg

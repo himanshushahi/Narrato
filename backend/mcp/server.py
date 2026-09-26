@@ -1347,7 +1347,7 @@ def review_frame(project_id: str, section_type: str = "scene", scene_index: int 
     pre-render asset lineup; mode=composition renders exact pre-render
     composition pixels headlessly (seconds per call, cached — the truth
     check before render, REQUIRES fetch_assets first so Image/Video
-    local_path files exist);     procedural (text-only) cuts report that
+    local_path files exist); procedural (text-only) cuts report that
     explicitly. Returns metadata + a single JPEG (strip or grid).
     Composition metadata includes cache:{visuals_hash, hits, misses} —
     any save_visuals edit changes visuals_hash, so a post-patch re-review

@@ -1292,11 +1292,14 @@ def test_get_visuals_section_and_single_cut(tmp_path, monkeypatch):
 
 def test_still_cache_key_busts_on_content_change():
     from backend.mcp import stills
-    a = stills.still_cache_key("hash1", "design1", 30)
-    assert a == stills.still_cache_key("hash1", "design1", 30)
-    assert a != stills.still_cache_key("hash2", "design1", 30)
-    assert a != stills.still_cache_key("hash1", "design2", 30)
-    assert a != stills.still_cache_key("hash1", "design1", 31)
+    kw = {"visuals_hash": "vis1"}
+    a = stills.still_cache_key("hash1", "design1", 30, **kw)
+    assert a == stills.still_cache_key("hash1", "design1", 30, **kw)
+    assert a != stills.still_cache_key("hash2", "design1", 30, **kw)
+    assert a != stills.still_cache_key("hash1", "design2", 30, **kw)
+    assert a != stills.still_cache_key("hash1", "design1", 31, **kw)
+    assert a != stills.still_cache_key("hash1", "design1", 30,
+                                       visuals_hash="vis2")
     assert a.endswith(".jpg")
 
 
