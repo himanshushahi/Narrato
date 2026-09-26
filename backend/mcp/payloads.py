@@ -1089,13 +1089,18 @@ def save_visuals_payload(project_id: str, section_type: str,
         geometry = _lint_section(normalized, video_format)
     except Exception:
         geometry = {"warnings": [], "fixes": [], "overlaps": []}
+    try:
+        from backend.agent.timing import lint_section_timing as _lint_timing
+        timing = _lint_timing(normalized)
+    except Exception:
+        timing = {"warnings": [], "fixes": []}
     if dry_run:
         result = {"ok": True, "project_id": project_id, "section_type": section_type,
                   "scene_index": scene_index if section_type == "scene" else None,
                   "dry_run": True, "persisted": False,
                   "cut_count": len(normalized), "total_duration": total,
                   "durations": durations, "variety": variety,
-                  "geometry": geometry}
+                  "geometry": geometry, "timing": timing}
         if cut_index is not None:
             result["patched_cut_index"] = cut_index
             result["patched_cut"] = normalized[cut_index]
@@ -1144,7 +1149,7 @@ def save_visuals_payload(project_id: str, section_type: str,
               "persisted": True,
               "cut_count": len(normalized), "total_duration": total,
               "durations": durations, "variety": variety,
-              "geometry": geometry}
+              "geometry": geometry, "timing": timing}
     if cut_index is not None:
         result["patched_cut_index"] = cut_index
     return result

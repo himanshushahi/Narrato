@@ -465,6 +465,11 @@ class AgentRunner:
                 result["geometry"] = _lint(normalized_svs, video_format)
             except Exception:
                 pass
+            try:
+                from backend.agent.timing import lint_section_timing as _lint_t
+                result["timing"] = _lint_t(normalized_svs)
+            except Exception:
+                pass
             return result
 
         self._emit_progress(f"Agent: Correcting visual error ({error_msg})...")
@@ -501,6 +506,11 @@ class AgentRunner:
                 try:
                     from backend.agent.geometry import lint_sub_visuals as _lint2
                     corrected_result["geometry"] = _lint2(final_svs, video_format)
+                except Exception:
+                    pass
+                try:
+                    from backend.agent.timing import lint_section_timing as _lint_t2
+                    corrected_result["timing"] = _lint_t2(final_svs)
                 except Exception:
                     pass
                 return corrected_result

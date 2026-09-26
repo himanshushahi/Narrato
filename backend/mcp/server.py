@@ -1515,11 +1515,14 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     use after review_frame flags one bad cut (re-run fetch_assets if the
     patch adds a new query, then re-review). dry_run=true validates and
     returns the normalized result WITHOUT writing anything.
-    The response ALWAYS includes variety stats + normalizations + a geometry
-    report (overlap / off-canvas / missing fontSize / anchor / center-math
-    fixes) — read them: fix template repetition and flat (effect-free)
-    sections before moving on. Richness rules live in the pipeline-guide
-    variety contract and the declarative-ast archetypes, not in this description."""
+    The response ALWAYS includes variety stats + normalizations + geometry
+    (overlap / off-canvas / missing fontSize / anchor / center-math) and
+    timing (delay+duration fit, emphasis fit, fade pairing, motion_blur,
+    easing) reports — read them: fix template repetition and flat
+    (effect-free) sections before moving on. Delays are absolute seconds
+    within the FINAL cut duration (post-renorm), not scaled. Richness rules
+    live in the pipeline-guide variety contract and the declarative-ast
+    archetypes, not in this description."""
     if not dry_run:
         missing = _missing_stage_skills("visuals", project_id)
         if missing:

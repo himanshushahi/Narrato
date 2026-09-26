@@ -60,7 +60,7 @@ Every layer should move with purpose according to its role, creating a tactile *
     * On high-velocity spring entrances, set `motion_blur: true` on the layer to enable physical optical shutter blur!
     * **Animate the layers that carry the beat:** 1 hero layer is the safe default; up to 3 animated layers allowed on rich cuts. Avoid animating 5+ at once.
     * **Narration sync:** when `Exact Spoken Words with Timestamps` are provided, set the entrance `delay` = (spoken word time − sub-visual start offset), clamped to `[0, cut_duration − animation_duration]`, so the visual enters exactly when the narration mentions it.
-    * **Fit the cut:** `delay + duration` SHOULD fit inside the sub-visual's `duration` (overflow is clipped).
+    * **Fit the cut:** `delay + duration` MUST fit inside the sub-visual's FINAL `duration` (overflow is clipped by the renderer). Delays are absolute seconds from cut start post-renorm — they are NOT scaled when the server renormalizes durations. The harness returns a timing report on every save (`delay+duration` fit, `emphasis at+duration` fit, fade pairing, `motion_blur`-without-motion, easing) — read `timing.warnings/fixes` and clamp before moving on. Easing guide: `spring` for entrances, `ease-out` for fades, `linear` for background drift.
 4. **Foreground Typography (Selective Kinetic Accenting)**:
    * Use `animation_mode: "marker_highlight"` with `highlight_words` on high-impact keywords.
    * Use `animation_mode: "words_stagger"` for impactful statements.
