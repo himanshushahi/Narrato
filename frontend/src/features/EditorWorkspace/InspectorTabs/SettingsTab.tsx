@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { VscSettingsGear, VscRefresh, VscServer, VscSearch, VscChevronRight } from 'react-icons/vsc';
 import { useSettingsStore } from '../../../store/useSettingsStore';
-import { useProjectStore } from '../../../store/useProjectStore';
 import { CustomSelect } from '../../../components/ui/CustomSelect';
 import { WHISPER_MODEL_OPTIONS } from '../../Settings/voiceConstants';
 import { SubtitleSettings } from './SubtitleSettings';
@@ -209,12 +208,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const globalSettings = useSettingsStore((s) => s.settings);
   const downloadedWhisperModels = useSettingsStore((s) => s.downloadedWhisperModels);
   const fetchDownloadedWhisperModels = useSettingsStore((s) => s.fetchDownloadedWhisperModels);
-  const selectedProject = useProjectStore((s) => s.selectedProject);
 
   React.useEffect(() => {
     fetchDownloadedWhisperModels();
   }, [fetchDownloadedWhisperModels]);
-  const projectLanguage = selectedProject?.language || 'hi';
 
   const projectVal = (key: string) => localProjectSettings?.[key] || '';
   const updateKey = (key: string, val: string) => onSettingsUpdate({ ...localProjectSettings, [key]: val });
@@ -224,9 +221,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     onSettingsUpdate(next);
   };
 
-  const effectiveGlobalWhisperModel = globalSettings.whisper_model === 'turbo' && projectLanguage === 'hi' 
-    ? 'collabora/faster-whisper-small-hindi' 
-    : globalSettings.whisper_model;
+  const effectiveGlobalWhisperModel = globalSettings.whisper_model;
 
   const normalizeModelId = (id: string) => id.split('/').pop() || id;
 

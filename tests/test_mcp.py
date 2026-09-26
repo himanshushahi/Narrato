@@ -878,7 +878,7 @@ def test_validate_transcribe_settings(monkeypatch):
     assert any("unknown setting" in e for e in errors)
     # repo ids and custom downloaded ids are accepted
     errors, cols = p.validate_transcribe_settings(
-        {"whisper_model": "collabora/faster-whisper-small-hindi"})
+        {"whisper_model": "deepdml/faster-whisper-large-v3-turbo-ct2"})
     assert errors == []
 
 

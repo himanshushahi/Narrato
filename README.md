@@ -291,7 +291,7 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 |---|---|
 | **LLM Provider** | OpenAI-Compatible Endpoint (model, temperature, tokens, base URL) |
 | **Web Search** | LangSearch (master toggle + API key) — feeds real-time web facts to scriptwriter agent |
-| **Whisper** | Faster-Whisper models (including `collabora/faster-whisper-small-hindi`), device CPU/CUDA |
+| **Whisper** | Faster-Whisper models (`turbo`, `large-v3`, `medium`, `small`), device CPU/CUDA |
 | **TTS Engine** | Edge TTS (voices, speed, pitch) or OmniVoice (voice profiles, reference clip, ~3.3 GB model) |
 | **Media Sources** | Pexels API key, Pixabay illustrations/vectors, Wikipedia images, YouTube clips |
 | **Render Engine** | Resolution, FPS, CRF, codec, concurrency, hardware acceleration (CPU / NVENC) |

@@ -21,16 +21,16 @@ def get_whisper_model_path(model_size):
     whisper_dir = get_models_dir() / "whisper"
 
     # Handle both naming conventions:
-    # 1. "collabora/faster-whisper-small-hindi" (nested in collabora folder)
-    # 2. "collabora_faster-whisper-small-hindi" (flat folder name)
+    # 1. HuggingFace repo formats nested in owner folder (e.g. "owner/repo")
+    # 2. Flat folder names (e.g. "owner_repo")
     safe_dir_name = model_size.replace("/", "_") if "/" in model_size else model_size
 
-    # First check the flat folder name (e.g., "collabora_faster-whisper-small-hindi")
+    # First check the flat folder name (e.g., "owner_repo")
     flat_dir = whisper_dir / safe_dir_name
     if (flat_dir / "model.bin").exists() and (flat_dir / "config.json").exists():
         return str(flat_dir)
 
-    # Then check the nested path (e.g., "collabora/faster-whisper-small-hindi")
+    # Then check the nested path (e.g., "owner/repo")
     nested_dir = whisper_dir / model_size  # Use original with "/"
     if (nested_dir / "model.bin").exists() and (nested_dir / "config.json").exists():
         return str(nested_dir)
@@ -56,7 +56,7 @@ def list_downloaded_whisper_models():
 
     for item in whisper_base_dir.iterdir():
         if item.is_dir():
-            # Skip folders that only contain other model folders (like "collabora" containing "faster-whisper-small-hindi")
+            # Skip folders that only contain other model folders (e.g. namespace directories)
             # A real model folder should have model.bin at its top level or one level deep
             has_model_at_root = (item / "model.bin").exists()
 
@@ -283,13 +283,13 @@ def _resolve_whisper_settings(project_dict):
         elif isinstance(raw, dict):
             project_settings = raw
 
-    model_size = project_settings.get("whisper_model") or get_setting("whisper_model") or "base"
+    model_size = project_settings.get("whisper_model") or get_setting("whisper_model") or "turbo"
     device = project_settings.get("whisper_device") or get_setting("whisper_device") or "cpu"
     language = project_dict.get("language", "hi")
 
-    # Safety check for older projects: If it's not a Hindi project but a Hindi-specific model is set, fallback to best downloaded
-    if language != "hi" and "hindi" in model_size.lower():
-        model_size = get_best_downloaded_whisper_model(fallback="small")
+    # Fallback if an older project still has a deprecated model name
+    if "hindi" in model_size.lower():
+        model_size = get_best_downloaded_whisper_model(fallback="turbo")
 
     return model_size, device, language
 
