@@ -1103,8 +1103,10 @@ def save_visuals_payload(project_id: str, section_type: str,
     try:
         from backend.agent.timing import lint_section_timing as _lint_timing
         timing = _lint_timing(normalized)
-    except Exception:
-        timing = {"warnings": [], "fixes": []}
+    except Exception as e:
+        logger.warning(f"save_visuals: timing lint failed: {e}")
+        from backend.agent.timing import empty_timing_report
+        timing = empty_timing_report()
     if dry_run:
         result = {"ok": True, "project_id": project_id, "section_type": section_type,
                   "scene_index": scene_index if section_type == "scene" else None,

@@ -469,7 +469,8 @@ class AgentRunner:
                 from backend.agent.timing import lint_section_timing as _lint_t
                 result["timing"] = _lint_t(normalized_svs)
             except Exception:
-                pass
+                from backend.agent.timing import empty_timing_report as _empty_t
+                result["timing"] = _empty_t()
             return result
 
         self._emit_progress(f"Agent: Correcting visual error ({error_msg})...")
@@ -512,7 +513,8 @@ class AgentRunner:
                     from backend.agent.timing import lint_section_timing as _lint_t2
                     corrected_result["timing"] = _lint_t2(final_svs)
                 except Exception:
-                    pass
+                    from backend.agent.timing import empty_timing_report as _empty_t2
+                    corrected_result["timing"] = _empty_t2()
                 return corrected_result
         except (InterruptedError, KeyboardInterrupt):
             raise
@@ -541,7 +543,8 @@ class AgentRunner:
                         from backend.agent.timing import lint_section_timing as _lint_t3
                         result["timing"] = _lint_t3(svs2)
                     except Exception:
-                        pass
+                        from backend.agent.timing import empty_timing_report as _empty_t3
+                        result["timing"] = _empty_t3()
                     return result
             except (InterruptedError, KeyboardInterrupt):
                 raise
