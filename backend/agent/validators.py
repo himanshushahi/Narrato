@@ -562,7 +562,6 @@ CANONICAL_CUT_HINT = (
     "]}"
 )
 
-_LEGACY_CUT_KEYS = frozenset({"layers", "layout", "props"})
 _KNOWN_CONTENT_TYPES = frozenset({
     "Image", "Video", "Text", "Chart", "Shape", "Map", "HTML",
     "Lottie", "Particles", "Counter", "Background",
@@ -672,42 +671,84 @@ def build_sample_cut(video_format: str = "landscape") -> Dict[str, Any]:
 def detect_legacy_cut_shape(cut: Any) -> Dict[str, Any] | None:
     """Return legacy-shape evidence for one cut, else None.
 
-    Signals: top-level `layers`, any child with `layout`/`props`, or a child
-    whose `type` is a content type directly (Image/Text/...) instead of Layer.
+    Signals: non-empty top-level `layers[]`, any legacy child with
+    `layout`/`props`, a child whose `type` is a content type directly
+    (Image/Text/...) instead of Layer, `animations[].start` (expected
+    `delay`), or content-level legacy keys (`preset` without
+    `particle_preset` on Particles, numeric `style.fontSize` on Text).
+    A stale empty `layers` key on an otherwise canonical cut is ignored.
     """
     if not isinstance(cut, dict):
         return None
     signals: List[str] = []
-    if "layers" in cut:
+    raw_layers = cut.get("layers")
+    has_legacy_layers = isinstance(raw_layers, list) and len(raw_layers) > 0
+    if has_legacy_layers:
         signals.append("cut.layers[] (expected cut.composition.children[])")
     comp = cut.get("composition")
-    candidates: List[Any] = []
-    if isinstance(cut.get("layers"), list):
-        candidates = cut["layers"]
-    elif isinstance(comp, dict) and isinstance(comp.get("children"), list):
-        candidates = comp["children"]
+    comp_children: List[Any] = []
+    if isinstance(comp, dict) and isinstance(comp.get("children"), list):
+        comp_children = comp["children"]
+    if has_legacy_layers and len(comp_children) > 0:
+        signals.append(
+            "cut has BOTH layers[] and composition.children[] (ambiguous — "
+            "keep one shape; auto_migrate concatenates)")
+    candidates: List[Any] = list(raw_layers) if has_legacy_layers else comp_children
+    prefix = "layers" if has_legacy_layers else "children"
     for idx, layer in enumerate(candidates):
         if not isinstance(layer, dict):
-            signals.append(f"layers[{idx}]: non-dict child")
+            signals.append(f"{prefix}[{idx}]: non-dict child")
             continue
         if "layout" in layer:
-            signals.append(f"layers[{idx}].layout (expected content.style %-strings)")
+            signals.append(f"{prefix}[{idx}].layout (expected content.style %-strings)")
         if "props" in layer:
-            signals.append(f"layers[{idx}].props (expected content.*)")
+            signals.append(f"{prefix}[{idx}].props (expected content.*)")
         ltype = layer.get("type")
         if ltype in _KNOWN_CONTENT_TYPES and ltype != "Layer":
             signals.append(
-                f"layers[{idx}].type={ltype!r} at layer level "
+                f"{prefix}[{idx}].type={ltype!r} at layer level "
                 f"(expected type=Layer + content.type={ltype!r})")
         if isinstance(layer.get("animations"), list):
             for a in layer["animations"]:
                 if isinstance(a, dict) and "start" in a and "delay" not in a:
                     signals.append(
-                        f"layers[{idx}].animations[].start (expected delay)")
+                        f"{prefix}[{idx}].animations[].start (expected delay)")
                     break
+        content = layer.get("content")
+        if isinstance(content, dict):
+            if (content.get("type") == "Particles"
+                    and "preset" in content
+                    and "particle_preset" not in content):
+                signals.append(
+                    f"{prefix}[{idx}].content.preset (expected particle_preset)")
+            if content.get("type") == "Text":
+                style = content.get("style")
+                if isinstance(style, dict) and "fontSize" in style:
+                    fs = style["fontSize"]
+                    if isinstance(fs, (int, float)) and not isinstance(fs, bool):
+                        signals.append(
+                            f"{prefix}[{idx}].content.style.fontSize numeric "
+                            f"(expected px string e.g. \"56px\")")
     if not signals:
         return None
     return {"signals": signals[:8], "hint": CANONICAL_CUT_HINT}
+
+
+def _coerce_filters(value: Any) -> List[str]:
+    """Coerce a legacy filters value to a list without exploding strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                out.append(item)
+            elif item not in (None, ""):
+                out.append(str(item))
+        return out
+    return [str(value)]
 
 
 def migrate_legacy_cut_to_composition(cut: Dict[str, Any]) -> Dict[str, Any]:
@@ -715,7 +756,11 @@ def migrate_legacy_cut_to_composition(cut: Dict[str, Any]) -> Dict[str, Any]:
 
     Best-effort for old projects / old agent output: layout{x,y,w,h} numbers
     → style % strings, props → content fields, preset → particle_preset,
-    start → delay. Unknown keys are carried into content so nothing is lost.
+    start → delay, scalar filters → [filters]. Only props.* plus an explicit
+    content-key allowlist are carried into content; other unknown legacy keys
+    are dropped (see allowlist below). Hybrid cuts (both layers[] and
+    non-empty composition.children[]) concatenate existing children first,
+    then migrated ones, so nothing is silently lost.
     """
     import copy as _copy
     migrated = _copy.deepcopy(cut) if isinstance(cut, dict) else {}
@@ -762,6 +807,12 @@ def migrate_legacy_cut_to_composition(cut: Dict[str, Any]) -> Dict[str, Any]:
         raw_style = legacy.get("style")
         if isinstance(raw_style, dict):
             style.update(raw_style)
+        # Legacy template used numeric style.fontSize (e.g. 7 → ~56px);
+        # canonical shape needs a px string.
+        _fs = style.get("fontSize")
+        if isinstance(_fs, (int, float)) and not isinstance(_fs, bool):
+            _px = float(_fs) * 8.0 if float(_fs) <= 20 else float(_fs)
+            style["fontSize"] = f"{round(_px):g}px"
         if style:
             style.setdefault("position", "absolute")
             content["style"] = style
@@ -785,14 +836,23 @@ def migrate_legacy_cut_to_composition(cut: Dict[str, Any]) -> Dict[str, Any]:
             anims.append(na)
         children.append({"type": "Layer", "content": content,
                          "animations": anims,
-                         "filters": list(legacy.get("filters") or [])})
+                         "filters": _coerce_filters(legacy.get("filters"))})
     comp = migrated.get("composition")
     if not isinstance(comp, dict):
         migrated["composition"] = {"type": "Sequence", "children": children}
     else:
-        if not isinstance(comp.get("children"), list) or not comp["children"]:
+        existing = comp.get("children")
+        if not isinstance(existing, list) or not existing:
             comp["type"] = "Sequence"
             comp["children"] = children
+        elif children:
+            logger.warning(
+                "migrate_legacy_cut_to_composition: hybrid cut has both "
+                "composition.children[] (%d) and layers[] (%d) — "
+                "concatenating (existing first).",
+                len(existing), len(children))
+            comp["type"] = "Sequence"
+            comp["children"] = list(existing) + children
     return migrated
 
 
@@ -816,8 +876,9 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     normalized = []
     total_duration = 0.0
 
-    # Validation pass
-    for v in sub_visuals:
+    # Validation pass (source-indexed so reported cut# matches input order
+    # even when earlier entries are skipped as non-dict).
+    for src_idx, v in enumerate(sub_visuals):
         if not isinstance(v, dict):
             continue
 
@@ -828,7 +889,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
         _legacy = detect_legacy_cut_shape(v)
         if _legacy is not None:
             return False, _dummy_visual(target_duration), (
-                f"SCHEMA_MISMATCH cut#{len(normalized)}: legacy layers/layout shape. "
+                f"SCHEMA_MISMATCH cut#{src_idx}: legacy layers/layout shape. "
                 f"Found: {'; '.join(_legacy['signals'])}. "
                 f"Use {CANONICAL_CUT_HINT}. "
                 f"Fix: re-emit this cut as composition.children Layer nodes, "
@@ -842,7 +903,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             _kids = _comp.get("children") if isinstance(_comp, dict) else None
             if isinstance(_kids, list) and any(isinstance(l, dict) and ("z_index" in l or "zIndex" in l) for l in _kids):
                 return False, _dummy_visual(target_duration), (
-                    f"cut#{len(normalized)}: invalid layer field 'z_index'/'zIndex' — "
+                    f"cut#{src_idx}: invalid layer field 'z_index'/'zIndex' — "
                     "stacking is children array order (children[0]=bottom). Remove the field."
                 )
         except Exception:

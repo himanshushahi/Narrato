@@ -1042,7 +1042,12 @@ def save_visuals_payload(project_id: str, section_type: str,
     )
     # Phase 0 fail-fast: surface SCHEMA_MISMATCH with error_code + fix before
     # the validator's duration logic runs, so dry_run also rejects.
-    _cuts = candidate if isinstance(candidate, list) else [candidate]
+    # Deepcopy first: auto_migrate rewrites in place and dry_run promises
+    # the caller's payload is never mutated.
+    import copy as _copy
+    _cuts = _copy.deepcopy(candidate) if isinstance(candidate, list) else [candidate]
+    if isinstance(candidate, list):
+        candidate = _cuts
     for _idx, _cut in enumerate(_cuts):
         _legacy = detect_legacy_cut_shape(_cut)
         if _legacy is not None:
@@ -1054,18 +1059,24 @@ def save_visuals_payload(project_id: str, section_type: str,
                     continue
                 except Exception as e:
                     logger.warning("save_visuals auto_migrate failed: %s", e)
-            import copy as _copy
             _preview = _copy.deepcopy(build_sample_cut(video_format))
             _preview.pop("note", None)
+            _sig_text = "; ".join(_legacy["signals"])
+            if "BOTH layers[]" in _sig_text:
+                _got = "cut with both layers[] and composition.children[] (ambiguous)"
+            elif "composition.children" in _sig_text or "children[" in _sig_text:
+                _got = "cut.composition.children[] with legacy layer keys"
+            else:
+                _got = "cut.layers[] with layout/props"
             return {"ok": False, "error_code": "SCHEMA_MISMATCH",
                     "error": (
                         f"SCHEMA_MISMATCH cut#{_idx}: legacy layers/layout shape. "
-                        f"Found: {'; '.join(_legacy['signals'])}. "
+                        f"Found: {_sig_text}. "
                         f"Use {CANONICAL_CUT_HINT}."),
                     "cut_index": _idx,
                     "signals": _legacy["signals"],
                     "expected_shape": "cut.composition.children[] of {type:Layer}",
-                    "got_shape": "cut.layers[] with layout/props",
+                    "got_shape": _got,
                     "fix": {"hint": "Re-emit as composition.children Layer nodes, "
                                     "or re-call save_visuals with auto_migrate=true.",
                             "auto_migrate_preview": _preview},

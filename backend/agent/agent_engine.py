@@ -514,6 +514,8 @@ class AgentRunner:
                 except Exception:
                     pass
                 return corrected_result
+        except (InterruptedError, KeyboardInterrupt):
+            raise
         except Exception:
             pass  # Fallback to normalized below.
 
@@ -530,7 +532,19 @@ class AgentRunner:
                 if ok2:
                     self._emit_progress("Agent: Migrated legacy layers→composition.")
                     result["sub_visuals"] = svs2
+                    try:
+                        from backend.agent.geometry import lint_sub_visuals as _lint3
+                        result["geometry"] = _lint3(svs2, video_format)
+                    except Exception:
+                        pass
+                    try:
+                        from backend.agent.timing import lint_section_timing as _lint_t3
+                        result["timing"] = _lint_t3(svs2)
+                    except Exception:
+                        pass
                     return result
+            except (InterruptedError, KeyboardInterrupt):
+                raise
             except Exception:
                 pass
 
