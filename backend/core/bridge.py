@@ -1352,11 +1352,16 @@ class ApiBridge:
     def get_mcp_status(self) -> dict:
         """Live MCP endpoint state for the Settings → Agent Control card:
         loopback URL (None until the host thread boots), port, and the
-        registered tool inventory. Never raises."""
+        full registered inventory (tools + resources + templates + prompts).
+        Never raises."""
         try:
-            from backend.mcp.http_host import get_mcp_url, MCP_HOST, get_tool_names
+            from backend.mcp.http_host import get_mcp_url, MCP_HOST, get_mcp_inventory
             url = get_mcp_url()
-            tools = get_tool_names() if url else []
+            # Inventory is static per process — report it even before the
+            # HTTP thread boots (running=false), so the card never shows
+            # a misleading "0 tools" for a knowable registry.
+            inv = get_mcp_inventory()
+            tools = inv.get("tools", [])
             port = None
             if url:
                 try:
@@ -1365,11 +1370,22 @@ class ApiBridge:
                 except Exception:
                     pass
             return {"running": bool(url), "url": url, "host": MCP_HOST,
-                    "port": port, "tool_count": len(tools), "tools": tools}
+                    "port": port, "tool_count": len(tools), "tools": tools,
+                    "resource_count": len(inv.get("resources", [])),
+                    "resources": inv.get("resources", []),
+                    # 0 templates is by design (reads are tools: skill-gate
+                    # side effects + structured args don't fit URI templates).
+                    "resource_template_count": len(inv.get("resource_templates", [])),
+                    "resource_templates": inv.get("resource_templates", []),
+                    "prompt_count": len(inv.get("prompts", [])),
+                    "prompts": inv.get("prompts", [])}
         except Exception as e:
             logger.warning(f"get_mcp_status failed: {e}")
             return {"running": False, "url": None, "host": "127.0.0.1",
-                    "port": None, "tool_count": 0, "tools": []}
+                    "port": None, "tool_count": 0, "tools": [],
+                    "resource_count": 0, "resources": [],
+                    "resource_template_count": 0, "resource_templates": [],
+                    "prompt_count": 0, "prompts": []}
 
     def check_whisper_downloaded(self, model_size: str) -> bool:
         from backend.pipeline.transcribe import check_whisper_assets

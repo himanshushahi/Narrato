@@ -1615,3 +1615,236 @@ def test_transcription_tools_lifecycle(tmp_path, monkeypatch):
     srt_content = (sub_dir / "subtitles.srt").read_text(encoding="utf-8")
     assert "भारतीय" in srt_content
 
+
+def test_mcp_inventory_shape_and_counts():
+    """Lock the MCP discovery surface agents see.
+
+    Agents call resources/list + resources/templates/list during
+    discovery: 0 templates is valid and expected (reads are tools by
+    design — skill-gate side effects + structured args don't fit URI
+    templates). If this test fails after adding a tool/resource, update
+    docs/mcp_agent_control.md §3 + McpAgentCard TOOL_GROUPS in the same PR.
+    """
+    import asyncio
+    from backend.mcp import server
+    tools = asyncio.run(server.mcp.list_tools())
+    resources = asyncio.run(server.mcp.list_resources())
+    templates = asyncio.run(server.mcp.list_resource_templates())
+    prompts = asyncio.run(server.mcp.list_prompts())
+    tool_names = sorted(t.name for t in tools)
+    assert len(tool_names) == 32
+    assert set(tool_names) == {
+        "create_project", "list_projects", "project_status", "delete_project",
+        "save_script", "get_script", "save_design",
+        "list_voice_options", "update_voice_settings", "update_transcribe_settings",
+        "get_transcription", "compare_transcription", "update_transcription",
+        "list_skills", "get_skill", "get_stage_skills",
+        "run_stage", "stage_status", "cancel_stage",
+        "get_section_timings", "get_visuals", "save_visuals",
+        "clear_visuals", "clear_assets",
+        "probe_cut", "probe_scene", "probe_asset", "review_frame",
+        "search_media", "web_search", "list_project_files", "read_project_file",
+    }
+    assert len(resources) == 1
+    assert len(templates) == 0  # by design, see docstring
+    assert len(prompts) == 1
+
+
+def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
+    from backend.mcp import http_host
+    monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
+    inv = http_host.get_mcp_inventory()
+    assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
+    assert len(inv["tools"]) == 32
+    assert len(inv["resources"]) == 1
+    assert inv["resource_templates"] == []
+    assert len(inv["prompts"]) == 1
+    # cached second call returns same object
+    assert http_host.get_mcp_inventory() is inv
+
+
+# ── clear_visuals / clear_assets ────────────────────────────────────
+
+def _seed_cuts_with_assets(tmp_path, monkeypatch):
+    """Visuals project + 1 saved cut carrying a local_path + asset files."""
+    from backend.mcp import payloads as p
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    dl = assets_dir / "asset_00001.jpg"
+    dl.write_bytes(b"\x00" * 16)
+    (assets_dir / "assets_manifest.json").write_text("[]", encoding="utf-8")
+    keep = assets_dir / "upload_keep.png"
+    keep.write_bytes(b"\x00" * 8)
+    cut = {"composition": {"type": "Sequence", "children": [
+        {"type": "Layer",
+         "content": {"type": "Image", "query": "red wall",
+                     "local_path": str(dl), "asset_url": "https://x/y.jpg"},
+         "style": {}},
+        {"type": "Layer", "content": {"type": "Text", "text": "HELLO"},
+         "style": {}}]},
+        "duration": 8.0, "transition": "cut"}
+    # Bypass save_visuals validation (local_path unknown to validator):
+    # write the cut straight into script.json + voiceover manifest.
+    script_path = proj_dir / "script.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["scenes"][0]["sub_visuals"] = [cut]
+    script_path.write_text(json.dumps(script), encoding="utf-8")
+    manifest_path = proj_dir / "voiceover" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    scene_entry = next(m for m in manifest if m.get("section_type") == "scene")
+    import copy as _copy
+    scene_entry["sub_visuals"] = _copy.deepcopy([cut])
+    scene_entry["_narr_hash"] = "abc123"
+    scene_entry["_design_hash"] = "def456"
+    # Twin assets manifest holding the same cut (post-fetch state).
+    (assets_dir / "assets_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return proj_dir
+
+
+def _read_subs(proj_dir):
+    script = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (proj_dir / "voiceover" / "manifest.json").read_text(encoding="utf-8"))
+    scene_entry = next(m for m in manifest if m.get("section_type") == "scene")
+    return script, manifest, scene_entry
+
+
+def test_clear_visuals_wipes_asts_and_assets_by_default(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    proj_dir = _seed_cuts_with_assets(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    result = p.clear_visuals_payload("proj_mcp")
+    assert result["ok"] is True
+    # Canonical counts from script.json: 1 logical cut in 1 section
+    # (manifest twins are synced silently, never double-counted).
+    assert result["cuts_cleared"] == 1
+    assert result["sections_cleared"] == 1
+    assert result["clear_assets"] is True
+    script, manifest, scene_entry = _read_subs(proj_dir)
+    assert script["scenes"][0]["sub_visuals"] == []
+    assert scene_entry["sub_visuals"] == []
+    assert "_narr_hash" not in scene_entry and "_design_hash" not in scene_entry
+    # assets_manifest.json is itself a managed download artifact → deleted.
+    assert not (proj_dir / "assets" / "assets_manifest.json").exists()
+    # Downloads gone, user upload kept.
+    assert not (proj_dir / "assets" / "asset_00001.jpg").exists()
+    assert (proj_dir / "assets" / "upload_keep.png").exists()
+    assert result["assets"]["deleted_count"] >= 1
+    # Downstream stages reset.
+    assert "upd:proj_mcp_fetch_assets" in calls
+    assert "upd:proj_mcp_render" in calls
+    (pid, kw), = calls["update"]
+    assert pid == "proj_mcp" and kw["video_path"] is None
+
+
+def test_clear_visuals_keep_assets(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    proj_dir = _seed_cuts_with_assets(tmp_path, monkeypatch)
+    _patch_db(monkeypatch, _proj())
+    result = p.clear_visuals_payload("proj_mcp", clear_assets=False)
+    assert result["ok"] is True and result["clear_assets"] is False
+    assert "assets" not in result
+    script, _, scene_entry = _read_subs(proj_dir)
+    assert script["scenes"][0]["sub_visuals"] == []
+    assert scene_entry["sub_visuals"] == []
+    # Downloads untouched.
+    assert (proj_dir / "assets" / "asset_00001.jpg").exists()
+
+
+def test_clear_assets_keeps_cuts_strips_pointers(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    proj_dir = _seed_cuts_with_assets(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    result = p.clear_assets_payload("proj_mcp")
+    assert result["ok"] is True
+    assert result["deleted_count"] >= 1
+    assert any("asset_00001" in f for f in result["deleted_files"])
+    assert (proj_dir / "assets" / "upload_keep.png").exists()
+    script, _, scene_entry = _read_subs(proj_dir)
+    # Cuts survive, pointers gone.
+    assert len(script["scenes"][0]["sub_visuals"]) == 1
+    content = script["scenes"][0]["sub_visuals"][0]["composition"]["children"][0]["content"]
+    assert "local_path" not in content and "asset_url" not in content
+    assert content["query"] == "red wall"  # query kept for re-fetch
+    # Exact count locks the fix: script.json (2) + voiceover manifest (2).
+    # The assets-manifest twin is deleted as a file before stripping.
+    assert result["pointers_stripped"] == 4
+    assert "upd:proj_mcp_fetch_assets" in calls
+    assert "upd:proj_mcp_render" in calls
+
+
+def test_strip_asset_pointers_removes_falsy_keys():
+    from backend.mcp import payloads as p
+    node = {"content": {"type": "Image", "query": "x", "local_path": "",
+                        "asset_url": None, "visual_path": ""}}
+    assert p._strip_asset_pointers(node) == 3
+    assert node["content"] == {"type": "Image", "query": "x"}
+
+
+def test_clear_visuals_keep_assets_prunes_stills(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    proj_dir = _seed_cuts_with_assets(tmp_path, monkeypatch)
+    _patch_db(monkeypatch, _proj())
+    stills_dir = proj_dir / "assets" / "previews" / "stills"
+    stills_dir.mkdir(parents=True)
+    (stills_dir / "abc123.jpg").write_bytes(b"\x00" * 8)
+    result = p.clear_visuals_payload("proj_mcp", clear_assets=False)
+    assert result["ok"] is True and result.get("stills_pruned") is True
+    assert not stills_dir.exists()
+    # Downloads kept on the False path.
+    assert (proj_dir / "assets" / "asset_00001.jpg").exists()
+
+
+def test_clear_visuals_needs_script(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    (tmp_path / "proj_mcp").mkdir(parents=True)
+    assert p.clear_visuals_payload("proj_mcp")["ok"] is False
+    # Unknown project raises (server wrapper converts to ok:false).
+    with pytest.raises(ValueError):
+        p.clear_assets_payload("ghost")
+    with pytest.raises(ValueError):
+        p.clear_visuals_payload("ghost")
+
+
+def test_server_clear_guards_running_stage(monkeypatch):
+    from backend.mcp import server
+    monkeypatch.setattr(server, "_project_active_stage",
+                        lambda pid: "proj_mcp_transcribe")
+    denied = server.clear_visuals("proj_mcp")
+    assert denied["ok"] is False and "running MCP stage" in denied["error"]
+    assert server.clear_assets("proj_mcp")["ok"] is False
+
+
+def test_server_clear_holds_marker_during_writes(monkeypatch):
+    from backend.mcp import server
+    seen = {}
+
+    def spy(pid, **kw):
+        seen["active"] = server._project_active_stage(pid)
+        return {"ok": True, "project_id": pid}
+
+    monkeypatch.setattr(server.payloads, "clear_visuals_payload", spy)
+    monkeypatch.setattr(server.payloads, "clear_assets_payload",
+                        lambda pid: {"ok": True, "project_id": pid})
+    assert server.clear_visuals("p1")["ok"] is True
+    assert seen["active"] == "p1_clear_visuals"
+    assert server.clear_assets("p1")["ok"] is True
+    # Markers released afterwards.
+    with server._STAGE_LOCK:
+        assert server._project_active_stage("p1") is None
+
+
+def test_coerce_bool_strings():
+    from backend.mcp.server import _coerce_bool
+    assert _coerce_bool("false") is False
+    assert _coerce_bool("False") is False
+    assert _coerce_bool("0") is False
+    assert _coerce_bool(True) is True
+    assert _coerce_bool("true") is True
+    assert _coerce_bool(None, True) is True
+

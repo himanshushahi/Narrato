@@ -13,6 +13,12 @@ interface McpStatus {
   port: number | null;
   tool_count: number;
   tools: string[];
+  resource_count?: number;
+  resources?: string[];
+  resource_template_count?: number;
+  resource_templates?: string[];
+  prompt_count?: number;
+  prompts?: string[];
 }
 
 const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[] = [
@@ -39,6 +45,11 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
       { name: 'update_transcription', blurb: 'Repair transcription & auto-sync subtitles.srt + subtitles.vtt' },
       { name: 'list_skills', blurb: 'Writing/visual guide catalogue' },
       { name: 'get_skill', blurb: 'Full guide markdown — or brief=true map / section="..." chunk for big skills' },
+      { name: 'get_stage_skills', blurb: 'One-call starter pack per stage (satisfies skill gate)' },
+      { name: 'get_visuals', blurb: 'Read back sub-visuals for one section / single cut' },
+      { name: 'probe_cut', blurb: 'Inspect one cut: JSON + geometry + timing + asset files' },
+      { name: 'probe_scene', blurb: 'Inspect one section: per-cut summaries + variety' },
+      { name: 'probe_asset', blurb: 'File truth for one media layer (exists/size/fix)' },
     ],
   },
   {
@@ -49,6 +60,8 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
       { name: 'cancel_stage', blurb: 'Stop a running agent stage' },
       { name: 'get_section_timings', blurb: 'True audio durations + word timestamps' },
       { name: 'save_visuals', blurb: 'Validate + save sub-visuals per section (variety stats, cut patch + dry-run)' },
+      { name: 'clear_visuals', blurb: 'Delete ALL visual ASTs (keeps narration/audio/design; optionally downloads)' },
+      { name: 'clear_assets', blurb: 'Delete ALL downloaded assets (keeps cuts for re-fetch)' },
       { name: 'review_frame', blurb: 'Contact-sheet snapshots: rendered, composition or asset lineup — mandatory per-section review' },
     ],
   },
@@ -230,8 +243,16 @@ export const McpAgentCard: React.FC = () => {
           )}
           <p className="text-[10px] text-stone-500">
             Host-bound to 127.0.0.1{status?.port ? ` · port ${status.port}` : ''} ·{' '}
-            {status ? `${status.tool_count} tools registered` : 'start the app to bring it online'} · loopback only, never exposed to a network.
+            {status
+              ? `${status.tool_count} tools · ${status.resource_count ?? 1} resource${(status.resource_count ?? 1) === 1 ? '' : 's'} · ${status.resource_template_count ?? 0} templates · ${status.prompt_count ?? 1} prompt${(status.prompt_count ?? 1) === 1 ? '' : 's'}`
+              : 'start the app to bring it online'} · loopback only, never exposed to a network.
           </p>
+          {status && (status.resource_template_count ?? 0) === 0 && (
+            <p className="text-[10px] text-stone-500">
+              0 resource templates is by design — reads stay as tools (skill-gate tracking + structured args don&apos;t fit URI templates).
+              Agents calling resources/list + resources/templates/list during discovery is correct MCP behavior.
+            </p>
+          )}
         </div>
 
         {/* How to connect */}

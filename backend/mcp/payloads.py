@@ -1479,3 +1479,334 @@ def get_visuals_payload(project_id: str, section_type: str,
         "sub_visuals": cuts,
     }
 
+
+# ── Visuals / assets clearing ───────────────────────────────────────
+
+# Downloaded asset filename prefixes managed by fetch_assets (mirrors
+# purge_downstream_artifacts + assets._reconcile orphan logic). User
+# uploads (upload_*) are never touched.
+_MANAGED_ASSET_PREFIXES = ("asset_", "preview_")
+
+# Volatile per-download pointers stripped from ASTs when asset files go
+# away (mirrors assets.strip_local_paths + manifest visual_path).
+_ASSET_POINTER_KEYS = ("local_path", "asset_url", "visual_path")
+
+
+def _strip_asset_pointers(node) -> int:
+    """Recursively drop download pointers from an AST/manifest node.
+
+    Pops keys unconditionally (even falsy ones — validators may check key
+    presence, not truthiness). Returns the number of keys removed.
+    Never raises."""
+    removed = 0
+    try:
+        if isinstance(node, dict):
+            for key in _ASSET_POINTER_KEYS:
+                if key in node:
+                    node.pop(key, None)
+                    removed += 1
+            for value in node.values():
+                removed += _strip_asset_pointers(value)
+        elif isinstance(node, list):
+            for item in node:
+                removed += _strip_asset_pointers(item)
+    except Exception:
+        pass
+    return removed
+
+
+def _atomic_write_json(path: Path, obj) -> None:
+    """Write JSON atomically (tmp file + replace) so a crash mid-write can
+    never leave a corrupted half-written file behind."""
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2, ensure_ascii=False)
+    tmp.replace(path)
+
+
+def _reset_mcp_tasks(project_id: str, steps: tuple, message: str) -> None:
+    """Reset task rows to pending after an MCP-side invalidation.
+
+    create_task first: update_task on a missing row is a silent no-op."""
+    for step in steps:
+        try:
+            _db.create_task(project_id, step)
+        except Exception:
+            pass
+        try:
+            _db.update_task(
+                f"{project_id}_{step}",
+                status="pending", progress=0.0,
+                message=message, error_message=None,
+            )
+        except Exception:
+            pass
+
+
+def _manifest_paths_for_clear(proj: dict, proj_dir: Path) -> list:
+    """Every manifest file that may hold sub_visuals (voiceover + assets).
+
+    _active_manifest_path resolves only the live one, but a stale twin can
+    linger after fetch_assets — clear both so they can never disagree."""
+    paths = []
+    try:
+        active = _active_manifest_path(proj, proj_dir)
+        if active is not None:
+            paths.append(active)
+    except Exception:
+        pass
+    for candidate in (proj_dir / "voiceover" / "manifest.json",
+                      proj_dir / "assets" / "assets_manifest.json"):
+        if candidate not in paths:
+            paths.append(candidate)
+    return paths
+
+
+def _wipe_holder_sections(holder: dict) -> tuple:
+    """Set every section's sub_visuals to [] in a script-shaped dict.
+
+    Returns (sections_with_cuts, cuts) counted BEFORE wiping — the logical
+    numbers reported to the agent."""
+    sections = 0
+    cuts = 0
+    intro = holder.get("introduction")
+    if isinstance(intro, dict) and isinstance(intro.get("sub_visuals"), list):
+        if intro["sub_visuals"]:
+            sections += 1
+            cuts += len([c for c in intro["sub_visuals"] if isinstance(c, dict)])
+        intro["sub_visuals"] = []
+    for scene in (holder.get("scenes") or []):
+        if isinstance(scene, dict) and isinstance(scene.get("sub_visuals"), list):
+            if scene["sub_visuals"]:
+                sections += 1
+                cuts += len([c for c in scene["sub_visuals"] if isinstance(c, dict)])
+            scene["sub_visuals"] = []
+    concl = holder.get("conclusion")
+    if isinstance(concl, dict) and isinstance(concl.get("sub_visuals"), list):
+        if concl["sub_visuals"]:
+            sections += 1
+            cuts += len([c for c in concl["sub_visuals"] if isinstance(c, dict)])
+        concl["sub_visuals"] = []
+    return sections, cuts
+
+
+def _clear_sub_visuals_everywhere(proj_dir: Path, manifest_paths: list) -> dict:
+    """Set every section's sub_visuals to [] in script.json + manifests.
+
+    Counts are canonical (from script.json — the authoritative copy), NOT
+    summed across the manifest twins, so one logical cut reports as 1.
+    Manifests are synced silently and listed in manifests_written.
+    Returns {sections_cleared, cuts_cleared, manifests_written}."""
+    sections_cleared = 0
+    cuts_cleared = 0
+
+    script_path = proj_dir / "script.json"
+    if script_path.is_file():
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script = json.load(f)
+            if isinstance(script, dict):
+                sections_cleared, cuts_cleared = _wipe_holder_sections(script)
+                _atomic_write_json(script_path, script)
+        except Exception as e:
+            logger.warning(f"MCP clear_visuals: script.json wipe failed: {e}")
+
+    manifests_written = []
+    for manifest_path in manifest_paths:
+        try:
+            if not manifest_path.is_file():
+                continue
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            if not isinstance(manifest, list):
+                continue
+            for entry in manifest:
+                if not isinstance(entry, dict):
+                    continue
+                entry["sub_visuals"] = []
+                entry.pop("_narr_hash", None)
+                entry.pop("_design_hash", None)
+            # Always rewrite: hash bindings are dropped even when no cuts existed.
+            _atomic_write_json(manifest_path, manifest)
+            manifests_written.append(str(manifest_path))
+        except Exception as e:
+            logger.warning(f"MCP clear_visuals: manifest wipe failed ({manifest_path}): {e}")
+    return {"sections_cleared": sections_cleared, "cuts_cleared": cuts_cleared,
+            "manifests_written": manifests_written}
+
+
+def _delete_asset_files(proj_dir: Path) -> list:
+    """Delete managed download artifacts. Returns relative paths removed.
+
+    Covers assets/asset_*, assets/preview_*, assets_manifest.json and the
+    previews/ dir (incl. the per-project stills cache — content-addressed
+    files that can never hit again once visuals change). User uploads
+    (upload_*) are never touched."""
+    import shutil
+    deleted: list = []
+    assets_dir = proj_dir / "assets"
+    if not assets_dir.is_dir():
+        return deleted
+    for child in sorted(assets_dir.iterdir()):
+        try:
+            name = child.name
+            if child.is_dir() and name == "previews":
+                shutil.rmtree(child, ignore_errors=True)
+                deleted.append("assets/previews/")
+            elif child.is_file() and (
+                name == "assets_manifest.json"
+                or any(name.startswith(p) for p in _MANAGED_ASSET_PREFIXES)
+            ):
+                child.unlink()
+                deleted.append(f"assets/{name}")
+        except Exception as e:
+            logger.warning(f"MCP clear assets: could not delete {child}: {e}")
+    return deleted
+
+
+def _prune_stills_cache(proj_dir: Path) -> bool:
+    """Drop the per-project composition-stills cache (derived pixels, always
+    re-renderable). Returns True when anything was removed."""
+    import shutil
+    stills_dir = proj_dir / "assets" / "previews" / "stills"
+    try:
+        if stills_dir.is_dir():
+            shutil.rmtree(stills_dir, ignore_errors=True)
+            return True
+    except Exception as e:
+        logger.warning(f"MCP clear visuals: stills prune failed: {e}")
+    return False
+
+
+def clear_assets_payload(project_id: str) -> dict:
+    """Delete downloaded asset files + strip their pointers from ASTs.
+
+    Removes assets/asset_*, assets/preview_*, assets_manifest.json and the
+    previews dir; strips local_path/asset_url/visual_path from script.json
+    and both manifests (stale pointers would make render fail on missing
+    files). Queries/AST structure are kept so fetch_assets can re-run
+    without re-authoring. Resets fetch_assets + render to pending and
+    clears video_path/assets_manifest_path. Never touches voiceover,
+    transcription, design, upload_* files, or narration."""
+    _get_project_or_raise(project_id)
+    try:
+        proj_dir = _project_dir(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    proj = _get_project_or_raise(project_id)
+
+    deleted_files = _delete_asset_files(proj_dir)
+
+    pointers_stripped = 0
+    manifests_written: list = []
+    script_path = proj_dir / "script.json"
+    if script_path.is_file():
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                script = json.load(f)
+            if isinstance(script, dict):
+                pointers_stripped += _strip_asset_pointers(script)
+                _atomic_write_json(script_path, script)
+        except Exception as e:
+            logger.warning(f"MCP clear_assets: script.json strip failed: {e}")
+    for manifest_path in _manifest_paths_for_clear(proj, proj_dir):
+        try:
+            if not manifest_path.is_file():
+                continue
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            removed = _strip_asset_pointers(manifest)
+            if removed:
+                pointers_stripped += removed
+                _atomic_write_json(manifest_path, manifest)
+                manifests_written.append(str(manifest_path))
+        except Exception as e:
+            logger.warning(f"MCP clear_assets: manifest strip failed ({manifest_path}): {e}")
+
+    _reset_mcp_tasks(
+        project_id, ("fetch_assets", "render"),
+        "Pending upstream changes (assets cleared via MCP).")
+    try:
+        _db.update_project(project_id, video_path=None,
+                           assets_manifest_path=None)
+    except Exception:
+        pass
+    with _VERIFIED_LOCK:
+        _VERIFIED_QUERIES.clear()
+    logger.info(f"MCP clear_assets: project {project_id} "
+                f"{len(deleted_files)} files, {pointers_stripped} pointers.")
+    return {"ok": True, "project_id": project_id,
+            "deleted_files": deleted_files,
+            "deleted_count": len(deleted_files),
+            "pointers_stripped": pointers_stripped,
+            "next_step": "Re-run save_visuals (if visuals were also cleared) then "
+                         "run_stage(fetch_assets) to re-download."}
+
+
+def clear_visuals_payload(project_id: str, clear_assets: bool = True) -> dict:
+    """Delete all generated visual ASTs (every section's sub_visuals → []).
+
+    Wipes script.json plus the voiceover and assets manifests (both, so the
+    twins can never disagree) and drops their _narr_hash/_design_hash
+    bindings. Narration, voiceover audio, transcription, and design.json
+    are untouched.
+
+    clear_assets=True (default) also deletes downloaded asset files —
+    orphaned asset_* files would otherwise linger with no referencing cut
+    (their pointers die with the cuts, so no strip pass is needed). Pass
+    False to keep downloads (e.g. you only want to re-author cuts against
+    the same media); the stills cache is still pruned since its
+    visuals_hash can never hit again.
+    fetch_assets + render reset to pending either way."""
+    _get_project_or_raise(project_id)
+    try:
+        proj_dir = _project_dir(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    if not (proj_dir / "script.json").is_file():
+        return {"ok": False,
+                "error": "script.json not found. Use save_script first."}
+    proj = _get_project_or_raise(project_id)
+
+    wipe = _clear_sub_visuals_everywhere(
+        proj_dir, _manifest_paths_for_clear(proj, proj_dir))
+    with _VERIFIED_LOCK:
+        _VERIFIED_QUERIES.clear()
+    # Dry-run history keys are (project_id, section, scene_index) tuples —
+    # drop this project's so re-authored sections get the dry_run nudge again.
+    with _VERIFIED_LOCK:
+        for key in [k for k in _DRY_RUN_SECTIONS
+                    if isinstance(k, tuple) and k and k[0] == project_id]:
+            _DRY_RUN_SECTIONS.discard(key)
+
+    deleted_files: list = []
+    stills_pruned = False
+    if clear_assets:
+        deleted_files = _delete_asset_files(proj_dir)
+    else:
+        stills_pruned = _prune_stills_cache(proj_dir)
+    _reset_mcp_tasks(
+        project_id, ("fetch_assets", "render"),
+        "Pending upstream changes (visuals cleared via MCP).")
+    try:
+        _db.update_project(
+            project_id, video_path=None,
+            **({"assets_manifest_path": None} if clear_assets else {}))
+    except Exception:
+        pass
+    logger.info(f"MCP clear_visuals: project {project_id} "
+                f"{wipe['cuts_cleared']} cuts in {wipe['sections_cleared']} "
+                f"sections (clear_assets={bool(clear_assets)}).")
+    result = {"ok": True, "project_id": project_id,
+              "sections_cleared": wipe["sections_cleared"],
+              "cuts_cleared": wipe["cuts_cleared"],
+              "clear_assets": bool(clear_assets),
+              "next_step": ("Re-author with save_visuals per section "
+                            "(dry_run first), then run_stage(fetch_assets).")}
+    if clear_assets:
+        result["assets"] = {"deleted_count": len(deleted_files),
+                            "deleted_files": deleted_files}
+    elif stills_pruned:
+        result["stills_pruned"] = True
+    return result
+

@@ -26,6 +26,82 @@ MCP_HOST = "127.0.0.1"
 _mcp_url = None
 _mcp_thread = None
 _tool_names_cache: list | None = None
+_mcp_inventory_cache: dict | None = None
+
+
+def _run_coro(coro, timeout: float = 10.0):
+    """Run one coroutine from sync code: a single event loop, a single
+    timeout (UI thread safe). Previously each list_*() call paid its own
+    asyncio.run() + 5s timeout — up to ~20s on the first poll."""
+    import asyncio
+    import concurrent.futures
+
+    async def _wait():
+        return await asyncio.wait_for(coro, timeout=timeout)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(_wait())).result(
+                timeout=timeout + 2)
+    return asyncio.run(_wait())
+
+
+async def _collect_inventory(server) -> dict:
+    """List tools/resources/templates/prompts on ONE loop (single timeout,
+    no per-call overhead). Individual list failures degrade to []."""
+    import asyncio
+    calls = {
+        "tools": server.list_tools(),
+        "resources": server.list_resources(),
+        "resource_templates": server.list_resource_templates(),
+        "prompts": server.list_prompts(),
+    }
+    results = await asyncio.gather(*calls.values(), return_exceptions=True)
+    out = {}
+    for key, res in zip(calls, results):
+        out[key] = [] if isinstance(res, Exception) else (res or [])
+    return out
+
+
+def get_mcp_inventory() -> dict:
+    """Full MCP inventory: tools + resources + resource_templates + prompts.
+
+    Static per process, so cached — and intentionally NOT gated on the HTTP
+    URL being up (the registry exists as soon as the module imports).
+    Agents calling resources/list AND resources/templates/list is correct
+    discovery per the MCP spec — 0 templates is a valid, expected result
+    for this server (reads are tools by design: skill-gate side effects +
+    structured args don't map to URI templates). Never raises."""
+    global _mcp_inventory_cache
+    if _mcp_inventory_cache:
+        return _mcp_inventory_cache
+    empty = {"tools": [], "resources": [], "resource_templates": [],
+             "prompts": []}
+    try:
+        from backend.mcp.server import mcp as _mcp_server
+        raw = _run_coro(_collect_inventory(_mcp_server))
+        tools = raw.get("tools", [])
+        resources = raw.get("resources", [])
+        templates = raw.get("resource_templates", [])
+        prompts = raw.get("prompts", [])
+        _mcp_inventory_cache = {
+            "tools": sorted(t.name for t in tools),
+            "resources": sorted(
+                str(getattr(r, "uri", None) or getattr(r, "name", str(r)))
+                for r in resources),
+            "resource_templates": sorted(
+                str(getattr(t, "uriTemplate", None) or getattr(t, "name", str(t)))
+                for t in templates),
+            "prompts": sorted(p.name for p in prompts),
+        }
+        return _mcp_inventory_cache
+    except Exception as e:
+        logger.warning(f"MCP inventory enumeration failed: {e}")
+        return empty
 
 
 def get_tool_names() -> list:
@@ -34,26 +110,8 @@ def get_tool_names() -> list:
     global _tool_names_cache
     if _tool_names_cache:
         return _tool_names_cache
-    try:
-        import asyncio
-        from backend.mcp.server import mcp as _mcp_server
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                tools = pool.submit(lambda: asyncio.run(_mcp_server.list_tools())).result(timeout=5)
-        else:
-            tools = asyncio.run(_mcp_server.list_tools())
-
-        _tool_names_cache = sorted(t.name for t in tools)
-        return _tool_names_cache
-    except Exception as e:
-        logger.warning(f"MCP tool enumeration failed: {e}")
-        return []
+    _tool_names_cache = get_mcp_inventory()["tools"]
+    return _tool_names_cache
 
 
 def _wait_reachable(port: int, timeout_s: float = 8.0) -> bool:

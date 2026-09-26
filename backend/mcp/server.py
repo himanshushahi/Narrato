@@ -1460,6 +1460,11 @@ already explicitly specified in the user's request):
     geometry + timing + unverified_queries:
     read them and enrich flat spots BEFORE moving on. A dry_run with zero
     warnings is the bar for persisting.
+    Starting over: clear_visuals wipes ALL cuts (every section → []; narration,
+    audio, transcription, design kept; downloads deleted too unless
+    clear_assets=false). clear_assets deletes ONLY downloads (cuts/queries kept,
+    so fetch_assets re-downloads without re-authoring). Both reset fetch_assets
+    + render to pending. Never hand-edit script.json/manifests to clear — use these.
 11. run_stage(fetch_assets, wait=false) → stage_status until completed.
     Fetch AFTER all sections are saved so every query resolves to a
     downloaded local_path. Composition review without this step shows
@@ -1787,6 +1792,91 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     except Exception as e:
         logger.error(f"MCP save_visuals failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
+
+
+def _coerce_bool(value, default: bool = True) -> bool:
+    """Lenient bool for MCP flags: bool("false") is True, so string
+    "false"/"0"/"no"/"off" map to False explicitly instead."""
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "off", "")
+    return default if value is None else bool(value)
+
+
+def _claim_project_marker(project_id: str, op: str) -> tuple:
+    """Register an inline marker so run_stage sees this project as busy.
+
+    Closes the check-then-act gap: without it a stage could start between
+    the guard check and the file writes and both would touch manifests.
+    Returns (task_id, marker) — caller must release the marker in a
+    finally. When busy, returns (None, error_dict) instead."""
+    task_id = f"{project_id}_{op}"
+    with _STAGE_LOCK:
+        active = _project_active_stage(project_id)
+        if active is not None:
+            return None, {"ok": False,
+                          "error": f"Project {project_id!r} has a running MCP stage ({active}); "
+                                   f"cancel_stage it first, then clear."}
+        marker = object()
+        _STAGE_FUTURES[task_id] = marker  # type: ignore[assignment]
+        return task_id, marker
+
+
+def _release_project_marker(task_id: str | None, marker) -> None:
+    if task_id is None:
+        return
+    with _STAGE_LOCK:
+        if _STAGE_FUTURES.get(task_id) is marker:
+            _STAGE_FUTURES.pop(task_id, None)
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+def clear_visuals(project_id: str, clear_assets: bool = True) -> dict:
+    """Delete ALL generated visual ASTs (every section's sub_visuals → []).
+
+    Wipes script.json plus the voiceover and assets manifests (both, so the
+    twins can never disagree). Narration, voiceover audio, transcription,
+    and design.json are untouched. Cannot be undone — re-author with
+    save_visuals afterwards.
+    clear_assets=True (default) also deletes downloaded asset files
+    (orphaned asset_* files would otherwise linger with no referencing
+    cut). Pass false to keep downloads and re-author against the same media.
+    fetch_assets + render reset to pending either way.
+    Refused while an MCP stage is running on the project."""
+    task_id, marker = _claim_project_marker(project_id, "clear_visuals")
+    if task_id is None:
+        return marker
+    try:
+        return payloads.clear_visuals_payload(
+            project_id, clear_assets=_coerce_bool(clear_assets, True))
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP clear_visuals failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+    finally:
+        _release_project_marker(task_id, marker)
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+def clear_assets(project_id: str) -> dict:
+    """Delete ALL downloaded asset files (assets/asset_*, preview_*,
+    assets_manifest.json, previews) and strip their local_path/asset_url
+    pointers from script.json + manifests. AST queries/structure are kept,
+    so run_stage(fetch_assets) re-downloads without re-authoring.
+    fetch_assets + render reset to pending. Cannot be undone.
+    Refused while an MCP stage is running on the project."""
+    task_id, marker = _claim_project_marker(project_id, "clear_assets")
+    if task_id is None:
+        return marker
+    try:
+        return payloads.clear_assets_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP clear_assets failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+    finally:
+        _release_project_marker(task_id, marker)
 
 
 def main(argv=None) -> None:
