@@ -2,10 +2,17 @@ import os
 import json
 import hashlib
 import re
+import difflib
+import uuid
 from pathlib import Path
-from backend.core.config import get_models_dir
+from backend.core.config import get_models_dir, get_temp_dir
 from backend.core.logger import logger
 from backend.database.db import get_setting, update_project
+
+try:
+    import soundfile as sf
+except ImportError:
+    sf = None
 
 def get_whisper_model_path(model_size):
     if not model_size:
@@ -335,6 +342,190 @@ def is_transcribe_stale(project_dict, project_dir):
 
 
 
+SENTENCE_END_PUNCT = re.compile(r'[।\.\|\?\!]')
+
+
+def _clean_token(w: str) -> str:
+    """Normalize token for fuzzy matching while strictly preserving Indic Unicode characters & matras."""
+    return re.sub(r'[^\w\u0900-\u097F]', '', w).lower()
+
+
+def _align_script_words_to_acoustic(script_words: list[str], raw_words: list[dict], fallback_start: float = 0.0, fallback_end: float = 0.0) -> list[dict]:
+    """
+    Fuzzy-align known script words to Whisper acoustic timestamps using SequenceMatcher.
+    Preserves exact script text (including correct Hindi spellings & matras) while binding
+    each word to its true acoustic audio window.
+    """
+    if not script_words:
+        return raw_words
+
+    if not raw_words:
+        # Acoustic words missing entirely: distribute script words across fallback window
+        total_chars = sum(len(w) for w in script_words) or 1
+        span = max(0.05, fallback_end - fallback_start)
+        cursor = fallback_start
+        aligned = []
+        for sw in script_words:
+            w_dur = (len(sw) / total_chars) * span
+            aligned.append({
+                "word": sw,
+                "start": round(cursor, 3),
+                "end": round(cursor + w_dur, 3)
+            })
+            cursor += w_dur
+        return aligned
+
+    clean_s = [_clean_token(w) for w in script_words]
+    clean_r = [_clean_token(w["word"]) for w in raw_words]
+
+    sm = difflib.SequenceMatcher(None, clean_s, clean_r)
+    aligned: list[dict] = []
+
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        s_chunk = script_words[i1:i2]
+        r_chunk = raw_words[j1:j2]
+
+        if tag == "equal":
+            for sw, rw in zip(s_chunk, r_chunk):
+                aligned.append({
+                    "word": sw,
+                    "start": round(rw["start"], 3),
+                    "end": round(rw["end"], 3)
+                })
+        elif tag in ("replace", "insert", "delete"):
+            if s_chunk and r_chunk:
+                start_t = r_chunk[0]["start"]
+                end_t = r_chunk[-1]["end"]
+                total_chars = sum(len(w) for w in s_chunk) or 1
+                cursor = start_t
+                span = max(0.01, end_t - start_t)
+                for sw in s_chunk:
+                    w_dur = (len(sw) / total_chars) * span
+                    aligned.append({
+                        "word": sw,
+                        "start": round(cursor, 3),
+                        "end": round(cursor + w_dur, 3)
+                    })
+                    cursor += w_dur
+                if aligned:
+                    aligned[-1]["end"] = round(end_t, 3)
+            elif s_chunk and not r_chunk:
+                prev_end = aligned[-1]["end"] if aligned else fallback_start
+                next_start = fallback_end
+                span = max(0.05, next_start - prev_end)
+                total_chars = sum(len(w) for w in s_chunk) or 1
+                cursor = prev_end
+                for sw in s_chunk:
+                    w_dur = (len(sw) / total_chars) * span
+                    aligned.append({
+                        "word": sw,
+                        "start": round(cursor, 3),
+                        "end": round(cursor + w_dur, 3)
+                    })
+                    cursor += w_dur
+
+    return aligned
+
+
+def _repair_acoustic_anomalies(model, audio_path: str, raw_words: list[dict], sec_dur: float, language: str) -> list[dict]:
+    """Detect anomalous single words (>1.5s) or internal gaps (>1.2s) and re-transcribe slices."""
+    if not raw_words or not os.path.exists(audio_path) or sf is None:
+        return raw_words
+
+    anomalies = []
+    for i, w in enumerate(raw_words):
+        dur = w["end"] - w["start"]
+        if dur > 1.5:
+            anomalies.append(('long_word', i, w, dur))
+
+    if not anomalies:
+        return raw_words
+
+    try:
+        data, sr = sf.read(audio_path)
+    except Exception as e:
+        logger.debug(f"Failed to read audio for anomaly repair: {e}")
+        return raw_words
+
+    repaired = list(raw_words)
+    # Process from last to first so indices don't shift
+    for anom_type, idx, target_w, dur in reversed(anomalies):
+        temp_slice = None
+        try:
+            start_s = max(0.0, target_w["start"] - 0.4)
+            end_s = min(sec_dur, target_w["end"] + 0.4)
+            if end_s - start_s < 0.2:
+                continue
+
+            slice_data = data[int(start_s * sr):int(end_s * sr)]
+            temp_slice = get_temp_dir() / f"slice_{uuid.uuid4().hex[:8]}.wav"
+            sf.write(str(temp_slice), slice_data, sr)
+
+            sub_segs, _ = model.transcribe(str(temp_slice), language=language, word_timestamps=True, vad_filter=False)
+            recovered = []
+            for ss in sub_segs:
+                for ww in ss.words:
+                    if ww.word.strip():
+                        recovered.append({
+                            "word": ww.word.strip(),
+                            "start": round(start_s + ww.start, 3),
+                            "end": round(start_s + ww.end, 3)
+                        })
+
+            if recovered:
+                logger.info(f"Anomaly repaired: replaced {dur:.2f}s stall '{target_w['word']}' with {len(recovered)} words")
+                repaired = repaired[:idx] + recovered + repaired[idx+1:]
+        except Exception as e:
+            logger.debug(f"Slice repair failed: {e}")
+        finally:
+            if temp_slice and temp_slice.exists():
+                try:
+                    temp_slice.unlink()
+                except Exception:
+                    pass
+
+    return repaired
+
+
+def _build_subtitle_segments(aligned_words: list[dict], start_id: int = 1, max_words_per_segment: int = 8, max_dur_per_segment: float = 4.0) -> list[dict]:
+    """Group aligned words into readable, rhythmic subtitle segments."""
+    segments = []
+    current_words = []
+
+    for i, w in enumerate(aligned_words):
+        current_words.append(w)
+        seg_dur = current_words[-1]["end"] - current_words[0]["start"]
+        ends_punct = bool(SENTENCE_END_PUNCT.search(w["word"]))
+        is_last = (i == len(aligned_words) - 1)
+
+        if ends_punct or len(current_words) >= max_words_per_segment or seg_dur >= max_dur_per_segment or is_last:
+            seg_start = current_words[0]["start"]
+            seg_end = current_words[-1]["end"]
+
+            # Reconstruct words with standard Whisper leading-space convention
+            norm_words = []
+            for j, cw in enumerate(current_words):
+                w_text = cw["word"].strip()
+                prefix = "" if j == 0 else " "
+                norm_words.append({
+                    "start": cw["start"],
+                    "end": cw["end"],
+                    "word": prefix + w_text
+                })
+
+            seg_text = "".join(nw["word"] for nw in norm_words).strip()
+            segments.append({
+                "id": start_id + len(segments),
+                "start": seg_start,
+                "end": seg_end,
+                "text": seg_text,
+                "words": norm_words
+            })
+            current_words = []
+
+    return segments
+
+
 def _distribute_words_fallback(segment_text, segment_start, segment_end):
     """Fallback: distribute words evenly by character ratio when Whisper word timestamps are unreliable."""
     segment_duration = segment_end - segment_start
@@ -358,7 +549,11 @@ def _distribute_words_fallback(segment_text, segment_start, segment_end):
 
 
 def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
-    """Whisper alignment transcription step of pipeline."""
+    """Whisper alignment transcription step of pipeline.
+
+    Supports Section-Aware Transcription with Anomaly Detection & Script-Guided Alignment
+    when voiceover manifest is present, preserving 100% of spoken words and avoiding long-form drift.
+    """
     audio_path = project_dict['audio_path']
     if not audio_path or not os.path.exists(audio_path):
         raise FileNotFoundError(f"Voiceover audio file not found: {audio_path}")
@@ -381,68 +576,145 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
     if cancel_event.is_set():
         raise InterruptedError("Cancelled")
 
-    # 2. Transcribe
+    # 2. Load Whisper model
     progress_cb(45.0, "Loading Whisper model...")
     model = get_whisper_model(model_size, device)
-    
-    logger.info("Starting audio transcription...")
-    segments_generator, info = model.transcribe(
-        audio_path,
-        beam_size=5,
-        word_timestamps=True,
-        language=language
+
+    # Check for section voiceover manifest
+    manifest_path = Path(project_dir) / "voiceover" / "manifest.json"
+    manifest = []
+    if manifest_path.exists():
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list) and loaded:
+                manifest = loaded
+        except Exception as e:
+            logger.warning(f"Failed to read manifest.json: {e}")
+
+    has_valid_manifest = (
+        len(manifest) > 0 and
+        all(isinstance(m, dict) and m.get("audio_path") and os.path.exists(m["audio_path"]) for m in manifest)
     )
 
-    if cancel_event.is_set():
-        raise InterruptedError("Cancelled")
+    if has_valid_manifest:
+        logger.info(f"Starting Section-Aware transcription for {len(manifest)} sections (Script-Guided Alignment)...")
+        all_segments = []
+        cumulative_time = 0.0
+        total_sections = len(manifest)
 
-    segments = []
-    # Total duration approximation for progress report
-    from backend.pipeline.tts import get_audio_duration
-    total_dur = get_audio_duration(audio_path)
+        for idx, entry in enumerate(manifest):
+            if cancel_event.is_set():
+                raise InterruptedError("Cancelled")
 
-    for segment in segments_generator:
-        if cancel_event.is_set():
-            raise InterruptedError("Cancelled")
+            sec_audio = entry["audio_path"]
+            script_text = (entry.get("text") or "").strip()
+            sec_dur = float(entry.get("duration", 0.0) or 0.0)
+            if sec_dur <= 0:
+                from backend.pipeline.tts import get_audio_duration
+                sec_dur = get_audio_duration(sec_audio)
 
-        words = []
-        if segment.words:
-            whisper_words = [w for w in segment.words if w.word.strip()]
-            expected_words = segment.text.split()
-            
-            if len(whisper_words) == len(expected_words):
+            script_words = [w for w in re.split(r'\s+', script_text) if w]
+
+            # Pure acoustic transcription with VAD (no prompt to prevent timestamp smearing/collapse)
+            segments_gen, _ = model.transcribe(
+                sec_audio,
+                beam_size=5,
+                word_timestamps=True,
+                language=language,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=300)
+            )
+
+            raw_words = []
+            for s in segments_gen:
+                if cancel_event.is_set():
+                    raise InterruptedError("Cancelled")
+                if s.words:
+                    for w in s.words:
+                        if w.word.strip():
+                            raw_words.append({
+                                "word": w.word.strip(),
+                                "start": w.start,
+                                "end": w.end
+                            })
+
+            # Detect & repair anomalies (e.g. word duration > 1.5s)
+            raw_words = _repair_acoustic_anomalies(model, sec_audio, raw_words, sec_dur, language)
+
+            # Script-guided sequence alignment
+            aligned_words = _align_script_words_to_acoustic(script_words, raw_words, fallback_start=0.0, fallback_end=sec_dur)
+
+            # Offset to cumulative timeline time
+            for w in aligned_words:
+                w["start"] = round(cumulative_time + w["start"], 3)
+                w["end"] = round(cumulative_time + w["end"], 3)
+
+            # Build readable subtitle segments
+            sec_segments = _build_subtitle_segments(aligned_words, start_id=len(all_segments) + 1)
+            all_segments.extend(sec_segments)
+
+            cumulative_time += sec_dur
+            pct = 45.0 + ((idx + 1) / total_sections) * 50.0
+            progress_cb(min(98.0, pct), f"Transcribing section {idx + 1}/{total_sections}...")
+
+        segments = all_segments
+    else:
+        logger.info("Transcribing whole audio file (no section manifest)...")
+        from backend.pipeline.tts import get_audio_duration
+        total_dur = get_audio_duration(audio_path)
+
+        segments_generator, info = model.transcribe(
+            audio_path,
+            beam_size=5,
+            word_timestamps=True,
+            language=language,
+            vad_filter=True
+        )
+
+        all_raw_words = []
+        for segment in segments_generator:
+            if cancel_event.is_set():
+                raise InterruptedError("Cancelled")
+            if segment.words:
                 for w in segment.words:
-                    words.append({
-                        "start": w.start,
-                        "end": w.end,
-                        "word": w.word
-                    })
-            else:
-                logger.info(f"Whisper word count mismatch ({len(whisper_words)} vs {len(expected_words)}). Falling back to math distribution for segment {segment.id}")
-                words = _distribute_words_fallback(segment.text, segment.start, segment.end)
-        else:
-            logger.info(f"No whisper words found. Falling back to math distribution for segment {segment.id}")
-            words = _distribute_words_fallback(segment.text, segment.start, segment.end)
-        
-        segments.append({
-            "id": segment.id,
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text,
-            "words": words
-        })
+                    if w.word.strip():
+                        all_raw_words.append({
+                            "word": w.word.strip(),
+                            "start": w.start,
+                            "end": w.end
+                        })
+            if total_dur > 0:
+                pct = 45.0 + (segment.end / total_dur) * 50.0
+                progress_cb(min(98.0, pct), f"Transcribing audio... {min(100.0, (segment.end / total_dur) * 100):.0f}%")
 
-        if total_dur > 0:
-            pct = 45.0 + (segment.end / total_dur) * 50.0
-            progress_cb(min(98.0, pct), f"Transcribing audio... {min(100.0, (segment.end / total_dur) * 100):.0f}%")
+        # Check if project has a script to align against
+        script_file = Path(project_dir) / "script.json"
+        script_words = []
+        if script_file.exists():
+            try:
+                from backend.mcp.subtitles import _load_script_sections
+                sec_list = _load_script_sections(Path(project_dir))
+                all_text = " ".join(s["text"] for s in sec_list if s.get("text"))
+                script_words = [w for w in re.split(r'\s+', all_text) if w]
+            except Exception:
+                pass
+
+        if script_words:
+            aligned_words = _align_script_words_to_acoustic(script_words, all_raw_words, fallback_start=0.0, fallback_end=total_dur)
+            segments = _build_subtitle_segments(aligned_words, start_id=1)
+        elif all_raw_words:
+            segments = _build_subtitle_segments(all_raw_words, start_id=1)
+        else:
+            segments = []
 
     result = {
-        "language": info.language,
+        "language": language,
         "segments": segments
     }
 
     # 3. Save formats
-    sub_dir = project_dir / "subtitles"
+    sub_dir = Path(project_dir) / "subtitles"
     sub_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = sub_dir / "transcription.json"
