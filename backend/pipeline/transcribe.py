@@ -693,7 +693,7 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         script_words = []
         if script_file.exists():
             try:
-                from backend.mcp.subtitles import _load_script_sections
+                from backend.mcp.payloads import _load_script_sections
                 sec_list = _load_script_sections(Path(project_dir))
                 all_text = " ".join(s["text"] for s in sec_list if s.get("text"))
                 script_words = [w for w in re.split(r'\s+', all_text) if w]

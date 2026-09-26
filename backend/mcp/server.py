@@ -1607,8 +1607,7 @@ def get_transcription(
     or by segment_id, or paginated across the whole video. Use to inspect word
     timings before designing kinetic text or repairing subtitles."""
     try:
-        from backend.mcp import subtitles as _subtitles
-        return _subtitles.get_transcription_payload(
+        return payloads.get_transcription_payload(
             project_id, section_type, scene_index, segment_id, offset, limit
         )
     except Exception as e:

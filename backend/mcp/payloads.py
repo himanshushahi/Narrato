@@ -2099,3 +2099,209 @@ def save_visuals_batch_payload(project_id: str, sections: list,
             "review_frame(mode=composition) per section.")
     return out
 
+# ── Transcription Payload ──────────────────────────────────────────
+
+def _load_script_sections(proj_dir: Path) -> list[dict]:
+    """Load canonical script sections in manifest order with tokenized words."""
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return []
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+    except Exception:
+        return []
+    sections: list[dict] = []
+    if script.get("introduction"):
+        intro = script["introduction"]
+        text_val = intro.get("hook", "") or intro.get("narration", "")
+        sections.append({
+            "section_type": "introduction",
+            "scene_index": None,
+            "title": intro.get("title", "Introduction"),
+            "text": text_val,
+            "words": text_val.split(),
+        })
+    for idx, sc in enumerate(script.get("scenes", []) or []):
+        if not isinstance(sc, dict):
+            continue
+        text_val = sc.get("narration", "") or ""
+        sections.append({
+            "section_type": "scene",
+            "scene_index": idx,
+            "title": sc.get("title", f"Scene {idx + 1}"),
+            "text": text_val,
+            "words": text_val.split(),
+        })
+    if script.get("conclusion"):
+        conc = script["conclusion"]
+        text_val = (conc.get("summary", "") or "")
+        if conc.get("cta"):
+            text_val = (text_val + " " + conc.get("cta")).strip()
+        sections.append({
+            "section_type": "conclusion",
+            "scene_index": None,
+            "title": conc.get("title", "Conclusion"),
+            "text": text_val,
+            "words": text_val.split(),
+        })
+    return sections
+
+
+def get_transcription_payload(
+    project_id: str,
+    section_type: str = "",
+    scene_index: int = 0,
+    segment_id: int | None = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> dict:
+    """Read transcription data with optional section or segment filtering."""
+    proj = _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    json_path = proj_dir / "subtitles" / "transcription.json"
+
+    if not json_path.exists():
+        return {
+            "ok": False,
+            "error": "transcription.json not found. Run run_stage(transcribe) first.",
+        }
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    segments = data.get("segments") or []
+    language = data.get("language", (proj or {}).get("language", "hi") if isinstance(proj, dict) else "hi")
+
+    def _safe_float(v, default=0.0):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    # Single segment request (coerce LLM string ids like "1").
+    if segment_id is not None:
+        try:
+            want = int(segment_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": f"Segment id {segment_id!r} is not a valid integer."}
+        seg = None
+        for s in segments:
+            if not isinstance(s, dict):
+                continue
+            try:
+                if int(s.get("id")) == want:
+                    seg = s
+                    break
+            except (TypeError, ValueError):
+                if s.get("id") == segment_id:
+                    seg = s
+                    break
+        if seg is None:
+            return {"ok": False, "error": f"Segment id {segment_id} not found."}
+        return {"ok": True, "project_id": project_id, "segment": seg}
+
+    # Section-scoped request
+    if section_type:
+        manifest_path = _active_manifest_path(proj, proj_dir)
+        if not manifest_path:
+            return {"ok": False, "error": "Manifest not found to resolve section boundaries."}
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            if not isinstance(manifest, list):
+                raise ValueError("manifest is not a list")
+        except Exception as e:
+            return {"ok": False, "error": f"Could not read manifest: {e}"}
+
+        cursor = 0.0
+        sec_start = None
+        sec_dur = None
+        try:
+            scene_index = int(scene_index)
+        except (TypeError, ValueError):
+            scene_index = 0
+        scene_count = 0
+        for entry in manifest:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                dur = float(entry.get("duration", 0) or 0)
+            except (TypeError, ValueError):
+                dur = 0.0
+            m_sec = entry.get("section_type")
+            if section_type == "scene" and m_sec == "scene":
+                if scene_count == scene_index:
+                    sec_start = cursor
+                    sec_dur = dur
+                    break
+                scene_count += 1
+            elif section_type == m_sec:
+                sec_start = cursor
+                sec_dur = dur
+                break
+            cursor += dur
+
+        if sec_start is None:
+            return {
+                "ok": False,
+                "error": f"Section {section_type} (scene_index={scene_index}) not found in manifest.",
+            }
+
+        sec_end = sec_start + sec_dur
+        matched_segments = []
+        for s in segments:
+            if not isinstance(s, dict):
+                continue
+            s_start = _safe_float(s.get("start", 0))
+            s_end = _safe_float(s.get("end", 0))
+            # Overlap condition
+            if s_start < sec_end and s_end > sec_start:
+                matched_segments.append(s)
+
+        matched_words = []
+        for s in matched_segments:
+            for w in s.get("words", []) or []:
+                if not isinstance(w, dict):
+                    continue
+                if sec_start <= _safe_float(w.get("start", 0)) < sec_end:
+                    matched_words.append(w)
+
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "section_type": section_type,
+            "scene_index": scene_index if section_type == "scene" else None,
+            "section_start": round(sec_start, 2),
+            "section_end": round(sec_end, 2),
+            "section_duration": round(sec_dur, 2),
+            "total_section_segments": len(matched_segments),
+            "total_section_words": len(matched_words),
+            "segments": matched_segments,
+            "words": matched_words,
+        }
+
+    # Paginated overview (clamp negatives: offset/limit < 0 would slice from end).
+    try:
+        offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        limit = max(0, int(limit))
+    except (TypeError, ValueError):
+        limit = 50
+    total_segments = len(segments)
+    total_words = sum(len(s.get("words", []) or []) for s in segments if isinstance(s, dict))
+    paginated = segments[offset : offset + limit]
+
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "language": language,
+        "total_segments": total_segments,
+        "total_words": total_words,
+        "offset": offset,
+        "limit": limit,
+        "segments": paginated,
+    }
+
