@@ -652,29 +652,28 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             except Exception as e:
                 return f"Error: probe backend unavailable: {e}"
             project_id = arguments.get("project_id")
-            section_type = arguments.get("section_type", "scene")
-            scene_index = arguments.get("scene_index", 0)
+            section_type = arguments.get("section_type")
             if not project_id or not section_type:
                 return "Error: project_id and section_type are required."
             try:
                 if tool_name == "probe_cut":
                     res = _probe.probe_cut_payload(
-                        project_id, section_type, scene_index,
+                        project_id, section_type,
+                        arguments.get("scene_index", 0),
                         arguments.get("cut_index", 0))
                 elif tool_name == "probe_scene":
                     res = _probe.probe_scene_payload(
-                        project_id, section_type, scene_index)
+                        project_id, section_type,
+                        arguments.get("scene_index", 0))
                 else:
                     res = _probe.probe_asset_payload(
-                        project_id, section_type, scene_index,
+                        project_id, section_type,
+                        arguments.get("scene_index", 0),
                         arguments.get("cut_index", 0),
                         arguments.get("layer_index", 0))
             except Exception as e:
                 return f"Error: probe failed: {e}"
-            try:
-                return json.dumps(res, ensure_ascii=False, default=str)[:8000]
-            except Exception:
-                return str(res)[:8000]
+            return _probe_result_for_llm(res)
 
         return f"Error: Unknown tool {tool_name}"
 
@@ -683,6 +682,61 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
     except Exception as e:
         logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
         return f"Tool execution failed: {str(e)}"
+
+
+_LLM_PROBE_BUDGET = 8000
+
+
+def _probe_result_for_llm(res: dict) -> str:
+    """Serialize a probe dict for the internal LLM without breaking JSON.
+
+    String-slicing a dump corrupts tokens (JSONDecodeError on large cuts),
+    so shrink structurally: drop the full `cut` blob first (per-layer rows
+    carry the essentials), then cap layers, keeping everything valid JSON
+    with a truncated flag.
+    """
+    try:
+        text = json.dumps(res, ensure_ascii=False, default=str)
+    except Exception:
+        return str(res)[:_LLM_PROBE_BUDGET]
+    if len(text) <= _LLM_PROBE_BUDGET:
+        return text
+    compact = dict(res)
+    if "cut" in compact:
+        compact.pop("cut", None)
+        compact["truncated"] = "cut blob dropped for size; use layers[] rows"
+    try:
+        text = json.dumps(compact, ensure_ascii=False, default=str)
+    except Exception:
+        return str(compact)[:_LLM_PROBE_BUDGET]
+    if len(text) <= _LLM_PROBE_BUDGET:
+        return text
+    layers = compact.get("layers")
+    if isinstance(layers, list) and len(layers) > 4:
+        compact["layers"] = layers[:4]
+        compact["truncated"] = (
+            f"layers capped 4/{len(layers)} for size; probe_asset per layer")
+        try:
+            text = json.dumps(compact, ensure_ascii=False, default=str)
+        except Exception:
+            return str(compact)[:_LLM_PROBE_BUDGET]
+    cuts = compact.get("cuts")
+    if len(text) > _LLM_PROBE_BUDGET and isinstance(cuts, list) and len(cuts) > 8:
+        compact["cuts"] = cuts[:8]
+        compact["truncated"] = (
+            f"cuts capped 8/{len(cuts)} for size; probe_cut per cut")
+        try:
+            text = json.dumps(compact, ensure_ascii=False, default=str)
+        except Exception:
+            return str(compact)[:_LLM_PROBE_BUDGET]
+    if len(text) <= _LLM_PROBE_BUDGET:
+        return text
+    compact["layers"] = []
+    compact["truncated"] = "layers dropped for size; probe_cut per cut"
+    try:
+        return json.dumps(compact, ensure_ascii=False, default=str)
+    except Exception:
+        return str(compact)[:_LLM_PROBE_BUDGET]
 
 
 def _project_status_report(project_id: str) -> str:

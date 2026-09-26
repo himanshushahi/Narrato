@@ -78,9 +78,11 @@ def test_probe_asset_missing_then_procedural(tmp_path, monkeypatch):
     assert media["ok"] is True
     assert media["layer_type"] == "Image"
     assert media["status"] == "missing"
+    assert media["asset_exists"] is False  # unified asset_* schema
     assert "fetch_assets" in media["fix"]
     text = probe.probe_asset_payload("proj_probe", "scene", 0, 0, 2)
     assert text["status"] == "procedural"
+    assert text["scene_index"] == 0  # present on every path
 
 
 def test_probe_bad_selector_errors(tmp_path, monkeypatch):
@@ -101,3 +103,48 @@ def test_internal_probe_tools_return_json(tmp_path, monkeypatch):
                                       "section_type": "scene",
                                       "scene_index": 0, "cut_index": 0})
     assert json.loads(out2)["ok"] is True
+    # Missing section_type must error, not silently become scene.
+    err = execute_tool("probe_cut", {"project_id": "proj_probe"})
+    assert err.startswith("Error")
+
+
+def test_probe_index_type_errors(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    assert probe.probe_cut_payload("proj_probe", "scene", "0", 0)["ok"] is True
+    bad = probe.probe_cut_payload("proj_probe", "scene", "zero", 0)
+    assert bad["ok"] is False and "integer" in bad["error"]
+    assert probe.probe_asset_payload(
+        "proj_probe", "scene", 0, 0, 1.5)["ok"] is False
+    # Non-scene sections reject nonzero scene_index.
+    assert probe.probe_scene_payload(
+        "proj_probe", "introduction", 99)["ok"] is False
+
+
+def test_probe_survives_malformed_layers(tmp_path, monkeypatch):
+    import json as _json
+    proj_dir = _setup(tmp_path, monkeypatch)
+    script = _json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    children = script["scenes"][0]["sub_visuals"][0]["composition"]["children"]
+    children.append({"type": "Layer", "content": None, "animations": []})
+    (proj_dir / "script.json").write_text(_json.dumps(script), encoding="utf-8")
+    res = probe.probe_scene_payload("proj_probe", "scene", 0)
+    assert res["ok"] is True
+    assert res["cut_count"] == 1
+
+
+def test_probe_box_keeps_anchor_diagnostics(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    res = probe.probe_cut_payload("proj_probe", "scene", 0, 0)
+    img = [l for l in res["layers"] if l["type"] == "Image"][0]
+    assert "has_box" in img["box"] and "rect" in img["box"]
+
+
+def test_internal_truncation_stays_valid_json(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    from backend.agent.tools import _probe_result_for_llm
+    big = {"ok": True, "cut": {"blob": "x" * 20000},
+           "layers": [{"i": n} for n in range(20)]}
+    out = _probe_result_for_llm(big)
+    assert len(out) <= 8000
+    data = json.loads(out)  # must not raise
+    assert data.get("truncated")
