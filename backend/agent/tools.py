@@ -388,6 +388,57 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                 }
             }
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "probe_cut",
+                "description": "Inspects ONE cut: full JSON + geometry + timing + per-layer asset files. Read-only. Use before/after editing a cut instead of reading script.json by hand.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {"type": "string"},
+                        "section_type": {"type": "string", "enum": ["introduction", "scene", "conclusion"]},
+                        "scene_index": {"type": "integer", "default": 0},
+                        "cut_index": {"type": "integer", "default": 0}
+                    },
+                    "required": ["project_id", "section_type"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "probe_scene",
+                "description": "Inspects ONE section: per-cut summaries + geometry/timing rollups + variety. Read-only. Use to find which cut to fix, then probe_cut it.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {"type": "string"},
+                        "section_type": {"type": "string", "enum": ["introduction", "scene", "conclusion"]},
+                        "scene_index": {"type": "integer", "default": 0}
+                    },
+                    "required": ["project_id", "section_type"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "probe_asset",
+                "description": "File truth for ONE media layer: query/source to downloaded file (exists/size/dimensions/duration). Read-only.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {"type": "string"},
+                        "section_type": {"type": "string", "enum": ["introduction", "scene", "conclusion"]},
+                        "scene_index": {"type": "integer", "default": 0},
+                        "cut_index": {"type": "integer", "default": 0},
+                        "layer_index": {"type": "integer", "default": 0}
+                    },
+                    "required": ["project_id", "section_type"]
+                }
+            }
+        },
     ]
 
 
@@ -594,6 +645,36 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             if not project_id:
                 return "Error: project_id required."
             return _project_status_report(project_id)
+
+        if tool_name in ("probe_cut", "probe_scene", "probe_asset"):
+            try:
+                from backend.mcp import probe as _probe
+            except Exception as e:
+                return f"Error: probe backend unavailable: {e}"
+            project_id = arguments.get("project_id")
+            section_type = arguments.get("section_type", "scene")
+            scene_index = arguments.get("scene_index", 0)
+            if not project_id or not section_type:
+                return "Error: project_id and section_type are required."
+            try:
+                if tool_name == "probe_cut":
+                    res = _probe.probe_cut_payload(
+                        project_id, section_type, scene_index,
+                        arguments.get("cut_index", 0))
+                elif tool_name == "probe_scene":
+                    res = _probe.probe_scene_payload(
+                        project_id, section_type, scene_index)
+                else:
+                    res = _probe.probe_asset_payload(
+                        project_id, section_type, scene_index,
+                        arguments.get("cut_index", 0),
+                        arguments.get("layer_index", 0))
+            except Exception as e:
+                return f"Error: probe failed: {e}"
+            try:
+                return json.dumps(res, ensure_ascii=False, default=str)[:8000]
+            except Exception:
+                return str(res)[:8000]
 
         return f"Error: Unknown tool {tool_name}"
 

@@ -1491,6 +1491,48 @@ def get_visuals(project_id: str, section_type: str, scene_index: int = 0,
 
 
 @mcp.tool()
+def probe_cut(project_id: str, section_type: str, scene_index: int = 0,
+              cut_index: int = 0) -> dict:
+    """Inspect ONE cut: full JSON + geometry + timing + per-layer asset files.
+    Read-only. Use before/after save_visuals(cut_index=N) instead of reading
+    script.json by hand."""
+    try:
+        from backend.mcp import probe as _probe
+        return _probe.probe_cut_payload(project_id, section_type,
+                                        scene_index, cut_index)
+    except Exception as e:
+        logger.error(f"MCP probe_cut failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def probe_scene(project_id: str, section_type: str,
+                scene_index: int = 0) -> dict:
+    """Inspect ONE section: per-cut summaries + geometry/timing rollups +
+    variety. Read-only. Use to find which cut to fix, then probe_cut it."""
+    try:
+        from backend.mcp import probe as _probe
+        return _probe.probe_scene_payload(project_id, section_type, scene_index)
+    except Exception as e:
+        logger.error(f"MCP probe_scene failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def probe_asset(project_id: str, section_type: str, scene_index: int = 0,
+                cut_index: int = 0, layer_index: int = 0) -> dict:
+    """File truth for ONE media layer: query/source → downloaded file?
+    Read-only. Reports exists/size/dimensions/duration + fix when missing."""
+    try:
+        from backend.mcp import probe as _probe
+        return _probe.probe_asset_payload(project_id, section_type,
+                                          scene_index, cut_index, layer_index)
+    except Exception as e:
+        logger.error(f"MCP probe_asset failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
 def save_visuals(project_id: str, section_type: str, sub_visuals: list,
                  scene_index: int = 0, cut_index: int = -1,
                  dry_run: bool = False, auto_migrate: bool = False) -> dict:
