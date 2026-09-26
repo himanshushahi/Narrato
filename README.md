@@ -92,7 +92,6 @@ Any MCP-compatible coding agent (Claude Code, opencode, Cursor, Gemini CLI) can 
 - **Projects**: create / list / status / delete (validated inputs, collision-proof export folders).
 - **Script, design & voice**: save/validate narration, design systems, voice + whisper settings.
 - **Stage Grounding Guardrail**: Strict gates require agents to ground themselves via `get_stage_skills` or `get_skill` before authoring scripts, designs, or visuals.
-- **Subtitle Repair**: Word-level audit tools (`compare_transcription`, `update_transcription`) to auto-align Whisper misspellings and matra variants with script text.
 - **Mechanical stages**: voiceover → transcribe → assets → render, with background submit + poll + cancel, strictly serialized per project.
 - **Visual iteration**: true audio timings, per-section save, single-cut patch, dry-run validation, contact-sheet review frames (rendered / headless-Remotion / asset lineup).
 - **Human review gate**: agents build through asset download, then stop — final render requires your explicit approval (`confirm_render=true`).

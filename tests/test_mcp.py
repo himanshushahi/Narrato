@@ -1607,34 +1607,7 @@ def test_transcription_tools_lifecycle(tmp_path, monkeypatch):
     assert got_intro["total_section_segments"] == 1
     assert got_intro["total_section_words"] == 9
 
-    # 2. Test compare_transcription
-    cmp_res = server.compare_transcription("proj_mcp")
-    assert cmp_res["ok"] is True
-    assert cmp_res["summary"]["spelling_variants_count"] >= 1
-    variants = {v["transcript"]: v["script"] for v in cmp_res["spelling_variants"]}
-    assert "भारतिय" in variants and variants["भारतिय"] == "भारतीय"
 
-    # 3. Test update_transcription with dry_run
-    dry = server.update_transcription("proj_mcp", replacements=[{"find": "भारतिय", "replace": "भारतीय"}], dry_run=True)
-    assert dry["ok"] is True
-    assert dry["dry_run"] is True
-    assert dry["replacements_applied"] >= 1
-    assert not (sub_dir / "subtitles.srt").exists()
-
-    # 4. Test update_transcription with auto_align=True (writes files)
-    live = server.update_transcription("proj_mcp", auto_align=True)
-    assert live["ok"] is True
-    assert live["dry_run"] is False
-    assert (sub_dir / "subtitles.srt").exists()
-    assert (sub_dir / "subtitles.vtt").exists()
-
-    # Check updated transcription.json
-    updated_trans = json.loads((sub_dir / "transcription.json").read_text(encoding="utf-8"))
-    seg1_words = [w["word"].strip() for w in updated_trans["segments"][0]["words"]]
-    assert "भारतीय" in seg1_words
-
-    srt_content = (sub_dir / "subtitles.srt").read_text(encoding="utf-8")
-    assert "भारतीय" in srt_content
 
 
 def test_mcp_inventory_shape_and_counts():
@@ -1653,12 +1626,12 @@ def test_mcp_inventory_shape_and_counts():
     templates = asyncio.run(server.mcp.list_resource_templates())
     prompts = asyncio.run(server.mcp.list_prompts())
     tool_names = sorted(t.name for t in tools)
-    assert len(tool_names) == 33
+    assert len(tool_names) == 31
     assert set(tool_names) == {
         "create_project", "list_projects", "project_status", "delete_project",
         "save_script", "get_script", "save_design",
         "list_voice_options", "update_voice_settings", "update_transcribe_settings",
-        "get_transcription", "compare_transcription", "update_transcription",
+        "get_transcription",
         "list_skills", "get_skill", "get_stage_skills",
         "run_stage", "stage_status", "cancel_stage",
         "get_section_timings", "get_visuals", "save_visuals",
@@ -1677,7 +1650,7 @@ def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
     monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
     inv = http_host.get_mcp_inventory()
     assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
-    assert len(inv["tools"]) == 33
+    assert len(inv["tools"]) == 31
     assert len(inv["resources"]) == 1
     assert inv["resource_templates"] == []
     assert len(inv["prompts"]) == 1
