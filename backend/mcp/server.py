@@ -90,6 +90,13 @@ _SKILL_GATE_LOCK = _gate_threading.Lock()
 _SKILL_READS: dict = {}
 # Reads without a project_id (older clients) fall back here.
 _GLOBAL_SKILL_READS: set = set()
+# Deep reads: (normalized skill, section title returned) pairs. The visuals
+# starter pack is deliberately broad but shallow — save_visuals additionally
+# requires ≥1 section-level pull from declarative-ast so the agent has seen
+# real archetype JSON, not just the table of contents.
+# project_id -> set((skill, section)); no-project reads fall back globally.
+_SECTION_READS: dict = {}
+_GLOBAL_SECTION_READS: set = set()
 
 _SKILL_ALIASES = {
     "visual-director": "visual-director-core",
@@ -113,6 +120,12 @@ STAGE_SKILL_REQUIREMENTS: dict = {
 STAGE_SKILL_ALTERNATES: dict = {
     "scriptwriter": ["scriptwriter", "script-base-writer"],
 }
+# stage -> (skill, min_sections): section-level deep reads required beyond
+# the skill-level gate. Visuals creativity lives in the full archetype/motion
+# text — a brief-only agent converges on Background+Image+Text every cut.
+STAGE_DEEP_READ_REQUIREMENTS: dict = {
+    "visuals": ("declarative-ast", 1),
+}
 
 
 def _norm_skill(name: str) -> str:
@@ -120,7 +133,8 @@ def _norm_skill(name: str) -> str:
     return _SKILL_ALIASES.get(n, n)
 
 
-def _record_skill_read(project_id: str, skill_name: str) -> None:
+def _record_skill_read(project_id: str, skill_name: str,
+                       section: str = "") -> None:
     norm = _norm_skill(skill_name)
     if not norm:
         return
@@ -129,6 +143,13 @@ def _record_skill_read(project_id: str, skill_name: str) -> None:
         pid = (project_id or "").strip()
         if pid:
             _SKILL_READS.setdefault(pid, set()).add(norm)
+        # Section reads only count when a real section came back (brief=true
+        # ignores section, and the starter pack records skills, not sections).
+        if (section or "").strip():
+            pair = (norm, (section or "").strip()[:80])
+            _GLOBAL_SECTION_READS.add(pair)
+            if pid:
+                _SECTION_READS.setdefault(pid, set()).add(pair)
 
 
 def _skills_read_for(project_id: str) -> set:
@@ -136,6 +157,17 @@ def _skills_read_for(project_id: str) -> set:
     with _SKILL_GATE_LOCK:
         own = set(_SKILL_READS.get(pid, set())) if pid else set()
         return own | set(_GLOBAL_SKILL_READS)
+
+
+def _sections_read_for(project_id: str, skill_name: str) -> set:
+    """Section titles pulled for one skill (project + global fallback)."""
+    norm = _norm_skill(skill_name)
+    pid = (project_id or "").strip()
+    with _SKILL_GATE_LOCK:
+        own = {sec for (sk, sec) in _SECTION_READS.get(pid, set())
+               if sk == norm} if pid else set()
+        glob = {sec for (sk, sec) in _GLOBAL_SECTION_READS if sk == norm}
+        return own | glob
 
 
 def _missing_stage_skills(stage: str, project_id: str) -> list:
@@ -147,6 +179,51 @@ def _missing_stage_skills(stage: str, project_id: str) -> list:
         if not any(_norm_skill(a) in have for a in alts):
             missing.append(req)
     return missing
+
+
+def _missing_deep_reads(stage: str, project_id: str) -> dict | None:
+    """Deep-read requirement for a stage, or None when satisfied/absent.
+
+    Returns {skill, need, have} when the agent must pull ≥need full sections
+    from skill before authoring (briefs and the starter pack don't count).
+    """
+    req = STAGE_DEEP_READ_REQUIREMENTS.get(stage)
+    if not req:
+        return None
+    skill, need = req
+    have = _sections_read_for(project_id, skill)
+    if len(have) >= need:
+        return None
+    return {"skill": skill, "need": need, "have": sorted(have)}
+
+
+def _deep_read_required_error(stage: str, project_id: str,
+                              deep: dict) -> dict:
+    skill = deep["skill"]
+    example = (f"get_skill(skill_name='{skill}', "
+               f"section='archetypes', project_id='{project_id}')")
+    return {
+        "ok": False,
+        "error": (
+            f"DEEP_READ_REQUIRED: stage '{stage}' needs ≥{deep['need']} full "
+            f"section pull(s) from '{skill}' — briefs and the starter pack "
+            f"don't count (brief-only agents produce flat Background+Image+Text "
+            f"videos). EASY FIX (1 call): {example} — then pull any other "
+            f"sections you need. Sections read so far: {deep['have'] or 'none'}."
+        ),
+        "error_code": "DEEP_READ_REQUIRED",
+        "stage": stage,
+        "project_id": project_id,
+        "required_skill": skill,
+        "sections_read": deep["have"],
+        "fix": {
+            "one_call": {
+                "tool": "get_skill",
+                "arguments": {"skill_name": skill, "section": "archetypes",
+                              "project_id": project_id},
+            },
+        },
+    }
 
 
 def _skill_required_error(stage: str, project_id: str, missing: list) -> dict:
@@ -419,7 +496,9 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
     to pull ONE part instead of the whole file.
     MANDATORY GATE: save_script requires scriptwriter; save_design requires
     art-director-design-system; save_visuals requires declarative-ast +
-    visual-director-core + motion-graphics-designer (brief=true counts).
+    visual-director-core + motion-graphics-designer (brief=true counts) PLUS
+    ≥1 full section pull from declarative-ast (briefs alone produce flat
+    output — the starter pack is broad but shallow by design).
     EASIEST: one call get_stage_skills(stage, project_id) instead."""
     from backend.agent.skill_loader import skill_loader
     skill = skill_loader.get_skill(skill_name, context="tool")
@@ -475,6 +554,8 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
             return {"ok": False,
                     "error": f"No section matching {section!r} in {skill.name}.",
                     "available_sections": titles}
+        _record_skill_read(project_id, skill.name,
+                           section=found["title"])
         return {"ok": True, "name": skill.name, "version": skill.version,
                 "section": found["title"],
                 **({"matched_subhead": found["matched_subhead"]}
@@ -482,6 +563,7 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
                 "content": f"## {found['title']}\n\n{found['body']}",
                 "remaining_sections": found["remaining"]}
     content = skill.render(**ctx)
+    _record_skill_read(project_id, skill.name, section="*full skill*")
     return {"ok": True, "name": skill.name, "version": skill.version,
             "content": content,
             "sections": [s["title"] for s in skill.brief(**ctx)["sections"]],
@@ -620,7 +702,14 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
             bundle["next"] = ("Include motion language (transitions, text "
                               "treatments, overlays) or the server warns. "
                               "Then call save_design.")
-        else:  # visuals: cheap starter pack, not the full 50KB dump
+        else:  # visuals: fat creative pack (briefs + full key sections).
+            # Brief-only agents converge on Background+Image+Text every cut,
+            # so the pack inlines the highest-value creative text (~50KB):
+            # the archetype JSON library, motion grammar, variety contracts,
+            # card geometries, and the storyboard plan structure. This costs
+            # context once per project and is the closest MCP gets to the
+            # internal LLM's ~120KB injected prompt. It does NOT satisfy the
+            # deep-read gate (see below) — that needs an active section pull.
             briefs = {}
             for name in STAGE_SKILL_REQUIREMENTS["visuals"]:
                 sk = skill_loader.get_skill(name, context="tool")
@@ -628,6 +717,10 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                     briefs[name] = sk.brief(**ctx)
                     _record_skill_read(project_id, name)
             bundle["briefs"] = briefs
+            for _k in ("script_rules_block", "design_guidance",
+                       "sentence_rule", "genre_script_guidance"):
+                ctx.setdefault(_k, "")
+            bundle["creative_pack"] = _visuals_creative_pack(ctx)
             # Must-not-skim rules inline so the agent gets them even if it
             # never pulls another section.
             bundle["must_follow"] = [
@@ -637,10 +730,20 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 "Pair entrance animations (delay>0) with opacity fade 0->1; spatial-only allowed at delay 0.",
                 "Prefer >=2 content kinds per section + 1 energy moment (punch-in, shake, motion_blur, FX filter, rack-focus, floating, Particles).",
             ]
+            bundle["deep_read_required"] = (
+                "save_visuals ALSO needs ≥1 full section pull from "
+                "declarative-ast (briefs + this pack don't count). E.g. "
+                "get_skill(skill_name='declarative-ast', section='archetypes', "
+                "project_id=...).")
             bundle["visual_archetypes"] = _visual_archetypes()
             bundle["sample_cut"] = _sample_cut_template(video_format)
+            bundle["storyboard"] = _visuals_storyboard_pack(ctx, project_id)
             bundle["next"] = ("Then: get_section_timings -> save_design -> "
-                              "save_visuals per section. Pull deeper detail only as needed, "
+                              "write a 1-line-per-cut beat plan (archetype + "
+                              "transition + query, see storyboard.beat_plan_template) "
+                              "-> save_visuals(dry_run=true) per section, read "
+                              "geometry/timing/variety, fix, then persist. "
+                              "Pull deeper detail as needed, "
                               "e.g. get_skill('declarative-ast', section='archetypes').")
     except Exception as e:
         logger.error(f"MCP get_stage_skills failed: {e}", exc_info=True)
@@ -672,6 +775,81 @@ def _sample_cut_template(video_format: str) -> dict:
     """Canonical sample — delegates to validators.build_sample_cut (single SOT)."""
     from backend.agent.validators import build_sample_cut
     return build_sample_cut(video_format)
+
+
+# Sections inlined into the visuals starter pack: the creative text the
+# internal LLM gets injected (~120KB) that brief-only MCP agents never see.
+# (skill name, section query, pack key).
+_VISUALS_PACK_SECTIONS: tuple = (
+    ("declarative-ast", "archetypes", "archetypes"),
+    ("declarative-ast", "motion grammar", "motion_grammar"),
+    ("declarative-ast", "anti-template", "anti_template"),
+    ("visual-director-core", "motion vocabulary", "motion_vocabulary"),
+    ("visual-director-core", "anti-template", "director_variety_contract"),
+    ("motion-graphics-designer", "card", "card_geometries"),
+)
+
+
+def _visuals_creative_pack(ctx: dict) -> dict:
+    """Full high-value skill sections for the visuals starter pack.
+
+    Each entry is {title, content} rendered for the project language/format.
+    Failures degrade to a pointer (never fail the whole bundle). Recording:
+    skills count toward the skill gate, but sections here do NOT count toward
+    the deep-read gate — the agent must still pull ≥1 section itself.
+    """
+    from backend.agent.skill_loader import skill_loader
+    pack: dict = {}
+    for skill_name, query, key in _VISUALS_PACK_SECTIONS:
+        try:
+            sk = skill_loader.get_skill(skill_name, context="tool")
+            if sk is None:
+                continue
+            found = sk.render_section(query, **ctx)
+            if found:
+                pack[key] = {"title": found["title"],
+                             "content": f"## {found['title']}\n\n{found['body']}"}
+            else:
+                pack[key] = {"title": query, "content": "",
+                             "note": f"Section {query!r} not found — pull via "
+                                     f"get_skill('{skill_name}', section='...')."}
+        except Exception as e:
+            logger.warning(f"creative_pack {skill_name}/{query} failed: {e}")
+            pack[key] = {"title": query, "content": "",
+                         "note": "Render failed — pull via get_skill()."}
+    return pack
+
+
+def _visuals_storyboard_pack(ctx: dict, project_id: str) -> dict:
+    """Storyboard planning step for MCP (mirrors the internal two-stage flow).
+
+    The internal pipeline plans beats with the storyboard-planner skill before
+    generating ASTs; MCP agents jump narration→cuts directly, which kills
+    variety. This pack gives the planning content plus a beat-plan template:
+    one line per cut written BEFORE save_visuals.
+    """
+    from backend.agent.skill_loader import skill_loader
+    pack: dict = {
+        "why": ("Plan beats before authoring cuts: one line per cut "
+                "(archetype + transition + media query). Sections planned "
+                "this way vary where unplanned ones repeat."),
+        "beat_plan_template": (
+            "cut0: entity_spotlight | whip_pan | <english query> | <callout>\n"
+            "cut1: split_comparison | slide_left | <english query> | <chart>\n"
+            "cut2: stat_callout | dissolve | <english query> | <counter>\n"
+            "(one line per planned cut; cycle archetypes, never repeat the "
+            "neighbor's archetype+transition pair)"),
+    }
+    try:
+        sk = skill_loader.get_skill("storyboard-planner", context="tool")
+        if sk is not None:
+            found = sk.render_section("plan structure", **ctx)
+            if found:
+                pack["plan_structure"] = (
+                    f"## {found['title']}\n\n{found['body']}")
+    except Exception as e:
+        logger.warning(f"storyboard pack failed: {e}")
+    return pack
 
 
 @mcp.tool()
@@ -1089,7 +1267,9 @@ _SEARCH_SOURCES = ("pexels_photo", "pexels_video", "wikipedia_image",
 def search_media(source: str, query: str, orientation: str = "landscape") -> dict:
     """**FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE.** Check stock media availability BEFORE writing a query into a cut.
     Queries MUST be in English. API keys stay server-side; only results
-    are returned. youtube_video verifies a match exists for the query."""
+    are returned. youtube_video verifies a match exists for the query.
+    Successful verifications are recorded session-wide: save_visuals reports
+    any Image/Video query you did NOT verify here as unverified_queries."""
     if source not in _SEARCH_SOURCES:
         return {"ok": False, "error": f"source must be one of {list(_SEARCH_SOURCES)}."}
     if not (query or "").strip():
@@ -1103,6 +1283,7 @@ def search_media(source: str, query: str, orientation: str = "landscape") -> dic
         return {"ok": False, "error": str(e)}
     if isinstance(result, str) and result.startswith("Error"):
         return {"ok": False, "error": result}
+    payloads.record_verified_query(query.strip())
     return {"ok": True, "source": source, "query": query.strip(), "result": result}
 
 
@@ -1228,17 +1409,23 @@ already explicitly specified in the user's request):
    spelling/matra variants in one pass, or pass targeted `replacements` to fix
    specific words. This keeps transcription.json, subtitles.srt, and
    subtitles.vtt synchronized before authoring visuals and rendering.
- 6. MANDATORY grounding — EASY 1-call path (server rejects save_visuals without it):
-    get_stage_skills('visuals', project_id) returns briefs for
-     visual-director-core + motion-graphics-designer + declarative-ast PLUS
-     must-follow rules, visual archetypes, and a sample cut — and satisfies the gate.
-    Granular alternative: get_skill(NAME, brief=true) for each of the three, then
-    pull ONLY the sections you need via get_skill(NAME, section="...").
-    Required reading: declarative-ast §5 archetypes (your template library —
-    motion-graphics card geometries alone are NOT enough variety for a
-    whole video) + the motion/FX sections. Rules you must not skim past:
-    LayerBox %-only geometry, one Particles layer per cut max (last child),
-    no chapter title cards inside cuts.
+  6. MANDATORY grounding — EASY 1-call path (server rejects save_visuals without it):
+     get_stage_skills('visuals', project_id) returns briefs for
+      visual-director-core + motion-graphics-designer + declarative-ast PLUS
+      the full creative pack (archetype JSON library, motion grammar,
+      variety contracts, card geometries), must-follow rules, visual
+      archetypes, a sample cut, and a storyboard pack — and satisfies the
+      skill gate. It does NOT satisfy the deep-read gate: you must ALSO pull
+      ≥1 full section via get_skill (e.g. declarative-ast section='archetypes'),
+      or save_visuals is rejected with DEEP_READ_REQUIRED. Brief-only agents
+      produce flat Background+Image+Text videos — the gate exists because of that.
+     Granular alternative: get_skill(NAME, brief=true) for each of the three, then
+     pull ONLY the sections you need via get_skill(NAME, section="...").
+     Required reading: declarative-ast §5 archetypes (your template library —
+     motion-graphics card geometries alone are NOT enough variety for a
+     whole video) + the motion/FX sections. Rules you must not skim past:
+     LayerBox %-only geometry, one Particles layer per cut max (last child),
+     no chapter title cards inside cuts.
   7. get_section_timings (TRUE audio durations + word timestamps per section
      + pushed creative_blueprint with visual archetypes + sample cut — use it)
  8. save_design (required once — cuts bind to its hash; MANDATORY GATE:
@@ -1246,11 +1433,13 @@ already explicitly specified in the user's request):
    design (theme + colors + fonts, nothing else) guarantees a flat video:
    include motion language — signature transitions, text treatments,
    overlay/texture direction — or the server will warn you.
- 9. search_media to verify each English query resolves BEFORE writing the cut (skip verification only if the same query already verified this session)
- 10. save_visuals per section (MANDATORY GATE already satisfied in step 6;
-     durations auto-normalize to the audio
-     length; prefer ONE Particles layer per cut as LAST child; no chapter
-     title cards inside cuts; Text in project language except queries stay English).
+  9. search_media to verify each English query resolves BEFORE writing the cut. Successful verifications are recorded session-wide — save_visuals reports any query you did NOT verify as unverified_queries (they fail at fetch_assets). No silent skipping.
+  9b. BEAT PLAN per section (mirrors the internal storyboard stage — unplanned sections repeat): write 1 line per planned cut (archetype + transition + media query + callout) BEFORE authoring, e.g. `cut0: entity_spotlight | whip_pan | parliament building wide | <callout>`. Cycle archetypes; never repeat the neighbor's archetype+transition pair.
+  10. save_visuals per section, DRY-RUN FIRST (MANDATORY WORKFLOW, gates already satisfied in step 6;
+      durations auto-normalize to the audio
+      length; prefer ONE Particles layer per cut as LAST child; no chapter
+      title cards inside cuts; Text in project language except queries stay English).
+     Per section: save_visuals(dry_run=true) → read geometry/timing/variety/unverified_queries → fix → persist. Persisting cold earns a nudge.
     VARIETY GUIDE (enforced by review, not by validation — the server
     accepts valid output, but aim high):
     - Prefer fresh layer-templates per cut; vary card
@@ -1267,8 +1456,10 @@ already explicitly specified in the user's request):
       with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
       whenever delay > 0 so elements stay hidden until they move; spatial-only
       without fade is allowed ONLY for instant punch/whip beats at delay: 0.
-    The save_visuals response reports variety stats + normalizations:
-    read them and enrich flat spots BEFORE moving on.
+    The save_visuals response reports variety stats + normalizations +
+    geometry + timing + unverified_queries:
+    read them and enrich flat spots BEFORE moving on. A dry_run with zero
+    warnings is the bar for persisting.
 11. run_stage(fetch_assets, wait=false) → stage_status until completed.
     Fetch AFTER all sections are saved so every query resolves to a
     downloaded local_path. Composition review without this step shows
@@ -1554,12 +1745,23 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     for a best-effort conversion.
 
     MANDATORY FIRST: get_stage_skills('visuals', project_id) or all three
-    get_skill(declarative-ast + visual-director-core + motion-graphics-designer).
+    get_skill(declarative-ast + visual-director-core + motion-graphics-designer),
+    PLUS ≥1 full section pull from declarative-ast (e.g. section='archetypes')
+    — briefs alone produce flat output and are rejected with DEEP_READ_REQUIRED.
+    Write a 1-line-per-cut beat plan (archetype + transition + query, see the
+    starter pack's storyboard template) BEFORE authoring cuts.
+    WORKFLOW PER SECTION (mandatory): save_visuals(dry_run=true) first, read
+    geometry/timing/variety/unverified_queries, fix, then persist. Persisting
+    without a dry_run pass earns a nudge; agents that iterate dry_run produce
+    visibly better videos.
     cut_index >= 0 patches a SINGLE cut (pass sub_visuals as a 1-element
     array holding just that cut) instead of resending the whole section —
     use after review_frame flags one bad cut (re-run fetch_assets if the
     patch adds a new query, then re-review). dry_run=true validates and
     returns the normalized result WITHOUT writing anything.
+    Image/Video queries SHOULD be verified via search_media first —
+    unverified queries are reported back (unverified_queries) and fail at
+    fetch_assets.
     The response ALWAYS includes variety stats + normalizations + geometry
     (overlap / off-canvas / missing fontSize / anchor / center-math) and
     timing (delay+duration fit, emphasis fit, fade pairing, motion_blur,
@@ -1572,6 +1774,9 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
         missing = _missing_stage_skills("visuals", project_id)
         if missing:
             return _skill_required_error("visuals", project_id, missing)
+        deep = _missing_deep_reads("visuals", project_id)
+        if deep:
+            return _deep_read_required_error("visuals", project_id, deep)
     try:
         return payloads.save_visuals_payload(
             project_id, section_type, sub_visuals, scene_index,

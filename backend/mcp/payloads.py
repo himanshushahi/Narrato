@@ -22,6 +22,60 @@ from backend.core.logger import logger
 # Sections the agent may target with save_visuals.
 SECTION_TYPES = ("introduction", "scene", "conclusion")
 
+# Session-wide verified media queries (recorded by search_media on success).
+# save_visuals reports any Image/Video query absent here as unverified —
+# verification used to be prose-only ("verify BEFORE writing") that agents
+# stopped following after the first beats. Matching is case/space-insensitive.
+import threading as _payloads_threading
+_VERIFIED_QUERIES: set = set()
+_VERIFIED_LOCK = _payloads_threading.Lock()
+# Sections dry-run before persist, per (project_id, section, scene_index).
+# Persisting cold earns a nudge toward the dry_run-first workflow.
+_DRY_RUN_SECTIONS: set = set()
+
+
+def _normalize_query(query) -> str:
+    return " ".join(str(query or "").lower().split())
+
+
+def record_verified_query(query: str) -> None:
+    norm = _normalize_query(query)
+    if not norm:
+        return
+    with _VERIFIED_LOCK:
+        _VERIFIED_QUERIES.add(norm)
+
+
+def unverified_media_queries(sub_visuals) -> list:
+    """Image/Video queries with no successful search_media hit this session."""
+    found: list = []
+    seen: set = set()
+    cuts = sub_visuals if isinstance(sub_visuals, list) else []
+    for cut in cuts:
+        if not isinstance(cut, dict):
+            continue
+        comp = cut.get("composition") or {}
+        children = comp.get("children") or []
+        if not isinstance(children, list):
+            continue
+        for layer in children:
+            if not isinstance(layer, dict):
+                continue
+            content = layer.get("content")
+            if not isinstance(content, dict):
+                continue
+            if content.get("type") not in ("Image", "Video"):
+                continue
+            q = _safe_str(content.get("query")).strip()
+            if not q:
+                continue
+            with _VERIFIED_LOCK:
+                verified = _normalize_query(q) in _VERIFIED_QUERIES
+            if not verified and q not in seen:
+                seen.add(q)
+                found.append(q)
+    return found
+
 # Mirrors the required-keys check in ai.generate_project_design_system.
 REQUIRED_DESIGN_KEYS = {"theme_name", "color_palette", "typography", "css_guidelines"}
 
@@ -1107,13 +1161,25 @@ def save_visuals_payload(project_id: str, section_type: str,
         logger.warning(f"save_visuals: timing lint failed: {e}")
         from backend.agent.timing import empty_timing_report
         timing = empty_timing_report()
+    unverified = unverified_media_queries(normalized)
+    section_key = (project_id, section_type,
+                   scene_index if section_type == "scene" else 0)
     if dry_run:
+        with _VERIFIED_LOCK:
+            _DRY_RUN_SECTIONS.add(section_key)
         result = {"ok": True, "project_id": project_id, "section_type": section_type,
                   "scene_index": scene_index if section_type == "scene" else None,
                   "dry_run": True, "persisted": False,
                   "cut_count": len(normalized), "total_duration": total,
                   "durations": durations, "variety": variety,
-                  "geometry": geometry, "timing": timing}
+                  "geometry": geometry, "timing": timing,
+                  "unverified_queries": unverified}
+        if unverified:
+            result["warning"] = (
+                f"{len(unverified)} quer{'y' if len(unverified) == 1 else 'ies'} "
+                f"not verified via search_media this session "
+                f"(e.g. {unverified[0]!r}) — they fail at fetch_assets. "
+                f"Verify, then re-dry-run before persisting.")
         if cut_index is not None:
             result["patched_cut_index"] = cut_index
             result["patched_cut"] = normalized[cut_index]
@@ -1162,7 +1228,21 @@ def save_visuals_payload(project_id: str, section_type: str,
               "persisted": True,
               "cut_count": len(normalized), "total_duration": total,
               "durations": durations, "variety": variety,
-              "geometry": geometry, "timing": timing}
+              "geometry": geometry, "timing": timing,
+              "unverified_queries": unverified}
+    if unverified:
+        result["warning"] = (
+            f"{len(unverified)} quer{'y' if len(unverified) == 1 else 'ies'} "
+            f"were never verified via search_media (e.g. {unverified[0]!r}) — "
+            f"expect fetch_assets misses.")
+    with _VERIFIED_LOCK:
+        if section_key not in _DRY_RUN_SECTIONS:
+            result["nudge"] = (
+                "Persisted without a dry_run pass on this section. "
+                "Dry-run-first (dry_run=true → read reports → fix → persist) "
+                "produces visibly better videos.")
+        else:
+            _DRY_RUN_SECTIONS.discard(section_key)
     if cut_index is not None:
         result["patched_cut_index"] = cut_index
     return result
