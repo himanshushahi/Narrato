@@ -692,7 +692,7 @@ def detect_legacy_cut_shape(cut: Any) -> Dict[str, Any] | None:
     if has_legacy_layers and len(comp_children) > 0:
         signals.append(
             "cut has BOTH layers[] and composition.children[] (ambiguous — "
-            "keep one shape; auto_migrate concatenates)")
+            "keep one shape; auto-repair concatenates)")
     candidates: List[Any] = list(raw_layers) if has_legacy_layers else comp_children
     prefix = "layers" if has_legacy_layers else "children"
     for idx, layer in enumerate(candidates):
@@ -892,8 +892,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
                 f"SCHEMA_MISMATCH cut#{src_idx}: legacy layers/layout shape. "
                 f"Found: {'; '.join(_legacy['signals'])}. "
                 f"Use {CANONICAL_CUT_HINT}. "
-                f"Fix: re-emit this cut as composition.children Layer nodes, "
-                f"or re-call with auto_migrate=true for a best-effort conversion."
+                f"Fix: re-emit this cut as composition.children Layer nodes."
             )
 
         # Order-based stacking only: reject any ordering field outright.

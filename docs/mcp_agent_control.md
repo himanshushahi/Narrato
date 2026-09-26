@@ -1,6 +1,8 @@
 # Narrato MCP Agent Control — Architecture & Developer Guide
 
-External coding agents (Claude Code, opencode, Cursor, Gemini CLI…) drive the full video pipeline through this **Model Context Protocol (MCP)** server: **32 tools + 1 resource + 1 prompt + 0 resource templates (by design)**, served over stdio or localhost Streamable HTTP. The server never calls an LLM and never needs an API key — the connected agent supplies all creative content (script prose, design systems, visual ASTs); the server validates and executes.
+External coding agents (Claude Code, opencode, Cursor, Gemini CLI…) drive the full video pipeline through this **Model Context Protocol (MCP)** server: **33 tools + 1 resource + 1 prompt + 0 resource templates (by design)**, served over stdio or localhost Streamable HTTP. The server never calls an LLM and never needs an API key — the connected agent supplies all creative content (script prose, design systems, visual ASTs); the server validates and executes.
+
+> **Internal-loop parity (why MCP visuals match app visuals):** the internal pipeline survives model mistakes via automatic correction turns, so `save_visuals`/`save_visuals_batch` do the same server-side: stray `z_index` keys are stripped, legacy `layers[]` shapes are best-effort converted (always reported in `auto_fixed`), and failures carry a machine-appliable `fix.retry_with` patch. Fix the JSON type and resubmit — never drop a layer kind to dodge a type error. Whole videos go through `save_visuals_batch` (3 calls: batch dry_run → re-dry-run fixed sections → batch persist; coverage is content-hashed, so edited-but-unvalidated content still earns the nudge) instead of 60-90 single-section calls. The batch `video_variety` rollup is the flat-video guard: `uniform_signature=true` or zero total energy cuts blocks nothing but must be fixed before rendering — per-section green is not video green.
 
 > **0 resource templates is expected, not a bug.** MCP clients correctly call both `resources/list` (→ `narrato://pipeline-guide`) and `resources/templates/list` (→ empty) during discovery. Reads stay as **tools** on purpose: `get_skill`/`get_stage_skills` record skill-gate reads (a side effect), and reads like `get_visuals`/`get_transcription` need structured args (section_type, scene_index, cut_index, pagination) that don't map cleanly to URI templates. Do NOT add dummy templates just to make the count non-zero.
 
@@ -50,7 +52,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 ---
 
-## 3. Tool inventory (32 tools, 1 resource, 1 prompt, 0 templates)
+## 3. Tool inventory (33 tools, 1 resource, 1 prompt, 0 templates)
 
 ### Project lifecycle
 | Tool | What it does |
@@ -84,7 +86,8 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 | `cancel_stage` | Stop a running MCP stage at the next checkpoint |
 | `get_section_timings` | True audio durations + `start_time` + word timestamps per section |
 | `get_visuals` | Read back sub_visuals for ONE section or a SINGLE cut (symmetrical to `save_visuals`, avoids 100KB+ dumps) |
-| `save_visuals` | Per-section save; `cut_index` patches ONE cut; `dry_run` validates without writing |
+| `save_visuals` | Per-section save; `cut_index` patches ONE cut; `dry_run` validates without writing; auto-repairs z_index + legacy shapes (see `auto_fixed`), machine-appliable `fix`/`retry_with` on failure |
+| `save_visuals_batch` | Whole video in 3 calls (batch dry_run → re-dry-run fixes → batch persist); per-section results, duplicate/negative-index guards, project marker against interleaved stages, whole-video `video_variety` rollup |
 | `clear_visuals` | Destructive reset: ALL sub_visuals → [] (script + both manifests; counts are logical cuts from script.json); `clear_assets=true` (default) also deletes downloads; `false` keeps downloads but still prunes the stills cache; narration/audio/design kept; fetch_assets + render → pending; marker-held so run_stage can't interleave |
 | `clear_assets` | Destructive reset: delete downloads (asset_*/preview_*/manifest/previews) + strip local_path pointers; cuts/queries kept so fetch_assets re-runs clean |
 | `review_frame` | Contact-sheet snapshots: `render` (exact mp4 pixels) / `composition` (headless Remotion stills) / `asset` (media lineup) |

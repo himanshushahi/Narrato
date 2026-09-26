@@ -60,6 +60,7 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
       { name: 'cancel_stage', blurb: 'Stop a running agent stage' },
       { name: 'get_section_timings', blurb: 'True audio durations + word timestamps' },
       { name: 'save_visuals', blurb: 'Validate + save sub-visuals per section (variety stats, cut patch + dry-run)' },
+      { name: 'save_visuals_batch', blurb: 'Whole video in 2 calls: batch dry-run → fix → batch persist' },
       { name: 'clear_visuals', blurb: 'Delete ALL visual ASTs (keeps narration/audio/design; optionally downloads)' },
       { name: 'clear_assets', blurb: 'Delete ALL downloaded assets (keeps cuts for re-fetch)' },
       { name: 'review_frame', blurb: 'Contact-sheet snapshots: rendered, composition or asset lineup — mandatory per-section review' },

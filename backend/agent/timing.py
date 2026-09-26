@@ -111,7 +111,8 @@ def lint_cut_timing(cut: Dict[str, Any], cut_index: int = 0) -> Dict[str, Any]:
                for a in anims):
             warnings.append(
                 f"{label}: legacy animations[].start found (expected delay) — "
-                f"migrate to delay; save rejects start without auto_migrate")
+                f"migrate to delay (server auto-converts legacy shapes; "
+                f"verify timing in review)")
         for a in anims:
             if not isinstance(a, dict):
                 continue

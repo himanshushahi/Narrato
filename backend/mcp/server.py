@@ -1435,11 +1435,25 @@ already explicitly specified in the user's request):
    overlay/texture direction — or the server will warn you.
   9. search_media to verify each English query resolves BEFORE writing the cut. Successful verifications are recorded session-wide — save_visuals reports any query you did NOT verify as unverified_queries (they fail at fetch_assets). No silent skipping.
   9b. BEAT PLAN per section (mirrors the internal storyboard stage — unplanned sections repeat): write 1 line per planned cut (archetype + transition + media query + callout) BEFORE authoring, e.g. `cut0: entity_spotlight | whip_pan | parliament building wide | <callout>`. Cycle archetypes; never repeat the neighbor's archetype+transition pair.
-  10. save_visuals per section, DRY-RUN FIRST (MANDATORY WORKFLOW, gates already satisfied in step 6;
+   10. save_visuals_batch for the WHOLE video, DRY-RUN FIRST (MANDATORY WORKFLOW, gates already satisfied in step 6;
+      3 calls total: batch dry_run → fix failed indexes → re-dry-run ONLY
+      the fixed sections → batch persist. Coverage is content-hashed:
+      persisting edited-but-unvalidated content earns a nudge, so the
+      re-dry-run is not optional.
+      Single-section save_visuals exists for patches, but batch is the default —
+      30 sections must NOT cost 60-90 calls).
+      Author 2-3 cuts per ~10s scene (never ration 1 cut per section):
       durations auto-normalize to the audio
       length; prefer ONE Particles layer per cut as LAST child; no chapter
-      title cards inside cuts; Text in project language except queries stay English).
-     Per section: save_visuals(dry_run=true) → read geometry/timing/variety/unverified_queries → fix → persist. Persisting cold earns a nudge.
+      title cards inside cuts; Text in project language except queries stay English.
+     Per batch: save_visuals_batch(dry_run=true) → read per-section geometry/timing/variety/unverified_queries → fix failed indexes → persist. Persisting cold earns a nudge.
+     AUTO-REPAIR (server-side, like the internal loop's correction turn):
+      stray z_index keys are stripped and legacy layers[] shapes converted
+      automatically — every fix lands in auto_fixed for you to verify.
+      Only unmigratable shapes fail, always with a fix/retry_with patch:
+      fix the JSON type and resubmit the section, NEVER drop the layer
+      (dropping Chart/Map/Lottie/Particles to dodge a type error is how
+      videos go flat — the validator accepts all 11 kinds).
     VARIETY GUIDE (enforced by review, not by validation — the server
     accepts valid output, but aim high):
     - Prefer fresh layer-templates per cut; vary card
@@ -1458,8 +1472,11 @@ already explicitly specified in the user's request):
       without fade is allowed ONLY for instant punch/whip beats at delay: 0.
     The save_visuals response reports variety stats + normalizations +
     geometry + timing + unverified_queries:
-    read them and enrich flat spots BEFORE moving on. A dry_run with zero
-    warnings is the bar for persisting.
+     read them and enrich flat spots BEFORE moving on. A dry_run with zero
+     warnings is the bar for persisting. The batch video_variety rollup is
+     the whole-video verdict: uniform_signature=true or an energy_cuts_total
+     of 0 means individually-valid but collectively flat — vary archetypes
+     and add energy moments BEFORE persisting, not after review.
     Starting over: clear_visuals wipes ALL cuts (every section → []; narration,
     audio, transcription, design kept; downloads deleted too unless
     clear_assets=false). clear_assets deletes ONLY downloads (cuts/queries kept,
@@ -1745,9 +1762,13 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     composition:{type:Sequence, children:[{type:Layer,
     content:{type, query/source/text/...,
     style:{left/top/width/height % strings}}, animations, filters}]}}.
-    Legacy layers[]/layout/props shapes are rejected with SCHEMA_MISMATCH
-    (never silently accepted) — re-emit correctly or pass auto_migrate=true
-    for a best-effort conversion.
+    AUTO-REPAIR (like the internal loop's correction turn): stray
+    z_index/zIndex keys are stripped and legacy layers[]/layout shapes get
+    a best-effort conversion automatically — every fix is listed in
+    auto_fixed for you to verify, and conversions flag a review warning.
+    Only unmigratable shapes are rejected with SCHEMA_MISMATCH, always
+    with a fix/retry_with patch (fix the type, resubmit — never drop the
+    layer). Prefer save_visuals_batch for whole videos (2 calls total).
 
     MANDATORY FIRST: get_stage_skills('visuals', project_id) or all three
     get_skill(declarative-ast + visual-director-core + motion-graphics-designer),
@@ -1775,6 +1796,7 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     within the FINAL cut duration (post-renorm), not scaled. Richness rules
     live in the pipeline-guide variety contract and the declarative-ast
     archetypes, not in this description."""
+    dry_run = _coerce_bool(dry_run, False)
     if not dry_run:
         missing = _missing_stage_skills("visuals", project_id)
         if missing:
@@ -1786,7 +1808,7 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
         return payloads.save_visuals_payload(
             project_id, section_type, sub_visuals, scene_index,
             cut_index=cut_index if cut_index is not None and cut_index >= 0 else None,
-            dry_run=bool(dry_run), auto_migrate=bool(auto_migrate))
+            dry_run=dry_run, auto_migrate=bool(auto_migrate))
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     except Exception as e:
@@ -1815,7 +1837,7 @@ def _claim_project_marker(project_id: str, op: str) -> tuple:
         if active is not None:
             return None, {"ok": False,
                           "error": f"Project {project_id!r} has a running MCP stage ({active}); "
-                                   f"cancel_stage it first, then clear."}
+                                   f"cancel_stage it first, then retry."}
         marker = object()
         _STAGE_FUTURES[task_id] = marker  # type: ignore[assignment]
         return task_id, marker
@@ -1827,6 +1849,51 @@ def _release_project_marker(task_id: str | None, marker) -> None:
     with _STAGE_LOCK:
         if _STAGE_FUTURES.get(task_id) is marker:
             _STAGE_FUTURES.pop(task_id, None)
+
+
+@mcp.tool()
+def save_visuals_batch(project_id: str, sections: list,
+                       dry_run: bool = False) -> dict:
+    """Validate/persist sub_visuals for MANY sections in ONE call.
+
+    Each item: {section_type, sub_visuals, scene_index?, cut_index?}.
+    A 30-section video costs 3 calls (batch dry_run → re-dry-run fixed
+    sections → batch persist) instead of 60-90 — write 2-3 cuts per ~10s
+    scene like the internal loop does instead of rationing 1 cut per section.
+    Sections are independent: one bad section never blocks the rest; the
+    response tells you exactly which indexes failed with fix/retry_with
+    patches. Same canonical cut shape, auto-repair, and variety/geometry/
+    timing reports as save_visuals, per section, plus a whole-video
+    video_variety rollup (uniform-signature and zero-energy detection).
+    Duplicate section targets and negative cut_index values are rejected
+    (omit cut_index for a whole-section replace).
+    MANDATORY FIRST (persist only): same visuals grounding as save_visuals
+    (get_stage_skills('visuals') + ≥1 declarative-ast section pull).
+    WORKFLOW: save_visuals_batch(dry_run=true) → fix failed indexes →
+    re-dry-run fixed sections → save_visuals_batch(dry_run=false) →
+    fetch_assets → review_frame. Holds a project marker while running, so
+    run_stage cannot interleave mid-batch."""
+    dry_run = _coerce_bool(dry_run, False)
+    if not dry_run:
+        missing = _missing_stage_skills("visuals", project_id)
+        if missing:
+            return _skill_required_error("visuals", project_id, missing)
+        deep = _missing_deep_reads("visuals", project_id)
+        if deep:
+            return _deep_read_required_error("visuals", project_id, deep)
+    task_id, marker = _claim_project_marker(project_id, "save_visuals_batch")
+    if task_id is None:
+        return marker
+    try:
+        return payloads.save_visuals_batch_payload(
+            project_id, sections, dry_run=dry_run)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP save_visuals_batch failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+    finally:
+        _release_project_marker(task_id, marker)
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))

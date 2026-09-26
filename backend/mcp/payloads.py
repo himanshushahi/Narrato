@@ -31,7 +31,20 @@ _VERIFIED_QUERIES: set = set()
 _VERIFIED_LOCK = _payloads_threading.Lock()
 # Sections dry-run before persist, per (project_id, section, scene_index).
 # Persisting cold earns a nudge toward the dry_run-first workflow.
+# Coverage is content-hashed: a dry-run covers the exact normalized cuts it
+# validated, so fixed-then-persisted content still earns the nudge (it was
+# never validated) — re-dry-run fixed sections instead.
 _DRY_RUN_SECTIONS: set = set()
+_DRY_RUN_HASHES: dict = {}
+
+
+def _normalized_cuts_hash(normalized) -> str:
+    """Content hash of normalized cuts for dry-run coverage matching."""
+    try:
+        return hashlib.md5(
+            json.dumps(normalized, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        return ""
 
 
 def _normalize_query(query) -> str:
@@ -1094,56 +1107,109 @@ def save_visuals_payload(project_id: str, section_type: str,
         migrate_legacy_cut_to_composition, build_sample_cut,
         CANONICAL_CUT_HINT,
     )
-    # Phase 0 fail-fast: surface SCHEMA_MISMATCH with error_code + fix before
-    # the validator's duration logic runs, so dry_run also rejects.
-    # Deepcopy first: auto_migrate rewrites in place and dry_run promises
-    # the caller's payload is never mutated.
+    # Phase 0 AUTO-REPAIR (mirrors the internal loop's correction turn):
+    # deterministic, information-preserving fixes are applied server-side
+    # instead of rejecting the whole section. The validator contract itself
+    # stays strict for both paths — this layer is the forgiving assistant.
+    # Deepcopy first: repairs rewrite in place and dry_run promises the
+    # caller's payload is never mutated.
     import copy as _copy
-    _cuts = _copy.deepcopy(candidate) if isinstance(candidate, list) else [candidate]
-    if isinstance(candidate, list):
-        candidate = _cuts
+    # Unconditional deepcopy: repairs below rewrite in place and dry_run
+    # promises the caller's payload is never mutated. (candidate is always
+    # a list here — non-lists are rejected above.)
+    _cuts = _copy.deepcopy(candidate)
+    candidate = _cuts
+    auto_fixed: list = []
     for _idx, _cut in enumerate(_cuts):
+        if not isinstance(_cut, dict):
+            continue
+        # (a) z_index/zIndex strip: stacking IS children array order, so
+        # dropping the key loses nothing. Previously one stray key rejected
+        # the entire section (the failure mode that made agents avoid
+        # otherwise-good cuts instead of deleting one key). One entry per
+        # cut no matter how many layers carried the key.
+        try:
+            _comp = _cut.get("composition")
+            _kids = _comp.get("children") if isinstance(_comp, dict) else None
+            _stripped = 0
+            if isinstance(_kids, list):
+                for _layer in _kids:
+                    if isinstance(_layer, dict) and (
+                            "z_index" in _layer or "zIndex" in _layer):
+                        _layer.pop("z_index", None)
+                        _layer.pop("zIndex", None)
+                        _stripped += 1
+            if _stripped:
+                auto_fixed.append(
+                    f"cut#{_idx}: removed z_index/zIndex from "
+                    f"{_stripped} layer(s) (stacking is children array "
+                    f"order) — resubmit-safe.")
+        except Exception:
+            pass
+        # (b) legacy layers/layout migration: best-effort conversion, always
+        # attempted — the auto_migrate flag is kept for back-compat but no
+        # longer changes behavior. On success the cut proceeds with an
+        # auto_fixed note to verify in review; on failure the
+        # SCHEMA_MISMATCH rejection below fires with a fix patch.
         _legacy = detect_legacy_cut_shape(_cut)
         if _legacy is not None:
-            if auto_migrate:
-                try:
-                    _cuts[_idx] = migrate_legacy_cut_to_composition(_cut)
-                    logger.warning(
-                        "save_visuals auto_migrate: cut#%s legacy layers→composition", _idx)
-                    continue
-                except Exception as e:
-                    logger.warning("save_visuals auto_migrate failed: %s", e)
-            _preview = _copy.deepcopy(build_sample_cut(video_format))
-            _preview.pop("note", None)
-            _sig_text = "; ".join(_legacy["signals"])
-            if "BOTH layers[]" in _sig_text:
-                _got = "cut with both layers[] and composition.children[] (ambiguous)"
-            elif "composition.children" in _sig_text or "children[" in _sig_text:
-                _got = "cut.composition.children[] with legacy layer keys"
-            else:
-                _got = "cut.layers[] with layout/props"
-            return {"ok": False, "error_code": "SCHEMA_MISMATCH",
-                    "error": (
-                        f"SCHEMA_MISMATCH cut#{_idx}: legacy layers/layout shape. "
-                        f"Found: {_sig_text}. "
-                        f"Use {CANONICAL_CUT_HINT}."),
-                    "cut_index": _idx,
-                    "signals": _legacy["signals"],
-                    "expected_shape": "cut.composition.children[] of {type:Layer}",
-                    "got_shape": _got,
-                    "fix": {"hint": "Re-emit as composition.children Layer nodes, "
-                                    "or re-call save_visuals with auto_migrate=true.",
-                            "auto_migrate_preview": _preview},
-                    "dry_run": bool(dry_run), "persisted": False}
+            try:
+                _cuts[_idx] = migrate_legacy_cut_to_composition(_cut)
+                auto_fixed.append(
+                    f"cut#{_idx}: legacy layers/layout→composition "
+                    f"(best-effort conversion — verify this cut in review_frame).")
+                logger.warning(
+                    "save_visuals auto-repair: cut#%s legacy layers→composition", _idx)
+            except Exception as e:
+                logger.warning("save_visuals auto-repair migration failed: %s", e)
+                _preview = _copy.deepcopy(build_sample_cut(video_format))
+                _preview.pop("note", None)
+                _sig_text = "; ".join(_legacy["signals"])
+                if "BOTH layers[]" in _sig_text:
+                    _got = "cut with both layers[] and composition.children[] (ambiguous)"
+                elif "composition.children" in _sig_text or "children[" in _sig_text:
+                    _got = "cut.composition.children[] with legacy layer keys"
+                else:
+                    _got = "cut.layers[] with layout/props"
+                return {"ok": False, "error_code": "SCHEMA_MISMATCH",
+                        "error": (
+                            f"SCHEMA_MISMATCH cut#{_idx}: legacy layers/layout shape. "
+                            f"Found: {_sig_text}. "
+                            f"Use {CANONICAL_CUT_HINT}."),
+                        "cut_index": _idx,
+                        "signals": _legacy["signals"],
+                        "expected_shape": "cut.composition.children[] of {type:Layer}",
+                        "got_shape": _got,
+                        "fix": {"hint": "Re-emit as composition.children Layer nodes.",
+                                "retry_with": _preview,
+                                "note": "retry_with is a valid minimal cut — "
+                                        "adapt its shape to your beat and resubmit."},
+                        "auto_fixed": auto_fixed,
+                        "dry_run": bool(dry_run), "persisted": False}
     is_valid, normalized, error_msg = validate_sub_visuals(
         candidate, target_duration, video_format=video_format)
     if not is_valid:
         _res = {"ok": False, "error": f"Visual validation failed: {error_msg}",
-                "dry_run": bool(dry_run), "persisted": False}
+                "dry_run": bool(dry_run), "persisted": False,
+                "auto_fixed": auto_fixed}
+        # One fix key everywhere (retry_with): agents handling one failure
+        # shape must not miss the other.
+        _preview = _copy.deepcopy(build_sample_cut(video_format))
+        _preview.pop("note", None)
         if isinstance(error_msg, str) and error_msg.startswith("SCHEMA_MISMATCH"):
             _res["error_code"] = "SCHEMA_MISMATCH"
-            _res["fix"] = {"hint": "Re-emit as composition.children Layer nodes, "
-                                   "or re-call save_visuals with auto_migrate=true."}
+            _res["fix"] = {"hint": "Re-emit as composition.children Layer nodes.",
+                           "retry_with": _preview}
+        else:
+            _res["fix"] = {
+                "hint": ("A field has the wrong JSON type or value — the "
+                         "validator reason above names it (often a string where "
+                         "the schema wants an array, e.g. emphasis must be "
+                         "[{at, scale, duration}]). Fix that field's type and "
+                         "resubmit the section — do NOT drop the layer."),
+                "reason": str(error_msg),
+                "retry_with": _preview,
+            }
         return _res
 
     durations = [round(float(v.get("duration", 0)), 2) for v in normalized]
@@ -1167,13 +1233,15 @@ def save_visuals_payload(project_id: str, section_type: str,
     if dry_run:
         with _VERIFIED_LOCK:
             _DRY_RUN_SECTIONS.add(section_key)
+            _DRY_RUN_HASHES[section_key] = _normalized_cuts_hash(normalized)
         result = {"ok": True, "project_id": project_id, "section_type": section_type,
                   "scene_index": scene_index if section_type == "scene" else None,
                   "dry_run": True, "persisted": False,
                   "cut_count": len(normalized), "total_duration": total,
                   "durations": durations, "variety": variety,
                   "geometry": geometry, "timing": timing,
-                  "unverified_queries": unverified}
+                  "unverified_queries": unverified,
+                  "auto_fixed": auto_fixed}
         if unverified:
             result["warning"] = (
                 f"{len(unverified)} quer{'y' if len(unverified) == 1 else 'ies'} "
@@ -1229,20 +1297,33 @@ def save_visuals_payload(project_id: str, section_type: str,
               "cut_count": len(normalized), "total_duration": total,
               "durations": durations, "variety": variety,
               "geometry": geometry, "timing": timing,
-              "unverified_queries": unverified}
+              "unverified_queries": unverified,
+              "auto_fixed": auto_fixed}
     if unverified:
         result["warning"] = (
             f"{len(unverified)} quer{'y' if len(unverified) == 1 else 'ies'} "
             f"were never verified via search_media (e.g. {unverified[0]!r}) — "
             f"expect fetch_assets misses.")
+    if any("best-effort conversion" in f for f in auto_fixed):
+        _review_note = ("Server auto-converted legacy cut shape(s) — verify "
+                        "those cuts in review_frame before rendering.")
+        result["warning"] = ((result.get("warning", "") + " " + _review_note)
+                             .strip())
+    # Content-hashed coverage: only the exact validated cuts suppress the
+    # nudge. Fixed-after-dry-run content was never validated — it still
+    # earns the nudge (re-dry-run the fixed section instead of persisting
+    # cold). Stale keys are consumed either way.
     with _VERIFIED_LOCK:
-        if section_key not in _DRY_RUN_SECTIONS:
-            result["nudge"] = (
-                "Persisted without a dry_run pass on this section. "
-                "Dry-run-first (dry_run=true → read reports → fix → persist) "
-                "produces visibly better videos.")
-        else:
-            _DRY_RUN_SECTIONS.discard(section_key)
+        _covered = (_DRY_RUN_HASHES.get(section_key) ==
+                    _normalized_cuts_hash(normalized)
+                    if section_key in _DRY_RUN_SECTIONS else False)
+        _DRY_RUN_SECTIONS.discard(section_key)
+        _DRY_RUN_HASHES.pop(section_key, None)
+    if not _covered:
+        result["nudge"] = (
+            "Persisted without validating this exact content via dry_run. "
+            "Dry-run-first (dry_run=true → read reports → fix → re-dry-run "
+            "fixed sections → persist) produces visibly better videos.")
     if cut_index is not None:
         result["patched_cut_index"] = cut_index
     return result
@@ -1778,6 +1859,7 @@ def clear_visuals_payload(project_id: str, clear_assets: bool = True) -> dict:
         for key in [k for k in _DRY_RUN_SECTIONS
                     if isinstance(k, tuple) and k and k[0] == project_id]:
             _DRY_RUN_SECTIONS.discard(key)
+            _DRY_RUN_HASHES.pop(key, None)
 
     deleted_files: list = []
     stills_pruned = False
@@ -1801,7 +1883,7 @@ def clear_visuals_payload(project_id: str, clear_assets: bool = True) -> dict:
               "sections_cleared": wipe["sections_cleared"],
               "cuts_cleared": wipe["cuts_cleared"],
               "clear_assets": bool(clear_assets),
-              "next_step": ("Re-author with save_visuals per section "
+              "next_step": ("Re-author with save_visuals_batch "
                             "(dry_run first), then run_stage(fetch_assets).")}
     if clear_assets:
         result["assets"] = {"deleted_count": len(deleted_files),
@@ -1809,4 +1891,211 @@ def clear_visuals_payload(project_id: str, clear_assets: bool = True) -> dict:
     elif stills_pruned:
         result["stills_pruned"] = True
     return result
+
+
+# ── Visuals batch (one call for a whole video) ──────────────────────
+
+_MAX_BATCH_SECTIONS = 100
+
+
+def _strict_int(value, default: int = 0) -> int | None:
+    """Integer for section addressing: bools, floats, and numeric strings
+    are rejected (int(1.9)==1 would silently retarget a different scene).
+    None/absent → default. Returns None when invalid."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _video_variety_rollup(ok_entries: list) -> dict:
+    """Whole-video variety across batch sections (the flat-video guard).
+
+    Per-section variety can all be green while 30 sections share one
+    identical signature — the exact failure this rollup catches. Returns
+    merged kind/transition histograms, total energy cuts, a uniform-
+    signature flag, and single-kind section indexes."""
+    kinds_total: dict = {}
+    transitions_total: dict = {}
+    energy_total = 0
+    sig_sets = []
+    single_kind_sections = []
+    for entry in ok_entries:
+        variety = entry.get("variety") or {}
+        kinds = variety.get("kinds_used") or {}
+        for kind, count in kinds.items():
+            try:
+                kinds_total[kind] = kinds_total.get(kind, 0) + int(count)
+            except (TypeError, ValueError):
+                pass
+        for trans in (variety.get("transitions_used") or []):
+            transitions_total[trans] = transitions_total.get(trans, 0) + 1
+        try:
+            energy_total += int(variety.get("energy_cuts", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        key_set = frozenset(k for k in kinds if isinstance(k, str))
+        sig_sets.append(key_set)
+        if len(key_set) <= 1:
+            idx = entry.get("index")
+            sec = entry.get("section_type")
+            single_kind_sections.append(
+                f"sections[{idx}] ({sec})" if sec else f"sections[{idx}]")
+    uniform_signature = (len(ok_entries) >= 2 and len(set(sig_sets)) == 1)
+    return {"sections_analyzed": len(ok_entries),
+            "kinds_total": kinds_total,
+            "kinds_used_count": len(kinds_total),
+            "transitions_total": transitions_total,
+            "energy_cuts_total": energy_total,
+            "uniform_signature": uniform_signature,
+            "single_kind_sections": single_kind_sections}
+
+
+def save_visuals_batch_payload(project_id: str, sections: list,
+                               dry_run: bool = False) -> dict:
+    """Validate/persist sub_visuals for MANY sections in ONE call.
+
+    Each item: {section_type, sub_visuals, scene_index?, cut_index?}.
+    This is the MCP answer to the internal loop's per-scene fan-out: a
+    30-section video costs 3 calls (batch dry_run → re-dry-run fixed
+    sections → batch persist) instead of 60-90, so agents stop rationing
+    cuts and dry-runs under tool-call pressure. Sections are processed
+    independently — one bad section never blocks the rest; fix only the
+    failed ones (by index) and re-run the batch or patch single cuts.
+    Returns per-section results + summary + whole-video variety rollup;
+    ok is True only when every section succeeded. persisted is True only
+    when dry_run=false AND every section persisted (a partial persist
+    never claims the whole video is saved)."""
+    if not isinstance(sections, list) or not sections:
+        return {"ok": False,
+                "error": "sections must be a non-empty array of "
+                         "{section_type, sub_visuals, scene_index?, cut_index?}."}
+    if len(sections) > _MAX_BATCH_SECTIONS:
+        return {"ok": False,
+                "error": f"Batch capped at {_MAX_BATCH_SECTIONS} sections "
+                         f"(got {len(sections)}); split into smaller batches."}
+    _get_project_or_raise(project_id)  # fail fast before any writes
+    results: list = []
+    ok_count = 0
+    cuts_total = 0
+    seen_targets: dict = {}
+    for pos, item in enumerate(sections):
+        label = f"sections[{pos}]"
+        if not isinstance(item, dict):
+            results.append({"ok": False, "index": pos,
+                            "error": f"{label} must be an object."})
+            continue
+        section_type = item.get("section_type")
+        sub_visuals = item.get("sub_visuals")
+        scene_index = _strict_int(item.get("scene_index", 0), default=0)
+        if scene_index is None:
+            results.append({"ok": False, "index": pos,
+                            "section_type": section_type,
+                            "error": f"{label}.scene_index must be an integer "
+                                     f"(got {item.get('scene_index')!r})."})
+            continue
+        if "cut_index" in item and item.get("cut_index") is not None:
+            # Explicit negatives are rejected: -1 means "all cuts" in
+            # get_visuals reads, and silently coercing it to a whole-section
+            # replace here would wipe a section the agent only meant to read.
+            # Omit cut_index for a whole-section replace.
+            cut_index = _strict_int(item.get("cut_index"))
+            if cut_index is None or cut_index < 0:
+                results.append({"ok": False, "index": pos,
+                                "section_type": section_type,
+                                "error": f"{label}.cut_index must be a "
+                                         f"non-negative integer or omitted "
+                                         f"(got {item.get('cut_index')!r})."})
+                continue
+        else:
+            cut_index = None
+        # Duplicate targets: second write would silently clobber the first
+        # while both report ok:true (common when an agent repeats
+        # introduction/scene[0] across a 30-section batch).
+        target = (section_type, scene_index if section_type == "scene" else 0,
+                  cut_index)
+        if target in seen_targets:
+            results.append({"ok": False, "index": pos,
+                            "section_type": section_type,
+                            "error": f"{label} duplicates sections[{seen_targets[target]}] "
+                                     f"(same section target) — keep one entry; "
+                                     f"the first was processed, this one was skipped."})
+            continue
+        seen_targets[target] = pos
+        try:
+            res = save_visuals_payload(
+                project_id, section_type, sub_visuals, scene_index,
+                cut_index=cut_index, dry_run=bool(dry_run))
+        except ValueError as e:
+            res = {"ok": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"MCP save_visuals_batch {label} failed: {e}",
+                         exc_info=True)
+            res = {"ok": False, "error": str(e)}
+        entry = {"ok": bool(res.get("ok")), "index": pos,
+                 "section_type": section_type}
+        if section_type == "scene":
+            entry["scene_index"] = scene_index
+        if res.get("ok"):
+            ok_count += 1
+            cuts_total += int(res.get("cut_count", 0) or 0)
+            for key in ("cut_count", "total_duration", "durations", "variety",
+                        "geometry", "timing", "unverified_queries",
+                        "auto_fixed", "warning", "nudge", "patched_cut_index",
+                        "patched_cut"):
+                if key in res:
+                    entry[key] = res[key]
+        else:
+            for key in ("error", "error_code", "fix", "signals",
+                        "expected_shape", "got_shape", "cut_index",
+                        "auto_fixed"):
+                if key in res:
+                    entry[key] = res[key]
+        entry["dry_run"] = bool(dry_run)
+        entry["persisted"] = bool(res.get("persisted", False))
+        results.append(entry)
+    failed = len(results) - ok_count
+    summary = {"sections_total": len(results), "sections_ok": ok_count,
+               "sections_failed": failed, "cuts_total": cuts_total}
+    video_variety = _video_variety_rollup([r for r in results if r.get("ok")])
+    out = {"project_id": project_id, "dry_run": bool(dry_run),
+           "persisted": bool(not dry_run and failed == 0),
+           "summary": summary, "video_variety": video_variety,
+           "results": results}
+    flat_notes = []
+    if video_variety["uniform_signature"]:
+        flat_notes.append(
+            "Every successful section shares one identical layer-kind "
+            "signature — individually valid but video-flat as a set. Vary "
+            "archetypes/card geometries across sections before rendering.")
+    if video_variety["single_kind_sections"]:
+        flat_notes.append(
+            f"Single-kind sections (enrich with a second content kind + an "
+            f"energy moment): {', '.join(video_variety['single_kind_sections'][:8])}"
+            f"{' …' if len(video_variety['single_kind_sections']) > 8 else ''}.")
+    if not dry_run and failed == 0 and video_variety["energy_cuts_total"] == 0 \
+            and ok_count > 0:
+        flat_notes.append(
+            "Zero energy cuts across the whole video — add at least one per "
+            "section (emphasis punch-in, camera_shake, motion_blur, FX "
+            "filter, rack-focus, floating, Particles).")
+    if flat_notes:
+        out["variety_warning"] = " ".join(flat_notes)
+    if failed:
+        out["ok"] = False
+        out["error"] = (
+            f"{failed}/{len(results)} section(s) failed — fix the failed "
+            f"indexes (see results[].fix.retry_with), re-dry-run the fixed "
+            f"ones, then persist; successful sections are already "
+            f"{'validated' if dry_run else 'persisted'}.")
+    else:
+        out["ok"] = True
+        out["next_step"] = (
+            "All sections validated — re-dry-run any section you edit, then "
+            "persist with dry_run=false."
+            if dry_run else
+            "All sections persisted — run_stage(fetch_assets), then "
+            "review_frame(mode=composition) per section.")
+    return out
 

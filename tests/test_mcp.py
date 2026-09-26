@@ -459,12 +459,35 @@ def test_save_visuals_normalizes_durations(tmp_path, monkeypatch):
     assert len(script["scenes"][0]["sub_visuals"]) == 1
 
 
-def test_save_visuals_rejects_z_index(tmp_path, monkeypatch):
-    _setup_visuals_proj(tmp_path, monkeypatch)
+def test_save_visuals_auto_repairs_z_index(tmp_path, monkeypatch):
+    # Behavior change (internal-loop parity): stray z_index is stripped
+    # server-side instead of rejecting the whole section. The strict
+    # validator contract is unchanged (see test_visual_validation.py).
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
     cut = _text_cut()
     cut["composition"]["children"][0]["z_index"] = 5
     result = payloads.save_visuals_payload("proj_mcp", "introduction", [cut])
-    assert result["ok"] is False
+    assert result["ok"] is True
+    assert any("z_index" in f for f in result["auto_fixed"])
+    script = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    layer = script["introduction"]["sub_visuals"][0]["composition"]["children"][0]
+    assert "z_index" not in layer
+    # Caller's object untouched (deepcopy before repair).
+    assert cut["composition"]["children"][0]["z_index"] == 5
+
+
+def test_save_visuals_auto_migrates_legacy_by_default(tmp_path, monkeypatch):
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    legacy = {"layers": [
+        {"type": "Text", "text": "HELLO", "layout": "center"}],
+        "duration": 6.0}
+    result = payloads.save_visuals_payload("proj_mcp", "introduction", [legacy])
+    assert result["ok"] is True
+    assert any("best-effort conversion" in f for f in result["auto_fixed"])
+    assert "review" in result.get("warning", "").lower()
+    script = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    kids = script["introduction"]["sub_visuals"][0]["composition"]["children"]
+    assert isinstance(kids, list) and len(kids) >= 1
 
 
 def test_save_visuals_requires_design(tmp_path, monkeypatch):
@@ -1253,11 +1276,9 @@ def test_dry_run_whole_section(tmp_path, monkeypatch):
 def test_dry_run_failure_writes_nothing(tmp_path, monkeypatch):
     proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
     script_before = (proj_dir / "script.json").read_bytes()
-    bad_cut = {"composition": {"type": "Sequence", "children": [
-        {"type": "Layer", "content": {"type": "Text", "text": "X"},
-         "style": {}}]}, "duration": 1.0}
-    bad_cut["composition"]["children"][0]["z_index"] = 3
-    result = payloads.save_visuals_payload("proj_mcp", "scene", bad_cut,
+    # Non-dict cuts can never validate (z_index no longer fails — it is
+    # auto-repaired — so force failure with a garbage cut instead).
+    result = payloads.save_visuals_payload("proj_mcp", "scene", ["not-a-cut"],
                                            scene_index=0, dry_run=True)
     assert result["ok"] is False
     assert (proj_dir / "script.json").read_bytes() == script_before
@@ -1632,7 +1653,7 @@ def test_mcp_inventory_shape_and_counts():
     templates = asyncio.run(server.mcp.list_resource_templates())
     prompts = asyncio.run(server.mcp.list_prompts())
     tool_names = sorted(t.name for t in tools)
-    assert len(tool_names) == 32
+    assert len(tool_names) == 33
     assert set(tool_names) == {
         "create_project", "list_projects", "project_status", "delete_project",
         "save_script", "get_script", "save_design",
@@ -1641,6 +1662,7 @@ def test_mcp_inventory_shape_and_counts():
         "list_skills", "get_skill", "get_stage_skills",
         "run_stage", "stage_status", "cancel_stage",
         "get_section_timings", "get_visuals", "save_visuals",
+        "save_visuals_batch",
         "clear_visuals", "clear_assets",
         "probe_cut", "probe_scene", "probe_asset", "review_frame",
         "search_media", "web_search", "list_project_files", "read_project_file",
@@ -1655,7 +1677,7 @@ def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
     monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
     inv = http_host.get_mcp_inventory()
     assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
-    assert len(inv["tools"]) == 32
+    assert len(inv["tools"]) == 33
     assert len(inv["resources"]) == 1
     assert inv["resource_templates"] == []
     assert len(inv["prompts"]) == 1
@@ -1847,4 +1869,132 @@ def test_coerce_bool_strings():
     assert _coerce_bool(True) is True
     assert _coerce_bool("true") is True
     assert _coerce_bool(None, True) is True
+
+
+# ── save_visuals_batch ────────────────────────────────────────────
+
+def test_batch_dry_run_then_persist(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    _patch_db(monkeypatch, _proj())
+    sections = [
+        {"section_type": "introduction", "sub_visuals": [_text_cut("A")]},
+        {"section_type": "scene", "scene_index": 0,
+         "sub_visuals": [_text_cut("B"), _text_cut("C")]},
+    ]
+    dry = p.save_visuals_batch_payload("proj_mcp", sections, dry_run=True)
+    assert dry["ok"] is True and dry["dry_run"] is True
+    assert dry["summary"] == {"sections_total": 2, "sections_ok": 2,
+                              "sections_failed": 0, "cuts_total": 3}
+    assert all("auto_fixed" in r for r in dry["results"])
+    # Whole-video rollup catches the flat shape: all-Text sections share
+    # one identical signature with zero energy cuts.
+    assert dry["video_variety"]["uniform_signature"] is True
+    assert dry["video_variety"]["kinds_total"] == {"Text": 3}
+    assert "variety_warning" in dry
+    live = p.save_visuals_batch_payload("proj_mcp", sections, dry_run=False)
+    assert live["ok"] is True and live["persisted"] is True
+    assert "fetch_assets" in live["next_step"]
+    # Same content was dry-run validated → no cold-persist nudge.
+    assert all("nudge" not in r for r in live["results"])
+    got = p.get_visuals_payload("proj_mcp", "scene", scene_index=0)
+    assert got["count"] == 2
+
+
+def test_batch_partial_failure_keeps_good_sections(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    _patch_db(monkeypatch, _proj())
+    sections = [
+        {"section_type": "introduction", "sub_visuals": [_text_cut("A")]},
+        {"section_type": "scene", "scene_index": 0,
+         "sub_visuals": ["garbage-cut"]},
+        {"section_type": "bogus", "sub_visuals": [_text_cut("D")]},
+    ]
+    result = p.save_visuals_batch_payload("proj_mcp", sections, dry_run=False)
+    assert result["ok"] is False
+    # Partial persist must never claim the whole video is saved.
+    assert result["persisted"] is False
+    assert "re-dry-run" in result["error"]
+    assert result["summary"]["sections_ok"] == 1
+    assert result["summary"]["sections_failed"] == 2
+    assert result["results"][0]["ok"] is True
+    assert result["results"][1]["ok"] is False
+    assert result["results"][1]["fix"]["retry_with"]["composition"]["type"] == "Sequence"
+    assert result["results"][2]["ok"] is False
+    # Good section persisted despite neighbors failing.
+    got = p.get_visuals_payload("proj_mcp", "introduction")
+    assert got["count"] == 1
+
+
+def test_batch_guards(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    _patch_db(monkeypatch, _proj())
+    assert p.save_visuals_batch_payload("proj_mcp", [])["ok"] is False
+    assert p.save_visuals_batch_payload(
+        "proj_mcp", [{"x": 1}] * 101)["ok"] is False
+    with pytest.raises(ValueError):
+        p.save_visuals_batch_payload("ghost", [{"section_type": "scene",
+                                                "sub_visuals": []}])
+    # Duplicate targets: second entry fails instead of silently clobbering.
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    dup = p.save_visuals_batch_payload("proj_mcp", [
+        {"section_type": "introduction", "sub_visuals": [_text_cut("A")]},
+        {"section_type": "introduction", "sub_visuals": [_text_cut("B")]},
+    ], dry_run=True)
+    assert dup["ok"] is False
+    assert dup["results"][0]["ok"] is True
+    assert "duplicates" in dup["results"][1]["error"]
+    # Explicit negative cut_index is rejected (it means "all" in reads;
+    # here it would wipe a whole section by accident).
+    neg = p.save_visuals_batch_payload("proj_mcp", [
+        {"section_type": "introduction", "sub_visuals": [_text_cut("A")],
+         "cut_index": -1},
+    ], dry_run=True)
+    assert neg["ok"] is False and "cut_index" in neg["results"][0]["error"]
+    # Non-integer scene_index is rejected (no silent float truncation).
+    sloppy = p.save_visuals_batch_payload("proj_mcp", [
+        {"section_type": "scene", "scene_index": 1.5,
+         "sub_visuals": [_text_cut("A")]},
+    ], dry_run=True)
+    assert sloppy["ok"] is False and "scene_index" in sloppy["results"][0]["error"]
+
+
+def test_nudge_is_content_hashed(tmp_path, monkeypatch):
+    from backend.mcp import payloads as p
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    _patch_db(monkeypatch, _proj())
+    dry = p.save_visuals_payload("proj_mcp", "introduction",
+                                 [_text_cut("SAME")], dry_run=True)
+    assert dry["ok"] is True
+    # Identical content persists nudge-free.
+    same = p.save_visuals_payload("proj_mcp", "introduction",
+                                  [_text_cut("SAME")])
+    assert same["ok"] is True and "nudge" not in same
+    # Edited content was never validated → nudge fires.
+    p.save_visuals_payload("proj_mcp", "introduction",
+                           [_text_cut("SAME2")], dry_run=True)
+    changed = p.save_visuals_payload("proj_mcp", "introduction",
+                                     [_text_cut("SAME3")])
+    assert changed["ok"] is True and "nudge" in changed
+
+
+def test_server_batch_holds_marker_and_coerces_flag(monkeypatch):
+    from backend.mcp import server
+    seen = {}
+
+    def spy(pid, sections, dry_run=False):
+        seen["active"] = server._project_active_stage(pid)
+        seen["dry_run"] = dry_run
+        return {"ok": True, "project_id": pid}
+
+    monkeypatch.setattr(server.payloads, "save_visuals_batch_payload", spy)
+    monkeypatch.setattr(server, "_missing_stage_skills", lambda s, p: [])
+    monkeypatch.setattr(server, "_missing_deep_reads", lambda s, p: None)
+    # String "false" must not flip into dry-run mode.
+    assert server.save_visuals_batch("p1", [], dry_run="false")["ok"] is True
+    assert seen["dry_run"] is False
+    assert seen["active"] == "p1_save_visuals_batch"
+    with server._STAGE_LOCK:
+        assert server._project_active_stage("p1") is None
 
