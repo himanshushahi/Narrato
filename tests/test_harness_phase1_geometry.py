@@ -38,8 +38,8 @@ def test_canonical_sample_is_clean():
     cut.pop("note", None)
     rep = lint_cut(cut)
     assert rep["overlaps"] == []
-    assert not any("off-canvas" in w for w in rep["warnings"])
-    assert not any("missing style.fontSize" in w for w in rep["warnings"])
+    assert rep["warnings"] == [], rep["warnings"]
+    assert rep["fixes"] == [], rep["fixes"]
 
 
 def test_missing_fontsize_warns():
@@ -86,3 +86,52 @@ def test_section_rollup_caps():
     rep = lint_sub_visuals(cuts)
     assert rep["warning_count"] == len(rep["warnings"])
     assert len(rep["warnings"]) <= 20
+
+
+def test_layer_zero_text_without_box_warns():
+    cut = _cut([_layer("Text", {})])
+    rep = lint_cut(cut)
+    assert any("no LayerBox" in w for w in rep["warnings"])
+
+
+def test_background_zero_without_box_silent():
+    cut = _cut([_layer("Background", {})])
+    rep = lint_cut(cut)
+    assert rep["warnings"] == []
+
+
+def test_fullscreen_images_do_not_overlap_warn():
+    full = {"left": "0%", "top": "0%", "width": "100%", "height": "100%"}
+    cut = _cut([_layer("Image", dict(full)), _layer("Image", dict(full))])
+    rep = lint_cut(cut)
+    assert rep["overlaps"] == []
+    assert not any("overlap" in w for w in rep["warnings"])
+
+
+def test_numeric_geometry_and_fontsize_warn():
+    cut = _cut([_layer("Text", {"left": 6, "top": "60%", "width": 88,
+                                "fontSize": 7})])
+    rep = lint_cut(cut)
+    assert any("numeric" in w for w in rep["warnings"])
+    assert any("not a px string" in w for w in rep["warnings"])
+
+
+def test_vertical_center_math_suggested():
+    cut = _cut([_layer("Chart", {"left": "15%", "top": "10%",
+                                 "width": "70%", "height": "66%",
+                                 "fontSize": "56px"})])
+    rep = lint_cut(cut)
+    assert any("centered top" in f for f in rep["fixes"])
+
+
+def test_center_math_only_near_center():
+    # Near miss (2pp off) → helpful typo correction.
+    near = _cut([_layer("Chart", {"left": "27%", "top": "20%",
+                                  "width": "42%", "height": "60%",
+                                  "fontSize": "56px"})])
+    assert any("centered left" in f for f in lint_cut(near)["fixes"])
+    # Deliberate split layout (23pp off) → no centering noise.
+    far = _cut([_layer("Chart", {"left": "6%", "top": "16%",
+                                 "width": "42%", "height": "66%",
+                                 "fontSize": "56px"})])
+    assert not any("centered left" in f for f in lint_cut(far)["fixes"])

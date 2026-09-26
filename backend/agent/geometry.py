@@ -2,9 +2,9 @@
 
 Read-only. Never mutates cuts. Used by MCP save_visuals (geometry report)
 and the internal LLM path (agent_engine). Surfaces what the validator
-silently repairs today: double anchors, missing fontSize, off-canvas boxes,
-tiny/unselectable layers, overlaps, rotation pivots, static-vs-animated
-compose notes, plus center-math suggestions.
+silently repairs today: double anchors, missing/non-px fontSize, numeric
+geometry, off-canvas boxes, tiny/unselectable layers, overlaps, rotation
+pivots, static-vs-animated compose notes, plus center-math suggestions.
 
 All boxes are %-of-canvas. right/bottom anchors resolve to left/top via
 x0 = 100 - right - width (same for y).
@@ -18,9 +18,17 @@ _PCT_RE = re.compile(r"^\s*(-?[\d.]+)%\s*$")
 
 _FULLSCREEN_TYPES = frozenset({"Background", "Map", "Particles"})
 # Overlap is only meaningful between positioned foreground boxes; fullscreen
-# canvases overlap everything by design and are skipped as *pairs* unless both
-# are foreground.
-_TEXT_COUNTER_TYPES = frozenset({"Text", "Counter", "Chart"})
+# canvases (by type or by 0/0/100/100 rect) overlap everything by design and
+# are skipped pairwise.
+
+
+def _is_fullscreen_rect(rect: Any) -> bool:
+    try:
+        x0, y0, x1, y1 = rect
+    except (TypeError, ValueError):
+        return False
+    return (abs(x0) < 0.01 and abs(y0) < 0.01
+            and abs(x1 - 100.0) < 0.01 and abs(y1 - 100.0) < 0.01)
 
 
 def parse_pct(value: Any) -> float | None:
@@ -43,6 +51,14 @@ def center_left_for_width(width_pct: float) -> float:
 
 def center_top_for_height(height_pct: float) -> float:
     return round(50.0 - height_pct / 2.0, 2)
+
+
+# Center-math fixes are advisory and only fire when the box looks
+# intentionally centered (within this many pp of exact center) but is off by
+# more than 1pp — e.g. a typo'd left. Far-off-center boxes (splits, thirds,
+# top-anchored media) are deliberate layouts, not centering attempts, so
+# suggesting centering there is noise.
+_CENTER_INTENT_PP = 12.0
 
 
 def layer_box(layer: Dict[str, Any]) -> Dict[str, Any]:
@@ -104,6 +120,7 @@ def lint_cut(cut: Dict[str, Any], cut_index: int = 0) -> Dict[str, Any]:
     if not isinstance(children, list):
         return {"warnings": [f"cut#{cut_index}: no composition.children[]"],
                 "fixes": [], "boxes": [], "overlaps": []}
+    _full_rects: Dict[int, tuple] = {}
     for idx, layer in enumerate(children):
         if not isinstance(layer, dict):
             warnings.append(f"cut#{cut_index} layer#{idx}: non-dict child (dropped at save)")
@@ -116,21 +133,44 @@ def lint_cut(cut: Dict[str, Any], cut_index: int = 0) -> Dict[str, Any]:
             "layer_index", "type", "has_box", "left", "top", "width",
             "height", "double_anchor_h", "double_anchor_v")})
         label = f"cut#{cut_index} layer#{idx} ({ctype})"
-        if not box["has_box"]:
-            if ctype not in _FULLSCREEN_TYPES and idx > 0:
+        _has_geom = box["has_box"] and any(
+            box.get(k) is not None
+            for k in ("left", "right", "top", "bottom", "width", "height"))
+        if not _has_geom:
+            # Background children[0] with no box = fullscreen (valid); every
+            # other missing box gets the center-card/lower-third default.
+            # Covers both absent style and present-but-empty style dicts.
+            if ctype not in _FULLSCREEN_TYPES:
                 warnings.append(f"{label}: no LayerBox — editor fills center-card default")
                 fixes.append(f"{label}: add left/top/width/height %-strings")
             continue
+        # Non-string geometry (bare numbers / px) is rewritten at save —
+        # surface it so the agent sees the repair instead of guessing.
+        raw = box["raw_style"]
+        for _gk in ("left", "top", "right", "bottom", "width", "height"):
+            _rv = raw.get(_gk)
+            if isinstance(_rv, (int, float)) and not isinstance(_rv, bool):
+                warnings.append(
+                    f"{label}: style.{_gk} numeric ({_rv!r}) — saver normalizes "
+                    f"to %-string; prefer writing \"{str(_rv)}%\" explicitly")
+                break
         if box["double_anchor_h"]:
             warnings.append(f"{label}: left+right both set — saver keeps left, drops right")
             fixes.append(f"{label}: remove right, keep left")
         if box["double_anchor_v"]:
             warnings.append(f"{label}: top+bottom both set — saver keeps top, drops bottom")
             fixes.append(f"{label}: remove bottom, keep top (lower-thirds keep bottom, drop top)")
-        # Missing fontSize on Text.
-        if ctype == "Text" and box.get("fontSize") in (None, ""):
-            warnings.append(f"{label}: missing style.fontSize — renderer default 64px applies")
-            fixes.append(f"{label}: set style.fontSize e.g. \"56px\" (range 8-500)")
+        # Missing / non-px fontSize on Text.
+        if ctype == "Text":
+            _fs = box.get("fontSize")
+            if _fs in (None, ""):
+                warnings.append(f"{label}: missing style.fontSize — renderer default 64px applies")
+                fixes.append(f"{label}: set style.fontSize e.g. \"56px\" (range 8-500)")
+            elif not (isinstance(_fs, str) and _fs.strip().endswith("px")):
+                warnings.append(
+                    f"{label}: style.fontSize {_fs!r} is not a px string — "
+                    f"renderer reads style.fontSize only (e.g. \"56px\")")
+                fixes.append(f"{label}: set style.fontSize e.g. \"56px\" (range 8-500)")
         # Tiny / unselectable.
         w, h = box.get("width"), box.get("height")
         floor = 2.0 if ctype == "Shape" else 5.0
@@ -161,22 +201,27 @@ def lint_cut(cut: Dict[str, Any], cut_index: int = 0) -> Dict[str, Any]:
                 warnings.append(
                     f"{label}: static style.{static_key} + animated {static_key} compose "
                     f"(static base × keyframe) — verify with review_frame")
-        # Center-math helper.
-        if isinstance(w, float) and isinstance(x0, float) and 5 <= w <= 95:
+        # Center-math helpers (horizontal + vertical). Advisory only: fire
+        # when the box sits near center (looks like a centering attempt)
+        # but misses exact center — far-off-center layouts are deliberate.
+        if (isinstance(w, float) and isinstance(x0, float) and 5 <= w <= 95
+                and box.get("left") is not None):
             ideal = center_left_for_width(w)
-            if abs(x0 - ideal) > 1.0 and box.get("left") is not None:
+            if 1.0 < abs(x0 - ideal) <= _CENTER_INTENT_PP:
                 fixes.append(f"{label}: centered left for width {w:g}% is {ideal:g}% (50-width/2)")
-    # Pairwise overlap on foreground rects.
-    fg = [(i, b) for i, b in enumerate(boxes)
-          if isinstance(b, dict) and b.get("type") not in _FULLSCREEN_TYPES]
-    # Resolve rects from full layer_box (boxes[] above is trimmed).
+        if (isinstance(h, float) and isinstance(y0, float) and 5 <= h <= 95
+                and box.get("top") is not None):
+            ideal_top = center_top_for_height(h)
+            if 1.0 < abs(y0 - ideal_top) <= _CENTER_INTENT_PP:
+                fixes.append(f"{label}: centered top for height {h:g}% is {ideal_top:g}% (50-height/2)")
+        _full_rects[idx] = (box.get("rect"), box.get("type"))
+    # Pairwise overlap on foreground rects (single pass — reuse the boxes
+    # resolved above). Fullscreen rects of ANY type are skipped pairwise.
     rects: Dict[int, Tuple] = {}
-    for idx, layer in enumerate(children):
-        if not isinstance(layer, dict):
-            continue
-        full = layer_box(layer)
-        if full.get("rect") is not None and full.get("type") not in _FULLSCREEN_TYPES:
-            rects[idx] = full["rect"]
+    for idx, (rect, rtype) in _full_rects.items():
+        if rect is not None and rtype not in _FULLSCREEN_TYPES \
+                and not _is_fullscreen_rect(rect):
+            rects[idx] = rect
     keys = sorted(rects)
     for a_i in range(len(keys)):
         for b_i in range(a_i + 1, len(keys)):
@@ -187,7 +232,6 @@ def lint_cut(cut: Dict[str, Any], cut_index: int = 0) -> Dict[str, Any]:
                 warnings.append(
                     f"cut#{cut_index} layers {ia}+{ib}: overlap IoU {score} — "
                     f"intentional (label-over-media) or shift left/top apart")
-    _ = fg  # foreground list kept for future severity tiers.
     return {"warnings": warnings, "fixes": fixes,
             "boxes": boxes, "overlaps": overlaps}
 
