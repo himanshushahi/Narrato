@@ -93,6 +93,15 @@ def _file_info(local_path: Any) -> Dict[str, Any]:
     return info
 
 
+def _visuals_hash_for(proj_dir: Path) -> str:
+    try:
+        from backend.mcp.stills import compute_visuals_hash
+        script = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+        return compute_visuals_hash(script)
+    except Exception:
+        return "unknown"
+
+
 def _layer_rows(cut: Dict[str, Any]) -> tuple[List[Dict[str, Any]], List[str]]:
     rows: List[Dict[str, Any]] = []
     missing: List[str] = []
@@ -147,7 +156,7 @@ def _layer_rows(cut: Dict[str, Any]) -> tuple[List[Dict[str, Any]], List[str]]:
 def probe_cut_payload(project_id: str, section_type: str,
                       scene_index: int = 0, cut_index: int = 0) -> dict:
     """Full visibility for ONE cut: JSON + geometry + timing + asset files."""
-    _, _, cuts, err = _resolve_cuts(project_id, section_type, scene_index)
+    _, proj_dir, cuts, err = _resolve_cuts(project_id, section_type, scene_index)
     if err:
         return err
     try:
@@ -171,6 +180,7 @@ def probe_cut_payload(project_id: str, section_type: str,
     layers, missing = _layer_rows(cut)
     return {"ok": True, "project_id": project_id,
             "section_type": section_type,
+            "visuals_hash": _visuals_hash_for(proj_dir),
             "scene_index": scene_index if section_type == "scene" else None,
             "cut_index": cut_index, "total_cuts": len(cuts),
             "cut_duration": timing.get("cut_duration"),
@@ -185,7 +195,7 @@ def probe_cut_payload(project_id: str, section_type: str,
 def probe_scene_payload(project_id: str, section_type: str,
                         scene_index: int = 0) -> dict:
     """Section overview: per-cut summaries + rollup linters + variety."""
-    _, _, cuts, err = _resolve_cuts(project_id, section_type, scene_index)
+    _, proj_dir, cuts, err = _resolve_cuts(project_id, section_type, scene_index)
     if err:
         return err
     summaries: List[Dict[str, Any]] = []
@@ -236,6 +246,7 @@ def probe_scene_payload(project_id: str, section_type: str,
     total = round(sum(s["duration"] for s in summaries), 2)
     return {"ok": True, "project_id": project_id,
             "section_type": section_type,
+            "visuals_hash": _visuals_hash_for(proj_dir),
             "scene_index": scene_index if section_type == "scene" else None,
             "cut_count": len(summaries), "total_duration": total,
             "cuts": summaries, "geometry": geometry, "timing": timing,

@@ -447,8 +447,15 @@ def build_review(project_id: str, section_type: str = "scene", scene_index: int 
     # Paired (cell, image): a failed middle cell must never shift later
     # images onto earlier cells' timestamps/labels.
     paired: list = []
+    cache_info: dict | None = None
     if plan["mode"] == "composition":
         from backend.mcp import stills as _stills
+        try:
+            cache_info = _stills.describe_stills_cache(
+                project_id, [c["timestamp"] for c in plan["cells"]])
+        except Exception as e:
+            logger.warning(f"review_frame: cache describe failed: {e}")
+            cache_info = None
         try:
             stills = _stills.grab_composition_stills(
                 project_id, [c["timestamp"] for c in plan["cells"]])
@@ -476,4 +483,14 @@ def build_review(project_id: str, section_type: str = "scene", scene_index: int 
                        **({"timestamp": c["timestamp"]} if "timestamp" in c else {}),
                        **({"kind": c["kind"]} if "kind" in c else {})}
                       for c, _ in paired]}
+    if cache_info is not None:
+        meta["cache"] = {
+            "visuals_hash": cache_info.get("visuals_hash"),
+            "design_hash": cache_info.get("design_hash"),
+            "hits": cache_info.get("hits", []),
+            "misses": cache_info.get("misses", []),
+            "fresh": not cache_info.get("misses", []),
+            "note": ("fresh render" if not cache_info.get("misses", [])
+                     else "rendered missing frames; re-review hits cache"),
+        }
     return meta, jpeg

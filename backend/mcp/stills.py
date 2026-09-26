@@ -9,8 +9,11 @@ the finished mp4:
   asset lineup (ms) → composition stills (s) → rendered video (min)
 
 Stills are cached under ``assets/previews/stills/`` keyed by narration
-+ design + frame + scale, so repeat asks are free. Read-only apart
-from its own cache dir and a ``render_props.still.json`` sidecar.
++ design + visuals + frame + scale, so repeat asks are free. The visuals
+hash covers every section's sub_visuals (local_path/asset_url stripped),
+so any save_visuals edit busts the cache — a patched cut can never return
+the pre-patch pixels at the same timestamp. Read-only apart from its own
+cache dir and a ``render_props.still.json`` sidecar.
 """
 
 import hashlib
@@ -48,11 +51,84 @@ def _stills_dir(project_dir: Path) -> Path:
     return d
 
 
+def compute_visuals_hash(script: dict) -> str:
+    """Hash of every section's sub_visuals structure (paths stripped).
+
+    local_path/asset_url are download provenance, not visual structure —
+    reuse assets.strip_local_paths so a fetch_assets run alone never busts
+    stills, while any save_visuals edit (queries, boxes, animations, text)
+    produces a new key.
+    """
+    try:
+        from backend.pipeline.assets import strip_local_paths
+    except Exception:
+        strip_local_paths = lambda d: d  # noqa: E731
+    try:
+        parts = []
+        intro = (script or {}).get("introduction") or {}
+        if isinstance(intro.get("sub_visuals"), list):
+            parts.append(json.dumps(strip_local_paths(intro["sub_visuals"]),
+                                    sort_keys=True, ensure_ascii=False,
+                                    default=str))
+        for sc in ((script or {}).get("scenes") or []):
+            if isinstance(sc, dict) and isinstance(sc.get("sub_visuals"), list):
+                parts.append(json.dumps(strip_local_paths(sc["sub_visuals"]),
+                                        sort_keys=True, ensure_ascii=False,
+                                        default=str))
+        concl = (script or {}).get("conclusion") or {}
+        if isinstance(concl.get("sub_visuals"), list):
+            parts.append(json.dumps(strip_local_paths(concl["sub_visuals"]),
+                                    sort_keys=True, ensure_ascii=False,
+                                    default=str))
+        if not parts:
+            return "novisuals"
+        return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        return "novisuals"
+
+
 def still_cache_key(script_hash: str, design_hash: str, frame: int,
-                    scale: str = STILL_SCALE, fps: int = 30) -> str:
-    """Deterministic cache name: any narration/design change busts it."""
-    raw = f"{script_hash}|{design_hash}|{frame}|{scale}|{fps}"
+                    scale: str = STILL_SCALE, fps: int = 30,
+                    visuals_hash: str = "novisuals") -> str:
+    """Deterministic cache name: narration/design/visuals change busts it.
+
+    visuals_hash is keyword-optional so older direct callers keep working
+    (they get the pre-visuals key family); all in-repo callers pass it.
+    """
+    raw = f"{script_hash}|{design_hash}|{visuals_hash}|{frame}|{scale}|{fps}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16] + ".jpg"
+
+
+def describe_stills_cache(project_id: str, timestamps: list) -> dict:
+    """Cache truth for a timestamp set WITHOUT rendering.
+
+    Returns {visuals_hash, design_hash, frames, keys, hits, misses} so
+    review_frame can tell the agent fresh vs cached pixels.
+    """
+    from backend.pipeline.assets import compute_script_content_hash
+    from backend.mcp.payloads import current_design_hash
+    from backend.pipeline.render import prepare_render_props_and_settings
+    proj, proj_dir, *_ = _render_context(project_id)
+    with open(proj_dir / "script.json", "r", encoding="utf-8") as f:
+        script = json.load(f)
+    script_hash = compute_script_content_hash(script)
+    visuals_hash = compute_visuals_hash(script)
+    design_hash = current_design_hash(proj_dir) or "nodesign"
+    _, render_settings, *_ = prepare_render_props_and_settings(proj, proj_dir)
+    fps = int(render_settings.get("fps") or 30)
+    stills_dir = _stills_dir(proj_dir)
+    keys, hits, misses, frames = [], [], [], []
+    for t in timestamps or []:
+        frame = max(0, int(float(t) * fps))
+        frames.append(frame)
+        key = still_cache_key(script_hash, design_hash, frame,
+                              STILL_SCALE, fps, visuals_hash)
+        keys.append(key)
+        ((hits if (stills_dir / key).is_file() else misses)).append(frame)
+    return {"visuals_hash": visuals_hash, "design_hash": design_hash,
+            "script_hash": script_hash[:16], "fps": fps,
+            "frames": frames, "keys": keys,
+            "hits": hits, "misses": misses}
 
 
 def _render_context(project_id: str):
@@ -100,6 +176,7 @@ def grab_composition_stills(project_id: str, timestamps: list) -> list:
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
         script_hash = compute_script_content_hash(script)
+        visuals_hash = compute_visuals_hash(script)
         design_hash = current_design_hash(proj_dir) or "nodesign"
 
         props, render_settings, *_ = prepare_render_props_and_settings(proj, proj_dir)
@@ -111,7 +188,7 @@ def grab_composition_stills(project_id: str, timestamps: list) -> list:
         ordered_paths = []
         for frame in frames:
             name = still_cache_key(script_hash, design_hash, frame,
-                                   STILL_SCALE, fps)
+                                   STILL_SCALE, fps, visuals_hash)
             cache_path = stills_dir / name
             ordered_paths.append(cache_path)
             if not cache_path.is_file():
@@ -199,10 +276,12 @@ def _render_missing_frames(proj, proj_dir, frontend_dir, render_script, bundle_d
         from backend.pipeline.assets import compute_script_content_hash
         from backend.mcp.payloads import current_design_hash
         with open(proj_dir / "script.json", "r", encoding="utf-8") as f:
-            script_hash = compute_script_content_hash(json.load(f))
+            _script = json.load(f)
+            script_hash = compute_script_content_hash(_script)
+            visuals_hash = compute_visuals_hash(_script)
         design_hash = current_design_hash(proj_dir) or "nodesign"
         key = still_cache_key(script_hash, design_hash, frame,
-                              STILL_SCALE, fps)
+                              STILL_SCALE, fps, visuals_hash)
         try:
             src.replace(stills_dir / key)
         except OSError:
