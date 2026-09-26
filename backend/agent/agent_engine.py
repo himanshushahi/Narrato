@@ -460,6 +460,11 @@ class AgentRunner:
         if is_valid:
             self._emit_progress("Agent: Visual duration math verified.")
             result["sub_visuals"] = normalized_svs
+            try:
+                from backend.agent.geometry import lint_sub_visuals as _lint
+                result["geometry"] = _lint(normalized_svs, video_format)
+            except Exception:
+                pass
             return result
 
         self._emit_progress(f"Agent: Correcting visual error ({error_msg})...")
@@ -493,6 +498,11 @@ class AgentRunner:
                 _, final_svs, _ = validate_sub_visuals(corrected_result["sub_visuals"], expected_duration,
                                                        video_format=video_format)
                 corrected_result["sub_visuals"] = final_svs
+                try:
+                    from backend.agent.geometry import lint_sub_visuals as _lint2
+                    corrected_result["geometry"] = _lint2(final_svs, video_format)
+                except Exception:
+                    pass
                 return corrected_result
         except Exception:
             pass  # Fallback to normalized below.

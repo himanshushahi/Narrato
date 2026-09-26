@@ -1084,12 +1084,18 @@ def save_visuals_payload(project_id: str, section_type: str,
     durations = [round(float(v.get("duration", 0)), 2) for v in normalized]
     total = round(sum(durations), 2)
     variety = _visual_variety_report(candidate, normalized, target_duration)
+    try:
+        from backend.agent.geometry import lint_sub_visuals as _lint_section
+        geometry = _lint_section(normalized, video_format)
+    except Exception:
+        geometry = {"warnings": [], "fixes": [], "overlaps": []}
     if dry_run:
         result = {"ok": True, "project_id": project_id, "section_type": section_type,
                   "scene_index": scene_index if section_type == "scene" else None,
                   "dry_run": True, "persisted": False,
                   "cut_count": len(normalized), "total_duration": total,
-                  "durations": durations, "variety": variety}
+                  "durations": durations, "variety": variety,
+                  "geometry": geometry}
         if cut_index is not None:
             result["patched_cut_index"] = cut_index
             result["patched_cut"] = normalized[cut_index]
@@ -1137,7 +1143,8 @@ def save_visuals_payload(project_id: str, section_type: str,
               "scene_index": scene_index if section_type == "scene" else None,
               "persisted": True,
               "cut_count": len(normalized), "total_duration": total,
-              "durations": durations, "variety": variety}
+              "durations": durations, "variety": variety,
+              "geometry": geometry}
     if cut_index is not None:
         result["patched_cut_index"] = cut_index
     return result
