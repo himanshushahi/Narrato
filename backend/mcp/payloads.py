@@ -934,38 +934,22 @@ def _creative_blueprint_for_project(proj: dict) -> dict:
             "Entrances with delay>0 need opacity fade 0->1; spatial-only at delay 0.",
             ">=2 content kinds per section + 1 energy moment (punch-in/shake/blur/FX/rack-focus/floating/Particles).",
         ],
-        "sample_cut": {
-            "duration": 4.0,
-            "transition": "whip_pan",
-            "layers": [
-                {"type": "Background", "props": {"color": "#0B0F1A"},
-                 "animations": []},
-                {"type": "Image",
-                 "query": "parliament building new delhi wide",
-                 "layout": {"x": 4, "y": 6, "w": 92, "h": 52},
-                 "animations": [{"property": "opacity", "from": 0, "to": 1,
-                                  "start": 0, "duration": 0.6}]},
-                {"type": "Text", "text": "Beat callout here",
-                 "layout": {"x": 6, "y": 62, "w": 88, "h": 20},
-                 "style": {"fontSize": 7 if video_format != "portrait" else 6,
-                           "fontWeight": 800},
-                 "animations": [
-                     {"property": "translateY", "from": 8, "to": 0,
-                      "start": 0.1, "duration": 0.5},
-                     {"property": "opacity", "from": 0, "to": 1,
-                      "start": 0.1, "duration": 0.5}]},
-                {"type": "Particles", "preset": "dust",
-                 "layout": {"x": 0, "y": 0, "w": 100, "h": 100},
-                 "animations": []},
-            ],
-        },
+        "sample_cut": _canonical_sample_cut(video_format),
     }
+
+
+def _canonical_sample_cut(video_format: str = "landscape") -> dict:
+    """Single canonical sample — delegates to validators.build_sample_cut so
+    get_section_timings can never disagree with get_stage_skills again."""
+    from backend.agent.validators import build_sample_cut
+    return build_sample_cut(video_format)
 
 
 def save_visuals_payload(project_id: str, section_type: str,
                          sub_visuals, scene_index: int = 0,
                          cut_index: int | None = None,
-                         dry_run: bool = False) -> dict:
+                         dry_run: bool = False,
+                         auto_migrate: bool = False) -> dict:
     """Validate agent-authored sub_visuals for one section and persist them
     to both the active manifest and script.json (mirrors the manifest-sync
     tail of ai.generate_visuals_pipeline).
@@ -1051,12 +1035,51 @@ def save_visuals_payload(project_id: str, section_type: str,
     else:
         candidate = sub_visuals
 
-    from backend.agent.validators import validate_sub_visuals
+    from backend.agent.validators import (
+        validate_sub_visuals, detect_legacy_cut_shape,
+        migrate_legacy_cut_to_composition, build_sample_cut,
+        CANONICAL_CUT_HINT,
+    )
+    # Phase 0 fail-fast: surface SCHEMA_MISMATCH with error_code + fix before
+    # the validator's duration logic runs, so dry_run also rejects.
+    _cuts = candidate if isinstance(candidate, list) else [candidate]
+    for _idx, _cut in enumerate(_cuts):
+        _legacy = detect_legacy_cut_shape(_cut)
+        if _legacy is not None:
+            if auto_migrate:
+                try:
+                    _cuts[_idx] = migrate_legacy_cut_to_composition(_cut)
+                    logger.warning(
+                        "save_visuals auto_migrate: cut#%s legacy layers→composition", _idx)
+                    continue
+                except Exception as e:
+                    logger.warning("save_visuals auto_migrate failed: %s", e)
+            import copy as _copy
+            _preview = _copy.deepcopy(build_sample_cut(video_format))
+            _preview.pop("note", None)
+            return {"ok": False, "error_code": "SCHEMA_MISMATCH",
+                    "error": (
+                        f"SCHEMA_MISMATCH cut#{_idx}: legacy layers/layout shape. "
+                        f"Found: {'; '.join(_legacy['signals'])}. "
+                        f"Use {CANONICAL_CUT_HINT}."),
+                    "cut_index": _idx,
+                    "signals": _legacy["signals"],
+                    "expected_shape": "cut.composition.children[] of {type:Layer}",
+                    "got_shape": "cut.layers[] with layout/props",
+                    "fix": {"hint": "Re-emit as composition.children Layer nodes, "
+                                    "or re-call save_visuals with auto_migrate=true.",
+                            "auto_migrate_preview": _preview},
+                    "dry_run": bool(dry_run), "persisted": False}
     is_valid, normalized, error_msg = validate_sub_visuals(
         candidate, target_duration, video_format=video_format)
     if not is_valid:
-        return {"ok": False, "error": f"Visual validation failed: {error_msg}",
+        _res = {"ok": False, "error": f"Visual validation failed: {error_msg}",
                 "dry_run": bool(dry_run), "persisted": False}
+        if isinstance(error_msg, str) and error_msg.startswith("SCHEMA_MISMATCH"):
+            _res["error_code"] = "SCHEMA_MISMATCH"
+            _res["fix"] = {"hint": "Re-emit as composition.children Layer nodes, "
+                                   "or re-call save_visuals with auto_migrate=true."}
+        return _res
 
     durations = [round(float(v.get("duration", 0)), 2) for v in normalized]
     total = round(sum(durations), 2)

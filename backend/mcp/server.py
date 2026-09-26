@@ -669,32 +669,9 @@ def _visual_archetypes() -> dict:
 
 
 def _sample_cut_template(video_format: str) -> dict:
-    portrait = (video_format or "").strip().lower() == "portrait"
-    return {
-        "duration": 4.0,
-        "transition": "whip_pan",
-        "layers": [
-            {"type": "Background", "props": {"color": "#0B0F1A"},
-             "animations": []},
-            {"type": "Image", "query": "parliament building new delhi wide",
-             "layout": {"x": 4, "y": 6, "w": 92, "h": 52},
-             "animations": [{"property": "opacity", "from": 0, "to": 1,
-                              "start": 0, "duration": 0.6}]},
-            {"type": "Text", "text": "Sample beat callout",
-             "layout": {"x": 6, "y": 62 if not portrait else 58,
-                        "w": 88, "h": 20},
-             "style": {"fontSize": 7, "fontWeight": 800},
-             "animations": [{"property": "translateY", "from": 8, "to": 0,
-                              "start": 0.1, "duration": 0.5},
-                             {"property": "opacity", "from": 0, "to": 1,
-                              "start": 0.1, "duration": 0.5}]},
-            {"type": "Particles", "preset": "dust",
-             "layout": {"x": 0, "y": 0, "w": 100, "h": 100},
-             "animations": []},
-        ],
-        "note": "Background + Subject + Kinetic Text + Particles(last). "
-                "Replace query/text per beat; vary archetype + transition.",
-    }
+    """Canonical sample — delegates to validators.build_sample_cut (single SOT)."""
+    from backend.agent.validators import build_sample_cut
+    return build_sample_cut(video_format)
 
 
 @mcp.tool()
@@ -1516,13 +1493,20 @@ def get_visuals(project_id: str, section_type: str, scene_index: int = 0,
 @mcp.tool()
 def save_visuals(project_id: str, section_type: str, sub_visuals: list,
                  scene_index: int = 0, cut_index: int = -1,
-                 dry_run: bool = False) -> dict:
+                 dry_run: bool = False, auto_migrate: bool = False) -> dict:
     """Validate and persist sub_visuals for ONE section
     (section_type: introduction | scene | conclusion; scene_index used
     only for scene). Durations are auto-normalized to the section's audio
     length; Image/Video layers MUST carry an English search `query`.
     Repeat per section, then run fetch_assets BEFORE review_frame
     (mode=composition needs downloaded local_path files).
+    Canonical cut shape ONLY: {duration, transition?,
+    composition:{type:Sequence, children:[{type:Layer,
+    content:{type, query/source/text/...,
+    style:{left/top/width/height % strings}}, animations, filters}]}}.
+    Legacy layers[]/layout/props shapes are rejected with SCHEMA_MISMATCH
+    (never silently accepted) — re-emit correctly or pass auto_migrate=true
+    for a best-effort conversion.
 
     MANDATORY FIRST: get_stage_skills('visuals', project_id) or all three
     get_skill(declarative-ast + visual-director-core + motion-graphics-designer).
@@ -1543,7 +1527,7 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
         return payloads.save_visuals_payload(
             project_id, section_type, sub_visuals, scene_index,
             cut_index=cut_index if cut_index is not None and cut_index >= 0 else None,
-            dry_run=bool(dry_run))
+            dry_run=bool(dry_run), auto_migrate=bool(auto_migrate))
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     except Exception as e:

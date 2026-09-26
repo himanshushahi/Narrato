@@ -549,6 +549,253 @@ def migrate_cut_geometry(sub_visuals: Any, video_format: str = "landscape",
     return total
 
 
+# ── Phase 0: single schema SOT ──────────────────────────────────────
+# Canonical cut shape is composition.children Layer nodes ONLY.
+# Legacy `layers[]/layout/props` shape (emitted by old sample_cut templates)
+# must fail fast with SCHEMA_MISMATCH instead of rendering black via the
+# empty-children fallback. One canonical builder serves MCP + internal LLM.
+
+CANONICAL_CUT_HINT = (
+    "composition:{type:Sequence, children:["
+    "{type:Layer, content:{type, query/source/text/... , style:{left/top/width/height % strings}}, "
+    "animations:[{property, from, to, duration, delay}], filters:[]}"
+    "]}"
+)
+
+_LEGACY_CUT_KEYS = frozenset({"layers", "layout", "props"})
+_KNOWN_CONTENT_TYPES = frozenset({
+    "Image", "Video", "Text", "Chart", "Shape", "Map", "HTML",
+    "Lottie", "Particles", "Counter", "Background",
+})
+
+
+def build_sample_cut(video_format: str = "landscape") -> Dict[str, Any]:
+    """Canonical sample cut — the ONLY shape the renderer accepts.
+
+    Single builder used by MCP get_stage_skills + get_section_timings so the
+    two entry points can never disagree again. Geometry is %-strings,
+    Text size is style.fontSize px-string, Particles is last child.
+    """
+    portrait = (video_format or "").strip().lower() == "portrait"
+    return {
+        "duration": 4.0,
+        "transition": "whip_pan",
+        "composition": {
+            "type": "Sequence",
+            "children": [
+                {
+                    "type": "Layer",
+                    "content": {
+                        "type": "Background",
+                        "background_preset": "gradient_mesh",
+                        "colors": ["#0B0F1A", "#1e3a8a"],
+                        "style": {
+                            "position": "absolute",
+                            "width": "100%",
+                            "height": "100%",
+                        },
+                    },
+                    "animations": [
+                        {"property": "scale", "from": 1.0, "to": 1.06,
+                         "duration": 4.0, "delay": 0, "easing": "linear"}
+                    ],
+                    "filters": [],
+                },
+                {
+                    "type": "Layer",
+                    "content": {
+                        "type": "Image",
+                        "query": "parliament building new delhi wide",
+                        "source": "pexels",
+                        "style": {
+                            "position": "absolute",
+                            "left": "4%", "top": "6%",
+                            "width": "92%", "height": "52%",
+                            "objectFit": "cover",
+                        },
+                    },
+                    "animations": [
+                        {"property": "opacity", "from": 0, "to": 1,
+                         "duration": 0.6, "delay": 0, "easing": "ease-out"}
+                    ],
+                    "filters": [],
+                },
+                {
+                    "type": "Layer",
+                    "content": {
+                        "type": "Text",
+                        "text": "Sample beat callout",
+                        "font": "Inter",
+                        "weight": "800",
+                        "color": "#ffffff",
+                        "style": {
+                            "position": "absolute",
+                            "left": "6%",
+                            "top": "62%" if not portrait else "58%",
+                            "width": "88%",
+                            "fontSize": "56px",
+                            "fontWeight": 800,
+                            "textAlign": "center",
+                            "textShadow": "0 4px 20px rgba(0,0,0,0.8)",
+                        },
+                    },
+                    "animations": [
+                        {"property": "translateY", "from": 8, "to": 0,
+                         "duration": 0.5, "delay": 0.1, "easing": "ease-out"},
+                        {"property": "opacity", "from": 0, "to": 1,
+                         "duration": 0.5, "delay": 0.1, "easing": "ease-out"},
+                    ],
+                    "filters": [],
+                },
+                {
+                    "type": "Layer",
+                    "content": {
+                        "type": "Particles",
+                        "particle_preset": "dust",
+                        "particle_count": 60,
+                        "style": {
+                            "position": "absolute",
+                            "width": "100%",
+                            "height": "100%",
+                        },
+                    },
+                    "animations": [],
+                    "filters": [],
+                },
+            ],
+        },
+        "note": "Background + Subject + Kinetic Text + Particles(last). "
+                "Replace query/text per beat; vary archetype + transition.",
+    }
+
+
+def detect_legacy_cut_shape(cut: Any) -> Dict[str, Any] | None:
+    """Return legacy-shape evidence for one cut, else None.
+
+    Signals: top-level `layers`, any child with `layout`/`props`, or a child
+    whose `type` is a content type directly (Image/Text/...) instead of Layer.
+    """
+    if not isinstance(cut, dict):
+        return None
+    signals: List[str] = []
+    if "layers" in cut:
+        signals.append("cut.layers[] (expected cut.composition.children[])")
+    comp = cut.get("composition")
+    candidates: List[Any] = []
+    if isinstance(cut.get("layers"), list):
+        candidates = cut["layers"]
+    elif isinstance(comp, dict) and isinstance(comp.get("children"), list):
+        candidates = comp["children"]
+    for idx, layer in enumerate(candidates):
+        if not isinstance(layer, dict):
+            signals.append(f"layers[{idx}]: non-dict child")
+            continue
+        if "layout" in layer:
+            signals.append(f"layers[{idx}].layout (expected content.style %-strings)")
+        if "props" in layer:
+            signals.append(f"layers[{idx}].props (expected content.*)")
+        ltype = layer.get("type")
+        if ltype in _KNOWN_CONTENT_TYPES and ltype != "Layer":
+            signals.append(
+                f"layers[{idx}].type={ltype!r} at layer level "
+                f"(expected type=Layer + content.type={ltype!r})")
+        if isinstance(layer.get("animations"), list):
+            for a in layer["animations"]:
+                if isinstance(a, dict) and "start" in a and "delay" not in a:
+                    signals.append(
+                        f"layers[{idx}].animations[].start (expected delay)")
+                    break
+    if not signals:
+        return None
+    return {"signals": signals[:8], "hint": CANONICAL_CUT_HINT}
+
+
+def migrate_legacy_cut_to_composition(cut: Dict[str, Any]) -> Dict[str, Any]:
+    """One-way legacy `layers[]` → canonical `composition.children[]`.
+
+    Best-effort for old projects / old agent output: layout{x,y,w,h} numbers
+    → style % strings, props → content fields, preset → particle_preset,
+    start → delay. Unknown keys are carried into content so nothing is lost.
+    """
+    import copy as _copy
+    migrated = _copy.deepcopy(cut) if isinstance(cut, dict) else {}
+    raw_layers = migrated.pop("layers", [])
+    if not isinstance(raw_layers, list):
+        raw_layers = []
+    children: List[Dict[str, Any]] = []
+    for legacy in raw_layers:
+        if not isinstance(legacy, dict):
+            continue
+        ctype = str(legacy.get("type") or "HTML")
+        content: Dict[str, Any] = {"type": ctype}
+        # props.* → content.*
+        props = legacy.get("props")
+        if isinstance(props, dict):
+            if "color" in props and ctype == "Background":
+                content["background_preset"] = "gradient_mesh"
+                content["colors"] = [str(props["color"])]
+            for k, v in props.items():
+                if k not in content and k != "color":
+                    content[k] = v
+        # Direct content keys passthrough.
+        for k in ("query", "source", "text", "html_content", "font",
+                  "weight", "color", "particle_preset", "background_preset",
+                  "colors", "chart_type", "data", "shape_type", "icon_name",
+                  "lottie_url", "map_style", "locations", "objectFit",
+                  "image_type", "volume", "loop"):
+            if k in legacy and k not in content:
+                content[k] = legacy[k]
+        # preset → particle_preset (legacy Particles shape).
+        if ctype == "Particles" and "preset" in legacy:
+            content.setdefault("particle_preset", str(legacy["preset"]))
+        # layout{x,y,w,h} → style % strings.
+        style: Dict[str, Any] = {}
+        layout = legacy.get("layout")
+        if isinstance(layout, dict):
+            for lk, sk in (("x", "left"), ("y", "top"),
+                           ("w", "width"), ("h", "height")):
+                if lk in layout:
+                    try:
+                        style[sk] = f"{round(float(layout[lk]), 2):g}%"
+                    except (TypeError, ValueError):
+                        pass
+        raw_style = legacy.get("style")
+        if isinstance(raw_style, dict):
+            style.update(raw_style)
+        if style:
+            style.setdefault("position", "absolute")
+            content["style"] = style
+        elif ctype in ("Background", "Particles", "Map"):
+            content["style"] = {"position": "absolute",
+                                "width": "100%", "height": "100%"}
+        # animations: start → delay.
+        anims = []
+        for a in (legacy.get("animations") or []):
+            if not isinstance(a, dict):
+                continue
+            na = dict(a)
+            if "start" in na and "delay" not in na:
+                try:
+                    na["delay"] = float(na.pop("start"))
+                except (TypeError, ValueError):
+                    na.pop("start", None)
+                    na["delay"] = 0
+            na.setdefault("delay", 0)
+            na.setdefault("easing", "ease-out")
+            anims.append(na)
+        children.append({"type": "Layer", "content": content,
+                         "animations": anims,
+                         "filters": list(legacy.get("filters") or [])})
+    comp = migrated.get("composition")
+    if not isinstance(comp, dict):
+        migrated["composition"] = {"type": "Sequence", "children": children}
+    else:
+        if not isinstance(comp.get("children"), list) or not comp["children"]:
+            comp["type"] = "Sequence"
+            comp["children"] = children
+    return migrated
+
+
 def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: float, tolerance: float = 0.1,
                          video_format: str = "landscape") -> Tuple[bool, List[Dict[str, Any]], str]:
     """
@@ -573,6 +820,20 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     for v in sub_visuals:
         if not isinstance(v, dict):
             continue
+
+        # Phase 0 fail-fast: legacy layers/layout shape is never silently
+        # accepted (it used to fall through to empty children → black render
+        # with ok:true). Reject with SCHEMA_MISMATCH so the agent fixes the
+        # shape in one turn instead of rebuilding whole sections.
+        _legacy = detect_legacy_cut_shape(v)
+        if _legacy is not None:
+            return False, _dummy_visual(target_duration), (
+                f"SCHEMA_MISMATCH cut#{len(normalized)}: legacy layers/layout shape. "
+                f"Found: {'; '.join(_legacy['signals'])}. "
+                f"Use {CANONICAL_CUT_HINT}. "
+                f"Fix: re-emit this cut as composition.children Layer nodes, "
+                f"or re-call with auto_migrate=true for a best-effort conversion."
+            )
 
         # Order-based stacking only: reject any ordering field outright.
         # No migration — old projects are unsupported.

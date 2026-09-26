@@ -462,10 +462,21 @@ class AgentRunner:
             result["sub_visuals"] = normalized_svs
             return result
 
-        self._emit_progress(f"Agent: Correcting math error ({error_msg})...")
+        self._emit_progress(f"Agent: Correcting visual error ({error_msg})...")
 
-        # 1-turn Correction Loop
-        correction_prompt = user_prompt + f"\n\nValidation Error: {error_msg}\nPlease recalculate durations so they sum exactly to {expected_duration}."
+        # 1-turn Correction Loop (SCHEMA_MISMATCH gets a shape hint, not math).
+        if isinstance(error_msg, str) and error_msg.startswith("SCHEMA_MISMATCH"):
+            from backend.agent.validators import CANONICAL_CUT_HINT
+            correction_prompt = (
+                user_prompt
+                + f"\n\nValidation Error: {error_msg}\n"
+                + f"Re-emit EVERY cut as {CANONICAL_CUT_HINT}. "
+                + "Do NOT use layers[]/layout/props or animation start — "
+                + "use composition.children Layer nodes with content.style "
+                + "%-strings and animation delay."
+            )
+        else:
+            correction_prompt = user_prompt + f"\n\nValidation Error: {error_msg}\nPlease recalculate durations so they sum exactly to {expected_duration}."
 
         try:
             corrected_result = self.run_with_tools(system_prompt, correction_prompt, schema, base_activity_label="Agent: visual correction",
@@ -484,7 +495,24 @@ class AgentRunner:
                 corrected_result["sub_visuals"] = final_svs
                 return corrected_result
         except Exception:
-            pass  # Fallback to normalized
+            pass  # Fallback to normalized below.
+
+        # Last resort for legacy-shaped LLM output: best-effort migrate rather
+        # than persisting a black dummy cut.
+        if isinstance(error_msg, str) and error_msg.startswith("SCHEMA_MISMATCH"):
+            try:
+                from backend.agent.validators import migrate_legacy_cut_to_composition
+                _migrated = [migrate_legacy_cut_to_composition(c)
+                             if isinstance(c, dict) else c
+                             for c in (result.get("sub_visuals") or [])]
+                ok2, svs2, _ = validate_sub_visuals(_migrated, expected_duration,
+                                                    video_format=video_format)
+                if ok2:
+                    self._emit_progress("Agent: Migrated legacy layers→composition.")
+                    result["sub_visuals"] = svs2
+                    return result
+            except Exception:
+                pass
 
         result["sub_visuals"] = normalized_svs
         return result
