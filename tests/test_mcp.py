@@ -503,6 +503,110 @@ def test_save_visuals_scene_index_out_of_range(tmp_path, monkeypatch):
     assert result["ok"] is False and "out of range" in result["error"]
 
 
+def test_save_visuals_sets_assets_manifest_path(tmp_path, monkeypatch):
+    # Regression: MCP-authored visuals left assets_manifest_path=None, so the
+    # editor loaded an empty manifest (timeline clicks resolved to null).
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is None
+    result = payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut()], scene_index=0)
+    assert result["ok"] is True
+    pointer = calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path")
+    assert pointer is not None and pointer.endswith("manifest.json")
+
+
+def test_clear_then_save_restores_manifest_path(tmp_path, monkeypatch):
+    # clear_visuals legitimately clears the pointer; the next persist must
+    # restore it, otherwise the editor stays dead after re-authoring.
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    assert payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut()], scene_index=0)["ok"] is True
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is not None
+    cleared = payloads.clear_visuals_payload("proj_mcp", clear_assets=True)
+    assert cleared["ok"] is True
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is None
+    assert payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut()], scene_index=0)["ok"] is True
+    pointer = calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path")
+    assert pointer is not None and Path(pointer).exists()
+    # files the editor needs are coherent again
+    manifest = json.loads((proj_dir / "voiceover" / "manifest.json").read_text(encoding="utf-8"))
+    assert len([m for m in manifest if m.get("section_type") == "scene"][0]["sub_visuals"]) == 1
+
+
+def test_repair_manifest_pointers_backfills(tmp_path, monkeypatch):
+    from backend.pipeline import assets as assets_mod
+    _patch_storage(monkeypatch, tmp_path)
+    proj_dir = tmp_path / "proj_mcp"
+    (proj_dir / "voiceover").mkdir(parents=True)
+    (proj_dir / "voiceover" / "manifest.json").write_text(
+        json.dumps([{"section_type": "scene", "duration": 8.0}]), encoding="utf-8")
+    proj = dict(_proj(), assets_manifest_path=None)
+    monkeypatch.setattr("backend.database.db.get_all_projects", lambda: [dict(proj)])
+    updated = {}
+    monkeypatch.setattr("backend.database.db.update_project",
+                        lambda pid, **kw: updated.setdefault(pid, {}).update(kw))
+    assert assets_mod.repair_manifest_pointers() == 1
+    assert updated["proj_mcp"]["assets_manifest_path"].endswith("manifest.json")
+
+
+def test_repair_manifest_pointers_skips_empty_and_corrupt(tmp_path, monkeypatch):
+    # Empty/corrupt manifests are useless to the editor — pinning them would
+    # only fake health while every load still falls through to fallback.
+    from backend.pipeline import assets as assets_mod
+    _patch_storage(monkeypatch, tmp_path)
+    empty_dir = tmp_path / "empty"
+    (empty_dir / "voiceover").mkdir(parents=True)
+    (empty_dir / "voiceover" / "manifest.json").write_text("[]", encoding="utf-8")
+    corrupt_dir = tmp_path / "corrupt"
+    (corrupt_dir / "voiceover").mkdir(parents=True)
+    (corrupt_dir / "voiceover" / "manifest.json").write_text("{not json", encoding="utf-8")
+    projects = [dict(_proj("empty"), assets_manifest_path=None),
+                dict(_proj("corrupt"), assets_manifest_path=None)]
+    monkeypatch.setattr("backend.database.db.get_all_projects",
+                        lambda: [dict(p) for p in projects])
+    updated = {}
+    monkeypatch.setattr("backend.database.db.update_project",
+                        lambda pid, **kw: updated.setdefault(pid, {}).update(kw))
+    assert assets_mod.repair_manifest_pointers() == 0
+    assert updated == {}
+
+
+def test_repair_manifest_pointers_skips_healthy_and_missing(tmp_path, monkeypatch):
+    from backend.pipeline import assets as assets_mod
+    _patch_storage(monkeypatch, tmp_path)
+    healthy_dir = tmp_path / "healthy"
+    (healthy_dir / "voiceover").mkdir(parents=True)
+    good = healthy_dir / "voiceover" / "manifest.json"
+    good.write_text(json.dumps([{"section_type": "scene"}]), encoding="utf-8")
+    projects = [dict(_proj("healthy"), assets_manifest_path=str(good)),
+                dict(_proj("ghost"), assets_manifest_path=None)]
+    monkeypatch.setattr("backend.database.db.get_all_projects",
+                        lambda: [dict(p) for p in projects])
+    updated = {}
+    monkeypatch.setattr("backend.database.db.update_project",
+                        lambda pid, **kw: updated.setdefault(pid, {}).update(kw))
+    assert assets_mod.repair_manifest_pointers() == 0
+    assert updated == {}
+
+
+def test_save_visuals_dry_run_does_not_set_pointer(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    result = payloads.save_visuals_payload(
+        "proj_mcp", "scene", [_text_cut()], scene_index=0, dry_run=True)
+    assert result["ok"] is True
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is None
+
+
+def test_failed_save_leaves_pointer_untouched(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    (tmp_path / "proj_mcp" / "design.json").unlink()
+    result = payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut()], scene_index=0)
+    assert result["ok"] is False
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is None
+
+
 def test_get_section_timings(tmp_path, monkeypatch):
     proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
     result = payloads.get_section_timings("proj_mcp", include_words=False)

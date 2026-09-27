@@ -77,6 +77,24 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const [reloadKey, setReloadKey] = useState(0);
 
   // Read generated JSON assets from Python server static bridges
+  // Shared manifest enrichment (media URLs for thumbnails/previews).
+  const enrichManifest = useCallback((manifest: any): any[] => {
+    return (manifest || []).map((scene: any) => {
+      const enrichedSubVisuals = (scene.sub_visuals || []).map((sv: any) => ({
+        ...sv,
+        visual_url: sv.visual_path
+          ? getMediaUrlSync(sv.visual_path)
+          : ''
+      }));
+      return {
+        ...scene,
+        visual_url: scene.visual_path
+          ? getMediaUrlSync(scene.visual_path)
+          : '',
+        sub_visuals: enrichedSubVisuals
+      };
+    });
+  }, []);
   const loadFiles = useCallback(async (projId: string): Promise<{ script: any; manifest: any[] }> => {
     setLoadingScript(true);
     let reloadedScript: any = null;
@@ -93,24 +111,51 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
           setDesignData(design);
         }
         if (project.assets_manifest_path) {
-          const manifest = await callApi<any>('read_json_file', project.assets_manifest_path);
-          const enrichedManifest = (manifest || []).map((scene: any) => {
-            const enrichedSubVisuals = (scene.sub_visuals || []).map((sv: any) => ({
-              ...sv,
-              visual_url: sv.visual_path
-                ? getMediaUrlSync(sv.visual_path)
-                : ''
-            }));
-            return {
-              ...scene,
-              visual_url: scene.visual_path
-                ? getMediaUrlSync(scene.visual_path)
-                : '',
-              sub_visuals: enrichedSubVisuals
-            };
-          });
-          setManifestData(enrichedManifest);
-          reloadedManifest = enrichedManifest;
+          try {
+            const manifest = await callApi<any>('read_json_file', project.assets_manifest_path);
+            if (Array.isArray(manifest) && manifest.length > 0) {
+              const enrichedManifest = enrichManifest(manifest);
+              setManifestData(enrichedManifest);
+              reloadedManifest = enrichedManifest;
+            }
+            // Wrong-shaped JSON (or missing/corrupt file) falls through to
+            // the disk fallback below instead of killing the whole load.
+          } catch {
+            // try disk fallback
+          }
+        }
+        // Fallback (same order as backend _resolve_manifest_path in
+        // backend/pipeline/assets.py): some projects — e.g. visuals authored
+        // purely via MCP before the pointer was auto-set on save — have a
+        // null assets_manifest_path while voiceover/manifest.json exists on
+        // disk. Without this the timeline renders script-derived scenes but
+        // every cut click resolves to null and the Visuals tab stays dead.
+        // Forward slashes work on Windows too (Python handles both), so no
+        // backslash-duplicate candidates are needed.
+        if (reloadedManifest.length === 0 && project.script_path) {
+          const projDir = project.script_path.replace(/[/\\]script\.json$/, '');
+          for (const candidate of [
+            `${projDir}/voiceover/manifest.json`,
+            `${projDir}/assets/assets_manifest.json`,
+          ]) {
+            try {
+              const manifest = await callApi<any>('read_json_file', candidate);
+              if (Array.isArray(manifest) && manifest.length > 0) {
+                const enrichedManifest = enrichManifest(manifest);
+                setManifestData(enrichedManifest);
+                reloadedManifest = enrichedManifest;
+                // Heal the DB pointer so later loads (and every other
+                // assets_manifest_path consumer) skip this fallback.
+                // Fire-and-forget: must never fail or loop the load.
+                callApi<any>('db_update_project', projId, {
+                  assets_manifest_path: candidate,
+                }).catch(() => {});
+                break;
+              }
+            } catch {
+              // try next candidate
+            }
+          }
         }
         if (project.transcription_path) {
           const transcript = await callApi<any>('read_json_file', project.transcription_path);

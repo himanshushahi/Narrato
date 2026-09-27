@@ -1487,6 +1487,17 @@ def save_visuals_payload(project_id: str, section_type: str,
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
+    # Keep the editor working: the frontend (useEditorData) only loads a
+    # manifest when project.assets_manifest_path is set, while MCP resolves
+    # via fallback (DB -> voiceover -> assets). Persisting visuals without
+    # setting the pointer left MCP-authored projects with an empty manifest
+    # in the editor (timeline clicks resolve to null, Visuals tab dead).
+    # Never fail the save on a DB hiccup — files are the source of truth.
+    try:
+        _db.update_project(project_id, assets_manifest_path=str(manifest_path))
+    except Exception as e:
+        logger.warning(f"MCP save_visuals: visuals persisted but assets_manifest_path update failed: {e}")
+
     # Mirror into script.json (agent payload is authoritative here).
     # The manifest is authoritative for WHICH section was written; guard the
     # script index against manifest/script divergence (filtered manifest
