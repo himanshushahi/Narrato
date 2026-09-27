@@ -1,9 +1,11 @@
+import sys
 import os
 import json
 import hashlib
 import re
 import difflib
 import uuid
+import shutil
 from pathlib import Path
 from backend.core.config import get_models_dir, get_temp_dir
 from backend.core.logger import logger
@@ -47,6 +49,84 @@ def get_whisper_model_path(model_size):
 
 def check_whisper_assets(model_size):
     return get_whisper_model_path(model_size) is not None
+
+def _is_vad_missing_error(err):
+    """Only VAD/ONNX asset failures should trigger the vad_filter=False fallback."""
+    msg = str(err).lower()
+    return ("vad" in msg or "onnx" in msg or "no_suchfile" in msg
+            or "silero" in msg or "load model" in msg)
+
+
+def _ensure_vad_asset():
+    """Ensure faster-whisper's VAD asset (silero_vad_v6.onnx) exists on disk."""
+    try:
+        import faster_whisper.vad as vad
+        assets_dir = Path(vad.get_assets_path())
+        vad_file = assets_dir / "silero_vad_v6.onnx"
+        if vad_file.exists():
+            return True
+
+        # Frozen builds: the spec fix (collect_data_files('faster_whisper'))
+        # places the asset at _internal/faster_whisper/assets/. Check those
+        # direct paths first — the hot path when the spec fix is present.
+        direct_candidates = []
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).parent
+            meipass = Path(getattr(sys, "_MEIPASS", exe_dir))
+            direct_candidates.extend([
+                exe_dir / "_internal" / "faster_whisper" / "assets" / "silero_vad_v6.onnx",
+                meipass / "faster_whisper" / "assets" / "silero_vad_v6.onnx",
+                meipass / "assets" / "silero_vad_v6.onnx",
+                exe_dir / "faster_whisper" / "assets" / "silero_vad_v6.onnx",
+            ])
+        for candidate in direct_candidates:
+            if candidate.is_file():
+                try:
+                    if candidate.resolve() != vad_file.resolve():
+                        assets_dir.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(candidate, vad_file)
+                        logger.info(f"Restored VAD asset from {candidate} to {vad_file}")
+                    return True
+                except Exception as e:
+                    logger.warning(f"Could not copy VAD asset from {candidate}: {e}")
+
+        # Last resort: shallow search of small dirs only. Never rglob the
+        # whole _internal tree or models dir (GBs, tens of thousands of files).
+        search_dirs = []
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).parent
+            search_dirs.extend([exe_dir, Path(getattr(sys, "_MEIPASS", exe_dir))])
+        search_dirs.append(get_models_dir())
+
+        for d in search_dirs:
+            if not d.exists():
+                continue
+            try:
+                # Direct hit first.
+                direct = d / "silero_vad_v6.onnx"
+                if direct.is_file():
+                    assets_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(direct, vad_file)
+                    logger.info(f"Restored VAD asset from {direct} to {vad_file}")
+                    return True
+                # Bounded walk: depth <= 3 to avoid stalling on huge trees.
+                for root, subdirs, files in os.walk(str(d)):
+                    depth = str(Path(root).relative_to(d)).count(os.sep) if Path(root) != d else 0
+                    if depth > 3:
+                        subdirs[:] = []
+                        continue
+                    if "silero_vad_v6.onnx" in files:
+                        match = Path(root) / "silero_vad_v6.onnx"
+                        assets_dir.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(match, vad_file)
+                        logger.info(f"Restored VAD asset from {match} to {vad_file}")
+                        return True
+            except Exception as e:
+                logger.warning(f"VAD asset search in {d} failed: {e}")
+                continue
+    except Exception as e:
+        logger.warning(f"Could not verify/restore VAD asset: {e}")
+    return False
 
 def list_downloaded_whisper_models():
     models = []
@@ -577,6 +657,11 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         raise InterruptedError("Cancelled")
 
     # 2. Load Whisper model
+    # Restore the VAD asset before any transcribe call. With the spec fix
+    # (collect_data_files('faster_whisper')) this is a fast exists() check.
+    vad_available = _ensure_vad_asset()
+    if not vad_available:
+        logger.warning("VAD asset missing and could not be restored; will transcribe with vad_filter=False.")
     progress_cb(45.0, "Loading Whisper model...")
     model = get_whisper_model(model_size, device)
 
@@ -617,14 +702,36 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
             script_words = [w for w in re.split(r'\s+', script_text) if w]
 
             # Pure acoustic transcription with VAD (no prompt to prevent timestamp smearing/collapse)
-            segments_gen, _ = model.transcribe(
-                sec_audio,
-                beam_size=5,
-                word_timestamps=True,
-                language=language,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=300)
-            )
+            # Note: without VAD, segmentation differs (no min_silence_duration_ms=300 filtering).
+            if vad_available:
+                try:
+                    segments_gen, _ = model.transcribe(
+                        sec_audio,
+                        beam_size=5,
+                        word_timestamps=True,
+                        language=language,
+                        vad_filter=True,
+                        vad_parameters=dict(min_silence_duration_ms=300)
+                    )
+                except Exception as vad_err:
+                    if not _is_vad_missing_error(vad_err):
+                        raise
+                    logger.warning(f"VAD filter failed ({vad_err}); falling back to vad_filter=False.")
+                    segments_gen, _ = model.transcribe(
+                        sec_audio,
+                        beam_size=5,
+                        word_timestamps=True,
+                        language=language,
+                        vad_filter=False
+                    )
+            else:
+                segments_gen, _ = model.transcribe(
+                    sec_audio,
+                    beam_size=5,
+                    word_timestamps=True,
+                    language=language,
+                    vad_filter=False
+                )
 
             raw_words = []
             for s in segments_gen:
@@ -664,13 +771,34 @@ def transcribe_pipeline(project_dict, project_dir, progress_cb, cancel_event):
         from backend.pipeline.tts import get_audio_duration
         total_dur = get_audio_duration(audio_path)
 
-        segments_generator, info = model.transcribe(
-            audio_path,
-            beam_size=5,
-            word_timestamps=True,
-            language=language,
-            vad_filter=True
-        )
+        if vad_available:
+            try:
+                segments_generator, info = model.transcribe(
+                    audio_path,
+                    beam_size=5,
+                    word_timestamps=True,
+                    language=language,
+                    vad_filter=True
+                )
+            except Exception as vad_err:
+                if not _is_vad_missing_error(vad_err):
+                    raise
+                logger.warning(f"VAD filter failed ({vad_err}); falling back to vad_filter=False.")
+                segments_generator, info = model.transcribe(
+                    audio_path,
+                    beam_size=5,
+                    word_timestamps=True,
+                    language=language,
+                    vad_filter=False
+                )
+        else:
+            segments_generator, info = model.transcribe(
+                audio_path,
+                beam_size=5,
+                word_timestamps=True,
+                language=language,
+                vad_filter=False
+            )
 
         all_raw_words = []
         for segment in segments_generator:

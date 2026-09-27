@@ -48,6 +48,9 @@ datas += copy_metadata('sse_starlette')
 datas += copy_metadata('anyio')
 datas += copy_metadata('httpx')
 datas += collect_data_files('transformers', include_py_files=True)
+# faster_whisper: silero_vad_v6.onnx asset required for VAD filtering
+datas += collect_data_files('faster_whisper')
+datas += copy_metadata('faster_whisper')
 # torch: shipped as REAL FILES and excluded from the PYZ below so an external
 # GPU runtime on sys.path[0] (downloaded in-app, backend/core/gpu_runtime.py)
 # can shadow the bundled CPU torch. With torch in the PYZ, the frozen importer
@@ -85,7 +88,7 @@ a = Analysis(
         'h11',
         'huggingface_hub',
         'scipy._external.array_api_compat.numpy.fft',
-    ] + collect_submodules('transformers') + collect_submodules('omnivoice') + collect_submodules('backend.mcp') + collect_submodules('mcp') + collect_submodules('mcp_types') + collect_submodules('uvicorn') + collect_submodules('starlette') + collect_submodules('sse_starlette') + collect_submodules('anyio') + collect_submodules('httpx') + collect_submodules('httpcore'),
+    ] + collect_submodules('transformers') + collect_submodules('faster_whisper') + collect_submodules('omnivoice') + collect_submodules('backend.mcp') + collect_submodules('mcp') + collect_submodules('mcp_types') + collect_submodules('uvicorn') + collect_submodules('starlette') + collect_submodules('sse_starlette') + collect_submodules('anyio') + collect_submodules('httpx') + collect_submodules('httpcore'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
