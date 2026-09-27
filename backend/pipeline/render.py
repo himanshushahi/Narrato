@@ -785,6 +785,48 @@ def prepare_render_props_and_settings(project_dict, project_dir, normalize_asset
         "quality": quality_policy,
     }
 
+    # ── Export font embedding (complex-script clipping fix) ──────
+    # Headless Chromium never sees the editor document's injected <link>
+    # tags, so embed the needed families as data: URIs; the composition
+    # injects them gated on document.fonts.ready. Best-effort: never break
+    # a render when offline or fonts are missing.
+    try:
+        from backend.core.fonts import NOTO_FONT_MAP, build_inline_font_css
+        _font_fams: list = []
+        _noto = NOTO_FONT_MAP.get(str(project_dict.get("language", "")).lower())
+        if _noto:
+            _font_fams.append(_noto)
+        _design_path = project_dir / "design.json"
+        if _design_path.exists():
+            _typ = json.loads(_design_path.read_text(encoding="utf-8")).get("typography", {}) or {}
+            for _k in ("heading_font", "body_font"):
+                if _typ.get(_k):
+                    _font_fams.append(_typ[_k])
+        if isinstance(project_settings, dict):
+            for _k in ("fontFamily", "numbering_font_family"):
+                if project_settings.get(_k):
+                    _font_fams.append(project_settings[_k])
+        # Per-cut overrides: a Text layer's style.fontFamily / content.font
+        # wins over every default above, so scan the AST for them too.
+        for _sc in scenes:
+            if not isinstance(_sc, dict):
+                continue
+            for _sv in (_sc.get("sub_visuals", []) or []):
+                _comp = (_sv.get("composition", {}) or {}) if isinstance(_sv, dict) else {}
+                for _layer in (_comp.get("children", []) or []):
+                    _content = (_layer.get("content", {}) or {}) if isinstance(_layer, dict) else {}
+                    if not isinstance(_content, dict):
+                        continue
+                    if _content.get("font"):
+                        _font_fams.append(_content["font"])
+                    _st = _content.get("style", {}) or {}
+                    if isinstance(_st, dict) and _st.get("fontFamily"):
+                        _font_fams.append(_st["fontFamily"])
+        props["fontCssInline"] = build_inline_font_css(_font_fams)
+    except Exception as e:
+        logger.warning(f"Render: font embedding skipped ({e})")
+        props["fontCssInline"] = ""
+
     # Apply track visibility overrides to render props
     if render_track_overrides["muteVoice"]:
         props["voiceoverVolume"] = 0.0

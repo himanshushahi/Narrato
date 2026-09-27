@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useCurrentFrame, useVideoConfig, spring, interpolate } from 'remotion';
 import { Transcription, TranscriptionWord, SceneTiming } from './NitishRajputComposition';
+import { NOTO_FONT_MAP } from './complexScriptFonts';
 
 interface SubtitleDisplacement {
   startFrame: number;
@@ -208,14 +209,7 @@ export const KineticSubtitles: React.FC<Props> = ({
   // fall back to a Latin-only font — doing so renders Devanagari/Tamil/Arabic
   // glyphs as tofu boxes. Use the language stored in the design system's
   // _language metadata to pick the correct Noto family when typography is absent.
-  const NOTO_FONT_MAP: Record<string, string> = {
-    hi: 'Noto Sans Devanagari', mr: 'Noto Sans Devanagari',
-    bn: 'Noto Sans Bengali',    ta: 'Noto Sans Tamil',
-    te: 'Noto Sans Telugu',     ar: 'Noto Sans Arabic',
-    th: 'Noto Sans Thai',       gu: 'Noto Sans Gujarati',
-    pa: 'Noto Sans Gurmukhi',   ml: 'Noto Sans Malayalam',
-    kn: 'Noto Sans Kannada',
-  };
+  // (Map lives in complexScriptFonts.ts — shared with Text layers and export.)
   const projectLang: string = designSystem?._language || '';
   const complexScriptFallback = NOTO_FONT_MAP[projectLang] || 'Inter';
   const themeFont = designSystem?.typography?.heading_font || designSystem?.typography?.body_font || complexScriptFallback;

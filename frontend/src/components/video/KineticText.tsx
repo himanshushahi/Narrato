@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { useCurrentFrame, useVideoConfig, spring, interpolate, Easing } from 'remotion';
+import { isDevanagari as checkDevanagari, isComplexScript as checkComplexScript } from './complexScriptFonts';
 
 export interface KineticTextProps {
   text: string;
@@ -48,21 +49,42 @@ export const KineticText: React.FC<KineticTextProps> = ({
   }, [highlight_words]);
 
   const isDevanagari = useMemo(() => {
-    return /[\u0900-\u097F]/.test(text || '');
+    return checkDevanagari(text);
+  }, [text]);
+
+  // Tall line-box applies to every complex script (Tamil/Bengali/Arabic/
+  // Thai/...) — they all stack marks outside a Latin 1.25 line box. The
+  // Noto default font only special-cases Devanagari; line-box does not.
+  const needsTallLineBox = useMemo(() => {
+    return checkComplexScript(text);
   }, [text]);
 
   const defaultFont = isDevanagari ? "'Noto Sans Devanagari', 'Inter', -apple-system, sans-serif" : 'Inter, -apple-system, sans-serif';
 
   // Base font style
+  // Complex scripts (Devanagari, Tamil, Arabic, ...) stack vowel signs
+  // above the headline and marks below the baseline — a Latin 1.25 line
+  // box crops them, and the layer's overflow:hidden container then clips
+  // the ink (top/bottom cut). Give complex-script text a taller line box
+  // plus breathing room. Explicit user values always win via ...style below.
+  const styleAny = style as any;
+  const hasVerticalPadding =
+    styleAny.padding !== undefined ||
+    styleAny.paddingTop !== undefined ||
+    styleAny.paddingBottom !== undefined ||
+    styleAny.paddingBlock !== undefined ||
+    styleAny.paddingBlockStart !== undefined ||
+    styleAny.paddingBlockEnd !== undefined;
   const baseFontStyle: React.CSSProperties = {
     fontFamily: font || style.fontFamily || defaultFont,
     fontWeight: weight || style.fontWeight || 'bold',
     color: color || style.color || '#ffffff',
     fontSize: style.fontSize || '64px',
-    lineHeight: style.lineHeight || 1.25,
+    lineHeight: style.lineHeight || (needsTallLineBox ? 1.6 : 1.25),
     textAlign: style.textAlign || 'center',
     letterSpacing: style.letterSpacing || 'normal',
     textShadow: style.textShadow || '0 4px 20px rgba(0,0,0,0.8)',
+    ...(needsTallLineBox && !hasVerticalPadding ? { padding: '0.08em 0' } : {}),
     ...style,
   };
 

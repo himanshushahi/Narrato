@@ -1168,48 +1168,21 @@ class ApiBridge:
         return {"files": files, "total_size": total_size, "total_files": len(files)}
 
     def download_google_font(self, font_family: str) -> dict:
-        import urllib.request
-        import re
-        from backend.core.config import get_fonts_dir
-        fonts_dir = get_fonts_dir()
-        safe_name = font_family.replace(" ", "")
-        font_specific_dir = fonts_dir / safe_name
-        font_specific_dir.mkdir(parents=True, exist_ok=True)
-        css_file = font_specific_dir / f"{safe_name}.css"
-        if css_file.exists():
+        import urllib.parse
+        from backend.core.fonts import ensure_google_font_css
+
+        def _rewrite(font_url: str, local_font_path) -> str:
+            file_server_port = self.get_file_server_port()
+            if file_server_port:
+                local_url = f"http://localhost:{file_server_port}/api/media?path={urllib.parse.quote(str(local_font_path))}"
+            else:
+                local_url = f"/api/media?path={urllib.parse.quote(str(local_font_path))}"
+            return local_url
+
+        css_file, err = ensure_google_font_css(font_family, url_rewriter=_rewrite)
+        if css_file:
             return {"success": True, "css_path": str(css_file)}
-        try:
-            url_family = font_family.replace(" ", "+")
-            css_url = f"https://fonts.googleapis.com/css2?family={url_family}:wght@400;700;800;900&display=swap"
-            req = urllib.request.Request(css_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                css_content = response.read().decode('utf-8')
-            urls = re.findall(r"url\((https://[^)]+)\)", css_content)
-            if not urls:
-                css_url = f"https://fonts.googleapis.com/css2?family={url_family}&display=swap"
-                req = urllib.request.Request(css_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    css_content = response.read().decode('utf-8')
-                urls = re.findall(r"url\((https://[^)]+)\)", css_content)
-            for font_url in set(urls):
-                font_filename = font_url.split("/")[-1]
-                local_font_path = font_specific_dir / font_filename
-                if not local_font_path.exists():
-                    logger.info(f"Downloading font file: {font_filename} to {font_specific_dir}")
-                    urllib.request.urlretrieve(font_url, local_font_path)
-                import urllib.parse
-                file_server_port = self.get_file_server_port()
-                if file_server_port:
-                    local_url = f"http://localhost:{file_server_port}/api/media?path={urllib.parse.quote(str(local_font_path))}"
-                else:
-                    local_url = f"/api/media?path={urllib.parse.quote(str(local_font_path))}"
-                css_content = css_content.replace(font_url, local_url)
-            with open(css_file, "w", encoding="utf-8") as f:
-                f.write(css_content)
-            return {"success": True, "css_path": str(css_file)}
-        except Exception as e:
-            logger.error(f"Failed to download font {font_family}: {e}")
-            return {"success": False, "error": str(e)}
+        return {"success": False, "error": err or f"Could not download font {font_family}"}
 
     def check_omnivoice_downloaded(self) -> bool:
         from backend.omnivoice_tts import check_omnivoice_model

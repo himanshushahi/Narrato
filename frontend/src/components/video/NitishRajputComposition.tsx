@@ -1,5 +1,5 @@
-import React, { useMemo, useCallback } from 'react';
-import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment, interpolate, Easing } from 'remotion';
+import React, { useMemo, useCallback, useEffect } from 'react';
+import { Sequence, Audio, useVideoConfig, useCurrentFrame, getRemotionEnvironment, interpolate, Easing, delayRender, continueRender } from 'remotion';
 import { PaperOverlay } from './PaperOverlay';
 import { KineticSubtitles } from './KineticSubtitles';
 import { GlobalOverlaysRenderer, GlobalOverlayItem } from './GlobalOverlaysRenderer';
@@ -99,6 +99,12 @@ export interface Props {
   /** Visual-effects policy from Settings (defaults to balanced). */
   quality?: QualityPolicy | unknown;
   __file_server_port__?: number;
+  /**
+   * Self-contained @font-face stylesheet (fonts embedded as data: URIs),
+   * supplied by the backend at export time. The editor preview loads fonts
+   * via injected <link> tags instead, so this is usually empty there.
+   */
+  fontCssInline?: string;
 }
 
 export interface SceneTiming {
@@ -412,6 +418,59 @@ const DynamicFadeAudio: React.FC<{
   );
 };
 
+/**
+ * Export-time font injector. Headless Chromium renders the prebuilt bundle,
+ * which never sees the editor document's injected <link> font tags — without
+ * this, export falls back to system fonts with different metrics (the
+ * Devanagari clipping / preview≠export drift). Injects the backend-supplied
+ * self-contained stylesheet and holds the frame (delayRender) until
+ * document.fonts is ready, with a 5s failsafe so rendering can never hang.
+ */
+const FontLoader: React.FC<{ css?: string }> = ({ css }) => {
+  // Handle is created per css value inside the effect (never during render,
+  // so StrictMode double-render can't leak a hold): a css swap settles the
+  // old hold in cleanup and takes a fresh one until fonts are ready again.
+  useEffect(() => {
+    const handle = delayRender('font-loader');
+    let settled = false;
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        continueRender(handle);
+      }
+    };
+    if (css) {
+      const existing = document.querySelector('style[data-export-fonts]');
+      if (existing) {
+        existing.textContent = css;
+      } else {
+        const el = document.createElement('style');
+        el.setAttribute('data-export-fonts', '1');
+        el.textContent = css;
+        document.head.appendChild(el);
+      }
+      try {
+        const ready = (document as any).fonts?.ready;
+        if (ready && typeof ready.then === 'function') {
+          ready.then(finish).catch(finish);
+        } else {
+          finish();
+        }
+      } catch {
+        finish();
+      }
+    } else {
+      finish();
+    }
+    const failsafe = setTimeout(finish, 5000);
+    return () => {
+      clearTimeout(failsafe);
+      finish(); // never leak a hold on unmount / css swap
+    };
+  }, [css]);
+  return null;
+};
+
 export const NitishRajputComposition: React.FC<Props> = ({
   audioUrl,
   bgMusicUrl,
@@ -429,7 +488,8 @@ export const NitishRajputComposition: React.FC<Props> = ({
   overlays = [],
   qualityMode,
   quality,
-  __file_server_port__
+  __file_server_port__,
+  fontCssInline = ''
 }) => {
   if (__file_server_port__ && typeof window !== 'undefined') {
     window.__file_server_port__ = __file_server_port__;
@@ -581,6 +641,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
 
   return (
     <div style={{ flex: 1, backgroundColor: '#0c0a09', position: 'relative', overflow: 'hidden', width: '100%', height: '100%' }}>
+      <FontLoader css={fontCssInline} />
       {/* 1. Spoken Narration Track & Ambient Soundtrack (Preview Only) */}
       {/* In production render, audio is now mixed directly via FFmpeg for speed */}
       {/* Volume is a frame-based function: muted sub-visuals (mute_voiceover / */}

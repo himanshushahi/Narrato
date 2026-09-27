@@ -6,6 +6,7 @@ import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import { inferMediaType } from '../../../utils/mediaExtensions';
 
 import { estimateTextDuration } from '../../../utils/duration';
+import { getNotoFamilyForLang } from '../../../components/video/complexScriptFonts';
 
 function isTempPreviewFile(filePath: string | undefined | null): boolean {
   if (!filePath) return false;
@@ -431,9 +432,33 @@ export function useScriptEditing(
             document.head.appendChild(link);
           }
         }
-      });
+      }).catch(() => { /* offline — preview falls back to system fonts */ });
     }
   }, [localProjectSettings.fontFamily, downloadFont]);
+
+  // Complex-script font guarantee: KineticText asks for the Noto family by
+  // name ('Noto Sans Devanagari', ...) but nothing loads it unless the user
+  // picked a font above — Text layers fell back to system fonts with
+  // different metrics. Ensure the project language's Noto family on open.
+  const settingsLanguage = (localProjectSettings as any).language;
+  useEffect(() => {
+    const noto = getNotoFamilyForLang(
+      selectedProject?.language || settingsLanguage
+    );
+    if (!noto || noto === localProjectSettings.fontFamily) return;
+    downloadFont(noto).then(res => {
+      if (res.success && res.css_path) {
+        const id = `font-${noto.replace(/\s/g, '')}`;
+        if (!document.getElementById(id)) {
+          const link = document.createElement('link');
+          link.id = id;
+          link.rel = 'stylesheet';
+          link.href = getMediaUrlSync(res.css_path);
+          document.head.appendChild(link);
+        }
+      }
+    }).catch(() => { /* offline — preview falls back to system fonts */ });
+  }, [selectedProject?.id, selectedProject?.language, settingsLanguage, localProjectSettings.fontFamily, downloadFont]);
 
   const handleStartEdit = useCallback((cardKey: string, mode: 'script' | 'visuals') => {
     // Per-card snapshots: switching from dirty Scene A to Scene B snapshots B
