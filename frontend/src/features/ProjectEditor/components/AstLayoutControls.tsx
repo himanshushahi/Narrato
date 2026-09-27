@@ -1,5 +1,6 @@
 import React, { memo, useState, useEffect } from 'react';
 import { BsLayoutSplit, BsSliders } from 'react-icons/bs';
+import { useProjectStore } from '../../../store/useProjectStore';
 
 interface AstLayoutControlsProps {
   style?: React.CSSProperties;
@@ -170,6 +171,9 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
   fullscreenLocked = false,
 }) => {
   const currentStyle = (style || {}) as Record<string, any>;
+  // Orientation-aware grid label — values are %-correct on every format.
+  const projectFormat = useProjectStore((s) => s.selectedProject?.video_format);
+  const gridLabel = projectFormat === 'portrait' ? '1080x1920 Grid' : projectFormat === 'square' ? '1080x1080 Grid' : '1920x1080 Grid';
 
   // LayerBox SOT v1: full-frame canvas types lock the whole Layout tab to
   // fullscreen. A stray positioned box would only crop the canvas (renderer
@@ -264,7 +268,7 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
   const isHeightLocked = !!currentStyle.aspectRatio && !!aspectRatioNum;
   const unlockHeight = () => {
     handleApplyPreset({
-      height: `${Math.max(10, Math.min(100, autoHeightVal))}%`,
+      height: `${Math.max(5, Math.min(100, autoHeightVal))}%`,
       aspectRatio: undefined,
     });
   };
@@ -570,7 +574,7 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
             <BsSliders size={11} />
             Position &amp; Box Size
           </span>
-          <span className="text-[9px] text-stone-500 font-mono">1920x1080 Grid</span>
+          <span className="text-[9px] text-stone-500 font-mono">{gridLabel}</span>
         </div>
         {dimensionsNote && (
           <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
@@ -663,12 +667,12 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
                 display={currentStyle.width !== undefined && currentStyle.width !== null ? String(currentStyle.width) : ''}
                 placeholder={`${widthVal}%`}
                 onCommit={v => handleUpdate('width', v)}
-                title="Base box width — % with decimals (e.g. 38.58%), px, or bare number. Slider covers 10–100%."
+                title="Base box width — % with decimals (e.g. 38.58%), px, or bare number. Slider covers 5–100% (backend floor)."
               />
             </div>
             <input
               type="range"
-              min="10"
+              min="5"
               max="100"
               value={widthVal}
               onChange={e => handleUpdate('width', `${e.target.value}%`)}
@@ -687,14 +691,14 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
                 placeholder={isHeightLocked ? 'Auto' : `${heightVal}%`}
                 disabled={isHeightLocked}
                 onCommit={v => handleApplyPreset({ height: v, aspectRatio: undefined })}
-                title={isHeightLocked ? 'Aspect locked — Width drives height. Unlock for freeform height.' : 'Base box height — % with decimals, px, or bare number. Slider covers 10–100%.'}
+                title={isHeightLocked ? 'Aspect locked — Width drives height. Unlock for freeform height.' : 'Base box height — % with decimals, px, or bare number. Slider covers 5–100% (backend floor).'}
               />
             </div>
             <input
               type="range"
-              min="10"
+              min="5"
               max="100"
-              value={isHeightLocked ? Math.max(10, Math.min(100, autoHeightVal)) : heightVal}
+              value={isHeightLocked ? Math.max(5, Math.min(100, autoHeightVal)) : heightVal}
               disabled={isHeightLocked}
               onChange={e => {
                 handleApplyPreset({

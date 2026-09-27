@@ -226,10 +226,11 @@ def probe_cut_payload(project_id: str, section_type: str,
     section_type = norm_sec
     cut_index = 0 if cut_index is None else cut_index
 
-    _, proj_dir, cuts, _, r_err = _resolve_cuts(project_id, section_type,
-                                                scene_index)
+    proj, proj_dir, cuts, _, r_err = _resolve_cuts(project_id, section_type,
+                                                 scene_index)
     if r_err:
         return r_err
+    proj_vf = str((proj or {}).get("video_format") or "landscape")
     if not 0 <= cut_index < len(cuts):
         total_cuts = len(cuts)
         return {"ok": False,
@@ -246,10 +247,11 @@ def probe_cut_payload(project_id: str, section_type: str,
             f"re-save the section via save_visuals.")}
     try:
         from backend.agent.geometry import lint_cut
-        geometry = lint_cut(cut, cut_index=cut_index)
+        geometry = lint_cut(cut, cut_index=cut_index, video_format=proj_vf)
     except Exception:
         geometry = {"warnings": [], "fixes": [], "boxes": [],
-                    "overlaps": []}
+                    "overlaps": [], "html_warnings": [],
+                    "container": {"width": 1920.0, "height": 1080.0}}
     try:
         from backend.agent.timing import lint_cut_timing
         timing = lint_cut_timing(cut, cut_index=cut_index)
@@ -287,10 +289,11 @@ def probe_scene_payload(project_id: str, section_type: str,
         return {"ok": False, "error": err}
     section_type = norm_sec
 
-    _, proj_dir, cuts, manifest_duration, r_err = _resolve_cuts(
+    proj_s, proj_dir, cuts, manifest_duration, r_err = _resolve_cuts(
         project_id, section_type, scene_index)
     if r_err:
         return r_err
+    proj_vf = str((proj_s or {}).get("video_format") or "landscape")
     display_label = format_display_label(section_type, scene_index, None)
     summaries: List[Dict[str, Any]] = []
     for idx, cut in enumerate(cuts):
@@ -335,9 +338,11 @@ def probe_scene_payload(project_id: str, section_type: str,
                           "assets_missing": missing})
     try:
         from backend.agent.geometry import lint_sub_visuals
-        geometry = lint_sub_visuals(cuts)
+        geometry = lint_sub_visuals(cuts, proj_vf)
     except Exception:
         geometry = {"warnings": [], "fixes": [], "overlaps": [],
+                    "boxes": [], "html_warnings": [],
+                    "container": {"width": 1920.0, "height": 1080.0},
                     "warning_count": 0, "fix_count": 0}
     try:
         from backend.agent.timing import lint_section_timing

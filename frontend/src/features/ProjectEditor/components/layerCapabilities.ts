@@ -39,6 +39,8 @@ const BACKGROUND_DIMS =
   'Note: procedural backgrounds render full-frame — Fullscreen layout is recommended for Background.';
 const MAP_DIMS =
   'Note: the map renders full-canvas and ignores inner sizing — shrinking this layer crops the world map instead of fitting it. Fullscreen is recommended for Map.';
+const HTML_DIMS =
+  'Note: only the outer AST box is draggable — inner HTML/CSS (positioning, vw units, transforms) is not modeled and can paint outside the box. Keep markup in a single 100% filler root with fluid (clamp()/%) type.';
 const CANVAS_ROTATE =
   'Note: rotation turns the whole full-frame canvas and exposes the composition background at the corners — prefer small angles for full-frame layers.';
 
@@ -77,13 +79,14 @@ export function getLayerCapability(kind: LayerKind): LayerCapability {
   switch (kind) {
     case 'Text':
     case 'Chart':
-    case 'HTML':
     case 'Shape':
     case 'Image':
     case 'Video':
     case 'Lottie':
     case 'Counter':
       return {};
+    case 'HTML':
+      return { dimensionsNote: HTML_DIMS };
     case 'Background':
       return {
         dimensionsNote: BACKGROUND_DIMS,

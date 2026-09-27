@@ -3,6 +3,7 @@ import { useEditorStore } from '../../../store/useEditorStore';
 import { usePlaybackStore } from '../../../store/usePlaybackStore';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { shallowEqualStyles } from '../visualSelection';
+import { isComplexScript } from '../../../components/video/complexScriptFonts';
 
 /**
  * Parse a CSS value (% or px or raw number) to percent space.
@@ -128,11 +129,13 @@ function estimateTextDims(
     ? fontSizeVal
     : parseFloat(String(fontSizeVal)) || 64;
   // Mirror the renderer's KineticText defaults so the estimated box matches
-  // the glyphs (lineHeight 1.25; letterSpacing normal = 0).
+  // the glyphs (lineHeight 1.25 Latin, 1.6 complex-script + 0.08em vertical
+  // padding; letterSpacing normal = 0).
   const lhRaw = typeof opts?.lineHeight === 'number' ? opts.lineHeight : parseFloat(String(opts?.lineHeight ?? ''));
+  const lhDefault = isComplexScript(cleanText) ? 1.6 : 1.25;
   const lh = Number.isFinite(lhRaw) && (lhRaw as number) > 0
     ? Math.min(3, Math.max(0.5, lhRaw as number))
-    : 1.25;
+    : lhDefault;
   const lsRaw = typeof opts?.letterSpacing === 'number' ? opts.letterSpacing : parseFloat(String(opts?.letterSpacing ?? ''));
   const ls = Number.isFinite(lsRaw) ? Math.min(60, Math.max(-10, lsRaw as number)) : 0;
 
@@ -158,10 +161,12 @@ function estimateTextDims(
       try {
         (ctx as any).letterSpacing = '0px';
       } catch { /* no-op */ }
-      // Add comfortable padding (24px horizontal, 16px vertical)
+      // Add comfortable padding (24px horizontal, 16px vertical) plus the
+      // renderer's 0.08em breathing room for complex scripts (matras).
+      const scriptPad = isComplexScript(cleanText) ? fs * 0.16 : 0;
       const totalWidthPx = maxLineWidth + 24;
       const lineHeightPx = fs * lh;
-      const totalHeightPx = lines.length * lineHeightPx + 16;
+      const totalHeightPx = lines.length * lineHeightPx + 16 + scriptPad;
 
       const widthPct = clampN((totalWidthPx / baseWidth) * 100, 8, 98);
       const heightPct = clampN((totalHeightPx / baseHeight) * 100, 5, 90);
@@ -568,6 +573,8 @@ interface DragInit {
   useRight: boolean;
   useBottom: boolean;
   style: Record<string, any>;
+  /** Backend size floor — 2% Shape, 5% everything else (schemas._clamp_percent). */
+  minSize: number;
 }
 
 interface DragSession {
@@ -620,7 +627,9 @@ interface RotateSession {
  * direction, e.g. slide-in offsets); resize pins the opposite edge (corners)
  * or axis (edges). Aspect-locked layers resize width-only with bottom-edge
  * pinning for north handles — N/S edge handles instead unlock via
- * `dropAspect` (freeform path). Size mirrors the Layout sliders (10–100%).
+ * `dropAspect` (freeform path). Ranges mirror the backend save authority
+ * (schemas._clamp_percent): sizes 5–100%, positions −20–100% — what you
+ * drag is what survives the save.
  */
 function computeDrag(
   init: DragInit,
@@ -632,8 +641,8 @@ function computeDrag(
 ): { left: number; top: number; width: number; height: number } {
   if (mode === 'move') {
     return {
-      left: clampN(snapPos(init.left + dxPct, init.width), -init.width, 100),
-      top: clampN(snapPos(init.top + dyPct, init.height), -init.height, 100),
+      left: clampN(snapPos(init.left + dxPct, init.width), -20, 100),
+      top: clampN(snapPos(init.top + dyPct, init.height), -20, 100),
       width: init.width,
       height: init.height,
     };
@@ -643,22 +652,26 @@ function computeDrag(
   const south = mode === 'edge' ? edge === 's' : corner === 'se' || corner === 'sw';
   const north = mode === 'edge' ? edge === 'n' : corner === 'ne' || corner === 'nw';
   if (init.aspect) {
-    const width = clampN(init.width + (east ? dxPct : -dxPct), 10, 100);
+    const floor = init.minSize ?? 5;
+    const width = clampN(init.width + (east ? dxPct : -dxPct), floor, 100);
     // Height scales linearly with width (fixed ratio, fixed container), so
     // north handles pin the bottom edge instead of growing the box downward.
-    const height = init.width > 0 ? (init.height * width) / init.width : init.height;
+    // Clamped to the backend range — tall ratios must not preview past 100%.
+    const height = init.width > 0
+      ? clampN((init.height * width) / init.width, floor, 100) : init.height;
     return {
-      left: clampN(east || (!west && !east) ? init.left : init.left + init.width - width, -width, 100),
-      top: south || (!north && !south) ? init.top : clampN(init.top + init.height - height, -height, 100),
+      left: clampN(east || (!west && !east) ? init.left : init.left + init.width - width, -20, 100),
+      top: south || (!north && !south) ? init.top : clampN(init.top + init.height - height, -20, 100),
       width,
       height,
     };
   }
-  const width = east || west ? clampN(init.width + (east ? dxPct : -dxPct), 10, 100) : init.width;
-  const height = south || north ? clampN(init.height + (south ? dyPct : -dyPct), 10, 100) : init.height;
+  const floor = init.minSize ?? 5;
+  const width = east || west ? clampN(init.width + (east ? dxPct : -dxPct), floor, 100) : init.width;
+  const height = south || north ? clampN(init.height + (south ? dyPct : -dyPct), floor, 100) : init.height;
   return {
-    left: clampN(west ? init.left + init.width - width : init.left, -width, 100),
-    top: clampN(north ? init.top + init.height - height : init.top, -height, 100),
+    left: clampN(west ? init.left + init.width - width : init.left, -20, 100),
+    top: clampN(north ? init.top + init.height - height : init.top, -20, 100),
     width,
     height,
   };
@@ -1685,6 +1698,7 @@ export const CanvasOverlay: React.FC<{
         useRight: box.leftPct === null && box.rightPct !== null,
         useBottom: box.topPct === null && box.bottomPct !== null,
         style,
+        minSize: layer?.content?.type === 'Shape' ? 2 : 5,
       },
       cur: { left, top, width: box.widthPct, height },
       preview: null,

@@ -563,8 +563,17 @@ const ASTLayerView: React.FC<{
             />
           );
         } else if (content.type === 'HTML') {
+          // Sandbox = the AST layer box: inner % resolves against this
+          // wrapper, overflow is clipped to it, and container queries (cqw)
+          // resolve against it too. inline-size (not size) containment:
+          // height:100% fills fixed-height boxes but still auto-grows when
+          // the layer omits height (size containment would collapse to 0).
+          // Inner px/vw/fixed still escape to the canvas — those are banned
+          // by the HTML contract (lint warns).
           node = (
-            <div style={htmlStyle} dangerouslySetInnerHTML={{ __html: content.html_content || '' }} />
+            <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', containerType: 'inline-size' }}>
+              <div style={htmlStyle} dangerouslySetInnerHTML={{ __html: content.html_content || '' }} />
+            </div>
           );
         } else if (content.type === 'Counter') {
           node = (

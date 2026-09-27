@@ -251,3 +251,27 @@ def test_clamping_keeps_boxes_on_canvas():
                  "width": "500%", "height": "2%"})
     assert cleaned["width"] == "100%"
     assert cleaned["height"] == "5%"
+
+# ── anchors: Text keeps bottom (lower-thirds) ──────────────────────────
+
+def test_text_double_vertical_anchor_keeps_bottom():
+    cleaned, _, _ = sanitize_layer_style(
+        'Text', {'position': 'absolute', 'left': '6%',
+                 'top': '60%', 'bottom': '18%', 'width': '88%'})
+    assert 'top' not in cleaned and cleaned['bottom'] == '18%'
+
+
+def test_non_text_double_vertical_anchor_still_keeps_top():
+    cleaned, _, _ = sanitize_layer_style(
+        'HTML', {'position': 'absolute', 'left': '10%',
+                 'top': '10%', 'bottom': '10%',
+                 'width': '80%', 'height': '66%'})
+    assert 'bottom' not in cleaned and cleaned['top'] == '10%'
+
+
+def test_text_anchor_rule_is_idempotent():
+    style = {'position': 'absolute', 'left': '6%',
+             'top': '60%', 'bottom': '18%', 'width': '88%'}
+    first, _, _ = sanitize_layer_style('Text', dict(style))
+    second, _, _ = sanitize_layer_style('Text', dict(first))
+    assert first == second

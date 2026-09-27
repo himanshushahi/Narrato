@@ -471,6 +471,78 @@ class AgentRunner:
             except Exception:
                 from backend.agent.timing import empty_timing_report as _empty_t
                 result["timing"] = _empty_t()
+            # Geometry/timing correction turn: the lints above used to be
+            # attached and never read -- the LLM stayed blind to overlaps,
+            # off-canvas boxes, HTML contract violations, and delay
+            # overflows. One extra turn when there is signal (never on
+            # clean output, so the common path costs nothing).
+            try:
+                _geo = result.get("geometry") or {}
+                _tim = result.get("timing") or {}
+                _before = int(_geo.get("warning_count") or 0) + \
+                    len(_tim.get("warnings") or [])
+                _sig = list((_geo.get("warnings") or [])[:8]) + \
+                    list((_tim.get("warnings") or [])[:8])
+                _fixes = list((_geo.get("fixes") or [])[:8])
+                if _sig:
+                    _fb = "\n".join(f"- {s}" for s in _sig)
+                    if _fixes:
+                        _fb += "\nSuggested fixes:\n" + \
+                            "\n".join(f"- {s}" for s in _fixes)
+                    self._emit_progress(
+                        "Agent: Refining visual layout "
+                        f"({len(_sig)} placement notes)...")
+                    # Capped budget: refinement is one short turn, never a
+                    # second full generation.
+                    _ref_turns = min(max_turns or 2, 2)
+                    _corr = self.run_with_tools(
+                        system_prompt,
+                        user_prompt +
+                        "\n\nLAYOUT REFINEMENT (your boxes validated, but "
+                        "these placement notes remain — fix what is "
+                        "genuinely wrong, KEEP everything else identical; "
+                        "overlap flagged as intentional (label-over-media) "
+                        "must stay exactly as-is):\n" + _fb,
+                        schema,
+                        base_activity_label="Agent: layout refinement",
+                        allowed_tools=allowed_tools, max_turns=_ref_turns)
+                    if isinstance(_corr, list):
+                        _corr = {"sub_visuals": _corr}
+                    if isinstance(_corr, dict) and _corr.get("sub_visuals"):
+                        _ok, _svs, _ = validate_sub_visuals(
+                            _corr["sub_visuals"], expected_duration,
+                            video_format=video_format)
+                        if _ok:
+                            # Accept only an improvement: re-lint and compare
+                            # warning counts, so a noisier refinement can
+                            # never replace the valid original.
+                            try:
+                                _g2 = _lint(_svs, video_format)
+                            except Exception:
+                                _g2 = None
+                            try:
+                                _t2 = _lint_t(_svs)
+                            except Exception:
+                                _t2 = None
+                            _after = (int((_g2 or {}).get("warning_count") or 0)
+                                      + len((_t2 or {}).get("warnings") or []))
+                            if _g2 is not None and _t2 is not None \
+                                    and _after < _before:
+                                result["sub_visuals"] = _svs
+                                result["geometry"] = _g2
+                                result["timing"] = _t2
+                                return result
+                            self._emit_progress(
+                                "Agent: Layout refinement not cleaner, "
+                                "keeping prior boxes.")
+                        else:
+                            # Refinement broke validity — keep the valid original.
+                            self._emit_progress(
+                                "Agent: Layout refinement invalid, keeping prior boxes.")
+            except (InterruptedError, KeyboardInterrupt):
+                raise
+            except Exception:
+                pass
             return result
 
         self._emit_progress(f"Agent: Correcting visual error ({error_msg})...")

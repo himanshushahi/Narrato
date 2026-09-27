@@ -328,8 +328,8 @@ def normalize_layer_box(content_type: Any, style: Dict[str, Any],
 
     - coerces `position` to `absolute` when a box is present;
     - converts `px`/unitless geometry to `%` strings;
-    - resolves double anchors (`top`+`bottom` → keep `top`;
-      `left`+`right` → keep `left`);
+    - resolves double anchors (`top`+`bottom` → keep `bottom` for Text
+      (lower-thirds), `top` for everything else; `left`+`right` → keep `left`);
     - clamps geometry to canvas ranges;
     - forces `Map`/`Particles` boxes to fullscreen.
     Returns human-readable notes for logging. Idempotent.
@@ -352,8 +352,16 @@ def normalize_layer_box(content_type: Any, style: Dict[str, Any],
                 notes.append(f"{key}:clamped")
                 style[key] = clamped
     if "top" in style and "bottom" in style:
-        style.pop("bottom", None)
-        notes.append("anchor:kept-top")
+        # Lower-thirds are bottom-anchored by convention (LOWER_THIRD_FILL):
+        # a Text layer carrying both anchors almost always gained a stray
+        # top from the author — keep bottom so it stays glued to the safe
+        # area. Every other type keeps top (historical behavior).
+        if content_type == "Text":
+            style.pop("top", None)
+            notes.append("anchor:kept-bottom")
+        else:
+            style.pop("bottom", None)
+            notes.append("anchor:kept-top")
     if "left" in style and "right" in style:
         style.pop("right", None)
         notes.append("anchor:kept-left")
@@ -442,7 +450,8 @@ def sanitize_layer_style(content_type: Any, style: Any,
       fields when those are empty;
     - the LayerBox contract is enforced via normalize_layer_box():
       `px`/unitless geometry → `%`, double anchors resolved
-      (`top`/`left` win), values clamped, `Map`/`Particles` forced
+      (`left` wins; `top`+`bottom` → `bottom` wins for Text lower-thirds,
+      `top` wins otherwise), values clamped, `Map`/`Particles` forced
       fullscreen, `position` coerced to `absolute`;
     - everything else passes through untouched, even GUI-less keys (the
       layer-card warning surface covers visibility, not the validator).
@@ -588,7 +597,7 @@ class LayerContent(AppBaseModel):
     image_type: Optional[str] = Field(default=None, description="Pixabay image type filter (only for source='pixabay'). Use 'illustration' or 'vector' to get transparent-background PNG cutouts/icons.", json_schema_extra={"enum": ["all", "photo", "illustration", "vector"]})
     yt_start_offset: Optional[float] = Field(default=None, description="Seconds to skip from the start of the YouTube video before capturing the clip (source='youtube' only). Default 15.")
     yt_duration: Optional[float] = Field(default=None, description="Duration in seconds of the YouTube clip to download (source='youtube' only). Default 15, max 30.")
-    style: Optional[Dict[str, Any]] = Field(default=None, description="LayerBox SOT v1 — the ONLY geometry authority. Box keys: position/left/top/right/bottom/width/height (% strings ONLY, never px — px/unitless are normalized to % at ingest), borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors). Anchor rule: top XOR bottom, left XOR right (never both; top/left win). Background children[0] with no box = fullscreen (valid). Map/Particles/Background MUST be fullscreen 100%x100% (their canvas ignores sizing — a positioned box only crops). Shape box = stage, content width/height/radius = glyph detail (legacy content width/height dropped when a box exists). Text lower-thirds use the bottom anchor. Center math: width 42% -> left 29% (50-width/2). NEVER transform/opacity/filter/display/mixBlendMode in style (transform stripped + overlay loses sync; style.filter hoisted to layer filters; opacity belongs in animations). Text font/weight/color are top-level content fields, plus objectFit (Image/Video), Text extras, Chart accent color.")
+    style: Optional[Dict[str, Any]] = Field(default=None, description="LayerBox SOT v1 — the ONLY geometry authority. Box keys: position/left/top/right/bottom/width/height (% strings ONLY, never px — px/unitless are normalized to % at ingest), borderRadius, aspectRatio, rotate (deg), scale/scaleX/scaleY (multiplier, negative mirrors). Anchor rule: top XOR bottom, left XOR right (never both; left wins; top+bottom conflict: Text keeps bottom, others keep top). Background children[0] with no box = fullscreen (valid). Map/Particles/Background MUST be fullscreen 100%x100% (their canvas ignores sizing — a positioned box only crops). Shape box = stage, content width/height/radius = glyph detail (legacy content width/height dropped when a box exists). Text lower-thirds use the bottom anchor. Center math: width 42% -> left 29% (50-width/2). NEVER transform/opacity/filter/display/mixBlendMode in style (transform stripped + overlay loses sync; style.filter hoisted to layer filters; opacity belongs in animations). Text font/weight/color are top-level content fields, plus objectFit (Image/Video), Text extras, Chart accent color.")
 
     @model_validator(mode="before")
     @classmethod

@@ -27,12 +27,12 @@ Use these standard responsive percentage coordinates for multi-element compositi
 | **A. Centered Card** | Landscape (16:9) | `left: "12.5%", top: "15%", width: "75%", height: "65%", borderRadius: "22px"` | Single-focus data card, dossier, or main hero subject |
 | **B. Split-Screen Left** | Landscape (16:9) | `left: "6%", top: "16%", width: "42%", height: "66%", borderRadius: "20px"` | Data chart, metric counter, or HTML leaked memo |
 | **B. Split-Screen Right** | Landscape (16:9) | `left: "52%", top: "16%", width: "42%", height: "66%", borderRadius: "20px"` | Media inset (archival photo, Wikipedia logo, cutout) |
-| **C. Portrait Top-Stack** | Portrait (9:16) | `top: "8%", height: "18%"` + subject `top: "30%", height: "40%"` | Shorts/Reels headline over centered graphic subject |
-| **C. Portrait Center-Punch** | Portrait (9:16) | `top: "35%", height: "30%"` (full width) | Big metric counter, explosive stat, or single icon callout |
-| **C. Portrait Split-Stack** | Portrait (9:16) | Card 1: `top: "12%", height: "34%"`; Card 2: `top: "50%", height: "20%"` | Dual comparison metrics stacked vertically in mobile format |
+| **C. Portrait Top-Stack** | Portrait (9:16) | `left: "6%", top: "8%", width: "88%", height: "18%"` + subject `left: "6%", top: "30%", width: "88%", height: "40%"` | Shorts/Reels headline over centered graphic subject |
+| **C. Portrait Center-Punch** | Portrait (9:16) | `left: "6%", top: "35%", width: "88%", height: "30%"` | Big metric counter, explosive stat, or single icon callout |
+| **C. Portrait Split-Stack** | Portrait (9:16) | Card 1: `left: "6%", top: "12%", width: "88%", height: "34%"`; Card 2: `left: "6%", top: "50%", width: "88%", height: "20%"` | Dual comparison metrics stacked vertically in mobile format |
 | **D. 2x1 Top KPI + Bar** | Landscape (16:9) | Left: `left: "6%", top: "16%", width: "42%", height: "32%"`; Right: `left: "52%", top: "16%", width: "42%", height: "32%"`; Bottom: `left: "6%", top: "52%", width: "88%", height: "28%"` | Dual KPI metric cards above full-width comparative chart |
 
-Canvas pixel grids: landscape = 1920×1080, portrait = 1080×1920. Equal `%` on width and height ≠ equal pixels — use `aspectRatio: "1 / 1"` (+ drop `height`) for true squares/circles.
+Canvas pixel grids: landscape = 1920×1080, portrait = 1080×1920. Equal `%` on width and height ≠ equal pixels — use `aspectRatio: "1 / 1"` (+ drop `height`) for true squares/circles. Normative geometry reference (canvas grids, %→px tables, anchor formulas, clamp table, fullscreen list, overflow model): `docs/COORDINATE_SPEC.md` — it wins when any guide disagrees.
 
 **Collision / Overlap guard**: when a cut has multiple positioned layers, verify boxes do NOT overlap unless intentional (e.g., text label over an image). Use the presets below (A–C) for safe splits. Common safe horizontal split: left `left: "6%", width: "42%"` + right `left: "52%", width: "42%"` (6% gap). Vertical stacking: `top` + `height` + gap ≤ 100%. Overlap is acceptable ONLY when a foreground element (text, badge, shape dot) intentionally sits atop a background/image layer.
 
