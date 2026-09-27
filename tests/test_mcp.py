@@ -1971,3 +1971,141 @@ def test_server_batch_holds_marker_and_coerces_flag(monkeypatch):
     with server._STAGE_LOCK:
         assert server._project_active_stage("p1") is None
 
+
+def test_scene_cut_numbering_1based_and_aliases(tmp_path, monkeypatch):
+    """Verify 1-based scene_number, cut_number, section normalization, conflict checks, and zero rejection."""
+    from backend.mcp import payloads as p
+    from backend.mcp import probe
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+
+    # 1. Save visuals using 1-based scene_number=1, whole section
+    res1 = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("Cut 1"), _text_cut("Cut 2")], scene_number=1)
+    assert res1["ok"] is True
+    assert res1["scene_index"] == 0
+    assert res1["scene_number"] == 1
+    assert res1["display_label"] == "Scene 1"
+    assert res1["cut_count"] == 2
+
+    # 2. Get visuals using 1-based scene_number=1
+    gv1 = p.get_visuals_payload("proj_mcp", "scene", scene_number=1)
+    assert gv1["ok"] is True
+    assert gv1["scene_index"] == 0
+    assert gv1["scene_number"] == 1
+    assert gv1["count"] == 2
+    assert gv1["display_label"] == "Scene 1"
+
+    # 3. Patch single cut using 1-based cut_number=2
+    patch_res = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("Patched Cut 2")], scene_number=1, cut_number=2)
+    assert patch_res["ok"] is True
+    assert patch_res["scene_index"] == 0
+    assert patch_res["scene_number"] == 1
+    assert patch_res["cut_index"] == 1
+    assert patch_res["cut_number"] == 2
+    assert patch_res["display_label"] == "Scene 1 : Cut #2"
+
+    # 4. Get single cut using 1-based cut_number=2
+    gv_single = p.get_visuals_payload("proj_mcp", "scene", scene_number=1, cut_number=2)
+    assert gv_single["ok"] is True
+    assert gv_single["scene_index"] == 0
+    assert gv_single["scene_number"] == 1
+    assert gv_single["cut_index"] == 1
+    assert gv_single["cut_number"] == 2
+    assert gv_single["display_label"] == "Scene 1 : Cut #2"
+    assert "Patched Cut 2" in json.dumps(gv_single["sub_visual"])
+
+    # 5. Section alias normalization: "intro" -> "introduction", "outro" -> "conclusion"
+    intro_res = p.save_visuals_payload("proj_mcp", "intro", [_text_cut("Intro Cut 1"), _text_cut("Intro Cut 2")])
+    assert intro_res["ok"] is True
+    assert intro_res["section_type"] == "introduction"
+    assert intro_res["display_label"] == "Introduction"
+
+    # Single cut patch on intro with cut_number=2
+    intro_patch = p.save_visuals_payload("proj_mcp", "hook", [_text_cut("Intro Patched 2")], cut_number=2)
+    assert intro_patch["ok"] is True
+    assert intro_patch["section_type"] == "introduction"
+    assert intro_patch["cut_index"] == 1
+    assert intro_patch["cut_number"] == 2
+    assert intro_patch["display_label"] == "Introduction : Cut #2"
+
+    # 6. Conflict checks: scene_index=1, scene_number=1 must return error
+    conflict1 = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("X")], scene_index=1, scene_number=1)
+    assert conflict1["ok"] is False
+    assert "Index/Number conflict" in conflict1["error"]
+
+    conflict2 = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("X")], scene_number=1, cut_index=1, cut_number=1)
+    assert conflict2["ok"] is False
+    assert "Index/Number conflict" in conflict2["error"]
+
+    # 7. Non-positive numbers rejected
+    zero_scene = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("X")], scene_number=0)
+    assert zero_scene["ok"] is False
+    assert "numbers are 1-based" in zero_scene["error"]
+
+    zero_cut = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("X")], scene_number=1, cut_number=0)
+    assert zero_cut["ok"] is False
+    assert "numbers are 1-based" in zero_cut["error"]
+
+    # 8. Probe tools with 1-based coordinates
+    cut_probe = probe.probe_cut_payload("proj_mcp", "scene", scene_number=1, cut_number=2)
+    assert cut_probe["ok"] is True
+    assert cut_probe["scene_number"] == 1
+    assert cut_probe["cut_number"] == 2
+    assert cut_probe["display_label"] == "Scene 1 : Cut #2"
+
+    scene_probe = probe.probe_scene_payload("proj_mcp", "scene", scene_number=1)
+    assert scene_probe["ok"] is True
+    assert scene_probe["scene_number"] == 1
+    assert scene_probe["display_label"] == "Scene 1"
+
+    # 9. Out-of-range error shows both 0-based and 1-based coordinates
+    oor = probe.probe_cut_payload("proj_mcp", "scene", scene_number=1, cut_number=99)
+    assert oor["ok"] is False
+    assert "cut_index 98 (UI Cut #99) out of range" in oor["error"]
+
+    # 10. get_section_timings includes scene_number, cut_number, display_label
+    timings = p.get_section_timings("proj_mcp", include_words=False)
+    assert timings["ok"] is True
+    intro_sec = timings["sections"][0]
+    assert intro_sec["display_label"] == "Introduction"
+    scene1_sec = timings["sections"][1]
+    assert scene1_sec["scene_number"] == 1
+    assert scene1_sec["display_label"] == "Scene 1"
+    assert scene1_sec["cuts"][0]["cut_number"] == 1
+    assert scene1_sec["cuts"][0]["display_label"] == "Scene 1 : Cut #1"
+
+    # 11. Batch with 1-based items
+    batch_res = p.save_visuals_batch_payload("proj_mcp", [
+        {"section_type": "scene", "scene_number": 2, "sub_visuals": [_text_cut("Batch Scene 2")]},
+        {"section_type": "scene", "scene_number": 1, "cut_number": 2, "sub_visuals": [_text_cut("Batch Scene 1 Cut 2")]},
+        {"section_type": "outro", "sub_visuals": [_text_cut("Batch Outro")]},
+    ], dry_run=True)
+    assert batch_res["ok"] is True
+    assert batch_res["results"][0]["scene_number"] == 2
+    assert batch_res["results"][0]["display_label"] == "Scene 2"
+    assert batch_res["results"][1]["scene_number"] == 1
+    assert batch_res["results"][1]["cut_number"] == 2
+    assert batch_res["results"][1]["display_label"] == "Scene 1 : Cut #2"
+    assert batch_res["results"][2]["section_type"] == "conclusion"
+    assert batch_res["results"][2]["display_label"] == "Conclusion"
+
+
+def test_frames_review_1based_targeting(tmp_path, monkeypatch):
+    from backend.mcp import frames
+    _review_fixtures(tmp_path, monkeypatch)
+    # resolve_targets with scene_number=1, cut_number=2
+    plan = frames.resolve_targets("proj_mcp", "scene", scene_number=1, cut_number=2, scope="cut", mode="composition")
+    assert plan["scene_number"] == 1
+    assert plan["scene_index"] == 0
+    assert plan["cut_number"] == 2
+    assert plan["cut_index"] == 1
+    assert plan["display_label"] == "Scene 1 : Cut #2"
+    assert "Cut #2 (idx 1)" in plan["cells"][0]["label"]
+
+    # resolve_targets with section scope
+    sec_plan = frames.resolve_targets("proj_mcp", "scene", scene_number=1, scope="section", mode="composition")
+    assert sec_plan["scene_number"] == 1
+    assert sec_plan["scene_index"] == 0
+    assert sec_plan["display_label"] == "Scene 1"
+    assert any("Cut #" in c["label"] for c in sec_plan["cells"])
+
+

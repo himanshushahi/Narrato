@@ -22,6 +22,182 @@ from backend.core.logger import logger
 # Sections the agent may target with save_visuals.
 SECTION_TYPES = ("introduction", "scene", "conclusion")
 
+
+def _normalize_section_type(raw: str) -> str:
+    """Normalize section_type aliases to canonical names ('introduction', 'scene', 'conclusion')."""
+    s = str(raw or "").strip().lower()
+    if s in ("introduction", "intro", "hook", "intro_scene", "opening"):
+        return "introduction"
+    if s in ("conclusion", "outro", "cta", "summary", "ending", "end", "end card", "conclusion_scene"):
+        return "conclusion"
+    if s in ("scene", "scenes", "chapter"):
+        return "scene"
+    return s
+
+
+def format_display_label(section_type: str, scene_index: int = 0, cut_index: int | None = None) -> str:
+    """Format a consistent 1-based display label matching the UI (e.g. 'Scene 1 : Cut #2')."""
+    norm_sec = _normalize_section_type(section_type)
+    if norm_sec == "introduction":
+        base = "Introduction"
+    elif norm_sec == "conclusion":
+        base = "Conclusion"
+    elif norm_sec == "scene":
+        base = f"Scene {scene_index + 1}"
+    else:
+        # Unknown/corrupt section_type: preserve raw value, never mislabel as Scene.
+        base = str(section_type)
+    if cut_index is not None and cut_index >= 0:
+        return f"{base} : Cut #{cut_index + 1}"
+    return base
+
+
+def _coerce_int_param(name: str, value) -> tuple[int | None, str | None]:
+    """Lenient int coercion preserving back-compat (int, integral float, numeric string).
+
+    Accepts 1, 1.0, "1", " 2 ". Rejects bool, 1.5, "abc", None (None = absent).
+    Returns (coerced_int_or_None_when_absent, error_message_or_None).
+    """
+    if value is None:
+        return None, None
+    if isinstance(value, bool):
+        return None, f"{name} must be an integer (got {value!r})."
+    if isinstance(value, int):
+        return value, None
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value), None
+        return None, f"{name} must be an integer (got {value!r})."
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None, f"{name} must be an integer (got {value!r})."
+        try:
+            # Accept "3" and "3.0", reject "3.5" and "abc".
+            f = float(s)
+            if f.is_integer():
+                return int(f), None
+        except (TypeError, ValueError):
+            pass
+        return None, f"{name} must be an integer (got {value!r})."
+    return None, f"{name} must be an integer (got {value!r})."
+
+
+def resolve_scene_and_cut(
+    section_type: str,
+    scene_index: int | None = None,
+    scene_number: int | None = None,
+    cut_index: int | None = None,
+    cut_number: int | None = None,
+    default_scene: int = 0,
+    default_cut: int | None = None,
+    allow_negative_cut: bool = True,
+) -> tuple[str, int, int | None, str | None]:
+    """Resolve section_type, scene_index, cut_index from dual 0-based and 1-based params.
+
+    Returns: (normalized_section_type, final_scene_index, final_cut_index, error_message)
+    error_message is None on success.
+
+    Rules:
+    - Normalizes section_type aliases ('intro', 'outro', 'hook', 'cta', 'chapter', etc.).
+    - scene_number is 1-based: scene_number=1 maps to scene_index=0.
+    - cut_number is 1-based: cut_number=1 maps to cut_index=0.
+    - If both index and number are given, they must agree (index == number - 1),
+      otherwise returns an error with an actionable hint.
+    - Non-positive numbers (e.g. 0) are rejected with a hint explaining numbers are 1-based.
+    - For 'introduction' and 'conclusion', scene_index is coerced to 0 (never errors on scene_index).
+    """
+    norm_sec = _normalize_section_type(section_type)
+    if norm_sec not in SECTION_TYPES:
+        return norm_sec, 0, None, f"section_type must be one of {list(SECTION_TYPES)} (got {section_type!r})."
+
+    # Validate scene_number if passed
+    parsed_scene_number = None
+    if scene_number is not None:
+        coerced, num_err = _coerce_int_param("scene_number", scene_number)
+        if num_err:
+            return norm_sec, 0, None, num_err
+        parsed_scene_number = coerced
+        if parsed_scene_number <= 0:
+            return norm_sec, 0, None, (
+                f"scene_number {parsed_scene_number} is invalid: numbers are 1-based "
+                f"(e.g. Scene 1 = scene_number=1). Use scene_index for 0-based indexing."
+            )
+
+    # Validate scene_index if passed (negatives rejected early — no nonsense UI Scene 0 hints)
+    parsed_scene_index = None
+    if scene_index is not None:
+        coerced, idx_err = _coerce_int_param("scene_index", scene_index)
+        if idx_err:
+            return norm_sec, 0, None, idx_err
+        parsed_scene_index = coerced
+        if parsed_scene_index is not None and parsed_scene_index < 0:
+            return norm_sec, 0, None, (
+                f"scene_index must be >= 0 (got {parsed_scene_index}). "
+                f"UI Scene 1 = scene_index 0; use scene_number for 1-based numbering."
+            )
+
+    # Conflict check
+    if parsed_scene_number is not None and parsed_scene_index is not None and norm_sec == "scene":
+        if parsed_scene_index != parsed_scene_number - 1:
+            return norm_sec, 0, None, (
+                f"Index/Number conflict: scene_index={parsed_scene_index} (0-based, UI Scene {parsed_scene_index + 1}) "
+                f"does not match scene_number={parsed_scene_number} (1-based, index {parsed_scene_number - 1}). "
+                f"Pass either scene_number={parsed_scene_number} (1-based) OR scene_index={parsed_scene_number - 1} (0-based)."
+            )
+
+    if norm_sec in ("introduction", "conclusion"):
+        final_scene_index = 0
+    elif parsed_scene_number is not None:
+        final_scene_index = parsed_scene_number - 1
+    elif parsed_scene_index is not None:
+        final_scene_index = parsed_scene_index
+    else:
+        final_scene_index = default_scene
+
+    # Validate cut_number if passed
+    parsed_cut_number = None
+    if cut_number is not None:
+        coerced, num_err = _coerce_int_param("cut_number", cut_number)
+        if num_err:
+            return norm_sec, final_scene_index, None, num_err
+        parsed_cut_number = coerced
+        if parsed_cut_number <= 0:
+            return norm_sec, final_scene_index, None, (
+                f"cut_number {parsed_cut_number} is invalid: numbers are 1-based "
+                f"(e.g. Cut 1 = cut_number=1). Use cut_index for 0-based indexing."
+            )
+
+    # Validate cut_index if passed
+    parsed_cut_index = None
+    if cut_index is not None:
+        coerced, idx_err = _coerce_int_param("cut_index", cut_index)
+        if idx_err:
+            return norm_sec, final_scene_index, None, idx_err
+        parsed_cut_index = coerced
+        if not allow_negative_cut and parsed_cut_index < 0:
+            return norm_sec, final_scene_index, None, f"cut_index must be a non-negative integer or omitted (got {parsed_cut_index})."
+
+    # Conflict check (fires even for negative cut_index: cut_index=-1 + cut_number=2 must error)
+    if parsed_cut_number is not None and parsed_cut_index is not None:
+        if parsed_cut_index != parsed_cut_number - 1:
+            return norm_sec, final_scene_index, None, (
+                f"Index/Number conflict: cut_index={parsed_cut_index} (0-based, UI Cut #{parsed_cut_index + 1}) "
+                f"does not match cut_number={parsed_cut_number} (1-based, index {parsed_cut_number - 1}). "
+                f"Pass either cut_number={parsed_cut_number} (1-based) OR cut_index={parsed_cut_number - 1} (0-based)."
+            )
+
+    if parsed_cut_number is not None:
+        final_cut_index = parsed_cut_number - 1
+    elif parsed_cut_index is not None and parsed_cut_index >= 0:
+        final_cut_index = parsed_cut_index
+    elif parsed_cut_index is not None and parsed_cut_index < 0:
+        final_cut_index = None
+    else:
+        final_cut_index = default_cut
+
+    return norm_sec, final_scene_index, final_cut_index, None
+
 # Session-wide verified media queries (recorded by search_media on success).
 # save_visuals reports any Image/Video query absent here as unverified —
 # verification used to be prose-only ("verify BEFORE writing") that agents
@@ -925,10 +1101,11 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
     sections = []
     cursor = 0.0
     scene_counter = 0
+    manifest_idx = 0
     for entry in manifest:
         if not isinstance(entry, dict):
             continue
-        sec_type = entry.get("section_type")
+        sec_type = _normalize_section_type(entry.get("section_type"))
         duration = float(entry.get("duration", 0) or 0)
         section_words = []
         if words:
@@ -937,21 +1114,42 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
                 for w in words
                 if cursor <= w["start"] < cursor + duration
             ]
+        display_label = format_display_label(sec_type, scene_counter)
+        subs = entry.get("sub_visuals") or []
+        cuts_info = [
+            {
+                "cut_number": ci + 1,
+                "cut_index": ci,
+                "display_label": f"{display_label} : Cut #{ci + 1}",
+                "duration": round(float(sv.get("duration", 0) or 0), 2) if isinstance(sv, dict) else 0.0,
+            }
+            for ci, sv in enumerate(subs)
+            if isinstance(sv, dict)
+        ]
         info = {
+            "manifest_index": manifest_idx,
             "section_type": sec_type,
+            "display_label": display_label,
             "title": entry.get("title", ""),
             "text": entry.get("text", ""),
             "duration": round(duration, 2),
             "start_time": round(cursor, 2),
-            "has_visuals": bool(entry.get("sub_visuals")),
+            "has_visuals": bool(subs),
+            "cut_count": len(cuts_info),
+            "cuts": cuts_info,
         }
         if sec_type == "scene":
             info["scene_index"] = scene_counter
+            info["scene_number"] = scene_counter + 1
             scene_counter += 1
+        else:
+            info["scene_index"] = None
+            info["scene_number"] = None
         if include_words:
             info["words"] = section_words
         sections.append(info)
         cursor += duration
+        manifest_idx += 1
     return {"ok": True, "project_id": project_id,
             "total_duration": round(cursor, 2), "sections": sections,
             "creative_blueprint": _creative_blueprint_for_project(proj),
@@ -1013,17 +1211,22 @@ def _canonical_sample_cut(video_format: str = "landscape") -> dict:
 
 
 def save_visuals_payload(project_id: str, section_type: str,
-                         sub_visuals, scene_index: int = 0,
+                         sub_visuals, scene_index: int | None = None,
                          cut_index: int | None = None,
+                         scene_number: int | None = None,
+                         cut_number: int | None = None,
                          dry_run: bool = False,
                          auto_migrate: bool = False) -> dict:
     """Validate agent-authored sub_visuals for one section and persist them
     to both the active manifest and script.json (mirrors the manifest-sync
     tail of ai.generate_visuals_pipeline).
 
+    Supports both 0-based indexes (scene_index, cut_index) and 1-based UI
+    numbers (scene_number, cut_number).
+
     Two modes:
-    - whole-section (cut_index=None): sub_visuals is the full cuts array.
-    - single-cut patch (cut_index=N): sub_visuals is a 1-element array
+    - whole-section (cut_index/cut_number=None): sub_visuals is the full cuts array.
+    - single-cut patch (cut_index/cut_number=N): sub_visuals is a 1-element array
       holding just that cut (a bare cut object is also accepted by direct
       Python callers); only that cut is replaced, the rest are preserved.
       Durations are still renormalized across the whole section so the sum
@@ -1032,14 +1235,16 @@ def save_visuals_payload(project_id: str, section_type: str,
     dry_run=True validates and returns the normalized result WITHOUT
     writing anything (works in both modes).
     """
-    if section_type not in SECTION_TYPES:
-        return {"ok": False,
-                "error": f"section_type must be one of {list(SECTION_TYPES)}."}
+    norm_sec, scene_index, cut_index, err = resolve_scene_and_cut(
+        section_type, scene_index=scene_index, scene_number=scene_number,
+        cut_index=cut_index, cut_number=cut_number, default_scene=0, default_cut=None,
+        allow_negative_cut=False
+    )
+    if err:
+        return {"ok": False, "error": err}
+    section_type = norm_sec
+
     if cut_index is not None:
-        try:
-            cut_index = int(cut_index)
-        except (TypeError, ValueError):
-            return {"ok": False, "error": "cut_index must be an integer."}
         patch = sub_visuals[0] if isinstance(sub_visuals, list) else sub_visuals
         if not isinstance(patch, dict):
             return {"ok": False, "error": (
@@ -1047,7 +1252,7 @@ def save_visuals_payload(project_id: str, section_type: str,
                 "(or a 1-element array).")}
         if isinstance(sub_visuals, list) and len(sub_visuals) != 1:
             return {"ok": False, "error": (
-                "Single-cut patch takes exactly one cut; omit cut_index to "
+                "Single-cut patch takes exactly one cut; omit cut_index/cut_number to "
                 "replace the whole section.")}
     elif not isinstance(sub_visuals, list) or not sub_visuals:
         return {"ok": False, "error": "sub_visuals must be a non-empty array."}
@@ -1073,8 +1278,13 @@ def save_visuals_payload(project_id: str, section_type: str,
     if section_type == "scene":
         candidates = [m for m in manifest if isinstance(m, dict) and m.get("section_type") == "scene"]
         if not (0 <= scene_index < len(candidates)):
+            total_scenes = len(candidates)
             return {"ok": False, "error": (
-                f"scene_index {scene_index} out of range (0..{len(candidates) - 1}).")}
+                f"scene_index {scene_index} (UI Scene {scene_index + 1}) out of range "
+                f"(0..{total_scenes - 1} — UI Scenes 1..{total_scenes}). "
+                f"Did you pass a 1-based scene number? In Narrato UI, Scene {scene_index} is scene_index={scene_index - 1}. "
+                f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
+            )}
         entry = candidates[scene_index]
     else:
         entry = next((m for m in manifest
@@ -1092,10 +1302,15 @@ def save_visuals_payload(project_id: str, section_type: str,
         if not current:
             return {"ok": False, "error": (
                 "Section has no saved cuts to patch — save the whole section "
-                "first (omit cut_index), then patch individual cuts.")}
+                "first (omit cut_index/cut_number), then patch individual cuts.")}
         if not 0 <= cut_index < len(current):
+            total_cuts = len(current)
             return {"ok": False, "error": (
-                f"cut_index {cut_index} out of range (0..{len(current) - 1}).")}
+                f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
+                f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
+                f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
+                f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
+            )}
         import copy
         candidate = copy.deepcopy(current)
         candidate[cut_index] = patch
@@ -1228,6 +1443,10 @@ def save_visuals_payload(project_id: str, section_type: str,
         from backend.agent.timing import empty_timing_report
         timing = empty_timing_report()
     unverified = unverified_media_queries(normalized)
+    total_scenes_count = len([m for m in manifest if isinstance(m, dict) and _normalize_section_type(m.get("section_type")) == "scene"])
+    display_label = format_display_label(section_type, scene_index, cut_index)
+    scene_num = (scene_index + 1) if section_type == "scene" else None
+    cut_num = (cut_index + 1) if cut_index is not None else None
     section_key = (project_id, section_type,
                    scene_index if section_type == "scene" else 0)
     if dry_run:
@@ -1236,6 +1455,10 @@ def save_visuals_payload(project_id: str, section_type: str,
             _DRY_RUN_HASHES[section_key] = _normalized_cuts_hash(normalized)
         result = {"ok": True, "project_id": project_id, "section_type": section_type,
                   "scene_index": scene_index if section_type == "scene" else None,
+                  "scene_number": scene_num,
+                  "display_label": display_label,
+                  "total_scenes": total_scenes_count,
+                  "total_cuts": len(normalized),
                   "dry_run": True, "persisted": False,
                   "cut_count": len(normalized), "total_duration": total,
                   "durations": durations, "variety": variety,
@@ -1249,7 +1472,10 @@ def save_visuals_payload(project_id: str, section_type: str,
                 f"(e.g. {unverified[0]!r}) — they fail at fetch_assets. "
                 f"Verify, then re-dry-run before persisting.")
         if cut_index is not None:
+            result["cut_index"] = cut_index
+            result["cut_number"] = cut_num
             result["patched_cut_index"] = cut_index
+            result["patched_cut_number"] = cut_num
             result["patched_cut"] = normalized[cut_index]
         return result
 
@@ -1293,12 +1519,22 @@ def save_visuals_payload(project_id: str, section_type: str,
                 f"{f' (patched cut {cut_index})' if cut_index is not None else ''}.")
     result = {"ok": True, "project_id": project_id, "section_type": section_type,
               "scene_index": scene_index if section_type == "scene" else None,
+              "scene_number": scene_num,
+              "display_label": display_label,
+              "total_scenes": total_scenes_count,
+              "total_cuts": len(normalized),
               "persisted": True,
               "cut_count": len(normalized), "total_duration": total,
               "durations": durations, "variety": variety,
               "geometry": geometry, "timing": timing,
               "unverified_queries": unverified,
               "auto_fixed": auto_fixed}
+    if cut_index is not None:
+        result["cut_index"] = cut_index
+        result["cut_number"] = cut_num
+        result["patched_cut_index"] = cut_index
+        result["patched_cut_number"] = cut_num
+        result["patched_cut"] = normalized[cut_index]
     if unverified:
         result["warning"] = (
             f"{len(unverified)} quer{'y' if len(unverified) == 1 else 'ies'} "
@@ -1492,16 +1728,23 @@ def _current_section_cuts(proj_dir: Path, section_type: str, scene_index: int,
 
 
 def get_visuals_payload(project_id: str, section_type: str,
-                        scene_index: int = 0,
-                        cut_index: int | None = None) -> dict:
+                        scene_index: int | None = None,
+                        cut_index: int | None = None,
+                        scene_number: int | None = None,
+                        cut_number: int | None = None) -> dict:
     """Retrieve saved sub_visuals for ONE section (or a SINGLE cut).
 
-    Symmetrical reader for save_visuals. Avoids agents having to read the
-    full 100KB+ script.json or run ad-hoc shell scripts.
+    Symmetrical reader for save_visuals. Supports both 0-based indexes
+    (scene_index, cut_index) and 1-based UI numbers (scene_number, cut_number).
     """
-    if section_type not in SECTION_TYPES:
-        return {"ok": False,
-                "error": f"section_type must be one of {list(SECTION_TYPES)}."}
+    norm_sec, scene_index, cut_index, err = resolve_scene_and_cut(
+        section_type, scene_index=scene_index, scene_number=scene_number,
+        cut_index=cut_index, cut_number=cut_number, default_scene=0, default_cut=None
+    )
+    if err:
+        return {"ok": False, "error": err}
+    section_type = norm_sec
+
     try:
         proj_dir = _project_dir(project_id)
         proj = _get_project_or_raise(project_id)
@@ -1510,43 +1753,59 @@ def get_visuals_payload(project_id: str, section_type: str,
 
     fallback_cuts = None
     manifest_path = _active_manifest_path(proj, proj_dir)
+    total_scenes_count = 0
     if manifest_path and manifest_path.is_file():
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
             if isinstance(manifest, list):
+                total_scenes_count = len([m for m in manifest if isinstance(m, dict) and _normalize_section_type(m.get("section_type")) == "scene"])
                 if section_type == "scene":
-                    scenes = [m for m in manifest if isinstance(m, dict) and m.get("section_type") == "scene"]
+                    scenes = [m for m in manifest if isinstance(m, dict) and _normalize_section_type(m.get("section_type")) == "scene"]
                     if 0 <= scene_index < len(scenes):
                         fallback_cuts = scenes[scene_index].get("sub_visuals")
+                    else:
+                        return {"ok": False, "error": (
+                            f"scene_index {scene_index} (UI Scene {scene_index + 1}) out of range "
+                            f"(0..{total_scenes_count - 1} — UI Scenes 1..{total_scenes_count}). "
+                            f"Did you pass a 1-based scene number? In Narrato UI, Scene {scene_index} is scene_index={scene_index - 1}. "
+                            f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
+                        )}
                 else:
-                    entry = next((m for m in manifest if isinstance(m, dict) and m.get("section_type") == section_type), None)
+                    entry = next((m for m in manifest if isinstance(m, dict) and _normalize_section_type(m.get("section_type")) == section_type), None)
                     if entry:
                         fallback_cuts = entry.get("sub_visuals")
         except Exception:
             pass
 
     cuts = _current_section_cuts(proj_dir, section_type, scene_index, fallback=fallback_cuts)
+    display_label = format_display_label(section_type, scene_index, cut_index)
+    scene_num = (scene_index + 1) if section_type == "scene" else None
+
     if not cuts:
         return {"ok": False,
-                "error": f"No visuals found for {section_type}" +
-                         (f"[{scene_index}]" if section_type == "scene" else "") +
-                         ". Author visuals with save_visuals first."}
+                "error": f"No visuals found for {display_label}. Author visuals with save_visuals first."}
 
     if cut_index is not None and cut_index >= 0:
-        try:
-            cut_index = int(cut_index)
-        except (TypeError, ValueError):
-            return {"ok": False, "error": "cut_index must be an integer."}
         if not (0 <= cut_index < len(cuts)):
+            total_cuts = len(cuts)
             return {"ok": False,
-                    "error": f"cut_index {cut_index} out of range (0..{len(cuts) - 1})."}
+                    "error": (
+                        f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
+                        f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
+                        f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
+                        f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
+                    )}
         return {
             "ok": True,
             "project_id": project_id,
             "section_type": section_type,
             "scene_index": scene_index if section_type == "scene" else None,
+            "scene_number": scene_num,
             "cut_index": cut_index,
+            "cut_number": cut_index + 1,
+            "display_label": display_label,
+            "total_scenes": total_scenes_count,
             "total_cuts": len(cuts),
             "sub_visual": cuts[cut_index],
         }
@@ -1556,6 +1815,10 @@ def get_visuals_payload(project_id: str, section_type: str,
         "project_id": project_id,
         "section_type": section_type,
         "scene_index": scene_index if section_type == "scene" else None,
+        "scene_number": scene_num,
+        "display_label": display_label,
+        "total_scenes": total_scenes_count,
+        "total_cuts": len(cuts),
         "count": len(cuts),
         "sub_visuals": cuts,
     }
@@ -1988,28 +2251,23 @@ def save_visuals_batch_payload(project_id: str, sections: list,
             continue
         section_type = item.get("section_type")
         sub_visuals = item.get("sub_visuals")
-        scene_index = _strict_int(item.get("scene_index", 0), default=0)
-        if scene_index is None:
+        scene_index = item.get("scene_index")
+        scene_number = item.get("scene_number")
+        cut_index = item.get("cut_index")
+        cut_number = item.get("cut_number")
+
+        norm_sec, scene_index, cut_index, err = resolve_scene_and_cut(
+            section_type, scene_index=scene_index, scene_number=scene_number,
+            cut_index=cut_index, cut_number=cut_number, default_scene=0, default_cut=None,
+            allow_negative_cut=False
+        )
+        if err:
             results.append({"ok": False, "index": pos,
                             "section_type": section_type,
-                            "error": f"{label}.scene_index must be an integer "
-                                     f"(got {item.get('scene_index')!r})."})
+                            "error": f"{label}.{err}" if any(k in err for k in ("cut_index", "cut_number", "scene_index", "scene_number")) else f"{label}: {err}"})
             continue
-        if "cut_index" in item and item.get("cut_index") is not None:
-            # Explicit negatives are rejected: -1 means "all cuts" in
-            # get_visuals reads, and silently coercing it to a whole-section
-            # replace here would wipe a section the agent only meant to read.
-            # Omit cut_index for a whole-section replace.
-            cut_index = _strict_int(item.get("cut_index"))
-            if cut_index is None or cut_index < 0:
-                results.append({"ok": False, "index": pos,
-                                "section_type": section_type,
-                                "error": f"{label}.cut_index must be a "
-                                         f"non-negative integer or omitted "
-                                         f"(got {item.get('cut_index')!r})."})
-                continue
-        else:
-            cut_index = None
+        section_type = norm_sec
+
         # Duplicate targets: second write would silently clobber the first
         # while both report ok:true (common when an agent repeats
         # introduction/scene[0] across a 30-section batch).
@@ -2025,7 +2283,7 @@ def save_visuals_batch_payload(project_id: str, sections: list,
         seen_targets[target] = pos
         try:
             res = save_visuals_payload(
-                project_id, section_type, sub_visuals, scene_index,
+                project_id, section_type, sub_visuals, scene_index=scene_index,
                 cut_index=cut_index, dry_run=bool(dry_run))
         except ValueError as e:
             res = {"ok": False, "error": str(e)}
@@ -2034,9 +2292,14 @@ def save_visuals_batch_payload(project_id: str, sections: list,
                          exc_info=True)
             res = {"ok": False, "error": str(e)}
         entry = {"ok": bool(res.get("ok")), "index": pos,
-                 "section_type": section_type}
+                 "section_type": section_type,
+                 "display_label": format_display_label(section_type, scene_index, cut_index)}
         if section_type == "scene":
             entry["scene_index"] = scene_index
+            entry["scene_number"] = scene_index + 1
+        if cut_index is not None:
+            entry["cut_index"] = cut_index
+            entry["cut_number"] = cut_index + 1
         if res.get("ok"):
             ok_count += 1
             cuts_total += int(res.get("cut_count", 0) or 0)
@@ -2151,10 +2414,11 @@ def _load_script_sections(proj_dir: Path) -> list[dict]:
 def get_transcription_payload(
     project_id: str,
     section_type: str = "",
-    scene_index: int = 0,
+    scene_index: int | None = 0,
     segment_id: int | None = None,
     offset: int = 0,
     limit: int = 50,
+    scene_number: int | None = None,
 ) -> dict:
     """Read transcription data with optional section or segment filtering."""
     proj = _get_project_or_raise(project_id)
@@ -2203,6 +2467,13 @@ def get_transcription_payload(
 
     # Section-scoped request
     if section_type:
+        norm_sec, scene_index, _, err = resolve_scene_and_cut(
+            section_type, scene_index=scene_index, scene_number=scene_number, default_scene=0
+        )
+        if err:
+            return {"ok": False, "error": err}
+        section_type = norm_sec
+
         manifest_path = _active_manifest_path(proj, proj_dir)
         if not manifest_path:
             return {"ok": False, "error": "Manifest not found to resolve section boundaries."}
@@ -2217,10 +2488,6 @@ def get_transcription_payload(
         cursor = 0.0
         sec_start = None
         sec_dur = None
-        try:
-            scene_index = int(scene_index)
-        except (TypeError, ValueError):
-            scene_index = 0
         scene_count = 0
         for entry in manifest:
             if not isinstance(entry, dict):
@@ -2229,7 +2496,7 @@ def get_transcription_payload(
                 dur = float(entry.get("duration", 0) or 0)
             except (TypeError, ValueError):
                 dur = 0.0
-            m_sec = entry.get("section_type")
+            m_sec = _normalize_section_type(entry.get("section_type"))
             if section_type == "scene" and m_sec == "scene":
                 if scene_count == scene_index:
                     sec_start = cursor
@@ -2245,7 +2512,7 @@ def get_transcription_payload(
         if sec_start is None:
             return {
                 "ok": False,
-                "error": f"Section {section_type} (scene_index={scene_index}) not found in manifest.",
+                "error": f"Section {format_display_label(section_type, scene_index)} not found in manifest.",
             }
 
         sec_end = sec_start + sec_dur
@@ -2272,6 +2539,8 @@ def get_transcription_payload(
             "project_id": project_id,
             "section_type": section_type,
             "scene_index": scene_index if section_type == "scene" else None,
+            "scene_number": (scene_index + 1) if section_type == "scene" else None,
+            "display_label": format_display_label(section_type, scene_index),
             "section_start": round(sec_start, 2),
             "section_end": round(sec_end, 2),
             "section_duration": round(sec_dur, 2),
