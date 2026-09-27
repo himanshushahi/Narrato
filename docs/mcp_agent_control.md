@@ -72,8 +72,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 | `update_voice_settings` | `tts_engine/voice/speed/pitch`, `bg_music_volume` (allowlisted; resets voiceover/transcribe/render only) |
 | `update_transcribe_settings` | `whisper_model/device` (validated against known + downloaded ids; reports `downloaded` flag + warning) |
 | `get_transcription` | Read word-level transcription & segments (section-scoped or global) |
-| `compare_transcription` | Word-level audit: script.json vs Whisper diffs (spelling, matras, number words, cutoffs) |
-| `update_transcription` | Repair transcription (targeted replacements, full segments, or `auto_align=true`) & auto-sync `subtitles.srt` + `subtitles.vtt` |
+
 | `list_skills` / `get_skill` | All 18 writing/visual guides (scriptwriter, visual-director-core, declarative-ast, …). Big skills are ~50KB: `brief=true` returns a section map first, `section="..."` (fuzzy title/subhead/number) pulls one part — never read a whole 50KB skill when a section will do |
 | `get_stage_skills` | One-call starter pack per stage (script/design/visuals); satisfies the skill gate |
 | `probe_cut` / `probe_scene` / `probe_asset` | Read-only inspectors: one cut / one section / one media layer (geometry, timing, file truth) |

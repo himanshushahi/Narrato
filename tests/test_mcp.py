@@ -503,6 +503,110 @@ def test_save_visuals_scene_index_out_of_range(tmp_path, monkeypatch):
     assert result["ok"] is False and "out of range" in result["error"]
 
 
+def test_save_visuals_sets_assets_manifest_path(tmp_path, monkeypatch):
+    # Regression: MCP-authored visuals left assets_manifest_path=None, so the
+    # editor loaded an empty manifest (timeline clicks resolved to null).
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is None
+    result = payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut()], scene_index=0)
+    assert result["ok"] is True
+    pointer = calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path")
+    assert pointer is not None and pointer.endswith("manifest.json")
+
+
+def test_clear_then_save_restores_manifest_path(tmp_path, monkeypatch):
+    # clear_visuals legitimately clears the pointer; the next persist must
+    # restore it, otherwise the editor stays dead after re-authoring.
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    assert payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut()], scene_index=0)["ok"] is True
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is not None
+    cleared = payloads.clear_visuals_payload("proj_mcp", clear_assets=True)
+    assert cleared["ok"] is True
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is None
+    assert payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut()], scene_index=0)["ok"] is True
+    pointer = calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path")
+    assert pointer is not None and Path(pointer).exists()
+    # files the editor needs are coherent again
+    manifest = json.loads((proj_dir / "voiceover" / "manifest.json").read_text(encoding="utf-8"))
+    assert len([m for m in manifest if m.get("section_type") == "scene"][0]["sub_visuals"]) == 1
+
+
+def test_repair_manifest_pointers_backfills(tmp_path, monkeypatch):
+    from backend.pipeline import assets as assets_mod
+    _patch_storage(monkeypatch, tmp_path)
+    proj_dir = tmp_path / "proj_mcp"
+    (proj_dir / "voiceover").mkdir(parents=True)
+    (proj_dir / "voiceover" / "manifest.json").write_text(
+        json.dumps([{"section_type": "scene", "duration": 8.0}]), encoding="utf-8")
+    proj = dict(_proj(), assets_manifest_path=None)
+    monkeypatch.setattr("backend.database.db.get_all_projects", lambda: [dict(proj)])
+    updated = {}
+    monkeypatch.setattr("backend.database.db.update_project",
+                        lambda pid, **kw: updated.setdefault(pid, {}).update(kw))
+    assert assets_mod.repair_manifest_pointers() == 1
+    assert updated["proj_mcp"]["assets_manifest_path"].endswith("manifest.json")
+
+
+def test_repair_manifest_pointers_skips_empty_and_corrupt(tmp_path, monkeypatch):
+    # Empty/corrupt manifests are useless to the editor — pinning them would
+    # only fake health while every load still falls through to fallback.
+    from backend.pipeline import assets as assets_mod
+    _patch_storage(monkeypatch, tmp_path)
+    empty_dir = tmp_path / "empty"
+    (empty_dir / "voiceover").mkdir(parents=True)
+    (empty_dir / "voiceover" / "manifest.json").write_text("[]", encoding="utf-8")
+    corrupt_dir = tmp_path / "corrupt"
+    (corrupt_dir / "voiceover").mkdir(parents=True)
+    (corrupt_dir / "voiceover" / "manifest.json").write_text("{not json", encoding="utf-8")
+    projects = [dict(_proj("empty"), assets_manifest_path=None),
+                dict(_proj("corrupt"), assets_manifest_path=None)]
+    monkeypatch.setattr("backend.database.db.get_all_projects",
+                        lambda: [dict(p) for p in projects])
+    updated = {}
+    monkeypatch.setattr("backend.database.db.update_project",
+                        lambda pid, **kw: updated.setdefault(pid, {}).update(kw))
+    assert assets_mod.repair_manifest_pointers() == 0
+    assert updated == {}
+
+
+def test_repair_manifest_pointers_skips_healthy_and_missing(tmp_path, monkeypatch):
+    from backend.pipeline import assets as assets_mod
+    _patch_storage(monkeypatch, tmp_path)
+    healthy_dir = tmp_path / "healthy"
+    (healthy_dir / "voiceover").mkdir(parents=True)
+    good = healthy_dir / "voiceover" / "manifest.json"
+    good.write_text(json.dumps([{"section_type": "scene"}]), encoding="utf-8")
+    projects = [dict(_proj("healthy"), assets_manifest_path=str(good)),
+                dict(_proj("ghost"), assets_manifest_path=None)]
+    monkeypatch.setattr("backend.database.db.get_all_projects",
+                        lambda: [dict(p) for p in projects])
+    updated = {}
+    monkeypatch.setattr("backend.database.db.update_project",
+                        lambda pid, **kw: updated.setdefault(pid, {}).update(kw))
+    assert assets_mod.repair_manifest_pointers() == 0
+    assert updated == {}
+
+
+def test_save_visuals_dry_run_does_not_set_pointer(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    result = payloads.save_visuals_payload(
+        "proj_mcp", "scene", [_text_cut()], scene_index=0, dry_run=True)
+    assert result["ok"] is True
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is None
+
+
+def test_failed_save_leaves_pointer_untouched(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    calls = _patch_db(monkeypatch, _proj())
+    (tmp_path / "proj_mcp" / "design.json").unlink()
+    result = payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut()], scene_index=0)
+    assert result["ok"] is False
+    assert calls["records"]["projects"]["proj_mcp"].get("assets_manifest_path") is None
+
+
 def test_get_section_timings(tmp_path, monkeypatch):
     proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
     result = payloads.get_section_timings("proj_mcp", include_words=False)
@@ -878,7 +982,7 @@ def test_validate_transcribe_settings(monkeypatch):
     assert any("unknown setting" in e for e in errors)
     # repo ids and custom downloaded ids are accepted
     errors, cols = p.validate_transcribe_settings(
-        {"whisper_model": "collabora/faster-whisper-small-hindi"})
+        {"whisper_model": "deepdml/faster-whisper-large-v3-turbo-ct2"})
     assert errors == []
 
 
@@ -1607,34 +1711,7 @@ def test_transcription_tools_lifecycle(tmp_path, monkeypatch):
     assert got_intro["total_section_segments"] == 1
     assert got_intro["total_section_words"] == 9
 
-    # 2. Test compare_transcription
-    cmp_res = server.compare_transcription("proj_mcp")
-    assert cmp_res["ok"] is True
-    assert cmp_res["summary"]["spelling_variants_count"] >= 1
-    variants = {v["transcript"]: v["script"] for v in cmp_res["spelling_variants"]}
-    assert "भारतिय" in variants and variants["भारतिय"] == "भारतीय"
 
-    # 3. Test update_transcription with dry_run
-    dry = server.update_transcription("proj_mcp", replacements=[{"find": "भारतिय", "replace": "भारतीय"}], dry_run=True)
-    assert dry["ok"] is True
-    assert dry["dry_run"] is True
-    assert dry["replacements_applied"] >= 1
-    assert not (sub_dir / "subtitles.srt").exists()
-
-    # 4. Test update_transcription with auto_align=True (writes files)
-    live = server.update_transcription("proj_mcp", auto_align=True)
-    assert live["ok"] is True
-    assert live["dry_run"] is False
-    assert (sub_dir / "subtitles.srt").exists()
-    assert (sub_dir / "subtitles.vtt").exists()
-
-    # Check updated transcription.json
-    updated_trans = json.loads((sub_dir / "transcription.json").read_text(encoding="utf-8"))
-    seg1_words = [w["word"].strip() for w in updated_trans["segments"][0]["words"]]
-    assert "भारतीय" in seg1_words
-
-    srt_content = (sub_dir / "subtitles.srt").read_text(encoding="utf-8")
-    assert "भारतीय" in srt_content
 
 
 def test_mcp_inventory_shape_and_counts():
@@ -1653,12 +1730,12 @@ def test_mcp_inventory_shape_and_counts():
     templates = asyncio.run(server.mcp.list_resource_templates())
     prompts = asyncio.run(server.mcp.list_prompts())
     tool_names = sorted(t.name for t in tools)
-    assert len(tool_names) == 33
+    assert len(tool_names) == 31
     assert set(tool_names) == {
         "create_project", "list_projects", "project_status", "delete_project",
         "save_script", "get_script", "save_design",
         "list_voice_options", "update_voice_settings", "update_transcribe_settings",
-        "get_transcription", "compare_transcription", "update_transcription",
+        "get_transcription",
         "list_skills", "get_skill", "get_stage_skills",
         "run_stage", "stage_status", "cancel_stage",
         "get_section_timings", "get_visuals", "save_visuals",
@@ -1677,7 +1754,7 @@ def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
     monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
     inv = http_host.get_mcp_inventory()
     assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
-    assert len(inv["tools"]) == 33
+    assert len(inv["tools"]) == 31
     assert len(inv["resources"]) == 1
     assert inv["resource_templates"] == []
     assert len(inv["prompts"]) == 1
@@ -1997,4 +2074,142 @@ def test_server_batch_holds_marker_and_coerces_flag(monkeypatch):
     assert seen["active"] == "p1_save_visuals_batch"
     with server._STAGE_LOCK:
         assert server._project_active_stage("p1") is None
+
+
+def test_scene_cut_numbering_1based_and_aliases(tmp_path, monkeypatch):
+    """Verify 1-based scene_number, cut_number, section normalization, conflict checks, and zero rejection."""
+    from backend.mcp import payloads as p
+    from backend.mcp import probe
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+
+    # 1. Save visuals using 1-based scene_number=1, whole section
+    res1 = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("Cut 1"), _text_cut("Cut 2")], scene_number=1)
+    assert res1["ok"] is True
+    assert res1["scene_index"] == 0
+    assert res1["scene_number"] == 1
+    assert res1["display_label"] == "Scene 1"
+    assert res1["cut_count"] == 2
+
+    # 2. Get visuals using 1-based scene_number=1
+    gv1 = p.get_visuals_payload("proj_mcp", "scene", scene_number=1)
+    assert gv1["ok"] is True
+    assert gv1["scene_index"] == 0
+    assert gv1["scene_number"] == 1
+    assert gv1["count"] == 2
+    assert gv1["display_label"] == "Scene 1"
+
+    # 3. Patch single cut using 1-based cut_number=2
+    patch_res = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("Patched Cut 2")], scene_number=1, cut_number=2)
+    assert patch_res["ok"] is True
+    assert patch_res["scene_index"] == 0
+    assert patch_res["scene_number"] == 1
+    assert patch_res["cut_index"] == 1
+    assert patch_res["cut_number"] == 2
+    assert patch_res["display_label"] == "Scene 1 : Cut #2"
+
+    # 4. Get single cut using 1-based cut_number=2
+    gv_single = p.get_visuals_payload("proj_mcp", "scene", scene_number=1, cut_number=2)
+    assert gv_single["ok"] is True
+    assert gv_single["scene_index"] == 0
+    assert gv_single["scene_number"] == 1
+    assert gv_single["cut_index"] == 1
+    assert gv_single["cut_number"] == 2
+    assert gv_single["display_label"] == "Scene 1 : Cut #2"
+    assert "Patched Cut 2" in json.dumps(gv_single["sub_visual"])
+
+    # 5. Section alias normalization: "intro" -> "introduction", "outro" -> "conclusion"
+    intro_res = p.save_visuals_payload("proj_mcp", "intro", [_text_cut("Intro Cut 1"), _text_cut("Intro Cut 2")])
+    assert intro_res["ok"] is True
+    assert intro_res["section_type"] == "introduction"
+    assert intro_res["display_label"] == "Introduction"
+
+    # Single cut patch on intro with cut_number=2
+    intro_patch = p.save_visuals_payload("proj_mcp", "hook", [_text_cut("Intro Patched 2")], cut_number=2)
+    assert intro_patch["ok"] is True
+    assert intro_patch["section_type"] == "introduction"
+    assert intro_patch["cut_index"] == 1
+    assert intro_patch["cut_number"] == 2
+    assert intro_patch["display_label"] == "Introduction : Cut #2"
+
+    # 6. Conflict checks: scene_index=1, scene_number=1 must return error
+    conflict1 = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("X")], scene_index=1, scene_number=1)
+    assert conflict1["ok"] is False
+    assert "Index/Number conflict" in conflict1["error"]
+
+    conflict2 = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("X")], scene_number=1, cut_index=1, cut_number=1)
+    assert conflict2["ok"] is False
+    assert "Index/Number conflict" in conflict2["error"]
+
+    # 7. Non-positive numbers rejected
+    zero_scene = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("X")], scene_number=0)
+    assert zero_scene["ok"] is False
+    assert "numbers are 1-based" in zero_scene["error"]
+
+    zero_cut = p.save_visuals_payload("proj_mcp", "scene", [_text_cut("X")], scene_number=1, cut_number=0)
+    assert zero_cut["ok"] is False
+    assert "numbers are 1-based" in zero_cut["error"]
+
+    # 8. Probe tools with 1-based coordinates
+    cut_probe = probe.probe_cut_payload("proj_mcp", "scene", scene_number=1, cut_number=2)
+    assert cut_probe["ok"] is True
+    assert cut_probe["scene_number"] == 1
+    assert cut_probe["cut_number"] == 2
+    assert cut_probe["display_label"] == "Scene 1 : Cut #2"
+
+    scene_probe = probe.probe_scene_payload("proj_mcp", "scene", scene_number=1)
+    assert scene_probe["ok"] is True
+    assert scene_probe["scene_number"] == 1
+    assert scene_probe["display_label"] == "Scene 1"
+
+    # 9. Out-of-range error shows both 0-based and 1-based coordinates
+    oor = probe.probe_cut_payload("proj_mcp", "scene", scene_number=1, cut_number=99)
+    assert oor["ok"] is False
+    assert "cut_index 98 (UI Cut #99) out of range" in oor["error"]
+
+    # 10. get_section_timings includes scene_number, cut_number, display_label
+    timings = p.get_section_timings("proj_mcp", include_words=False)
+    assert timings["ok"] is True
+    intro_sec = timings["sections"][0]
+    assert intro_sec["display_label"] == "Introduction"
+    scene1_sec = timings["sections"][1]
+    assert scene1_sec["scene_number"] == 1
+    assert scene1_sec["display_label"] == "Scene 1"
+    assert scene1_sec["cuts"][0]["cut_number"] == 1
+    assert scene1_sec["cuts"][0]["display_label"] == "Scene 1 : Cut #1"
+
+    # 11. Batch with 1-based items
+    batch_res = p.save_visuals_batch_payload("proj_mcp", [
+        {"section_type": "scene", "scene_number": 2, "sub_visuals": [_text_cut("Batch Scene 2")]},
+        {"section_type": "scene", "scene_number": 1, "cut_number": 2, "sub_visuals": [_text_cut("Batch Scene 1 Cut 2")]},
+        {"section_type": "outro", "sub_visuals": [_text_cut("Batch Outro")]},
+    ], dry_run=True)
+    assert batch_res["ok"] is True
+    assert batch_res["results"][0]["scene_number"] == 2
+    assert batch_res["results"][0]["display_label"] == "Scene 2"
+    assert batch_res["results"][1]["scene_number"] == 1
+    assert batch_res["results"][1]["cut_number"] == 2
+    assert batch_res["results"][1]["display_label"] == "Scene 1 : Cut #2"
+    assert batch_res["results"][2]["section_type"] == "conclusion"
+    assert batch_res["results"][2]["display_label"] == "Conclusion"
+
+
+def test_frames_review_1based_targeting(tmp_path, monkeypatch):
+    from backend.mcp import frames
+    _review_fixtures(tmp_path, monkeypatch)
+    # resolve_targets with scene_number=1, cut_number=2
+    plan = frames.resolve_targets("proj_mcp", "scene", scene_number=1, cut_number=2, scope="cut", mode="composition")
+    assert plan["scene_number"] == 1
+    assert plan["scene_index"] == 0
+    assert plan["cut_number"] == 2
+    assert plan["cut_index"] == 1
+    assert plan["display_label"] == "Scene 1 : Cut #2"
+    assert "Cut #2 (idx 1)" in plan["cells"][0]["label"]
+
+    # resolve_targets with section scope
+    sec_plan = frames.resolve_targets("proj_mcp", "scene", scene_number=1, scope="section", mode="composition")
+    assert sec_plan["scene_number"] == 1
+    assert sec_plan["scene_index"] == 0
+    assert sec_plan["display_label"] == "Scene 1"
+    assert any("Cut #" in c["label"] for c in sec_plan["cells"])
+
 

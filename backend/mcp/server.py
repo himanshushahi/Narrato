@@ -66,6 +66,14 @@ Instead, you MUST conduct the "New Narrative Build" intake interview and ask the
 
 ONLY after the user confirms these preferences (or if already explicitly specified), invoke `create_project`.
 
+UI vs API NUMBERING & SECTION TARGETING:
+- The Narrato UI displays 1-based Scene numbers ("Scene 1", "Scene 2", ...) and 1-based Cut numbers ("Cut #1", "Cut #2", ...).
+- When the user asks to inspect or modify a scene or cut (e.g. "fix scene 1 cut 2" or "probe scene 3"):
+  * Pass 1-based parameters `scene_number` and `cut_number` (e.g. `scene_number=1, cut_number=2`). This directly matches what the user sees in the UI!
+  * OR pass 0-based parameters `scene_index = scene_number - 1` and `cut_index = cut_number - 1` (e.g. `scene_index=0, cut_index=1`).
+  * Never pass `scene_index=1` for "Scene 1" — in 0-based indexing that targets Scene 2!
+  * Introduction and Conclusion: use `section_type="introduction"` (or `"intro"`) and `section_type="conclusion"` (or `"outro"`). Cuts within them are referenced with `cut_number` (1-based) or `cut_index` (0-based). Do not specify a `scene_index` for intro/conclusion.
+
 MANDATORY SKILL GROUNDING (hard gate, not guidance):
 - save_script REQUIRES scriptwriter first.
 - save_design REQUIRES art-director-design-system first.
@@ -1400,15 +1408,6 @@ already explicitly specified in the user's request):
    If it fails with "model ... is not downloaded", use
    update_transcribe_settings (whisper_model must be downloaded) and retry.
    Never edit the DB by hand.
-   SUBTITLE QUALITY AUDIT & REPAIR:
-   Whisper (especially for Hindi or complex scripts) often misrecognizes matras
-   ('भारतिय' vs 'भारतीय', 'भाशा' vs 'भाषा'), turns Hindi number words into
-   digits ('1975', '23'), or truncates words at segment boundaries.
-   Run `compare_transcription` to get an exact word-level discrepancy report
-   against script.json. Use `update_transcription(auto_align=true)` to heal
-   spelling/matra variants in one pass, or pass targeted `replacements` to fix
-   specific words. This keeps transcription.json, subtitles.srt, and
-   subtitles.vtt synchronized before authoring visuals and rendering.
   6. MANDATORY grounding — EASY 1-call path (server rejects save_visuals without it):
      get_stage_skills('visuals', project_id) returns briefs for
       visual-director-core + motion-graphics-designer + declarative-ast PLUS
@@ -1516,6 +1515,11 @@ already explicitly specified in the user's request):
 - generate_visuals is NOT an MCP stage — YOU author visuals via save_visuals.
 - run_stage(wait=true) blocks; over HTTP always use wait=false + stage_status
   for voiceover/fetch_assets/render (minutes long).
+- UI vs API Numbering: The UI is 1-based (Scene 1, Scene 2; Cut #1, Cut #2).
+  In MCP tools (`get_visuals`, `save_visuals`, `probe_cut`, `probe_scene`, `probe_asset`, `review_frame`, `get_transcription`),
+  you can pass 1-based `scene_number` and `cut_number` directly (e.g. `scene_number=1, cut_number=2`).
+  If using 0-based `scene_index` and `cut_index`, remember that UI Scene 1 is `scene_index=0`, and Cut #1 is `cut_index=0`.
+  Intro and conclusion sections do not have a scene index: use `section_type="introduction"` or `"conclusion"` with `cut_number` (or `cut_index`).
 - project_status shows DB + per-stage states; list/read_project_files inspects disk.
 """
 
@@ -1549,10 +1553,18 @@ def make_video_prompt(topic: str) -> str:
 
 
 @mcp.tool()
-def review_frame(project_id: str, section_type: str = "scene", scene_index: int = 0,
-                 cut_index: int = 0, scope: str = "cut",
-                 mode: str = "auto", max_cells: int = 3) -> object:
+def review_frame(project_id: str, section_type: str = "scene", scene_index: int | None = None,
+                 cut_index: int | None = None, scope: str = "cut",
+                 mode: str = "auto", max_cells: int = 3,
+                 scene_number: int | None = None, cut_number: int | None = None) -> object:
     """Snapshot WHAT the video looks like as ONE contact-sheet image.
+
+    Targeting:
+    - Pass 1-based `scene_number` and `cut_number` to match UI numbers directly
+      (e.g., UI "Scene 1 Cut 2" -> scene_number=1, cut_number=2).
+    - Alternatively pass 0-based `scene_index` and `cut_index` (scene_index=0, cut_index=1).
+    - section_type: 'scene' | 'introduction' (or 'intro') | 'conclusion' (or 'outro').
+      For introduction/conclusion, scene_index/scene_number are not needed.
 
     scope=cut: start/mid/end of one cut (motion in one glance).
     scope=section: mid-frame of each cut (scene progression, subsampled
@@ -1574,8 +1586,10 @@ def review_frame(project_id: str, section_type: str = "scene", scene_index: int 
     try:
         from backend.mcp import frames as _frames
         from mcp.server.mcpserver.utilities.types import Image as _Image
-        meta, jpeg = _frames.build_review(project_id, section_type, scene_index,
-                                          cut_index, scope, mode, max_cells)
+        meta, jpeg = _frames.build_review(
+            project_id, section_type, scene_index, cut_index, scope, mode, max_cells,
+            scene_number=scene_number, cut_number=cut_number,
+        )
         return meta, _Image(data=jpeg, format="jpeg")
     except (ValueError, RuntimeError) as e:
         return {"ok": False, "error": str(e)}
@@ -1590,7 +1604,8 @@ def review_frame(project_id: str, section_type: str = "scene", scene_index: int 
 def get_section_timings(project_id: str, include_words: bool = True) -> dict:
     """Per-section narration + TRUE audio durations (+ word timestamps)
     from the voiceover manifest. Author each section's sub_visuals so
-    durations sum to the reported duration. Run after transcribe."""
+    durations sum to the reported duration. Includes display_label,
+    1-based scene_number and cut_number for every section and cut. Run after transcribe."""
     try:
         return payloads.get_section_timings(project_id, include_words)
     except ValueError as e:
@@ -1604,100 +1619,60 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
 def get_transcription(
     project_id: str,
     section_type: str = "",
-    scene_index: int = 0,
+    scene_index: int | None = None,
     segment_id: int | None = None,
     offset: int = 0,
     limit: int = 50,
+    scene_number: int | None = None,
 ) -> dict:
     """Read word-level transcription data produced by the transcribe stage.
 
     Can be section-scoped (section_type: introduction | scene | conclusion;
-    scene_index used for scenes) to inspect words and timestamps for ONE section,
-    or by segment_id, or paginated across the whole video. Use to inspect word
-    timings before designing kinetic text or repairing subtitles."""
+    scene_index 0-based or scene_number 1-based matching UI) to inspect words
+    and timestamps for ONE section, or by segment_id, or paginated across the whole
+    video. Use to inspect word timings before designing kinetic text or repairing subtitles."""
     try:
-        from backend.mcp import subtitles as _subtitles
-        return _subtitles.get_transcription_payload(
-            project_id, section_type, scene_index, segment_id, offset, limit
+        return payloads.get_transcription_payload(
+            project_id, section_type, scene_index, segment_id, offset, limit,
+            scene_number=scene_number,
         )
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"MCP get_transcription failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
 
 
 @mcp.tool()
-def compare_transcription(project_id: str) -> dict:
-    """Audit Whisper transcription against ground-truth script.json narration.
-
-    Performs word-level alignment across sections to detect:
-    - Spelling / matra discrepancies (e.g. 'भारतिय' vs 'भारतीय', 'भाशा' vs 'भाषा')
-    - Number-to-digit conversions (e.g. 'उन्नीस सौ पचहत्तर' vs '1975')
-    - Missing / omitted words dropped by Whisper
-    - Segment boundary truncations (e.g. words cut off at 30s limits like 'पाकि')
-    - Audio/timing gaps between segments.
-    Run this after transcribe to see where Whisper hallucinated or missed words."""
-    try:
-        from backend.mcp import subtitles as _subtitles
-        return _subtitles.compare_transcription_payload(project_id)
-    except Exception as e:
-        logger.error(f"MCP compare_transcription failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
-
-
-@mcp.tool()
-def update_transcription(
-    project_id: str,
-    replacements: list | None = None,
-    segments: list | None = None,
-    auto_align: bool = False,
-    dry_run: bool = False,
-    fill_gaps: bool = False,
-    expand_numbers: bool = False,
-    repair_truncations: bool = False,
-) -> dict:
-    """Fix and update transcription.json, automatically syncing subtitles.srt and subtitles.vtt.
-
-    Supports:
-    - auto_align=true: automatically heals spelling/matra errors and near-misses
-      by projecting canonical script.json text onto Whisper timestamps.
-      Auto-enables fill_gaps, expand_numbers, and repair_truncations.
-    - fill_gaps=true: interpolate missing script words across uncaptioned time
-      windows using character-weighted timing (zero subtitle blanking).
-    - expand_numbers=true: split numeric tokens (e.g. '1975') into Hindi script
-      words with proportional sub-timings.
-    - repair_truncations=true: complete truncated segment tails.
-    - replacements: list of custom find/replace dicts:
-      [{"find": "भारतिय", "replace": "भारतीय"}, {"segment_id": 1, "find": "भाशा", "replace": "भाषा"}]
-    - segments: full replacement of segments list if custom timings were constructed.
-    - dry_run=true: validates and previews fixes without writing to disk."""
-    try:
-        from backend.mcp import subtitles as _subtitles
-        return _subtitles.update_transcription_payload(
-            project_id, replacements, segments, auto_align, dry_run,
-            fill_gaps, expand_numbers, repair_truncations,
-        )
-    except Exception as e:
-        logger.error(f"MCP update_transcription failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
-
-
-@mcp.tool()
-def get_visuals(project_id: str, section_type: str, scene_index: int = 0,
-                cut_index: int = -1) -> dict:
+def get_visuals(project_id: str, section_type: str, scene_index: int | None = None,
+                cut_index: int | None = None,
+                scene_number: int | None = None,
+                cut_number: int | None = None) -> dict:
     """Read back sub_visuals for ONE section or a SINGLE cut.
     Symmetrical reader to save_visuals. Use this to inspect existing cuts before
     patching instead of reading the entire script.json or running shell scripts.
 
+    Targeting:
+    - Pass 1-based `scene_number` and `cut_number` to match UI numbers directly
+      (e.g., UI "Scene 1 Cut 2" -> scene_number=1, cut_number=2).
+    - Alternatively pass 0-based `scene_index` and `cut_index` (scene_index=0, cut_index=1).
+    - section_type: 'scene' | 'introduction' (or 'intro') | 'conclusion' (or 'outro').
+      For introduction/conclusion, scene_index/scene_number are not needed.
+
     Args:
         project_id: Unique project identifier.
         section_type: introduction | scene | conclusion.
-        scene_index: 0-based scene index (used only when section_type='scene').
+        scene_index: Optional 0-based scene index (used only when section_type='scene').
         cut_index: Optional 0-based cut index (pass -1 or omit to get all cuts in the section).
+        scene_number: Optional 1-based scene number matching UI (e.g. 1 for Scene 1).
+        cut_number: Optional 1-based cut number matching UI (e.g. 1 for Cut #1).
     """
     try:
         return payloads.get_visuals_payload(
             project_id, section_type, scene_index,
-            cut_index=cut_index if cut_index is not None and cut_index >= 0 else None,
+            cut_index=cut_index,
+            scene_number=scene_number,
+            cut_number=cut_number,
         )
     except ValueError as e:
         return {"ok": False, "error": str(e)}
@@ -1707,15 +1682,27 @@ def get_visuals(project_id: str, section_type: str, scene_index: int = 0,
 
 
 @mcp.tool()
-def probe_cut(project_id: str, section_type: str, scene_index: int = 0,
-              cut_index: int = 0) -> dict:
+def probe_cut(project_id: str, section_type: str, scene_index: int | None = None,
+              cut_index: int | None = None,
+              scene_number: int | None = None,
+              cut_number: int | None = None) -> dict:
     """Inspect ONE cut: full JSON + geometry + timing + per-layer asset files.
     Read-only. Use before/after save_visuals(cut_index=N) instead of reading
-    script.json by hand."""
+    script.json by hand.
+
+    Targeting:
+    - Pass 1-based `scene_number` and `cut_number` to match UI numbers directly
+      (e.g., UI "Scene 1 Cut 2" -> scene_number=1, cut_number=2).
+    - Alternatively pass 0-based `scene_index` and `cut_index`.
+    """
     try:
         from backend.mcp import probe as _probe
-        return _probe.probe_cut_payload(project_id, section_type,
-                                        scene_index, cut_index)
+        return _probe.probe_cut_payload(
+            project_id, section_type, scene_index, cut_index,
+            scene_number=scene_number, cut_number=cut_number,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"MCP probe_cut failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
@@ -1723,26 +1710,48 @@ def probe_cut(project_id: str, section_type: str, scene_index: int = 0,
 
 @mcp.tool()
 def probe_scene(project_id: str, section_type: str,
-                scene_index: int = 0) -> dict:
+                scene_index: int | None = None,
+                scene_number: int | None = None) -> dict:
     """Inspect ONE section: per-cut summaries + geometry/timing rollups +
-    variety. Read-only. Use to find which cut to fix, then probe_cut it."""
+    variety. Read-only. Use to find which cut to fix, then probe_cut it.
+
+    Targeting:
+    - Pass 1-based `scene_number` matching UI (e.g. scene_number=1 for Scene 1).
+    - Alternatively pass 0-based `scene_index` (e.g. scene_index=0).
+    """
     try:
         from backend.mcp import probe as _probe
-        return _probe.probe_scene_payload(project_id, section_type, scene_index)
+        return _probe.probe_scene_payload(
+            project_id, section_type, scene_index,
+            scene_number=scene_number,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"MCP probe_scene failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
 
 
 @mcp.tool()
-def probe_asset(project_id: str, section_type: str, scene_index: int = 0,
-                cut_index: int = 0, layer_index: int = 0) -> dict:
+def probe_asset(project_id: str, section_type: str, scene_index: int | None = None,
+                cut_index: int | None = None, layer_index: int = 0,
+                scene_number: int | None = None,
+                cut_number: int | None = None) -> dict:
     """File truth for ONE media layer: query/source → downloaded file?
-    Read-only. Reports exists/size/dimensions/duration + fix when missing."""
+    Read-only. Reports exists/size/dimensions/duration + fix when missing.
+
+    Targeting:
+    - Pass 1-based `scene_number` and `cut_number` matching UI numbers.
+    - Alternatively pass 0-based `scene_index` and `cut_index`.
+    """
     try:
         from backend.mcp import probe as _probe
-        return _probe.probe_asset_payload(project_id, section_type,
-                                          scene_index, cut_index, layer_index)
+        return _probe.probe_asset_payload(
+            project_id, section_type, scene_index, cut_index, layer_index,
+            scene_number=scene_number, cut_number=cut_number,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"MCP probe_asset failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
@@ -1750,14 +1759,25 @@ def probe_asset(project_id: str, section_type: str, scene_index: int = 0,
 
 @mcp.tool()
 def save_visuals(project_id: str, section_type: str, sub_visuals: list,
-                 scene_index: int = 0, cut_index: int = -1,
-                 dry_run: bool = False, auto_migrate: bool = False) -> dict:
+                 scene_index: int | None = None, cut_index: int | None = None,
+                 dry_run: bool = False, auto_migrate: bool = False,
+                 scene_number: int | None = None,
+                 cut_number: int | None = None) -> dict:
     """Validate and persist sub_visuals for ONE section
-    (section_type: introduction | scene | conclusion; scene_index used
+    (section_type: introduction | scene | conclusion; scene_index/scene_number used
     only for scene). Durations are auto-normalized to the section's audio
     length; Image/Video layers MUST carry an English search `query`.
     Repeat per section, then run fetch_assets BEFORE review_frame
     (mode=composition needs downloaded local_path files).
+
+    Targeting:
+    - Pass 1-based `scene_number` and `cut_number` matching UI numbers directly
+      (e.g., UI "Scene 1 Cut 2" -> scene_number=1, cut_number=2).
+    - Alternatively pass 0-based `scene_index` and `cut_index` (scene_index=0, cut_index=1).
+    - For whole-section updates, omit cut_number and cut_index.
+    - For single-cut patches, supply cut_number or cut_index and a 1-element sub_visuals array.
+    - Introduction and Conclusion: pass section_type="introduction" (or "intro") /
+      section_type="conclusion" (or "outro") and cut_number (or cut_index).
     Canonical cut shape ONLY: {duration, transition?,
     composition:{type:Sequence, children:[{type:Layer,
     content:{type, query/source/text/...,
@@ -1780,7 +1800,7 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     geometry/timing/variety/unverified_queries, fix, then persist. Persisting
     without a dry_run pass earns a nudge; agents that iterate dry_run produce
     visibly better videos.
-    cut_index >= 0 patches a SINGLE cut (pass sub_visuals as a 1-element
+    cut_index >= 0 (or cut_number >= 1) patches a SINGLE cut (pass sub_visuals as a 1-element
     array holding just that cut) instead of resending the whole section —
     use after review_frame flags one bad cut (re-run fetch_assets if the
     patch adds a new query, then re-review). dry_run=true validates and
@@ -1807,7 +1827,9 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     try:
         return payloads.save_visuals_payload(
             project_id, section_type, sub_visuals, scene_index,
-            cut_index=cut_index if cut_index is not None and cut_index >= 0 else None,
+            cut_index=cut_index,
+            scene_number=scene_number,
+            cut_number=cut_number,
             dry_run=dry_run, auto_migrate=bool(auto_migrate))
     except ValueError as e:
         return {"ok": False, "error": str(e)}
@@ -1856,7 +1878,9 @@ def save_visuals_batch(project_id: str, sections: list,
                        dry_run: bool = False) -> dict:
     """Validate/persist sub_visuals for MANY sections in ONE call.
 
-    Each item: {section_type, sub_visuals, scene_index?, cut_index?}.
+    Each item: {section_type, sub_visuals, scene_index?, cut_index?, scene_number?, cut_number?}.
+    Supports 1-based scene_number (matches UI Scene N) and cut_number (matches UI Cut #N),
+    as well as 0-based scene_index and cut_index.
     A 30-section video costs 3 calls (batch dry_run → re-dry-run fixed
     sections → batch persist) instead of 60-90 — write 2-3 cuts per ~10s
     scene like the internal loop does instead of rationing 1 cut per section.
@@ -1866,7 +1890,7 @@ def save_visuals_batch(project_id: str, sections: list,
     timing reports as save_visuals, per section, plus a whole-video
     video_variety rollup (uniform-signature and zero-energy detection).
     Duplicate section targets and negative cut_index values are rejected
-    (omit cut_index for a whole-section replace).
+    (omit cut_index/cut_number for a whole-section replace).
     MANDATORY FIRST (persist only): same visuals grounding as save_visuals
     (get_stage_skills('visuals') + ≥1 declarative-ast section pull).
     WORKFLOW: save_visuals_batch(dry_run=true) → fix failed indexes →

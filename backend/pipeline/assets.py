@@ -83,6 +83,73 @@ def _resolve_manifest_path(project_dict, project_dir):
                 break
     return manifest_path
 
+
+def repair_manifest_pointers():
+    """Startup self-heal: backfill assets_manifest_path for projects whose
+    pointer is null/stale but a manifest exists on disk.
+
+    Root cause it guards: visuals authored purely via MCP save_visuals (before
+    the pointer was auto-set on persist) or cleared by clear_visuals left the
+    DB pointer empty, which left the editor with an empty manifest (timeline
+    clicks resolve to null, Visuals tab dead) even though files were healthy.
+    Never raises — boot must not fail because of a repair pass.
+    Returns the number of projects repaired.
+    """
+    from backend.database import db as _db
+    from backend.core.config import get_storage_dir
+    repaired = 0
+    try:
+        projects = _db.get_all_projects() or []
+    except Exception as e:
+        logger.warning(f"manifest pointer repair skipped (project list failed): {e}")
+        return 0
+    storage = get_storage_dir()
+    for proj in projects:
+        try:
+            if not isinstance(proj, dict):
+                continue
+            pid = proj.get("id")
+            if not pid:
+                continue
+            pointer = proj.get("assets_manifest_path")
+            if pointer and Path(pointer).exists():
+                continue
+            # Guarded project dir (same traversal rejection as _project_dir):
+            # pids are DB-generated, but never join raw strings blindly.
+            if ".." in str(pid).replace("\\", "/").split("/") or not str(pid).strip():
+                continue
+            project_dir = storage / pid
+            found = None
+            for candidate in (project_dir / "voiceover" / "manifest.json",
+                              project_dir / "assets" / "assets_manifest.json"):
+                if not candidate.exists():
+                    continue
+                # Pin only usable manifests: empty/corrupt files are useless
+                # to the editor (it skips length-0) and would only fake health.
+                try:
+                    import json as _json
+                    with open(candidate, "r", encoding="utf-8") as f:
+                        data = _json.load(f)
+                    if isinstance(data, list) and len(data) > 0:
+                        found = candidate
+                        break
+                    logger.warning(
+                        f"manifest pointer repair: project {pid} has unusable "
+                        f"manifest at {candidate} (skipped).")
+                except Exception as e:
+                    logger.warning(
+                        f"manifest pointer repair: project {pid} manifest at "
+                        f"{candidate} unreadable ({e}; skipped).")
+            if found:
+                _db.update_project(pid, assets_manifest_path=str(found))
+                repaired += 1
+                logger.info(f"manifest pointer repair: project {pid} -> {found}")
+        except Exception as e:
+            logger.warning(f"manifest pointer repair failed for project {proj.get('id') if isinstance(proj, dict) else '?'}: {e}")
+    if repaired:
+        logger.info(f"manifest pointer repair: backfilled {repaired} project(s)")
+    return repaired
+
 def _section_texts_from_script(script_data):
     """Extract per-section narration texts in manifest order: intro, scenes..., conclusion.
 

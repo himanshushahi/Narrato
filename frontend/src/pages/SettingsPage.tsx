@@ -77,7 +77,6 @@ const SettingsPage: React.FC = () => {
     const profiles: any[] = s?.xtts_profiles || [];
     const current = profiles.find((p: any) => p.id === voice);
     if (current?.language === 'hi' || current?.language === 'en') return current.language;
-    if (typeof s?.whisper_model === 'string' && s.whisper_model.toLowerCase().includes('hindi')) return 'hi';
     return 'hi';
   };
 
@@ -159,14 +158,6 @@ const SettingsPage: React.FC = () => {
         updated.render_hardware = 'cpu';
       }
 
-      // Smart default: Upgrade legacy 'small', 'base' or 'turbo' to the Hindi model if the app is in Hindi
-      const isHindiLang = lang === 'hi';
-      if (isHindiLang && (updated.whisper_model === 'small' || updated.whisper_model === 'base' || updated.whisper_model === 'turbo')) {
-        updated.whisper_model = 'collabora/faster-whisper-small-hindi';
-      } else if (!isHindiLang && updated.whisper_model === 'collabora/faster-whisper-small-hindi') {
-        updated.whisper_model = 'turbo';
-      }
-
       return updated;
     });
   }, [settings, gpuAvailable]);
@@ -231,11 +222,6 @@ const SettingsPage: React.FC = () => {
           }
         } else {
           updated.tts_voice = lang === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural';
-        }
-        if (lang === 'hi') {
-          updated.whisper_model = 'collabora/faster-whisper-small-hindi';
-        } else {
-          updated.whisper_model = 'turbo';
         }
       }
       // Removed legacy llm_provider overwrite logic

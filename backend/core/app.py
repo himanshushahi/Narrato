@@ -94,6 +94,15 @@ def main():
     power_manager.start()
     init_db()
 
+    # Self-heal projects whose assets_manifest_path is null/stale but a
+    # manifest exists on disk (MCP-authored visuals before the pointer was
+    # auto-set on save). Never raises — see repair_manifest_pointers.
+    try:
+        from backend.pipeline.assets import repair_manifest_pointers
+        repair_manifest_pointers()
+    except Exception as e:
+        logger.warning(f"manifest pointer repair skipped: {e}")
+
     setup_bridge_callbacks()
 
     ui_thread = threading.Thread(target=ui_update_loop, daemon=True)

@@ -21,7 +21,12 @@ from pathlib import Path
 from backend.core import config as _config
 from backend.database import db as _db
 from backend.core.logger import logger
-from backend.mcp.payloads import SECTION_TYPES
+from backend.mcp.payloads import (
+    SECTION_TYPES,
+    _normalize_section_type,
+    resolve_scene_and_cut,
+    format_display_label,
+)
 
 MAX_CELLS = 6
 STRIP_CELL_HEIGHT = 360
@@ -72,6 +77,7 @@ def _script_section(project_dir: Path, section_type: str, scene_index: int) -> d
         raise ValueError("script.json not found. Use save_script first.")
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
+    section_type = _normalize_section_type(section_type)
     if section_type in ("introduction", "conclusion"):
         section = script.get(section_type)
         if not isinstance(section, dict):
@@ -79,7 +85,10 @@ def _script_section(project_dir: Path, section_type: str, scene_index: int) -> d
         return section
     scenes = script.get("scenes") or []
     if not 0 <= scene_index < len(scenes):
-        raise ValueError(f"scene_index {scene_index} out of range (0..{len(scenes) - 1}).")
+        raise ValueError(
+            f"scene_index {scene_index} out of range (0..{len(scenes) - 1}) "
+            f"— UI Scene {scene_index + 1} (1..{len(scenes)})."
+        )
     return scenes[scene_index]
 
 
@@ -96,13 +105,16 @@ def _section_start(entries: list, entry) -> float:
 
 
 def _find_entry(entries: list, section_type: str, scene_index: int) -> dict:
+    section_type = _normalize_section_type(section_type)
     if section_type == "scene":
-        candidates = [m for m in entries if m.get("section_type") == "scene"]
+        candidates = [m for m in entries if _normalize_section_type(m.get("section_type") or "") == "scene"]
         if not 0 <= scene_index < len(candidates):
             raise ValueError(
-                f"scene_index {scene_index} out of range (0..{len(candidates) - 1}).")
+                f"scene_index {scene_index} out of range (0..{len(candidates) - 1}) "
+                f"— UI Scene {scene_index + 1} (1..{len(candidates)})."
+            )
         return candidates[scene_index]
-    entry = next((m for m in entries if m.get("section_type") == section_type), None)
+    entry = next((m for m in entries if _normalize_section_type(m.get("section_type") or "") == section_type), None)
     if entry is None:
         raise ValueError(f"No manifest entry for {section_type}.")
     return entry
@@ -123,15 +135,23 @@ def _cut_durations(section: dict) -> list:
     return durations
 
 
-def resolve_targets(project_id: str, section_type: str = "scene", scene_index: int = 0,
-                    cut_index: int = 0, scope: str = "cut",
-                    mode: str = "auto", max_cells: int = 3) -> dict:
+def resolve_targets(project_id: str, section_type: str = "scene", scene_index: int | None = None,
+                    cut_index: int | None = None, scope: str = "cut",
+                    mode: str = "auto", max_cells: int = 3,
+                    scene_number: int | None = None, cut_number: int | None = None) -> dict:
     """Resolve WHAT to snapshot into an ordered cell plan (no I/O beyond
     reads). Returns {mode, video_path, section_start, cells:[...]} where
     each cell is {cut_index, offset, timestamp, label} (render) or
     {cut_index, local_path, kind, label} (asset)."""
-    if section_type not in SECTION_TYPES:
-        raise ValueError(f"section_type must be one of {list(SECTION_TYPES)}.")
+    norm_sec, scene_index, cut_index, err = resolve_scene_and_cut(
+        section_type, scene_index=scene_index, cut_index=cut_index,
+        scene_number=scene_number, cut_number=cut_number,
+        default_scene=0, default_cut=0, allow_negative_cut=False
+    )
+    if err:
+        raise ValueError(err)
+    section_type = norm_sec
+    cut_index = 0 if cut_index is None else cut_index
     if scope not in ("cut", "section"):
         raise ValueError("scope must be 'cut' or 'section'.")
     if mode not in ("auto", "render", "composition", "asset"):
@@ -152,7 +172,10 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
             "Section has no authored sub_visuals yet — run save_visuals first, "
             "then review.")
     if not 0 <= cut_index < len(durations):
-        raise ValueError(f"cut_index {cut_index} out of range (0..{len(durations) - 1}).")
+        raise ValueError(
+            f"cut_index {cut_index} out of range (0..{len(durations) - 1}) "
+            f"— UI Cut #{cut_index + 1} (1..{len(durations)})."
+        )
 
     section_start = _section_start(entries, entry)
     video_path = proj.get("video_path")
@@ -169,7 +192,7 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
         else:
             raise ValueError(
                 "Nothing to snapshot: no rendered video yet and cut "
-                f"{cut_index} has no downloaded media layers. Run "
+                f"{cut_index} (Cut #{cut_index + 1}) has no downloaded media layers. Run "
                 "run_stage(fetch_assets) first, then review_frame(mode=composition) "
                 "for proper final visuals (or pick a cut with Image/Video layers "
                 "that fetch_assets resolved).")
@@ -183,11 +206,19 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
         # Guard ALL cuts (not just the sampled contact-sheet cells) so a
         # broken cut outside the sample can't slip through to render.
         _require_fetched_assets(section, list(range(len(durations))))
-    plan = {"mode": mode, "section_type": section_type,
-            "scene_index": scene_index if section_type == "scene" else None,
-            "section_start": section_start,
-            "video_path": video_path if mode == "render" else None,
-            "cells": []}
+    plan = {
+        "mode": mode,
+        "section_type": section_type,
+        "scene_index": scene_index if section_type == "scene" else None,
+        "scene_number": (scene_index + 1) if section_type == "scene" else None,
+        "cut_index": cut_index if scope == "cut" else None,
+        "cut_number": (cut_index + 1) if scope == "cut" else None,
+        "display_label": format_display_label(section_type, scene_index, cut_index if scope == "cut" else None),
+        "total_cuts": len(durations),
+        "section_start": section_start,
+        "video_path": video_path if mode == "render" else None,
+        "cells": [],
+    }
     # Composition stills share the render timestamp math (absolute video
     # time); only the grab backend differs.
     temporal = mode in ("render", "composition")
@@ -197,11 +228,13 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
             cursor = 0.0
             for ci, dur in enumerate(durations):
                 if ci in picked:
+                    ts = round(section_start + cursor + dur / 2, 2)
                     plan["cells"].append({
                         "cut_index": ci,
+                        "cut_number": ci + 1,
                         "offset": round(dur / 2, 2),
-                        "timestamp": round(section_start + cursor + dur / 2, 2),
-                        "label": f"cut {ci} @ {round(section_start + cursor + dur / 2, 2)}s",
+                        "timestamp": ts,
+                        "label": f"Cut #{ci + 1} (idx {ci}) @ {ts}s",
                     })
                 cursor += dur
         else:
@@ -210,11 +243,13 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
             fractions = _even_fractions(max_cells)
             for frac in fractions:
                 offset = round(dur * frac, 2)
+                ts = round(cut_start + offset, 2)
                 plan["cells"].append({
                     "cut_index": cut_index,
+                    "cut_number": cut_index + 1,
                     "offset": offset,
-                    "timestamp": round(cut_start + offset, 2),
-                    "label": f"cut {cut_index} @ {round(cut_start + offset, 2)}s "
+                    "timestamp": ts,
+                    "label": f"Cut #{cut_index + 1} (idx {cut_index}) @ {ts}s "
                              f"({int(frac * 100)}% through cut)",
                 })
     else:
@@ -228,9 +263,10 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
                 kind, local_path = media[0]
                 plan["cells"].append({
                     "cut_index": ci,
+                    "cut_number": ci + 1,
                     "kind": kind,
                     "local_path": local_path,
-                    "label": f"cut {ci} background ({kind})",
+                    "label": f"Cut #{ci + 1} (idx {ci}) background ({kind})",
                 })
         else:
             media = _cut_media(section, cut_index)
@@ -238,20 +274,21 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
                 missing = _unresolved_media(section, cut_index)
                 if missing:
                     raise ValueError(
-                        f"Cut {cut_index} has {len(missing)} Image/Video layer(s) "
+                        f"Cut #{cut_index + 1} (idx {cut_index}) has {len(missing)} Image/Video layer(s) "
                         f"with no downloaded file (e.g. {missing[0]!r}). Run "
                         "run_stage(fetch_assets) first, then review — "
                         "mode=composition for proper final visuals.")
                 raise ValueError(
-                    f"Cut {cut_index} is procedural (Text/HTML/Chart only) — "
+                    f"Cut #{cut_index + 1} (idx {cut_index}) is procedural (Text/HTML/Chart only) — "
                     "no media frame to snapshot. Use mode='composition' AFTER "
                     "fetch_assets for exact pre-render pixels.")
             for kind, local_path in media[:max_cells]:
                 plan["cells"].append({
                     "cut_index": cut_index,
+                    "cut_number": cut_index + 1,
                     "kind": kind,
                     "local_path": local_path,
-                    "label": f"cut {cut_index} layer ({kind})",
+                    "label": f"Cut #{cut_index + 1} (idx {cut_index}) layer ({kind})",
                 })
     if not plan["cells"]:
         raise ValueError("No snapshot cells resolved for this selector.")
@@ -438,12 +475,13 @@ def merge_contact_sheet(images: list, layout: str = "strip") -> bytes:
     return buf.getvalue()
 
 
-def build_review(project_id: str, section_type: str = "scene", scene_index: int = 0,
-                 cut_index: int = 0, scope: str = "cut",
-                 mode: str = "auto", max_cells: int = 3) -> tuple[dict, bytes]:
+def build_review(project_id: str, section_type: str = "scene", scene_index: int | None = None,
+                 cut_index: int | None = None, scope: str = "cut",
+                 mode: str = "auto", max_cells: int = 3,
+                 scene_number: int | None = None, cut_number: int | None = None) -> tuple[dict, bytes]:
     """Full pipeline: resolve cells → grab → merge. Returns (meta, jpeg)."""
     plan = resolve_targets(project_id, section_type, scene_index, cut_index,
-                           scope, mode, max_cells)
+                           scope, mode, max_cells, scene_number, cut_number)
     # Paired (cell, image): a failed middle cell must never shift later
     # images onto earlier cells' timestamps/labels.
     paired: list = []
@@ -475,14 +513,30 @@ def build_review(project_id: str, section_type: str = "scene", scene_index: int 
     if not paired:
         raise RuntimeError("All snapshot cells failed to grab (see server log).")
     jpeg = merge_contact_sheet([img for _, img in paired], plan["layout"])
-    meta = {"ok": True, "project_id": project_id, "mode": plan["mode"],
-            "layout": plan["layout"],
-            "section_type": plan["section_type"], "scene_index": plan["scene_index"],
-            "section_start": plan["section_start"],
-            "cells": [{"label": c["label"], "cut_index": c["cut_index"],
-                       **({"timestamp": c["timestamp"]} if "timestamp" in c else {}),
-                       **({"kind": c["kind"]} if "kind" in c else {})}
-                      for c, _ in paired]}
+    meta = {
+        "ok": True,
+        "project_id": project_id,
+        "mode": plan["mode"],
+        "layout": plan["layout"],
+        "section_type": plan["section_type"],
+        "scene_index": plan["scene_index"],
+        "scene_number": plan.get("scene_number"),
+        "cut_index": plan.get("cut_index"),
+        "cut_number": plan.get("cut_number"),
+        "display_label": plan.get("display_label"),
+        "total_cuts": plan.get("total_cuts"),
+        "section_start": plan["section_start"],
+        "cells": [
+            {
+                "label": c["label"],
+                "cut_index": c["cut_index"],
+                "cut_number": c.get("cut_number", c["cut_index"] + 1),
+                **({"timestamp": c["timestamp"]} if "timestamp" in c else {}),
+                **({"kind": c["kind"]} if "kind" in c else {}),
+            }
+            for c, _ in paired
+        ],
+    }
     if cache_info is not None:
         pre_misses = cache_info.get("misses", [])
         meta["cache"] = {

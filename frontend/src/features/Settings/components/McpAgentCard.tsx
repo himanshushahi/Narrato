@@ -41,8 +41,7 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
       { name: 'update_voice_settings', blurb: 'Change voice/speed/music volume' },
       { name: 'update_transcribe_settings', blurb: 'Change whisper model/device' },
       { name: 'get_transcription', blurb: 'Read word-level transcription & segments (section-scoped or global)' },
-      { name: 'compare_transcription', blurb: 'Audit script vs Whisper diffs (spelling, matras, number words, cutoffs)' },
-      { name: 'update_transcription', blurb: 'Repair transcription & auto-sync subtitles.srt + subtitles.vtt' },
+
       { name: 'list_skills', blurb: 'Writing/visual guide catalogue' },
       { name: 'get_skill', blurb: 'Full guide markdown — or brief=true map / section="..." chunk for big skills' },
       { name: 'get_stage_skills', blurb: 'One-call starter pack per stage (satisfies skill gate)' },

@@ -92,7 +92,6 @@ Any MCP-compatible coding agent (Claude Code, opencode, Cursor, Gemini CLI) can 
 - **Projects**: create / list / status / delete (validated inputs, collision-proof export folders).
 - **Script, design & voice**: save/validate narration, design systems, voice + whisper settings.
 - **Stage Grounding Guardrail**: Strict gates require agents to ground themselves via `get_stage_skills` or `get_skill` before authoring scripts, designs, or visuals.
-- **Subtitle Repair**: Word-level audit tools (`compare_transcription`, `update_transcription`) to auto-align Whisper misspellings and matra variants with script text.
 - **Mechanical stages**: voiceover → transcribe → assets → render, with background submit + poll + cancel, strictly serialized per project.
 - **Visual iteration**: true audio timings, per-section save, single-cut patch, dry-run validation, contact-sheet review frames (rendered / headless-Remotion / asset lineup).
 - **Human review gate**: agents build through asset download, then stop — final render requires your explicit approval (`confirm_render=true`).
@@ -292,7 +291,7 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 |---|---|
 | **LLM Provider** | OpenAI-Compatible Endpoint (model, temperature, tokens, base URL) |
 | **Web Search** | LangSearch (master toggle + API key) — feeds real-time web facts to scriptwriter agent |
-| **Whisper** | Faster-Whisper models (including `collabora/faster-whisper-small-hindi`), device CPU/CUDA |
+| **Whisper** | Faster-Whisper models (`turbo`, `large-v3`, `medium`, `small`), device CPU/CUDA |
 | **TTS Engine** | Edge TTS (voices, speed, pitch) or OmniVoice (voice profiles, reference clip, ~3.3 GB model) |
 | **Media Sources** | Pexels API key, Pixabay illustrations/vectors, Wikipedia images, YouTube clips |
 | **Render Engine** | Resolution, FPS, CRF, codec, concurrency, hardware acceleration (CPU / NVENC) |

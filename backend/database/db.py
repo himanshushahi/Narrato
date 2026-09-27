@@ -141,7 +141,7 @@ def init_db():
             "openai_top_p": "1.0",
             "llm_concurrency": "3",
             "app_language": "hi", # default script language: 'hi' (Hindi) or 'en' (English)
-            "whisper_model": "base",
+            "whisper_model": "small",
             "whisper_device": "cpu", # 'cpu' or 'cuda'
             "tts_engine": "edge", # 'edge' or 'xtts' (legacy id for OmniVoice voice cloning)
             "tts_voice": "hi-IN-SwaraNeural", # default Edge voice (Hindi)
@@ -217,16 +217,8 @@ def create_project(name, style_hint, export_folder, language="hi", style="nitish
     # Handle default styling presets
     project_settings_dict = {}
     
-    # Pin whisper_model to the language-appropriate default
-    whisper_model = get_setting("whisper_model") or "base"
-    if language == "hi" and whisper_model in ["small", "base"]:
-        whisper_model = "collabora/faster-whisper-small-hindi"
-    elif language != "hi" and whisper_model == "collabora/faster-whisper-small-hindi":
-        try:
-            from backend.pipeline.transcribe import get_best_downloaded_whisper_model
-            whisper_model = get_best_downloaded_whisper_model(fallback="small")
-        except ImportError:
-            whisper_model = "small"
+    # Default whisper_model
+    whisper_model = get_setting("whisper_model") or "small"
     project_settings_dict["whisper_model"] = whisper_model
     
     default_sub_preset_id = get_setting("default_subtitle_preset_id")
