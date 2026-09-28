@@ -983,3 +983,42 @@ class ProjectStatusReportToolArgs(AppBaseModel):
 
 class ListProjectFilesToolArgs(AppBaseModel):
     project_id: str = Field(..., description="Project identifier")
+
+
+class SearchIconsToolArgs(AppBaseModel):
+    query: str = Field(..., description="Semantic search term or concept (e.g. 'growth', 'danger', 'security', 'law', 'data')")
+    limit: int = Field(default=5, ge=1, le=20, description="Max icon candidates to return")
+
+
+class LintVisualsToolArgs(AppBaseModel):
+    sub_visuals: List[Dict[str, Any]] = Field(..., description="Array of candidate AST sub_visual objects to lint")
+    video_format: Optional[str] = Field(default="landscape", description="Video format (landscape, portrait, square)")
+    expected_duration: Optional[float] = Field(default=None, description="Expected total scene duration in seconds (optional duration-math check)")
+
+
+class GetWordTimingsToolArgs(AppBaseModel):
+    project_id: str = Field(..., description="Project identifier")
+    query: Optional[str] = Field(default=None, description="Specific keyword or phrase to find in the spoken narration")
+    scene_index: Optional[int] = Field(default=None, description="Optional scene index to restrict word lookup")
+
+
+class ProbeCutToolArgs(AppBaseModel):
+    project_id: str = Field(..., description="Project identifier")
+    section_type: Literal["introduction", "scene", "conclusion"] = Field(..., description="Section type")
+    scene_index: int = Field(default=0, ge=0, description="Scene index")
+    cut_index: int = Field(default=0, ge=0, description="Cut index")
+
+
+class ProbeSceneToolArgs(AppBaseModel):
+    project_id: str = Field(..., description="Project identifier")
+    section_type: Literal["introduction", "scene", "conclusion"] = Field(..., description="Section type")
+    scene_index: int = Field(default=0, ge=0, description="Scene index")
+
+
+class ProbeAssetToolArgs(AppBaseModel):
+    project_id: str = Field(..., description="Project identifier")
+    section_type: Literal["introduction", "scene", "conclusion"] = Field(..., description="Section type")
+    scene_index: int = Field(default=0, ge=0, description="Scene index")
+    cut_index: int = Field(default=0, ge=0, description="Cut index")
+    layer_index: int = Field(default=0, ge=0, description="Layer index")
+

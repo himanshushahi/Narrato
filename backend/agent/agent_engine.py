@@ -178,12 +178,20 @@ MAX_TOOLS_PER_TURN = 8
 PIPELINE_VISUAL_TURNS = 6
 PIPELINE_SCRIPT_TURNS = 5
 
-# Tools allowed during bulk pipeline generation. WRITE tools and nested
-# AI rewrite tools are excluded so a pipeline run can never mutate the project
-# or spawn recursive ReAct loops mid-generation.
+# Tools allowed during bulk pipeline generation.
+# Excluded:
+# - Mutation tools (write/update) to prevent side-effects mid-generation.
+# - Post-generation inspection tools (probe_cut, probe_scene, probe_asset)
+#   because during bulk pipeline generation, scene visuals are generated concurrently
+#   in memory and only written to disk in a single batch after all scenes finish,
+#   while assets have not been downloaded yet (fetch_assets runs later). Calling
+#   these mid-generation returns empty results, index errors, or stale data.
+# - Spoken word timing search (get_word_timings) because exact scene-relative word
+#   timestamps are already pre-computed and injected directly into the user prompt.
 PIPELINE_VISUAL_TOOLS = frozenset({
     "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
+    "search_icons", "lint_visuals",
     "search_pexels_photo", "search_pexels_video",
     "search_wikipedia_image",
     "search_pixabay_photo", "search_pixabay_video",
@@ -204,9 +212,12 @@ BRIDGE_SCRIPT_TOOLS = frozenset({
 
 # Bridge: visual rewrites — research + declarative AST composition rules + asset search.
 # Needs Pexels/Wikipedia/Pixabay/YouTube tools to verify assets exist before using them.
+# Strictly read-only tools.
 BRIDGE_VISUAL_TOOLS = frozenset({
     "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
+    "search_icons", "lint_visuals", "get_word_timings",
+    "probe_cut", "probe_scene", "probe_asset",
     "search_pexels_photo", "search_pexels_video", "search_wikipedia_image",
     "search_pixabay_photo", "search_pixabay_video",
     "search_youtube_video",

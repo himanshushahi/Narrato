@@ -30,10 +30,10 @@ Narrato operates two distinct tool interfaces for AI agents:
 | Category | Count | Description |
 |---|:---:|---|
 | **MCP Tools Total** | **31** | Full programmatic control over Narrato's video creation engine. |
-| **Internal LLM Agent Tools Total** | **14** | Interactive assistant tools for research, probing, and asset checks. |
-| **Shared / Both Have** | **9** | Tools present in both systems (7 direct matches + 2 functional equivalents). |
-| **Only MCP Has** | **22** | Pipeline runners, project CRUD, AST authoring, frame review, settings. |
-| **Only Internal Agent Has** | **5** | Dedicated provider-specific search functions (unified in MCP). |
+| **Internal LLM Agent Tools Total** | **17** | Interactive assistant and generation tools for research, probing, iconography, pre-flight linting, and asset checks. |
+| **Shared / Both Have** | **12** | Tools present in both systems (direct matches or functional equivalents). |
+| **Only MCP Has** | **19** | Pipeline runners, project CRUD, AST authoring, frame review, settings. |
+| **Only Internal Agent Has** | **7** | Dedicated provider-specific search functions, in-memory icon search, and pre-flight visual linter. |
 
 ---
 
@@ -47,12 +47,16 @@ Narrato operates two distinct tool interfaces for AI agents:
 5. **`probe_cut`** *(Exact match)* — Detailed inspection of a single cut (geometry, timing, assets).
 6. **`probe_scene`** *(Exact match)* — Inspection of a section (cut summaries, variety, durations).
 7. **`probe_asset`** *(Exact match)* — Verification of downloaded media files for a specific cut layer.
-8. **Project Status Overview** *(Functional equivalent)*:
+8. **`get_word_timings`** *(Functional equivalent to MCP `get_transcription`)* — Looks up exact spoken word timestamps from `transcription.json`.
+9. **Project Status Overview** *(Functional equivalent)*:
    - MCP: `project_status` (DB row, pipeline task states, language, format).
    - Internal Agent: `project_status_report` (Deep summary: script structure, scene count, design system, visual settings).
-9. **Media Verification** *(Functional equivalent)*:
+10. **Media Verification** *(Functional equivalent)*:
    - MCP: `search_media` (Unified gateway with `source` parameter).
    - Internal Agent: 6 dedicated tools (`search_pexels_photo`, `search_pexels_video`, `search_wikipedia_image`, `search_pixabay_photo`, `search_pixabay_video`, `search_youtube_video`).
+11. **Iconography & Visual Quality Tools (Internal Agent)**:
+   - `search_icons` — Fast in-memory semantic search for valid Lucide icons.
+   - `lint_visuals` — Pre-flight geometry, canvas pixel boxes, and animation timing linter (in-memory, read-only).
 
 ---
 
@@ -154,6 +158,9 @@ The internal agent exposes individual, dedicated tools for stock asset verificat
 | `search_pixabay_photo` | ❌ (in `search_media`) | ✅ | **Agent**: `query`, `orientation`, `image_type` | Searches Pixabay photos/vectors with transparent cutout support. |
 | `search_pixabay_video` | ❌ (in `search_media`) | ✅ | **Agent**: `query` | Searches Pixabay stock video footage. |
 | `search_youtube_video` | ❌ (in `search_media`) | ✅ | **Agent**: `query` | Checks YouTube video downloadability via yt-dlp. |
+| `search_icons` | ❌ (internal) | ✅ | **Agent**: `query`, `limit=5` | Semantic in-memory search for valid Lucide icon names and categories. Read-only. |
+| `lint_visuals` | ❌ (in `save_visuals(dry_run)`) | ✅ | **Agent**: `sub_visuals`, `video_format`, `expected_duration` | Pre-flight canvas pixel box math, overlap collision alerts, exit timing verification. Read-only. |
+| `get_word_timings` | ❌ (in `get_transcription`) | ✅ | **Agent**: `project_id`, `query` | Searches spoken word timestamps in `transcription.json` for precise kinetic sync. Read-only. |
 
 ---
 
@@ -168,6 +175,21 @@ The internal agent exposes individual, dedicated tools for stock asset verificat
 1. **Headless Automation**: External coding assistants (like Antigravity, Claude, or Cursor) operate outside the desktop GUI. They need to run the entire video production lifecycle from scratch without touching a mouse.
 2. **Deterministic Gates**: MCP tools enforce strict validation gates (e.g., human review gate before `render_video`, pacing checks before `save_script`, and dry-run linting before `save_visuals`).
 3. **Multimodal Feedback**: With `review_frame`, MCP agents receive real rendered image strips to evaluate visual aesthetics, text legibility, and animation flow directly in chat.
+
+### Internal Agent Tool Scoping: Pipeline vs. Bridge Rewrites
+The internal LLM agent operates under two distinct contexts with different allowlists:
+
+1. **Automated Bulk Pipeline Generation (`PIPELINE_VISUAL_TOOLS`)**:
+   - During `generate_visuals_pipeline`, all scenes are planned and generated concurrently in worker threads.
+   - The final `manifest.json` is written to disk in a single batch **after all scenes complete**.
+   - Assets are fetched in a subsequent stage (`fetch_assets`), and frames are rendered in `render`.
+   - **Post-generation inspection tools are strictly excluded** (`probe_cut`, `probe_scene`, `probe_asset`, `review_frame`). If called mid-generation, they would return empty cuts, index errors, or report missing asset files.
+   - Allowed tools are strictly in-memory and pre-flight: `search_icons`, `lint_visuals`, media verification (`search_pexels_*`, `search_pixabay_*`, `search_wikipedia_image`, `search_youtube_video`), `get_skill`, and `web_search`.
+
+2. **Interactive Bridge Rewrites / Editing (`BRIDGE_VISUAL_TOOLS`)**:
+   - Used when a user interactively requests scene or cut updates in the editor (e.g., "rewrite cut 2", "make scene 1 more energetic").
+   - The project is already saved on disk, `manifest.json` is populated, and assets are already downloaded.
+   - Full probe suite is enabled: `probe_cut`, `probe_scene`, `probe_asset`, `get_word_timings` (with `scene_index` support), `search_icons`, `lint_visuals`, and media searches.
 
 ---
 

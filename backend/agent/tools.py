@@ -11,6 +11,8 @@ from backend.agent.schemas import (
     WebSearchToolArgs, GetSkillToolArgs, SearchMediaToolArgs,
     SearchWikipediaImageToolArgs, SearchPixabayPhotoToolArgs, SearchYouTubeVideoToolArgs,
     ReadProjectFileToolArgs, ProjectStatusReportToolArgs, ListProjectFilesToolArgs,
+    SearchIconsToolArgs, LintVisualsToolArgs, GetWordTimingsToolArgs,
+    ProbeCutToolArgs, ProbeSceneToolArgs, ProbeAssetToolArgs,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,12 @@ TOOL_ARGUMENT_MODELS = {
     "read_project_file": ReadProjectFileToolArgs,
     "project_status_report": ProjectStatusReportToolArgs,
     "list_project_files": ListProjectFilesToolArgs,
+    "probe_cut": ProbeCutToolArgs,
+    "probe_scene": ProbeSceneToolArgs,
+    "probe_asset": ProbeAssetToolArgs,
+    "search_icons": SearchIconsToolArgs,
+    "lint_visuals": LintVisualsToolArgs,
+    "get_word_timings": GetWordTimingsToolArgs,
 }
 
 
@@ -439,6 +447,65 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                 }
             }
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_icons",
+                "description": "Fast in-memory semantic search for valid Lucide icons. Returns matching icon names, categories, and synonym tags to use in Shape layers (shape_type='icon', icon_name='...'). Read-only.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search concept or keyword (e.g. 'growth', 'recession', 'cyberattack', 'court', 'cloud', 'heart')"},
+                        "limit": {"type": "integer", "default": 5, "description": "Max icons to return (1-20)"}
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "lint_visuals",
+                "description": "Pre-flight geometry, canvas pixel bounding box, and animation timing linter. Takes a candidate sub_visuals array and returns computed box_px coordinates, collision/overlap alerts, exit timing verification, and centering suggestions without saving. Read-only.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "sub_visuals": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "Candidate sub_visuals array to test"
+                        },
+                        "video_format": {
+                            "type": "string",
+                            "enum": ["landscape", "portrait", "square"],
+                            "default": "landscape",
+                            "description": "Target video aspect ratio"
+                        },
+                        "expected_duration": {
+                            "type": "number",
+                            "description": "Optional scene duration to verify that sub_visual durations sum accurately"
+                        }
+                    },
+                    "required": ["sub_visuals"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_word_timings",
+                "description": "Looks up exact spoken word timestamps from transcription.json for narration sync. Useful to determine precise entrance delays or kinetic text highlight timings. Read-only.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {"type": "string", "description": "Project identifier"},
+                        "query": {"type": "string", "description": "Word or phrase to locate in transcription"},
+                        "scene_index": {"type": "integer", "description": "Optional scene index (0-based) to scope search and calculate scene-relative timestamps"}
+                    },
+                    "required": ["project_id"]
+                }
+            }
+        },
     ]
 
 
@@ -674,6 +741,134 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             except Exception as e:
                 return f"Error: probe failed: {e}"
             return _probe_result_for_llm(res)
+
+        if tool_name == "search_icons":
+            query = str(arguments.get("query") or "")
+            limit = int(arguments.get("limit") or 5)
+            from backend.pipeline.icons import search_lucide_icons
+            matches = search_lucide_icons(query, limit=limit)
+            return json.dumps(matches, ensure_ascii=False)
+
+        if tool_name == "lint_visuals":
+            sub_visuals = arguments.get("sub_visuals")
+            video_format = str(arguments.get("video_format") or "landscape")
+            expected_duration = arguments.get("expected_duration")
+            if not isinstance(sub_visuals, list):
+                return "Error: sub_visuals must be a list of AST cut objects."
+
+            from backend.agent.geometry import lint_sub_visuals
+            from backend.agent.timing import lint_section_timing
+
+            geom_report = lint_sub_visuals(sub_visuals, video_format=video_format)
+            timing_report = lint_section_timing(sub_visuals)
+
+            report: Dict[str, Any] = {
+                "warnings": geom_report.get("warnings", []),
+                "fixes": geom_report.get("fixes", []),
+                "overlaps": geom_report.get("overlaps", []),
+                "timing_warnings": timing_report.get("warnings", []),
+                "timing_fixes": timing_report.get("fixes", []),
+                "boxes": geom_report.get("boxes", [])[:10],
+                "boxes_note": "Canvas pixel coordinates: box_px {x, y, w, h}",
+            }
+            if expected_duration is not None:
+                try:
+                    total_dur = sum(float(c.get("duration", 0)) for c in sub_visuals if isinstance(c, dict))
+                    diff = round(total_dur - float(expected_duration), 2)
+                    report["duration_check"] = {
+                        "total_duration": round(total_dur, 2),
+                        "expected_duration": float(expected_duration),
+                        "duration_match": abs(diff) < 0.05,
+                        "diff": diff,
+                    }
+                except Exception:
+                    pass
+
+            return json.dumps(report, ensure_ascii=False)
+
+        if tool_name == "get_word_timings":
+            project_id = arguments.get("project_id")
+            query = arguments.get("query", "")
+            scene_index = arguments.get("scene_index")
+            if not project_id:
+                return "Error: project_id is required."
+
+            trans_data = _load_json(project_id, "subtitles/transcription.json")
+            if not trans_data or not isinstance(trans_data, dict):
+                return "No transcription found for this project."
+
+            scene_info = None
+            if scene_index is not None:
+                try:
+                    target_sc_idx = int(scene_index)
+                except (ValueError, TypeError):
+                    target_sc_idx = None
+                if target_sc_idx is not None:
+                    manifest = (_load_json(project_id, "voiceover/manifest.json")
+                                or _load_json(project_id, "manifest.json")
+                                or _load_json(project_id, "assets/assets_manifest.json"))
+                    if isinstance(manifest, list):
+                        curr_t = 0.0
+                        sc_count = 0
+                        for item in manifest:
+                            if not isinstance(item, dict):
+                                continue
+                            dur = float(item.get("duration", 0) or 0)
+                            sec_type = item.get("section_type", "scene")
+                            if sec_type == "scene":
+                                if sc_count == target_sc_idx:
+                                    scene_info = {
+                                        "scene_index": target_sc_idx,
+                                        "start": round(curr_t, 2),
+                                        "duration": round(dur, 2),
+                                        "end": round(curr_t + dur, 2),
+                                    }
+                                    break
+                                sc_count += 1
+                            curr_t += dur
+
+            segments = trans_data.get("segments", [])
+            query_lower = str(query or "").lower().strip()
+
+            matched_words = []
+            for seg in segments:
+                if not isinstance(seg, dict):
+                    continue
+                words = seg.get("words", [])
+                for w in words:
+                    if not isinstance(w, dict):
+                        continue
+                    w_text = str(w.get("word", "")).strip()
+                    w_start = round(float(w.get("start", 0)), 2)
+                    w_end = round(float(w.get("end", 0)), 2)
+
+                    if scene_info is not None:
+                        if w_start < scene_info["start"] or w_start >= scene_info["end"]:
+                            continue
+
+                    if not query_lower or query_lower in w_text.lower():
+                        entry = {
+                            "word": w_text,
+                            "start": w_start,
+                            "end": w_end,
+                        }
+                        if scene_info is not None:
+                            entry["scene_relative_start"] = round(w_start - scene_info["start"], 2)
+                            entry["scene_relative_end"] = round(w_end - scene_info["start"], 2)
+                        matched_words.append(entry)
+
+            if not matched_words:
+                scope_msg = f" in scene {scene_index}" if scene_index is not None else ""
+                return f"No spoken words matching '{query}' found in transcription{scope_msg}."
+
+            if len(matched_words) > 50:
+                matched_words = matched_words[:50]
+
+            resp = {"matched_words": matched_words}
+            if scene_info is not None:
+                resp["scene"] = scene_info
+
+            return json.dumps(resp, ensure_ascii=False)
 
         return f"Error: Unknown tool {tool_name}"
 
