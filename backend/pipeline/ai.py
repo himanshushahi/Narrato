@@ -1912,7 +1912,7 @@ You must use the declarative AST format for all visual compositions.
 Every sub-visual MUST have a `composition` property matching the AST schema.
 
 - Design for the {video_format} orientation.
-- Use `Image`, `Video`, `Text`, or `Map` layers inside a `Sequence`.
+- Use any of the 11 supported content types (Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background) inside a `Sequence`.
 """
 
 
@@ -1926,43 +1926,37 @@ def _visual_rules_safety_net(video_format: str, language: str) -> str:
 - All text content MUST be in English, EXCEPT if you are specifically creating a subtitle/translation layer which must match the target language ({language}).
 - CRITICAL FONT RULE: If generating text/subtitles in a complex script (e.g., Hindi, Tamil, Bengali, Arabic), you MUST specify a Noto font (e.g., `Noto Sans Devanagari`) in the design system or layer style to prevent broken Unicode shaping.
 - Design for the {video_format} orientation (landscape 16:9, portrait 9:16) using responsive % widths where applicable.
-  * Landscape (16:9): Split screens use `left: "6%"` & `left: "52%"`, `width: "42%"`, `height: "66%"`.
-  * Portrait (9:16): Stack vertically! Top card `top: "12%"`, `height: "36%"`; Bottom card `top: "50%"`, `height: "22%"`.
 - SUBTITLE SAFE AREA ({video_format}): The bottom {safe_bottom_pct} is reserved for kinetic captions. Place lower-third text above {text_bottom_limit} or align to top/center.
-- STANDARDIZED LAYER ORDER (stacking = children array order, children[0]=bottom ... children[N-1]=top):
-  * Bottom: Background canvas — ANY suitable full-screen base: darkened Video footage, vector Maps, high-contrast Images, HTML gradient/pattern backgrounds, or styled solid-color canvases. Add continuous camera drift (`animations: [{{"property": "scale", "from": 1.0, "to": 1.06, "duration": ..., "easing": "linear"}}]`). VARY your background type — do NOT default to Video for every sub-visual.
-  * Middle: Midground motion primitives (Charts, Shapes, Bespoke HTML Cards, Maps, Insets) with corner rounding (`borderRadius: "20px"`) + spring entrance (`delay: 0.5` minimum, `easing: "spring"`)
-  * Top: Foreground typography / callouts (respect subtitle safe area) with staggered reveal (`delay: 0.7` to `1.0`, or the exact spoken-word time)
-
-=== ANTI-TEMPLATE CONTRACT (Phase 0 variety — hard rules, not suggestions) ===
-- NEVER emit two consecutive cuts with the same layer signature (e.g. Video→HTML→Text twice). Change the background type, geometry preset, or text animation_mode.
-- Cycle children[0] across cuts (Video → Background preset → Image → HTML gradient → Map). Same bg twice in a row needs a story reason.
-- One viral breaker per 3+-cut scene: full-bleed impact word with NO card (giant 150–220px Text over graded B-roll + emphasis punch), OR asymmetric duotone collage (transparent pixabay cutout + outline headline, no centered card), OR ticker/timeline rail (full-width HTML strip + staggered mini-cards). Full specs: declarative-ast Archetypes 13–15.
-- HTML SHELL BAN: the default navy glass card (rgba(15,23,42,0.85) + blur(20px) + radius 20px) is BANNED as a fallback. Pick per beat: Brutalist solid banner / Noir redacted / Terminal HUD / Paper editorial / Neon outline stat / Ticker strip. Never reuse the same shell twice in a row; a cut with zero HTML layers beats a repeated card.
-- MOTION VOCAB QUOTA: ≥1 non-translateY entrance per scene (slam-zoom scale 1.6→1.0 + motion_blur; tilt rotate -6→0; rack-focus blur 12→0; flash brightness 0.3→1.0; lateral whip translateX ±60→0; stagger cascade delays 0.3/0.55/0.8). ≥1 energy moment per 3 cuts (emphasis punch-in, camera_shake, motion_blur spring, FX filters look beyond brightness, floating, or emotion-matched Particles).
-- LOTTIE RULE: one small accent badge per cut max (8–18% box) with spring entrance, never fullscreen. Safe starters: lf20_qp1q7mct (checkmark), lf20_5tkuno (alert) at assets10/9.lottiefiles.com; same-CDN-shape extras (spinner/money/confetti/arrow/bell) allowed. Unsure a URL loads → use a Lucide Shape icon instead.
+- LAYER ORDER (capability): stacking = children array order, children[0]=bottom ... children[N-1]=top. Any types, any count. Compose each cut to serve its beat.
 
 === NO STATIC CHAPTER TITLE CARDS IN SUB-VISUALS ===
 Do NOT create static chapter title badges, scene name cards, or temporary header pills inside sub-visual cuts. Chapter indicators and video branding are managed continuously at the root composition level. Dedicate sub-visual cuts entirely to motion graphics, infographics, evidence mockups, b-roll, and visual storytelling.
 
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
-`delay` on a layer animation is in seconds from the CUT (sub-visual) start — NOT from scene/video start. Cut transitions run ~0.5s, so small delays (~0.3–0.5) keep entrances visible; `delay: 0` is allowed for `cut`/`none` transitions and ambient drift.
-- Guidance: prefer `delay` ~0.3–0.5 for entrances. Missing `delay` defaults to 0.
+`delay` on a layer animation is in seconds from the CUT (sub-visual) start — NOT from scene/video start. Missing `delay` defaults to 0.
+- Guidance: missing `delay` defaults to 0. Choreograph freely within the timing facts below.
 - Pair entrances with opacity fade on delayed reveals: adding {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out"}} ensures elements stay hidden until they start moving. Whenever `delay > 0`, ALWAYS pair spatial entrances with an opacity fade at the same delay. Spatial-only entrances without fade are allowed ONLY for instant punch/whip beats at `delay: 0`.
-- Animate the layers that carry the beat (1 hero layer is the safe default; up to 3 animated layers allowed on rich cuts). Background drift + midground spring + foreground stagger is a valid premium combo.
+- Animate whichever layers carry the beat.
 - When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), prefer syncing entrances: `delay` = (word timestamp − this sub-visual's start offset within the scene), clamped to `[0, cut_duration − animation_duration]`, so each visual enters when the narration mentions it.
-- `delay + duration` SHOULD fit inside the sub-visual's `duration` (overflow is clipped). On short cuts (≤2.5s) use a short `duration` (0.4–0.5s) at the word-timed `delay`.
-- If NO word timestamps are provided for a scene, do NOT guess narration sync — use the safe stagger (midground entrances `delay: 0.5`, foreground `delay: 0.7`).
+- `delay + duration` SHOULD fit inside the sub-visual's `duration` (overflow is clipped).
+- When word-level timestamps are unavailable, use plain stagger values.
 - Text reveal animations timed to when specific words are spoken using `delay` in seconds.
-- Data visualization build-up animations synced to narration beats.
+- Layer animation entrances synced to narration beats.
 - Element entry/exit timings matching spoken content transitions.
-Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] → set `delay: 2.3` on the GDP text animation.
+- LAYER EXIT & SEQUENTIAL STAGGER: By default, layers persist for the entire cut.
+  To replace or remove a layer before the cut ends (e.g. staggering two elements in the same screen space):
+  * Set `exit: true` on the Layer to unmount it cleanly when its animations finish.
+  * Or set `exit: <seconds>` (number) on the Layer to unmount at an exact cut time (e.g. `exit: 2.2`).
+  * Or set `exit: true` on an exit keyframe track (e.g. {{"property": "opacity", "from": 1, "to": 0, "duration": 0.35, "delay": 2.0, "exit": true}}): skips before delay, and layer unmounts when the animation completes.
+  * Pair with a later layer entering at or after that time to sequence information without visual overlap.
+Example: sub-visual starts at 4.0s in the scene and keyword is spoken at [6.3s] → set `delay: 2.3` on that layer's entrance animation.
 
 - LAYERBOX SOT v1 (single source of truth for geometry): every non-background
   layer MUST carry a full `%`-only style box (`left`+`top`+`width`+`height`;
   NEVER `px`, NEVER bare numbers — they are normalized to `%` at ingest).
   Anchor rule: `top` XOR `bottom` (lower-thirds use `bottom`, all cards use
-  `top`), `left` XOR `right` (prefer `left`; doubles resolve to `top`/`left`).
+  `top`), `left` XOR `right` (prefer `left`; `top`+`bottom` conflict: Text
+  keeps `bottom`, others keep `top`).
   Center with explicit math like `left = 50 - width/2`. `Map`/`Particles`/`Background`
   MUST be fullscreen `100%`/`100%` with no position keys (positioned boxes
   only crop them). `Shape` box = stage — NEVER set content `width`/`height`
@@ -1970,15 +1964,7 @@ Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] �
 - CANVAS PIXEL GRIDS: landscape = 1920×1080, portrait = 1080×1920.
   Equal `%` on width and height ≠ equal pixels — use `aspectRatio: "1 / 1"`
   (+ drop `height`) for true squares/circles instead of matching width% and height%.
-- COLLISION / OVERLAP GUARD: when a cut has multiple positioned layers,
-  verify boxes DO NOT overlap unless the overlap is intentional (e.g., text
-  label over an image). For N non-overlapping cards: calculate non-overlapping
-  zones from the preset grid (A–C in the motion-graphics-designer skill).
-  Common safe splits: left card `left: "6%", width: "42%"` + right card
-  `left: "52%", width: "42%"` (6% gap). If vertical stacking: keep `top` +
-  `height` + gap ≤ 100%. Overlapping layers on the same band are acceptable
-  ONLY when a foreground element (text, badge, shape dot) intentionally sits
-  atop a background/image layer.
+- OVERLAP REPORT: the harness flags pairwise `overlap IoU` per cut (advisory — intentional stacking and accidental collision read the same; your call).
 - OBJECTFIT PER LAYER ROLE: `objectFit` (Image/Video only) controls how
   media fills its box. Rules:
   * Background (fullscreen `children[0]`): `"cover"` — fills frame, crops edges.
@@ -2015,7 +2001,7 @@ Example: sub-visual starts at 4.0s in the scene and "GDP" is spoken at [6.3s] �
   `visual_url` — no hardcoded remote links. Search-tool URLs are for
   verification only, never to be copied into the JSON. The pipeline downloads
   the asset itself; a hardcoded URL is ignored and leaves the cut blank.
-- ONE CARD PER HTML LAYER (recommended): prefer one `HTML` layer per card/panel/memo with staggered entrances. Fusing cards into one `html_content` is allowed for inseparable composites but fused cards can't be animated per-layer.
+- HTML LAYER ISOLATION: prefer one root element per `HTML` layer if elements need separate animation keyframes. Fusing markup into one `html_content` is allowed for composite graphics, but child elements within a single HTML layer cannot receive independent Remotion layer keyframes.
 - NO REMOTE MEDIA IN HTML (technical limit — pipeline never downloads them, they render blank): keep `html_content` to CSS + typography + inline SVG. Need a photo + card merged look? Emit a separate `Image`/`Video` layer (query-only: `query` + `source`) PLUS an `HTML` layer with adjacent `style`
 boxes on the same band so they read as one visual.
 """
@@ -2101,39 +2087,15 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
 {editor_qa_block}You are an expert AI Visual Director and Motion Graphics Designer for YouTube videos.
 
 CORE MISSION:
-Transform narration into visually stunning, cinematic motion graphic sequences. Think like a top-tier After Effects artist.
-DO NOT default to the lazy pattern of [Full-Screen Stock Image] → [Centered Text].
-Every sub-visual should feel like a deliberate creative decision with rich multi-layer depth.
+Transform narration into motion graphic cuts from the 11 layer types. Every creative decision — types, counts, geometry, motion, looks — is yours. What follows lists what the harness supports and what breaks rendering.
 {design_system_text}
 {visual_director_block}
 {motion_designer_block}
-=== 3-LAYER DEPTH & MOTION GRAMMAR ===
-Construct depth with 2-4 ordered layers per visual beat when the story supports it (first child=bottom background, last child=top foreground):
-1. **Background (Atmospheric Canvas, first child)**: Full-screen base layer. Choose the BEST fit for the narrative moment:
-   - **Background**: Procedural animated canvas (`background_preset`: "gradient_mesh", "grid_flow", "waves", "dots", "blueprint", "vignette_loop", "paper_grain"). Sleek kinetic motion with zero asset downloads. Override `colors`/`speed` freely.
-   - **Video**: Cinematic B-roll footage with `brightness(0.3)` filter + camera drift (`scale: 1.0 -> 1.06`). Best for atmospheric/cinematic beats. `volume` default 0; non-zero volume (e.g. `0.1`–`0.25` ambient B-roll sound) + `loop` allowed (keep low unless `mute_voiceover: true` is set). Trim with `yt_start_offset`/`yt_duration`.
-   - **Image**: High-contrast darkened photograph (portraits, evidence, textures) + camera drift. Best for entity spotlights and historical context.
-   - **HTML**: CSS gradient canvas, technical grid pattern, or colored slate. Best for data-heavy, tech, financial, and infographic beats without distracting footage.
-   - **Map**: Vector globe with animated route trajectory. Best when geography/travel is central. Multi-pin `locations` supported.
-   ⚠️ VARIETY (encouraged): Prefer switching background type between cuts when the story allows; repetition is fine for continuity.
-2. **Midground (Graphic Subject, middle children)**: Data charts (`Chart` + `title_size/bar_radius/bar_gap/bar_glow`), animated metric counters (`Counter` + `format/decimals/prefix/suffix`), cards, vector shapes & any Lucide icons (`Shape`), bespoke HTML evidence memos (`HTML`), Lottie accents (`lottie_url`/`animation_data`/`playback_rate`/`direction`), or split-screen insets. Enter via physics spring after the transition settles (`delay` ~0.3–0.5, or the exact spoken-word time when timestamps are provided).
-    * 💡 **Chart Placement (suggestion)**: Charts usually read best as middle children over HTML/video — full-screen charts allowed when data IS the beat.
-3. **Foreground (Typography & Accents, last children)**: Kinetic typography (`marker_highlight`, `words_stagger`, `typewriter`, `static`) and indicator callout pointers (respecting subtitle safe area: `bottom > 18%` landscape / `28%` portrait).
-
-=== MASTER VISUAL ARCHETYPES ===
-Vary your spatial layouts across cuts using these master blueprints:
-- **Split-Screen Data HUD**: Darkened Video/HTML background + Left 45% chart card + Right 45% media inset.
-- **Investigative Dossier**: Dark background + custom HTML leaked document memo with confidential stamp + glowing marker highlight quote.
-- **Macro Metric Callout**: Procedural Background / dark footage + dynamic metric Counter (`$100M+` or `99.8%`) or progress bar (`Chart`).
-- **Geographic Route / Map**: Dark vector map with city pins + glowing animated SVG trajectory path (`preset_path: "route_arch"`).
-- **Technical Blueprint / HUD**: Grid background (first-child HTML) + transparent vector diagram + glowing corner brackets (`preset_path: "corner_brackets"`).
-- **Bespoke Infographic Card**: HTML gradient background + high-production HTML/SVG comparison table, radar chart, or UI mockup.
-- **Cinematic Atmosphere Beat**: Graded high-contrast ambient footage with continuous Ken Burns drift (when narrative calls for a breather).
-- **Entity Spotlight**: Darkened full-screen Image (portrait/evidence photo as first child with `brightness(0.35)`) + bio card overlay + kinetic text.
-- **Data Infographic Showcase**: High-tech HTML gradient background (first child) + Chart card (middle child) + floating kinetic headline callout (last child).
-- **Full-Bleed Impact Word (breaker — NO card)**: Graded B-roll + ONE giant 150–220px kinetic word + tiny kicker + emphasis punch + slam-zoom spring. For shock stats/crashes.
-- **Duotone Collage Cutout (breaker — NO centered card)**: Procedural Background base + transparent pixabay cutout LEFT + oversized marker-highlight headline RIGHT + corner-bracket frame. Asymmetric editorial.
-- **Ticker / Timeline Rail (breaker — motion strip)**: Full-width HTML rail + `horizontal_line` draw-on path + 2–3 staggered mini HTML steps (delays 0.3/0.55/0.8). For sequences, rankings, processes.
+=== LAYER CAPABILITIES (quick reference; full semantics in skills) ===
+- 11 types, any count per cut, stacking = children array order (first=bottom, last=top): Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background.
+- Background canvas facts: `Background` presets (`gradient_mesh grid_flow waves dots blueprint vignette_loop paper_grain`, zero downloads, `colors`/`speed` free); darkened `Video`/`Image` + drift; `Map` globe + multi-pin `locations`; `HTML` gradient canvas.
+- Midground facts: `Chart` (+`title_size/bar_radius/bar_gap/bar_glow`), `Counter` (+`format/decimals/prefix/suffix`), `Shape` (+ any Lucide icon), `HTML` documents, `Lottie` (`lottie_url`/`animation_data`/`playback_rate`/`direction`). Entrances use `delay` (absolute seconds from cut start).
+- Foreground facts: kinetic `Text` modes (`marker_highlight words_stagger typewriter static`); subtitle safe area `bottom > 18%` landscape / `28%` portrait.
 
 RULES:
 - COUNT: One sub-visual per visual beat
@@ -2141,12 +2103,11 @@ RULES:
 - 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
 - query: ALWAYS in English. Use descriptive, specific keywords for relevant results.
 - Text content: project language for narration-matched text; English for search queries. For complex scripts (Hindi, Marathi, Bengali, Tamil, Arabic, etc.), MUST specify the corresponding Noto font (e.g. `Noto Sans Devanagari`) to guarantee proper Unicode shaping.
-- style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers. Portrait presets: Top-stack / Center-punch / Split-stack.
+- style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers.
 - DESIGN SYSTEM: Use `primary`, `accent`, `surface`, `glow`, `fontFamily` tokens when available; custom palettes allowed per beat.
-- VIDEO: `"volume": 0` is a safe default; non-zero volume (e.g. `0.1`–`0.25` ambient sound) + `loop` allowed (keep low so voiceover stays clear unless `mute_voiceover: true`).
-- Supported content types (use any, combine freely): Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background. Particles: prefer ONE per cut LAST child matched to emotion; second layer allowed. Stacking is children array order.
-- ANTI-TEMPLATE: never repeat the same layer signature twice in a row; cycle children[0] bg type across cuts; one viral breaker (impact word / collage / ticker-rail) per 3+-cut scene; never reuse the same HTML shell or the same text animation_mode+position twice in a row. The navy glass card is banned as a default.
-- MOTION MODIFIERS: `"motion_blur": true` on fast cards/entrances; `"camera_shake": "handheld" | "shockwave" | "glitch"` freely; 2026 FX pack in `"filters"` (CSS + SVG looks, combine as needed — go beyond plain brightness at least once per scene). Punch-in emphasis at sub-visual level: `"emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}]` — any count, keep `at+duration` inside the cut. Motion vocab: slam-zoom / tilt / rack-focus / flash / lateral-whip / stagger-cascade (>=1 non-translateY entrance per scene, >=1 energy moment per 3 cuts).
+- VIDEO: `"volume": 0` is a safe default.
+- Supported content types (use any, combine freely): Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background. Stacking is children array order.
+- MOTION MODIFIERS: `"motion_blur"` (needs spatial motion), `"camera_shake": "handheld" | "shockwave" | "glitch"`, FX pack in `"filters"` (CSS + SVG looks). Punch-in emphasis at sub-visual level: `"emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}]` — any count, keep `at+duration` inside the cut.
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
@@ -2283,15 +2244,14 @@ ERROR PREVENTION:
         # --- End Smart Preservation Logic ---
 
         # --- STAGE 1: Visual Storyboard Planning ---
-        # Topic-driven: no genre presets. The planner picks archetypes,
-        # primitives, and motion to fit THIS narration + design system.
-        # An optional free-text style_hint narrows the look.
+        # The planner composes beats from the 11 layer types to fit THIS
+        # narration + design system. An optional free-text style_hint
+        # narrows the look.
         _style_hint = _get_style_hint(project_dict)
         storyboard_guidance_text = (
-            "VISUAL STORYBOARD DIRECTIVE (TOPIC-DRIVEN — no style preset):\n"
-            "- Choose visual archetypes to fit THIS narration (maps for geography, "
-            "charts for numbers, dossiers for evidence, portraits for people, "
-            "kinetic typography for punchy claims).\n"
+            "VISUAL STORYBOARD DIRECTIVE:\n"
+            "- Compose each beat from the 11 layer types to serve THIS narration; "
+            "any types, any count, any geometry the schema allows.\n"
             "- Use the full primitive library freely: Charts, Shapes, HTML UI, "
             "Kinetic Text, Maps, Lottie, Footage, Counters, Procedural "
             "Backgrounds, Particles. Match the active design system's palette."
@@ -2305,9 +2265,8 @@ You are an expert Visual Director and Cinematographer. Your job is to read the n
 
 {storyboard_guidance_text}
 
-Emphasize rich motion graphic primitives (Charts, Shapes, Bespoke HTML UI, Kinetic Text, Maps, Lottie, Footage, Counters, Procedural Backgrounds, Particles atmosphere overlays) with cinematic motion blur and camera shake modifiers chosen to fit this narration.
+Use motion graphic primitives (Charts, Shapes, HTML UI, Kinetic Text, Maps, Lottie, Footage, Counters, Procedural Backgrounds, Particles overlays) with motion modifiers (motion blur, camera shake) chosen to fit this narration.
 Do NOT plan static chapter title cards in sub-visual beats (chapter branding is rendered continuously by the root composition). Focus purely on content storytelling.
-Plan against the template trap: never plan two consecutive beats with the same layer signature (Video+card+text twice is rejected) — cycle backgrounds, alternate geometries, and include one viral breaker (full-bleed impact word with no card, asymmetric collage cutout, or ticker/timeline rail) per 3+-beat scene.
 Do not output AST JSON, just output a detailed text description of what each sub-visual should look like.{storyboard_guidance}"""
 
         plan_user_prompt = f"Topic: {topic}\nScene: {scene_title}\nDuration: {duration}s\nNarration:\n{narration}\n" + (f"Style hint: {_style_hint}\n" if _style_hint else "") + "\nWrite a storyboard plan for each sub-visual beat."

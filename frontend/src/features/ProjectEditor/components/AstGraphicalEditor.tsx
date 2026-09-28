@@ -784,6 +784,7 @@ export const AstGraphicalEditor = ({
     return Array.from({ length: count }, (_, idx) => ({
       onStyleChange: (val: any) => api.updateContent(idx, 'style', val),
       onAnimationsChange: (val: any) => api.updateLayer(idx, 'animations', val),
+      onExitChange: (val: any) => api.updateLayer(idx, 'exit', val),
       onFiltersChange: (val: any) => api.updateLayer(idx, 'filters', val),
       onChartDataChange: (val: any) => api.updateContent(idx, 'data', val),
       onParticlesChange: (updates: Record<string, any>) => api.updateContentFields(idx, updates),
@@ -2463,6 +2464,8 @@ export const AstGraphicalEditor = ({
                       <AstAnimationBuilder
                         animations={layer.animations || EMPTY_LIST}
                         onChange={layerCallbacks[idx].onAnimationsChange}
+                        exit={layer.exit}
+                        onExitChange={layerCallbacks[idx].onExitChange}
                       />
                     </div>
                   )}

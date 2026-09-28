@@ -88,6 +88,48 @@ def _is_fullscreen_rect(rect: Any) -> bool:
             and abs(x1 - 100.0) < 0.01 and abs(y1 - 100.0) < 0.01)
 
 
+def _layer_time_window(layer: Dict[str, Any]) -> Tuple[float, float]:
+    """Estimate (start_sec, end_sec) for a layer based on animations and exit property."""
+    anims = [a for a in (layer.get("animations") or []) if isinstance(a, dict)]
+    start = 0.0
+    for a in anims:
+        # If opacity starts at 0, layer is invisible until its delay
+        if a.get("property") == "opacity" and (a.get("from") == 0 or a.get("from_") == 0):
+            try:
+                start = max(start, float(a.get("delay") or 0.0))
+            except (ValueError, TypeError):
+                pass
+            break
+
+    exit_val = layer.get("exit")
+    end = float("inf")
+    if isinstance(exit_val, (int, float)) and not isinstance(exit_val, bool):
+        end = float(exit_val)
+    elif exit_val is True and anims:
+        ends = []
+        for a in anims:
+            try:
+                ends.append(float(a.get("delay") or 0.0) + float(a.get("duration") or 0.0))
+            except (ValueError, TypeError):
+                pass
+        if ends:
+            end = max(ends)
+    else:
+        # Check if any animation track has exit: True
+        exit_anims = [a for a in anims if a.get("exit") is True]
+        if exit_anims:
+            ends = []
+            for a in exit_anims:
+                try:
+                    ends.append(float(a.get("delay") or 0.0) + float(a.get("duration") or 0.0))
+                except (ValueError, TypeError):
+                    pass
+            if ends:
+                end = max(ends)
+
+    return start, end
+
+
 def parse_pct(value: Any) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
@@ -414,10 +456,20 @@ def lint_cut(cut: Dict[str, Any], cut_index: int = 0,
             ia, ib = keys[a_i], keys[b_i]
             score = _iou(rects[ia], rects[ib])
             if score > 0.6:
+                # Check if layers are temporally disjoint (one exits before the other enters)
+                layer_a = children[ia] if isinstance(children[ia], dict) else {}
+                layer_b = children[ib] if isinstance(children[ib], dict) else {}
+                start_a, end_a = _layer_time_window(layer_a)
+                start_b, end_b = _layer_time_window(layer_b)
+
+                # Staggered sequential replacement: if layer A exits before layer B enters, no collision occurs
+                if end_a <= start_b or end_b <= start_a:
+                    continue
+
                 overlaps.append({"layers": [ia, ib], "iou": score})
                 warnings.append(
                     f"cut#{cut_index} layers {ia}+{ib}: overlap IoU {score} — "
-                    f"intentional (label-over-media) or shift left/top apart")
+                    f"intentional (label-over-media), shift left/top apart, or set 'exit' to stagger sequentially")
     return {"warnings": warnings, "fixes": fixes,
             "boxes": boxes, "overlaps": overlaps,
             "html_warnings": html_warnings, "container": container}

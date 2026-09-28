@@ -100,6 +100,7 @@ export interface ASTLayer {
   type: 'Layer';
   content: ASTLayerContent;
   animations?: ASTAnimation[];
+  exit?: boolean | number;
   motion_blur?: boolean;
   shutter_angle?: number;
   camera_shake?: CameraShakeType;
@@ -673,9 +674,11 @@ const ASTLayerView: React.FC<{
           </div>
         );
 
-        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin || !!floating) ? (
+        const hasExit = layer.exit !== undefined && layer.exit !== false;
+        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin || !!floating || hasExit) ? (
           <ASTAnimator
             animations={animations}
+            exit={layer.exit}
             motion_blur={motion_blur}
             shutter_angle={shutter_angle}
             camera_shake={camera_shake}

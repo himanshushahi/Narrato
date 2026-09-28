@@ -6,6 +6,8 @@ import { BsLightningCharge } from 'react-icons/bs';
 interface AstAnimationBuilderProps {
   animations?: ASTAnimation[];
   onChange: (animations: ASTAnimation[]) => void;
+  exit?: boolean | number;
+  onExitChange?: (val: boolean | number | undefined) => void;
 }
 
 const ANIMATION_PROPERTIES: { id: ASTAnimation['property']; label: string; icon: string; unit: string; defaultFrom: number; defaultTo: number }[] = [
@@ -61,11 +63,20 @@ const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
       { property: 'opacity', from: 0, to: 1, duration: 0.35, delay: 0.5, easing: 'ease-out' },
     ],
   },
+  {
+    label: 'Fade Out Exit',
+    icon: '🚪',
+    animations: [
+      { property: 'opacity', from: 1, to: 0, duration: 0.4, delay: 2.0, easing: 'ease-out', exit: true },
+    ],
+  },
 ];
 
 const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
   animations = [],
   onChange,
+  exit,
+  onExitChange,
 }) => {
   const handleAddAnimation = (property: ASTAnimation['property'] = 'translateY') => {
     const propMeta = ANIMATION_PROPERTIES.find(p => p.id === property);
@@ -194,7 +205,19 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                     </select>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <label
+                      className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-400 hover:text-amber-400 select-none shrink-0"
+                      title="Mark as exit animation: stays idle until its delay starts, and unmounts layer once finished."
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!anim.exit}
+                        onChange={e => handleUpdate(idx, 'exit', e.target.checked || undefined)}
+                        className="rounded bg-black/60 border-white/20 text-amber-500 focus:ring-0 cursor-pointer w-3 h-3"
+                      />
+                      <span>🚪 Exit</span>
+                    </label>
                     <button
                       type="button"
                       onClick={() => handleDuplicate(idx)}
@@ -305,6 +328,53 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
           })
         )}
       </div>
+
+      {/* 3. Layer Exit Behavior (Unmounts layer before cut finishes) */}
+      {onExitChange && (
+        <div className="p-3 bg-black/30 border border-white/10 rounded-xl space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+              🚪 Layer Exit Behavior
+            </label>
+            <span className="text-[9px] text-stone-500 font-mono">
+              {exit === true ? 'Exit after motion' : typeof exit === 'number' ? `Exit at ${exit}s` : 'Persist full cut (default)'}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => onExitChange(undefined)}
+              className={`px-2 py-1 text-[10px] rounded border transition-colors cursor-pointer text-center ${exit === undefined || exit === false ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-semibold' : 'bg-black/40 border-white/10 text-stone-400 hover:text-stone-200 font-medium'}`}
+              title="Layer stays visible for the entire duration of this cut"
+            >
+              Full Cut
+            </button>
+            <button
+              type="button"
+              onClick={() => onExitChange(true)}
+              className={`px-2 py-1 text-[10px] rounded border transition-colors cursor-pointer text-center ${exit === true ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-semibold' : 'bg-black/40 border-white/10 text-stone-400 hover:text-stone-200 font-medium'}`}
+              title="Layer unmounts cleanly once its animation timeline ends"
+            >
+              After Motion
+            </button>
+            <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded px-1.5 py-0.5">
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                placeholder="Sec"
+                className="w-full bg-transparent text-[10px] text-stone-200 focus:outline-none font-mono"
+                value={typeof exit === 'number' ? exit : ''}
+                onChange={e => {
+                  const v = parseFloat(e.target.value);
+                  onExitChange(Number.isFinite(v) && v > 0 ? v : undefined);
+                }}
+              />
+              <span className="text-[9px] text-stone-500 font-mono">s</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

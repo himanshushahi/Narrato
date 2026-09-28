@@ -21,10 +21,12 @@ export interface ASTAnimation {
   duration: number; // in seconds
   delay?: number; // in seconds (optional)
   easing: 'linear' | 'spring' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  exit?: boolean; // If true, treats this animation as an exit animation: skips until its delay, and layer unmounts when complete
 }
 
 export interface ASTAnimatorProps {
   animations?: ASTAnimation[];
+  exit?: boolean | number;
   motion_blur?: boolean;
   shutter_angle?: number;
   camera_shake?: CameraShakeType;
@@ -39,6 +41,7 @@ export interface ASTAnimatorProps {
 
 interface AnimatedLayerProps {
   animations?: ASTAnimation[];
+  exit?: boolean | number;
   camera_shake?: CameraShakeType;
   transform_origin?: string;
   floating?: boolean;
@@ -47,6 +50,7 @@ interface AnimatedLayerProps {
 
 const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   animations = [],
+  exit,
   camera_shake = 'none',
   transform_origin = 'center center',
   floating = false,
@@ -54,6 +58,40 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+
+  // Compute exit frame cutoff (if configured on layer or on any individual animation track)
+  const exitFrame = useMemo(() => {
+    if (typeof exit === 'number' && Number.isFinite(exit)) {
+      return Math.max(0, Math.round(exit * fps));
+    }
+
+    const explicitExitAnims = animations.filter((a) => a && (a as any).exit === true);
+    if (explicitExitAnims.length > 0) {
+      let maxEnd = 0;
+      for (const a of explicitExitAnims) {
+        if (typeof a.duration === 'number') {
+          const delayFrames = Math.max(0, Math.round((a.delay || 0) * fps));
+          const durationFrames = Math.max(1, Math.round(a.duration * fps));
+          maxEnd = Math.max(maxEnd, delayFrames + durationFrames);
+        }
+      }
+      return maxEnd;
+    }
+
+    if (exit === true && animations.length > 0) {
+      let maxEnd = 0;
+      for (const a of animations) {
+        if (typeof a.duration === 'number') {
+          const delayFrames = Math.max(0, Math.round((a.delay || 0) * fps));
+          const durationFrames = Math.max(1, Math.round(a.duration * fps));
+          maxEnd = Math.max(maxEnd, delayFrames + durationFrames);
+        }
+      }
+      return maxEnd;
+    }
+
+    return null;
+  }, [exit, animations, fps]);
 
   // Fix 10: quantize floating drift to every 2nd frame (sin/cos + string
   // rebuild per layer per frame was wasteful for a 4px drift).
@@ -66,7 +104,8 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     const s: React.CSSProperties = { transform: '', transformOrigin: transform_origin };
     
     // 1. Compute AST keyframe & spring transforms
-    for (const anim of animations) {
+    for (let i = 0; i < animations.length; i++) {
+      const anim = animations[i];
       // `from` is the editor contract; `from_` is what the backend LLM schema
       // serializes (pydantic alias). Accept both — otherwise AI-generated
       // motion is silently skipped and cuts render static.
@@ -77,6 +116,21 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
 
       const delayFrames = Math.max(0, Math.round((anim.delay || 0) * fps));
       const durationFrames = Math.max(1, Math.round(anim.duration * fps));
+
+      // Check if this animation track is an exit or subsequent phase on the same property:
+      // 1) Explicitly flagged with anim.exit === true
+      // 2) Or preceded by an earlier animation track on the same property with an earlier delay
+      const hasEarlierTrackOnSameProp = animations.slice(0, i).some(
+        (prev) => prev.property === anim.property && (prev.delay || 0) < (anim.delay || 0)
+      );
+      const isExitPhase = anim.exit === true || hasEarlierTrackOnSameProp;
+
+      // If it's an exit or secondary animation track, do not clamp/apply before its delay starts.
+      // Otherwise `extrapolateLeft: 'clamp'` clobbers preceding entrance animations at frame 0.
+      if (isExitPhase && frame < delayFrames) {
+        continue;
+      }
+
       let val = animFrom;
 
       if (anim.easing === 'spring') {
@@ -140,6 +194,11 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     return s;
   }, [animations, cameraOffset, floating, frame, qFrameFloat, fps, transform_origin]);
 
+  // If exit cutoff has been reached, unmount the layer completely so it doesn't linger
+  if (exitFrame !== null && frame >= exitFrame) {
+    return null;
+  }
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
       {children}
@@ -197,10 +256,11 @@ const BlurGate: React.FC<ASTAnimatorProps> = ({
 };
 
 export const ASTAnimator: React.FC<ASTAnimatorProps> = (props) => {
-  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, children } = props;
+  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, exit, children } = props;
   const content = (
     <AnimatedLayer
       animations={animations}
+      exit={exit}
       camera_shake={camera_shake}
       transform_origin={props.transform_origin}
       floating={floating}

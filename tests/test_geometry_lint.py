@@ -216,3 +216,79 @@ def test_viewport_unit_variants_flagged():
                 "margin:5lvw", "width:100vw"):
         rep = lint_html_content(f"<div style='{css}'>x</div>")
         assert rep["warnings"], css
+
+
+def test_overlap_suppressed_when_temporally_staggered_with_exit():
+    from backend.agent.geometry import lint_cut
+    cut = {
+        "duration": 5.0,
+        "composition": {
+            "type": "Sequence",
+            "children": [
+                {
+                    "type": "Layer",
+                    "exit": 2.0,
+                    "content": {"type": "Text", "style": {"left": "10%", "top": "20%", "width": "80%", "height": "30%", "fontSize": "48px"}},
+                },
+                {
+                    "type": "Layer",
+                    "animations": [{"property": "opacity", "from": 0, "to": 1, "duration": 0.5, "delay": 2.0}],
+                    "content": {"type": "Text", "style": {"left": "10%", "top": "20%", "width": "80%", "height": "30%", "fontSize": "48px"}},
+                },
+            ],
+        },
+    }
+    rep = lint_cut(cut, cut_index=0)
+    assert len(rep["overlaps"]) == 0, rep["overlaps"]
+
+
+def test_overlap_flagged_when_temporally_overlapping():
+    from backend.agent.geometry import lint_cut
+    cut = {
+        "duration": 5.0,
+        "composition": {
+            "type": "Sequence",
+            "children": [
+                {
+                    "type": "Layer",
+                    "content": {"type": "Text", "style": {"left": "10%", "top": "20%", "width": "80%", "height": "30%", "fontSize": "48px"}},
+                },
+                {
+                    "type": "Layer",
+                    "content": {"type": "Text", "style": {"left": "10%", "top": "20%", "width": "80%", "height": "30%", "fontSize": "48px"}},
+                },
+            ],
+        },
+    }
+    rep = lint_cut(cut, cut_index=0)
+    assert len(rep["overlaps"]) == 1, rep["overlaps"]
+    assert any("set 'exit' to stagger sequentially" in w for w in rep["warnings"])
+
+
+def test_ast_schemas_support_exit():
+    from backend.agent.schemas import ASTLayerNode, AnimationNode
+    # AnimationNode exit
+    anim = AnimationNode(
+        property="opacity",
+        **{"from": 1.0},
+        to=0.0,
+        duration=0.5,
+        delay=2.0,
+        exit=True,
+    )
+    assert anim.exit is True
+
+    # ASTLayerNode exit with boolean
+    layer_bool = ASTLayerNode(
+        content={"type": "Text", "text": "Hello"},
+        exit=True,
+    )
+    assert layer_bool.exit is True
+
+    # ASTLayerNode exit with float seconds
+    layer_sec = ASTLayerNode(
+        content={"type": "Text", "text": "World"},
+        exit=2.5,
+    )
+    assert layer_sec.exit == 2.5
+

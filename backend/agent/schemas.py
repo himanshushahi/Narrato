@@ -154,6 +154,7 @@ class AnimationNode(AppBaseModel):
     duration: float = Field(..., gt=0, description="Duration of the animation in seconds")
     delay: Optional[float] = Field(default=0.0, ge=0, description="Delay in seconds before animation begins (optional, default 0)")
     easing: Literal["linear", "spring", "ease-in", "ease-out", "ease-in-out"] = Field(default="ease-out", description="Animation easing curve")
+    exit: Optional[bool] = Field(default=None, description="If true, marks an exit transition: skips evaluating until delay begins, and layer unmounts when complete")
 
 
 class ChartDataPoint(AppBaseModel):
@@ -771,6 +772,7 @@ class ASTLayerNode(AppBaseModel):
     type: Literal["Layer"] = Field(default="Layer", description="Layer node identifier", json_schema_extra={"const": "Layer"})
     content: Union[LayerContent, Dict[str, Any]] = Field(..., description="Layer content specification")
     animations: Optional[List[Union[AnimationNode, Dict[str, Any]]]] = Field(default_factory=list, description="Keyframe animation list (spatial props drive shutter blur; blur/brightness are non-spatial fades)")
+    exit: Optional[Union[bool, float]] = Field(default=None, description="Exit behavior: if true, layer unmounts when its animations complete; if number, seconds from cut start when layer unmounts. If omitted/false, layer persists for the full cut.")
     floating: Optional[bool] = Field(default=None, description="Harmonic floating drift (slow organic bob). Counts as spatial motion for shutter blur.")
     motion_blur: Optional[bool] = Field(default=None, description="Whether to apply physical camera shutter motion blur to moving elements (needs spatial motion: keyframe/floating/shake, else no-op)")
     shutter_angle: Optional[float] = Field(default=None, description="Camera shutter angle in degrees for motion blur (45-360, default 180; 90 crisp, 180 cinematic, 360 dreamy)")
