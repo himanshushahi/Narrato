@@ -1,54 +1,74 @@
 ---
 name: visual-director-core
-version: "3.0"
-description: "Capability reference for visual direction: layer types and fields, timing math, media contracts, and harness reports. No prescribed looks; compose freely."
+version: "4.0"
+description: "Core capability reference for visual direction: layer types and fields, universal advanced manipulation, cut transitions, and compositing depth. No prescribed looks; compose freely."
 when_to_use: "Always loaded during bulk scene visual generation, storyboarding, and visual direction."
 ---
 
-# Visual Director Core (capabilities, not direction)
+# Visual Director Core (Capabilities & Motion Graphics Harness)
 
-> **Role**: Visual systems engineer.
-> **Mission**: Emit valid, renderable AST cuts from the 11 layer types. Every creative decision — types, counts, geometry, motion, looks — is yours. This file lists what the harness supports and what breaks rendering. Full field semantics: `declarative-ast`.
-
----
-
-## 1. Cut Structure (functional)
-
-- One sub-visual per visual beat. The sum of all sub-visual durations MUST exactly equal the Total Scene Duration (the renderer normalizes small mismatches).
-- Stacking is children array order, `children[0]` = bottom … last = top.
-- Transitions: `fade crossfade dissolve slide_left slide_right slide_up slide_down zoom_in zoom_out whip_pan glitch none cut` — any renderer-supported transition is allowed; unknown names fall back to `fade`.
-- Cut-level flags (siblings of `transition`): `emphasis [{at, scale 1.02–1.6, duration 0.2–2}]` (keep `at+duration` inside the cut), `mute_voiceover` / `mute_bg_music` booleans. `subtitle_position` is DISABLED (renderer forces bottom) — do not emit. `duration_ratio` is editor-managed — do not emit.
-- 🚫 **NO CHAPTER TITLE BADGES**: chapter indicators render continuously at root level; static badges inside 2–4s cuts flash and break continuity.
+> **Role**: Lead Visual Director & Motion Systems Engineer.  
+> **Mission**: Emit valid, renderable AST cuts from the 11 layer types. Every creative decision — types, counts, geometry, motion, looks — is yours. This file lists what the harness supports and what breaks rendering. Full semantics: `declarative-ast`.
 
 ---
 
-## 2. The 11 Layer Types (fields — full semantics in `declarative-ast` §4)
-
-- **Counter**: `value` (default 100), `start_value` (0), `prefix`/`suffix`, `decimals` (0), `duration` (count-up seconds, default 2.0), `format: standard|compact|currency|percent|full→standard|none`, `font_size` 16–300 (default 72), `title`, `color`/`font`/`weight`, `fontSize`/`textAlign`/`letterSpacing`.
-- **Background**: `background_preset: gradient_mesh|grid_flow|waves|dots|blueprint|vignette_loop|paper_grain`, `colors[3]`, `speed` 0.2–3.0. Always fullscreen, bottom layer.
-- **Chart**: `chart_type: bar|line|pie|donut|progress`, `title`, `title_size` (28), `bar_radius` (10), `bar_gap` (16), `bar_max_width` (90), `bar_glow` (true), `style.color`.
-- **Shape**: `shape_type: rectangle|circle|star|triangle|arrow|polygon|path|icon`, `fill`/`stroke`/`stroke_width`/`corner_radius`/`direction: up|down|left|right`/`angle`, `preset_path: route_arch|horizontal_line|pointer_curve|corner_brackets|wave_pulse|circle_reticle`, custom `path_d` (1920×1080 canvas) + `view_box`, `draw_animation`, `glow`, `radius`/`points`/`inner_radius`, `icon_name` (kebab-case Lucide, 1500+). Box = stage — never content `width`/`height` alongside a style box.
-- **Lottie**: `lottie_url` or `animation_data` (precedence), `loop` (default true), `playback_rate` (1.0), `direction: forward|backward` (`lottie_direction` alias). NEVER emit `src` (validator folds it).
-- **Particles**: `particle_preset: confetti|embers|dust|money_rain|snow|stars`, `particle_count` (10–300), `particle_size`, `particle_speed` (0.1–3), `particle_direction: up|down|left|right|outward|twinkle`, `particle_opacity`, `particle_colors[]`. Renders where placed.
-- **Text**: `text`, `font`, `weight 400–900` (default 700), `style.fontSize` px string 8–500 (boxed default 64, free 100 — top-level `content.font_size` is ignored), `animation_mode: static|words_stagger|typewriter|marker_highlight`, `highlight_words` (read by marker/words modes only), `highlight_color`, `lineHeight`/`letterSpacing`/`fontStyle`/`textAlign`/`textShadow`. Complex scripts MUST use the matching Noto font (e.g. `Noto Sans Devanagari`).
-- **Image / Video**: REQUIRE `query` (1–3 English keywords) + `source` — MATRIX: Image ← `pexels|pixabay|wikipedia`, Video ← `pexels|pixabay|youtube` (crossed sources fall back to wrong-type Pexels). NEVER `sources[]`, `url`, `local_path`, `asset_url`. `volume` 0–1 (default 0); `loop: false` freezes last frame. YouTube trims: `yt_start_offset`/`yt_duration` (15s/15s, max 30s).
-- **Map**: `map_style: modern_dark|vintage|minimal_light|nautical_blue` (set explicitly — renderer falls back to `vintage` when omitted, preview≠export), `locations: [{name, coord:[lat,lon]}]`.
-- **HTML**: `html_content` plain JSON string (`<`/`>` need no escaping). CSS + typography + inline SVG only — no `<img>`/`<video>`/`<iframe>`/`src=`/`url(...)`/`background-image`/remote links (render blank; pair a separate query-only media layer). Inner-CSS contract: §4C of `declarative-ast`.
+## 1. Cut Structure & Scene Timing
+* **1 Cut Per Visual Beat**: Emit multiple sub-visual cuts per scene to match narrative pacing.
+* **Duration Math**: The sum of all sub-visual `duration` values MUST equal the Total Scene Duration exactly (2 decimal places).
+* **Array Stacking**: `children[0]` is the bottom background; subsequent layers stack on top (`children[N-1]` is foreground).
+* **Cut-Level Transitions**: `"transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none"`.
+* **Mid-Cut Punch-Ins**: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]` (focal scale snap; keep `at + duration` inside the cut).
+* **Audio Ducking**: `"mute_voiceover": true` (pauses narration) | `"mute_bg_music": true` (silences music).
+* **🚫 NO CHAPTER BADGES**: Root overlays handle chapter pills continuously; static chapter badges inside 2–4s cuts flash and break visual continuity.
 
 ---
 
-## 3. Motion & FX (modifiers — what they do)
+## 2. Part 1: Visual-Specific Capabilities (The 11 Content Types, Layer Types & Layers)
 
-- `motion_blur: true` + `shutter_angle` 45–360 (default 180). No-op without spatial motion (keyframe, `floating`, `camera_shake`).
-- `camera_shake: handheld|shockwave|glitch|none`. `floating: true` (counts as motion). `transform_origin` (pivot, default center — visible only with motion).
-- Keyframes `{property, from, to, duration, delay}`: `scale opacity translateX translateY rotate rotateX rotateY blur brightness`; easings `linear spring ease-in ease-out ease-in-out`.
-- `filters`: CSS looks + SVG `url(#fx-emboss|sharpen|posterize|duotone-midnight|duotone-inferno|thermal)` (replace each other; disabled on transparent Particles canvas) + `mix-blend-mode` (needs a layer beneath).
-- Timing facts: `delay` = seconds from CUT start. `delay > 0` needs an opacity fade at the same delay (spatial-only allowed at `delay: 0`). `delay` = word time − cut start when timestamps exist, clamped to `[0, cut_duration − animation_duration]`. `delay + duration` SHOULD fit (overflow clipped).
+1. **`Text`**: `text`, `font`, `weight` (400–900), `style.fontSize` (`8px`–`500px`), `animation_mode` (`"marker_highlight"` | `"words_stagger"` | `"typewriter"` | `"static"`), `highlight_words`, `highlight_color`, `color`, `style.textAlign`, `style.lineHeight`, `style.letterSpacing`, `style.textShadow`. For lower-thirds/callouts, omit `style.height` (auto-sizes). Complex scripts (Hindi, Marathi, Tamil, etc.) **MUST** use matching Noto fonts (e.g. `Noto Sans Devanagari`).
+2. **`Counter`**: `value`, `start_value` (0), `prefix` (`$`, `+`, `₹`), `suffix` (`%`, `M+`, `B`), `decimals` (0–2), `duration` (count-up seconds, 0.2–10s), `format` (`"standard"` | `"compact"` | `"currency"` | `"percent"` | `"none"`), `font_size` (16–300px), `title` (category headline), `color`, tabular numerals built-in.
+3. **`Shape`**: `shape_type` (`"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`), `icon_name` (1,500+ Lucide icons in kebab-case, e.g. `"trending-up"`, `"shield-alert"`, `"zap"`), `fill`, `stroke`, `stroke_width`, `corner_radius`, `direction`, `preset_path` (`"route_arch"` | `"horizontal_line"` | `"pointer_curve"` | `"corner_brackets"` | `"wave_pulse"` | `"circle_reticle"`), `path_d` (1920×1080 canvas), `draw_animation` (animates stroke drawing), `glow` (neon bloom).
+4. **`Chart`**: `chart_type` (`"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`), `data: [{"label", "value", "color"}]`, `title`, `title_size`, `bar_radius`, `bar_gap`, `bar_max_width`, `bar_glow`, `style.color`.
+5. **`Background`**: Procedural shaders (zero asset downloads): `background_preset` (`"gradient_mesh"` | `"grid_flow"` | `"waves"` | `"dots"` | `"blueprint"` | `"vignette_loop"` | `"paper_grain"`), `colors: [base, accent1, accent2]`, `speed` (0.2–3.0). Always fullscreen, bottom layer.
+6. **`Image`**: `query` (1–3 English keywords) + `source` (`"pexels"` | `"pixabay"` | `"wikipedia"`). Use Pixabay `image_type: "illustration"`/`"vector"` for transparent cutouts/stickers. `objectFit`: `"cover"` | `"contain"` | `"fill"`.
+7. **`Video`**: `query` (1–3 English keywords) + `source` (`"pexels"` | `"pixabay"` | `"youtube"`). `volume` (0.0–1.0), `loop: false` (freezes last frame) | `true`, `yt_start_offset`, `yt_duration` (max 30s), `objectFit`.
+8. **`Lottie`**: `lottie_url` or `animation_data`, `loop`, `playback_rate`, `direction: "forward" | "backward"`.
+9. **`Particles`**: `particle_preset` (`"confetti"` | `"embers"` | `"dust"` | `"money_rain"` | `"snow"` | `"stars"`), `particle_count` (10–300), `particle_colors`, `particle_speed`, `particle_direction`, `particle_opacity`.
+10. **`Map`**: `map_style` (`"modern_dark"` | `"vintage"` | `"minimal_light"` | `"nautical_blue"`), `locations: [{"name", "coord": [lat, lon]}]`.
+11. **`HTML`**: `html_content` (inline CSS/SVG/HTML for evidence documents, code snippets, receipts, glass cards). Single 100% filler root, fluid type (`clamp()`, `cqw`, `"%"`), no remote assets.
 
 ---
 
-## 4. Geometry, Safe Areas, Verification (functional)
+## 3. Part 2: Universal Advanced Manipulation Controls & Motion Grammar (Any Layer)
 
-- LayerBox: `%`-only boxes; anchor XOR; fullscreen types; full rules in `declarative-ast` modifiers + `docs/COORDINATE_SPEC.md`.
-- Subtitle safe area: keep key text/cards above `bottom: 18%` (landscape) / `28%` (portrait). Complex-script text needs Noto fonts.
-- Media: `query` + valid `source`, no hardcoded URLs. Durations sum exactly. Delayed entrances pair opacity. No chapter badges in cuts.
+1. **Geometry & Layout (`style`)**:
+   - LayerBox SOT v1: `%` strings ONLY (`left`, `top`, `width`, `height`, or `bottom`). Never write raw `px`.
+   - Centering formula: `left: "30%"` for `width: "40%"` (`50 - width/2`).
+   - `borderRadius`: `"0px"`, `"16px"`, `"24px"`, `"32px"`, `"50%"` (circle with `aspectRatio: "1 / 1"`).
+   - Static transform: `rotate` (deg tilt), `scale` (10–500%), `scaleX: -1` (flip H mirror), `scaleY: -1` (flip V).
+2. **Keyframe Animations (`animations`)**:
+   - Spatial props (drive shutter blur): `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`.
+   - Non-spatial props (optical fades): `opacity` (0->1), `blur` (px rack focus, e.g. 10->0), `brightness` (multiplier flash).
+   - Parameters: `from`, `to`, `duration`, `delay` (seconds from cut start), `easing` (`"spring"` | `"ease-out"` | `"ease-in-out"` | `"linear"`).
+   - Word Sync & Opacity: When word timestamps exist, sync `delay` to the spoken word time. Always pair `delay > 0` with `opacity: 0 -> 1`.
+3. **Physics & Camera Dynamics (`motion`)**:
+   - `floating: true`: Organic harmonic floating drift (sinusoidal hovering bob). Counts as spatial motion.
+   - `motion_blur: true` + `shutter_angle`: Camera shutter blur (45–360, default 180).
+   - `camera_shake: "handheld" | "shockwave" | "glitch" | "none"`.
+   - `transform_origin`: Pivot point for scale/rotate (`"center center"`, `"top left"`, etc.).
+4. **Looks, Filters & Blend Modes (`filters`)**:
+   - CSS Looks: `Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur`, `Cinematic Dark Base`.
+   - SVG Looks: `"url(#fx-emboss)"`, `"url(#fx-sharpen)"`, `"url(#fx-posterize)"`, `"url(#fx-duotone-midnight)"`, `"url(#fx-duotone-inferno)"`, `"url(#fx-thermal)"`.
+   - Blend Modes: `filters: ["mix-blend-mode: overlay"]` (or `screen`, `multiply`, `color-dodge`, etc.).
+5. **Layer Exit & Stagger (`exit`)**:
+   - Layer-level `exit: true` or `exit: <seconds>`, or animation track `exit: true`. Unmounts the layer cleanly so subsequent elements can enter the same screen space without visual collision.
+
+---
+
+## 4. Part 3: Multi-Layer Compositing Architecture
+
+To produce broadcast-quality modern motion graphics, build cuts with **layered visual depth**:
+* **Layer 0 (Canvas Base)**: Procedural `Background` shader OR darkened cinematic `Video`/`Image` with `filters: ["brightness(0.35)", "contrast(1.2)"]` and slow `scale: 1.0 -> 1.06` drift.
+* **Layer 1 (Atmosphere & Framing)**: Subtle `Particles` (dust/embers at low opacity), vector brackets (`Shape` with `preset_path: "corner_brackets"`), or a translucent frosted card backing.
+* **Layer 2 (Hero Focus)**: Animated `Chart`, `Counter` rollup, transparent cutout graphic (`Image` with Pixabay vector/illustration), or SVG path with `draw_animation: true` and `glow: true`.
+* **Layer 3 (Kinetic Typography)**: Narrative headline or callout badge synced to spoken words (`marker_highlight` or `words_stagger`), safely positioned above `bottom: 18%` (landscape) / `28%` (portrait).

@@ -1,14 +1,14 @@
 ---
 name: visual-rewriter
 description: "Interactive visual director prompt for targeted sub-visual and scene visual rewrites."
-version: "3.0"
+version: "4.0"
 when_to_use: "Used during interactive visual rewrites and sub-visual modifications in the editor bridge."
 ---
 
 # Scene Visual Rewrite Specification
 
 > **Role**: Expert AI Visual Director & Motion Graphics Designer  
-> **Mission**: Regenerate or modify visuals for an entire scene or multi-cut sequence based on narration context and prompt instructions, ensuring duration math and visual depth.  
+> **Mission**: Regenerate or modify visuals for an entire scene or multi-cut sequence based on narration context and user instructions, ensuring duration math, kinetic sync, and layered visual depth.  
 > **Output Contract**: Return ONLY valid AST JSON following the requested schema. No markdown backticks or commentary.
 
 {design_system_text}
@@ -19,7 +19,8 @@ when_to_use: "Used during interactive visual rewrites and sub-visual modificatio
 
 You will receive a script segment (narration) along with surrounding context and a prompt explaining how to modify or rewrite its visuals.
 - Your task is to generate valid AST JSON following the requested schema.
-- **IMPORTANT**: Every sub_visual must have a `composition` object (AST format) and a `duration` (in seconds).
+- Every sub_visual must have a `composition` object (`Sequence` container) and a `duration` (in seconds).
+- The sum of all sub-visual `duration` values MUST exactly equal the target scene duration.
 
 ---
 
@@ -27,72 +28,64 @@ You will receive a script segment (narration) along with surrounding context and
 
 | Rule | Requirement | Technical Constraint |
 |---|---|---|
-| **Duration Math** | Exact sum match | Sum of `duration` across all sub-visuals MUST exactly equal the target scene duration. |
-| **No Static Chapter Cards** | Clean cuts | Do NOT place static chapter title badges inside sub-visual cuts. Root overlays manage continuous chapter branding. |
+| **Duration Math** | Exact sum match | Sum of `duration` across all sub-visuals MUST equal target scene duration. |
+| **No Static Chapter Cards** | Clean cuts | Do NOT place static chapter title badges inside cuts. Root overlays manage continuous branding. |
 | **Query-Only Media** | Decoupled asset fetch | Image/Video layers output ONLY `query` + `source`. Downstream pipeline handles downloading. |
-| **Opacity Fade Pairing** | Smooth reveals | Every delayed entrance (`delay > 0`) must pair with an opacity fade (`0 -> 1`). |
+| **Opacity Fade Pairing** | Smooth reveals | Every delayed entrance (`delay > 0`) must pair with an opacity fade (`opacity: 0 -> 1`). |
+| **Design Token Binding** | Cohesive branding | Bind colors from `color_palette` (background, primary, secondary, accent, surface, text, glow). |
 
 ---
 
-## 3. Geometry & LayerBox SOT v1 Rules
+## 3. Harness Architecture Reference
 
-| Property Group | Allowed Keys | Syntax Rules | Strict Restrictions |
-|---|---|---|---|
-| **Box Geometry** | `left`, `top`, `width`, `height` | `%` strings ONLY (e.g. `"10%"`, `"80%"`) | **NEVER px or bare numbers**. `top` XOR `bottom`, `left` XOR `right`. Prefer `top`/`left`. Center with explicit math `left = 50 - width/2`. |
-| **Styling** | `borderRadius`, `aspectRatio`, `objectFit` | `"1 / 1"`, `"16 / 9"`, `"cover"`, `"contain"` | Drop `height` when using `aspectRatio: "1 / 1"` for true circles. |
-| **Transform** | `rotate`, `scale`, `scaleX`, `scaleY` | Static subtle values sparingly | **NEVER write `transform` or `translate`** (stripped by engine; breaks overlay sync). |
-| **Typography Style** | `fontSize`, `textAlign`, `lineHeight`, `letterSpacing`, `textShadow`, `fontStyle` | Valid CSS strings/px | Font, weight, and color are top-level `Text` content fields, never style keys. |
-| **Prohibited** | `opacity`, `filter`, `display`, `mixBlendMode` | — | Do NOT use in `style`. Use `animations` for opacity, and `filters` array for looks. |
+### Part 1: Visual-Specific Controls (The 11 Types)
+* `Text`: `text`, `font`, `weight` (400–900), `style.fontSize` (8–500px), `animation_mode` (`"marker_highlight"` | `"words_stagger"` | `"typewriter"` | `"static"`), `highlight_words`, `highlight_color`, `color`, `style.textAlign`, `style.lineHeight`, `style.letterSpacing`, `style.textShadow`. Complex scripts require Noto fonts.
+* `Counter`: `value`, `start_value`, `prefix`, `suffix`, `decimals`, `duration`, `format` (`"standard"` | `"compact"` | `"currency"` | `"percent"` | `"none"`), `font_size`, `title`, `color`.
+* `Shape`: `shape_type` (`"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`), `icon_name` (1,500+ Lucide icons), `fill`, `stroke`, `stroke_width`, `corner_radius`, `preset_path` (`"route_arch"` | `"horizontal_line"` | `"pointer_curve"` | `"corner_brackets"` | `"wave_pulse"` | `"circle_reticle"`), `draw_animation`, `glow`.
+* `Chart`: `chart_type` (`"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`), `data: [{"label", "value", "color"}]`, `title`, `title_size`, `bar_radius`, `bar_gap`, `bar_max_width`, `bar_glow`, `style.color`.
+* `Background`: Procedural shader canvas: `background_preset` (`"gradient_mesh"` | `"grid_flow"` | `"waves"` | `"dots"` | `"blueprint"` | `"vignette_loop"` | `"paper_grain"`), `colors: [base, accent1, accent2]`, `speed`. Fullscreen bottom layer.
+* `Image`: `query` + `source` (`"pexels"` | `"pixabay"` | `"wikipedia"`). Pixabay `image_type: "illustration"`/`"vector"` for cutouts. `objectFit`: `"cover"` | `"contain"` | `"fill"`.
+* `Video`: `query` + `source` (`"pexels"` | `"pixabay"` | `"youtube"`). `volume`, `loop: false/true`, `yt_start_offset`, `yt_duration`, `objectFit`.
+* `Lottie`: `lottie_url` or `animation_data`, `loop`, `playback_rate`, `direction: "forward" | "backward"`.
+* `Particles`: `particle_preset` (`"confetti"` | `"embers"` | `"dust"` | `"money_rain"` | `"snow"` | `"stars"`), `particle_count`, `particle_colors`, `particle_speed`, `particle_opacity`.
+* `Map`: `map_style` (`"modern_dark"` | `"vintage"` | `"minimal_light"` | `"nautical_blue"`), `locations: [{"name", "coord": [lat, lon]}]`.
+* `HTML`: `html_content` (inline CSS/SVG/HTML for documents, code windows, receipts). 100% filler root, fluid type, no remote assets.
 
-### Detailed LayerBox Rules
-STYLE: LayerBox SOT v1 is the ONLY geometry authority — see `declarative-ast` § Universal Layer Motion Modifiers for the full rule. Short version: `style` box keys `left/top/right/bottom/width/height` as `%` strings ONLY (never px/bare numbers; `top` XOR `bottom`, `left` XOR `right`, prefer `top`/`left`; center with explicit math `left = 50 − width/2`), `objectFit` (Image/Video only), `borderRadius`, `aspectRatio` (e.g. `"1 / 1"` + drop `height` for true circles), static `rotate`/`scale`/`scaleX`/`scaleY` sparingly. Per-type style extras: Text → `fontSize`/`textAlign`/`lineHeight`/`letterSpacing`/`textShadow`/`fontStyle`; Counter → `fontSize`/`textAlign`/`letterSpacing`; Chart → `color`. NEVER write `transform`/`translate` (stripped, overlay loses sync), style-`opacity` (use `animations`), style-`filter` (hoisted to `filters` — use the Filters tab), style-`display`/`mixBlendMode` (use `filters: "mix-blend-mode: X"`). Text `font`/`weight`/`color` are top-level content fields, never style keys.
+### Part 2: Universal Advanced Manipulation (Any Layer)
+* **Geometry (`style`)**: LayerBox SOT v1 `%` strings (`left`, `top`, `width`, `height`, or `bottom`). `borderRadius` (`16px`, `24px`, `50%` circle), `aspectRatio` (`"1 / 1"`). Static `rotate`, `scale`, `scaleX: -1` (flip H), `scaleY: -1` (flip V). Center math: `left = 50 - width/2`.
+* **Animations (`animations`)**: 9 keyframe properties: 6 spatial (`translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`) + 3 optical fades (`opacity`, `blur`, `brightness`). Easings: `"spring"`, `"ease-out"`, `"ease-in-out"`, `"linear"`. Word sync when timestamps exist.
+* **Physics & Dynamics (`motion`)**: `floating: true` harmonic drift; `motion_blur: true` + `shutter_angle: 45–360`; `camera_shake: "handheld" | "shockwave" | "glitch" | "none"`; `transform_origin` pivot.
+* **Filters & Looks (`filters`)**: 8 CSS looks (`Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur`, `Cinematic Dark Base`) + 6 SVG looks (`"url(#fx-emboss)"`, `"url(#fx-sharpen)"`, `"url(#fx-duotone-midnight)"`, `"url(#fx-duotone-inferno)"`, etc.) + blend modes (`"mix-blend-mode: overlay"`).
+* **Layer Exit & Stagger (`exit`)**: `exit: true` or `exit: <seconds>` on layer, or animation track `exit: true` for clean sequential beats without overlap.
 
----
-
-## 4. Advanced FX & Motion Modifiers
-
-| Modifier | Allowed Keys & Values | Engine Effect |
-|---|---|---|
-| **Animations** | `scale`, `translateX`, `translateY`, `rotate`, `rotateX`, `rotateY`, `opacity`, `blur`, `brightness` | Keyframed physics with `spring`, `linear`, `ease-out`, `ease-in`, `ease-in-out` |
-| **Motion Blur** | `motion_blur: true`, `shutter_angle: 45–360` (default 180) | Physical optical shutter blur (requires spatial motion) |
-| **Camera Shake** | `camera_shake: "handheld" \| "shockwave" \| "glitch"` | Organic camera breathing or dramatic impact tremor |
-| **Filters Pack** | CSS Looks or SVG Looks (`url(#fx-emboss)`, `url(#fx-sharpen)`, `url(#fx-duotone-midnight)`) | Stylized grading; compose freely |
-| **Emphasis** | `"emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }]` | Punch-in zoom at cut level (sibling of transition) |
-
-### Detailed Advanced FX Guidelines
-ADVANCED FX (optional but encouraged — full spec in `declarative-ast` § Universal Layer Motion Modifiers): `animations` keyframes — 6 spatial props that drive shutter blur (`scale`/`translateX`/`translateY`/`rotate`/`rotateX`/`rotateY`) + `opacity` fade + non-spatial `blur` rack-focus (px, e.g. 10→0) / `brightness` flash (multiplier, e.g. 0.3→1.0) which do NOT trigger blur alone; `delay`/`duration` in seconds, `easing`: `spring`/`linear`/`ease-out`/`ease-in`/`ease-in-out`; `floating: true` harmonic drift (counts as motion); `motion_blur: true` + `shutter_angle` 45–360 (default 180; needs spatial motion incl. floating/shake or no-op); `camera_shake: handheld/shockwave/glitch` (`none` = off); `transform_origin` pivot (visible only with motion); `filters` 2026 pack — 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur) compose freely + 6 SVG looks `url(#fx-emboss/sharpen/posterize/duotone-midnight/duotone-inferno/thermal)` (one per layer is the norm, stacking allowed experimentally; disabled on transparent Particles canvas) + `mix-blend-mode: X` (needs a layer beneath, invisible on single opaque fullscreen); sub-visual-level `emphasis: [{at, scale 1.02–1.6, duration 0.2–2s}]` 0+ marks on any cut length, keep `at+duration` inside the cut; `Particles` renders where placed; Lottie `animation_data` inline JSON override when no CDN fits (takes precedence over `lottie_url`; playback `direction` field accepts `forward`/`backward`, `lottie_direction` is an accepted alias).
-
----
-
-## 5. Animation Timing, Word Sync & Opacity Pairing
-
-- **Timing**: Give `animations` keyframes to the layers that carry the beat. `delay` is seconds from CUT start. When word timestamps exist, `delay` = spoken word time − cut start; when missing, use plain stagger values.
-- **Opacity Fade Pairing**: Pair entrances with an opacity fade on delayed reveals (`opacity: 0 -> 1` whenever `delay > 0` so elements stay invisible before they enter); spatial-only without fade is allowed ONLY for instant punch/whip beats at `delay: 0`.
-- **Narration Timestamp Sync**: When word timestamps are provided, set `delay` = (spoken word time − sub-visual start offset) so the visual enters as it is mentioned.
-- **Cut Fitting**: `delay + duration` SHOULD fit inside the sub-visual `duration` (overflow is clipped).
+### Part 3: Cut Transitions & Energy
+* **Transitions**: `"transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none"`.
+* **Mid-Cut Punch-Ins**: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]`.
+* **Audio Ducking**: `"mute_voiceover": true` | `"mute_bg_music": true`.
 
 ---
 
-## 6. Query-Only Media Contract
+## 4. Multi-Layer Depth Compositing
 
-- For `Image`/`Video` layers output ONLY:
-  ```json
-  { "type": "Video", "query": "1-3 english keywords", "source": "pexels" }
-  ```
-- Sources allowed: `"pexels" | "pixabay" | "wikipedia" | "youtube"`.
-- **NEVER emit `sources[]`, `url`, `local_path` or `asset_url`** — no hardcoded remote links. Output query+source only; media fetching happens downstream after your response.
+Build visual depth by coordinating layers:
+* **Layer 0**: Procedural `Background` shader or cinematic darkened `Video`/`Image` with slow drift.
+* **Layer 1**: Atmospheric `Particles` or vector `Shape` framing (`corner_brackets` or subtle card backing).
+* **Layer 2**: Hero visual (`Chart`, `Counter`, transparent cutout image, or SVG animated path).
+* **Layer 3**: Kinetic typography callout synced to spoken words (`marker_highlight` or `words_stagger`).
 
 ---
 
-## 7. Output Schema & JSON Structure
+## 5. Output Schema & JSON Contract
 
-Return ONLY valid JSON matching this schema:
+Return ONLY valid JSON matching this schema. Note: Bind actual hex values from the active `design.json` (`color_palette`):
+
 ```json
 {
   "sub_visuals": [
     {
-      "duration": 3.2,
-      "transition": "crossfade",
+      "duration": 3.5,
+      "transition": "whip_pan",
+      "emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }],
       "composition": {
         "type": "Sequence",
         "children": [
@@ -101,21 +94,36 @@ Return ONLY valid JSON matching this schema:
             "content": {
               "type": "Background",
               "background_preset": "gradient_mesh",
-              "colors": ["#0b0b1a", "#1a1a36"]
+              "speed": 1.0
             }
           },
           {
             "type": "Layer",
             "content": {
-              "type": "Chart",
-              "chart_type": "bar",
-              "title": "ANNUAL GROWTH",
-              "data": [
-                { "label": "Q1", "value": 24, "color": "#00d4ff" },
-                { "label": "Q2", "value": 48, "color": "#facc15" }
-              ]
+              "type": "Shape",
+              "shape_type": "rectangle",
+              "corner_radius": 20,
+              "fill": "rgba(255, 255, 255, 0.06)",
+              "stroke_width": 1.5
             },
-            "style": { "width": "60%", "height": "50%", "top": "25%", "left": "20%" },
+            "style": { "left": "15%", "top": "18%", "width": "70%", "height": "64%" },
+            "animations": [
+              { "property": "scale", "from": 0.9, "to": 1.0, "duration": 0.5, "delay": 0.2, "easing": "spring" },
+              { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.2, "easing": "ease-out" }
+            ],
+            "floating": true
+          },
+          {
+            "type": "Layer",
+            "content": {
+              "type": "Counter",
+              "value": 450,
+              "prefix": "$",
+              "suffix": "M",
+              "title": "CAPITAL RAISED",
+              "font_size": 84
+            },
+            "style": { "left": "20%", "top": "28%", "width": "60%", "height": "30%" },
             "animations": [
               { "property": "translateY", "from": 40, "to": 0, "duration": 0.6, "delay": 0.4, "easing": "spring" },
               { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.4, "easing": "ease-out" }

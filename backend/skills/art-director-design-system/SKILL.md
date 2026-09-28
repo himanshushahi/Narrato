@@ -34,25 +34,25 @@ when_to_use: "Used during project initialization to generate the global design.j
 
 ## 2. Design System Guidelines & Token Roles
 
-VARIETY & ANTI-REPETITION RULES (highest priority — the user complains every theme looks the same):
-- NEVER copy the example hex codes in this spec (`#0b0b1a`, `#0f172a`, `#00d4ff`, `#facc15`, `#ef4444`, `#faf7f0`) verbatim. They are shape examples, not outputs. Every generation MUST emit a visibly fresh palette.
-- ALWAYS honor the `ASSIGNED VARIETY DIRECTION` from the creative brief (lighting + hue lane). It overrides the "dark cinematic" default. Dark cinematic is only ONE of many allowed looks — light editorial, mono+pop, earth, teal, plum, frost, duotone, moss, noir, slate, and sand are equally valid.
-- theme_name MUST be novel (2–4 words you invent for this topic). NEVER repeat past names across projects.
-- Derive at least one hue cue from the video Topic/Title (e.g. finance+gold, ocean+teal, crime+crimson) so different topics never converge to one palette.
-- Keep WCAG AA contrast: text vs background ≥ 4.5:1, primary vs background ≥ 3:1. banned pairs: near-identical background+text, two neon primaries that vibrate.
+VARIETY & ANTI-REPETITION RULES (highest priority — every video must have a distinct, tailored look):
+- NEVER copy the example hex codes in this spec (`#0b0b1a`, `#0f172a`, `#00d4ff`, `#facc15`, `#ef4444`, `#faf7f0`) verbatim. They are shape examples, not outputs. Every generation MUST emit a visibly fresh, beautiful palette.
+- ALWAYS honor the `ASSIGNED VARIETY DIRECTION` or user style hint from the creative brief. There is NO default look — dark cinematic, light editorial, high-key minimalist, vibrant tech, warm organic, and monochromatic-pop looks are all equally supported.
+- theme_name MUST be novel (2–4 words you invent specifically for this topic). NEVER repeat past theme names across projects.
+- Derive your color harmony and mood directly from the narrative topic and tone so different subjects naturally express unique visual identities.
+- Keep WCAG AA contrast: text vs background ≥ 4.5:1, primary vs background ≥ 3:1. Banned pairs: low-contrast text on background, or clashing vibrating neons.
 
 DESIGN GUIDELINES (any topic-fitting palette allowed):
-- **theme_name**: A novel 2-4 word aesthetic title you invent for THIS topic.
-- **color_palette**: Modern, vibrant, highly readable hex codes invented for THIS topic AND the assigned variety direction.
-  * **background**: A canvas YOU INVENT to match the assigned lighting lane (dark, light, or mid-tone — never a spec-example copy).
-  * **primary**: A high-contrast brand color YOU INVENT (saturated, topic-fitting).
+- **theme_name**: A novel, evocative 2-4 word aesthetic title you invent for THIS topic.
+- **color_palette**: Modern, vibrant, highly readable hex codes invented for THIS topic and mood:
+  * **background**: A canvas base YOU INVENT (dark, light, or mid-tone — never a spec-example copy).
+  * **primary**: A high-contrast brand anchor YOU INVENT (saturated, topic-fitting).
   * **secondary**: A complementary tone YOU INVENT (different hue family from primary).
-  * **accent**: A high-visibility callout YOU INVENT (maximum pop against background).
-  * **text**: A readable color YOU INVENT with strong contrast on background (light on dark, dark on light).
+  * **accent**: A high-visibility callout YOU INVENT (maximum pop against background for key highlights).
+  * **text**: Highly readable text color YOU INVENT with strong contrast against background (light on dark, dark on light).
 - **typography**:
   * **heading_font**: Main display font for titles/headers.
   * **body_font**: Highly readable body font for cards/subtitles.
-- **css_guidelines**: Provide brief layout and aesthetic styling rules (e.g. contrast, accents, card borders, typography scales).
+- **css_guidelines**: Provide brief aesthetic styling rules (e.g. contrast, accents, card borders, typography scales).
 
 ---
 

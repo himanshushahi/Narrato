@@ -59,7 +59,7 @@ def test_skill_loader():
     assert "declarative-ast" in skills
     skill = skill_loader.get_skill("declarative-ast")
     assert skill is not None
-    assert skill.version in ("1.0", "2.0", "2.1", "3.0")
+    assert skill.version in ("1.0", "2.0", "2.1", "3.0", "4.0")
 
 def test_skill_loader_all_registered_skills():
     expected_skills = (

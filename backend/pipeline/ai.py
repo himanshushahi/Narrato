@@ -308,18 +308,18 @@ def _pick_design_direction(topic: str = "", title: str = "", seed_hint: str = ""
     cache, not lane reuse.
     """
     lanes = [
-        "DARK CINEMATIC — near-black background, one hot neon primary, cool secondary",
-        "LIGHT EDITORIAL — warm paper background (#faf7f0 family), ink text, one saturated primary",
-        "MIDNIGHT MONO + SINGLE POP — charcoal/graphite background, grayscale secondary, exactly one vivid accent",
-        "DEEP EARTH — espresso/forest background, amber/honey primary, sage secondary",
-        "OCEANIC TEAL — deep teal/petrol background, aqua primary, coral accent",
-        "ROYAL PLUM — dark plum/eggplant background, gold primary, orchid secondary",
-        "ARCTIC FROST — pale icy background, navy ink text, electric-blue primary",
-        "SUNSET DUOTONE — warm dusk background, tangerine primary, magenta accent",
-        "FOREST MOSS — dark moss background, lime/mint primary, sand secondary",
-        "CRIMSON NOIR — black-red background, crimson primary, bone text",
-        "SLATE MINIMAL — light slate background, slate-900 text, single indigo primary",
-        "DESERT SAND — sandy beige background, burnt-orange primary, olive secondary",
+        "DARK CINEMATIC — deep high-contrast dark foundation with a vibrant hero accent and balanced secondary tone",
+        "LIGHT EDITORIAL — clean luminous foundation, high-contrast dark typography, and a bold saturated hero color",
+        "MIDNIGHT MONO + ELECTRIC POP — deep neutral charcoal base with crisp typography and one vivid dynamic punch color",
+        "DEEP WARMTH & DEPTH — rich dark earthy base, radiant warm primary, and harmonious secondary tone",
+        "OCEANIC & COOL ATMOSPHERE — deep atmospheric cool base with an energetic vivid primary and contrasting accent",
+        "ROYAL & LUXURIOUS — sophisticated dark base, radiant luminous primary, and refined secondary highlights",
+        "HIGH-KEY MINIMALIST — airy light base, sharp contrasting dark typography, and striking primary accent",
+        "WARM TWILIGHT & DUSK — rich warm atmospheric background with vivid punchy primary and crisp text",
+        "VIBRANT TECH DYNAMICS — cyber dark foundation, high-energy vivid primary, and sharp secondary contrast",
+        "CRIMSON INTENSITY — dramatic high-tension dark base with powerful crimson/ruby primary and crisp high-contrast text",
+        "MODERN SLATE & INDIGO — cool architectural slate base, bold modern primary, and polished clean accents",
+        "WARM ORGANIC TEXTURE — textured warm foundation, rich natural primary, and balanced harmonious accents",
     ]
     key = f"{topic or ''}|{title or ''}|{seed_hint or ''}".strip("|")
     if not key:
@@ -331,19 +331,22 @@ def _pick_design_direction(topic: str = "", title: str = "", seed_hint: str = ""
 def _format_design_guidance(topic: str = "", title: str = "", seed_hint: str = "", style_hint: str = "") -> str:
     """Topic-driven aesthetic guidance for the Art Director prompt.
 
-    No genre presets: the model derives mood, palette story, and theme
-    name from the topic/title itself, constrained only by the assigned
-    variety lane (lighting + hue family). An optional free-text
-    style_hint narrows the look without reintroducing presets.
+    No rigid genre presets: the model derives mood, palette story, and theme
+    name from the topic/title itself. When a user style_hint is provided,
+    it takes precedence.
     """
-    direction = _pick_design_direction(topic, title, seed_hint)
-    hint_line = f"\n- User style hint (honor when present, never a preset): {style_hint}" if (style_hint or "").strip() else ""
-    return f"""CREATIVE BRIEF (TOPIC-DRIVEN — no style preset):
+    hint = (style_hint or "").strip()
+    if hint:
+        direction = f"USER-DEFINED STYLE HINT — {hint}"
+    else:
+        direction = _pick_design_direction(topic, title, seed_hint)
+    hint_line = f"\n- User style hint: {hint}" if hint else ""
+    return f"""CREATIVE BRIEF (TOPIC-DRIVEN — full aesthetic freedom):
 - Topic: {topic or 'Unknown'} | Working title: {title or 'Untitled'}{hint_line}
-- Invent a fresh 2-4 word theme name tied to THIS topic. Never reuse past names.
-- Derive at least one hue cue from the topic itself (e.g. ocean->teal, finance->gold, crime->crimson) so different topics never converge to one palette.
-- ASSIGNED VARIETY DIRECTION (MUST FOLLOW): {direction}
-  * Honor the topic mood AND this lighting/hue lane. Your background/primary/secondary/accent hex codes MUST be invented fresh — never emit #0b0b1a / #0f172a / #00d4ff / #facc15 unless the assigned direction explicitly calls for them."""
+- Invent a fresh, evocative 2-4 word theme name tied specifically to THIS topic and narrative tone.
+- Derive your color harmony organically from the topic and mood (e.g. technology, history, biology, finance, philosophy, science) so each video has its own distinct visual identity.
+- ASSIGNED VARIETY DIRECTION: {direction}
+  * Honor the topic mood and lighting lane. Invent fresh, high-contrast, beautiful hex codes (WCAG AA compliant: text vs background >= 4.5:1, primary vs background >= 3:1). Never blindly reuse spec examples."""
 
 
 def generate_project_design_system(project_dict, script_data, project_dir, progress_cb, cancel_event):
@@ -2090,32 +2093,47 @@ Transform narration into motion graphic cuts from the 11 layer types. Every crea
 {design_system_text}
 {visual_director_block}
 {motion_designer_block}
-=== LAYER CAPABILITIES (quick reference; full semantics in skills) ===
-- 11 types, any count per cut, stacking = children array order (first=bottom, last=top): Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background.
-- Background canvas facts: `Background` presets (`gradient_mesh grid_flow waves dots blueprint vignette_loop paper_grain`, zero downloads, `colors`/`speed` free); darkened `Video`/`Image` + drift; `Map` globe + multi-pin `locations`; `HTML` gradient canvas.
-- Midground facts: `Chart` (+`title_size/bar_radius/bar_gap/bar_glow`), `Counter` (+`format/decimals/prefix/suffix`), `Shape` (+ any Lucide icon), `HTML` documents, `Lottie` (`lottie_url`/`animation_data`/`playback_rate`/`direction`). Entrances use `delay` (absolute seconds from cut start).
-- Foreground facts: kinetic `Text` modes (`marker_highlight words_stagger typewriter static`); subtitle safe area `bottom > 18%` landscape / `28%` portrait.
+=== HARNESS CAPABILITY ARCHITECTURE (full reference in skills) ===
+Part 1: 11 Content Types (combine freely in any count, stacking is children array order: children[0]=bottom ... last=top):
+- Text: font, weight, style.fontSize (8-500px), animation_mode (marker_highlight, words_stagger, typewriter, static), highlight_words/color, style.textAlign/lineHeight/letterSpacing/textShadow. Omit style.height for auto-size. Complex scripts MUST use Noto fonts.
+- Counter: value, start_value, prefix ($/+/₹), suffix (%/M+/B), decimals, duration, format (standard, compact, currency, percent, none), font_size (16-300px), title.
+- Shape: shape_type (rectangle, circle, star, triangle, arrow, polygon, path, icon), icon_name (1500+ Lucide icons), fill, stroke, stroke_width, corner_radius, preset_path (route_arch, horizontal_line, pointer_curve, corner_brackets, wave_pulse, circle_reticle), draw_animation (true), glow (true).
+- Chart: chart_type (bar, line, pie, donut, progress), data ([{label, value, color}]), title, title_size, bar_radius, bar_gap, bar_max_width, bar_glow, style.color.
+- Background: 7 procedural shaders (gradient_mesh, grid_flow, waves, dots, blueprint, vignette_loop, paper_grain), 3-color palette [base, accent1, accent2], speed. Zero asset downloads, always fullscreen children[0].
+- Image: query (1-3 English keywords) + source (pexels, pixabay, wikipedia). Pixabay image_type: illustration/vector for transparent cutouts. objectFit: cover/contain/fill.
+- Video: query (1-3 English keywords) + source (pexels, pixabay, youtube). volume (0-1), loop (false/true freezes or loops), yt_start_offset/duration, objectFit.
+- Lottie: lottie_url or animation_data, loop, playback_rate, direction: forward/backward.
+- Particles: 6 atmospheric presets (confetti, embers, dust, money_rain, snow, stars), count (10-300), hex colors, speed, opacity.
+- Map: map_style (modern_dark, vintage, minimal_light, nautical_blue), locations ([{name, coord: [lat, lon]}]).
+- HTML: html_content (custom documents, code windows, receipts, glass cards). Fluid 100% filler root, no remote assets.
+
+Part 2: Universal Advanced Manipulation (any layer):
+- Geometry (style): LayerBox % coordinates (left, top, width, height, or bottom). borderRadius (16px, 24px, 50% circle), aspectRatio ("1 / 1"). Static rotate deg, scale multiplier, scaleX: -1 (flip H), scaleY: -1 (flip V). Center math: left = 50 - width/2.
+- Animations (animations): 9 properties: 6 spatial (translateY, translateX, scale, rotate, rotateX, rotateY) + 3 optical fades (opacity, blur px rack-focus, brightness flash). Easings: spring, ease-out, ease-in-out, linear. Pair delay > 0 with opacity: 0 -> 1. Word sync via delay when timestamps exist.
+- Physics & Dynamics (motion): floating: true harmonic drift; motion_blur: true + shutter_angle: 45-360 (default 180); camera_shake: "handheld" | "shockwave" | "glitch" | "none"; transform_origin pivot.
+- Filters & Looks (filters): 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur, Cinematic Dark Base) + 6 SVG looks (url(#fx-emboss), url(#fx-sharpen), url(#fx-duotone-midnight), url(#fx-duotone-inferno), etc.) + blend modes ("mix-blend-mode: overlay").
+- Layer Exit & Stagger (exit): exit: true or exit: <seconds> on layer, or animation track exit: true for sequential beats in one cut without visual collisions.
+
+Part 3: Cut Transitions & Energy (cut level):
+- Transitions: "transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none".
+- Mid-Cut Punch-Ins: "emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}].
+- Audio Ducking: "mute_voiceover": true | "mute_bg_music": true.
+
+COMPOSITING DEPTH:
+Layer 0: Procedural Background shader or darkened B-roll Video with scale drift.
+Layer 1: Atmospheric Particles or Shape framing (corner_brackets or glass card).
+Layer 2: Hero infographic (Chart, Counter, cutout Image, or animated SVG path).
+Layer 3: Synced kinetic Text with marker_highlight or words_stagger above bottom: 18% (landscape) / 28% (portrait).
 
 RULES:
-- COUNT: One sub-visual per visual beat
-- DURATION: Each 2-15 seconds, sum MUST equal scene duration (technical requirement)
-- 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.
-- query: ALWAYS in English. Use descriptive, specific keywords for relevant results.
-- Text content: project language for narration-matched text; English for search queries. For complex scripts (Hindi, Marathi, Bengali, Tamil, Arabic, etc.), MUST specify the corresponding Noto font (e.g. `Noto Sans Devanagari`) to guarantee proper Unicode shaping.
-- style: USE responsive percentage coordinates (`left`, `top`, `width`, `height`) on cards and layers.
-- DESIGN SYSTEM: Use `primary`, `accent`, `surface`, `glow`, `fontFamily` tokens when available; custom palettes allowed per beat.
-- VIDEO: `"volume": 0` is a safe default.
-- Supported content types (use any, combine freely): Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background. Stacking is children array order.
-- MOTION MODIFIERS: `"motion_blur"` (needs spatial motion), `"camera_shake": "handheld" | "shockwave" | "glitch"`, FX pack in `"filters"` (CSS + SVG looks). Punch-in emphasis at sub-visual level: `"emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}]` — any count, keep `at+duration` inside the cut.
+- DURATION: Sum of cut durations MUST equal exactly the provided scene duration.
+- 🚫 NO CHAPTER TITLE BADGES: Root composition overlay engine handles continuous chapter branding.
+- Queries: English keywords only. Text: project language.
+- DESIGN SYSTEM: Bind colors and fonts from design.json (primary, accent, surface, glow, text, heading_font, body_font).
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
-{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "duration": 3.5}}]}}
-
-ERROR PREVENTION:
-- Duration sum must equal exactly the provided scene duration (2 decimal places)
-- Use only valid AST structures with numeric durations and valid easing values ("linear", "spring", "ease-in", "ease-out", "ease-in-out")
-- All required fields present for each content type
+{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "duration": 3.5, "transition": "whip_pan"}}]}}
 
 {visual_rules}"""
 

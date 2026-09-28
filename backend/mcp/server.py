@@ -736,7 +736,7 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 "No chapter title cards inside cuts.",
                 "Image/Video layers MUST carry an English search `query`; verify with search_media.",
                 "Pair entrance animations (delay>0) with opacity fade 0->1; spatial-only allowed at delay 0.",
-                "Full capability reference: declarative-ast §4/§4C (11 layer types, contracts, cut flags).",
+                "Full capability reference: declarative-ast Part 1 & Part 2 (11 layer types, universal controls, contracts, cut flags).",
             ]
             bundle["deep_read_required"] = (
                 "save_visuals ALSO needs ≥1 full section pull from "
@@ -776,7 +776,7 @@ def _layer_reference() -> dict:
                         "slide_down", "zoom_in", "zoom_out", "whip_pan",
                         "glitch"],
         "tip": "Compose each cut from any types/counts/geometry the schema allows; "
-               "field semantics live in declarative-ast §4/§4C.",
+               "field semantics live in declarative-ast Part 1 & Part 2.",
     }
 
 
@@ -792,7 +792,7 @@ def _sample_cut_template(video_format: str) -> dict:
 _VISUALS_PACK_SECTIONS: tuple = (
     ("declarative-ast", "content types", "content_types"),
     ("declarative-ast", "motion grammar", "motion_grammar"),
-    ("declarative-ast", "capability catalog", "capability_catalog"),
+    ("declarative-ast", "cut transitions", "transitions"),
     ("visual-director-core", "motion", "motion_fx"),
     ("visual-director-core", "layer types", "layer_types"),
     ("motion-graphics-designer", "geometry", "geometry"),
@@ -1419,7 +1419,7 @@ already explicitly specified in the user's request):
       underuse the harness — the gate exists because of that.
      Granular alternative: get_skill(NAME, brief=true) for each of the three, then
      pull ONLY the sections you need via get_skill(NAME, section="...").
-     Required reading: declarative-ast §4/§4C (layer types, contracts,
+     Required reading: declarative-ast Part 1 & Part 2 (layer types, contracts,
      cut flags) + the motion/FX sections. Rules you must not skim past:
      LayerBox %-only geometry, no chapter title cards inside cuts.
   7. get_section_timings (TRUE audio durations + word timestamps per section
@@ -1451,7 +1451,7 @@ already explicitly specified in the user's request):
       Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background). Any Lucide icon, particle overrides, chart tuning, Lottie URLs, yt offsets, loop/volume are allowed.
     - Cut-level tools: transitions (13 + alias), emphasis punch-ins,
       mute_voiceover/mute_bg_music, motion_blur, camera_shake, FX filters,
-      rack-focus blur/brightness keyframes, floating. Field semantics in declarative-ast §4/§4C.
+      rack-focus blur/brightness keyframes, floating. Field semantics in declarative-ast Part 1 & Part 2.
     - Pair entrance animations (translateY, translateX, scale, rotate)
       with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
       whenever delay > 0 so elements stay hidden until they move; spatial-only
