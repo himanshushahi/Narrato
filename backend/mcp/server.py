@@ -62,7 +62,7 @@ Instead, you MUST conduct the "New Narrative Build" intake interview and ask the
    - For Portrait: Short (~60s), Medium (~90s), or Long (~2m)
 5. Export Destination Folder: Confirm if the user wants a specific directory or default project exports folder.
 6. Voice: Call `list_voice_options` to offer concrete voice choices (set with `update_voice_settings`).
-7. Visual Style (optional free text): Ask what look/mood they want (e.g. "warm editorial", "dark cinematic"). There are NO preset genres — invent palettes, typography, and visual archetypes from the topic + this hint.
+7. Visual Style (optional free text): Ask what look/mood they want (e.g. "warm editorial", "dark cinematic"). There are NO preset genres — invent palettes, typography, and compositions from the topic + this hint.
 
 ONLY after the user confirms these preferences (or if already explicitly specified), invoke `create_project`.
 
@@ -80,7 +80,7 @@ MANDATORY SKILL GROUNDING (hard gate, not guidance):
 - save_visuals REQUIRES declarative-ast + visual-director-core + motion-graphics-designer first (brief=true counts).
 - EASIEST: one call get_stage_skills(stage, project_id) per stage — it returns the starter pack AND satisfies the gate.
   script -> get_stage_skills('script', project_id); design -> get_stage_skills('design', project_id); visuals -> get_stage_skills('visuals', project_id).
-- The server REJECTS save_* with SKILL_REQUIRED if you skip this. get_section_timings also pushes a creative_blueprint (archetypes + sample cut) — use it.
+- The server REJECTS save_* with SKILL_REQUIRED if you skip this. get_section_timings also pushes a creative_blueprint (layer reference + sample cut) — use it.
 """
 
 mcp = MCPServer("narrato", instructions=NARRATO_SERVER_INSTRUCTIONS)
@@ -101,7 +101,7 @@ _GLOBAL_SKILL_READS: set = set()
 # Deep reads: (normalized skill, section title returned) pairs. The visuals
 # starter pack is deliberately broad but shallow — save_visuals additionally
 # requires ≥1 section-level pull from declarative-ast so the agent has seen
-# real archetype JSON, not just the table of contents.
+# real capability text (layer fields, contracts), not just briefs.
 # project_id -> set((skill, section)); no-project reads fall back globally.
 _SECTION_READS: dict = {}
 _GLOBAL_SECTION_READS: set = set()
@@ -116,8 +116,8 @@ _SKILL_ALIASES = {
 }
 
 # stage -> skills that MUST have been read first (brief=true counts).
-# visuals needs all three: AST (archetypes+layers), director (composition),
-# motion (card geometry + kinetic text + FX).
+# visuals needs all three: AST (layers/contracts), director (fields),
+# motion (geometry + text + FX).
 STAGE_SKILL_REQUIREMENTS: dict = {
     "script": ["scriptwriter"],
     "design": ["art-director-design-system"],
@@ -129,8 +129,8 @@ STAGE_SKILL_ALTERNATES: dict = {
     "scriptwriter": ["scriptwriter", "script-base-writer"],
 }
 # stage -> (skill, min_sections): section-level deep reads required beyond
-# the skill-level gate. Visuals creativity lives in the full archetype/motion
-# text — a brief-only agent converges on Background+Image+Text every cut.
+# the skill-level gate. Visuals capability lives in the full layer/contract
+# text — a brief-only agent underuses the harness.
 STAGE_DEEP_READ_REQUIREMENTS: dict = {
     "visuals": ("declarative-ast", 1),
 }
@@ -209,14 +209,14 @@ def _deep_read_required_error(stage: str, project_id: str,
                               deep: dict) -> dict:
     skill = deep["skill"]
     example = (f"get_skill(skill_name='{skill}', "
-               f"section='archetypes', project_id='{project_id}')")
+               f"section='content types', project_id='{project_id}')")
     return {
         "ok": False,
         "error": (
             f"DEEP_READ_REQUIRED: stage '{stage}' needs ≥{deep['need']} full "
             f"section pull(s) from '{skill}' — briefs and the starter pack "
-            f"don't count (brief-only agents produce flat Background+Image+Text "
-            f"videos). EASY FIX (1 call): {example} — then pull any other "
+            f"don't count (brief-only agents underuse the harness). "
+            f"EASY FIX (1 call): {example} — then pull any other "
             f"sections you need. Sections read so far: {deep['have'] or 'none'}."
         ),
         "error_code": "DEEP_READ_REQUIRED",
@@ -227,7 +227,7 @@ def _deep_read_required_error(stage: str, project_id: str,
         "fix": {
             "one_call": {
                 "tool": "get_skill",
-                "arguments": {"skill_name": skill, "section": "archetypes",
+                "arguments": {"skill_name": skill, "section": "content types",
                               "project_id": project_id},
             },
         },
@@ -710,14 +710,14 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
             bundle["next"] = ("Include motion language (transitions, text "
                               "treatments, overlays) or the server warns. "
                               "Then call save_design.")
-        else:  # visuals: fat creative pack (briefs + full key sections).
-            # Brief-only agents converge on Background+Image+Text every cut,
-            # so the pack inlines the highest-value creative text (~50KB):
-            # the archetype JSON library, motion grammar, variety contracts,
-            # card geometries, and the storyboard plan structure. This costs
-            # context once per project and is the closest MCP gets to the
-            # internal LLM's ~120KB injected prompt. It does NOT satisfy the
-            # deep-read gate (see below) — that needs an active section pull.
+        else:  # visuals: fat capability pack (briefs + full key sections).
+            # Brief-only agents underuse the layer system, so the pack
+            # inlines the highest-value capability text: the layer type
+            # reference, motion grammar, contracts, and the plan structure.
+            # This costs context once per project and is the closest MCP
+            # gets to the internal LLM's injected prompt. It does NOT
+            # satisfy the deep-read gate (see below) — that needs an
+            # active section pull.
             briefs = {}
             for name in STAGE_SKILL_REQUIREMENTS["visuals"]:
                 sk = skill_loader.get_skill(name, context="tool")
@@ -729,53 +729,54 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                        "sentence_rule", "genre_script_guidance"):
                 ctx.setdefault(_k, "")
             bundle["creative_pack"] = _visuals_creative_pack(ctx)
-            # Must-not-skim rules inline so the agent gets them even if it
-            # never pulls another section.
+            # Must-not-break rules inline so the agent gets them even if it
+            # never pulls another section. Functional only — no taste.
             bundle["must_follow"] = [
-                "LayerBox geometry is %-only (no px); one Particles layer per cut max, LAST child.",
+                "LayerBox geometry is %-only (no px).",
                 "No chapter title cards inside cuts.",
                 "Image/Video layers MUST carry an English search `query`; verify with search_media.",
                 "Pair entrance animations (delay>0) with opacity fade 0->1; spatial-only allowed at delay 0.",
-                "Prefer >=2 content kinds per section + 1 energy moment (punch-in, shake, motion_blur, FX filter, rack-focus, floating, Particles).",
+                "Full capability reference: declarative-ast §4/§4C (11 layer types, contracts, cut flags).",
             ]
             bundle["deep_read_required"] = (
                 "save_visuals ALSO needs ≥1 full section pull from "
                 "declarative-ast (briefs + this pack don't count). E.g. "
-                "get_skill(skill_name='declarative-ast', section='archetypes', "
+                "get_skill(skill_name='declarative-ast', section='layers', "
                 "project_id=...).")
-            bundle["visual_archetypes"] = _visual_archetypes()
+            bundle["layer_reference"] = _layer_reference()
             bundle["sample_cut"] = _sample_cut_template(video_format)
             bundle["storyboard"] = _visuals_storyboard_pack(ctx, project_id)
             bundle["next"] = ("Then: get_section_timings -> save_design -> "
-                              "write a 1-line-per-cut beat plan (archetype + "
+                              "write a 1-line-per-cut beat plan (intent + "
                               "transition + query, see storyboard.beat_plan_template) "
                               "-> save_visuals(dry_run=true) per section, read "
                               "geometry/timing/variety, fix, then persist. "
                               "Pull deeper detail as needed, "
-                              "e.g. get_skill('declarative-ast', section='archetypes').")
+                              "e.g. get_skill('declarative-ast', section='layers').")
     except Exception as e:
         logger.error(f"MCP get_stage_skills failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
     return bundle
 
 
-def _visual_archetypes() -> dict:
-    """Topic-driven archetype starter set (no genre presets).
+def _layer_reference() -> dict:
+    """Capability index for the agent: what exists, not what to pick.
 
-    The agent picks archetypes to fit each narration beat; this is a
-    variety starter, not a constraint. Kept generic so outputs don't
-    converge on one predictable look.
+    Composition is the agent's creative decision — this lists the palette
+    (11 types, cut flags, transitions) so it can use the full harness.
     """
     return {
-        "recommended": [
-            "entity_spotlight (Archetype 7: portrait/evidence focus)",
-            "split_comparison (Archetype 1: Split-Screen Data HUD)",
-            "stat_callout (Archetype 3: Macro Metric)",
-            "map_journey (Archetype 4: Geographic Route)",
-            "document_dossier (Archetype 2/11: evidence memo)",
-            "infographic_grid (Archetype 6)",
-        ],
-        "tip": "Pick archetypes to fit each beat's narration; cycle archetypes per cut; don't reuse one card geometry for a whole video.",
+        "layer_types": ["Image", "Video", "Text", "Chart", "Shape", "Map",
+                        "HTML", "Lottie", "Particles", "Counter",
+                        "Background"],
+        "cut_flags": ["transition", "emphasis", "mute_voiceover",
+                      "mute_bg_music"],
+        "transitions": ["cut", "none", "fade", "crossfade", "dissolve",
+                        "slide_left", "slide_right", "slide_up",
+                        "slide_down", "zoom_in", "zoom_out", "whip_pan",
+                        "glitch"],
+        "tip": "Compose each cut from any types/counts/geometry the schema allows; "
+               "field semantics live in declarative-ast §4/§4C.",
     }
 
 
@@ -785,16 +786,16 @@ def _sample_cut_template(video_format: str) -> dict:
     return build_sample_cut(video_format)
 
 
-# Sections inlined into the visuals starter pack: the creative text the
-# internal LLM gets injected (~120KB) that brief-only MCP agents never see.
+# Sections inlined into the visuals starter pack: the capability text the
+# internal LLM gets injected that brief-only MCP agents never see.
 # (skill name, section query, pack key).
 _VISUALS_PACK_SECTIONS: tuple = (
-    ("declarative-ast", "archetypes", "archetypes"),
+    ("declarative-ast", "content types", "content_types"),
     ("declarative-ast", "motion grammar", "motion_grammar"),
-    ("declarative-ast", "anti-template", "anti_template"),
-    ("visual-director-core", "motion vocabulary", "motion_vocabulary"),
-    ("visual-director-core", "anti-template", "director_variety_contract"),
-    ("motion-graphics-designer", "card", "card_geometries"),
+    ("declarative-ast", "capability catalog", "capability_catalog"),
+    ("visual-director-core", "motion", "motion_fx"),
+    ("visual-director-core", "layer types", "layer_types"),
+    ("motion-graphics-designer", "geometry", "geometry"),
 )
 
 
@@ -839,14 +840,13 @@ def _visuals_storyboard_pack(ctx: dict, project_id: str) -> dict:
     from backend.agent.skill_loader import skill_loader
     pack: dict = {
         "why": ("Plan beats before authoring cuts: one line per cut "
-                "(archetype + transition + media query). Sections planned "
-                "this way vary where unplanned ones repeat."),
+                "(intent + transition + media query). Sections planned "
+                "this way repeat by design, not by accident."),
         "beat_plan_template": (
-            "cut0: entity_spotlight | whip_pan | <english query> | <callout>\n"
-            "cut1: split_comparison | slide_left | <english query> | <chart>\n"
-            "cut2: stat_callout | dissolve | <english query> | <counter>\n"
-            "(one line per planned cut; cycle archetypes, never repeat the "
-            "neighbor's archetype+transition pair)"),
+            "cut0: <intent> | whip_pan | <english query> | <layers>\n"
+            "cut1: <intent> | slide_left | <english query> | <layers>\n"
+            "cut2: <intent> | dissolve | <english query> | <layers>\n"
+            "(one line per planned cut)"),
     }
     try:
         sk = skill_loader.get_skill("storyboard-planner", context="tool")
@@ -1371,7 +1371,7 @@ You MUST interview the user and ASK every question corresponding to the
 app's 'New Narrative Build' form before calling `create_project` (unless
 already explicitly specified in the user's request):
 1. Narrative Topic / Name: Confirm the core video topic or title.
-2. Visual Style (optional free text): Ask what look/mood they want (e.g. "warm editorial", "dark cinematic"). There are NO preset genres — invent palettes, typography, and archetypes from the topic + hint.
+2. Visual Style (optional free text): Ask what look/mood they want (e.g. "warm editorial", "dark cinematic"). There are NO preset genres — invent palettes, typography, and compositions from the topic + hint.
 3. Language:
    - hi: Hindi (Devanagari prose for voiceover)
    - en: English
@@ -1411,29 +1411,25 @@ already explicitly specified in the user's request):
   6. MANDATORY grounding — EASY 1-call path (server rejects save_visuals without it):
      get_stage_skills('visuals', project_id) returns briefs for
       visual-director-core + motion-graphics-designer + declarative-ast PLUS
-      the full creative pack (archetype JSON library, motion grammar,
-      variety contracts, card geometries), must-follow rules, visual
-      archetypes, a sample cut, and a storyboard pack — and satisfies the
-      skill gate. It does NOT satisfy the deep-read gate: you must ALSO pull
-      ≥1 full section via get_skill (e.g. declarative-ast section='archetypes'),
+      the full capability pack (layer reference, motion grammar,
+      contracts), must-follow rules, a sample cut, and a storyboard pack
+      — and satisfies the skill gate. It does NOT satisfy the deep-read gate: you must ALSO pull
+      ≥1 full section via get_skill (e.g. declarative-ast section='content types'),
       or save_visuals is rejected with DEEP_READ_REQUIRED. Brief-only agents
-      produce flat Background+Image+Text videos — the gate exists because of that.
+      underuse the harness — the gate exists because of that.
      Granular alternative: get_skill(NAME, brief=true) for each of the three, then
      pull ONLY the sections you need via get_skill(NAME, section="...").
-     Required reading: declarative-ast §5 archetypes (your template library —
-     motion-graphics card geometries alone are NOT enough variety for a
-     whole video) + the motion/FX sections. Rules you must not skim past:
-     LayerBox %-only geometry, one Particles layer per cut max (last child),
-     no chapter title cards inside cuts.
+     Required reading: declarative-ast §4/§4C (layer types, contracts,
+     cut flags) + the motion/FX sections. Rules you must not skim past:
+     LayerBox %-only geometry, no chapter title cards inside cuts.
   7. get_section_timings (TRUE audio durations + word timestamps per section
-     + pushed creative_blueprint with visual archetypes + sample cut — use it)
- 8. save_design (required once — cuts bind to its hash; MANDATORY GATE:
-    get_stage_skills('design', project_id) first). A palette-only
-   design (theme + colors + fonts, nothing else) guarantees a flat video:
-   include motion language — signature transitions, text treatments,
-   overlay/texture direction — or the server will warn you.
+     + pushed creative_blueprint with layer reference + sample cut — use it)
+  8. save_design (required once — cuts bind to its hash; MANDATORY GATE:
+     get_stage_skills('design', project_id) first). Motion direction
+     (transitions, text treatments, overlay/texture) is documented in the
+     art-director + motion-graphics-designer skills.
   9. search_media to verify each English query resolves BEFORE writing the cut. Successful verifications are recorded session-wide — save_visuals reports any query you did NOT verify as unverified_queries (they fail at fetch_assets). No silent skipping.
-  9b. BEAT PLAN per section (mirrors the internal storyboard stage — unplanned sections repeat): write 1 line per planned cut (archetype + transition + media query + callout) BEFORE authoring, e.g. `cut0: entity_spotlight | whip_pan | parliament building wide | <callout>`. Cycle archetypes; never repeat the neighbor's archetype+transition pair.
+  9b. BEAT PLAN per section (mirrors the internal storyboard stage — unplanned sections repeat by accident): write 1 line per planned cut (intent + transition + media query + layers) BEFORE authoring, e.g. `cut0: main reveal | whip_pan | parliament building wide | <layers>`.
    10. save_visuals_batch for the WHOLE video, DRY-RUN FIRST (MANDATORY WORKFLOW, gates already satisfied in step 6;
       3 calls total: batch dry_run → fix failed indexes → re-dry-run ONLY
       the fixed sections → batch persist. Coverage is content-hashed:
@@ -1441,10 +1437,7 @@ already explicitly specified in the user's request):
       re-dry-run is not optional.
       Single-section save_visuals exists for patches, but batch is the default —
       30 sections must NOT cost 60-90 calls).
-      Author 2-3 cuts per ~10s scene (never ration 1 cut per section):
-      durations auto-normalize to the audio
-      length; prefer ONE Particles layer per cut as LAST child; no chapter
-      title cards inside cuts; Text in project language except queries stay English.
+       Durations auto-normalize to the audio length; no chapter title cards inside cuts; Text in project language except queries stay English.
      Per batch: save_visuals_batch(dry_run=true) → read per-section geometry/timing/variety/unverified_queries → fix failed indexes → persist. Persisting cold earns a nudge.
      AUTO-REPAIR (server-side, like the internal loop's correction turn):
       stray z_index keys are stripped and legacy layers[] shapes converted
@@ -1453,18 +1446,12 @@ already explicitly specified in the user's request):
       fix the JSON type and resubmit the section, NEVER drop the layer
       (dropping Chart/Map/Lottie/Particles to dodge a type error is how
       videos go flat — the validator accepts all 11 kinds).
-    VARIETY GUIDE (enforced by review, not by validation — the server
-    accepts valid output, but aim high):
-    - Prefer fresh layer-templates per cut; vary card
-      geometry, background treatment, and text animation_mode per beat. Reuse is fine for continuity.
-    - Use as many of the 11 content kinds per video as the story supports (Image, Video, Text,
+    CAPABILITY NOTES (what the harness supports — composition is yours):
+    - All 11 content kinds are valid per video (Image, Video, Text,
       Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background). Any Lucide icon, particle overrides, chart tuning, Lottie URLs, yt offsets, loop/volume are allowed.
-    - Prefer at least one energy moment per section: emphasis punch-in,
-      camera_shake, motion_blur, an FX filter (emboss/sharpen/posterize/
-      duotone/thermal), rack-focus blur/brightness keyframes, floating, or a
-      Particles overlay matched to the beat's emotion.
-    - Cycle transitions deliberately (whip_pan/glitch for shock beats,
-      dissolve for time jumps). Reuse is fine when the beat needs it.
+    - Cut-level tools: transitions (13 + alias), emphasis punch-ins,
+      mute_voiceover/mute_bg_music, motion_blur, camera_shake, FX filters,
+      rack-focus blur/brightness keyframes, floating. Field semantics in declarative-ast §4/§4C.
     - Pair entrance animations (translateY, translateX, scale, rotate)
       with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
       whenever delay > 0 so elements stay hidden until they move; spatial-only
@@ -1473,9 +1460,10 @@ already explicitly specified in the user's request):
     geometry + timing + unverified_queries:
      read them and enrich flat spots BEFORE moving on. A dry_run with zero
      warnings is the bar for persisting. The batch video_variety rollup is
-     the whole-video verdict: uniform_signature=true or an energy_cuts_total
-     of 0 means individually-valid but collectively flat — vary archetypes
-     and add energy moments BEFORE persisting, not after review.
+     the whole-video verdict: uniform_signature=true with shallow depth
+     means individually-valid but collectively flat — read the depth
+     metrics (avg_layers_per_cut, deep_cuts_total) and enrich thin spots
+     BEFORE persisting, not after review.
     Starting over: clear_visuals wipes ALL cuts (every section → []; narration,
     audio, transcription, design kept; downloads deleted too unless
     clear_assets=false). clear_assets deletes ONLY downloads (cuts/queries kept,
@@ -1792,9 +1780,9 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
 
     MANDATORY FIRST: get_stage_skills('visuals', project_id) or all three
     get_skill(declarative-ast + visual-director-core + motion-graphics-designer),
-    PLUS ≥1 full section pull from declarative-ast (e.g. section='archetypes')
-    — briefs alone produce flat output and are rejected with DEEP_READ_REQUIRED.
-    Write a 1-line-per-cut beat plan (archetype + transition + query, see the
+    PLUS ≥1 full section pull from declarative-ast (e.g. section='layers')
+    — briefs alone underuse the harness and are rejected with DEEP_READ_REQUIRED.
+    Write a 1-line-per-cut beat plan (intent + transition + query, see the
     starter pack's storyboard template) BEFORE authoring cuts.
     WORKFLOW PER SECTION (mandatory): save_visuals(dry_run=true) first, read
     geometry/timing/variety/unverified_queries, fix, then persist. Persisting
@@ -1809,13 +1797,13 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     unverified queries are reported back (unverified_queries) and fail at
     fetch_assets.
     The response ALWAYS includes variety stats + normalizations + geometry
-    (overlap / off-canvas / missing fontSize / anchor / center-math) and
+    (overlap / off-canvas / missing fontSize / anchor / center-math / box_px pixels) and
     timing (delay+duration fit, emphasis fit, fade pairing, motion_blur,
-    easing) reports — read them: fix template repetition and flat
-    (effect-free) sections before moving on. Delays are absolute seconds
-    within the FINAL cut duration (post-renorm), not scaled. Richness rules
-    live in the pipeline-guide variety contract and the declarative-ast
-    archetypes, not in this description."""
+    easing) reports — read them: fix broken geometry and thin
+    (single-layer) sections before moving on. Delays are absolute seconds
+    within the FINAL cut duration (post-renorm), not scaled. Capability
+    reference lives in the pipeline guide and the declarative-ast
+    skill, not in this description."""
     dry_run = _coerce_bool(dry_run, False)
     if not dry_run:
         missing = _missing_stage_skills("visuals", project_id)

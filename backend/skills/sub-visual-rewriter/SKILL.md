@@ -1,7 +1,7 @@
 ---
 name: sub-visual-rewriter
 description: "Interactive visual designer prompt for targeted rewrite of a single sub-visual AST cut."
-version: "2.0"
+version: "3.0"
 when_to_use: "Used during single sub-visual modifications and rewrites in the editor bridge."
 ---
 
@@ -53,24 +53,22 @@ STYLE: LayerBox SOT v1 is the ONLY geometry authority — see `declarative-ast` 
 | **Emphasis** | `"emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }]` | Punch-in zoom at cut level (sibling of transition) |
 
 ### Detailed Advanced FX Guidelines
-ADVANCED FX (optional but encouraged — full spec in `declarative-ast` § Universal Layer Motion Modifiers): `animations` keyframes — 6 spatial props that drive shutter blur (`scale`/`translateX`/`translateY`/`rotate`/`rotateX`/`rotateY`) + `opacity` fade + non-spatial `blur` rack-focus (px, e.g. 10→0) / `brightness` flash (multiplier, e.g. 0.3→1.0) which do NOT trigger blur alone; `delay`/`duration` in seconds, `easing`: `spring`/`linear`/`ease-out`/`ease-in`/`ease-in-out`; `floating: true` harmonic drift (counts as motion); `motion_blur: true` + `shutter_angle` 45–360 (default 180; needs spatial motion incl. floating/shake or no-op); `camera_shake: handheld/shockwave/glitch` (`none` = off); `transform_origin` pivot (visible only with motion); `filters` 2026 pack — 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur) compose freely + 6 SVG looks `url(#fx-emboss/sharpen/posterize/duotone-midnight/duotone-inferno/thermal)` (one per layer is the norm, stacking allowed experimentally; disabled on transparent Particles canvas) + `mix-blend-mode: X` (needs a layer beneath, invisible on single opaque fullscreen); `emphasis: [{at, scale 1.02–1.6, duration 0.2–2s}]` at sub-visual level (sibling of `transition`, NOT inside layers), 0+ marks on any cut length, keep `at+duration` inside the cut; one topmost `Particles` layer preferred (two max on dense beats); Lottie `animation_data` inline JSON override when no CDN fits (takes precedence over `lottie_url`; playback `direction` field accepts `forward`/`backward`, `lottie_direction` is an accepted alias).
+ADVANCED FX (optional but encouraged — full spec in `declarative-ast` § Universal Layer Motion Modifiers): `animations` keyframes — 6 spatial props that drive shutter blur (`scale`/`translateX`/`translateY`/`rotate`/`rotateX`/`rotateY`) + `opacity` fade + non-spatial `blur` rack-focus (px, e.g. 10→0) / `brightness` flash (multiplier, e.g. 0.3→1.0) which do NOT trigger blur alone; `delay`/`duration` in seconds, `easing`: `spring`/`linear`/`ease-out`/`ease-in`/`ease-in-out`; `floating: true` harmonic drift (counts as motion); `motion_blur: true` + `shutter_angle` 45–360 (default 180; needs spatial motion incl. floating/shake or no-op); `camera_shake: handheld/shockwave/glitch` (`none` = off); `transform_origin` pivot (visible only with motion); `filters` 2026 pack — 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur) compose freely + 6 SVG looks `url(#fx-emboss/sharpen/posterize/duotone-midnight/duotone-inferno/thermal)` (one per layer is the norm, stacking allowed experimentally; disabled on transparent Particles canvas) + `mix-blend-mode: X` (needs a layer beneath, invisible on single opaque fullscreen); `emphasis: [{at, scale 1.02–1.6, duration 0.2–2s}]` at sub-visual level (sibling of `transition`, NOT inside layers), 0+ marks on any cut length, keep `at+duration` inside the cut; `Particles` renders where placed; Lottie `animation_data` inline JSON override when no CDN fits (takes precedence over `lottie_url`; playback `direction` field accepts `forward`/`backward`, `lottie_direction` is an accepted alias).
 
 ---
 
 ## 4. Animation Timing, Word Sync & Opacity Pairing
 
-- **Hero Layers**: Give `animations` keyframes to the layers that carry the beat (1 hero layer is the safe default; up to 3 allowed on rich cuts; background = slow drift).
-- **Cut Transitions**: `delay` is seconds from CUT start — `0.3–0.5` keeps entrances visible (`0` allowed for `cut`/`none` and ambient drift).
+- **Timing**: give `animations` keyframes to the layers that carry the beat. `delay` is seconds from CUT start. When word timestamps exist, `delay` = spoken word time − cut start; when missing, use plain stagger values.
 - **Opacity Fade Pairing**: Pair entrances with an opacity fade on delayed reveals (`opacity: 0 -> 1` whenever `delay > 0` so elements stay invisible before they enter); spatial-only without fade is allowed ONLY for instant punch/whip beats at `delay: 0`.
-- **Narration Timestamp Sync**: When word timestamps are provided, set `delay` = (spoken word time − sub-visual start offset) so the visual enters as it is mentioned. If timestamps are APPROXIMATE or missing, do NOT guess — use safe stagger (`0.5` entrances, `0.7` foreground).
+- **Narration Timestamp Sync**: When word timestamps are provided, set `delay` = (spoken word time − sub-visual start offset) so the visual enters as it is mentioned.
 - **Cut Fitting**: `delay + duration` SHOULD fit inside the sub-visual `duration` (overflow is clipped).
 
 ---
 
-## 5. Composition Depth & Stacking Standards
+## 5. Composition (capability)
 
-- **DEPTH**: Construct visually rich compositions with Background (first child), Midground Motion Primitives (middle children), and Foreground Typography (last children). Stacking is children array order (`children[0]` = bottom, `children[N-1]` = top).
-- **VARIETY VS NEIGHBORS**: The rewritten cut MUST NOT clone adjacent cuts' template — change the bg type, geometry preset, HTML shell (or drop the card for an impact-word/collage breaker), and text `animation_mode` + position.
+- Stacking is children array order (`children[0]` = bottom, `children[N-1]` = top). Any types, any count the schema allows.
 - Keep text and cards above the subtitle safe area (`bottom: 18%` for landscape, `28%` for portrait).
 
 ---

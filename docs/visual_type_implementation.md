@@ -85,7 +85,7 @@ When adding or removing visual types, these are the **exact files and code symbo
 |---|---|---|
 | [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/declarative-ast/SKILL.md) | Full AST specification loaded during generation | **Section 3: The 11 Valid AST Content Types** (Lines 48–315), Layer order table (Lines 38–44) |
 | [visual-director/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/visual-director/SKILL.md) | Visual Director prompt & type selection guide | **VALID CONTENT TYPES** (Lines 16–17), **CONTENT TYPE SELECTION GUIDE** (Lines 19–34), Rule 38, Rule 42 |
-| [storyboard-planner/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/storyboard-planner/SKILL.md) | Stage 1 visual beat archetypes | **The 6 Visual Storyboard Archetypes** (Lines 26–54) |
+| [storyboard-planner/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/storyboard-planner/SKILL.md) | Stage 1 beat planning (structure + constraints, no prescribed looks) | Plan Structure, Functional Constraints sections |
 | [motion-graphics-designer/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/motion-graphics-designer/SKILL.md) | Glassmorphism & styling presets | Section 1 (Line 17), Section 3 (Lines 93–105), Section 4 (Lines 113–115) |
 | [editor-qa/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/editor-qa/SKILL.md) | Guardrails & validation checklist | Rule 4 `COMPOSITION & PRIMITIVES` (Line 10) |
 | [sub-visual-rewriter/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/sub-visual-rewriter/SKILL.md) | Single sub-visual rewrite prompt | Lines 16–20 |
@@ -104,9 +104,9 @@ When adding or removing visual types, these are the **exact files and code symbo
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `visuals_system_prompt` | Enumeration of valid AST types (all 11) and system rules |
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `plan_system_prompt` | Storyboard prompt primitive references |
 | [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `_visual_rules_safety_net` | Fallback layer order hierarchy and type rules |
-| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `storyboard_guidance_text` | Topic-driven archetype selection (no preset style weights) |
+| [backend/pipeline/ai.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py) | `storyboard_guidance_text` | Free composition directive (no presets) |
 | [backend/mcp/payloads.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/mcp/payloads.py) | `variety_stats()` `kinds` | MCP variety analytics tracker covering all 11 primitives |
-| [backend/mcp/server.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/mcp/server.py) | Director instruction strings | MCP variety contract enforcing at least 5 of 11 primitives per video |
+| [backend/mcp/server.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/mcp/server.py) | Director instruction strings | MCP capability reference covering all 11 primitives |
 | [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `_fetch_ast_layer_asset()` | Downloads media files for media-backed layer types (`Image`, `Video`) |
 | [backend/pipeline/assets.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/assets.py) | `fetch_single_scene_asset()` | Single asset fetch for editor previews |
 | [backend/agent/validators.py](file:///D:/Real-Life-Projects/remotion_canvas/backend/agent/validators.py) | `validate_sub_visuals()` | Structural validation and timing math normalization |
@@ -357,7 +357,7 @@ If the new type downloads media from an API (e.g. 3D models, icons, external SVG
    - Add selection guidance in `CONTENT TYPE SELECTION GUIDE`.
 
 3. **`backend/skills/storyboard-planner/SKILL.md`**:
-   - Mention the new type in the relevant storyboard archetype.
+   - Mention the new type in the primitive vocabulary list.
 
 4. **`backend/skills/editor-qa/SKILL.md`**:
    - Update Rule 4 with the new type name.
@@ -442,7 +442,7 @@ When altering visual layer types, use this checklist to guarantee 100% codebase 
 - [ ] **Backend**: `sanitize_style_keys()` box rules updated in `backend/agent/validators.py`
 - [ ] **Backend**: `LAYER_CONTENT_SCHEMA` enum & properties updated in `backend/pipeline/ai.py`
 - [ ] **Backend**: Prompts (`visuals_system_prompt`, `_visual_rules_safety_net`, `plan_system_prompt`) updated in `backend/pipeline/ai.py`
-- [ ] **Backend**: Topic-driven archetype guidance updated in `backend/pipeline/ai.py` (`storyboard_guidance_text`)
+- [ ] **Backend**: Free composition guidance updated in `backend/pipeline/ai.py` (`storyboard_guidance_text`)
 - [ ] **Backend**: MCP variety analytics and director rules updated in `backend/mcp/payloads.py` & `backend/mcp/server.py`
 - [ ] **Backend**: (If media-backed) `_fetch_ast_layer_asset` updated in `backend/pipeline/assets.py`
 - [ ] **Skills**: `backend/skills/declarative-ast/SKILL.md` updated

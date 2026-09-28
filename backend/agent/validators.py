@@ -573,12 +573,13 @@ def build_sample_cut(video_format: str = "landscape") -> Dict[str, Any]:
 
     Single builder used by MCP get_stage_skills + get_section_timings so the
     two entry points can never disagree again. Geometry is %-strings,
-    Text size is style.fontSize px-string, Particles is last child.
+    Text size is style.fontSize px-string. Neutral placeholder content —
+    replace query/text per beat; the shape (not the look) is the contract.
     """
     portrait = (video_format or "").strip().lower() == "portrait"
     return {
         "duration": 4.0,
-        "transition": "whip_pan",
+        "transition": "fade",
         "composition": {
             "type": "Sequence",
             "children": [
@@ -663,8 +664,8 @@ def build_sample_cut(video_format: str = "landscape") -> Dict[str, Any]:
                 },
             ],
         },
-        "note": "Background + Subject + Kinetic Text + Particles(last). "
-                "Replace query/text per beat; vary archetype + transition.",
+        "note": "Background + Subject + Kinetic Text. "
+                "Replace query/text per beat.",
     }
 
 

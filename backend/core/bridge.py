@@ -1679,7 +1679,7 @@ class ApiBridge:
                 prev_svs = prev_scene.get("sub_visuals", [])
                 if prev_svs:
                     last_sv = prev_svs[-1].get("composition", {})
-                    prev_scene_context = f"IMPORTANT CONTEXT - Previous Scene's Last Visual Layout:\n{json.dumps(last_sv, indent=2)}\n(Ensure your FIRST sub-visual does NOT use the exact same layout as this to maintain variety).\n\n"
+                    prev_scene_context = f"CONTEXT - Previous Scene's Last Visual Layout:\n{json.dumps(last_sv, indent=2)}\n\n"
 
         user_prompt = (
             f"Video Title: \"{full_script.get('title', 'Untitled')}\"\n"
@@ -1825,7 +1825,7 @@ class ApiBridge:
             + f"Original Sub-Visual:\n{json.dumps(target_sub_visual, indent=2)}\n\n"
             + next_context
             + f"Rewrite Instruction: {rewrite_prompt}\n\n"
-            f"CRITICAL: Prefer a sub-visual layout distinctly different from the Previous and Next Sub-Visual Layouts to avoid visual repetition — UNLESS the rewrite instruction asks for a minimal tweak (e.g. bigger text, different color), in which case keep the layout and change only what was asked.\n"
+            f"Unless the rewrite instruction asks for a minimal tweak (e.g. bigger text, different color) — in that case keep the layout and change only what was asked.\n"
             f"Generate the rewritten JSON sub-visual now. Structure matches: {prompt_struct}."
         )
         from backend.agent.agent_engine import BRIDGE_VISUAL_TOOLS

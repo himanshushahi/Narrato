@@ -178,10 +178,10 @@ Narrato/
 │   │   ├── sfx.py             # Audio sound effect triggers & ducking
 │   │   └── queue.py           # Serialized background task execution queue
 │   ├── skills/                # 17 modular SKILL.md prompt definitions
-│   │   ├── declarative-ast/   # AST schema & motion graphics specification
-│   │   ├── visual-director/   # Visual beat archetypes & composition rules
-│   │   ├── motion-graphics-designer/ # Glassmorphism & kinetic typography recipes
-│   │   ├── storyboard-planner/# Visual beat planning archetypes
+│   │   ├── declarative-ast/   # Capability spec: types, schema, geometry & motion
+│   │   ├── visual-director/   # Layer fields, timing math & media contracts
+│   │   ├── motion-graphics-designer/ # Animation system, text modes & compositing
+│   │   ├── storyboard-planner/# Timed beat planning structure & constraints
 │   │   ├── art-director-design-system/ # Design system generation
 │   │   ├── script-outline-director/    # Chapter breakdown director
 │   │   ├── script-base-writer/         # Intro/conclusion writer

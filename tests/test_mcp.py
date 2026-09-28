@@ -1504,7 +1504,7 @@ def test_pipeline_guide_and_prompt():
     guide = server.pipeline_guide()
     assert "Stage order" in guide and "ASK" in guide
     assert "generate_visuals is NOT an MCP stage" in guide
-    assert "VARIETY GUIDE" in guide
+    assert "CAPABILITY NOTES" in guide
     assert "declarative-ast" in guide and "review_frame" in guide
     prompt = server.make_video_prompt("black holes")
     assert "black holes" in prompt and "narrato://pipeline-guide" in prompt
@@ -1523,11 +1523,11 @@ def test_get_skill_brief_maps_big_skill():
     from backend.mcp import server
     result = server.get_skill("declarative-ast", brief=True)
     assert result["ok"] is True and result["brief"] is True
-    assert result["full_chars"] > 40000 and "content" not in result
+    assert result["full_chars"] > 8000 and "content" not in result
     titles = [s["title"] for s in result["sections"]]
     assert len(titles) >= 7
-    arch = next(s for s in result["sections"] if "Archetype" in s["title"])
-    assert any("Dossier" in h for h in arch["subheads"])
+    types_sec = next(s for s in result["sections"] if "Content Types" in s["title"])
+    assert any("Particles" in h for h in types_sec["subheads"])
     assert all(s["preview"] and s["chars"] > 0 for s in result["sections"])
 
 
@@ -1539,16 +1539,16 @@ def test_get_skill_brief_small_skill_returns_full():
 
 def test_get_skill_section_fuzzy():
     from backend.mcp import server
-    by_title = server.get_skill("declarative-ast", section="archetype")
+    by_title = server.get_skill("declarative-ast", section="content types")
     assert by_title["ok"] is True
-    assert "Archetype" in by_title["section"]
-    assert "Dossier" in by_title["content"]
+    assert "Content Types" in by_title["section"]
+    assert "Particles" in by_title["content"]
     assert len(by_title["remaining_sections"]) >= 6
     by_subhead = server.get_skill("declarative-ast", section="particles")
     assert by_subhead["ok"] is True
     assert by_subhead["matched_subhead"].startswith("9.")
     by_number = server.get_skill("declarative-ast", section="5")
-    assert by_number["ok"] is True and by_number["section"] == by_title["section"]
+    assert by_number["ok"] is True and by_number["section"] == "5. Compose Freely (no prescribed looks)"
     miss = server.get_skill("declarative-ast", section="zzz-no-such-part")
     assert miss["ok"] is False and len(miss["available_sections"]) >= 7
 
@@ -2211,5 +2211,73 @@ def test_frames_review_1based_targeting(tmp_path, monkeypatch):
     assert sec_plan["scene_index"] == 0
     assert sec_plan["display_label"] == "Scene 1"
     assert any("Cut #" in c["label"] for c in sec_plan["cells"])
+
+
+# ── variety rewards depth, forgives design systems ───────────────────
+
+def _layered_cut(left, kind_stack=("Video", "HTML", "Text")):
+    boxes = {"Video": {"left": "0%", "top": "0%", "width": "100%", "height": "100%"},
+             "HTML": {"left": "8%", "top": "16%", "width": "42%", "height": "66%"},
+             "Text": {"left": "54%", "top": "30%", "width": "40%", "height": "20%", "fontSize": "56px"},
+             "Shape": {"left": "46%", "top": "24%", "width": "8%", "height": "8%"},
+             "Particles": {"width": "100%", "height": "100%"}}
+    children = []
+    for k in kind_stack:
+        content = {"type": k, "style": dict(boxes[k])}
+        if k in ("Video",):
+            content.update({"query": "city timelapse", "source": "pexels"})
+        if k == "Text":
+            content["text"] = "headline"
+        children.append({"type": "Layer", "content": content,
+                         "animations": [], "filters": []})
+    # shift the card band per cut so layouts differ
+    for c in children:
+        st = c["content"]["style"]
+        if "top" in st and st.get("width") != "100%":
+            st["top"] = f"{left}%"
+    return {"composition": {"type": "Sequence", "children": children},
+            "duration": 3.0, "transition": "fade"}
+
+
+def test_variety_same_kinds_different_layouts_not_repetition():
+    from backend.mcp.payloads import _visual_variety_report
+    cuts = [_layered_cut(t) for t in (16, 30, 44, 58)]
+    rep = _visual_variety_report(cuts, cuts, 12.0)
+    assert rep["max_template_run"]["length"] < 3
+    assert not any("Template repetition" in n for n in rep["normalizations"])
+    assert rep["deep_cuts"] == 4
+    assert rep["avg_layers_per_cut"] == 3.0
+
+
+def test_variety_identical_layouts_still_flagged():
+    from backend.mcp.payloads import _visual_variety_report
+    cuts = [_layered_cut(16) for _ in range(3)]
+    rep = _visual_variety_report(cuts, cuts, 9.0)
+    assert rep["max_template_run"]["length"] == 3
+    assert any("Template repetition" in n for n in rep["normalizations"])
+
+
+def test_rollup_deep_system_not_uniform():
+    from backend.mcp.payloads import _video_variety_rollup
+    entries = [{"index": i, "section_type": "scene",
+                "variety": {"kinds_used": {"Video": 1, "HTML": 1, "Text": 1},
+                            "transitions_used": ["fade"], "energy_cuts": 0,
+                            "avg_layers_per_cut": 3.0, "deep_cuts": 1}}
+               for i in range(3)]
+    roll = _video_variety_rollup(entries)
+    assert roll["uniform_signature"] is False
+    assert roll["deep_cuts_total"] == 3
+    assert roll["avg_layers_per_cut"] == 3.0
+
+
+def test_rollup_shallow_uniform_still_flagged():
+    from backend.mcp.payloads import _video_variety_rollup
+    entries = [{"index": i, "section_type": "scene",
+                "variety": {"kinds_used": {"Text": 1},
+                            "transitions_used": ["cut"], "energy_cuts": 0,
+                            "avg_layers_per_cut": 1.0, "deep_cuts": 0}}
+               for i in range(2)]
+    roll = _video_variety_rollup(entries)
+    assert roll["uniform_signature"] is True
 
 

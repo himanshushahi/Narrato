@@ -59,7 +59,7 @@ def test_skill_loader():
     assert "declarative-ast" in skills
     skill = skill_loader.get_skill("declarative-ast")
     assert skill is not None
-    assert skill.version in ("1.0", "2.0", "2.1")
+    assert skill.version in ("1.0", "2.0", "2.1", "3.0")
 
 def test_skill_loader_all_registered_skills():
     expected_skills = (
@@ -953,7 +953,7 @@ def test_visual_rules_format_aware_safe_areas():
     assert "15%" in landscape_rules
     assert "18%" in landscape_rules
     assert "CHAPTER TITLE" in landscape_rules
-    assert "STANDARDIZED LAYER ORDER" in landscape_rules
+    assert "LAYER ORDER" in landscape_rules
 
     portrait_rules = _visual_rules_safety_net("portrait", "hi")
     assert "25%" in portrait_rules

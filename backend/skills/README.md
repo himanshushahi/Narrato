@@ -31,10 +31,10 @@ Every skill file (`SKILL.md`) adheres to the following structural standard:
 | **5** | [`script-rewriter`](script-rewriter/SKILL.md) | Script Bridge | Interactive scene rewriting & tone repair | `{doc_title}`, `{intro_hook}`, `{scenes_summary}`, `{conclusion_summary}`, `{language}`, `{language_instructions}`, `{length_constraint}` |
 | **6** | [`script-scene-adder`](script-scene-adder/SKILL.md) | Script Bridge | Inserting brand new scene narrations | `{doc_title}`, `{intro_hook}`, `{scenes_summary}`, `{conclusion_summary}`, `{length_constraint}`, `{language_instructions}` |
 | **7** | [`art-director-design-system`](art-director-design-system/SKILL.md) | Design System | Palettes, typography, CSS tokens, CTL fonts | `{video_format}`, `{language}`, `{design_guidance}` |
-| **8** | [`storyboard-planner`](storyboard-planner/SKILL.md) | Visuals (Stage 1) | Narrative visual beats, 10 visual archetypes | — |
-| **9** | [`visual-director-core`](visual-director/SKILL.md) | Visuals (Stage 2) | 3-layer parallax, 11 AST primitives, camera | — |
-| **10** | [`declarative-ast`](declarative-ast/SKILL.md) | Visuals (Spec) | Master AST technical specification | — |
-| **11** | [`motion-graphics-designer`](motion-graphics-designer/SKILL.md) | Visuals (Motion) | Card layouts, physics springs, kinetic text | — |
+| **8** | [`storyboard-planner`](storyboard-planner/SKILL.md) | Visuals (Stage 1) | Timed beat planning (structure + constraints) | — |
+| **9** | [`visual-director-core`](visual-director/SKILL.md) | Visuals (Stage 2) | Layer fields, timing math, media contracts | — |
+| **10** | [`declarative-ast`](declarative-ast/SKILL.md) | Visuals (Spec) | Capability spec: types, schema, geometry, motion | — |
+| **11** | [`motion-graphics-designer`](motion-graphics-designer/SKILL.md) | Visuals (Motion) | Animation system, text modes, compositing facts | — |
 | **12** | [`sub-visual-rewriter`](sub-visual-rewriter/SKILL.md) | Visuals Bridge | Targeted single sub-visual AST modification | `{design_system_text}`, `{visual_rules}` |
 | **13** | [`visual-rewriter`](visual-rewriter/SKILL.md) | Visuals Bridge | Multi-cut scene visual regeneration | `{design_system_text}`, `{visual_rules}` |
 | **14** | [`stock-asset-searcher`](stock-asset-searcher/SKILL.md) | Media Sourcing | Pexels, Pixabay, Wikipedia, YouTube sourcing | — |

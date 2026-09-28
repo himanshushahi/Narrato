@@ -678,7 +678,8 @@ def save_design_payload(project_id: str, data: dict) -> dict:
               "design_hash": design_hash}
     # Richness floor: a design with nothing beyond the required keys (or
     # only typography-adjacent extras like extra fonts) carries no motion
-    # language — flat design in, flat video out.
+    # language. Advisory only — the motion toolset (transitions, emphasis,
+    # FX, Particles) is documented in the skills either way.
     MOTION_KEYS = ("motion", "transition", "animation", "effect", "fx",
                    "treatment", "kinetic", "overlay", "texture", "particles")
     doc_keys = {k.lower() for k in document if not k.startswith("_")}
@@ -688,10 +689,8 @@ def save_design_payload(project_id: str, data: dict) -> dict:
     if not has_motion:
         result["warning"] = (
             "Design carries no motion language (no transition/animation/FX "
-            "direction in keys or css_guidelines). Flat designs produce flat "
-            "videos: add signature transitions, text treatments, and "
-            "overlay/texture direction (see the art-director + "
-            "motion-graphics-designer skills) and re-save before authoring visuals.")
+            "direction in keys or css_guidelines). The motion toolset is "
+            "documented in the motion-graphics-designer skill.")
     # Staleness: existing manifests bound to an older design keep rendering
     # the old look until visuals are re-saved against the new hash.
     try:
@@ -1165,12 +1164,12 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
 
 
 def _creative_blueprint_for_project(proj: dict) -> dict:
-    """Pushed cheat-sheet: topic-driven archetypes + sample cut + hard rules.
+    """Pushed cheat-sheet: capability pointers + sample cut + hard rules.
 
     Lives on get_section_timings (the mandatory step right before visual
-    authoring) so the agent gets the creative template without digging
-    through the 50KB declarative-ast file first. No genre presets — the
-    agent picks archetypes to fit each narration beat.
+    authoring) so the agent gets the harness capabilities without digging
+    through the declarative-ast file first. Composition is the agent's
+    creative decision — this lists what exists, not what to pick.
     """
     video_format = str((proj or {}).get("video_format") or "landscape")
     _raw_hint = str((proj or {}).get("prompt") or "").strip()
@@ -1184,20 +1183,15 @@ def _creative_blueprint_for_project(proj: dict) -> dict:
     style_hint = _raw_hint
     return {
         "style_hint": style_hint,
-        "recommended_archetypes": [
-            "Archetype 7 Entity Spotlight (portrait/evidence focus)",
-            "Archetype 1 Split-Screen Data HUD (split_comparison)",
-            "Archetype 3 Macro Metric Callout (stat_callout)",
-            "Archetype 4 Geographic Route (map_journey)",
-            "Archetype 2/11 Evidence Dossier (document memo)",
-            "Archetype 6 Infographic Grid",
+        "layer_types": [
+            "Image", "Video", "Text", "Chart", "Shape", "Map",
+            "HTML", "Lottie", "Particles", "Counter", "Background",
         ],
         "hard_rules": [
-            "LayerBox geometry %-only; max ONE Particles layer per cut, LAST child.",
+            "LayerBox geometry %-only.",
             "No chapter title cards inside cuts.",
             "Image/Video need English search `query` (verify via search_media).",
             "Entrances with delay>0 need opacity fade 0->1; spatial-only at delay 0.",
-            ">=2 content kinds per section + 1 energy moment (punch-in/shake/blur/FX/rack-focus/floating/Particles).",
         ],
         "sample_cut": _canonical_sample_cut(video_format),
     }
@@ -1587,7 +1581,8 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
     report: dict = {"normalizations": [], "kinds_used": {},
                     "transitions_used": [], "energy_cuts": 0,
                     "max_template_run": {"length": 0, "from_cut": None},
-                    "unused_kinds": []}
+                    "unused_kinds": [], "avg_layers_per_cut": 0.0,
+                    "deep_cuts": 0}
     try:
         kinds = ("Image", "Video", "Text", "Chart", "Shape", "Map",
                  "HTML", "Lottie", "Particles", "Counter", "Background")
@@ -1596,6 +1591,7 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
             comp = cut.get("composition") or {}
             children = comp.get("children") or []
             layer_kinds, fx = [], False
+            geom_buckets = []
             for layer in children:
                 if not isinstance(layer, dict):
                     continue
@@ -1603,6 +1599,17 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                 k = content.get("type")
                 if isinstance(k, str):
                     layer_kinds.append(k)
+                # Coarse geometry bucket (20pp cells of the resolved rect):
+                # same kinds + same layout = repetition; same kinds in a
+                # different layout = intentional design system, not a rerun.
+                try:
+                    from backend.agent.geometry import layer_box as _lb
+                    _rect = _lb(layer).get("rect")
+                    geom_buckets.append(
+                        tuple(int(v // 20) for v in _rect)
+                        if _rect else None)
+                except Exception:
+                    geom_buckets.append(None)
                 if layer.get("filters"):
                     fx = True
                 for mod in ("motion_blur", "floating"):
@@ -1614,7 +1621,7 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
             if (cut.get("emphasis")
                     or (cut.get("transition") or "") in ("whip_pan", "glitch")):
                 fx = True
-            return layer_kinds, fx
+            return layer_kinds, fx, tuple(geom_buckets)
 
         cand_list = candidate if isinstance(candidate, list) else []
         for i, cut in enumerate(cand_list):
@@ -1648,10 +1655,15 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
         transitions: dict = {}
         prev_sig = None
         run_len, run_start = 0, 0
+        layer_total, cut_total, deep_cuts = 0, 0, 0
         for i, cut in enumerate(normalized):
             if not isinstance(cut, dict):
                 continue
-            layer_kinds, fx = _cut_parts(cut)
+            layer_kinds, fx, geom = _cut_parts(cut)
+            cut_total += 1
+            layer_total += len(layer_kinds)
+            if len(layer_kinds) >= 3:
+                deep_cuts += 1
             for k in layer_kinds:
                 kind_counts[k] = kind_counts.get(k, 0) + 1
             t = cut.get("transition")
@@ -1659,7 +1671,7 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                 transitions[t] = transitions.get(t, 0) + 1
             if fx:
                 report["energy_cuts"] += 1
-            sig = tuple(layer_kinds)
+            sig = (tuple(layer_kinds), geom)
             if sig and sig == prev_sig:
                 run_len += 1
             else:
@@ -1673,13 +1685,20 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
         report["kinds_used"] = kind_counts
         report["transitions_used"] = sorted(transitions)
         report["unused_kinds"] = [k for k in kinds if k not in kind_counts]
+        report["avg_layers_per_cut"] = round(layer_total / cut_total, 2) if cut_total else 0.0
+        report["deep_cuts"] = deep_cuts
         longest = report["max_template_run"]
         if longest["length"] >= 3:
             report["normalizations"].append(
                 f"Template repetition: cuts {longest['from_cut']}-"
                 f"{longest['from_cut'] + longest['length'] - 1} share one "
-                f"layer template — vary geometry, text treatment, or FX per "
-                f"the pipeline-guide variety contract.")
+                f"layer template (same kinds AND same layout) — vary geometry, "
+                f"text treatment, or FX. "
+                f"Same kinds in different layouts are a design system, not repetition.")
+        if cut_total and deep_cuts == cut_total and cut_total >= 2:
+            report["normalizations"].append(
+                f"Multi-layer depth: all {cut_total} cuts carry 3+ layers "
+                f"(avg {report['avg_layers_per_cut']}) — keep it up.")
         # Source-matrix check (non-blocking): crossed sources are ignored
         # with a wrong-type Pexels fallback — flag so the agent fixes intent.
         for i, cut in enumerate(normalized):
@@ -2195,6 +2214,9 @@ def _video_variety_rollup(ok_entries: list) -> dict:
     energy_total = 0
     sig_sets = []
     single_kind_sections = []
+    deep_cuts_total = 0
+    layers_weighted = 0.0
+    sections_with_avg = 0
     for entry in ok_entries:
         variety = entry.get("variety") or {}
         kinds = variety.get("kinds_used") or {}
@@ -2209,6 +2231,17 @@ def _video_variety_rollup(ok_entries: list) -> dict:
             energy_total += int(variety.get("energy_cuts", 0) or 0)
         except (TypeError, ValueError):
             pass
+        try:
+            deep_cuts_total += int(variety.get("deep_cuts", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            _avg = float(variety.get("avg_layers_per_cut", 0) or 0)
+            if _avg > 0:
+                layers_weighted += _avg
+                sections_with_avg += 1
+        except (TypeError, ValueError):
+            pass
         key_set = frozenset(k for k in kinds if isinstance(k, str))
         sig_sets.append(key_set)
         if len(key_set) <= 1:
@@ -2217,13 +2250,20 @@ def _video_variety_rollup(ok_entries: list) -> dict:
             single_kind_sections.append(
                 f"sections[{idx}] ({sec})" if sec else f"sections[{idx}]")
     uniform_signature = (len(ok_entries) >= 2 and len(set(sig_sets)) == 1)
+    avg_layers = round(layers_weighted / sections_with_avg, 2) if sections_with_avg else 0.0
+    # A deep, consistent kind system (same palette, avg 3+ layers) is a
+    # design system, not flat video — only flag uniform kinds when shallow.
+    if uniform_signature and avg_layers >= 3.0:
+        uniform_signature = False
     return {"sections_analyzed": len(ok_entries),
             "kinds_total": kinds_total,
             "kinds_used_count": len(kinds_total),
             "transitions_total": transitions_total,
             "energy_cuts_total": energy_total,
             "uniform_signature": uniform_signature,
-            "single_kind_sections": single_kind_sections}
+            "single_kind_sections": single_kind_sections,
+            "deep_cuts_total": deep_cuts_total,
+            "avg_layers_per_cut": avg_layers}
 
 
 def save_visuals_batch_payload(project_id: str, sections: list,
@@ -2341,19 +2381,20 @@ def save_visuals_batch_payload(project_id: str, sections: list,
     if video_variety["uniform_signature"]:
         flat_notes.append(
             "Every successful section shares one identical layer-kind "
-            "signature — individually valid but video-flat as a set. Vary "
-            "archetypes/card geometries across sections before rendering.")
+            "signature at shallow depth — individually valid but video-flat "
+            "as a set. Compose sections from different types/layouts before "
+            "rendering.")
     if video_variety["single_kind_sections"]:
         flat_notes.append(
-            f"Single-kind sections (enrich with a second content kind + an "
-            f"energy moment): {', '.join(video_variety['single_kind_sections'][:8])}"
+            f"Single-kind sections: "
+            f"{', '.join(video_variety['single_kind_sections'][:8])}"
             f"{' …' if len(video_variety['single_kind_sections']) > 8 else ''}.")
     if not dry_run and failed == 0 and video_variety["energy_cuts_total"] == 0 \
             and ok_count > 0:
         flat_notes.append(
-            "Zero energy cuts across the whole video — add at least one per "
-            "section (emphasis punch-in, camera_shake, motion_blur, FX "
-            "filter, rack-focus, floating, Particles).")
+            "Zero energy cuts across the whole video (no emphasis, shake, "
+            "motion_blur, FX filter, rack-focus, floating, or Particles used) "
+            "— the motion toolset is untouched.")
     if flat_notes:
         out["variety_warning"] = " ".join(flat_notes)
     if failed:

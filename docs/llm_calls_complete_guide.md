@@ -420,11 +420,10 @@ underlying `ApiBridge` methods directly (§7C).
 * **Pre-loaded system** (assembled once per run, `ai.py:1982`): project-ID header +
   `editor-qa` block + visual-director mission + **`design_system_text`** (the §9.1
   `design.json`, `_`-keys stripped) + `visual-director-core` block +
-  `motion-graphics-designer` block + 3-layer depth grammar + master archetypes
-  (split-screen HUD, dossier, metric callout, map route, blueprint, infographic,
-  atmosphere, entity spotlight…) + output/duration/error-prevention rules +
+  `motion-graphics-designer` block + layer capability reference
+  + output/duration/error-prevention rules +
   `get_shared_visual_rules()` (= `declarative-ast` skill + safety net: query-English,
-  subtitle safe area, delay ≥ 0.5 s, one hero-motion layer, query-only media contract).
+  subtitle safe area, delay semantics, query-only media contract).
 * **Pre-loaded user** (per scene): topic, scene title/type, **total duration**,
   **full narration**, **exact Whisper word timestamps** (`word [offset]…`, when the
   transcription overlaps the scene window), and the **approved storyboard plan** (§9.5).

@@ -177,17 +177,14 @@ def test_5_script_scene_writer_skill_rendering_and_schema():
 
 
 def test_6_storyboard_planner_skill_and_primitives():
-    """Verifies storyboard-planner skill defines the 6 visual beat archetypes."""
+    """Verifies storyboard-planner skill defines plan structure + primitive vocabulary."""
     skill = skill_loader.get_skill("storyboard-planner")
     assert skill is not None
     content = skill.content
-    assert "Data Revelation Beat" in content
-    assert "Documentary Evidence Beat" in content
-    assert "Chronological Milestone Beat" in content
-    assert "Vector Diagram" in content
-    assert "Archival Portrait" in content
-    assert "Cinematic Ambient Motion Beat" in content
-    assert "🚫 Anti-Patterns to Avoid" in content
+    assert "Beat Count" in content
+    assert "Spatial Layout" in content
+    assert "Chart" in content and "Particles" in content
+    assert "Durations sum exactly" in content or "summing exactly" in content
 
 
 def test_7_visuals_pipeline_skill_composition(test_project_data):

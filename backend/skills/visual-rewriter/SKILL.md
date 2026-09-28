@@ -1,7 +1,7 @@
 ---
 name: visual-rewriter
 description: "Interactive visual director prompt for targeted sub-visual and scene visual rewrites."
-version: "2.0"
+version: "3.0"
 when_to_use: "Used during interactive visual rewrites and sub-visual modifications in the editor bridge."
 ---
 
@@ -20,7 +20,6 @@ when_to_use: "Used during interactive visual rewrites and sub-visual modificatio
 You will receive a script segment (narration) along with surrounding context and a prompt explaining how to modify or rewrite its visuals.
 - Your task is to generate valid AST JSON following the requested schema.
 - **IMPORTANT**: Every sub_visual must have a `composition` object (AST format) and a `duration` (in seconds).
-- **VARIETY**: Ensure your new visual layout is distinctly different from surrounding sub-visuals to maintain engagement. NEVER repeat the neighboring cuts' layer signature (bg type + geometry + text treatment) — cycle the background type, pick a fresh HTML shell or go zero-card (impact word / collage / ticker-rail breaker), and vary `animation_mode` + position.
 
 ---
 
@@ -61,16 +60,15 @@ STYLE: LayerBox SOT v1 is the ONLY geometry authority — see `declarative-ast` 
 | **Emphasis** | `"emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }]` | Punch-in zoom at cut level (sibling of transition) |
 
 ### Detailed Advanced FX Guidelines
-ADVANCED FX (optional but encouraged — full spec in `declarative-ast` § Universal Layer Motion Modifiers): `animations` keyframes — 6 spatial props that drive shutter blur (`scale`/`translateX`/`translateY`/`rotate`/`rotateX`/`rotateY`) + `opacity` fade + non-spatial `blur` rack-focus (px, e.g. 10→0) / `brightness` flash (multiplier, e.g. 0.3→1.0) which do NOT trigger blur alone; `delay`/`duration` in seconds, `easing`: `spring`/`linear`/`ease-out`/`ease-in`/`ease-in-out`; `floating: true` harmonic drift (counts as motion); `motion_blur: true` + `shutter_angle` 45–360 (default 180; needs spatial motion incl. floating/shake or no-op); `camera_shake: handheld/shockwave/glitch` (`none` = off); `transform_origin` pivot (visible only with motion); `filters` 2026 pack — 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur) compose freely + 6 SVG looks `url(#fx-emboss/sharpen/posterize/duotone-midnight/duotone-inferno/thermal)` (one per layer is the norm, stacking allowed experimentally; disabled on transparent Particles canvas) + `mix-blend-mode: X` (needs a layer beneath, invisible on single opaque fullscreen); sub-visual-level `emphasis: [{at, scale 1.02–1.6, duration 0.2–2s}]` 0+ marks on any cut length, keep `at+duration` inside the cut; one topmost `Particles` layer preferred (two max on dense beats); Lottie `animation_data` inline JSON override when no CDN fits (takes precedence over `lottie_url`; playback `direction` field accepts `forward`/`backward`, `lottie_direction` is an accepted alias).
+ADVANCED FX (optional but encouraged — full spec in `declarative-ast` § Universal Layer Motion Modifiers): `animations` keyframes — 6 spatial props that drive shutter blur (`scale`/`translateX`/`translateY`/`rotate`/`rotateX`/`rotateY`) + `opacity` fade + non-spatial `blur` rack-focus (px, e.g. 10→0) / `brightness` flash (multiplier, e.g. 0.3→1.0) which do NOT trigger blur alone; `delay`/`duration` in seconds, `easing`: `spring`/`linear`/`ease-out`/`ease-in`/`ease-in-out`; `floating: true` harmonic drift (counts as motion); `motion_blur: true` + `shutter_angle` 45–360 (default 180; needs spatial motion incl. floating/shake or no-op); `camera_shake: handheld/shockwave/glitch` (`none` = off); `transform_origin` pivot (visible only with motion); `filters` 2026 pack — 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur) compose freely + 6 SVG looks `url(#fx-emboss/sharpen/posterize/duotone-midnight/duotone-inferno/thermal)` (one per layer is the norm, stacking allowed experimentally; disabled on transparent Particles canvas) + `mix-blend-mode: X` (needs a layer beneath, invisible on single opaque fullscreen); sub-visual-level `emphasis: [{at, scale 1.02–1.6, duration 0.2–2s}]` 0+ marks on any cut length, keep `at+duration` inside the cut; `Particles` renders where placed; Lottie `animation_data` inline JSON override when no CDN fits (takes precedence over `lottie_url`; playback `direction` field accepts `forward`/`backward`, `lottie_direction` is an accepted alias).
 
 ---
 
 ## 5. Animation Timing, Word Sync & Opacity Pairing
 
-- **Hero Layers**: Give `animations` keyframes to the layers that carry the beat (1 hero layer is the safe default; up to 3 allowed on rich cuts; background = slow drift).
-- **Cut Transitions**: `delay` is seconds from CUT start — `0.3–0.5` keeps entrances visible (`0` allowed for `cut`/`none` and ambient drift).
+- **Timing**: Give `animations` keyframes to the layers that carry the beat. `delay` is seconds from CUT start. When word timestamps exist, `delay` = spoken word time − cut start; when missing, use plain stagger values.
 - **Opacity Fade Pairing**: Pair entrances with an opacity fade on delayed reveals (`opacity: 0 -> 1` whenever `delay > 0` so elements stay invisible before they enter); spatial-only without fade is allowed ONLY for instant punch/whip beats at `delay: 0`.
-- **Narration Timestamp Sync**: When word timestamps are provided, set `delay` = (spoken word time − sub-visual start offset) so the visual enters as it is mentioned. If timestamps are APPROXIMATE or missing, do NOT guess — use safe stagger (`0.5` entrances, `0.7` foreground).
+- **Narration Timestamp Sync**: When word timestamps are provided, set `delay` = (spoken word time − sub-visual start offset) so the visual enters as it is mentioned.
 - **Cut Fitting**: `delay + duration` SHOULD fit inside the sub-visual `duration` (overflow is clipped).
 
 ---

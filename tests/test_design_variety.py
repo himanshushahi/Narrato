@@ -152,7 +152,7 @@ def test_creative_blueprint_hides_legacy_genre_token():
     legacy = _creative_blueprint_for_project(
         {"prompt": "documentary", "video_format": "landscape"})
     assert legacy["style_hint"] == ""
-    assert legacy["recommended_archetypes"]
+    assert legacy["layer_types"]
 
     hinted = _creative_blueprint_for_project(
         {"prompt": "warm editorial", "video_format": "landscape"})
