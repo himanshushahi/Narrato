@@ -8,7 +8,6 @@ from backend.agent.agent_engine import PIPELINE_VISUAL_TOOLS, BRIDGE_VISUAL_TOOL
 def test_tool_schemas_and_models_registered():
     schema_names = {t["function"]["name"] for t in get_tools_schema()}
     assert "search_icons" in schema_names
-    assert "lint_visuals" in schema_names
     assert "get_word_timings" in schema_names
     assert "probe_cut" in schema_names
     assert "probe_scene" in schema_names
@@ -16,7 +15,6 @@ def test_tool_schemas_and_models_registered():
 
     # All new tools must have pydantic argument validation models
     assert "search_icons" in TOOL_ARGUMENT_MODELS
-    assert "lint_visuals" in TOOL_ARGUMENT_MODELS
     assert "get_word_timings" in TOOL_ARGUMENT_MODELS
     assert "probe_cut" in TOOL_ARGUMENT_MODELS
     assert "probe_scene" in TOOL_ARGUMENT_MODELS
@@ -37,46 +35,6 @@ def test_search_icons_empty_and_fallback():
     data = json.loads(raw)
     assert isinstance(data, list)
     assert len(data) > 0
-
-
-def test_lint_visuals_tool():
-    sub_visuals = [
-        {
-            "duration": 4.0,
-            "composition": {
-                "type": "Sequence",
-                "children": [
-                    {
-                        "type": "Layer",
-                        "content": {
-                            "type": "Text",
-                            "text": "Header",
-                            "style": {"left": "10%", "top": "15%", "width": "80%", "height": "25%", "fontSize": "56px"},
-                        },
-                        "animations": [
-                            {"property": "opacity", "from": 0, "to": 1, "duration": 0.5, "delay": 0.5}
-                        ]
-                    }
-                ]
-            }
-        }
-    ]
-    raw = execute_tool("lint_visuals", {
-        "sub_visuals": sub_visuals,
-        "video_format": "landscape",
-        "expected_duration": 4.0
-    })
-    report = json.loads(raw)
-    assert isinstance(report, dict)
-    assert "warnings" in report
-    assert "boxes" in report
-    assert "duration_check" in report
-    assert report["duration_check"]["duration_match"] is True
-
-
-def test_lint_visuals_invalid_type():
-    res = execute_tool("lint_visuals", {"sub_visuals": "not-a-list"})
-    assert "Error" in res
 
 
 def test_get_word_timings_missing_file(tmp_path, monkeypatch):
@@ -153,7 +111,7 @@ def test_get_word_timings_with_scene_index(tmp_path, monkeypatch):
 
 def test_visual_allowlists_segregation():
     # In-memory and pre-flight tools allowed in both pipeline and bridge
-    for tool in ("search_icons", "lint_visuals"):
+    for tool in ("search_icons",):
         assert tool in PIPELINE_VISUAL_TOOLS
         assert tool in BRIDGE_VISUAL_TOOLS
 

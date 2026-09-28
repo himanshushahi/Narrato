@@ -11,7 +11,7 @@ from backend.agent.schemas import (
     WebSearchToolArgs, GetSkillToolArgs, SearchMediaToolArgs,
     SearchWikipediaImageToolArgs, SearchPixabayPhotoToolArgs, SearchYouTubeVideoToolArgs,
     ReadProjectFileToolArgs, ProjectStatusReportToolArgs, ListProjectFilesToolArgs,
-    SearchIconsToolArgs, LintVisualsToolArgs, GetWordTimingsToolArgs,
+    SearchIconsToolArgs, GetWordTimingsToolArgs,
     ProbeCutToolArgs, ProbeSceneToolArgs, ProbeAssetToolArgs,
 )
 
@@ -33,7 +33,6 @@ TOOL_ARGUMENT_MODELS = {
     "probe_scene": ProbeSceneToolArgs,
     "probe_asset": ProbeAssetToolArgs,
     "search_icons": SearchIconsToolArgs,
-    "lint_visuals": LintVisualsToolArgs,
     "get_word_timings": GetWordTimingsToolArgs,
 }
 
@@ -465,34 +464,6 @@ def get_tools_schema() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "function": {
-                "name": "lint_visuals",
-                "description": "Pre-flight geometry, canvas pixel bounding box, and animation timing linter. Takes a candidate sub_visuals array and returns computed box_px coordinates, collision/overlap alerts, exit timing verification, and centering suggestions without saving. Read-only.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "sub_visuals": {
-                            "type": "array",
-                            "items": {"type": "object"},
-                            "description": "Candidate sub_visuals array to test"
-                        },
-                        "video_format": {
-                            "type": "string",
-                            "enum": ["landscape", "portrait", "square"],
-                            "default": "landscape",
-                            "description": "Target video aspect ratio"
-                        },
-                        "expected_duration": {
-                            "type": "number",
-                            "description": "Optional scene duration to verify that sub_visual durations sum accurately"
-                        }
-                    },
-                    "required": ["sub_visuals"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
                 "name": "get_word_timings",
                 "description": "Looks up exact spoken word timestamps from transcription.json for narration sync. Useful to determine precise entrance delays or kinetic text highlight timings. Read-only.",
                 "parameters": {
@@ -748,43 +719,6 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             from backend.pipeline.icons import search_lucide_icons
             matches = search_lucide_icons(query, limit=limit)
             return json.dumps(matches, ensure_ascii=False)
-
-        if tool_name == "lint_visuals":
-            sub_visuals = arguments.get("sub_visuals")
-            video_format = str(arguments.get("video_format") or "landscape")
-            expected_duration = arguments.get("expected_duration")
-            if not isinstance(sub_visuals, list):
-                return "Error: sub_visuals must be a list of AST cut objects."
-
-            from backend.agent.geometry import lint_sub_visuals
-            from backend.agent.timing import lint_section_timing
-
-            geom_report = lint_sub_visuals(sub_visuals, video_format=video_format)
-            timing_report = lint_section_timing(sub_visuals)
-
-            report: Dict[str, Any] = {
-                "warnings": geom_report.get("warnings", []),
-                "fixes": geom_report.get("fixes", []),
-                "overlaps": geom_report.get("overlaps", []),
-                "timing_warnings": timing_report.get("warnings", []),
-                "timing_fixes": timing_report.get("fixes", []),
-                "boxes": geom_report.get("boxes", [])[:10],
-                "boxes_note": "Canvas pixel coordinates: box_px {x, y, w, h}",
-            }
-            if expected_duration is not None:
-                try:
-                    total_dur = sum(float(c.get("duration", 0)) for c in sub_visuals if isinstance(c, dict))
-                    diff = round(total_dur - float(expected_duration), 2)
-                    report["duration_check"] = {
-                        "total_duration": round(total_dur, 2),
-                        "expected_duration": float(expected_duration),
-                        "duration_match": abs(diff) < 0.05,
-                        "diff": diff,
-                    }
-                except Exception:
-                    pass
-
-            return json.dumps(report, ensure_ascii=False)
 
         if tool_name == "get_word_timings":
             project_id = arguments.get("project_id")

@@ -990,12 +990,6 @@ class SearchIconsToolArgs(AppBaseModel):
     limit: int = Field(default=5, ge=1, le=20, description="Max icon candidates to return")
 
 
-class LintVisualsToolArgs(AppBaseModel):
-    sub_visuals: List[Dict[str, Any]] = Field(..., description="Array of candidate AST sub_visual objects to lint")
-    video_format: Optional[str] = Field(default="landscape", description="Video format (landscape, portrait, square)")
-    expected_duration: Optional[float] = Field(default=None, description="Expected total scene duration in seconds (optional duration-math check)")
-
-
 class GetWordTimingsToolArgs(AppBaseModel):
     project_id: str = Field(..., description="Project identifier")
     query: Optional[str] = Field(default=None, description="Specific keyword or phrase to find in the spoken narration")

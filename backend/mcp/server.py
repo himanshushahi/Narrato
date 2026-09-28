@@ -750,7 +750,7 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                               "write a 1-line-per-cut beat plan (intent + "
                               "transition + query, see storyboard.beat_plan_template) "
                               "-> save_visuals(dry_run=true) per section, read "
-                              "geometry/timing/variety, fix, then persist. "
+                              "timing/variety, fix, then persist. "
                               "Pull deeper detail as needed, "
                               "e.g. get_skill('declarative-ast', section='layers').")
     except Exception as e:
@@ -1437,8 +1437,8 @@ already explicitly specified in the user's request):
       re-dry-run is not optional.
       Single-section save_visuals exists for patches, but batch is the default —
       30 sections must NOT cost 60-90 calls).
-       Durations auto-normalize to the audio length; no chapter title cards inside cuts; Text in project language except queries stay English.
-     Per batch: save_visuals_batch(dry_run=true) → read per-section geometry/timing/variety/unverified_queries → fix failed indexes → persist. Persisting cold earns a nudge.
+        Durations auto-normalize to the audio length; no chapter title cards inside cuts; Text in project language except queries stay English.
+     Per batch: save_visuals_batch(dry_run=true) → read per-section timing/variety/unverified_queries → fix failed indexes → persist. Persisting cold earns a nudge.
      AUTO-REPAIR (server-side, like the internal loop's correction turn):
       stray z_index keys are stripped and legacy layers[] shapes converted
       automatically — every fix lands in auto_fixed for you to verify.
@@ -1457,7 +1457,7 @@ already explicitly specified in the user's request):
       whenever delay > 0 so elements stay hidden until they move; spatial-only
       without fade is allowed ONLY for instant punch/whip beats at delay: 0.
     The save_visuals response reports variety stats + normalizations +
-    geometry + timing + unverified_queries:
+    timing + unverified_queries:
      read them and enrich flat spots BEFORE moving on. A dry_run with zero
      warnings is the bar for persisting. The batch video_variety rollup is
      the whole-video verdict: uniform_signature=true with shallow depth
@@ -1674,7 +1674,7 @@ def probe_cut(project_id: str, section_type: str, scene_index: int | None = None
               cut_index: int | None = None,
               scene_number: int | None = None,
               cut_number: int | None = None) -> dict:
-    """Inspect ONE cut: full JSON + geometry + timing + per-layer asset files.
+    """Inspect ONE cut: full JSON + timing + per-layer asset files.
     Read-only. Use before/after save_visuals(cut_index=N) instead of reading
     script.json by hand.
 
@@ -1700,7 +1700,7 @@ def probe_cut(project_id: str, section_type: str, scene_index: int | None = None
 def probe_scene(project_id: str, section_type: str,
                 scene_index: int | None = None,
                 scene_number: int | None = None) -> dict:
-    """Inspect ONE section: per-cut summaries + geometry/timing rollups +
+    """Inspect ONE section: per-cut summaries + timing rollups +
     variety. Read-only. Use to find which cut to fix, then probe_cut it.
 
     Targeting:
@@ -1785,7 +1785,7 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     Write a 1-line-per-cut beat plan (intent + transition + query, see the
     starter pack's storyboard template) BEFORE authoring cuts.
     WORKFLOW PER SECTION (mandatory): save_visuals(dry_run=true) first, read
-    geometry/timing/variety/unverified_queries, fix, then persist. Persisting
+    timing/variety/unverified_queries, fix, then persist. Persisting
     without a dry_run pass earns a nudge; agents that iterate dry_run produce
     visibly better videos.
     cut_index >= 0 (or cut_number >= 1) patches a SINGLE cut (pass sub_visuals as a 1-element
@@ -1796,11 +1796,10 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     Image/Video queries SHOULD be verified via search_media first —
     unverified queries are reported back (unverified_queries) and fail at
     fetch_assets.
-    The response ALWAYS includes variety stats + normalizations + geometry
-    (overlap / off-canvas / missing fontSize / anchor / center-math / box_px pixels) and
+    The response ALWAYS includes variety stats + normalizations +
     timing (delay+duration fit, emphasis fit, fade pairing, motion_blur,
-    easing) reports — read them: fix broken geometry and thin
-    (single-layer) sections before moving on. Delays are absolute seconds
+    easing) reports — read them: enrich thin (single-layer) sections before
+    moving on. Delays are absolute seconds
     within the FINAL cut duration (post-renorm), not scaled. Capability
     reference lives in the pipeline guide and the declarative-ast
     skill, not in this description."""
@@ -1874,8 +1873,8 @@ def save_visuals_batch(project_id: str, sections: list,
     scene like the internal loop does instead of rationing 1 cut per section.
     Sections are independent: one bad section never blocks the rest; the
     response tells you exactly which indexes failed with fix/retry_with
-    patches. Same canonical cut shape, auto-repair, and variety/geometry/
-    timing reports as save_visuals, per section, plus a whole-video
+    patches. Same canonical cut shape, auto-repair, and variety/timing
+    reports as save_visuals, per section, plus a whole-video
     video_variety rollup (uniform-signature and zero-energy detection).
     Duplicate section targets and negative cut_index values are rejected
     (omit cut_index/cut_number for a whole-section replace).

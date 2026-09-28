@@ -1964,7 +1964,6 @@ Example: sub-visual starts at 4.0s in the scene and keyword is spoken at [6.3s] 
 - CANVAS PIXEL GRIDS: landscape = 1920×1080, portrait = 1080×1920.
   Equal `%` on width and height ≠ equal pixels — use `aspectRatio: "1 / 1"`
   (+ drop `height`) for true squares/circles instead of matching width% and height%.
-- OVERLAP REPORT: the harness flags pairwise `overlap IoU` per cut (advisory — intentional stacking and accidental collision read the same; your call).
 - OBJECTFIT PER LAYER ROLE: `objectFit` (Image/Video only) controls how
   media fills its box. Rules:
   * Background (fullscreen `children[0]`): `"cover"` — fills frame, crops edges.

@@ -355,8 +355,8 @@ def test_tools_schema_has_new_tools():
         "read_project_file", "project_status_report",
         "list_project_files",
         "probe_cut", "probe_scene", "probe_asset",
-        "search_icons", "lint_visuals", "get_word_timings",
-    }, f"Registry must be exactly the 17 read-only tools, got: {sorted(names)}"
+        "search_icons", "get_word_timings",
+    }, f"Registry must be exactly the 16 read-only tools, got: {sorted(names)}"
 
 def test_agent_runner_no_api_key_returns_safe_error(monkeypatch):
     import backend.agent.agent_engine as ae

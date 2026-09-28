@@ -36,7 +36,6 @@ Positioning facts: base boxes (`left`/`top`/`width`/`height`/`borderRadius`) are
 
 - Order = paint order (`children[0]` bottom). Any count renders.
 - Bind `design.json` tokens by name: `color_palette.primary|accent|surface|glow`, `typography.heading_font|body_font`. No example hex — read the project file.
-- Overlap report is advisory (`overlap IoU`); intentional stacking and accidental collision read the same — your call.
 
 ## 5. Vector Shape Fields
 

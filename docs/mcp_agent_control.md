@@ -75,7 +75,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 | `list_skills` / `get_skill` | All 18 writing/visual guides (scriptwriter, visual-director-core, declarative-ast, …). Big skills are ~50KB: `brief=true` returns a section map first, `section="..."` (fuzzy title/subhead/number) pulls one part — never read a whole 50KB skill when a section will do |
 | `get_stage_skills` | One-call starter pack per stage (script/design/visuals); satisfies the skill gate |
-| `probe_cut` / `probe_scene` / `probe_asset` | Read-only inspectors: one cut / one section / one media layer (geometry, timing, file truth) |
+| `probe_cut` / `probe_scene` / `probe_asset` | Read-only inspectors: one cut / one section / one media layer (timing, file truth) |
 
 ### Mechanical stages (no LLM inside)
 | Tool | What it does |
@@ -118,7 +118,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 4. `update_task` on a missing row is a silent no-op — always `create_task` first (payloads already do; keep it that way).
 5. Sub-visual durations must sum to the section's audio length (the validator normalizes, but gross mismatches mean mistimed visuals).
 6. Image/Video queries in English; prose in the project's language; no chapter title cards inside cuts; pair entrances with opacity fade whenever delay > 0 (spatial-only without fade allowed at delay: 0).
-7. Capability reference (pipeline-guide §10): read ALL THREE visual skills — `visual-director-core` + `motion-graphics-designer` + `declarative-ast` (§4/§4C: 11 layer types, contracts, cut flags). Composition is the agent's creative decision. Every `save_visuals` response carries `geometry`/`timing`/`variety` stats with `box_px` pixels — read them before moving on.
+7. Capability reference (pipeline-guide §10): read ALL THREE visual skills — `visual-director-core` + `motion-graphics-designer` + `declarative-ast` (§4/§4C: 11 layer types, contracts, cut flags). Composition is the agent's creative decision. Every `save_visuals` response carries `timing`/`variety` stats — read them before moving on.
 8. Review is mandatory AND post-fetch: `save_visuals` (all sections) → `run_stage(fetch_assets)` → one `review_frame(mode=composition)` pass per section with named fixes, never first-pass and never pre-fetch (composition renders the downloaded `local_path` files — pre-fetch shows placeholders). If a fix adds a new Image/Video query, re-fetch then re-review. Unknown transition names are remapped (reported in `normalizations`).
 
 ---

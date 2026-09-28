@@ -54,9 +54,8 @@ Narrato operates two distinct tool interfaces for AI agents:
 10. **Media Verification** *(Functional equivalent)*:
    - MCP: `search_media` (Unified gateway with `source` parameter).
    - Internal Agent: 6 dedicated tools (`search_pexels_photo`, `search_pexels_video`, `search_wikipedia_image`, `search_pixabay_photo`, `search_pixabay_video`, `search_youtube_video`).
-11. **Iconography & Visual Quality Tools (Internal Agent)**:
+11. **Iconography Tools (Internal Agent)**:
    - `search_icons` — Fast in-memory semantic search for valid Lucide icons.
-   - `lint_visuals` — Pre-flight geometry, canvas pixel boxes, and animation timing linter (in-memory, read-only).
 
 ---
 
@@ -159,7 +158,6 @@ The internal agent exposes individual, dedicated tools for stock asset verificat
 | `search_pixabay_video` | ❌ (in `search_media`) | ✅ | **Agent**: `query` | Searches Pixabay stock video footage. |
 | `search_youtube_video` | ❌ (in `search_media`) | ✅ | **Agent**: `query` | Checks YouTube video downloadability via yt-dlp. |
 | `search_icons` | ❌ (internal) | ✅ | **Agent**: `query`, `limit=5` | Semantic in-memory search for valid Lucide icon names and categories. Read-only. |
-| `lint_visuals` | ❌ (in `save_visuals(dry_run)`) | ✅ | **Agent**: `sub_visuals`, `video_format`, `expected_duration` | Pre-flight canvas pixel box math, overlap collision alerts, exit timing verification. Read-only. |
 | `get_word_timings` | ❌ (in `get_transcription`) | ✅ | **Agent**: `project_id`, `query` | Searches spoken word timestamps in `transcription.json` for precise kinetic sync. Read-only. |
 
 ---
@@ -184,12 +182,12 @@ The internal LLM agent operates under two distinct contexts with different allow
    - The final `manifest.json` is written to disk in a single batch **after all scenes complete**.
    - Assets are fetched in a subsequent stage (`fetch_assets`), and frames are rendered in `render`.
    - **Post-generation inspection tools are strictly excluded** (`probe_cut`, `probe_scene`, `probe_asset`, `review_frame`). If called mid-generation, they would return empty cuts, index errors, or report missing asset files.
-   - Allowed tools are strictly in-memory and pre-flight: `search_icons`, `lint_visuals`, media verification (`search_pexels_*`, `search_pixabay_*`, `search_wikipedia_image`, `search_youtube_video`), `get_skill`, and `web_search`.
+   - Allowed tools are strictly in-memory and pre-flight: `search_icons`, media verification (`search_pexels_*`, `search_pixabay_*`, `search_wikipedia_image`, `search_youtube_video`), `get_skill`, and `web_search`.
 
 2. **Interactive Bridge Rewrites / Editing (`BRIDGE_VISUAL_TOOLS`)**:
    - Used when a user interactively requests scene or cut updates in the editor (e.g., "rewrite cut 2", "make scene 1 more energetic").
    - The project is already saved on disk, `manifest.json` is populated, and assets are already downloaded.
-   - Full probe suite is enabled: `probe_cut`, `probe_scene`, `probe_asset`, `get_word_timings` (with `scene_index` support), `search_icons`, `lint_visuals`, and media searches.
+   - Full probe suite is enabled: `probe_cut`, `probe_scene`, `probe_asset`, `get_word_timings` (with `scene_index` support), `search_icons`, and media searches.
 
 ---
 

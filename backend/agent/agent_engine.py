@@ -191,7 +191,7 @@ PIPELINE_SCRIPT_TURNS = 5
 PIPELINE_VISUAL_TOOLS = frozenset({
     "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
-    "search_icons", "lint_visuals",
+    "search_icons",
     "search_pexels_photo", "search_pexels_video",
     "search_wikipedia_image",
     "search_pixabay_photo", "search_pixabay_video",
@@ -216,7 +216,7 @@ BRIDGE_SCRIPT_TOOLS = frozenset({
 BRIDGE_VISUAL_TOOLS = frozenset({
     "web_search", "get_skill",
     "read_project_file", "list_project_files", "project_status_report",
-    "search_icons", "lint_visuals", "get_word_timings",
+    "search_icons", "get_word_timings",
     "probe_cut", "probe_scene", "probe_asset",
     "search_pexels_photo", "search_pexels_video", "search_wikipedia_image",
     "search_pixabay_photo", "search_pixabay_video",
@@ -472,88 +472,11 @@ class AgentRunner:
             self._emit_progress("Agent: Visual duration math verified.")
             result["sub_visuals"] = normalized_svs
             try:
-                from backend.agent.geometry import lint_sub_visuals as _lint
-                result["geometry"] = _lint(normalized_svs, video_format)
-            except Exception:
-                pass
-            try:
                 from backend.agent.timing import lint_section_timing as _lint_t
                 result["timing"] = _lint_t(normalized_svs)
             except Exception:
                 from backend.agent.timing import empty_timing_report as _empty_t
                 result["timing"] = _empty_t()
-            # Geometry/timing correction turn: the lints above used to be
-            # attached and never read -- the LLM stayed blind to overlaps,
-            # off-canvas boxes, HTML contract violations, and delay
-            # overflows. One extra turn when there is signal (never on
-            # clean output, so the common path costs nothing).
-            try:
-                _geo = result.get("geometry") or {}
-                _tim = result.get("timing") or {}
-                _before = int(_geo.get("warning_count") or 0) + \
-                    len(_tim.get("warnings") or [])
-                _sig = list((_geo.get("warnings") or [])[:8]) + \
-                    list((_tim.get("warnings") or [])[:8])
-                _fixes = list((_geo.get("fixes") or [])[:8])
-                if _sig:
-                    _fb = "\n".join(f"- {s}" for s in _sig)
-                    if _fixes:
-                        _fb += "\nSuggested fixes:\n" + \
-                            "\n".join(f"- {s}" for s in _fixes)
-                    self._emit_progress(
-                        "Agent: Refining visual layout "
-                        f"({len(_sig)} placement notes)...")
-                    # Capped budget: refinement is one short turn, never a
-                    # second full generation.
-                    _ref_turns = min(max_turns or 2, 2)
-                    _corr = self.run_with_tools(
-                        system_prompt,
-                        user_prompt +
-                        "\n\nLAYOUT REFINEMENT (your boxes validated, but "
-                        "these placement notes remain — fix what is "
-                        "genuinely wrong, KEEP everything else identical; "
-                        "overlap flagged as intentional (label-over-media) "
-                        "must stay exactly as-is):\n" + _fb,
-                        schema,
-                        base_activity_label="Agent: layout refinement",
-                        allowed_tools=allowed_tools, max_turns=_ref_turns)
-                    if isinstance(_corr, list):
-                        _corr = {"sub_visuals": _corr}
-                    if isinstance(_corr, dict) and _corr.get("sub_visuals"):
-                        _ok, _svs, _ = validate_sub_visuals(
-                            _corr["sub_visuals"], expected_duration,
-                            video_format=video_format)
-                        if _ok:
-                            # Accept only an improvement: re-lint and compare
-                            # warning counts, so a noisier refinement can
-                            # never replace the valid original.
-                            try:
-                                _g2 = _lint(_svs, video_format)
-                            except Exception:
-                                _g2 = None
-                            try:
-                                _t2 = _lint_t(_svs)
-                            except Exception:
-                                _t2 = None
-                            _after = (int((_g2 or {}).get("warning_count") or 0)
-                                      + len((_t2 or {}).get("warnings") or []))
-                            if _g2 is not None and _t2 is not None \
-                                    and _after < _before:
-                                result["sub_visuals"] = _svs
-                                result["geometry"] = _g2
-                                result["timing"] = _t2
-                                return result
-                            self._emit_progress(
-                                "Agent: Layout refinement not cleaner, "
-                                "keeping prior boxes.")
-                        else:
-                            # Refinement broke validity — keep the valid original.
-                            self._emit_progress(
-                                "Agent: Layout refinement invalid, keeping prior boxes.")
-            except (InterruptedError, KeyboardInterrupt):
-                raise
-            except Exception:
-                pass
             return result
 
         self._emit_progress(f"Agent: Correcting visual error ({error_msg})...")
@@ -588,11 +511,6 @@ class AgentRunner:
                                                        video_format=video_format)
                 corrected_result["sub_visuals"] = final_svs
                 try:
-                    from backend.agent.geometry import lint_sub_visuals as _lint2
-                    corrected_result["geometry"] = _lint2(final_svs, video_format)
-                except Exception:
-                    pass
-                try:
                     from backend.agent.timing import lint_section_timing as _lint_t2
                     corrected_result["timing"] = _lint_t2(final_svs)
                 except Exception:
@@ -617,11 +535,6 @@ class AgentRunner:
                 if ok2:
                     self._emit_progress("Agent: Migrated legacy layers→composition.")
                     result["sub_visuals"] = svs2
-                    try:
-                        from backend.agent.geometry import lint_sub_visuals as _lint3
-                        result["geometry"] = _lint3(svs2, video_format)
-                    except Exception:
-                        pass
                     try:
                         from backend.agent.timing import lint_section_timing as _lint_t3
                         result["timing"] = _lint_t3(svs2)

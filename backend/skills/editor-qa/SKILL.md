@@ -24,7 +24,7 @@ when_to_use: "Before finalizing any edit to a project — scene rewrites, visual
 | **6** | Stacking & Layer Order | Stacking follows `children` array order (`children[0]` = bottom background). | Respect subtitle safe area (bottom 18–28%). |
 | **7** | Preserve Untouched | On targeted edits, keep non-targeted scenes and fields byte-identical. | Never mutate or drop unrelated fields or scenes. |
 | **8** | Opacity Fade on Entrance | Entrance animations MUST be paired with an opacity fade. | Pair `{ "property": "opacity", "from": 0, "to": 1 }` whenever `delay > 0`. |
-| **9** | Harness Reports | Read `geometry`/`timing`/`variety` reports on every save and apply their fixes. | `box_px` pixels, `html_warnings`, delay-fit, enum remaps. |
+| **9** | Harness Reports | Read `timing`/`variety` reports on every save and apply their fixes. | delay-fit, enum remaps. |
 
 ### Detailed Guardrail Rules
 
@@ -36,7 +36,7 @@ when_to_use: "Before finalizing any edit to a project — scene rewrites, visual
 6. **LAYER ORDER** — Stacking is children array order (children[0]=bottom background ... children[N-1]=top foreground). Subtitle safe area must be respected.
 7. **PRESERVE UNTOUCHED** — When performing a targeted change on a scene or sub-visual, keep all other fields and scenes byte-identical.
 8. **OPACITY FADE ON ENTRANCE** — Any layer with an entrance animation (`translateY`, `translateX`, `scale`, `rotate`, etc.) MUST be paired with a matching `{ "property": "opacity", "from": 0, "to": 1, ... }` animation so elements fade in smoothly instead of popping in abruptly at full opacity.
-9. **HARNESS REPORTS** — Read the `geometry`/`timing`/`variety` reports on every save and apply their fixes (`box_px` pixels, `html_warnings`, delay-fit, enum remaps).
+9. **HARNESS REPORTS** — Read the `timing`/`variety` reports on every save and apply their fixes (delay-fit, enum remaps).
 
 ---
 

@@ -1425,11 +1425,6 @@ def save_visuals_payload(project_id: str, section_type: str,
     total = round(sum(durations), 2)
     variety = _visual_variety_report(candidate, normalized, target_duration)
     try:
-        from backend.agent.geometry import lint_sub_visuals as _lint_section
-        geometry = _lint_section(normalized, video_format)
-    except Exception:
-        geometry = {"warnings": [], "fixes": [], "overlaps": []}
-    try:
         from backend.agent.timing import lint_section_timing as _lint_timing
         timing = _lint_timing(normalized)
     except Exception as e:
@@ -1456,7 +1451,7 @@ def save_visuals_payload(project_id: str, section_type: str,
                   "dry_run": True, "persisted": False,
                   "cut_count": len(normalized), "total_duration": total,
                   "durations": durations, "variety": variety,
-                  "geometry": geometry, "timing": timing,
+                  "timing": timing,
                   "unverified_queries": unverified,
                   "auto_fixed": auto_fixed}
         if unverified:
@@ -1531,7 +1526,7 @@ def save_visuals_payload(project_id: str, section_type: str,
               "persisted": True,
               "cut_count": len(normalized), "total_duration": total,
               "durations": durations, "variety": variety,
-              "geometry": geometry, "timing": timing,
+              "timing": timing,
               "unverified_queries": unverified,
               "auto_fixed": auto_fixed}
     if cut_index is not None:
@@ -2355,7 +2350,7 @@ def save_visuals_batch_payload(project_id: str, sections: list,
             ok_count += 1
             cuts_total += int(res.get("cut_count", 0) or 0)
             for key in ("cut_count", "total_duration", "durations", "variety",
-                        "geometry", "timing", "unverified_queries",
+                        "timing", "unverified_queries",
                         "auto_fixed", "warning", "nudge", "patched_cut_index",
                         "patched_cut"):
                 if key in res:

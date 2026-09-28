@@ -215,7 +215,7 @@ def _layer_rows(cut: Dict[str, Any],
 def probe_cut_payload(project_id: str, section_type: str,
                       scene_index: int | None = None, cut_index: int | None = None,
                       scene_number: int | None = None, cut_number: int | None = None) -> dict:
-    """Full visibility for ONE cut: JSON + geometry + timing + asset files."""
+    """Full visibility for ONE cut: JSON + timing + asset files."""
     norm_sec, scene_index, cut_index, err = resolve_scene_and_cut(
         section_type, scene_index=scene_index, scene_number=scene_number,
         cut_index=cut_index, cut_number=cut_number, default_scene=0, default_cut=0,
@@ -246,13 +246,6 @@ def probe_cut_payload(project_id: str, section_type: str,
             f"cut {cut_index} is a non-dict entry (corrupted) — "
             f"re-save the section via save_visuals.")}
     try:
-        from backend.agent.geometry import lint_cut
-        geometry = lint_cut(cut, cut_index=cut_index, video_format=proj_vf)
-    except Exception:
-        geometry = {"warnings": [], "fixes": [], "boxes": [],
-                    "overlaps": [], "html_warnings": [],
-                    "container": {"width": 1920.0, "height": 1080.0}}
-    try:
         from backend.agent.timing import lint_cut_timing
         timing = lint_cut_timing(cut, cut_index=cut_index)
     except Exception:
@@ -272,7 +265,7 @@ def probe_cut_payload(project_id: str, section_type: str,
             "cut_duration": timing.get("cut_duration"),
             "transition": cut.get("transition"),
             "cut": cut, "layers": layers,
-            "geometry": geometry, "timing": timing,
+            "timing": timing,
             "assets_missing": missing,
             "next": ("Fix via save_visuals(cut_number=N) or save_visuals(cut_index=N) with a 1-element array; "
                      "if a fix adds a new query, re-run fetch_assets then re-probe.")}
@@ -281,7 +274,7 @@ def probe_cut_payload(project_id: str, section_type: str,
 def probe_scene_payload(project_id: str, section_type: str,
                         scene_index: int | None = None,
                         scene_number: int | None = None) -> dict:
-    """Section overview: per-cut summaries + rollup linters + variety."""
+    """Section overview: per-cut summaries + timing rollups + variety."""
     norm_sec, scene_index, _, err = resolve_scene_and_cut(
         section_type, scene_index=scene_index, scene_number=scene_number, default_scene=0
     )
@@ -337,14 +330,6 @@ def probe_scene_payload(project_id: str, section_type: str,
                           "layer_types": types, "has_energy": energy,
                           "assets_missing": missing})
     try:
-        from backend.agent.geometry import lint_sub_visuals
-        geometry = lint_sub_visuals(cuts, proj_vf)
-    except Exception:
-        geometry = {"warnings": [], "fixes": [], "overlaps": [],
-                    "boxes": [], "html_warnings": [],
-                    "container": {"width": 1920.0, "height": 1080.0},
-                    "warning_count": 0, "fix_count": 0}
-    try:
         from backend.agent.timing import lint_section_timing
         timing = lint_section_timing(cuts)
     except Exception:
@@ -367,7 +352,7 @@ def probe_scene_payload(project_id: str, section_type: str,
             "scene_number": (scene_index + 1) if section_type == "scene" else None,
             "display_label": display_label,
             "cut_count": len(summaries), "total_duration": total,
-            "cuts": summaries, "geometry": geometry, "timing": timing,
+            "cuts": summaries, "timing": timing,
             "variety": variety,
             "next": ("Drill into one cut with probe_cut, fix via "
                      "save_visuals(cut_number=N) or save_visuals(cut_index=N).")}

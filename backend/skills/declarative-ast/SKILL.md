@@ -148,7 +148,7 @@ The `content` object inside every `Layer` must specify one of the **11 supported
 * `html_content`: Custom inline HTML/SVG/CSS markup.
 * One `html_content` document per HTML layer (each layer gets its own `style` box and animations — fused multi-card documents can't animate/restyle parts independently).
 * NO REMOTE MEDIA INSIDE HTML (technical limit — pipeline never downloads these, they render blank): keep `html_content` to CSS + typography + inline-SVG (gradients, borders, glassmorphism, text, SVG icons/diagrams); avoid `<img>`, `<video>`, `<iframe>`, `src=`, `url(...)`, `background-image`, base64/data-URIs, hardcoded http(s). For photo + card composites, emit a SEPARATE `Image`/`Video` layer (query-only: `query` + `source`) PLUS an `HTML` layer side-by-side (e.g. Image `left: "10%", width: "35%"` + HTML `left: "48%", width: "42%"`).
-* HTML CSS CONTRACT (the style box is the viewport — inner CSS must not escape it): single filler root `<div style="width:100%;height:100%;box-sizing:border-box;overflow:hidden;...">`. BANNED inside: `position:fixed`, `vw`/`vh`/`vmin` units, root `transform` (tilt via the layer's `style.rotate` instead), unscoped `<style>` (bleeds across layers/cuts — scope selectors or inline them), `<script>` (never executes). Fluid type only: `clamp()`/`%`/`cqw` — fixed-px fonts do not scale with the `%` box and break on portrait/4K. Inner `%` resolves against the layer box; inner `px`/`vw`/`fixed` resolve against the canvas — never use the latter. Violations are flagged in `geometry.html_warnings` on every save — read and fix them.
+* HTML CSS CONTRACT (the style box is the viewport — inner CSS must not escape it): single filler root `<div style="width:100%;height:100%;box-sizing:border-box;overflow:hidden;...">`. BANNED inside: `position:fixed`, `vw`/`vh`/`vmin` units, root `transform` (tilt via the layer's `style.rotate` instead), unscoped `<style>` (bleeds across layers/cuts — scope selectors or inline them), `<script>` (never executes). Fluid type only: `clamp()`/`%`/`cqw` — fixed-px fonts do not scale with the `%` box and break on portrait/4K. Inner `%` resolves against the layer box; inner `px`/`vw`/`fixed` resolve against the canvas — never use the latter. Follow these HTML CSS rules for valid rendering.
 
 ### 9. `Particles` (Canvas Confetti, Embers, Dust, Money Rain, Snow & Stars)
 * `particle_preset`: `"confetti"` (celebrations) | `"embers"` (fire/energy/crisis, rises) | `"dust"` (ambient depth) | `"money_rain"` (finance/profits) | `"snow"` | `"stars"` (twinkling night sky).
@@ -195,7 +195,7 @@ Every `Layer` can additionally specify:
   * Canvas pixel grids: landscape = 1920×1080, portrait = 1080×1920. Equal `%` on width and height ≠ equal pixels — use `aspectRatio: "1 / 1"` (+ drop `height`) for true squares/circles.
   * Circle recipe (what the editor's Circle preset writes): `borderRadius: "50%"` + `aspectRatio: "1 / 1"` + NO `height` key. `50%` radius on a non-square box renders an oval.
   * Static zoom/emphasis without keyframes: `scale`/`scaleX`/`scaleY` 10–500% (`1.0` = box size; negative mirrors, e.g. `scaleX: -1` = Flip-H), `rotate` ±180°. They compose with `animations` keyframes on the container. Pivot = `transform_origin` when set, else center.
-  * Overlap report: the harness flags pairwise `overlap IoU` per cut (advisory — intentional stacking reads the same as accidental). `geometry.html_warnings` flags HTML contract violations. The harness returns a geometry report on every save (`overlap IoU`, off-canvas, missing `fontSize`, double-anchor, center-math `50−width/2`, per-box `box_px` pixels) — read `geometry.warnings/fixes` and apply them before moving on. Normative geometry reference (canvas grids, %→px tables, anchor formulas, clamp table, fullscreen list, overflow model): `docs/COORDINATE_SPEC.md` — it wins when any guide disagrees.
+  * Normative geometry reference (canvas grids, %→px tables, anchor formulas, clamp table, fullscreen list, overflow model): `docs/COORDINATE_SPEC.md` — it wins when any guide disagrees.
   * **objectFit per role** (Image/Video only): background fullscreen → `"cover"`; circle-crop card → `"cover"`; transparent-bg icon/illustration cutout → `"contain"`; stretch-to-box → `"fill"`; default when omitted = `"cover"` for positioned layers.
   * **Text height omission**: for Text lower-thirds and callout labels, OMIT `height` — text auto-sizes vertically. Set `height` only for fixed-height clipping. Lower-third fills anchor at `bottom: "18%"` with no height (box grows upward).
 * `mixBlendMode` via `filters` (e.g. `"mix-blend-mode: overlay"`) composites with layers beneath — no visible change on a single opaque fullscreen layer.
@@ -229,9 +229,8 @@ There is no template library and no house style. Compose each cut from the
 beat: any types, any count, any geometry, any motion the schema allows.
 The design system (`design.json` tokens, §6) supplies the palette and fonts;
 everything else is your creative decision. The harness reports
-(`geometry`/`timing`/`variety`, `box_px` pixels, `html_warnings`) tell you
-what survived validation and what the pixels will be — read them, never a
-template.
+(`timing`/`variety`) tell you what survived validation — read them,
+never a template.
 
 One structural workflow survives: plan beats before authoring (one line per
 cut — intent + transition + media query), because unplanned sections repeat

@@ -136,6 +136,3 @@ matches it: sizes 5–100% (2% Shape), positions −20–100%.
   `left`/`top` numbers.
 - Layout sliders: sizes 5–100%; positions 0–100 display (exact negatives
   via the % input or drag). Grid label follows project format.
-- Agents get the normalized result echoed: every `dry_run`/persist/probe
-  geometry report carries `container` + per-box `box_px {x,y,w,h}`.
-- `geometry.html_warnings` flags HTML contract violations pre-save.

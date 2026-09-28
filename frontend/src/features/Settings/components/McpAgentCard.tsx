@@ -46,7 +46,7 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
       { name: 'get_skill', blurb: 'Full guide markdown — or brief=true map / section="..." chunk for big skills' },
       { name: 'get_stage_skills', blurb: 'One-call starter pack per stage (satisfies skill gate)' },
       { name: 'get_visuals', blurb: 'Read back sub-visuals for one section / single cut' },
-      { name: 'probe_cut', blurb: 'Inspect one cut: JSON + geometry + timing + asset files' },
+      { name: 'probe_cut', blurb: 'Inspect one cut: JSON + timing + asset files' },
       { name: 'probe_scene', blurb: 'Inspect one section: per-cut summaries + variety' },
       { name: 'probe_asset', blurb: 'File truth for one media layer (exists/size/fix)' },
     ],
