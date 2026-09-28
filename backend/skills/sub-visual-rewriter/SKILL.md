@@ -60,8 +60,12 @@ You will receive a single `sub_visual` object from a video script, along with su
 - For `Image`/`Video` layers output ONLY:
   ```json
   { "type": "Image", "query": "1-3 english keywords", "source": "pexels" }
+  // OR for real-world/tech/science video:
+  { "type": "Video", "query": "spacex starship launch", "source": "youtube", "yt_start_offset": 15 }
   ```
-- Sources allowed: `"pexels" | "pixabay" | "wikipedia" | "youtube"`.
+- Sources allowed:
+  * `Image`: `"pexels"` | `"pixabay"` | `"wikipedia"`.
+  * `Video`: `"pexels"` (generic stock B-roll) | `"pixabay"` | `"youtube"` (real-world news/events, tech/hardware demos, science animations, archival history).
 - **NEVER emit `sources[]`, `url`, `local_path` or `asset_url`** — output query+source only; pipeline downloads media downstream.
 
 ---

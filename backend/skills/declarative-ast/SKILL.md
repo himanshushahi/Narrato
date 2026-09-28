@@ -141,12 +141,12 @@ Every `Layer` node carries a `content` object defining one of the 11 supported c
 ### 7. `Video` (Dynamic B-Roll & Ambient Motion)
 * `query`: 1–3 descriptive English keywords.
 * `source`:
-  * `"pexels"`: Cinematic stock B-roll footage.
-  * `"pixabay"`: Additional stock video library.
-  * `"youtube"`: Specific timelapses, aerial drone footage, or documentary clips not on stock sites.
+  * `"pexels"`: High-quality generic cinematic stock B-roll (nature, cities, generic office, crowd lifestyle).
+  * `"pixabay"`: Additional stock video library and looping abstract clips.
+  * `"youtube"`: **Essential for real-world subjects**: real news events, product/tech demonstrations (Tesla, Apple, Nvidia), space launches, scientific simulations, archival history, and specialized machinery that generic stock libraries lack.
 * `volume`: Audio volume multiplier (`0.0`–`1.0`, default `0`). Keep low (`0.1`–`0.2`) unless voiceover is muted.
 * `loop`: `false` (default: naturally freezes on the last frame if video ends before cut) | `true` (loops continuously).
-* `yt_start_offset`: Seconds to skip from start of YouTube video (default `15s`).
+* `yt_start_offset`: Seconds to skip from start of YouTube video (default `15s` to skip intros).
 * `yt_duration`: Duration of clip to capture (default `15s`, pipeline maximum `30s`).
 * `objectFit`: `"cover"` | `"contain"` | `"fill"`.
 

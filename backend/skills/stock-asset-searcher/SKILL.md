@@ -19,7 +19,7 @@ when_to_use: "When crafting search queries for stock media (Pexels photos/videos
 | **`pexels`** | `Image`, `Video` | High-quality cinematic B-roll, 4K nature/cityscapes, realistic photography | Fast | 1–3 broad English keywords (e.g. `"city neon"`) |
 | **`pixabay`** | `Image`, `Video` | Transparent PNG cutouts, vector art, icon badges, digital illustrations | Fast | Concrete nouns + `"image_type": "illustration"` or `"vector"` |
 | **`wikipedia`** | `Image` only | Real historical figures, politicians, CEOs, company logos, country flags | Medium | **EXACT entity name** (e.g. `"Narendra Modi"`, `"Apple Inc."`) |
-| **`youtube`** | `Video` only | Specialized timelapses, aerial drone views, unique documentary clips | Slower | Must verify via search tool first; set `yt_start_offset` & `yt_duration` |
+| **`youtube`** | `Video` only | Real-world news & events, tech/product demos, science simulations, archival footage | Automatic (yt-dlp) | 1–4 specific English keywords (e.g. `"spacex starship launch"`) |
 
 ---
 
@@ -73,13 +73,18 @@ Example AST layer for a transparent icon overlay (LayerBox SOT v1: `%`-only boxe
 ```
 
 ### 3. YouTube (`source: "youtube"`)
-- **Cinematic B-roll or animation loops** not available on Pexels/Pixabay.
-- **Timelapse footage**, slow-motion clips, specific aesthetic footage.
-- Drone shots, aerial views, nature footage with specific atmosphere.
-- ⚠️ **Slower than Pexels/Pixabay** — use sparingly.
-- ⚠️ **Only works on `Video` type layers** (never on `Image` layers).
-- Optional fields: `yt_start_offset` (default 15s — skips intros) and `yt_duration` (default 15s, max 30s).
-- Verify a result exists before using this source (Internal pipeline: `search_youtube_video` tool | External MCP Agent: `search_media(source="youtube_video", query=...)`).
+- **WHEN TO USE (Primary Trigger Rule)**: Choose YouTube whenever the narration refers to **real-world subjects, branded hardware, or events that generic stock libraries (Pexels) do not have**:
+  * **Real-World Events & News**: rocket launches (SpaceX, NASA), courtroom trials, protests, political summits, historic speeches.
+  * **Tech & Product Demonstrations**: Tesla Cybertruck driving, Apple Vision Pro review, Nvidia GPU keynote, Boston Dynamics robotics.
+  * **Scientific Explanations & 3D Simulations**: how the immune system fights viruses, quantum computer simulations, black hole accretion disk, surgical procedures.
+  * **Documentary & Archival Moments**: historic moments, archival broadcast news, Apollo 11 moon landing broadcast, 2008 financial crisis.
+  *(Note: For generic ambient mood footage like generic office workers or sunset clouds, prefer `pexels`)*.
+- **Strictly for Video**: `source: "youtube"` is strictly for `Video` layers (never for `Image` layers).
+- **Automatic Clip Extraction**: The pipeline automatically downloads and extracts a clean 1080p MP4 clip via `yt-dlp`.
+- **Timing Parameters**:
+  * `yt_start_offset`: Seconds to skip from video start to bypass channel intros/logos (default `15s`).
+  * `yt_duration`: Seconds of footage to capture (default `15s`, pipeline maximum `30s`).
+- Optional pre-verification: In MCP, you can call `search_media(source="youtube_video", query=...)` to preview title and duration.
 
 Example AST layer for a YouTube clip:
 ```json
@@ -87,10 +92,10 @@ Example AST layer for a YouTube clip:
   "type": "Layer",
   "content": {
     "type": "Video",
-    "query": "city timelapse night cinematic",
+    "query": "spacex starship launch cinematic",
     "source": "youtube",
-    "yt_start_offset": 20,
-    "yt_duration": 12,
+    "yt_start_offset": 15,
+    "yt_duration": 15,
     "style": { "width": "100%", "height": "100%", "objectFit": "cover" }
   }
 }

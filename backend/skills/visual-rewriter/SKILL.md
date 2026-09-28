@@ -45,7 +45,7 @@ You will receive a script segment (narration) along with surrounding context and
 * `Chart`: `chart_type` (`"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`), `data: [{"label", "value", "color"}]`, `title`, `title_size`, `bar_radius`, `bar_gap`, `bar_max_width`, `bar_glow`, `style.color`.
 * `Background`: Procedural shader canvas: `background_preset` (`"gradient_mesh"` | `"grid_flow"` | `"waves"` | `"dots"` | `"blueprint"` | `"vignette_loop"` | `"paper_grain"`), `colors: [base, accent1, accent2]`, `speed`. Fullscreen bottom layer.
 * `Image`: `query` + `source` (`"pexels"` | `"pixabay"` | `"wikipedia"`). Pixabay `image_type: "illustration"`/`"vector"` for cutouts. `objectFit`: `"cover"` | `"contain"` | `"fill"`.
-* `Video`: `query` + `source` (`"pexels"` | `"pixabay"` | `"youtube"`). `volume`, `loop: false/true`, `yt_start_offset`, `yt_duration`, `objectFit`.
+* `Video`: `query` + `source` (`"pexels"` for generic stock B-roll | `"pixabay"` | `"youtube"` for real-world events, tech/product demos, science simulations, archival footage). `volume`, `loop: false/true`, `yt_start_offset` (default 15s), `yt_duration` (max 30s), `objectFit`.
 * `Lottie`: `lottie_url` or `animation_data`, `loop`, `playback_rate`, `direction: "forward" | "backward"`.
 * `Particles`: `particle_preset` (`"confetti"` | `"embers"` | `"dust"` | `"money_rain"` | `"snow"` | `"stars"`), `particle_count`, `particle_colors`, `particle_speed`, `particle_opacity`.
 * `Map`: `map_style` (`"modern_dark"` | `"vintage"` | `"minimal_light"` | `"nautical_blue"`), `locations: [{"name", "coord": [lat, lon]}]`.
