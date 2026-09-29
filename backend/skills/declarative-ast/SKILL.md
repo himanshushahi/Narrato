@@ -220,7 +220,25 @@ Any layer can carry an array of keyframe tracks:
     * `opacity`: Transparency fade (`0 -> 1`).
     * `blur`: Rack-focus in pixels (`12 -> 0` = sharpens from blurred focus).
     * `brightness`: Exposure flash multiplier (`0.3 -> 1.0` or `1.8 -> 1.0`).
-* **Easings**: `"spring"` (bouncy physical snap), `"ease-out"` (smooth deceleration), `"ease-in-out"` (graceful S-curve), `"ease-in"`, `"linear"` (continuous drift).
+* **Easings**:
+  * `"spring"`: Configurable Remotion spring physics simulation.
+    * `damping`: Friction resistance (default `14`; lower = springier/bouncier, higher = stiffer).
+    * `stiffness`: Spring tension / snap velocity (default `100`; higher = faster snap).
+    * `mass`: Inertia / weight (default `0.9`; higher = heavier overshoot).
+    * `overshoot_clamping`: `true` | `false` (prevents spring from bouncing beyond target value).
+  * `"ease-out"`: Smooth deceleration glide.
+  * `"ease-in-out"`: Graceful S-curve.
+  * `"ease-in"`: Acceleration attack.
+  * `"linear"`: Constant speed drift.
+  * `"bounce"`: Gravitational bouncing impact.
+  * `"elastic"`: Rubber-band overshoot. Optional `elastic_bounciness` (default `1.0`).
+  * `"back"`: Anticipation wind-up before launching forward. Optional `back_overshoot` (default `1.7`).
+  * `"steps"`: Stepped stop-motion / 8-bit frame rate effect. Optional `steps_count` (default `5`).
+  * `"bezier"`: Cubic Bézier curve with custom control points `bezier_points: [x1, y1, x2, y2]` (e.g. `[0.16, 1.0, 0.3, 1.0]`). x1/x2 MUST be in `[0, 1]` (clamped at save; y is unbounded).
+* **Continuous Motion (`loop_mode`)**:
+  * `"loop"`: Continuously repeats the animation cycle from `from` to `to` every `duration` seconds (ideal for continuous rotation or repeating wipes).
+  * `"pingpong"`: Continuously oscillates back and forth (`from -> to -> from`). Each direction takes `duration` seconds, so a full round trip takes `2 × duration` (ideal for pulsing scale `1.0 -> 1.08` or breathing opacity).
+  * Omit or set to `"none"` for standard one-shot entrance/exit animations.
 * **Timing & Narration Sync**:
   * `delay`: Absolute seconds from the start of the cut. When spoken word timestamps exist, sync `delay` to when the word is uttered.
   * **Opacity Pairing Rule**: Every entrance with `delay > 0` MUST pair with an `opacity: 0 -> 1` animation at the same delay, ensuring elements remain invisible until their entrance movement begins.

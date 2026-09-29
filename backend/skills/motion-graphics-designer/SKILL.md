@@ -62,11 +62,18 @@ Any layer can carry an array of keyframe tracks:
   * `brightness`: Exposure flash multiplier (`0.3 -> 1.0` = flash-in, `1.8 -> 1.0` = lens flare settle).
 
 ### Physics & Easing Curves
-* `"spring"`: High-energy organic snap with physical spring bounce (ideal for cards, icons, counters, and callout badges).
+* `"spring"`: High-energy organic snap with physical spring bounce (ideal for cards, icons, counters, and callout badges). Supports `damping` (default 14), `stiffness` (default 100), `mass` (default 0.9), and `overshoot_clamping` (boolean).
+* `"bounce"`: Gravitational bouncing impact.
+* `"elastic"`: Rubber-band overshoot (with optional `elastic_bounciness`).
+* `"back"`: Anticipation wind-up before launching forward (with optional `back_overshoot`).
+* `"steps"`: Stepped stop-motion / 8-bit frame rate effect (with optional `steps_count`).
+* `"bezier"`: Custom cubic Bézier curve with `bezier_points: [x1, y1, x2, y2]`.
 * `"ease-out"`: Smooth deceleration (ideal for charts, lines, and typography).
 * `"ease-in-out"`: Graceful S-curve for continuous flowing movement.
 * `"linear"`: Constant-rate drift (ideal for slow background scale zooms and ticker scrolls).
 * `"ease-in"`: Acceleration attack (ideal for whip pans and exits).
+* **Continuous Motion (`loop_mode`)**: `"loop"` (repeats from start) or `"pingpong"` (oscillates continuously, e.g. scale `1.0 -> 1.08` pulsing).
+
 
 ### Timing & Opacity Pairing Rules
 * `delay`: Absolute seconds from CUT start (not video start).

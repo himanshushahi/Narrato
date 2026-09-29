@@ -23,7 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-_VALID_EASINGS = ("linear", "spring", "ease-in", "ease-out", "ease-in-out")
+_VALID_EASINGS = ("linear", "spring", "ease-in", "ease-out", "ease-in-out",
+                  "bounce", "elastic", "back", "steps", "bezier")
 _SPATIAL_PROPS = frozenset({
     "scale", "translateX", "translateY", "rotate", "rotateX", "rotateY",
 })

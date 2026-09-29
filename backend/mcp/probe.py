@@ -196,7 +196,14 @@ def _layer_rows(cut: Dict[str, Any],
         if isinstance(anims, list) and anims:
             row["animations"] = [
                 {k: a.get(k) for k in ("property", "from", "to",
-                                       "duration", "delay", "easing")}
+                                       "duration", "delay", "easing",
+                                       "exit", "loop_mode",
+                                       "damping", "stiffness", "mass",
+                                       "overshoot_clamping",
+                                       "elastic_bounciness",
+                                       "back_overshoot", "steps_count",
+                                       "bezier_points")
+                 if a.get(k) not in (None, "")}
                 for a in anims if isinstance(a, dict)]
         if content is not None and ctype in ("Image", "Video"):
             lp = content.get("local_path")

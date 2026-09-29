@@ -49,7 +49,7 @@ when_to_use: "Always loaded during bulk scene visual generation, storyboarding, 
 2. **Keyframe Animations (`animations`)**:
    - Spatial props (drive shutter blur): `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`.
    - Non-spatial props (optical fades): `opacity` (0->1), `blur` (px rack focus, e.g. 10->0), `brightness` (multiplier flash).
-   - Parameters: `from`, `to`, `duration`, `delay` (seconds from cut start), `easing` (`"spring"` | `"ease-out"` | `"ease-in-out"` | `"linear"`).
+   - Parameters: `from`, `to`, `duration`, `delay` (seconds from cut start), `easing` (`"spring"` | `"ease-out"` | `"ease-in-out"` | `"linear"` | `"bounce"` | `"elastic"` | `"back"` | `"steps"` | `"bezier"`), optional spring physics (`damping`, `stiffness`, `mass`, `overshoot_clamping`), and `loop_mode` (`"loop"` | `"pingpong"`).
    - Word Sync & Opacity: When word timestamps exist, sync `delay` to the spoken word time. Always pair `delay > 0` with `opacity: 0 -> 1`.
 3. **Physics & Camera Dynamics (`motion`)**:
    - `floating: true`: Organic harmonic floating drift (sinusoidal hovering bob). Counts as spatial motion.

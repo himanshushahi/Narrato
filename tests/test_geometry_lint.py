@@ -292,3 +292,135 @@ def test_ast_schemas_support_exit():
     )
     assert layer_sec.exit == 2.5
 
+
+def test_ast_schemas_support_physics_and_advanced_curves():
+    from backend.agent.schemas import AnimationNode
+
+    # 1. Custom spring physics
+    spring_anim = AnimationNode(
+        property="scale",
+        **{"from": 0.8},
+        to=1.0,
+        duration=0.6,
+        delay=0.2,
+        easing="spring",
+        damping=22.0,
+        stiffness=180.0,
+        mass=0.75,
+        overshoot_clamping=True,
+    )
+    assert spring_anim.easing == "spring"
+    assert spring_anim.damping == 22.0
+    assert spring_anim.stiffness == 180.0
+    assert spring_anim.mass == 0.75
+    assert spring_anim.overshoot_clamping is True
+
+    # 2. Advanced curves: elastic, back, steps, bezier
+    elastic_anim = AnimationNode(
+        property="translateY",
+        **{"from": 60.0},
+        to=0.0,
+        duration=0.8,
+        easing="elastic",
+        elastic_bounciness=1.4,
+    )
+    assert elastic_anim.easing == "elastic"
+    assert elastic_anim.elastic_bounciness == 1.4
+
+    bezier_anim = AnimationNode(
+        property="translateX",
+        **{"from": -50.0},
+        to=0.0,
+        duration=0.5,
+        easing="bezier",
+        bezier_points=[0.16, 1.0, 0.3, 1.0],
+    )
+    assert bezier_anim.easing == "bezier"
+    assert bezier_anim.bezier_points == [0.16, 1.0, 0.3, 1.0]
+
+    # 3. Continuous motion loop modes
+    loop_anim = AnimationNode(
+        property="rotate",
+        **{"from": 0.0},
+        to=360.0,
+        duration=4.0,
+        easing="linear",
+        loop_mode="loop",
+    )
+    assert loop_anim.loop_mode == "loop"
+
+    pingpong_anim = AnimationNode(
+        property="scale",
+        **{"from": 1.0},
+        to=1.08,
+        duration=1.2,
+        easing="ease-in-out",
+        loop_mode="pingpong",
+    )
+    assert pingpong_anim.loop_mode == "pingpong"
+
+
+def test_timing_lint_accepts_all_renderer_easings():
+    from backend.agent.timing import lint_cut_timing
+
+    for easing in ("linear", "spring", "ease-in", "ease-out", "ease-in-out",
+                   "bounce", "elastic", "back", "steps", "bezier"):
+        cut = {
+            "duration": 3.0,
+            "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Text", "text": "hi"},
+                 "animations": [{"property": "scale", "from": 0.8, "to": 1.0,
+                                 "duration": 0.6, "delay": 0,
+                                 "easing": easing}]},
+            ]},
+        }
+        rep = lint_cut_timing(cut)
+        assert not any("unknown" in w and easing in w
+                       for w in rep["warnings"]), easing
+
+    cut["composition"]["children"][0]["animations"][0]["easing"] = "wiggle"
+    rep = lint_cut_timing(cut)
+    assert any("unknown" in w for w in rep["warnings"])
+
+
+def test_bezier_points_validator_repairs_instead_of_crashing():
+    from backend.agent.schemas import AnimationNode
+
+    # x values clamp into [0, 1]; y stays unbounded.
+    anim = AnimationNode(
+        property="translateX",
+        **{"from": -50.0},
+        to=0.0,
+        duration=0.5,
+        easing="bezier",
+        bezier_points=[1.5, 3.0, -0.4, 0.5],
+    )
+    assert anim.bezier_points == [1.0, 3.0, 0.0, 0.5]
+
+    # Wrong length / non-numeric / non-finite shapes drop to None so the
+    # renderer falls back to its default curve instead of throwing.
+    for bad in ([0.5, 1.0], [0.5, 1.0, 0.3, 1.0, 0.0],
+                ["a", 1.0, 0.3, 1.0], [float("nan"), 1, 0.3, 1]):
+        anim = AnimationNode(
+            property="translateX",
+            **{"from": -50.0},
+            to=0.0,
+            duration=0.5,
+            easing="bezier",
+            bezier_points=bad,
+        )
+        assert anim.bezier_points is None
+
+    # Valid curve passes through untouched.
+    anim = AnimationNode(
+        property="translateX",
+        **{"from": -50.0},
+        to=0.0,
+        duration=0.5,
+        easing="bezier",
+        bezier_points=[0.16, 1.0, 0.3, 1.0],
+    )
+    assert anim.bezier_points == [0.16, 1.0, 0.3, 1.0]
+
+

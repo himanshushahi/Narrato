@@ -144,17 +144,65 @@ AnimationProperty = Literal[
     "scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY",
     "blur", "brightness",
 ]
-EasingType = Literal["linear", "spring", "ease-in", "ease-out", "ease-in-out"]
+EasingType = Literal[
+    "linear", "spring", "ease-in", "ease-out", "ease-in-out",
+    "bounce", "elastic", "back", "steps", "bezier",
+]
+LoopModeType = Literal["none", "loop", "pingpong"]
 
 class AnimationNode(AppBaseModel):
     """Keyframe animation instruction for an AST Layer."""
-    property: Literal["scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY", "blur", "brightness"] = Field(..., description="Animatable property (spatial: scale/translate/rotate for shutter motion; blur px rack-focus; brightness multiplier flash)")
+    property: AnimationProperty = Field(..., description="Animatable property (spatial: scale/translate/rotate for shutter motion; blur px rack-focus; brightness multiplier flash)")
     from_: float = Field(..., alias="from", description="Initial value")
     to: float = Field(..., description="Target value")
     duration: float = Field(..., gt=0, description="Duration of the animation in seconds")
     delay: Optional[float] = Field(default=0.0, ge=0, description="Delay in seconds before animation begins (optional, default 0)")
-    easing: Literal["linear", "spring", "ease-in", "ease-out", "ease-in-out"] = Field(default="ease-out", description="Animation easing curve")
+    easing: EasingType = Field(default="ease-out", description="Animation easing curve: spring, ease-out, ease-in-out, ease-in, linear, bounce, elastic, back, steps, bezier")
     exit: Optional[bool] = Field(default=None, description="If true, marks an exit transition: skips evaluating until delay begins, and layer unmounts when complete")
+
+    # Remotion spring physics parameters (when easing="spring")
+    damping: Optional[float] = Field(default=None, gt=0, description="Spring damping / friction resistance (default 14, lower is bouncier)")
+    stiffness: Optional[float] = Field(default=None, gt=0, description="Spring stiffness / tension snap (default 100, higher is snappier)")
+    mass: Optional[float] = Field(default=None, gt=0, description="Spring mass / weight inertia (default 0.9, higher is heavier)")
+    overshoot_clamping: Optional[bool] = Field(default=None, description="Spring overshoot clamping (if true, prevents bouncing beyond target value)")
+
+    # Curve-specific parameters
+    elastic_bounciness: Optional[float] = Field(default=None, gt=0, description="Elastic curve bounciness factor (default 1.0)")
+    back_overshoot: Optional[float] = Field(default=None, ge=0, description="Back curve anticipation overshoot factor (default 1.7)")
+    steps_count: Optional[int] = Field(default=None, gt=0, description="Steps curve discrete step count (default 5)")
+    bezier_points: Optional[List[float]] = Field(default=None, description="Cubic bezier [x1, y1, x2, y2] control points (e.g. [0.16, 1.0, 0.3, 1.0])")
+
+    # Continuous motion loop mode
+    loop_mode: Optional[LoopModeType] = Field(default=None, description="Continuous motion cycle: 'none' (one-shot), 'loop' (repeats from start), 'pingpong' (oscillates forward and reverse; one direction per duration, full round trip = 2x duration)")
+
+    @field_validator("bezier_points", mode="before")
+    @classmethod
+    def sanitize_bezier_points(cls, v: Any) -> Any:
+        """Repair (never punish) cubic-bezier control points.
+
+        The Remotion renderer throws when x1/x2 fall outside [0, 1],
+        which would break the whole layer at export — so clamp x into
+        range (y stays unbounded) and drop malformed shapes (wrong
+        length / non-finite) so the renderer falls back to its default
+        curve instead of crashing.
+        """
+        import math
+        if v is None:
+            return None
+        if not isinstance(v, (list, tuple)) or len(v) != 4:
+            logger.warning("AnimationNode: bezier_points must be [x1, y1, x2, y2] — dropping malformed %r", v)
+            return None
+        try:
+            nums = [float(x) for x in v]
+        except (TypeError, ValueError):
+            logger.warning("AnimationNode: bezier_points has non-numeric values — dropping %r", v)
+            return None
+        if any(not math.isfinite(n) for n in nums):
+            logger.warning("AnimationNode: bezier_points has non-finite values — dropping %r", v)
+            return None
+        nums[0] = min(1.0, max(0.0, nums[0]))
+        nums[2] = min(1.0, max(0.0, nums[2]))
+        return nums
 
 
 class ChartDataPoint(AppBaseModel):
