@@ -1314,6 +1314,7 @@ def save_visuals_payload(project_id: str, section_type: str,
     from backend.agent.validators import (
         validate_sub_visuals, detect_legacy_cut_shape,
         migrate_legacy_cut_to_composition, build_sample_cut,
+        sanitize_layer_masks,
         CANONICAL_CUT_HINT,
     )
     # Phase 0 AUTO-REPAIR (mirrors the internal loop's correction turn):
@@ -1353,6 +1354,22 @@ def save_visuals_payload(project_id: str, section_type: str,
                     f"cut#{_idx}: removed z_index/zIndex from "
                     f"{_stripped} layer(s) (stacking is children array "
                     f"order) — resubmit-safe.")
+        except Exception:
+            pass
+        # (b2) mask repair: drop no-op/unknown mask keys, coerce bad
+        # reveal easings (incl. legacy 'spring') to ease-out, drop invalid
+        # durations/delays and blank polygon points. Idempotent — the
+        # validator re-runs the same pass, so this only surfaces notes.
+        try:
+            _comp2 = _cut.get("composition")
+            _kids2 = _comp2.get("children") if isinstance(_comp2, dict) else None
+            if isinstance(_kids2, list):
+                _n = sanitize_layer_masks(_kids2, cut_label=f"cut#{_idx}")
+                if _n:
+                    auto_fixed.append(
+                        f"cut#{_idx}: repaired {_n} mask field(s) "
+                        f"(dropped no-op/unknown keys, coerced easing → "
+                        f"ease-out — verify this cut in review_frame).")
         except Exception:
             pass
         # (b) legacy layers/layout migration: best-effort conversion, always

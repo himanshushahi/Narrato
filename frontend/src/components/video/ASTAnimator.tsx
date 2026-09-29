@@ -26,6 +26,46 @@ export type ASTAnimationEasing =
 
 export type ASTAnimationLoopMode = 'none' | 'loop' | 'pingpong';
 
+export type ASTMaskShape = 'none' | 'circle' | 'ellipse' | 'inset' | 'polygon';
+
+export type ASTMaskReveal =
+  | 'none'
+  | 'circle_iris'
+  | 'wipe_right'
+  | 'wipe_down'
+  | 'split_vertical'
+  | 'wipe_diagonal';
+
+export type ASTPolygonPreset =
+  | 'hexagon'
+  | 'diamond'
+  | 'triangle'
+  | 'star'
+  | 'slant_left'
+  | 'slant_right'
+  | 'custom';
+
+export interface ASTLayerMask {
+  shape?: ASTMaskShape;
+  size?: number | string;
+  rx?: number | string;
+  ry?: number | string;
+  x?: number | string;
+  y?: number | string;
+  top?: number | string;
+  right?: number | string;
+  bottom?: number | string;
+  left?: number | string;
+  corner_radius?: number | string;
+  polygon_preset?: ASTPolygonPreset;
+  points?: string;
+  reveal?: ASTMaskReveal;
+  reveal_duration?: number;
+  reveal_delay?: number;
+  reveal_easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'bounce';
+  inverted?: boolean;
+}
+
 export interface ASTAnimation {
   property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
   from: number;
@@ -62,6 +102,7 @@ export interface ASTAnimatorProps {
   camera_shake?: CameraShakeType;
   transform_origin?: string;
   floating?: boolean;
+  mask?: ASTLayerMask;
   /** 'preview' (Player) uses fewer samples; defaults to auto-detect. */
   qualityMode?: QualityMode;
   /** User policy from Settings → Rendering Engine (defaults to balanced). */
@@ -75,6 +116,7 @@ interface AnimatedLayerProps {
   camera_shake?: CameraShakeType;
   transform_origin?: string;
   floating?: boolean;
+  mask?: ASTLayerMask;
   children: React.ReactNode;
 }
 
@@ -143,12 +185,177 @@ function evaluateAnimationProgress(
   });
 }
 
+function formatMaskUnit(val: number | string | undefined, defaultUnit = '%'): string {
+  if (val === undefined || val === null || val === '') return `50${defaultUnit}`;
+  if (typeof val === 'number') return `${val}${defaultUnit}`;
+  const s = String(val).trim();
+  if (/^-?[\d.]+$/.test(s)) return `${s}${defaultUnit}`;
+  return s;
+}
+
+/** True when a mask config produces any clipping (static shape or reveal). */
+export function hasMask(mask: ASTLayerMask | undefined | null): boolean {
+  if (!mask) return false;
+  if (mask.shape && mask.shape !== 'none') return true;
+  return !!(mask.reveal && mask.reveal !== 'none');
+}
+
+export function computeClipPath(
+  mask: ASTLayerMask | undefined,
+  frame: number,
+  fps: number
+): string | undefined {
+  // Reveal-first combined clip (single-clip consumers such as the canvas
+  // overlay echo). The animated layer itself nests shape + reveal clips so
+  // a reveal animates INTO the static shape instead of discarding it.
+  return computeRevealClip(mask, frame, fps) ?? computeStaticShapeClip(mask);
+}
+
+/** Animated reveal portion of a mask (frame-dependent). */
+export function computeRevealClip(
+  mask: ASTLayerMask | undefined,
+  frame: number,
+  fps: number
+): string | undefined {
+  if (!mask || !mask.reveal || mask.reveal === 'none') return undefined;
+  const duration = typeof mask.reveal_duration === 'number' && mask.reveal_duration > 0
+    ? mask.reveal_duration
+    : 0.8;
+  const delay = typeof mask.reveal_delay === 'number' && mask.reveal_delay >= 0
+    ? mask.reveal_delay
+    : 0;
+  const delayFrames = Math.max(0, Math.round(delay * fps));
+  const durationFrames = Math.max(1, Math.round(duration * fps));
+  const localFrame = frame - delayFrames;
+
+  let t = 0;
+  if (localFrame <= 0) {
+    t = 0;
+  } else if (localFrame >= durationFrames) {
+    t = 1;
+  } else {
+    const rawT = localFrame / durationFrames;
+    const easing = mask.reveal_easing || 'ease-out';
+    if (easing === 'ease-in') {
+      t = Easing.in(Easing.quad)(rawT);
+    } else if (easing === 'ease-out') {
+      t = Easing.out(Easing.quad)(rawT);
+    } else if (easing === 'ease-in-out') {
+      t = Easing.inOut(Easing.quad)(rawT);
+      // NOTE: no 'spring' — overshoot past "fully revealed" is invisible
+      // for a reveal (and negative insets would paint outside the box),
+      // so spring is rejected at the schema/editor level. Unknown values
+      // (incl. legacy 'spring') fall through to linear below.
+    } else if (easing === 'bounce') {
+      t = Easing.bounce(rawT);
+    } else {
+      t = rawT;
+    }
+  }
+
+  t = Math.max(0, Math.min(1, t));
+  if (mask.inverted) {
+    t = 1 - t;
+  }
+
+  const cx = formatMaskUnit(mask.x, '%');
+  const cy = formatMaskUnit(mask.y, '%');
+
+  switch (mask.reveal) {
+    case 'circle_iris': {
+      const radius = (t * 75 * Math.SQRT2).toFixed(2);
+      return `circle(${radius}% at ${cx} ${cy})`;
+    }
+    case 'wipe_right': {
+      const rightInset = ((1 - t) * 100).toFixed(2);
+      return `inset(0% ${rightInset}% 0% 0%)`;
+    }
+    case 'wipe_down': {
+      const bottomInset = ((1 - t) * 100).toFixed(2);
+      return `inset(0% 0% ${bottomInset}% 0%)`;
+    }
+    case 'split_vertical': {
+      // Center-out curtain: the split line is vertical, halves part left/right.
+      const sideInset = ((1 - t) * 50).toFixed(2);
+      return `inset(0% ${sideInset}% 0% ${sideInset}%)`;
+    }
+    case 'wipe_diagonal': {
+      // True corner-to-corner diagonal: triangle growing from the top-left
+      // corner. Legs reach 200% so the corner (100%,100%) is covered at t=1
+      // on any aspect ratio (x/200 + y/200 = 1 on the hypotenuse).
+      const leg = (t * 200).toFixed(2);
+      return `polygon(0% 0%, ${leg}% 0%, 0% ${leg}%)`;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** Static shape portion of a mask (frame-independent). */
+export function computeStaticShapeClip(
+  mask: ASTLayerMask | undefined
+): string | undefined {
+  if (!mask || !mask.shape || mask.shape === 'none') return undefined;
+  switch (mask.shape) {
+    case 'circle': {
+      const size = formatMaskUnit(mask.size ?? 50, '%');
+      const cx = formatMaskUnit(mask.x ?? 50, '%');
+      const cy = formatMaskUnit(mask.y ?? 50, '%');
+      return `circle(${size} at ${cx} ${cy})`;
+    }
+    case 'ellipse': {
+      const rx = formatMaskUnit(mask.rx ?? 50, '%');
+      const ry = formatMaskUnit(mask.ry ?? 35, '%');
+      const cx = formatMaskUnit(mask.x ?? 50, '%');
+      const cy = formatMaskUnit(mask.y ?? 50, '%');
+      return `ellipse(${rx} ${ry} at ${cx} ${cy})`;
+    }
+    case 'inset': {
+      const top = formatMaskUnit(mask.top ?? 0, '%');
+      const right = formatMaskUnit(mask.right ?? 0, '%');
+      const bottom = formatMaskUnit(mask.bottom ?? 0, '%');
+      const left = formatMaskUnit(mask.left ?? 0, '%');
+      const radius = mask.corner_radius ? ` round ${formatMaskUnit(mask.corner_radius, 'px')}` : '';
+      return `inset(${top} ${right} ${bottom} ${left}${radius})`;
+    }
+    case 'polygon': {
+      const preset = mask.polygon_preset || 'hexagon';
+      if (preset === 'triangle') {
+        return 'polygon(50% 0%, 100% 100%, 0% 100%)';
+      } else if (preset === 'diamond') {
+        return 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)';
+      } else if (preset === 'hexagon') {
+        return 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
+      } else if (preset === 'star') {
+        return 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)';
+      } else if (preset === 'slant_left') {
+        return 'polygon(15% 0%, 100% 0%, 85% 100%, 0% 100%)';
+      } else if (preset === 'slant_right') {
+        return 'polygon(0% 0%, 85% 0%, 100% 100%, 15% 100%)';
+      } else if (preset === 'custom') {
+        // Custom points are author intent — never substitute a different
+        // geometry. Missing/blank points mean no clip (warn, don't hexagon).
+        const pts = typeof mask.points === 'string' ? mask.points.trim() : '';
+        if (pts) {
+          return `polygon(${mask.points})`;
+        }
+        console.warn('[AST] mask polygon preset=custom without points — skipping clip');
+        return undefined;
+      }
+      return 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
+    }
+    default:
+      return undefined;
+  }
+}
+
 const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   animations = [],
   exit,
   camera_shake = 'none',
   transform_origin = 'center center',
   floating = false,
+  mask,
   children,
 }) => {
   const frame = useCurrentFrame();
@@ -303,14 +510,36 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     return s;
   }, [animations, cameraOffset, floating, frame, qFrameFloat, fps, transform_origin]);
 
+  // Mask clips: the static shape lives on the outer (transform) div while
+  // the animated reveal lives on an inner wrapper, so a reveal animates
+  // INTO the shape (e.g. iris opening inside a hexagon) instead of the
+  // reveal discarding the shape until it completes.
+  const shapeClip = useMemo(() => computeStaticShapeClip(mask), [mask]);
+  const revealClip = useMemo(
+    () => computeRevealClip(mask, frame, fps),
+    [mask, frame, fps]
+  );
+
   // If exit cutoff has been reached, unmount the layer completely so it doesn't linger
   if (exitFrame !== null && frame >= exitFrame) {
     return null;
   }
 
-  return (
-    <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
+  const shapeStyle: React.CSSProperties = shapeClip
+    ? { clipPath: shapeClip, WebkitClipPath: shapeClip }
+    : {};
+  const content = revealClip ? (
+    <div style={{
+      width: '100%', height: '100%', position: 'absolute',
+      clipPath: revealClip, WebkitClipPath: revealClip,
+    }}>
       {children}
+    </div>
+  ) : children;
+
+  return (
+    <div style={{ width: '100%', height: '100%', position: 'absolute', ...style, ...shapeStyle }}>
+      {content}
     </div>
   );
 };
@@ -372,7 +601,7 @@ const BlurGate: React.FC<ASTAnimatorProps> = ({
 };
 
 export const ASTAnimator: React.FC<ASTAnimatorProps> = (props) => {
-  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, exit, children } = props;
+  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, exit, mask, children } = props;
   const content = (
     <AnimatedLayer
       animations={animations}
@@ -380,6 +609,7 @@ export const ASTAnimator: React.FC<ASTAnimatorProps> = (props) => {
       camera_shake={camera_shake}
       transform_origin={props.transform_origin}
       floating={floating}
+      mask={mask}
     >
       {children}
     </AnimatedLayer>

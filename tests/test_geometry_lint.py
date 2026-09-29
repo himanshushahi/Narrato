@@ -424,3 +424,175 @@ def test_bezier_points_validator_repairs_instead_of_crashing():
     assert anim.bezier_points == [0.16, 1.0, 0.3, 1.0]
 
 
+def test_ast_schemas_support_mask_configurations():
+    from backend.agent.schemas import ASTLayerNode, ASTMaskConfig
+
+    # Circle mask with reveal
+    layer_circle = ASTLayerNode(
+        content={"type": "Image", "query": "modern skyline"},
+        mask=ASTMaskConfig(
+            shape="circle",
+            size=45,
+            x=50,
+            y=50,
+            reveal="circle_iris",
+            reveal_duration=0.9,
+            reveal_delay=0.2,
+            reveal_easing="ease-out",
+        ),
+    )
+    assert layer_circle.mask.shape == "circle"
+    assert layer_circle.mask.size == 45
+    assert layer_circle.mask.reveal == "circle_iris"
+    assert layer_circle.mask.reveal_duration == 0.9
+
+    # Polygon mask with star preset
+    layer_star = ASTLayerNode(
+        content={"type": "Image", "query": "space nebula"},
+        mask=ASTMaskConfig(
+            shape="polygon",
+            polygon_preset="star",
+            reveal="wipe_diagonal",
+            inverted=True,
+        ),
+    )
+    assert layer_star.mask.shape == "polygon"
+    assert layer_star.mask.polygon_preset == "star"
+    assert layer_star.mask.reveal == "wipe_diagonal"
+    assert layer_star.mask.inverted is True
+
+    # Inset mask with rounded corners
+    layer_inset = ASTLayerNode(
+        content={"type": "Image", "query": "document report"},
+        mask={
+            "shape": "inset",
+            "top": "10%",
+            "right": "10%",
+            "bottom": "10%",
+            "left": "10%",
+            "corner_radius": "24px",
+            "reveal": "split_vertical",
+        },
+    )
+    assert layer_inset.mask.shape == "inset"
+    assert layer_inset.mask.corner_radius == "24px"
+
+
+def test_ast_layer_supports_ergonomics_attributes():
+    from backend.agent.schemas import ASTLayerNode
+
+    layer = ASTLayerNode(
+        name="Keynote Speaker Cutout",
+        visible=False,
+        locked=True,
+        color_tag="#38bdf8",
+        content={"type": "Image", "query": "speaker portrait"},
+    )
+    assert layer.name == "Keynote Speaker Cutout"
+    assert layer.visible is False
+    assert layer.locked is True
+    assert layer.color_tag == "#38bdf8"
+
+
+def test_validate_sub_visuals_preserves_mask_and_ergonomics():
+    from backend.agent.validators import validate_sub_visuals
+
+    svs = [
+        {
+            "duration": 4.0,
+            "transition": "fade",
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "name": "Subject photo",
+                        "visible": True,
+                        "locked": True,
+                        "color_tag": "#38bdf8",
+                        "content": {
+                            "type": "Image",
+                            "query": "modern skyline",
+                            "source": "pexels",
+                            "style": {
+                                "position": "absolute",
+                                "left": "4%", "top": "6%",
+                                "width": "92%", "height": "52%",
+                            },
+                        },
+                        "animations": [],
+                        "mask": {
+                            "shape": "polygon",
+                            "polygon_preset": "hexagon",
+                            "reveal": "wipe_right",
+                            "reveal_duration": 0.6,
+                            "reveal_easing": "ease-out",
+                        },
+                        "filters": [],
+                    },
+                ],
+            },
+        }
+    ]
+    ok, normalized, err = validate_sub_visuals(svs, 4.0)
+    assert ok, err
+    layer = normalized[0]["composition"]["children"][0]
+    assert layer["name"] == "Subject photo"
+    assert layer["visible"] is True
+    assert layer["locked"] is True
+    assert layer["color_tag"] == "#38bdf8"
+    assert layer["mask"]["shape"] == "polygon"
+    assert layer["mask"]["reveal"] == "wipe_right"
+
+
+def test_sanitize_layer_masks_repairs_instead_of_punishing():
+    from backend.agent.validators import sanitize_layer_masks
+
+    # Empty / no-op / non-dict masks are dropped.
+    layers = [
+        {"type": "Layer", "content": {}, "mask": {}},
+        {"type": "Layer", "content": {}, "mask": {"shape": "none", "reveal": "none"}},
+        {"type": "Layer", "content": {}, "mask": "circle"},
+    ]
+    assert sanitize_layer_masks(layers, cut_label="cut#0") == 3
+    assert all("mask" not in l for l in layers)
+
+    # Unknown shape/reveal/preset keys dropped; legacy spring easing
+    # coerced to ease-out; bad durations/delays and blank points dropped.
+    layers = [
+        {"type": "Layer", "content": {}, "mask": {
+            "shape": "octagon", "reveal": "spiral",
+            "reveal_easing": "spring", "reveal_duration": -1,
+            "reveal_delay": -0.5, "polygon_preset": "octagon",
+            "points": "   ",
+        }},
+    ]
+    n = sanitize_layer_masks(layers, cut_label="cut#0")
+    assert n >= 6
+    assert "mask" not in layers[0]  # emptied by repairs → key dropped
+
+    # Valid masks pass through untouched (idempotent second run repairs 0).
+    layers = [
+        {"type": "Layer", "content": {}, "mask": {
+            "shape": "polygon", "polygon_preset": "hexagon",
+            "reveal": "wipe_diagonal", "reveal_duration": 0.6,
+            "reveal_easing": "bounce",
+        }},
+    ]
+    assert sanitize_layer_masks(layers, cut_label="cut#0") == 0
+    assert layers[0]["mask"]["reveal"] == "wipe_diagonal"
+
+
+def test_canonical_sample_cut_demonstrates_mask():
+    from backend.agent.validators import build_sample_cut, validate_sub_visuals
+
+    sample = build_sample_cut("landscape")
+    masks = [l.get("mask") for l in sample["composition"]["children"]
+             if isinstance(l, dict) and l.get("mask")]
+    assert masks, "canonical sample must include a masked layer for agent grounding"
+    ok, normalized, err = validate_sub_visuals([sample], 4.0)
+    assert ok, err
+    assert normalized[0]["composition"]["children"][1]["mask"]["reveal"] == "wipe_right"
+
+
+

@@ -4,6 +4,27 @@ import { usePlaybackStore } from '../../../store/usePlaybackStore';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { shallowEqualStyles } from '../visualSelection';
 import { isComplexScript } from '../../../components/video/complexScriptFonts';
+import { computeClipPath, computeStaticShapeClip, hasMask } from '../../../components/video/ASTAnimator';
+import { FPS } from '../timelineConstants';
+
+/**
+ * Overlay mask echo: the interactive hit-box stays the full unmasked rect
+ * (clipping it would make handles outside the visible region unclickable),
+ * but an inner pointer-transparent echo div carries the same clip-path the
+ * renderer applies, so masked layers read as masked on the canvas.
+ * Static shapes are exact; animated reveals evaluate at the playhead's
+ * cut-relative frame (same math as the renderer).
+ */
+function getOverlayMaskClip(
+  mask: any,
+  currentFrame: number,
+  subStartFrame: number,
+): string | undefined {
+  if (!hasMask(mask)) return undefined;
+  const staticClip = computeStaticShapeClip(mask);
+  if (staticClip) return staticClip;
+  return computeClipPath(mask, Math.max(0, currentFrame - subStartFrame), FPS);
+}
 
 /**
  * Parse a CSS value (% or px or raw number) to percent space.
@@ -808,6 +829,8 @@ interface LayerBoxProps {
   liveRotateDeg: number | null;
   /** Dropped-style override rendered during the commit debounce window. */
   pendingStyle: Record<string, any> | null;
+  /** Renderer-identical mask clip echo (undefined when unmasked). */
+  maskClip?: string;
   /** True while this layer is being dragged or rotated. */
   gesturingThis: boolean;
   /** True when the N/S-edge aspect unlock preview applies to this layer. */
@@ -837,7 +860,7 @@ interface LayerBoxProps {
  */
 const LayerBox: React.FC<LayerBoxProps> = React.memo(({
   layer, idx, box, compW, compH, selected, locked,
-  liveDrag, liveScale, liveRotateDeg, pendingStyle, gesturingThis,
+  liveDrag, liveScale, liveRotateDeg, pendingStyle, maskClip, gesturingThis,
   aspectUnlocking, suppressRef,
   onSelect, onBeginDrag, onMove, onEndDrag, onBeginRotate, onRotateMove, onEndRotate,
 }) => {
@@ -1014,6 +1037,22 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
           : 'border border-dashed border-transparent hover:border-amber-500/70 hover:bg-amber-500/5'
       }`}
     >
+      {/* Mask echo: same clip-path the renderer applies, on a
+          pointer-transparent inner div. The interactive box keeps the full
+          rect (clipping it would make outside handles unclickable). */}
+      {maskClip && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            clipPath: maskClip,
+            WebkitClipPath: maskClip,
+            background: selected ? 'rgba(245,158,11,0.22)' : 'rgba(245,158,11,0.08)',
+            borderRadius: 'inherit',
+          }}
+        />
+      )}
       <span
         style={{
           position: 'absolute',
@@ -1033,7 +1072,7 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
         }}
         className="group-hover/box:opacity-100 transition-opacity"
       >
-        {`L${idx + 1} · ${cType}`}
+        {`L${idx + 1} · ${cType}${maskClip ? ' · ✂️ masked' : ''}`}
       </span>
       {/* P3/P4 corner scale handles (aspect-preserving uniform scale).
           Corner drag directly manipulates scale; hold Alt for dimension resizing.
@@ -1950,19 +1989,26 @@ export const CanvasOverlay: React.FC<{
       )}
 
       {view.ordered.map(({ layer, idx, box }) => {
+        if ((layer as any)?.visible === false) return null;
         // Live overrides are per-layer: only the gesturing/dropped layer gets
         // non-null props, so memoized siblings skip the re-render entirely.
         const liveSession = drag && drag.layerIdx === idx ? drag : null;
+        // Mask echo clip (string prop — memoized siblings skip unless their
+        // own clip changes; only an actively-revealing layer re-renders).
+        const subStartFrame =
+          sceneTimings?.[selectedSceneIndex as number]?.subs?.[view.displaySubIdx]?.start ?? 0;
+        const maskClip = getOverlayMaskClip((layer as any)?.mask, currentFrame, subStartFrame);
         return (
           <LayerBox
             key={idx}
             layer={layer}
             idx={idx}
             box={box}
+            maskClip={maskClip}
             compW={compW}
             compH={compH}
             selected={view.isViewingSelectedCut && selectedLayerIndex === idx}
-            locked={isLocked}
+            locked={isLocked || !!(layer as any)?.locked}
             liveDrag={liveSession && !liveSession.scaleMode ? liveSession.cur : null}
             liveScale={liveSession?.preview ?? null}
             liveRotateDeg={

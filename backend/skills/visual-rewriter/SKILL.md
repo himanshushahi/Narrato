@@ -57,6 +57,7 @@ You will receive a script segment (narration) along with surrounding context and
 * **Physics & Dynamics (`motion`)**: `floating: true` harmonic drift; `motion_blur: true` + `shutter_angle: 45–360`; `camera_shake: "handheld" | "shockwave" | "glitch" | "none"`; `transform_origin` pivot.
 * **Filters & Looks (`filters`)**: 8 CSS looks (`Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur`, `Cinematic Dark Base`) + 6 SVG looks (`"url(#fx-emboss)"`, `"url(#fx-sharpen)"`, `"url(#fx-duotone-midnight)"`, `"url(#fx-duotone-inferno)"`, etc.) + blend modes (`"mix-blend-mode: overlay"`).
 * **Layer Exit & Stagger (`exit`)**: `exit: true` or `exit: <seconds>` on layer, or animation track `exit: true` for clean sequential beats without overlap.
+* **Shape Masking & Ergonomics (`mask`)**: `mask: {"shape": "circle"|"ellipse"|"inset"|"polygon", "polygon_preset": "hexagon"|"diamond"|"triangle"|"star"|"slant_left"|"slant_right", "reveal": "circle_iris"|"wipe_right"|"wipe_down"|"split_vertical"|"wipe_diagonal"}` (a reveal animates INTO the static shape when both are set). Layer ergonomics: `name`, `visible: false` (hide), `locked: true` (lock canvas).
 
 ### Part 3: Cut Transitions & Energy
 * **Transitions**: `"transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none"`.

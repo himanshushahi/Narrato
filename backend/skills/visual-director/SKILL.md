@@ -62,6 +62,9 @@ when_to_use: "Always loaded during bulk scene visual generation, storyboarding, 
    - Blend Modes: `filters: ["mix-blend-mode: overlay"]` (or `screen`, `multiply`, `color-dodge`, etc.).
 5. **Layer Exit & Stagger (`exit`)**:
    - Layer-level `exit: true` or `exit: <seconds>`, or animation track `exit: true`. Unmounts the layer cleanly so subsequent elements can enter the same screen space without visual collision.
+6. **Shape Masking & Ergonomics (`mask`)**:
+   - `mask`: Vector shapes (`"circle"`, `"ellipse"`, `"inset"`, `"polygon"` with hexagon/diamond/triangle/star/slant presets or custom points) and animated transitions (`"circle_iris"`, `"wipe_right"`, `"wipe_down"`, `"split_vertical"`, `"wipe_diagonal"` — a reveal animates INTO the static shape when both are set).
+   - Timeline ergonomics: `name` (label), `visible: false` (hide), `locked: true` (lock canvas).
 
 ---
 

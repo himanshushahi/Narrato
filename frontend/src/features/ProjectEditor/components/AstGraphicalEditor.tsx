@@ -9,6 +9,7 @@ import { DynamicIcon } from '../../../components/video/DynamicIcon';
 import { IconPickerModal } from './IconPickerModal';
 import { AstAnimationBuilder } from './AstAnimationBuilder';
 import { AstLayoutControls } from './AstLayoutControls';
+import { AstMaskControls } from './AstMaskControls';
 import { AstFilterControls } from './AstFilterControls';
 import { AstChartDataEditor } from './AstChartDataEditor';
 import { AstMapLocationsEditor } from './AstMapLocationsEditor';
@@ -85,7 +86,7 @@ export interface AstLayerApi {
   reorderLayer: (from: number, to: number) => void;
   previewQuery: (idx: number, query: string) => void;
   toggleAdvanced: (idx: number) => void;
-  setAdvancedTab: (idx: number, tab: 'layout' | 'animations' | 'filters' | 'motion') => void;
+  setAdvancedTab: (idx: number, tab: 'layout' | 'animations' | 'masks' | 'filters' | 'motion') => void;
   openIconPicker: (idx: number) => void;
   changeType: (idx: number, newType: string) => void;
   selectIcon: (iconName: string) => void;
@@ -227,7 +228,7 @@ export const AstGraphicalEditor = ({
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
   const [mediaError, setMediaError] = useState<Record<number, string | null>>({});
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
-  const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'filters' | 'motion'>>({});
+  const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'masks' | 'filters' | 'motion'>>({});
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
   // Card collapse (reorder mode): true = header-only compact row for easy dragging.
   // Default expanded (false) so existing editing flow is unchanged.
@@ -348,7 +349,17 @@ export const AstGraphicalEditor = ({
   const updateLayer = (idx: number, field: string, val: any) => {
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
-    newComp.children[idx] = { ...newComp.children[idx], [field]: val };
+    // Clearing a field (undefined) deletes the key instead of persisting
+    // noise (`visible: true`, `name: ""`, `mask: undefined` bloat LLM JSON
+    // and hide real intent) — absent and false-y defaults are equivalent
+    // to the renderer.
+    const next = { ...newComp.children[idx] };
+    if (val === undefined) {
+      delete next[field];
+    } else {
+      next[field] = val;
+    }
+    newComp.children[idx] = next;
     triggerChange(newComp);
   };
 
@@ -787,6 +798,7 @@ export const AstGraphicalEditor = ({
       onStyleChange: (val: any) => api.updateContent(idx, 'style', val),
       onAnimationsChange: (val: any) => api.updateLayer(idx, 'animations', val),
       onExitChange: (val: any) => api.updateLayer(idx, 'exit', val),
+      onMaskChange: (val: any) => api.updateLayer(idx, 'mask', val),
       onFiltersChange: (val: any) => api.updateLayer(idx, 'filters', val),
       onChartDataChange: (val: any) => api.updateContent(idx, 'data', val),
       onParticlesChange: (updates: Record<string, any>) => api.updateContentFields(idx, updates),
@@ -869,7 +881,61 @@ export const AstGraphicalEditor = ({
                   title="Drag to reorder (bottom=background, top=foreground)"
                   className="text-stone-500 hover:text-amber-400 cursor-grab active:cursor-grabbing shrink-0 px-0.5 select-none"
                 >⋮⋮</span>
-                <span className="text-xs font-bold text-amber-400 shrink-0 whitespace-nowrap">Layer {idx + 1}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    api.updateLayer(idx, 'visible', layer.visible === false ? undefined : false);
+                  }}
+                  className={`p-0.5 text-xs rounded transition-colors cursor-pointer shrink-0 select-none ${
+                    layer.visible === false
+                      ? 'opacity-40 hover:opacity-100 text-stone-500 hover:text-stone-200'
+                      : 'text-stone-300 hover:text-amber-400'
+                  }`}
+                  title={layer.visible === false ? 'Layer hidden — click to show' : 'Layer visible — click to hide'}
+                >
+                  {layer.visible === false ? '👁️‍🗨️' : '👁️'}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    api.updateLayer(idx, 'locked', layer.locked ? undefined : true);
+                  }}
+                  className={`p-0.5 text-xs rounded transition-colors cursor-pointer shrink-0 select-none ${
+                    layer.locked
+                      ? 'text-amber-400'
+                      : 'opacity-40 hover:opacity-100 text-stone-500 hover:text-stone-200'
+                  }`}
+                  title={layer.locked ? 'Layer locked on canvas — click to unlock' : 'Layer unlocked — click to lock'}
+                >
+                  {layer.locked ? '🔒' : '🔓'}
+                </button>
+                <input
+                  type="color"
+                  value={typeof layer.color_tag === 'string' && /^#[0-9a-fA-F]{6}$/.test(layer.color_tag) ? layer.color_tag : '#f59e0b'}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    api.updateLayer(idx, 'color_tag', e.target.value);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  title={layer.color_tag ? `Group color ${layer.color_tag} — click to change` : 'Group color tag — click to assign (visual grouping)'}
+                  className="w-4 h-4 rounded-full cursor-pointer shrink-0 bg-transparent p-0 border border-white/20"
+                  style={layer.color_tag ? { boxShadow: `0 0 6px ${layer.color_tag}` } : undefined}
+                />
+                <input
+                  type="text"
+                  value={layer.name !== undefined ? layer.name : `Layer ${idx + 1}`}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    const v = e.target.value;
+                    api.updateLayer(idx, 'name', v.trim() === '' ? undefined : v);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder={`Layer ${idx + 1}`}
+                  className="text-xs font-bold text-amber-400 bg-transparent hover:bg-white/5 focus:bg-black/60 focus:outline-none focus:ring-1 focus:ring-amber-500/50 rounded px-1 py-0.5 max-w-[130px] truncate"
+                  title="Layer label (click to edit)"
+                />
                 <span className="text-[9px] font-semibold uppercase tracking-wider text-stone-500 shrink-0">
                   {idx === 0 ? '· bottom' : idx === layers.length - 1 ? '· top' : ''}
                 </span>
@@ -2414,7 +2480,7 @@ export const AstGraphicalEditor = ({
               >
                 <span className="flex items-center gap-1.5">
                   <BsSliders size={11} className="text-amber-400" />
-                  Advanced (Layout, Animations, Filters & Motion FX)
+                  Advanced (Layout, Animations, Masks, Filters & Motion FX)
                 </span>
                 {isAdvancedOpen
                   ? <BsChevronDown size={11} className="ml-auto shrink-0" />
@@ -2423,11 +2489,12 @@ export const AstGraphicalEditor = ({
 
               {isAdvancedOpen && (
                 <div className="space-y-3.5 pt-3">
-                  {/* 4-Tab Segmented Bar */}
-                  <div className="grid grid-cols-4 gap-1 p-1 bg-black/60 border border-white/10 rounded-lg">
+                  {/* 5-Tab Segmented Bar */}
+                  <div className="grid grid-cols-5 gap-1 p-1 bg-black/60 border border-white/10 rounded-lg">
                     {[
                       { id: 'layout', label: 'Layout', icon: '🪟' },
                       { id: 'animations', label: 'Animations', icon: '🚀' },
+                      { id: 'masks', label: 'Mask & Clip', icon: '✂️' },
                       { id: 'filters', label: 'Filters', icon: '🎨' },
                       { id: 'motion', label: 'Motion FX', icon: '🎥' },
                     ].map(tab => {
@@ -2483,7 +2550,15 @@ export const AstGraphicalEditor = ({
                     </div>
                   )}
 
-                  {/* Tab 3: Filters */}
+                  {/* Tab 3: Masks & Vector Clipping */}
+                  {advancedTab[idx] === 'masks' && (
+                    <AstMaskControls
+                      mask={layer.mask}
+                      onChange={layerCallbacks[idx].onMaskChange}
+                    />
+                  )}
+
+                  {/* Tab 4: Filters */}
                   {advancedTab[idx] === 'filters' && (
                     <AstFilterControls
                       filters={layer.filters || EMPTY_LIST}

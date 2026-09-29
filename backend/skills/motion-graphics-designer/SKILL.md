@@ -101,6 +101,12 @@ By default, layers persist for the full cut duration. To choreograph multi-beat 
   * `"shockwave"`: Dramatic earthquake tremor for high-impact facts and reveals.
   * `"glitch"`: Cybernetic high-frequency jitter.
 * **`transform_origin`**: CSS pivot point for scale/rotate (`"center center"`, `"top left"`, `"bottom center"`, etc.).
+* **Shape Masking & Animated Reveals (`mask`)**:
+  * Shape: `"circle"`, `"ellipse"`, `"inset"` (with `corner_radius`), or `"polygon"` (`"hexagon"`, `"diamond"`, `"triangle"`, `"star"`, `"slant_left"`, `"slant_right"`, `"custom"` points).
+  * Animated reveals: `"circle_iris"`, `"wipe_right"`, `"wipe_down"`, `"split_vertical"` (center-out curtain), `"wipe_diagonal"` (corner-to-corner) with `reveal_duration`, `reveal_delay`, `reveal_easing` (`linear`/`ease-in`/`ease-out`/`ease-in-out`/`bounce`), `inverted`. A reveal animates INTO the static shape when both are set.
+* **Layer Timeline Ergonomics**:
+  * `name`: Descriptive label in timeline (e.g. `"Presenter Spotlight"`, `"Metric Card"`).
+  * `visible`: `false` hides layer; `locked`: `true` locks layer against canvas drag.
 
 ---
 

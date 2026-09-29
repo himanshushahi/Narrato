@@ -509,6 +509,133 @@ def sanitize_style_keys(children: List[Any], cut_label: str = "",
     return fixed
 
 
+_VALID_MASK_SHAPES = frozenset({"none", "circle", "ellipse", "inset", "polygon"})
+_VALID_MASK_REVEALS = frozenset({
+    "none", "circle_iris", "wipe_right", "wipe_down",
+    "split_vertical", "wipe_diagonal",
+})
+_VALID_REVEAL_EASINGS = frozenset(
+    {"linear", "ease-in", "ease-out", "ease-in-out", "bounce"})
+_VALID_POLYGON_PRESETS = frozenset({
+    "hexagon", "diamond", "triangle", "star",
+    "slant_left", "slant_right", "custom",
+})
+
+
+def sanitize_layer_masks(children: List[Any], cut_label: str = "") -> int:
+    """Repair (never punish) mask configs on raw-dict layers.
+
+    Mirrors the ASTMaskConfig contract for pipeline paths that never run
+    model validation (raw dicts bypass pydantic via the Union fallback).
+    Mutates layer dicts in place:
+    - non-dict or empty masks, and masks with neither shape nor reveal,
+      are dropped (no clip either way — the key only bloats LLM JSON);
+    - unknown shape/reveal/polygon_preset/easing strings are dropped to the
+      documented default path (shape/reveal → key dropped; preset → dropped
+      so the hexagon default applies; easing incl. legacy 'spring' →
+      'ease-out', since overshoot past fully-revealed is invisible);
+    - non-positive reveal_duration and negative reveal_delay are dropped
+      (the renderer defaults apply);
+    - blank `points` are dropped; a `custom` preset without points degrades
+      to no clip client-side with a console warning (never a substituted
+      hexagon).
+    Returns the number of keys repaired/dropped. Idempotent.
+    """
+    if not isinstance(children, list):
+        return 0
+    fixed = 0
+    for idx, layer in enumerate(children):
+        if not isinstance(layer, dict) or "mask" not in layer:
+            continue
+        mask = layer.get("mask")
+        if not isinstance(mask, dict) or not mask:
+            layer.pop("mask", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"dropped empty/non-dict mask."
+            )
+            continue
+        shape = mask.get("shape")
+        reveal = mask.get("reveal")
+        shape_on = isinstance(shape, str) and shape not in (None, "", "none")
+        reveal_on = isinstance(reveal, str) and reveal not in (None, "", "none")
+        if not shape_on and not reveal_on:
+            layer.pop("mask", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"dropped no-op mask (neither shape nor reveal)."
+            )
+            continue
+        if shape_on and shape not in _VALID_MASK_SHAPES:
+            mask.pop("shape", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"dropped unknown mask shape {shape!r}."
+            )
+        if reveal_on and reveal not in _VALID_MASK_REVEALS:
+            mask.pop("reveal", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"dropped unknown mask reveal {reveal!r}."
+            )
+        easing = mask.get("reveal_easing")
+        if easing is not None and easing not in _VALID_REVEAL_EASINGS:
+            mask["reveal_easing"] = "ease-out"
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"coerced reveal_easing {easing!r} → 'ease-out'."
+            )
+        dur = mask.get("reveal_duration")
+        if dur is not None and not (isinstance(dur, (int, float)) and not isinstance(dur, bool) and dur > 0):
+            mask.pop("reveal_duration", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"dropped invalid reveal_duration {dur!r} (renderer default 0.8s applies)."
+            )
+        delay = mask.get("reveal_delay")
+        if delay is not None and not (isinstance(delay, (int, float)) and not isinstance(delay, bool) and delay >= 0):
+            mask.pop("reveal_delay", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"dropped invalid reveal_delay {delay!r} (renderer default 0s applies)."
+            )
+        preset = mask.get("polygon_preset")
+        if preset is not None and preset not in _VALID_POLYGON_PRESETS:
+            mask.pop("polygon_preset", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"dropped unknown polygon_preset {preset!r} (hexagon default applies)."
+            )
+        points = mask.get("points")
+        if points is not None and not (isinstance(points, str) and points.strip()):
+            mask.pop("points", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"dropped blank polygon points (custom preset without points renders unmasked)."
+            )
+        # Re-check: repairs above may have emptied the mask entirely.
+        shape = mask.get("shape")
+        reveal = mask.get("reveal")
+        if not ((isinstance(shape, str) and shape not in ("", "none"))
+                or (isinstance(reveal, str) and reveal not in ("", "none"))):
+            layer.pop("mask", None)
+            fixed += 1
+            logger.warning(
+                f"sanitize_layer_masks: {cut_label or 'cut'} layer#{idx}: "
+                f"mask emptied by repairs — dropped the key."
+            )
+    return fixed
+
+
 def migrate_cut_geometry(sub_visuals: Any, video_format: str = "landscape",
                          cut_label_prefix: str = "migrate") -> int:
     """Opt-in LayerBox SOT v1 migration for stored projects.
@@ -546,6 +673,7 @@ def migrate_cut_geometry(sub_visuals: Any, video_format: str = "landscape",
             total += 1  # gradient placeholder inserted into a layer-less cut
         total += sanitize_style_keys(comp["children"], cut_label=label,
                                      video_format=video_format)
+        total += sanitize_layer_masks(comp["children"], cut_label=label)
     return total
 
 
@@ -603,6 +731,7 @@ def build_sample_cut(video_format: str = "landscape") -> Dict[str, Any]:
                 },
                 {
                     "type": "Layer",
+                    "name": "Subject photo",
                     "content": {
                         "type": "Image",
                         "query": "parliament building new delhi wide",
@@ -618,6 +747,11 @@ def build_sample_cut(video_format: str = "landscape") -> Dict[str, Any]:
                         {"property": "opacity", "from": 0, "to": 1,
                          "duration": 0.6, "delay": 0, "easing": "ease-out"}
                     ],
+                    "mask": {
+                        "reveal": "wipe_right",
+                        "reveal_duration": 0.6,
+                        "reveal_easing": "ease-out",
+                    },
                     "filters": [],
                 },
                 {
@@ -966,6 +1100,8 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
                     comp["children"], cut_label=f"cut#{len(normalized)}",
                     video_format=video_format,
                 )
+                sanitize_layer_masks(
+                    comp["children"], cut_label=f"cut#{len(normalized)}")
         except Exception:
             pass
         # Mid-cut punch-in zooms: [{at, scale, duration}] — sanitize ranges so

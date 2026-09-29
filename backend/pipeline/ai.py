@@ -167,7 +167,7 @@ from backend.agent.schemas import (
     ScriptIntroResponse, ScriptConclusionResponse, ScriptSceneResponse,
     BaseScriptResponse, OutlineResponse, StoryboardPlanResponse,
     DesignSystemResponse, SubVisualAST, VisualsArrayResponse,
-    AnimationNode, ASTLayerNode, LayerContent,
+    AnimationNode, ASTLayerNode, LayerContent, ASTMaskConfig,
     get_model_json_schema, parse_and_validate_model
 )
 
@@ -175,6 +175,7 @@ from backend.agent.schemas import (
 ANIMATION_SCHEMA = AnimationNode.model_json_schema()
 LAYER_CONTENT_SCHEMA = LayerContent.model_json_schema()
 AST_LAYER_SCHEMA = ASTLayerNode.model_json_schema()
+MASK_CONFIG_SCHEMA = ASTMaskConfig.model_json_schema()
 SUB_VISUAL_SCHEMA = SubVisualAST.model_json_schema()
 SCRIPT_INTRO_JSON_SCHEMA = ScriptIntroResponse.model_json_schema()
 SCRIPT_SCENE_JSON_SCHEMA = ScriptSceneResponse.model_json_schema()
@@ -2113,6 +2114,8 @@ Part 2: Universal Advanced Manipulation (any layer):
 - Physics & Dynamics (motion): floating: true harmonic drift; motion_blur: true + shutter_angle: 45-360 (default 180); camera_shake: "handheld" | "shockwave" | "glitch" | "none"; transform_origin pivot.
 - Filters & Looks (filters): 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur, Cinematic Dark Base) + 6 SVG looks (url(#fx-emboss), url(#fx-sharpen), url(#fx-duotone-midnight), url(#fx-duotone-inferno), etc.) + blend modes ("mix-blend-mode: overlay").
 - Layer Exit & Stagger (exit): exit: true or exit: <seconds> on layer, or animation track exit: true for sequential beats in one cut without visual collisions.
+- Shape Masking & Reveals (mask): {{"shape": circle (size/x/y) | ellipse (rx/ry/x/y) | inset (top/right/bottom/left/corner_radius) | polygon (polygon_preset hexagon/diamond/triangle/star/slant_left/slant_right/custom+points)}} + {{"reveal": circle_iris | wipe_right | wipe_down | split_vertical (center-out curtain) | wipe_diagonal (corner-to-corner), reveal_duration (default 0.8), reveal_delay, reveal_easing (linear/ease-in/ease-out/ease-in-out/bounce), inverted}}. A reveal animates INTO the static shape when both are set — combine polygon badges with circle_iris, never bare rectangles.
+- Layer Ergonomics: name (descriptive label), visible: false (hide from preview+export), locked: true (lock canvas), color_tag (grouping hex).
 
 Part 3: Cut Transitions & Energy (cut level):
 - Transitions: "transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none".

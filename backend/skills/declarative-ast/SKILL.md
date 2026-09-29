@@ -181,7 +181,7 @@ Every `Layer` node carries a `content` object defining one of the 11 supported c
 
 ## 3. Part 2: Universal Advanced Manipulation Features & Motion Grammar (Any Layer)
 
-These 5 manipulation feature sets apply to **any layer type**:
+These 6 universal manipulation feature sets apply to **any layer type**:
 
 ### 1. Geometry & Layout (`style` — LayerBox SOT v1)
 * **`%`-Only Bounding Box**: `left`, `top`, `width`, `height` (or `bottom` for lower-thirds; `right` for right-aligned). Never write raw `px` or unitless numbers.
@@ -283,6 +283,43 @@ By default, layers persist for the full cut duration. To sequence multiple visua
 * `exit: <seconds>` on a `Layer`: Unmounts the layer at an exact timestamp from cut start (e.g. `exit: 2.0`).
 * `exit: true` on an animation track: Evaluates only when its delay begins and unmounts the layer once complete.
 * Subsequent layers enter at or after the exit timestamp (`delay: 2.2`), cleanly sharing prime screen space.
+
+### 6. Shape & Vector Masking (`mask`) & Layer Ergonomics (`name`, `visible`, `locked`, `color_tag`)
+Clip layer geometry into geometric shapes and animated transitions using CSS/SVG vector clip paths without modifying the underlying asset:
+```json
+"mask": {
+  "shape": "polygon",
+  "polygon_preset": "hexagon",
+  "reveal": "circle_iris",
+  "reveal_duration": 0.8,
+  "reveal_delay": 0.2,
+  "reveal_easing": "ease-out"
+}
+```
+A reveal animates INTO the static shape when both are set (iris opening inside the hexagon above) — they compose, the reveal never discards the shape.
+* **Mask Shapes (`shape`)**:
+  * `"circle"`: Circular focal spotlight. Configurable `size` (radius %, default `50`), center `x` (default `50`), `y` (default `50`).
+  * `"ellipse"`: Elliptical mask. Configurable `rx` (horizontal radius %), `ry` (vertical radius %), `x`, `y`.
+  * `"inset"`: Inset crop box with rounded corners. Configurable `top`, `right`, `bottom`, `left` (crop %), and `corner_radius` (e.g. `"24px"`).
+  * `"polygon"`: Complex vector polygon geometry. Uses `polygon_preset`:
+    * `"hexagon"`: Modern 6-sided tech polygon.
+    * `"diamond"`: Rhombus diamond frame.
+    * `"triangle"`: Upward triangular portal.
+    * `"star"`: 5-point star cutout.
+    * `"slant_left"` / `"slant_right"`: 15° dynamic angled editorial crop.
+    * `"custom"`: Arbitrary CSS polygon string via `points` (e.g. `"50% 0%, 100% 50%, 50% 100%, 0% 50%"`).
+* **Animated Reveals (`reveal`)**:
+  * `"circle_iris"`: Expand outward from center like a camera shutter aperture.
+  * `"wipe_right"`: Horizontal wipe reveal from left to right.
+  * `"wipe_down"`: Vertical wipe reveal from top to bottom.
+  * `"split_vertical"`: Cinematic curtain opening outward from the vertical center line (halves part left/right).
+  * `"wipe_diagonal"`: Dynamic corner-to-corner diagonal wipe.
+  * Parameters: `reveal_duration` (seconds, default `0.8`), `reveal_delay` (seconds, default `0`), `reveal_easing` (`"ease-out"`, `"ease-in-out"`, `"ease-in"`, `"bounce"`, `"linear"` — no `"spring"`: overshoot past fully-revealed is invisible), `inverted: true` (reverses wipe/iris direction).
+* **Layer Timeline Ergonomics**:
+  * `name`: Descriptive human-readable label displayed in timeline (e.g. `"Presenter Cutout"`, `"Headline Bar"`, `"Background Footage"`).
+  * `visible: false`: Hides the layer from both the preview player and export render (as well as canvas click-selection).
+  * `locked: true`: Locks the layer against accidental drag or resize gestures on the visual canvas.
+  * `color_tag`: Hex color for visual category grouping in the editor.
 
 ---
 

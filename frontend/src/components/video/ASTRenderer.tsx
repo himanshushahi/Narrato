@@ -1,6 +1,6 @@
 import React from 'react';
 import { AbsoluteFill, Img, Video } from 'remotion';
-import { ASTAnimator, ASTAnimation } from './ASTAnimator';
+import { ASTAnimator, ASTAnimation, ASTLayerMask, hasMask } from './ASTAnimator';
 import { DataVisualizations } from './DataVisualizations';
 import { ChartRenderer, ChartDataItem } from './ChartRenderer';
 import { ShapeRenderer, ShapeProps, PresetPathType } from './ShapeRenderer';
@@ -98,6 +98,10 @@ interface ASTLayerContent {
 
 export interface ASTLayer {
   type: 'Layer';
+  name?: string;
+  visible?: boolean;
+  locked?: boolean;
+  color_tag?: string;
   content: ASTLayerContent;
   animations?: ASTAnimation[];
   exit?: boolean | number;
@@ -107,6 +111,7 @@ export interface ASTLayer {
   transform_origin?: string;
   floating?: boolean;
   filters?: string[];
+  mask?: ASTLayerMask;
 }
 
 // CSS properties that control layout/positioning of the layer container
@@ -650,7 +655,7 @@ const ASTLayerView: React.FC<{
         // content type (e.g. mid-edit in VisualsTab) renders nothing, but the
         // hook count must stay constant or React throws "Rendered fewer hooks
         // than expected" and trips the Player error boundary.
-        if (!node) return null;
+        if (!node || layer.visible === false) return null;
 
         const inner = (
           <div
@@ -675,7 +680,8 @@ const ASTLayerView: React.FC<{
         );
 
         const hasExit = layer.exit !== undefined && layer.exit !== false;
-        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin || !!floating || hasExit) ? (
+        const layerHasMask = hasMask(layer.mask);
+        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin || !!floating || hasExit || layerHasMask) ? (
           <ASTAnimator
             animations={animations}
             exit={layer.exit}
@@ -684,6 +690,7 @@ const ASTLayerView: React.FC<{
             camera_shake={camera_shake}
             transform_origin={transform_origin}
             floating={floating}
+            mask={layer.mask}
             qualityMode={mode}
             quality={policy}
           >
@@ -743,15 +750,17 @@ const ASTRendererInner: React.FC<{
           in layer `filters` arrays. Rendered once per composition. */}
       <FxFilterDefs />
       {orderedChildren.map((layer, idx) => (
-        <ASTLayerView
-          key={idx}
-          layer={layer}
-          idx={idx}
-          zIndex={idx + 1}
-          mode={mode}
-          policy={policy}
-          glassCap={glassCap}
-        />
+        layer.visible === false ? null : (
+          <ASTLayerView
+            key={idx}
+            layer={layer}
+            idx={idx}
+            zIndex={idx + 1}
+            mode={mode}
+            policy={policy}
+            glassCap={glassCap}
+          />
+        )
       ))}
     </AbsoluteFill>
   );

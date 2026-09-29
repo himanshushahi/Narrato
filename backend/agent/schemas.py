@@ -811,6 +811,37 @@ class LayerContent(AppBaseModel):
         return self
 
 
+MaskShapeType = Literal["none", "circle", "ellipse", "inset", "polygon"]
+MaskRevealType = Literal[
+    "none", "circle_iris", "wipe_right", "wipe_down", "split_vertical", "wipe_diagonal"
+]
+PolygonPresetType = Literal[
+    "hexagon", "diamond", "triangle", "star", "slant_left", "slant_right", "custom"
+]
+
+
+class ASTMaskConfig(AppBaseModel):
+    """Shape mask and animated reveal configuration for an AST layer."""
+    shape: Optional[MaskShapeType] = Field(default=None, description="Mask shape: none, circle, ellipse, inset, polygon")
+    size: Optional[Union[float, str]] = Field(default=None, description="Circle radius/size (percentage e.g. 50 or '50%')")
+    rx: Optional[Union[float, str]] = Field(default=None, description="Ellipse horizontal radius")
+    ry: Optional[Union[float, str]] = Field(default=None, description="Ellipse vertical radius")
+    x: Optional[Union[float, str]] = Field(default=None, description="Center X coordinate (default '50%')")
+    y: Optional[Union[float, str]] = Field(default=None, description="Center Y coordinate (default '50%')")
+    top: Optional[Union[float, str]] = Field(default=None, description="Inset top crop")
+    right: Optional[Union[float, str]] = Field(default=None, description="Inset right crop")
+    bottom: Optional[Union[float, str]] = Field(default=None, description="Inset bottom crop")
+    left: Optional[Union[float, str]] = Field(default=None, description="Inset left crop")
+    corner_radius: Optional[Union[float, str]] = Field(default=None, description="Inset corner radius (px or %)")
+    polygon_preset: Optional[PolygonPresetType] = Field(default=None, description="Polygon preset: hexagon, diamond, triangle, star, slant_left, slant_right, custom")
+    points: Optional[str] = Field(default=None, description="Custom polygon points e.g. '50% 0%, 100% 50%, 50% 100%, 0% 50%'")
+    reveal: Optional[MaskRevealType] = Field(default=None, description="Animated reveal transition: none, circle_iris, wipe_right, wipe_down, split_vertical, wipe_diagonal")
+    reveal_duration: Optional[float] = Field(default=None, gt=0, description="Duration of the reveal animation in seconds")
+    reveal_delay: Optional[float] = Field(default=None, ge=0, description="Delay before the reveal animation starts in seconds")
+    reveal_easing: Optional[Literal["linear", "ease-in", "ease-out", "ease-in-out", "bounce"]] = Field(default=None, description="Reveal animation easing: linear, ease-in, ease-out, ease-in-out, bounce (no spring — overshoot past fully-revealed is invisible)")
+    inverted: Optional[bool] = Field(default=None, description="Invert wipe direction or iris close")
+
+
 class ASTLayerNode(AppBaseModel):
     """A single renderable layer in an AST Sequence composition.
 
@@ -818,6 +849,10 @@ class ASTLayerNode(AppBaseModel):
     children[N-1] is the top foreground. No ordering fields exist.
     """
     type: Literal["Layer"] = Field(default="Layer", description="Layer node identifier", json_schema_extra={"const": "Layer"})
+    name: Optional[str] = Field(default=None, description="Human-readable layer name/label for timeline ergonomics")
+    visible: Optional[bool] = Field(default=None, description="Whether the layer is visible (false hides the layer from render and canvas)")
+    locked: Optional[bool] = Field(default=None, description="Whether the layer is locked against accidental canvas drag/resize")
+    color_tag: Optional[str] = Field(default=None, description="Color tag for visual grouping in editor")
     content: Union[LayerContent, Dict[str, Any]] = Field(..., description="Layer content specification")
     animations: Optional[List[Union[AnimationNode, Dict[str, Any]]]] = Field(default_factory=list, description="Keyframe animation list (spatial props drive shutter blur; blur/brightness are non-spatial fades)")
     exit: Optional[Union[bool, float]] = Field(default=None, description="Exit behavior: if true, layer unmounts when its animations complete; if number, seconds from cut start when layer unmounts. If omitted/false, layer persists for the full cut.")
@@ -827,6 +862,7 @@ class ASTLayerNode(AppBaseModel):
     camera_shake: Optional[str] = Field(default=None, description="Procedural noise camera motion effect", json_schema_extra={"enum": ["none", "handheld", "shockwave", "glitch"]})
     transform_origin: Optional[str] = Field(default=None, description="CSS transform-origin pivot for scale/rotate (e.g. 'center center', 'top left'); only visible with motion")
     filters: Optional[List[str]] = Field(default_factory=list, description="CSS/SVG filter strings (brightness/contrast/saturate/hue-rotate/blur/drop-shadow/url(#fx-*) or 'mix-blend-mode: X' — blend needs a layer beneath)")
+    mask: Optional[Union[ASTMaskConfig, Dict[str, Any]]] = Field(default=None, description="Shape masking & animated reveal configuration")
 
     @model_validator(mode="before")
     @classmethod
