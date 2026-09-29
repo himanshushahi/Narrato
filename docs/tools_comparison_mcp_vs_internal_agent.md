@@ -52,8 +52,8 @@ Narrato operates two distinct tool interfaces for AI agents:
    - MCP: `project_status` (DB row, pipeline task states, language, format).
    - Internal Agent: `project_status_report` (Deep summary: script structure, scene count, design system, visual settings).
 10. **Media Verification** *(Functional equivalent)*:
-   - MCP: `search_media` (Unified gateway with `source` parameter).
-   - Internal Agent: 6 dedicated tools (`search_pexels_photo`, `search_pexels_video`, `search_wikipedia_image`, `search_pixabay_photo`, `search_pixabay_video`, `search_youtube_video`).
+   - MCP: `search_media` (Unified gateway with `source` parameter supporting `pexels_photo`, `pexels_video`, `wikipedia_image`, `pixabay_photo`, `pixabay_video`, `youtube_video`, `archive_photo`, `archive_video`).
+   - Internal Agent: 8 dedicated tools (`search_pexels_photo`, `search_pexels_video`, `search_wikipedia_image`, `search_pixabay_photo`, `search_pixabay_video`, `search_youtube_video`, `search_archive_photo`, `search_archive_video`).
 11. **Iconography Tools (Internal Agent)**:
    - `search_icons` — Fast in-memory semantic search for valid Lucide icons.
 
@@ -102,7 +102,7 @@ These tools exist exclusively in MCP because external agents drive Narrato headl
 
 ---
 
-### Group C: Tools ONLY in Internal LLM Agent (5 Tools)
+### Group C: Tools ONLY in Internal LLM Agent (8 Tools)
 The internal agent exposes individual, dedicated tools for stock asset verification rather than a single unified function:
 
 1. **`search_pexels_photo`** — Dedicated Pexels photo search (`query`, `orientation`).
@@ -111,8 +111,10 @@ The internal agent exposes individual, dedicated tools for stock asset verificat
 4. **`search_pixabay_photo`** — Dedicated Pixabay photo search with `image_type` filtering (`photo`, `illustration`, `vector`).
 5. **`search_pixabay_video`** — Dedicated Pixabay stock video search (`query`).
 6. **`search_youtube_video`** — Dedicated YouTube video existence check via `yt-dlp` (`query`).
+7. **`search_archive_photo`** — Dedicated Internet Archive photo search (`query`).
+8. **`search_archive_video`** — Dedicated Internet Archive video footage search (`query`).
 
-*(Note: In MCP, all 6 providers are accessed via `search_media(source="...", query="...", orientation="...")`).*
+*(Note: In MCP, all 8 providers/media types are accessed via `search_media(source="...", query="...", orientation="...")`).*
 
 ---
 
@@ -128,7 +130,7 @@ The internal agent exposes individual, dedicated tools for stock asset verificat
 | `probe_scene` | ✅ | ✅ | **MCP**: `project_id`, `section_type`, `scene_index`<br>**Agent**: Same | Inspects 1 section: cut summaries, geometry rollups, energy, and visual variety. |
 | `probe_asset` | ✅ | ✅ | **MCP**: `project_id`, `section_type`, `scene_index`, `cut_index`, `layer_index`<br>**Agent**: Same | Inspects 1 layer's media file: existence, disk path, dimensions, format, duration. |
 | `project_status` / `project_status_report` | ✅ (`project_status`) | ✅ (`project_status_report`) | **MCP**: `project_id`<br>**Agent**: `project_id` | MCP returns DB row and task states; Internal Agent returns a formatted text overview of script, design, visual settings, and assets. |
-| Media Search (`search_media` vs Dedicated) | ✅ (`search_media`) | ✅ (6 dedicated tools) | **MCP**: `source`, `query`, `orientation`<br>**Agent**: Separate tools per source | Verifies stock assets exist before assigning queries to visual AST layers. |
+| Media Search (`search_media` vs Dedicated) | ✅ (`search_media`) | ✅ (8 dedicated tools) | **MCP**: `source`, `query`, `orientation`<br>**Agent**: Separate tools per source | Verifies stock assets exist before assigning queries to visual AST layers. |
 | `run_stage` | ✅ | ❌ | **MCP**: `project_id`, `stage`, `wait=True`, `confirm_render=False` | Triggers voiceover, transcription, asset downloading, or rendering. Internal Agent delegates this to the UI queue. |
 | `stage_status` | ✅ | ❌ | **MCP**: `project_id`, `stage` | Polls progress and status of background pipeline tasks. |
 | `cancel_stage` | ✅ | ❌ | **MCP**: `project_id`, `stage` | Gracefully terminates a running pipeline task. |
@@ -157,6 +159,8 @@ The internal agent exposes individual, dedicated tools for stock asset verificat
 | `search_pixabay_photo` | ❌ (in `search_media`) | ✅ | **Agent**: `query`, `orientation`, `image_type` | Searches Pixabay photos/vectors with transparent cutout support. |
 | `search_pixabay_video` | ❌ (in `search_media`) | ✅ | **Agent**: `query` | Searches Pixabay stock video footage. |
 | `search_youtube_video` | ❌ (in `search_media`) | ✅ | **Agent**: `query` | Checks YouTube video downloadability via yt-dlp. |
+| `search_archive_photo` | ❌ (in `search_media`) | ✅ | **Agent**: `query` | Searches Internet Archive for public domain/archival photos. |
+| `search_archive_video` | ❌ (in `search_media`) | ✅ | **Agent**: `query` | Searches Internet Archive for public domain/archival video footage. |
 | `search_icons` | ❌ (internal) | ✅ | **Agent**: `query`, `limit=5` | Semantic in-memory search for valid Lucide icon names and categories. Read-only. |
 | `get_word_timings` | ❌ (in `get_transcription`) | ✅ | **Agent**: `project_id`, `query` | Searches spoken word timestamps in `transcription.json` for precise kinetic sync. Read-only. |
 
@@ -182,7 +186,7 @@ The internal LLM agent operates under two distinct contexts with different allow
    - The final `manifest.json` is written to disk in a single batch **after all scenes complete**.
    - Assets are fetched in a subsequent stage (`fetch_assets`), and frames are rendered in `render`.
    - **Post-generation inspection tools are strictly excluded** (`probe_cut`, `probe_scene`, `probe_asset`, `review_frame`). If called mid-generation, they would return empty cuts, index errors, or report missing asset files.
-   - Allowed tools are strictly in-memory and pre-flight: `search_icons`, media verification (`search_pexels_*`, `search_pixabay_*`, `search_wikipedia_image`, `search_youtube_video`), `get_skill`, and `web_search`.
+   - Allowed tools are strictly in-memory and pre-flight: `search_icons`, media verification (`search_pexels_*`, `search_pixabay_*`, `search_wikipedia_image`, `search_youtube_video`, `search_archive_*`), `get_skill`, and `web_search`.
 
 2. **Interactive Bridge Rewrites / Editing (`BRIDGE_VISUAL_TOOLS`)**:
    - Used when a user interactively requests scene or cut updates in the editor (e.g., "rewrite cut 2", "make scene 1 more energetic").

@@ -12,7 +12,7 @@ The Asset Pipeline transforms declarative AST queries (e.g., `"source": "pexels"
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                            DECLARATIVE AST LAYER                            │
 │  { "type": "Layer", "content": { "type": "Image"|"Video", "query": "...",  │
-│    "source": "pexels"|"pixabay"|"wikipedia"|"youtube" } }                   │
+│    "source": "pexels"|"pixabay"|"wikipedia"|"youtube"|"archive" } }         │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │
                                        ▼
@@ -24,10 +24,11 @@ The Asset Pipeline transforms declarative AST queries (e.g., `"source": "pexels"
 │   ├── source == "pixabay"   ──► search_pixabay_photo() / _video() (Pixabay) │
 │   │                              └─► Transparent PNG cutouts (illustration) │
 │   ├── source == "youtube"   ──► download_youtube_video() (yt-dlp slicing)   │
+│   ├── source == "archive"   ──► search_archive_photo() / _video() (Archive) │
 │   └── source == "pexels"    ──► search_pexels_photo() / _video() (Pexels)   │
 │                                                                             │
 │  Caching: Hashes verified -> downloads to <project_dir>/assets/asset_*.ext │
-│  Fallback: Wikipedia -> Pexels | Pixabay -> Pexels | YouTube -> Pexels      │
+│  Fallback: Archive -> Pexels | Wikipedia -> Pexels | Pixabay -> Pexels     │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │
                                        ▼
@@ -58,6 +59,7 @@ The Asset Pipeline transforms declarative AST queries (e.g., `"source": "pexels"
 | **Pixabay** | Photos (JPG), Illustrations / Vectors (Transparent PNG), Videos (MP4) | Supports `image_type="illustration"` or `"vector"`. Returns transparent PNG cutouts via `webformatURL`. | `search_pixabay_photo()`, `search_pixabay_video()` | Floating icon badges, transparent PNG cutout overlays, graphics. |
 | **Wikipedia (Wikimedia)** | Entity Portraits, Logos, Historical Photos | Query must be exact entity name (e.g. `"Narendra Modi"`, `"Enron"`). Resolves full-res `imageinfo` canonical URL. | `search_wikipedia_image()`, `_get_original_wikimedia_url()` | Real people portraits, company logos, landmark historical evidence. |
 | **YouTube (`yt-dlp`)** | Video Clips (MP4) | Downloads targeted sliced clips using `yt_start_offset` (default 15s) and `yt_duration` (max 30s). | `download_youtube_video()` | Rare documentary footage, timelapses, loops not on stock sites. |
+| **Internet Archive (`archive.org`)** | Photos (JPG/PNG), Videos (MP4) | Zero API keys required. Grouped Lucene relevance queries; selects web-ready H.264 MP4s and high-res stills. | `search_archive_photo()`, `search_archive_video()` | Authentic historical newsreels, space/NASA missions, classic documentaries, public domain photography. |
 
 ---
 
@@ -103,6 +105,17 @@ cmd = [
     "-o", str(dest_path)
 ]
 ```
+
+---
+
+### D. Internet Archive Public Domain & Archival Media (`archive.org`)
+Internet Archive provides zero-configuration access to millions of public domain historical photos and documentary clips without requiring API keys:
+1. **Relevance Grouped Search**: Queries the advanced search endpoint `https://archive.org/advancedsearch.php` using Lucene grouping:
+   `({cleaned_query}) AND mediatype:(image)` or `({cleaned_query}) AND mediatype:(movies)`.
+2. **Metadata Inspection**: Resolves candidate item identifiers via `https://archive.org/metadata/{ident}/files`.
+3. **Smart Video Selection**: Filters out thumbnails and prioritizes web-ready H.264 MP4 derivatives under 150MB for smooth playback, falling back to smaller MP4 derivatives.
+4. **Smart Photo Selection**: Filters out thumbnails/icons and selects the highest resolution still photograph under 30MB.
+5. **Seamless Fallback**: If an archival search returns no items, the pipeline automatically falls back to Pexels and Pixabay.
 
 ---
 

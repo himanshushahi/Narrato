@@ -136,6 +136,7 @@ Every `Layer` node carries a `content` object defining one of the 11 supported c
   * `"pexels"`: High-resolution stock photography and atmospheric textures.
   * `"pixabay"`: Photos and transparent cutouts. Use `image_type: "illustration"` or `"vector"` for isolated objects/stickers without backgrounds.
   * `"wikipedia"`: High-res Wikimedia Commons files, official company/brand logos, flags, and historical figures (query exact entity name).
+  * `"archive"`: Authentic historical, space (NASA/Apollo), archival news, vintage photographs, documents from archive.org (query: 1-4 descriptive English keywords).
 * `objectFit`: `"cover"` (fills box, default) | `"contain"` (preserves aspect ratio without cropping, ideal for logos/badges) | `"fill"`.
 
 ### 7. `Video` (Dynamic B-Roll & Ambient Motion)
@@ -144,6 +145,7 @@ Every `Layer` node carries a `content` object defining one of the 11 supported c
   * `"pexels"`: High-quality generic cinematic stock B-roll (nature, cities, generic office, crowd lifestyle).
   * `"pixabay"`: Additional stock video library and looping abstract clips.
   * `"youtube"`: **Essential for real-world subjects**: real news events, product/tech demonstrations (Tesla, Apple, Nvidia), space launches, scientific simulations, archival history, and specialized machinery that generic stock libraries lack.
+  * `"archive"`: Authentic archival newsreels, early 20th century footage, military archives, space missions, public domain documentary clips from archive.org.
 * `volume`: Audio volume multiplier (`0.0`–`1.0`, default `0`). Keep low (`0.1`–`0.2`) unless voiceover is muted.
 * `loop`: `false` (default: naturally freezes on the last frame if video ends before cut) | `true` (loops continuously).
 * `yt_start_offset`: Seconds to skip from start of YouTube video (default `15s` to skip intros).

@@ -246,6 +246,7 @@ Defined in `backend/agent/tools.py:get_tools_schema()`, dispatched in
 | `search_pixabay_video` | `pipeline/assets.py` | Smaller catalogue — prefer Pexels for B-roll. |
 | `search_wikipedia_image` | `pipeline/assets.py` | No key; best for `portrait` entity images. |
 | `search_youtube_video` | `yt-dlp ytsearch1:` | Returns title/uploader/duration or error; needs yt-dlp binary. Use `source='youtube'` + `query` in AST. |
+| `search_archive_photo` / `search_archive_video` | `pipeline/assets.py` | Zero API keys; public domain/historical newsreels, NASA, space, vintage media from archive.org. |
 
 ### C. Scene & bridge mutations — NOT tools (live directly in `bridge.py`)
 
@@ -281,11 +282,11 @@ tools, and disallowed attempts are rejected without executing.
 | Allowlist constant | Members | Used by |
 |---|---|---|
 | `SCRIPT_NARRATION_TOOLS` | `web_search`, `get_skill`, `read_project_file`, `list_project_files`, `project_status_report` | §9.4 pipeline scene narration |
-| `PIPELINE_VISUAL_TOOLS` | above 5 **+** `search_pexels_photo`, `search_pexels_video`, `search_wikipedia_image`, `search_pixabay_photo`, `search_pixabay_video`, `search_youtube_video` (11 total) | §9.6 pipeline visuals |
+| `PIPELINE_VISUAL_TOOLS` | above 5 **+** `search_pexels_photo`, `search_pexels_video`, `search_wikipedia_image`, `search_pixabay_photo`, `search_pixabay_video`, `search_youtube_video`, `search_archive_photo`, `search_archive_video` (13 total) | §9.6 pipeline visuals |
 | `BRIDGE_SCRIPT_TOOLS` | same 5 as script narration | §9.8 rewrite script, §9.11 add scene |
-| `BRIDGE_VISUAL_TOOLS` | same 11 as pipeline visuals | §9.9 regenerate scene visuals, §9.10 single-cut rewrite |
+| `BRIDGE_VISUAL_TOOLS` | same 13 as pipeline visuals + `probe_cut`, `probe_scene`, `probe_asset`, `search_icons`, `get_word_timings` (18 total) | §9.9 regenerate scene visuals, §9.10 single-cut rewrite |
 | `BRIDGE_ADD_SCENE_TOOLS` | same 5 (narration-only; visuals added later) | §9.11 |
-| Full registry (no allowlist) | all 11 | Only when `_call_llm_safe(..., use_tools=True)` is invoked without `allowed_tools` (currently no production path does this — all bridge methods pass an allowlist). |
+| Full registry (no allowlist) | all 18 read-only tools | Only when `_call_llm_safe(..., use_tools=True)` is invoked without `allowed_tools`. |
 
 Every registered tool appears in at least one allowlist above — there are no
 orphan tools. Scene/bridge mutations are not tools at all: the GUI calls the
