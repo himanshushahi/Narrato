@@ -165,7 +165,7 @@ export const AstGraphicalEditor = ({
   initialValue: any;
   onChange: (val: any) => void;
   onUploadSubVisual?: (visualType?: string, layerIdx?: number) => Promise<string | undefined> | void;
-  onPreviewSubVisual?: (query: string, layerIdx?: number, visualType?: string) => Promise<string | undefined> | void;
+  onPreviewSubVisual?: (query: string, layerIdx?: number, visualType?: string, source?: string, imageType?: string) => Promise<string | undefined> | void;
   onDeleteLayer?: (layerIdx: number) => void;
   onDuplicateLayer?: (layerIdx: number) => void;
   onMoveLayer?: (fromIdx: number, toIdx: number) => void;
@@ -588,12 +588,14 @@ export const AstGraphicalEditor = ({
     if (!queryToSearch || !onPreviewRef.current) return;
     const currentLayer = compositionRef.current?.children?.[idx];
     const currentType = currentLayer?.content?.type || 'Image';
+    const currentSource = currentLayer?.content?.source || 'pexels';
+    const currentImageType = currentLayer?.content?.image_type || 'all';
     const isMediaLayer = currentType === 'Image' || currentType === 'Video';
     const vType = currentType === 'Video' ? 'video' : 'image';
     setPreviewingIdx(idx);
     setMediaError(prev => ({ ...prev, [idx]: null }));
     try {
-      const p = await onPreviewRef.current(queryToSearch, idx, vType);
+      const p = await onPreviewRef.current(queryToSearch, idx, vType, currentSource, currentImageType);
       if (p) {
         // STRICT: reject mismatched preview instead of silently flipping type.
         // Non-media layers (Text/Shape/...) may adopt either type explicitly.
@@ -1067,7 +1069,17 @@ export const AstGraphicalEditor = ({
                     className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 placeholder-stone-600 transition-colors"
                     value={content.query || ''}
                     onChange={e => updateContent(idx, 'query', e.target.value)}
-                    placeholder="e.g. cinematic cityscape, futuristic neon..."
+                    placeholder={
+                      content.source === 'archive'
+                        ? "e.g. apollo 11 launch, world war 2 newsreel, vintage new york..."
+                        : content.source === 'wikipedia'
+                        ? "e.g. Albert Einstein, Apple Inc., ISRO (exact entity name)..."
+                        : content.source === 'youtube'
+                        ? "e.g. spacex starship launch, tesla cybercab demo..."
+                        : content.source === 'pixabay'
+                        ? (content.image_type === 'illustration' || content.image_type === 'vector' ? "e.g. rocket launch cutout, gold coin badge..." : "e.g. nature mountain sunset, business handshake...")
+                        : "e.g. cinematic cityscape, futuristic neon..."
+                    }
                   />
                   {mediaError[idx] && (
                     <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-2 py-1.5">
@@ -1090,6 +1102,7 @@ export const AstGraphicalEditor = ({
                       <option value="pixabay">Pixabay</option>
                       {cType !== 'Video' && <option value="wikipedia">Wikipedia</option>}
                       {cType !== 'Image' && <option value="youtube">YouTube</option>}
+                      <option value="archive">Internet Archive (Historical)</option>
                     </select>
                   </div>
 

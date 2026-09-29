@@ -50,7 +50,7 @@ interface PywebviewApi {
   get_ytdlp_version(): Promise<{ installed: boolean; version: string | null; path: string | null }>;
   update_ytdlp(): Promise<{ status: string }>;
   fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number): Promise<any>;
-  preview_asset_download(project_id: string, query: string, visual_type?: string): Promise<{ success: boolean; visual_path?: string; error?: string }>;
+  preview_asset_download(project_id: string, query: string, visual_type?: string, source?: string, image_type?: string): Promise<{ success: boolean; visual_path?: string; error?: string }>;
   cleanup_preview_assets(project_id: string, preview_paths: string[]): Promise<{ success: boolean; deleted?: string[] }>;
   upload_overlay_asset(project_id: string): Promise<{ success: boolean; asset_path?: string; filename?: string; size_bytes?: number; extension?: string; error?: string }>;
   save_uploaded_overlay_data(project_id: string, data_url: string, filename?: string): Promise<{ success: boolean; asset_path?: string; filename?: string; size_bytes?: number; extension?: string; error?: string }>;

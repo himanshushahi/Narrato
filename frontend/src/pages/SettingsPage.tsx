@@ -505,8 +505,28 @@ const SettingsPage: React.FC = () => {
                   icon={<VscKey />}
                 />
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                <div className="bg-emerald-950/20 border border-emerald-800/30 rounded-lg p-3 flex items-start gap-2.5">
+                  <VscCheck className="text-base text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-semibold text-emerald-300">Internet Archive (archive.org)</div>
+                    <div className="text-[10px] text-stone-400 mt-0.5">
+                      Ready out of the box — zero API key required. High-res public domain images, historical newsreels, space &amp; NASA missions, and documentary footage.
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-emerald-950/20 border border-emerald-800/30 rounded-lg p-3 flex items-start gap-2.5">
+                  <VscCheck className="text-base text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-semibold text-emerald-300">Wikipedia &amp; Wikimedia Commons</div>
+                    <div className="text-[10px] text-stone-400 mt-0.5">
+                      Ready out of the box — zero API key required. Real people portraits, official company/brand logos, flags, and landmark historical photos.
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div className="text-[10px] text-stone-400">
-                These keys are required to automatically search and download stock photos and videos when using the AI pipeline. Freesound key powers trending SFX search (free at freesound.org/apiv2/apply); Pixabay CDN URLs also work as manual SFX. You can obtain free keys by registering on their respective developer portals.
+                Pexels, Pixabay, and Freesound keys above enable stock photos/videos and sound effects from those commercial libraries. Internet Archive and Wikipedia work automatically with no registration.
               </div>
             </GlassCard>
           </div>

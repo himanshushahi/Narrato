@@ -144,7 +144,7 @@ export function useProjectAssets(
                   category: isVideo ? 'video' : 'image',
                   assetType: contentType,
                   title: content.query || filename || `${contentType} Layer ${layerIdx + 1}`,
-                  source: content.source ? (content.source.charAt(0).toUpperCase() + content.source.slice(1)) : 'Pexels',
+                  source: content.source ? (content.source.toLowerCase() === 'archive' ? 'Internet Archive' : content.source.charAt(0).toUpperCase() + content.source.slice(1)) : 'Pexels',
                   filePath: filePath || diskInfo?.path,
                   filename: filename || diskInfo?.filename,
                   mediaUrl: filePath ? getMediaUrlSync(filePath) : (diskInfo?.path ? getMediaUrlSync(diskInfo.path) : ''),

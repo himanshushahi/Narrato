@@ -38,6 +38,7 @@ export interface Settings {
   freesound_api_key: string;
   use_pexels: boolean;
   use_youtube: boolean;
+  use_archive: boolean;
   youtube_download_duration: string;
   sfx_volume: string;
   render_resolution: string;
@@ -163,6 +164,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     freesound_api_key: "",
     use_pexels: true,
     use_youtube: true,
+    use_archive: true,
     youtube_download_duration: "15",
     sfx_volume: "0.5",
     web_search_enabled: false,
