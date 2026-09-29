@@ -196,6 +196,7 @@ PIPELINE_VISUAL_TOOLS = frozenset({
     "search_wikipedia_image",
     "search_pixabay_photo", "search_pixabay_video",
     "search_youtube_video",
+    "search_archive_photo", "search_archive_video",
 })
 
 SCRIPT_NARRATION_TOOLS = frozenset({
@@ -221,6 +222,7 @@ BRIDGE_VISUAL_TOOLS = frozenset({
     "search_pexels_photo", "search_pexels_video", "search_wikipedia_image",
     "search_pixabay_photo", "search_pixabay_video",
     "search_youtube_video",
+    "search_archive_photo", "search_archive_video",
 })
 
 # Bridge: add scene — research only (narration-only, visuals added later).

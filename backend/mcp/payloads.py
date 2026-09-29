@@ -1715,12 +1715,12 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                     report["normalizations"].append(
                         f"cut#{i}: source 'youtube' on Image is ignored "
                         f"(falls back to Pexels photo) — use "
-                        f"pexels|pixabay|wikipedia for Image, youtube is Video-only.")
+                        f"pexels|pixabay|wikipedia|archive for Image, youtube is Video-only.")
                 elif ctype == "Video" and src == "wikipedia":
                     report["normalizations"].append(
                         f"cut#{i}: source 'wikipedia' on Video is ignored "
                         f"(falls back to Pexels video) — use "
-                        f"pexels|pixabay|youtube for Video, wikipedia is Image-only.")
+                        f"pexels|pixabay|youtube|archive for Video, wikipedia is Image-only.")
     except Exception as e:
         logger.warning(f"MCP variety report skipped: {e}")
     return report

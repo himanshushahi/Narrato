@@ -2188,11 +2188,11 @@ class ApiBridge:
             logger.error(f"Failed to fetch single scene asset: {e}")
             return {"success": False, "error": str(e)}
 
-    def preview_asset_download(self, project_id: str, query: str, visual_type: str = "image") -> dict:
-        logger.info(f"Bridge API: preview_asset_download for project {project_id} (query: {query}, visual_type: {visual_type})")
+    def preview_asset_download(self, project_id: str, query: str, visual_type: str = "image", source: str = "pexels", image_type: str = "all") -> dict:
+        logger.info(f"Bridge API: preview_asset_download for project {project_id} (query: {query}, visual_type: {visual_type}, source: {source})")
         from backend.pipeline.assets import preview_asset_download as preview_fn
         try:
-            return preview_fn(project_id, query, visual_type)
+            return preview_fn(project_id, query, visual_type, source, image_type)
         except Exception as e:
             logger.error(f"Failed to preview asset: {e}")
             return {"success": False, "error": str(e)}

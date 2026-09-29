@@ -1268,14 +1268,16 @@ def delete_project(project_id: str) -> dict:
 
 
 _SEARCH_SOURCES = ("pexels_photo", "pexels_video", "wikipedia_image",
-                   "pixabay_photo", "pixabay_video", "youtube_video")
+                   "pixabay_photo", "pixabay_video", "youtube_video",
+                   "archive_photo", "archive_video")
 
 
 @mcp.tool()
 def search_media(source: str, query: str, orientation: str = "landscape") -> dict:
     """**FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE.** Check stock media availability BEFORE writing a query into a cut.
     Queries MUST be in English. API keys stay server-side; only results
-    are returned. youtube_video verifies a match exists for the query.
+    are returned. youtube_video verifies a match exists; archive_photo/archive_video
+    search archive.org for public domain/historical media.
     Successful verifications are recorded session-wide: save_visuals reports
     any Image/Video query you did NOT verify here as unverified_queries."""
     if source not in _SEARCH_SOURCES:

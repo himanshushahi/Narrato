@@ -1992,12 +1992,12 @@ Example: sub-visual starts at 4.0s in the scene and keyword is spoken at [6.3s] 
   Other renderable CSS passes through but may lack a visual editor — prefer
   `rotate`/`scale`, `animations`, and `filters`.
 - `query` in `Image` and `Video` content MUST ALWAYS be in English.
-- SOURCE MATRIX (hard): `Image` ← `pexels|pixabay|wikipedia` (never `youtube`); `Video` ← `pexels|pixabay|youtube` (never `wikipedia`). Crossed sources are ignored with a wrong-type Pexels fallback (intended source lost, fetch time wasted) — always match the matrix.
+- SOURCE MATRIX (hard): `Image` ← `pexels|pixabay|wikipedia|archive` (never `youtube`); `Video` ← `pexels|pixabay|youtube|archive` (never `wikipedia`). Crossed sources are ignored with a wrong-type Pexels fallback (intended source lost, fetch time wasted) — always match the matrix.
 - `subtitle_position` (sub-visual level, sibling of `transition`): `"bottom"|"top"|"hidden"` — per-cut caption override (`"top"` when a key card sits in the lower third, `"hidden"` on full-bleed typography). Omit = default.
 - All text content: project language for narration-matched text; English for search queries. For complex scripts (Hindi, Marathi, Bengali, Tamil, Arabic, etc.), MUST specify the corresponding Noto font (e.g. `Noto Sans Devanagari`) to guarantee proper Unicode shaping.
 - QUERY-ONLY MEDIA CONTRACT (critical): for `Image`/`Video` layers output ONLY
-  `{{"type": "Image", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"wikipedia"}}`
-  or `{{"type": "Video", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"youtube"}}`
+  `{{"type": "Image", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"wikipedia"|"archive"}}`
+  or `{{"type": "Video", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"youtube"|"archive"}}`
   (per-type matrix — never `youtube` on Image, never `wikipedia` on Video).
   NEVER emit `sources[]`, `url`, `local_path`, `asset_url`, `visual_path` or
   `visual_url` — no hardcoded remote links. Search-tool URLs are for
@@ -2100,8 +2100,8 @@ Part 1: 11 Content Types (combine freely in any count, stacking is children arra
 - Shape: shape_type (rectangle, circle, star, triangle, arrow, polygon, path, icon), icon_name (1500+ Lucide icons), fill, stroke, stroke_width, corner_radius, preset_path (route_arch, horizontal_line, pointer_curve, corner_brackets, wave_pulse, circle_reticle), draw_animation (true), glow (true).
 - Chart: chart_type (bar, line, pie, donut, progress), data ([{label, value, color}]), title, title_size, bar_radius, bar_gap, bar_max_width, bar_glow, style.color.
 - Background: 7 procedural shaders (gradient_mesh, grid_flow, waves, dots, blueprint, vignette_loop, paper_grain), 3-color palette [base, accent1, accent2], speed. Zero asset downloads, always fullscreen children[0].
-- Image: query (1-3 English keywords) + source (pexels, pixabay, wikipedia). Pixabay image_type: illustration/vector for transparent cutouts. objectFit: cover/contain/fill.
-- Video: query (1-3 English keywords) + source (pexels for generic stock B-roll; youtube for real-world events, tech/product demos, science simulations, archival footage). volume (0-1), loop (false/true freezes or loops), yt_start_offset (default 15s), yt_duration (default 15s, max 30s), objectFit.
+- Image: query (1-3 English keywords) + source (pexels, pixabay, wikipedia, archive). Pixabay image_type: illustration/vector for transparent cutouts; archive for authentic historical/space photos. objectFit: cover/contain/fill.
+- Video: query (1-3 English keywords) + source (pexels for generic stock B-roll; youtube for real-world events, tech/product demos, science simulations; archive for historical newsreels, archival footage, classic documentaries). volume (0-1), loop (false/true freezes or loops), yt_start_offset (default 15s), yt_duration (default 15s, max 30s), objectFit.
 - Lottie: lottie_url or animation_data, loop, playback_rate, direction: forward/backward.
 - Particles: 6 atmospheric presets (confetti, embers, dust, money_rain, snow, stars), count (10-300), hex colors, speed, opacity.
 - Map: map_style (modern_dark, vintage, minimal_light, nautical_blue), locations ([{name, coord: [lat, lon]}]).

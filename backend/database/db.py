@@ -156,6 +156,7 @@ def init_db():
             "pixabay_api_key": "", # User's Pixabay API Key
             "use_pexels": True,
             "use_youtube": True, # Enabled by default, user can toggle
+            "use_archive": True, # Enabled by default (Internet Archive public domain / historical)
             "youtube_download_duration": "15",
             "web_search_enabled": False,     # Master toggle for web search
             "web_search_provider": "langsearch",  # Search provider

@@ -26,6 +26,8 @@ TOOL_ARGUMENT_MODELS = {
     "search_pixabay_photo": SearchPixabayPhotoToolArgs,
     "search_pixabay_video": SearchMediaToolArgs,
     "search_youtube_video": SearchYouTubeVideoToolArgs,
+    "search_archive_photo": SearchMediaToolArgs,
+    "search_archive_video": SearchMediaToolArgs,
     "read_project_file": ReadProjectFileToolArgs,
     "project_status_report": ProjectStatusReportToolArgs,
     "list_project_files": ListProjectFilesToolArgs,
@@ -355,6 +357,40 @@ def get_tools_schema() -> List[Dict[str, Any]]:
         {
             "type": "function",
             "function": {
+                "name": "search_archive_photo",
+                "description": "Searches Internet Archive (archive.org) for public domain or historical images. "
+                               "Returns a direct download URL if found. Zero API keys required. "
+                               "Best for: authentic historical events, vintage/news photos, space missions (NASA/Apollo), archival documents. "
+                               "VERIFICATION ONLY — never copy the URL into AST JSON; output only query+source ('archive').",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query in English (e.g. 'apollo 11 moon landing', 'great depression breadline')"}
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_archive_video",
+                "description": "Searches Internet Archive (archive.org) for public domain or archival video footage. "
+                               "Returns a direct download URL (MP4) if found. Zero API keys required. "
+                               "Best for: historical newsreels, early 20th century footage, military archives, space launches, classic documentary clips. "
+                               "VERIFICATION ONLY — never copy the URL into AST JSON; output only query+source ('archive').",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query in English (e.g. 'apollo 11 launch', 'world war 2 newsreel')"}
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "read_project_file",
                 "description": "Reads a JSON file from the current project's storage directory.",
                 "parameters": {
@@ -644,6 +680,22 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                 return f"Error: YouTube search timed out for '{query}'."
             except Exception as e:
                 return f"Error during YouTube search: {e}"
+
+        if tool_name == "search_archive_photo":
+            query = arguments.get("query")
+            if not query:
+                return "Error: query is required."
+            from backend.pipeline.assets import search_archive_photo
+            url = search_archive_photo(query)
+            return url if url else f"No Internet Archive photo found for '{query}'"
+
+        if tool_name == "search_archive_video":
+            query = arguments.get("query")
+            if not query:
+                return "Error: query is required."
+            from backend.pipeline.assets import search_archive_video
+            url = search_archive_video(query)
+            return url if url else f"No Internet Archive video found for '{query}'"
 
         # --- Project file / state tools ---
         if tool_name == "read_project_file":
