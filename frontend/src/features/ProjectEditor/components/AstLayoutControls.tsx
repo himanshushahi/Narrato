@@ -400,7 +400,20 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
       scale: undefined,
     });
   };
-  const hasTransform = rotateVal !== 0 || scaleXVal !== 1 || scaleYVal !== 1;
+
+  const parseRotateVal = (val: any): number => {
+    if (typeof val === 'number' && Number.isFinite(val)) return val;
+    if (typeof val === 'string') {
+      const n = parseFloat(val);
+      if (Number.isFinite(n)) return n;
+    }
+    return 0;
+  };
+  const rotateXVal = parseRotateVal((currentStyle as any).rotateX);
+  const rotateYVal = parseRotateVal((currentStyle as any).rotateY);
+  const translateZVal = parseRotateVal((currentStyle as any).translateZ);
+
+  const hasTransform = rotateVal !== 0 || scaleXVal !== 1 || scaleYVal !== 1 || rotateXVal !== 0 || rotateYVal !== 0 || translateZVal !== 0;
 
   return (
     <div className="space-y-3.5">
@@ -913,11 +926,14 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
                   delete updated.scale;
                   delete updated.scaleX;
                   delete updated.scaleY;
+                  delete (updated as any).rotateX;
+                  delete (updated as any).rotateY;
+                  delete (updated as any).translateZ;
                   setScaleLinked(true);
                   onChange(updated);
                 }}
                 className="text-[9px] text-stone-500 hover:text-red-400 transition-colors uppercase font-semibold cursor-pointer ml-0.5"
-                title="Remove static rotation and scale (back to 0° / 100%)"
+                title="Remove static rotation, scale, and 3D transforms"
               >
                 Reset
               </button>
@@ -1036,6 +1052,87 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
             className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
             title="Static 2D rotation in degrees (pivot: Motion FX anchor when set, else center)"
           />
+        </div>
+
+        {/* 3D Spatial Depth & Tilt Controls */}
+        <div className="pt-2 border-t border-white/5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/90 flex items-center gap-1">
+              <span>🪐</span> 3D Spatial Transforms
+            </span>
+            {(rotateXVal !== 0 || rotateYVal !== 0 || translateZVal !== 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleApplyPreset({
+                    rotateX: undefined,
+                    rotateY: undefined,
+                    translateZ: undefined,
+                  });
+                }}
+                className="text-[8px] text-stone-500 hover:text-amber-300 transition-colors uppercase font-semibold cursor-pointer"
+                title="Reset 3D tilt and depth to 0"
+              >
+                Reset 3D
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Rotate X (Tilt) */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                <span>Tilt X (Pitch)</span>
+                <span className="text-amber-400 font-mono">{rotateXVal}°</span>
+              </div>
+              <input
+                type="range"
+                min="-90"
+                max="90"
+                step="1"
+                value={Math.max(-90, Math.min(90, rotateXVal))}
+                onChange={e => handleUpdate('rotateX' as any, parseFloat(e.target.value) || 0)}
+                className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+                title="Tilt forward/backward along X-axis (-90° to 90°)"
+              />
+            </div>
+
+            {/* Rotate Y (Pan) */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                <span>Pan Y (Yaw)</span>
+                <span className="text-amber-400 font-mono">{rotateYVal}°</span>
+              </div>
+              <input
+                type="range"
+                min="-90"
+                max="90"
+                step="1"
+                value={Math.max(-90, Math.min(90, rotateYVal))}
+                onChange={e => handleUpdate('rotateY' as any, parseFloat(e.target.value) || 0)}
+                className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+                title="Turn left/right along Y-axis (-90° to 90°)"
+              />
+            </div>
+          </div>
+
+          {/* Translate Z (Depth) */}
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+              <span>Depth Z (Translate Z)</span>
+              <span className="text-amber-400 font-mono">{translateZVal}px</span>
+            </div>
+            <input
+              type="range"
+              min="-500"
+              max="500"
+              step="5"
+              value={Math.max(-500, Math.min(500, translateZVal))}
+              onChange={e => handleUpdate('translateZ' as any, parseFloat(e.target.value) || 0)}
+              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+              title="Push into screen (-500px) or pull toward camera (+500px)"
+            />
+          </div>
         </div>
 
         <p className="text-[9px] text-stone-500 leading-relaxed">

@@ -13,6 +13,7 @@ interface AstAnimationBuilderProps {
 const ANIMATION_PROPERTIES: { id: ASTAnimation['property']; label: string; icon: string; unit: string; defaultFrom: number; defaultTo: number }[] = [
   { id: 'translateY', label: 'Translate Y (Vertical)', icon: '↕️', unit: 'px', defaultFrom: 45, defaultTo: 0 },
   { id: 'translateX', label: 'Translate X (Horizontal)', icon: '↔️', unit: 'px', defaultFrom: 60, defaultTo: 0 },
+  { id: 'translateZ', label: 'Translate Z (3D Depth)', icon: '🪐', unit: 'px', defaultFrom: -150, defaultTo: 0 },
   { id: 'scale', label: 'Scale (Zoom Drift)', icon: '🔍', unit: 'x', defaultFrom: 0.85, defaultTo: 1.0 },
   { id: 'opacity', label: 'Opacity (Fade)', icon: '👁️', unit: '%', defaultFrom: 0, defaultTo: 1 },
   { id: 'rotate', label: 'Rotate 2D', icon: '🔄', unit: '°', defaultFrom: -10, defaultTo: 0 },

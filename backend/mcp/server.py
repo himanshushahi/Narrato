@@ -1454,7 +1454,7 @@ already explicitly specified in the user's request):
     - Cut-level tools: transitions (13 + alias), emphasis punch-ins,
       mute_voiceover/mute_bg_music, motion_blur, camera_shake, FX filters,
       rack-focus blur/brightness keyframes, floating. Field semantics in declarative-ast Part 1 & Part 2.
-    - Pair entrance animations (translateY, translateX, scale, rotate)
+    - Pair entrance animations (translateY, translateX, translateZ, scale, rotate, rotateX, rotateY)
       with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
       whenever delay > 0 so elements stay hidden until they move; spatial-only
       without fade is allowed ONLY for instant punch/whip beats at delay: 0.

@@ -26,7 +26,7 @@ from typing import Any, Dict, List
 _VALID_EASINGS = ("linear", "spring", "ease-in", "ease-out", "ease-in-out",
                   "bounce", "elastic", "back", "steps", "bezier")
 _SPATIAL_PROPS = frozenset({
-    "scale", "translateX", "translateY", "rotate", "rotateX", "rotateY",
+    "scale", "translateX", "translateY", "translateZ", "rotate", "rotateX", "rotateY",
 })
 _TOL = 0.05  # renderer frame-slop tolerance.
 
@@ -202,7 +202,7 @@ def lint_cut_timing(cut: Dict[str, Any], cut_index: int = 0) -> Dict[str, Any]:
             delay = _adelay(a)
             adur = _fnum(a.get("duration")) or 0.0
             is_drift = adur >= dur * 0.8
-            if (prop in ("translateX", "translateY", "scale", "rotate",
+            if (prop in ("translateX", "translateY", "translateZ", "scale", "rotate",
                          "rotateX", "rotateY")
                     and delay >= 0.3 and easing == "linear" and not is_drift):
                 warnings.append(

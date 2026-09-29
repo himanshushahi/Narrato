@@ -45,16 +45,17 @@ when_to_use: "Always loaded during bulk scene visual generation, storyboarding, 
    - LayerBox SOT v1: `%` strings ONLY (`left`, `top`, `width`, `height`, or `bottom`). Never write raw `px`.
    - Centering formula: `left: "30%"` for `width: "40%"` (`50 - width/2`).
    - `borderRadius`: `"0px"`, `"16px"`, `"24px"`, `"32px"`, `"50%"` (circle with `aspectRatio: "1 / 1"`).
-   - Static transform: `rotate` (deg tilt), `scale` (10–500%), `scaleX: -1` (flip H mirror), `scaleY: -1` (flip V).
+   - Static transform: `rotate` (deg tilt), `scale` (10–500%), `scaleX: -1` (flip H mirror), `scaleY: -1` (flip V), static 3D `rotateX`, `rotateY`, `translateZ`.
 2. **Keyframe Animations (`animations`)**:
-   - Spatial props (drive shutter blur): `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`.
+   - Spatial props (drive shutter blur): `translateY`, `translateX`, `translateZ`, `scale`, `rotate`, `rotateX`, `rotateY`.
    - Non-spatial props (optical fades): `opacity` (0->1), `blur` (px rack focus, e.g. 10->0), `brightness` (multiplier flash).
    - Parameters: `from`, `to`, `duration`, `delay` (seconds from cut start), `easing` (`"spring"` | `"ease-out"` | `"ease-in-out"` | `"linear"` | `"bounce"` | `"elastic"` | `"back"` | `"steps"` | `"bezier"`), optional spring physics (`damping`, `stiffness`, `mass`, `overshoot_clamping`), and `loop_mode` (`"loop"` | `"pingpong"`).
    - Word Sync & Opacity: When word timestamps exist, sync `delay` to the spoken word time. Always pair `delay > 0` with `opacity: 0 -> 1`.
-3. **Physics & Camera Dynamics (`motion`)**:
+3. **Physics, Camera & 3D Perspective (`motion`)**:
    - `floating: true`: Organic harmonic floating drift (sinusoidal hovering bob). Counts as spatial motion.
    - `motion_blur: true` + `shutter_angle`: Camera shutter blur (45–360, default 180).
    - `camera_shake: "handheld" | "shockwave" | "glitch" | "none"`.
+   - `perspective: 1000` (FOV camera distance 300-3000px), `perspective_origin: "center center" | "50% 0%"`.
    - `transform_origin`: Pivot point for scale/rotate (`"center center"`, `"top left"`, etc.).
 4. **Looks, Filters & Blend Modes (`filters`)**:
    - CSS Looks: `Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur`, `Cinematic Dark Base`.

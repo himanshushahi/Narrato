@@ -141,7 +141,7 @@ class DesignSystemResponse(AppBaseModel):
 # ============================================================================
 
 AnimationProperty = Literal[
-    "scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY",
+    "scale", "opacity", "translateX", "translateY", "translateZ", "rotate", "rotateX", "rotateY",
     "blur", "brightness",
 ]
 EasingType = Literal[
@@ -235,7 +235,8 @@ UNIVERSAL_STYLE_KEYS = frozenset({
     "border", "borderTop", "borderBottom", "borderLeft", "borderRight",
     "borderWidth", "borderStyle", "borderColor",
     "backgroundColor", "background", "backdropFilter", "WebkitBackdropFilter",
-    "rotate", "scale", "scaleX", "scaleY", "aspectRatio",
+    "rotate", "rotateX", "rotateY", "translateZ", "perspective", "perspectiveOrigin", "perspective_origin",
+    "scale", "scaleX", "scaleY", "aspectRatio",
 })
 # Per-type extras the renderer reads from the inner (non-layout) style.
 TEXT_STYLE_KEYS = frozenset({
@@ -863,6 +864,8 @@ class ASTLayerNode(AppBaseModel):
     transform_origin: Optional[str] = Field(default=None, description="CSS transform-origin pivot for scale/rotate (e.g. 'center center', 'top left'); only visible with motion")
     filters: Optional[List[str]] = Field(default_factory=list, description="CSS/SVG filter strings (brightness/contrast/saturate/hue-rotate/blur/drop-shadow/url(#fx-*) or 'mix-blend-mode: X' — blend needs a layer beneath)")
     mask: Optional[Union[ASTMaskConfig, Dict[str, Any]]] = Field(default=None, description="Shape masking & animated reveal configuration")
+    perspective: Optional[Union[float, str]] = Field(default=None, description="3D camera perspective distance in pixels or CSS length (e.g. 1000, '1000px', '800px'). Lower = wide angle, higher = telephoto.")
+    perspective_origin: Optional[str] = Field(default=None, description="3D camera vanishing point / perspective-origin (e.g. 'center center', '50% 0%', 'top left')")
 
     @model_validator(mode="before")
     @classmethod

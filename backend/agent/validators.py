@@ -16,7 +16,7 @@ VALID_TRANSITIONS = {
 # Mirrors frontend spatialMotion.ts: only spatial keyframes produce shutter motion.
 # Opacity/blur/brightness fades are spatially identical subframes (no-op for blur).
 SPATIAL_ANIMATION_PROPS = frozenset({
-    "scale", "translateX", "translateY", "rotate", "rotateX", "rotateY",
+    "scale", "translateX", "translateY", "translateZ", "rotate", "rotateX", "rotateY",
 })
 
 

@@ -595,4 +595,104 @@ def test_canonical_sample_cut_demonstrates_mask():
     assert normalized[0]["composition"]["children"][1]["mask"]["reveal"] == "wipe_right"
 
 
+def test_3d_spatial_transforms_and_perspective_in_ast_layers():
+    from backend.agent.validators import validate_sub_visuals, SPATIAL_ANIMATION_PROPS
+    from backend.agent.schemas import SubVisualAST, AnimationNode, ASTLayerNode, LayerContent
+
+    # 1. translateZ is recognized as spatial animation
+    assert "translateZ" in SPATIAL_ANIMATION_PROPS
+
+    # 2. Pydantic validation of AnimationNode with translateZ
+    anim = AnimationNode(
+        property="translateZ",
+        **{"from": -200.0},
+        to=0.0,
+        duration=0.8,
+        delay=0.2,
+        easing="spring",
+    )
+    assert anim.property == "translateZ"
+    assert anim.from_ == -200.0
+
+    # 3. Pydantic validation of ASTLayerNode with perspective & 3D layout styles
+    layer_node = ASTLayerNode(
+        type="Layer",
+        perspective=1200,
+        perspective_origin="50% 0%",
+        content=LayerContent(
+            type="Text",
+            text="3D Spatial Perspective",
+            style={
+                "position": "absolute",
+                "left": "10%",
+                "top": "20%",
+                "width": "80%",
+                "rotateX": 25,
+                "rotateY": -15,
+                "translateZ": 100,
+            },
+        ),
+        animations=[anim],
+    )
+    assert layer_node.perspective == 1200
+    assert layer_node.perspective_origin == "50% 0%"
+    assert layer_node.content.style.get("rotateX") == 25
+    assert layer_node.content.style.get("rotateY") == -15
+    assert layer_node.content.style.get("translateZ") == 100
+
+    # 4. End-to-end validate_sub_visuals passes without stripping 3D properties
+    svs = [
+        {
+            "duration": 5.0,
+            "transition": "fade",
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "perspective": "1000px",
+                        "perspective_origin": "center center",
+                        "content": {
+                            "type": "Image",
+                            "query": "cinematic neon city",
+                            "source": "pexels",
+                            "style": {
+                                "position": "absolute",
+                                "left": "5%",
+                                "top": "10%",
+                                "width": "90%",
+                                "height": "70%",
+                                "rotateX": 15,
+                                "rotateY": -20,
+                                "translateZ": 50,
+                            },
+                        },
+                        "animations": [
+                            {
+                                "property": "translateZ",
+                                "from": -150,
+                                "to": 0,
+                                "duration": 0.8,
+                                "delay": 0.3,
+                                "easing": "spring",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    ]
+    ok, normalized, err = validate_sub_visuals(svs, 5.0)
+    assert ok, err
+    norm_layer = normalized[0]["composition"]["children"][0]
+    assert norm_layer.get("perspective") == "1000px"
+    assert norm_layer.get("perspective_origin") == "center center"
+    style = norm_layer["content"]["style"]
+    assert style.get("rotateX") == 15
+    assert style.get("rotateY") == -20
+    assert style.get("translateZ") == 50
+    assert norm_layer["animations"][0]["property"] == "translateZ"
+
+
+
 

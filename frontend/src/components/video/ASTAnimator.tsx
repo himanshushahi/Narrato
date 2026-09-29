@@ -67,7 +67,7 @@ export interface ASTLayerMask {
 }
 
 export interface ASTAnimation {
-  property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
+  property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'translateZ' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
   from: number;
   /** Backend pydantic schema serializes the `from` alias as `from_` — accept both. */
   from_?: number;
@@ -103,6 +103,8 @@ export interface ASTAnimatorProps {
   transform_origin?: string;
   floating?: boolean;
   mask?: ASTLayerMask;
+  perspective?: number | string;
+  perspective_origin?: string;
   /** 'preview' (Player) uses fewer samples; defaults to auto-detect. */
   qualityMode?: QualityMode;
   /** User policy from Settings → Rendering Engine (defaults to balanced). */
@@ -117,6 +119,8 @@ interface AnimatedLayerProps {
   transform_origin?: string;
   floating?: boolean;
   mask?: ASTLayerMask;
+  perspective?: number | string;
+  perspective_origin?: string;
   children: React.ReactNode;
 }
 
@@ -356,6 +360,8 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   transform_origin = 'center center',
   floating = false,
   mask,
+  perspective,
+  perspective_origin,
   children,
 }) => {
   const frame = useCurrentFrame();
@@ -485,6 +491,8 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
         s.transform += ` rotateX(${val}deg)`;
       } else if (anim.property === 'rotateY') {
         s.transform += ` rotateY(${val}deg)`;
+      } else if (anim.property === 'translateZ') {
+        s.transform += ` translateZ(${val}px)`;
       } else if (anim.property === 'blur') {
         s.filter = `${s.filter || ''} blur(${Math.max(0, val)}px)`.trim();
       } else if (anim.property === 'brightness') {
@@ -506,9 +514,33 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     if (cameraOffset.rotation !== 0) {
       s.transform += ` rotate(${cameraOffset.rotation}deg)`;
     }
+
+    // 3. Perspective and 3D depth context
+    const has3D = (animations || []).some(
+      (a) => a && (a.property === 'rotateX' || a.property === 'rotateY' || a.property === 'translateZ')
+    ) || perspective !== undefined;
+
+    if (has3D) {
+      s.transformStyle = 'preserve-3d';
+      const persVal = typeof perspective === 'number' ? `${perspective}px` : (perspective || '1000px');
+      const curTransform = s.transform || '';
+      if (!curTransform.includes('perspective')) {
+        s.transform = `perspective(${persVal}) ${curTransform}`.trim();
+      }
+      // The perspective() FUNCTION above gives the wrapper's OWN animated
+      // transform its depth — but CSS perspective-origin only affects the
+      // perspective PROPERTY (never the function). Set the property too so it
+      // projects *children* (the static container's transform) with the
+      // vanishing point honored; the static container skips its own
+      // perspective() when this shared camera is active (see ASTRenderer).
+      s.perspective = persVal;
+      if (perspective_origin) {
+        s.perspectiveOrigin = perspective_origin;
+      }
+    }
     
     return s;
-  }, [animations, cameraOffset, floating, frame, qFrameFloat, fps, transform_origin]);
+  }, [animations, cameraOffset, floating, frame, qFrameFloat, fps, transform_origin, perspective, perspective_origin]);
 
   // Mask clips: the static shape lives on the outer (transform) div while
   // the animated reveal lives on an inner wrapper, so a reveal animates
@@ -601,7 +633,7 @@ const BlurGate: React.FC<ASTAnimatorProps> = ({
 };
 
 export const ASTAnimator: React.FC<ASTAnimatorProps> = (props) => {
-  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, exit, mask, children } = props;
+  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, exit, mask, perspective, perspective_origin, children } = props;
   const content = (
     <AnimatedLayer
       animations={animations}
@@ -610,6 +642,8 @@ export const ASTAnimator: React.FC<ASTAnimatorProps> = (props) => {
       transform_origin={props.transform_origin}
       floating={floating}
       mask={mask}
+      perspective={perspective}
+      perspective_origin={perspective_origin}
     >
       {children}
     </AnimatedLayer>

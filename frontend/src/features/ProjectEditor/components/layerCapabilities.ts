@@ -125,6 +125,7 @@ export { SPATIAL_ANIMATION_PROPS } from '../../../components/video/spatialMotion
 const GUI_UNIVERSAL_KEYS: ReadonlySet<string> = new Set([
   'position', 'left', 'top', 'right', 'bottom', 'width', 'height',
   'borderRadius', 'aspectRatio', 'rotate', 'scale', 'scaleX', 'scaleY',
+  'rotateX', 'rotateY', 'translateZ', 'perspective', 'perspectiveOrigin', 'perspective_origin',
 ]);
 
 const GUI_EXTRAS_BY_KIND: Record<string, ReadonlySet<string>> = {

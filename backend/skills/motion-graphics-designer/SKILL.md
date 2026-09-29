@@ -48,10 +48,11 @@ Any layer can carry an array of keyframe tracks:
 }
 ```
 
-### The 9 Animatable Properties
+### The 10 Animatable Properties
 * **Spatial Properties (Drive Camera Shutter Motion Blur)**:
   * `translateY`: Vertical travel in pixels (`45 -> 0` = slide up entrance, `0 -> -45` = slide up exit).
   * `translateX`: Horizontal travel in pixels (`60 -> 0` = slide in entrance).
+  * `translateZ`: 3D depth travel in pixels along camera Z-axis (`-150 -> 0` = fly-in toward camera from screen depth, `0 -> 100` = pop out toward viewer).
   * `scale`: Zoom multiplier (`0.85 -> 1.0` = spring pop, `1.0 -> 1.06` = slow cinematic parallax drift).
   * `rotate`: 2D planar rotation in degrees (`-12 -> 0`).
   * `rotateX`: 3D card tilt angle (`25 -> 0`).
@@ -104,6 +105,10 @@ By default, layers persist for the full cut duration. To choreograph multi-beat 
 * **Shape Masking & Animated Reveals (`mask`)**:
   * Shape: `"circle"`, `"ellipse"`, `"inset"` (with `corner_radius`), or `"polygon"` (`"hexagon"`, `"diamond"`, `"triangle"`, `"star"`, `"slant_left"`, `"slant_right"`, `"custom"` points).
   * Animated reveals: `"circle_iris"`, `"wipe_right"`, `"wipe_down"`, `"split_vertical"` (center-out curtain), `"wipe_diagonal"` (corner-to-corner) with `reveal_duration`, `reveal_delay`, `reveal_easing` (`linear`/`ease-in`/`ease-out`/`ease-in-out`/`bounce`), `inverted`. A reveal animates INTO the static shape when both are set.
+* **3D Camera Perspective & Spatial Depth (`perspective`, `perspective_origin`)**:
+  * `perspective: 1000`: Camera lens focal distance in pixels (lower = wide-angle dramatic depth; higher = telephoto flat).
+  * `perspective_origin: "center center"`: Vanishing point (supports `"50% 0%"` for bird's-eye looking down, `"50% 100%"` for worm's-eye looking up).
+  * Static 3D transforms on `content.style`: `rotateX` (pitch tilt, -90° to +90°), `rotateY` (pan yaw, -90° to +90°), `translateZ` (spatial depth, -500px to +500px).
 * **Layer Timeline Ergonomics**:
   * `name`: Descriptive label in timeline (e.g. `"Presenter Spotlight"`, `"Metric Card"`).
   * `visible`: `false` hides layer; `locked`: `true` locks layer against canvas drag.

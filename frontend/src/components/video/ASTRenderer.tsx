@@ -112,6 +112,8 @@ export interface ASTLayer {
   floating?: boolean;
   filters?: string[];
   mask?: ASTLayerMask;
+  perspective?: number | string;
+  perspective_origin?: string;
 }
 
 // CSS properties that control layout/positioning of the layer container
@@ -125,9 +127,24 @@ const LAYOUT_PROPS = new Set([
   'backgroundColor', 'background', 'backdropFilter', 'WebkitBackdropFilter',
   // Static transform (Layout tab): consumed below into a `transform` string —
   // never spread raw (would double-apply as CSS individual properties).
-  'rotate', 'scale', 'scaleX', 'scaleY',
+  'rotate', 'rotateX', 'rotateY', 'scale', 'scaleX', 'scaleY', 'translateZ',
+  'perspective', 'perspectiveOrigin', 'perspective_origin',
   'aspectRatio',
 ]);
+
+/**
+ * Lenient numeric parse for style values authored as numbers or strings
+ * (`25`, `"25"`, `"25deg"`, `"25px"`). Shared by parseStaticTransform and
+ * has3DStatic so both agree on what counts as a 3D value.
+ */
+function parseNumericStyle(raw: any): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  if (typeof raw === 'string') {
+    const n = parseFloat(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  return NaN;
+}
 
 /**
  * Static rotate/scale from the Layout tab (`content.style.rotate` in degrees,
@@ -135,19 +152,33 @@ const LAYOUT_PROPS = new Set([
  * Per-axis values win over legacy uniform `scale` when present. Applied on the
  * layer *container*, separate from ASTAnimator's animated transform wrapper
  * so the two compose instead of clobbering each other.
+ *
+ * ownPerspective=false skips the perspective() prepend: the ASTAnimator
+ * wrapper above already provides `perspective` as a CSS property (the shared
+ * camera), which projects this container's transform — prepending too would
+ * project the static rotation twice.
  */
-function parseStaticTransform(layoutStyle: Record<string, any>): string | undefined {
+function parseStaticTransform(layoutStyle: Record<string, any>, defaultPerspective?: number | string, ownPerspective = true): string | undefined {
   const parts: string[] = [];
 
-  const rawRotate = layoutStyle.rotate;
-  const deg =
-    typeof rawRotate === 'number'
-      ? rawRotate
-      : typeof rawRotate === 'string'
-        ? parseFloat(rawRotate)
-        : NaN;
-  if (Number.isFinite(deg) && deg !== 0) {
-    parts.push(`rotate(${deg}deg)`);
+  const rawRotate = parseNumericStyle(layoutStyle.rotate);
+  if (Number.isFinite(rawRotate) && rawRotate !== 0) {
+    parts.push(`rotate(${rawRotate}deg)`);
+  }
+
+  const rawRotateX = parseNumericStyle(layoutStyle.rotateX);
+  if (Number.isFinite(rawRotateX) && rawRotateX !== 0) {
+    parts.push(`rotateX(${rawRotateX}deg)`);
+  }
+
+  const rawRotateY = parseNumericStyle(layoutStyle.rotateY);
+  if (Number.isFinite(rawRotateY) && rawRotateY !== 0) {
+    parts.push(`rotateY(${rawRotateY}deg)`);
+  }
+
+  const rawTranslateZ = parseNumericStyle(layoutStyle.translateZ);
+  if (Number.isFinite(rawTranslateZ) && rawTranslateZ !== 0) {
+    parts.push(`translateZ(${rawTranslateZ}px)`);
   }
 
   const parseAxis = (raw: any): number => {
@@ -178,6 +209,16 @@ function parseStaticTransform(layoutStyle: Record<string, any>): string | undefi
     parts.push(`scale(${norm(sx)}, 1)`);
   } else if (Number.isFinite(sy) && sy !== 1) {
     parts.push(`scale(1, ${norm(sy)})`);
+  }
+
+  const has3D = (Number.isFinite(rawRotateX) && rawRotateX !== 0)
+    || (Number.isFinite(rawRotateY) && rawRotateY !== 0)
+    || (Number.isFinite(rawTranslateZ) && rawTranslateZ !== 0);
+
+  if (has3D && ownPerspective && parts.length > 0) {
+    const pers = defaultPerspective || layoutStyle.perspective || 1000;
+    const persStr = typeof pers === 'number' ? `${pers}px` : pers;
+    return `perspective(${persStr}) ${parts.join(' ')}`;
   }
 
   return parts.length > 0 ? parts.join(' ') : undefined;
@@ -416,14 +457,48 @@ const ASTLayerView: React.FC<{
           () => normalizeBorderRadius((layoutStyle as any).borderRadius || (innerStyle as any).borderRadius),
           [layoutStyle, innerStyle]
         );
+        const effectivePerspective = layer.perspective ?? (layoutStyle as any).perspective;
+        const effectivePerspectiveOrigin = layer.perspective_origin ?? (layoutStyle as any).perspective_origin ?? (layoutStyle as any).perspectiveOrigin;
+
+        // ASTAnimator mount gate, hoisted: the static container below needs to
+        // know whether the animated wrapper will mount (single shared camera).
+        // Keep in sync with the renderedLayer condition below.
+        const animatorMounted = ((animations && animations.length > 0) || (layer as any).motion_blur
+          || ((layer as any).camera_shake && (layer as any).camera_shake !== 'none')
+          || !!(layer as any).transform_origin || !!(layer as any).floating
+          || (layer.exit !== undefined && layer.exit !== false) || hasMask(layer.mask)
+          || !!effectivePerspective || (animations?.some(a => a && a.property === 'translateZ')));
+        const hasPerspectiveValue = effectivePerspective !== undefined && effectivePerspective !== null
+          && (effectivePerspective as any) !== '' && (effectivePerspective as any) !== 0;
+        // When the wrapper mounts with a perspective set, it provides the
+        // `perspective` CSS property projecting this container — so the
+        // container skips its own perspective() prepend (no double projection).
+        const sharedCamera = animatorMounted && hasPerspectiveValue;
+        const perspectiveProp = !hasPerspectiveValue
+          ? undefined
+          : (typeof effectivePerspective === 'number' ? `${effectivePerspective}px` : String(effectivePerspective));
+
         // Static transform (Layout tab) — memoized, only re-parsed on layout change.
         const staticTransform = React.useMemo(
-          () => parseStaticTransform(layoutStyle as Record<string, any>),
-          [layoutStyle]
+          () => parseStaticTransform(layoutStyle as Record<string, any>, effectivePerspective, !sharedCamera),
+          [layoutStyle, effectivePerspective, sharedCamera]
         );
-        // Strip raw rotate/scale/scaleX/scaleY/borderRadius so they never leak
+        // Strip raw rotate/scale/scaleX/scaleY/borderRadius and 3D transforms so they never leak
         // as CSS individual properties alongside the composed transform below.
-        const { rotate: _rot, scale: _scl, scaleX: _sx, scaleY: _sy, borderRadius: _br, ...layoutRest } = layoutStyle as Record<string, any>;
+        const {
+          rotate: _rot,
+          scale: _scl,
+          scaleX: _sx,
+          scaleY: _sy,
+          rotateX: _rx,
+          rotateY: _ry,
+          translateZ: _tz,
+          perspective: _pers,
+          perspectiveOrigin: _po,
+          perspective_origin: _po2,
+          borderRadius: _br,
+          ...layoutRest
+        } = layoutStyle as Record<string, any>;
 
         const hasRadius = !!effectiveRadius;
         // LayerBox SOT v1: Shape box = stage, glyph = content. Small accent
@@ -657,6 +732,16 @@ const ASTLayerView: React.FC<{
         // than expected" and trips the Player error boundary.
         if (!node || layer.visible === false) return null;
 
+        // String-authored statics ("25", "25deg") parse like numbers — use the
+        // same lenient parser as parseStaticTransform so preserve-3d agrees.
+        const staticRotateX = parseNumericStyle((layoutStyle as any).rotateX);
+        const staticRotateY = parseNumericStyle((layoutStyle as any).rotateY);
+        const staticTranslateZ = parseNumericStyle((layoutStyle as any).translateZ);
+        const has3DStatic = (Number.isFinite(staticRotateX) && staticRotateX !== 0)
+          || (Number.isFinite(staticRotateY) && staticRotateY !== 0)
+          || (Number.isFinite(staticTranslateZ) && staticTranslateZ !== 0)
+          || !!effectivePerspective;
+
         const inner = (
           <div
             data-ast-layer-idx={idx}
@@ -673,15 +758,19 @@ const ASTLayerView: React.FC<{
             ...(hasGlass ? { isolation: 'isolate' as const } : null),
             ...(containerTransform ? { transform: containerTransform } : null),
             ...(containerTransform && transform_origin ? { transformOrigin: transform_origin } : null),
+            ...(has3DStatic ? { transformStyle: 'preserve-3d' as const } : null),
+            // Perspective PROPERTY (not the function in containerTransform):
+            // this is what perspectiveOrigin actually affects, and it gives
+            // perspective-only layers a projection context for 3D descendants.
+            ...(perspectiveProp ? { perspective: perspectiveProp } : null),
+            ...(effectivePerspectiveOrigin ? { perspectiveOrigin: effectivePerspectiveOrigin } : null),
             ...blendStyle,
           }}>
             {node}
           </div>
         );
 
-        const hasExit = layer.exit !== undefined && layer.exit !== false;
-        const layerHasMask = hasMask(layer.mask);
-        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin || !!floating || hasExit || layerHasMask) ? (
+        const renderedLayer = (animatorMounted) ? (
           <ASTAnimator
             animations={animations}
             exit={layer.exit}
@@ -691,6 +780,8 @@ const ASTLayerView: React.FC<{
             transform_origin={transform_origin}
             floating={floating}
             mask={layer.mask}
+            perspective={effectivePerspective}
+            perspective_origin={effectivePerspectiveOrigin}
             qualityMode={mode}
             quality={policy}
           >

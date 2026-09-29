@@ -2684,6 +2684,81 @@ export const AstGraphicalEditor = ({
                           <option value="bottom right">Bottom Right</option>
                         </select>
                       </div>
+
+                      {/* 3D Camera Perspective & Vanishing Point */}
+                      <div className="pt-2 border-t border-white/5 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                            🎥 3D Camera Perspective (FOV)
+                          </span>
+                          {(layer.perspective !== undefined || layer.perspective_origin !== undefined) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateLayer(idx, 'perspective', undefined);
+                                updateLayer(idx, 'perspective_origin', undefined);
+                              }}
+                              className="text-[8px] text-stone-500 hover:text-amber-300 transition-colors uppercase font-semibold cursor-pointer"
+                              title="Reset camera perspective to default"
+                            >
+                              Reset Camera
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Perspective Distance Slider */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                            <span>Camera Distance (Perspective)</span>
+                            <span className="text-amber-400 font-mono">
+                              {layer.perspective != null && layer.perspective !== '' ? `${parseFloat(String(layer.perspective)) || 1000}px` : '1000px (Default)'}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="300"
+                            max="3000"
+                            step="50"
+                            value={typeof layer.perspective === 'number' ? layer.perspective : (parseFloat(String(layer.perspective ?? '')) || 1000)}
+                            onChange={e => {
+                              const val = parseInt(e.target.value, 10);
+                              updateLayer(idx, 'perspective', val === 1000 ? undefined : val);
+                            }}
+                            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+                            title="Camera lens distance in pixels (lower = wide angle dramatic depth; higher = telephoto flat)"
+                          />
+                          <div className="flex justify-between text-[8px] text-stone-500 font-mono">
+                            <span>300px (Wide Angle / Dramatic)</span>
+                            <span>1000px (Cinematic Standard)</span>
+                            <span>3000px (Telephoto / Flat)</span>
+                          </div>
+                        </div>
+
+                        {/* Perspective Origin (Vanishing Point) */}
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">
+                            Vanishing Point (Perspective Origin)
+                          </label>
+                          <select
+                            className="w-full bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
+                            value={layer.perspective_origin || 'center center'}
+                            onChange={e => {
+                              const val = e.target.value;
+                              updateLayer(idx, 'perspective_origin', val === 'center center' ? undefined : val);
+                            }}
+                          >
+                            <option value="center center">Center Center (Default Eye Level)</option>
+                            <option value="50% 0%">Top Center (Bird's Eye Looking Down)</option>
+                            <option value="50% 100%">Bottom Center (Worm's Eye Looking Up)</option>
+                            <option value="0% 50%">Left Center (Looking From Left)</option>
+                            <option value="100% 50%">Right Center (Looking From Right)</option>
+                            <option value="0% 0%">Top Left</option>
+                            <option value="100% 0%">Top Right</option>
+                            <option value="0% 100%">Bottom Left</option>
+                            <option value="100% 100%">Bottom Right</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

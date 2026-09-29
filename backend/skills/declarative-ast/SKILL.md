@@ -208,10 +208,11 @@ Any layer can carry an array of keyframe tracks:
   "easing": "spring"
 }
 ```
-* **9 Animatable Properties**:
+* **10 Animatable Properties**:
   * **Spatial (drive camera shutter motion blur)**:
     * `translateY`: Vertical travel in pixels (`45 -> 0` = slide up entrance).
     * `translateX`: Horizontal travel in pixels (`60 -> 0` = slide in entrance).
+    * `translateZ`: 3D depth travel in pixels along camera Z-axis (`-150 -> 0` = fly-in toward camera from screen depth, `0 -> 100` = pop out toward viewer).
     * `scale`: Zoom scale multiplier (`0.85 -> 1.0` = spring pop, `1.0 -> 1.06` = slow parallax drift).
     * `rotate`: 2D planar rotation in degrees (`-10 -> 0`).
     * `rotateX`: 3D card tilt angle (`25 -> 0`).
@@ -320,6 +321,19 @@ A reveal animates INTO the static shape when both are set (iris opening inside t
   * `visible: false`: Hides the layer from both the preview player and export render (as well as canvas click-selection).
   * `locked: true`: Locks the layer against accidental drag or resize gestures on the visual canvas.
   * `color_tag`: Hex color for visual category grouping in the editor.
+
+### 7. 3D Camera Perspective & Spatial Layout (`perspective`, `perspective_origin`, 3D Transforms)
+Place layers in genuine 3D spatial perspective:
+* **Camera Perspective (`perspective`)**: Distance in pixels from viewer to the z=0 canvas plane (e.g. `1000` or `"1000px"`).
+  * Lower values (`300px`–`600px`): Dramatic wide-angle distortion with intense vanishing-point perspective.
+  * Medium values (`1000px`): Cinematic standard FOV (natural human eye level perspective).
+  * Higher values (`2000px`–`3000px`): Telephoto flattened perspective.
+* **Vanishing Point (`perspective_origin`)**: Camera look-at position (e.g. `"center center"` for straight-ahead eye level, `"50% 0%"` for bird's-eye looking down, `"50% 100%"` for worm's-eye looking up, `"0% 50%"` for lateral viewpoint from the left).
+* **Static 3D Transforms (on `content.style`)**:
+  * `rotateX`: Pitch tilt angle along horizontal axis in degrees (`-90` to `+90`).
+  * `rotateY`: Yaw pan angle along vertical axis in degrees (`-90` to `+90`).
+  * `translateZ`: Z-depth position in pixels (`-500` to `+500`). Pushes graphics into canvas depth or pulls them toward the camera.
+* Composes seamlessly with 3D animation keyframes (`translateZ`, `rotateX`, `rotateY`).
 
 ---
 
