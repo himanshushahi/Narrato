@@ -694,5 +694,72 @@ def test_3d_spatial_transforms_and_perspective_in_ast_layers():
     assert norm_layer["animations"][0]["property"] == "translateZ"
 
 
+def test_layer_blur_and_backdrop_blur():
+    from backend.agent.schemas import sanitize_layer_style, UNIVERSAL_STYLE_KEYS
+    from backend.agent.validators import validate_sub_visuals
+
+    # 1. Check UNIVERSAL_STYLE_KEYS
+    assert "blur" in UNIVERSAL_STYLE_KEYS
+    assert "backdropFilter" in UNIVERSAL_STYLE_KEYS
+
+    # 2. Check sanitize_layer_style preserves blur and backdropFilter
+    raw_style = {
+        "position": "absolute",
+        "left": "10%",
+        "top": "15%",
+        "width": "80%",
+        "height": "60%",
+        "blur": 15,
+        "backdropFilter": "blur(20px)",
+    }
+    cleaned, stripped, moves = sanitize_layer_style("Image", raw_style)
+    assert "blur" not in stripped
+    assert "backdropFilter" not in stripped
+    assert cleaned["blur"] == 15
+    assert cleaned["backdropFilter"] == "blur(20px)"
+
+    # 3. Check validate_sub_visuals with blur filters & direct style blur
+    svs = [
+        {
+            "sub_id": "test_blur",
+            "section_type": "b_roll",
+            "composition": {
+                "children": [
+                    {
+                        "type": "Layer",
+                        "filters": [
+                            "blur(12px)",
+                            "backdrop-filter: blur(16px)",
+                            "mix-blend-mode: overlay",
+                        ],
+                        "content": {
+                            "type": "Image",
+                            "query": "cinematic moody rain",
+                            "source": "pexels",
+                            "style": {
+                                "position": "absolute",
+                                "left": "0%",
+                                "top": "0%",
+                                "width": "100%",
+                                "height": "100%",
+                                "blur": 8,
+                                "backdropFilter": "blur(12px)",
+                            },
+                        },
+                    }
+                ],
+            },
+        }
+    ]
+    ok, normalized, err = validate_sub_visuals(svs, 5.0)
+    assert ok, err
+    norm_layer = normalized[0]["composition"]["children"][0]
+    assert "blur(12px)" in norm_layer["filters"]
+    assert "backdrop-filter: blur(16px)" in norm_layer["filters"]
+    assert norm_layer["content"]["style"]["blur"] == 8
+    assert norm_layer["content"]["style"]["backdropFilter"] == "blur(12px)"
+
+
+
 
 

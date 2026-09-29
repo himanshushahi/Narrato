@@ -153,6 +153,9 @@ Apply cinematic looks and composite blending via the `filters` string array:
   * `"url(#fx-duotone-inferno)"`: Dark amber → fire grade
   * `"url(#fx-thermal)"`: Multi-band thermal heat signature
 * **10 Blend Modes**: `filters: ["mix-blend-mode: overlay"]` (or `screen`, `multiply`, `color-dodge`, etc.).
+* **Optical Blurs (Layer Blur & Backdrop Blur)**:
+  * **Layer Content Blur**: `filters: ["blur(12px)"]` or `"style": { "blur": 12 }` (softens layer pixels; edge-bleed protection auto-scales fullscreen footage).
+  * **Backdrop Blur (Frosted Glass / Privacy Blur)**: `filters: ["backdrop-filter: blur(16px)"]` or `"style": { "backdropFilter": "blur(16px)" }` (frosts layers underneath without blurring layer contents). Ideal for translucent cards, metric backing, or Shape privacy overlays.
 
 ---
 

@@ -130,6 +130,10 @@ const LAYOUT_PROPS = new Set([
   'rotate', 'rotateX', 'rotateY', 'scale', 'scaleX', 'scaleY', 'translateZ',
   'perspective', 'perspectiveOrigin', 'perspective_origin',
   'aspectRatio',
+  // Static Gaussian blur (`content.style.blur` in px): consumed by
+  // parseFilters into a `filter: blur(Npx)` string — never spread raw
+  // (blur is not a valid CSS property and would leak into innerStyle).
+  'blur',
 ]);
 
 /**
@@ -274,28 +278,97 @@ function normalizeBorderRadius(val: any): string | undefined {
   return s;
 }
 
+/** Non-px length units valid inside blur() — kept as-is (authoring contract
+ * is px, so only px feeds the edge-bleed heuristic and the 50px clamp). */
+const CSS_LENGTH_UNITS: ReadonlySet<string> = new Set([
+  'em', 'rem', 'ex', 'rex', 'cap', 'rcap', 'ch', 'rch', 'ic', 'ric',
+  'lh', 'rlh', 'vw', 'svw', 'lvw', 'dvw', 'vh', 'svh', 'lvh', 'dvh',
+  'vi', 'svi', 'lvi', 'dvi', 'vb', 'svb', 'lvb', 'dvb', 'vmin', 'svmin',
+  'lvmin', 'dvmin', 'vmax', 'svmax', 'lvmax', 'dvmax', 'cqw', 'cqh',
+  'cqi', 'cqb', 'cqmin', 'cqmax', 'cm', 'mm', 'q', 'in', 'pt', 'pc',
+]);
+
 /**
  * Extracts mix-blend-mode from filters array (it's a CSS property, not a filter)
  * and returns the cleaned filters string and blend mode style.
  */
-function parseFilters(filters?: string[]): { filterStyle?: string; blendStyle: React.CSSProperties } {
-  if (!filters || filters.length === 0) return { filterStyle: undefined, blendStyle: {} };
-
+function parseFilters(
+  filters?: string[],
+  directBlur?: number | string
+): {
+  filterStyle?: string;
+  blendStyle: React.CSSProperties;
+  backdropFilterStyle?: string;
+  contentBlurPx: number;
+} {
   const blendStyle: React.CSSProperties = {};
+  let backdropFilterStyle: string | undefined = undefined;
   const realFilters: string[] = [];
+  let hasExplicitBlur = false;
+  let contentBlurPx = 0;
 
-  for (const f of filters) {
-    const blendMatch = f.match(/mix-blend-mode:\s*(\w+)/);
-    if (blendMatch) {
-      blendStyle.mixBlendMode = blendMatch[1] as any;
-    } else {
-      realFilters.push(f);
+  if (filters && filters.length > 0) {
+    for (const f of filters) {
+      const blendMatch = f.match(/mix-blend-mode:\s*([a-zA-Z-]+)/i);
+      const backdropMatch = f.match(/(?:-webkit-)?backdrop-filter:\s*([^;]+)/i);
+      if (blendMatch) {
+        blendStyle.mixBlendMode = blendMatch[1] as any;
+      } else if (backdropMatch) {
+        backdropFilterStyle = backdropMatch[1].trim();
+      } else {
+        // Sanitize blur() occurrences: CSS blur() only accepts a non-negative
+        // length, and ONE invalid function makes the browser drop the WHOLE
+        // filter declaration (innocent siblings included). So clamp huge px
+        // radii (fullscreen blur(200px) freezes Chromium) and drop invalid
+        // occurrences (negative / unitless-nonzero / % / unparseable /
+        // unknown units). A surviving valid blur owns the blur channel so
+        // style.blur doesn't double-apply; fully-dropped tokens don't block it.
+        let tokenHasValidBlur = false;
+        const sanitized = f.replace(/blur\(\s*([^)]*)\)/gi, (m, inner) => {
+          const im = String(inner).trim().match(/^(-?\d+(?:\.\d+)?)\s*([a-z%]*)$/i);
+          if (!im) return '';
+          const n = parseFloat(im[1]);
+          const unit = (im[2] || '').toLowerCase();
+          if (!Number.isFinite(n) || n < 0 || unit === '%') return '';
+          if (unit !== '' && unit !== 'px' && !CSS_LENGTH_UNITS.has(unit)) return '';
+          if (n === 0) { tokenHasValidBlur = true; return m; }
+          if (unit === '') return ''; // unitless nonzero length is invalid
+          tokenHasValidBlur = true;
+          if (unit === 'px') {
+            contentBlurPx = Math.max(contentBlurPx, Math.min(50, n));
+            if (n > 50) return 'blur(50px)';
+          }
+          return m;
+        });
+        if (tokenHasValidBlur) hasExplicitBlur = true;
+        // A trailing 'blur(' with no closing paren is malformed (and would
+        // nuke the whole declaration in the browser) — cut the broken tail,
+        // keep the valid siblings. Closed blur(...) occurrences above are
+        // either kept or already removed, so anything left is repairable text.
+        const repaired = sanitized.replace(/\s*blur\([^)]*$/i, '');
+        const collapsed = repaired.replace(/\s+/g, ' ').trim();
+        if (collapsed) {
+          realFilters.push(collapsed);
+        }
+      }
+    }
+  }
+
+  // If content.style has a direct blur property and no blur filter was specified:
+  if (!hasExplicitBlur && directBlur !== undefined && directBlur !== null) {
+    const n = typeof directBlur === 'number' ? directBlur : parseFloat(String(directBlur));
+    if (Number.isFinite(n) && n > 0) {
+      const clamped = Math.min(50, n);
+      realFilters.push(`blur(${clamped}px)`);
+      contentBlurPx = clamped;
     }
   }
 
   return {
     filterStyle: realFilters.length > 0 ? realFilters.join(' ') : undefined,
     blendStyle,
+    backdropFilterStyle,
+    contentBlurPx,
   };
 }
 
@@ -438,7 +511,10 @@ const ASTLayerView: React.FC<{
           () => splitStyles(contentStyle),
           [contentStyle]
         );
-        const { filterStyle, blendStyle } = React.useMemo(() => parseFilters(filters), [filters]);
+        const { filterStyle, blendStyle, backdropFilterStyle, contentBlurPx } = React.useMemo(
+          () => parseFilters(filters, (contentStyle as any)?.blur),
+          [filters, (contentStyle as any)?.blur]
+        );
 
         // Check if this layer has custom positioning (not fullscreen).
         // LayerBox SOT v1: Map/Particles are full-frame canvases — their box
@@ -497,6 +573,9 @@ const ASTLayerView: React.FC<{
           perspectiveOrigin: _po,
           perspective_origin: _po2,
           borderRadius: _br,
+          backdropFilter: _bf,
+          WebkitBackdropFilter: _wbf,
+          blur: _blur,
           ...layoutRest
         } = layoutStyle as Record<string, any>;
 
@@ -713,16 +792,34 @@ const ASTLayerView: React.FC<{
 
         // Clamp expensive backdrop-blur radii to the Settings cap and isolate
         // the layer so Chromium's backdrop readback stays local.
+        const rawBackdrop = (layoutStyle as any).backdropFilter || backdropFilterStyle;
+        // Safari needs the -webkit- prefixed property: fall back to the
+        // standard value when only one source is set so both stay in sync.
+        const rawWebkitBackdrop =
+          (layoutStyle as any).WebkitBackdropFilter || backdropFilterStyle || rawBackdrop;
+
         const optimizedBackdrop =
-          typeof (layoutStyle as any).backdropFilter === 'string'
-            ? optimizeBackdropFilter((layoutStyle as any).backdropFilter, glassCap)
-            : (layoutStyle as any).backdropFilter;
+          typeof rawBackdrop === 'string'
+            ? optimizeBackdropFilter(rawBackdrop, glassCap)
+            : rawBackdrop;
         const optimizedWebkitBackdrop =
-          typeof (layoutStyle as any).WebkitBackdropFilter === 'string'
-            ? optimizeBackdropFilter((layoutStyle as any).WebkitBackdropFilter as string, glassCap)
-            : (layoutStyle as any).WebkitBackdropFilter;
+          typeof rawWebkitBackdrop === 'string'
+            ? optimizeBackdropFilter(rawWebkitBackdrop, glassCap)
+            : rawWebkitBackdrop;
         const hasGlass = !!optimizedBackdrop || !!optimizedWebkitBackdrop;
-        const containerTransform = [staticTransform, hasGlass ? 'translateZ(0)' : null]
+
+        // Edge bleed protection: when a fullscreen layer is blurred (contentBlurPx >= 8),
+        // CSS blur samples transparent pixels outside the frame boundary, causing dark/transparent borders.
+        // Scaling slightly (1.05) keeps the blurred image fully flush; frame
+        // bounds (export) / the Player viewport (preview) clip the overscan.
+        // Force overflow hidden on the container itself so rounded/small-box
+        // variants clip too, and note the scale pivots around transform_origin
+        // when one is set. Static filters / style.blur only — animated blur
+        // keyframes don't trigger expansion.
+        const needsEdgeBleedExpansion = contentBlurPx >= 8 && !hasCustomLayout;
+        const edgeScaleTransform = needsEdgeBleedExpansion ? 'scale(1.05)' : null;
+
+        const containerTransform = [staticTransform, edgeScaleTransform, hasGlass ? 'translateZ(0)' : null]
           .filter(Boolean)
           .join(' ') || undefined;
 
@@ -747,18 +844,15 @@ const ASTLayerView: React.FC<{
             data-ast-layer-idx={idx}
             data-ast-layer-type={content.type}
             style={{
-            ...containerBaseStyle,
-            ...(optimizedBackdrop !== (layoutStyle as any).backdropFilter
-              ? { backdropFilter: optimizedBackdrop }
-              : null),
-            ...(optimizedWebkitBackdrop !== (layoutStyle as any).WebkitBackdropFilter
-              ? { WebkitBackdropFilter: optimizedWebkitBackdrop }
-              : null),
-            filter: filterStyle,
-            ...(hasGlass ? { isolation: 'isolate' as const } : null),
-            ...(containerTransform ? { transform: containerTransform } : null),
-            ...(containerTransform && transform_origin ? { transformOrigin: transform_origin } : null),
-            ...(has3DStatic ? { transformStyle: 'preserve-3d' as const } : null),
+              ...containerBaseStyle,
+              ...(optimizedBackdrop ? { backdropFilter: optimizedBackdrop } : null),
+              ...(optimizedWebkitBackdrop ? { WebkitBackdropFilter: optimizedWebkitBackdrop } : null),
+              filter: filterStyle,
+              ...(hasGlass ? { isolation: 'isolate' as const } : null),
+              ...(needsEdgeBleedExpansion ? { overflow: 'hidden' as const } : null),
+              ...(containerTransform ? { transform: containerTransform } : null),
+              ...(containerTransform && transform_origin ? { transformOrigin: transform_origin } : null),
+              ...(has3DStatic ? { transformStyle: 'preserve-3d' as const } : null),
             // Perspective PROPERTY (not the function in containerTransform):
             // this is what perspectiveOrigin actually affects, and it gives
             // perspective-only layers a projection context for 3D descendants.

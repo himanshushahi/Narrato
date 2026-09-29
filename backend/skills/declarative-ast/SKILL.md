@@ -277,6 +277,16 @@ Apply cinematic color grades and composite blending via the `filters` string arr
   * `"url(#fx-duotone-inferno)"`: Dark amber → fire grade
   * `"url(#fx-thermal)"`: Multi-band thermal heat signature
 * **10 Blend Modes**: `filters: ["mix-blend-mode: overlay"]` (also: `screen`, `color-dodge`, `multiply`, `color-burn`, `soft-light`, `hard-light`, `difference`, `luminosity`, `normal`). Stacks graphics seamlessly over background footage.
+* **Optical Blurs (Gaussian Layer Blur & Frosted Glass Backdrop Blur)**:
+  * **Layer Content Blur**: Softens the layer's own pixels. Ideal for background B-roll or imagery behind foreground typography and charts.
+    * Via `filters`: `filters: ["blur(12px)"]` (range `0px`–`50px`).
+    * Via `content.style`: `"style": { "blur": 12 }`.
+    * *Edge-bleed protection*: Fullscreen layers with `blur >= 8px` are automatically expanded with scale(1.05) and overflow hidden to prevent dark/transparent edge vignetting.
+  * **Backdrop Blur (Frosted Glass / Privacy Blur)**: Blurs media *beneath* the layer's bounding box without blurring the layer's own text or vector glyphs. Ideal for frosted glass cards, lower thirds, or Shape privacy boxes.
+    * Via `filters`: `filters: ["backdrop-filter: blur(16px)"]` (range `0px`–`30px`).
+    * Via `content.style`: `"style": { "backdropFilter": "blur(16px)" }`.
+    * Combine with subtle backgrounds: `"backgroundColor": "rgba(255, 255, 255, 0.08)"` or `"rgba(0, 0, 0, 0.45)"` and fine borders: `"border": "1px solid rgba(255, 255, 255, 0.15)"`.
+    * *Render cap*: backdrop radii are clamped by Settings → Rendering Engine (preview ≤12px, export ≤24px). Authoring above the cap previews softer than exported — stay ≤12px for WYSIWYG. Static `filter: blur()` and animated `blur` keyframes compose on separate wrappers (they add, not override).
 
 ### 5. Layer Exit & Staggered Sequencing (`exit`)
 By default, layers persist for the full cut duration. To sequence multiple visual beats inside a single cut without visual clutter:

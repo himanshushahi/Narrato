@@ -234,9 +234,9 @@ UNIVERSAL_STYLE_KEYS = frozenset({
     "padding", "paddingTop", "paddingBottom", "paddingLeft", "paddingRight",
     "border", "borderTop", "borderBottom", "borderLeft", "borderRight",
     "borderWidth", "borderStyle", "borderColor",
-    "backgroundColor", "background", "backdropFilter", "WebkitBackdropFilter",
+    "backgroundColor", "background", "backdropFilter", "WebkitBackdropFilter", "backdrop-filter",
     "rotate", "rotateX", "rotateY", "translateZ", "perspective", "perspectiveOrigin", "perspective_origin",
-    "scale", "scaleX", "scaleY", "aspectRatio",
+    "scale", "scaleX", "scaleY", "aspectRatio", "blur",
 })
 # Per-type extras the renderer reads from the inner (non-layout) style.
 TEXT_STYLE_KEYS = frozenset({

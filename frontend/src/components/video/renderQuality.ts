@@ -74,7 +74,7 @@ export function getGlassBlurCap(mode: QualityMode, quality?: QualityPolicy): num
 /** Extracts the px radius from a `blur(Npx)` string. Returns null if absent. */
 export function parseBlurPx(value: string | undefined | null): number | null {
   if (!value) return null;
-  const m = value.match(/blur\(\s*(\d+(?:\.\d+)?)\s*px\s*\)/);
+  const m = value.match(/blur\(\s*(\d+(?:\.\d+)?)\s*px\s*\)/i);
   if (!m) return null;
   const n = parseFloat(m[1]);
   return Number.isFinite(n) ? n : null;
@@ -95,5 +95,5 @@ export function optimizeBackdropFilter(
   if (px <= 0 || cap <= 0) return undefined;
   const capped = Math.min(px, cap);
   if (capped === px) return value;
-  return value.replace(/blur\(\s*\d+(?:\.\d+)?\s*px\s*\)/, `blur(${capped}px)`);
+  return value.replace(/blur\(\s*\d+(?:\.\d+)?\s*px\s*\)/i, `blur(${capped}px)`);
 }
