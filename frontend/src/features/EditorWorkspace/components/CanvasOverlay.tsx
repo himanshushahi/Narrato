@@ -2008,7 +2008,7 @@ export const CanvasOverlay: React.FC<{
             compW={compW}
             compH={compH}
             selected={view.isViewingSelectedCut && selectedLayerIndex === idx}
-            locked={isLocked || !!(layer as any)?.locked}
+            locked={isLocked}
             liveDrag={liveSession && !liveSession.scaleMode ? liveSession.cur : null}
             liveScale={liveSession?.preview ?? null}
             liveRotateDeg={

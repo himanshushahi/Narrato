@@ -896,47 +896,10 @@ export const AstGraphicalEditor = ({
                 >
                   {layer.visible === false ? '👁️‍🗨️' : '👁️'}
                 </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    api.updateLayer(idx, 'locked', layer.locked ? undefined : true);
-                  }}
-                  className={`p-0.5 text-xs rounded transition-colors cursor-pointer shrink-0 select-none ${
-                    layer.locked
-                      ? 'text-amber-400'
-                      : 'opacity-40 hover:opacity-100 text-stone-500 hover:text-stone-200'
-                  }`}
-                  title={layer.locked ? 'Layer locked on canvas — click to unlock' : 'Layer unlocked — click to lock'}
-                >
-                  {layer.locked ? '🔒' : '🔓'}
-                </button>
-                <input
-                  type="color"
-                  value={typeof layer.color_tag === 'string' && /^#[0-9a-fA-F]{6}$/.test(layer.color_tag) ? layer.color_tag : '#f59e0b'}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    api.updateLayer(idx, 'color_tag', e.target.value);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  title={layer.color_tag ? `Group color ${layer.color_tag} — click to change` : 'Group color tag — click to assign (visual grouping)'}
-                  className="w-4 h-4 rounded-full cursor-pointer shrink-0 bg-transparent p-0 border border-white/20"
-                  style={layer.color_tag ? { boxShadow: `0 0 6px ${layer.color_tag}` } : undefined}
-                />
-                <input
-                  type="text"
-                  value={layer.name !== undefined ? layer.name : `Layer ${idx + 1}`}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    const v = e.target.value;
-                    api.updateLayer(idx, 'name', v.trim() === '' ? undefined : v);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  placeholder={`Layer ${idx + 1}`}
-                  className="text-xs font-bold text-amber-400 bg-transparent hover:bg-white/5 focus:bg-black/60 focus:outline-none focus:ring-1 focus:ring-amber-500/50 rounded px-1 py-0.5 max-w-[130px] truncate"
-                  title="Layer label (click to edit)"
-                />
-                <span className="text-[9px] font-semibold uppercase tracking-wider text-stone-500 shrink-0">
+                <span className="text-xs font-bold text-amber-400 select-none whitespace-nowrap shrink-0">
+                  Layer {idx + 1}
+                </span>
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-stone-500 shrink-0 whitespace-nowrap">
                   {idx === 0 ? '· bottom' : idx === layers.length - 1 ? '· top' : ''}
                 </span>
                 <span className="text-[10px] font-semibold text-stone-300 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap">{cType}</span>
