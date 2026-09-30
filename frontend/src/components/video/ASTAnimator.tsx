@@ -542,10 +542,9 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     return s;
   }, [animations, cameraOffset, floating, frame, qFrameFloat, fps, transform_origin, perspective, perspective_origin]);
 
-  // Mask clips: the static shape lives on the outer (transform) div while
-  // the animated reveal lives on an inner wrapper, so a reveal animates
-  // INTO the shape (e.g. iris opening inside a hexagon) instead of the
-  // reveal discarding the shape until it completes.
+  // Mask clips: apply static shape and animated reveal directly to the layer's
+  // container box (children) so percentage coordinates resolve against the layer's
+  // own width and height rather than the composition canvas (1920x1080).
   const shapeClip = useMemo(() => computeStaticShapeClip(mask), [mask]);
   const revealClip = useMemo(
     () => computeRevealClip(mask, frame, fps),
@@ -557,20 +556,73 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     return null;
   }
 
-  const shapeStyle: React.CSSProperties = shapeClip
-    ? { clipPath: shapeClip, WebkitClipPath: shapeClip }
-    : {};
-  const content = revealClip ? (
-    <div style={{
-      width: '100%', height: '100%', position: 'absolute',
-      clipPath: revealClip, WebkitClipPath: revealClip,
-    }}>
-      {children}
-    </div>
-  ) : children;
+  const content = useMemo(() => {
+    if (!shapeClip && !revealClip) {
+      return children;
+    }
+
+    if (!React.isValidElement(children)) {
+      if (shapeClip && revealClip) {
+        return (
+          <div style={{ width: '100%', height: '100%', clipPath: shapeClip, WebkitClipPath: shapeClip }}>
+            <div style={{ width: '100%', height: '100%', position: 'absolute', inset: 0, clipPath: revealClip, WebkitClipPath: revealClip }}>
+              {children}
+            </div>
+          </div>
+        );
+      }
+      const clip = shapeClip || revealClip;
+      return (
+        <div style={{ width: '100%', height: '100%', clipPath: clip, WebkitClipPath: clip }}>
+          {children}
+        </div>
+      );
+    }
+
+    const childElement = children as React.ReactElement<{ style?: React.CSSProperties; children?: React.ReactNode }>;
+    const existingStyle = childElement.props.style || {};
+
+    if (shapeClip && revealClip) {
+      // Static shape on the layer container, animated reveal on an inner wrapper around layer contents
+      const wrappedChildren = (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            position: 'absolute',
+            inset: 0,
+            clipPath: revealClip,
+            WebkitClipPath: revealClip,
+          }}
+        >
+          {childElement.props.children}
+        </div>
+      );
+      return React.cloneElement(
+        childElement,
+        {
+          style: {
+            ...existingStyle,
+            clipPath: shapeClip,
+            WebkitClipPath: shapeClip,
+          },
+        },
+        wrappedChildren
+      );
+    }
+
+    const clip = shapeClip || revealClip;
+    return React.cloneElement(childElement, {
+      style: {
+        ...existingStyle,
+        clipPath: clip,
+        WebkitClipPath: clip,
+      },
+    });
+  }, [children, shapeClip, revealClip]);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'absolute', ...style, ...shapeStyle }}>
+    <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
       {content}
     </div>
   );
