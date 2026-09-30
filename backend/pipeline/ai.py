@@ -2099,13 +2099,13 @@ Part 1: 11 Content Types (combine freely in any count, stacking is children arra
 - Text: font, weight, style.fontSize (8-500px), animation_mode (marker_highlight, words_stagger, typewriter, static), highlight_words/color, style.textAlign/lineHeight/letterSpacing/textShadow. Omit style.height for auto-size. Complex scripts MUST use Noto fonts.
 - Counter: value, start_value, prefix ($/+/₹), suffix (%/M+/B), decimals, duration, format (standard, compact, currency, percent, none), font_size (16-300px), title.
 - Shape: shape_type (rectangle, circle, star, triangle, arrow, polygon, path, icon), icon_name (1500+ Lucide icons), fill, stroke, stroke_width, corner_radius, preset_path (route_arch, horizontal_line, pointer_curve, corner_brackets, wave_pulse, circle_reticle), draw_animation (true), glow (true).
-- Chart: chart_type (bar, line, pie, donut, progress), data ([{label, value, color}]), title, title_size, bar_radius, bar_gap, bar_max_width, bar_glow, style.color.
+- Chart: chart_type (bar, line, pie, donut, progress), data ([{{label, value, color}}]), title, title_size, bar_radius, bar_gap, bar_max_width, bar_glow, style.color.
 - Background: 7 procedural shaders (gradient_mesh, grid_flow, waves, dots, blueprint, vignette_loop, paper_grain), 3-color palette [base, accent1, accent2], speed. Zero asset downloads, always fullscreen children[0].
 - Image: query (1-3 English keywords) + source (pexels, pixabay, wikipedia, archive). Pixabay image_type: illustration/vector for transparent cutouts; archive for authentic historical/space photos. objectFit: cover/contain/fill.
 - Video: query (1-3 English keywords) + source (pexels for generic stock B-roll; youtube for real-world events, tech/product demos, science simulations; archive for historical newsreels, archival footage, classic documentaries). volume (0-1), loop (false/true freezes or loops), yt_start_offset (default 15s), yt_duration (default 15s, max 30s), objectFit.
 - Lottie: lottie_url or animation_data, loop, playback_rate, direction: forward/backward.
 - Particles: 6 atmospheric presets (confetti, embers, dust, money_rain, snow, stars), count (10-300), hex colors, speed, opacity.
-- Map: map_style (modern_dark, vintage, minimal_light, nautical_blue), locations ([{name, coord: [lat, lon]}]).
+- Map: map_style (modern_dark, vintage, minimal_light, nautical_blue), locations ([{{name, coord: [lat, lon]}}]).
 - HTML: html_content (custom documents, code windows, receipts, glass cards). Fluid 100% filler root, no remote assets.
 
 Part 2: Universal Advanced Manipulation (any layer):
