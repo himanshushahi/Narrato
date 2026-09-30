@@ -1268,14 +1268,16 @@ def delete_project(project_id: str) -> dict:
 
 
 _SEARCH_SOURCES = ("pexels_photo", "pexels_video", "wikipedia_image",
-                   "pixabay_photo", "pixabay_video", "youtube_video")
+                   "pixabay_photo", "pixabay_video", "youtube_video",
+                   "archive_photo", "archive_video")
 
 
 @mcp.tool()
 def search_media(source: str, query: str, orientation: str = "landscape") -> dict:
     """**FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE.** Check stock media availability BEFORE writing a query into a cut.
     Queries MUST be in English. API keys stay server-side; only results
-    are returned. youtube_video verifies a match exists for the query.
+    are returned. youtube_video verifies a match exists; archive_photo/archive_video
+    search archive.org for public domain/historical media.
     Successful verifications are recorded session-wide: save_visuals reports
     any Image/Video query you did NOT verify here as unverified_queries."""
     if source not in _SEARCH_SOURCES:
@@ -1452,7 +1454,7 @@ already explicitly specified in the user's request):
     - Cut-level tools: transitions (13 + alias), emphasis punch-ins,
       mute_voiceover/mute_bg_music, motion_blur, camera_shake, FX filters,
       rack-focus blur/brightness keyframes, floating. Field semantics in declarative-ast Part 1 & Part 2.
-    - Pair entrance animations (translateY, translateX, scale, rotate)
+    - Pair entrance animations (translateY, translateX, translateZ, scale, rotate, rotateX, rotateY)
       with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
       whenever delay > 0 so elements stay hidden until they move; spatial-only
       without fade is allowed ONLY for instant punch/whip beats at delay: 0.

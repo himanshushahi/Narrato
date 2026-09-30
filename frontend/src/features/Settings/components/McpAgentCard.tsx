@@ -68,7 +68,7 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
   {
     title: 'Research & files',
     tools: [
-      { name: 'search_media', blurb: 'Verify stock queries (Pexels/Pixabay/Wiki/YouTube)' },
+      { name: 'search_media', blurb: 'Verify stock queries (Pexels/Pixabay/Wiki/YouTube/Archive)' },
       { name: 'web_search', blurb: 'Fact research for scripts' },
       { name: 'list_project_files', blurb: 'Inspect project folder contents' },
       { name: 'read_project_file', blurb: 'Read text artifacts (manifests, logs)' },

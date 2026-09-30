@@ -9,6 +9,7 @@ import { DynamicIcon } from '../../../components/video/DynamicIcon';
 import { IconPickerModal } from './IconPickerModal';
 import { AstAnimationBuilder } from './AstAnimationBuilder';
 import { AstLayoutControls } from './AstLayoutControls';
+import { AstMaskControls } from './AstMaskControls';
 import { AstFilterControls } from './AstFilterControls';
 import { AstChartDataEditor } from './AstChartDataEditor';
 import { AstMapLocationsEditor } from './AstMapLocationsEditor';
@@ -85,7 +86,7 @@ export interface AstLayerApi {
   reorderLayer: (from: number, to: number) => void;
   previewQuery: (idx: number, query: string) => void;
   toggleAdvanced: (idx: number) => void;
-  setAdvancedTab: (idx: number, tab: 'layout' | 'animations' | 'filters' | 'motion') => void;
+  setAdvancedTab: (idx: number, tab: 'layout' | 'animations' | 'masks' | 'filters' | 'motion') => void;
   openIconPicker: (idx: number) => void;
   changeType: (idx: number, newType: string) => void;
   selectIcon: (iconName: string) => void;
@@ -165,7 +166,7 @@ export const AstGraphicalEditor = ({
   initialValue: any;
   onChange: (val: any) => void;
   onUploadSubVisual?: (visualType?: string, layerIdx?: number) => Promise<string | undefined> | void;
-  onPreviewSubVisual?: (query: string, layerIdx?: number, visualType?: string) => Promise<string | undefined> | void;
+  onPreviewSubVisual?: (query: string, layerIdx?: number, visualType?: string, source?: string, imageType?: string) => Promise<string | undefined> | void;
   onDeleteLayer?: (layerIdx: number) => void;
   onDuplicateLayer?: (layerIdx: number) => void;
   onMoveLayer?: (fromIdx: number, toIdx: number) => void;
@@ -227,7 +228,7 @@ export const AstGraphicalEditor = ({
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
   const [mediaError, setMediaError] = useState<Record<number, string | null>>({});
   const [expandedAdvanced, setExpandedAdvanced] = useState<Record<number, boolean>>({});
-  const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'filters' | 'motion'>>({});
+  const [advancedTab, setAdvancedTab] = useState<Record<number, 'layout' | 'animations' | 'masks' | 'filters' | 'motion'>>({});
   const [iconPickerIdx, setIconPickerIdx] = useState<number | null>(null);
   // Card collapse (reorder mode): true = header-only compact row for easy dragging.
   // Default expanded (false) so existing editing flow is unchanged.
@@ -348,7 +349,17 @@ export const AstGraphicalEditor = ({
   const updateLayer = (idx: number, field: string, val: any) => {
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
-    newComp.children[idx] = { ...newComp.children[idx], [field]: val };
+    // Clearing a field (undefined) deletes the key instead of persisting
+    // noise (`visible: true`, `name: ""`, `mask: undefined` bloat LLM JSON
+    // and hide real intent) — absent and false-y defaults are equivalent
+    // to the renderer.
+    const next = { ...newComp.children[idx] };
+    if (val === undefined) {
+      delete next[field];
+    } else {
+      next[field] = val;
+    }
+    newComp.children[idx] = next;
     triggerChange(newComp);
   };
 
@@ -588,12 +599,14 @@ export const AstGraphicalEditor = ({
     if (!queryToSearch || !onPreviewRef.current) return;
     const currentLayer = compositionRef.current?.children?.[idx];
     const currentType = currentLayer?.content?.type || 'Image';
+    const currentSource = currentLayer?.content?.source || 'pexels';
+    const currentImageType = currentLayer?.content?.image_type || 'all';
     const isMediaLayer = currentType === 'Image' || currentType === 'Video';
     const vType = currentType === 'Video' ? 'video' : 'image';
     setPreviewingIdx(idx);
     setMediaError(prev => ({ ...prev, [idx]: null }));
     try {
-      const p = await onPreviewRef.current(queryToSearch, idx, vType);
+      const p = await onPreviewRef.current(queryToSearch, idx, vType, currentSource, currentImageType);
       if (p) {
         // STRICT: reject mismatched preview instead of silently flipping type.
         // Non-media layers (Text/Shape/...) may adopt either type explicitly.
@@ -785,6 +798,7 @@ export const AstGraphicalEditor = ({
       onStyleChange: (val: any) => api.updateContent(idx, 'style', val),
       onAnimationsChange: (val: any) => api.updateLayer(idx, 'animations', val),
       onExitChange: (val: any) => api.updateLayer(idx, 'exit', val),
+      onMaskChange: (val: any) => api.updateLayer(idx, 'mask', val),
       onFiltersChange: (val: any) => api.updateLayer(idx, 'filters', val),
       onChartDataChange: (val: any) => api.updateContent(idx, 'data', val),
       onParticlesChange: (updates: Record<string, any>) => api.updateContentFields(idx, updates),
@@ -867,8 +881,25 @@ export const AstGraphicalEditor = ({
                   title="Drag to reorder (bottom=background, top=foreground)"
                   className="text-stone-500 hover:text-amber-400 cursor-grab active:cursor-grabbing shrink-0 px-0.5 select-none"
                 >⋮⋮</span>
-                <span className="text-xs font-bold text-amber-400 shrink-0 whitespace-nowrap">Layer {idx + 1}</span>
-                <span className="text-[9px] font-semibold uppercase tracking-wider text-stone-500 shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    api.updateLayer(idx, 'visible', layer.visible === false ? undefined : false);
+                  }}
+                  className={`p-0.5 text-xs rounded transition-colors cursor-pointer shrink-0 select-none ${
+                    layer.visible === false
+                      ? 'opacity-40 hover:opacity-100 text-stone-500 hover:text-stone-200'
+                      : 'text-stone-300 hover:text-amber-400'
+                  }`}
+                  title={layer.visible === false ? 'Layer hidden — click to show' : 'Layer visible — click to hide'}
+                >
+                  {layer.visible === false ? '👁️‍🗨️' : '👁️'}
+                </button>
+                <span className="text-xs font-bold text-amber-400 select-none whitespace-nowrap shrink-0">
+                  Layer {idx + 1}
+                </span>
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-stone-500 shrink-0 whitespace-nowrap">
                   {idx === 0 ? '· bottom' : idx === layers.length - 1 ? '· top' : ''}
                 </span>
                 <span className="text-[10px] font-semibold text-stone-300 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap">{cType}</span>
@@ -1067,7 +1098,17 @@ export const AstGraphicalEditor = ({
                     className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50 placeholder-stone-600 transition-colors"
                     value={content.query || ''}
                     onChange={e => updateContent(idx, 'query', e.target.value)}
-                    placeholder="e.g. cinematic cityscape, futuristic neon..."
+                    placeholder={
+                      content.source === 'archive'
+                        ? "e.g. apollo 11 launch, world war 2 newsreel, vintage new york..."
+                        : content.source === 'wikipedia'
+                        ? "e.g. Albert Einstein, Apple Inc., ISRO (exact entity name)..."
+                        : content.source === 'youtube'
+                        ? "e.g. spacex starship launch, tesla cybercab demo..."
+                        : content.source === 'pixabay'
+                        ? (content.image_type === 'illustration' || content.image_type === 'vector' ? "e.g. rocket launch cutout, gold coin badge..." : "e.g. nature mountain sunset, business handshake...")
+                        : "e.g. cinematic cityscape, futuristic neon..."
+                    }
                   />
                   {mediaError[idx] && (
                     <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-2 py-1.5">
@@ -1090,6 +1131,7 @@ export const AstGraphicalEditor = ({
                       <option value="pixabay">Pixabay</option>
                       {cType !== 'Video' && <option value="wikipedia">Wikipedia</option>}
                       {cType !== 'Image' && <option value="youtube">YouTube</option>}
+                      <option value="archive">Internet Archive (Historical)</option>
                     </select>
                   </div>
 
@@ -2401,7 +2443,7 @@ export const AstGraphicalEditor = ({
               >
                 <span className="flex items-center gap-1.5">
                   <BsSliders size={11} className="text-amber-400" />
-                  Advanced (Layout, Animations, Filters & Motion FX)
+                  Advanced (Layout, Animations, Masks, Filters & Motion FX)
                 </span>
                 {isAdvancedOpen
                   ? <BsChevronDown size={11} className="ml-auto shrink-0" />
@@ -2410,11 +2452,12 @@ export const AstGraphicalEditor = ({
 
               {isAdvancedOpen && (
                 <div className="space-y-3.5 pt-3">
-                  {/* 4-Tab Segmented Bar */}
-                  <div className="grid grid-cols-4 gap-1 p-1 bg-black/60 border border-white/10 rounded-lg">
+                  {/* 5-Tab Segmented Bar */}
+                  <div className="grid grid-cols-5 gap-1 p-1 bg-black/60 border border-white/10 rounded-lg">
                     {[
                       { id: 'layout', label: 'Layout', icon: '🪟' },
                       { id: 'animations', label: 'Animations', icon: '🚀' },
+                      { id: 'masks', label: 'Mask & Clip', icon: '✂️' },
                       { id: 'filters', label: 'Filters', icon: '🎨' },
                       { id: 'motion', label: 'Motion FX', icon: '🎥' },
                     ].map(tab => {
@@ -2470,7 +2513,15 @@ export const AstGraphicalEditor = ({
                     </div>
                   )}
 
-                  {/* Tab 3: Filters */}
+                  {/* Tab 3: Masks & Vector Clipping */}
+                  {advancedTab[idx] === 'masks' && (
+                    <AstMaskControls
+                      mask={layer.mask}
+                      onChange={layerCallbacks[idx].onMaskChange}
+                    />
+                  )}
+
+                  {/* Tab 4: Filters */}
                   {advancedTab[idx] === 'filters' && (
                     <AstFilterControls
                       filters={layer.filters || EMPTY_LIST}
@@ -2595,6 +2646,81 @@ export const AstGraphicalEditor = ({
                           <option value="bottom center">Bottom Center</option>
                           <option value="bottom right">Bottom Right</option>
                         </select>
+                      </div>
+
+                      {/* 3D Camera Perspective & Vanishing Point */}
+                      <div className="pt-2 border-t border-white/5 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                            🎥 3D Camera Perspective (FOV)
+                          </span>
+                          {(layer.perspective !== undefined || layer.perspective_origin !== undefined) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateLayer(idx, 'perspective', undefined);
+                                updateLayer(idx, 'perspective_origin', undefined);
+                              }}
+                              className="text-[8px] text-stone-500 hover:text-amber-300 transition-colors uppercase font-semibold cursor-pointer"
+                              title="Reset camera perspective to default"
+                            >
+                              Reset Camera
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Perspective Distance Slider */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+                            <span>Camera Distance (Perspective)</span>
+                            <span className="text-amber-400 font-mono">
+                              {layer.perspective != null && layer.perspective !== '' ? `${parseFloat(String(layer.perspective)) || 1000}px` : '1000px (Default)'}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="300"
+                            max="3000"
+                            step="50"
+                            value={typeof layer.perspective === 'number' ? layer.perspective : (parseFloat(String(layer.perspective ?? '')) || 1000)}
+                            onChange={e => {
+                              const val = parseInt(e.target.value, 10);
+                              updateLayer(idx, 'perspective', val === 1000 ? undefined : val);
+                            }}
+                            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+                            title="Camera lens distance in pixels (lower = wide angle dramatic depth; higher = telephoto flat)"
+                          />
+                          <div className="flex justify-between text-[8px] text-stone-500 font-mono">
+                            <span>300px (Wide Angle / Dramatic)</span>
+                            <span>1000px (Cinematic Standard)</span>
+                            <span>3000px (Telephoto / Flat)</span>
+                          </div>
+                        </div>
+
+                        {/* Perspective Origin (Vanishing Point) */}
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">
+                            Vanishing Point (Perspective Origin)
+                          </label>
+                          <select
+                            className="w-full bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
+                            value={layer.perspective_origin || 'center center'}
+                            onChange={e => {
+                              const val = e.target.value;
+                              updateLayer(idx, 'perspective_origin', val === 'center center' ? undefined : val);
+                            }}
+                          >
+                            <option value="center center">Center Center (Default Eye Level)</option>
+                            <option value="50% 0%">Top Center (Bird's Eye Looking Down)</option>
+                            <option value="50% 100%">Bottom Center (Worm's Eye Looking Up)</option>
+                            <option value="0% 50%">Left Center (Looking From Left)</option>
+                            <option value="100% 50%">Right Center (Looking From Right)</option>
+                            <option value="0% 0%">Top Left</option>
+                            <option value="100% 0%">Top Right</option>
+                            <option value="0% 100%">Bottom Left</option>
+                            <option value="100% 100%">Bottom Right</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
                   )}

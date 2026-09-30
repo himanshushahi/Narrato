@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig, Easing, getRemotionEnvironment } from 'remotion';
 import { CameraMotionBlur } from '@remotion/motion-blur';
 import { getCameraNoise, CameraShakeType } from './CameraNoise';
-import { hasSpatialMotion } from './spatialMotion';
+import { hasSpatialMotion, SPATIAL_ANIMATION_PROPS } from './spatialMotion';
 import {
   QualityMode,
   QualityPolicy,
@@ -12,16 +12,86 @@ import {
   MOTION_BLUR_SETTLE_GRACE_FRAMES,
 } from './renderQuality';
 
+export type ASTAnimationEasing =
+  | 'linear'
+  | 'spring'
+  | 'ease-in'
+  | 'ease-out'
+  | 'ease-in-out'
+  | 'bounce'
+  | 'elastic'
+  | 'back'
+  | 'steps'
+  | 'bezier';
+
+export type ASTAnimationLoopMode = 'none' | 'loop' | 'pingpong';
+
+export type ASTMaskShape = 'none' | 'circle' | 'ellipse' | 'inset' | 'polygon';
+
+export type ASTMaskReveal =
+  | 'none'
+  | 'circle_iris'
+  | 'wipe_right'
+  | 'wipe_down'
+  | 'split_vertical'
+  | 'wipe_diagonal';
+
+export type ASTPolygonPreset =
+  | 'hexagon'
+  | 'diamond'
+  | 'triangle'
+  | 'star'
+  | 'slant_left'
+  | 'slant_right'
+  | 'custom';
+
+export interface ASTLayerMask {
+  shape?: ASTMaskShape;
+  size?: number | string;
+  rx?: number | string;
+  ry?: number | string;
+  x?: number | string;
+  y?: number | string;
+  top?: number | string;
+  right?: number | string;
+  bottom?: number | string;
+  left?: number | string;
+  corner_radius?: number | string;
+  polygon_preset?: ASTPolygonPreset;
+  points?: string;
+  reveal?: ASTMaskReveal;
+  reveal_duration?: number;
+  reveal_delay?: number;
+  reveal_easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'bounce';
+  inverted?: boolean;
+}
+
 export interface ASTAnimation {
-  property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
+  property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'translateZ' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
   from: number;
   /** Backend pydantic schema serializes the `from` alias as `from_` — accept both. */
   from_?: number;
   to: number;
   duration: number; // in seconds
   delay?: number; // in seconds (optional)
-  easing: 'linear' | 'spring' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  easing: ASTAnimationEasing;
   exit?: boolean; // If true, treats this animation as an exit animation: skips until its delay, and layer unmounts when complete
+
+  // Spring physics parameters (when easing === 'spring')
+  damping?: number;
+  stiffness?: number;
+  mass?: number;
+  overshoot_clamping?: boolean;
+  overshootClamping?: boolean;
+
+  // Easing curve parameters
+  elastic_bounciness?: number;
+  back_overshoot?: number;
+  steps_count?: number;
+  bezier_points?: [number, number, number, number];
+
+  // Continuous motion mode
+  loop_mode?: ASTAnimationLoopMode;
 }
 
 export interface ASTAnimatorProps {
@@ -32,6 +102,9 @@ export interface ASTAnimatorProps {
   camera_shake?: CameraShakeType;
   transform_origin?: string;
   floating?: boolean;
+  mask?: ASTLayerMask;
+  perspective?: number | string;
+  perspective_origin?: string;
   /** 'preview' (Player) uses fewer samples; defaults to auto-detect. */
   qualityMode?: QualityMode;
   /** User policy from Settings → Rendering Engine (defaults to balanced). */
@@ -45,7 +118,239 @@ interface AnimatedLayerProps {
   camera_shake?: CameraShakeType;
   transform_origin?: string;
   floating?: boolean;
+  mask?: ASTLayerMask;
+  perspective?: number | string;
+  perspective_origin?: string;
   children: React.ReactNode;
+}
+
+function evaluateAnimationProgress(
+  anim: ASTAnimation,
+  startVal: number,
+  targetVal: number,
+  localFrame: number,
+  durationFrames: number,
+  fps: number
+): number {
+  if (anim.easing === 'spring') {
+    const damping = typeof anim.damping === 'number' && anim.damping > 0 ? anim.damping : 14;
+    const stiffness = typeof anim.stiffness === 'number' && anim.stiffness > 0 ? anim.stiffness : 100;
+    const mass = typeof anim.mass === 'number' && anim.mass > 0 ? anim.mass : 0.9;
+    const overshootClamping = !!(anim.overshoot_clamping ?? anim.overshootClamping);
+
+    const spr = spring({
+      frame: localFrame,
+      fps,
+      config: { damping, stiffness, mass, overshootClamping },
+      durationInFrames: durationFrames,
+    });
+    return startVal + (targetVal - startVal) * spr;
+  }
+
+  let easingFn = Easing.linear;
+  if (anim.easing === 'ease-in') {
+    easingFn = Easing.ease;
+  } else if (anim.easing === 'ease-out') {
+    easingFn = Easing.out(Easing.ease);
+  } else if (anim.easing === 'ease-in-out') {
+    easingFn = Easing.inOut(Easing.ease);
+  } else if (anim.easing === 'bounce') {
+    easingFn = Easing.bounce;
+  } else if (anim.easing === 'elastic') {
+    const bounciness = typeof anim.elastic_bounciness === 'number' && anim.elastic_bounciness > 0 ? anim.elastic_bounciness : 1.0;
+    easingFn = Easing.elastic(bounciness);
+  } else if (anim.easing === 'back') {
+    // Default 1.7 matches the editor + backend schema default (Remotion's
+    // own default is 1.70158 — the difference is imperceptible, and this
+    // keeps displayed value === applied value).
+    const overshoot = typeof anim.back_overshoot === 'number' && Number.isFinite(anim.back_overshoot) && anim.back_overshoot >= 0 ? anim.back_overshoot : 1.7;
+    easingFn = Easing.back(overshoot);
+  } else if (anim.easing === 'steps') {
+    const steps = typeof anim.steps_count === 'number' && anim.steps_count > 0 ? Math.round(anim.steps_count) : 5;
+    easingFn = (t: number) => (t >= 1 ? 1 : Math.floor(t * steps) / steps);
+  } else if (anim.easing === 'bezier') {
+    // Remotion throws when x1/x2 fall outside [0, 1] — sanitize here so a
+    // bad authoring value degrades to a clamped curve instead of breaking
+    // the whole layer at export. y values are intentionally unbounded.
+    // Wrong-length shapes fall back to the default curve.
+    const raw = anim.bezier_points;
+    let pts: [number, number, number, number] = [0.16, 1.0, 0.3, 1.0];
+    if (Array.isArray(raw) && raw.length === 4 && raw.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+      const clampX = (v: number) => Math.min(1, Math.max(0, v));
+      pts = [clampX(raw[0]), raw[1], clampX(raw[2]), raw[3]];
+    }
+    easingFn = Easing.bezier(pts[0], pts[1], pts[2], pts[3]);
+  }
+
+  return interpolate(localFrame, [0, durationFrames], [startVal, targetVal], {
+    extrapolateRight: 'clamp',
+    extrapolateLeft: 'clamp',
+    easing: easingFn,
+  });
+}
+
+function formatMaskUnit(val: number | string | undefined, defaultUnit = '%'): string {
+  if (val === undefined || val === null || val === '') return `50${defaultUnit}`;
+  if (typeof val === 'number') return `${val}${defaultUnit}`;
+  const s = String(val).trim();
+  if (/^-?[\d.]+$/.test(s)) return `${s}${defaultUnit}`;
+  return s;
+}
+
+/** True when a mask config produces any clipping (static shape or reveal). */
+export function hasMask(mask: ASTLayerMask | undefined | null): boolean {
+  if (!mask) return false;
+  if (mask.shape && mask.shape !== 'none') return true;
+  return !!(mask.reveal && mask.reveal !== 'none');
+}
+
+export function computeClipPath(
+  mask: ASTLayerMask | undefined,
+  frame: number,
+  fps: number
+): string | undefined {
+  // Reveal-first combined clip (single-clip consumers such as the canvas
+  // overlay echo). The animated layer itself nests shape + reveal clips so
+  // a reveal animates INTO the static shape instead of discarding it.
+  return computeRevealClip(mask, frame, fps) ?? computeStaticShapeClip(mask);
+}
+
+/** Animated reveal portion of a mask (frame-dependent). */
+export function computeRevealClip(
+  mask: ASTLayerMask | undefined,
+  frame: number,
+  fps: number
+): string | undefined {
+  if (!mask || !mask.reveal || mask.reveal === 'none') return undefined;
+  const duration = typeof mask.reveal_duration === 'number' && mask.reveal_duration > 0
+    ? mask.reveal_duration
+    : 0.8;
+  const delay = typeof mask.reveal_delay === 'number' && mask.reveal_delay >= 0
+    ? mask.reveal_delay
+    : 0;
+  const delayFrames = Math.max(0, Math.round(delay * fps));
+  const durationFrames = Math.max(1, Math.round(duration * fps));
+  const localFrame = frame - delayFrames;
+
+  let t = 0;
+  if (localFrame <= 0) {
+    t = 0;
+  } else if (localFrame >= durationFrames) {
+    t = 1;
+  } else {
+    const rawT = localFrame / durationFrames;
+    const easing = mask.reveal_easing || 'ease-out';
+    if (easing === 'ease-in') {
+      t = Easing.in(Easing.quad)(rawT);
+    } else if (easing === 'ease-out') {
+      t = Easing.out(Easing.quad)(rawT);
+    } else if (easing === 'ease-in-out') {
+      t = Easing.inOut(Easing.quad)(rawT);
+      // NOTE: no 'spring' — overshoot past "fully revealed" is invisible
+      // for a reveal (and negative insets would paint outside the box),
+      // so spring is rejected at the schema/editor level. Unknown values
+      // (incl. legacy 'spring') fall through to linear below.
+    } else if (easing === 'bounce') {
+      t = Easing.bounce(rawT);
+    } else {
+      t = rawT;
+    }
+  }
+
+  t = Math.max(0, Math.min(1, t));
+  if (mask.inverted) {
+    t = 1 - t;
+  }
+
+  const cx = formatMaskUnit(mask.x, '%');
+  const cy = formatMaskUnit(mask.y, '%');
+
+  switch (mask.reveal) {
+    case 'circle_iris': {
+      const radius = (t * 75 * Math.SQRT2).toFixed(2);
+      return `circle(${radius}% at ${cx} ${cy})`;
+    }
+    case 'wipe_right': {
+      const rightInset = ((1 - t) * 100).toFixed(2);
+      return `inset(0% ${rightInset}% 0% 0%)`;
+    }
+    case 'wipe_down': {
+      const bottomInset = ((1 - t) * 100).toFixed(2);
+      return `inset(0% 0% ${bottomInset}% 0%)`;
+    }
+    case 'split_vertical': {
+      // Center-out curtain: the split line is vertical, halves part left/right.
+      const sideInset = ((1 - t) * 50).toFixed(2);
+      return `inset(0% ${sideInset}% 0% ${sideInset}%)`;
+    }
+    case 'wipe_diagonal': {
+      // True corner-to-corner diagonal: triangle growing from the top-left
+      // corner. Legs reach 200% so the corner (100%,100%) is covered at t=1
+      // on any aspect ratio (x/200 + y/200 = 1 on the hypotenuse).
+      const leg = (t * 200).toFixed(2);
+      return `polygon(0% 0%, ${leg}% 0%, 0% ${leg}%)`;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** Static shape portion of a mask (frame-independent). */
+export function computeStaticShapeClip(
+  mask: ASTLayerMask | undefined
+): string | undefined {
+  if (!mask || !mask.shape || mask.shape === 'none') return undefined;
+  switch (mask.shape) {
+    case 'circle': {
+      const size = formatMaskUnit(mask.size ?? 50, '%');
+      const cx = formatMaskUnit(mask.x ?? 50, '%');
+      const cy = formatMaskUnit(mask.y ?? 50, '%');
+      return `circle(${size} at ${cx} ${cy})`;
+    }
+    case 'ellipse': {
+      const rx = formatMaskUnit(mask.rx ?? 50, '%');
+      const ry = formatMaskUnit(mask.ry ?? 35, '%');
+      const cx = formatMaskUnit(mask.x ?? 50, '%');
+      const cy = formatMaskUnit(mask.y ?? 50, '%');
+      return `ellipse(${rx} ${ry} at ${cx} ${cy})`;
+    }
+    case 'inset': {
+      const top = formatMaskUnit(mask.top ?? 0, '%');
+      const right = formatMaskUnit(mask.right ?? 0, '%');
+      const bottom = formatMaskUnit(mask.bottom ?? 0, '%');
+      const left = formatMaskUnit(mask.left ?? 0, '%');
+      const radius = mask.corner_radius ? ` round ${formatMaskUnit(mask.corner_radius, 'px')}` : '';
+      return `inset(${top} ${right} ${bottom} ${left}${radius})`;
+    }
+    case 'polygon': {
+      const preset = mask.polygon_preset || 'hexagon';
+      if (preset === 'triangle') {
+        return 'polygon(50% 0%, 100% 100%, 0% 100%)';
+      } else if (preset === 'diamond') {
+        return 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)';
+      } else if (preset === 'hexagon') {
+        return 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
+      } else if (preset === 'star') {
+        return 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)';
+      } else if (preset === 'slant_left') {
+        return 'polygon(15% 0%, 100% 0%, 85% 100%, 0% 100%)';
+      } else if (preset === 'slant_right') {
+        return 'polygon(0% 0%, 85% 0%, 100% 100%, 15% 100%)';
+      } else if (preset === 'custom') {
+        // Custom points are author intent — never substitute a different
+        // geometry. Missing/blank points mean no clip (warn, don't hexagon).
+        const pts = typeof mask.points === 'string' ? mask.points.trim() : '';
+        if (pts) {
+          return `polygon(${mask.points})`;
+        }
+        console.warn('[AST] mask polygon preset=custom without points — skipping clip');
+        return undefined;
+      }
+      return 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
+    }
+    default:
+      return undefined;
+  }
 }
 
 const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
@@ -54,6 +359,9 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   camera_shake = 'none',
   transform_origin = 'center center',
   floating = false,
+  mask,
+  perspective,
+  perspective_origin,
   children,
 }) => {
   const frame = useCurrentFrame();
@@ -79,13 +387,25 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     }
 
     if (exit === true && animations.length > 0) {
+      // Loop/pingpong tracks are infinite by definition — their `duration`
+      // is a cycle length, not an end time — so they must not contribute to
+      // the unmount cutoff. If every track loops, there is no finite end:
+      // persist the layer for the full cut (return null).
       let maxEnd = 0;
+      let finiteTracks = 0;
       for (const a of animations) {
+        if (a && (a.loop_mode === 'loop' || a.loop_mode === 'pingpong') && !(a as any).exit) {
+          continue;
+        }
         if (typeof a.duration === 'number') {
           const delayFrames = Math.max(0, Math.round((a.delay || 0) * fps));
           const durationFrames = Math.max(1, Math.round(a.duration * fps));
           maxEnd = Math.max(maxEnd, delayFrames + durationFrames);
+          finiteTracks += 1;
         }
+      }
+      if (finiteTracks === 0) {
+        return null;
       }
       return maxEnd;
     }
@@ -132,27 +452,29 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
       }
 
       let val = animFrom;
+      const loopMode = anim.loop_mode;
 
-      if (anim.easing === 'spring') {
-        const spr = spring({
-          frame: Math.max(0, frame - delayFrames),
-          fps,
-          config: { damping: 14, stiffness: 100, mass: 0.9 },
-          durationInFrames: durationFrames,
-        });
-        val = animFrom + (anim.to - animFrom) * spr;
+      if (loopMode === 'loop' && !anim.exit) {
+        if (frame >= delayFrames) {
+          const elapsed = frame - delayFrames;
+          const cycleFrame = elapsed % durationFrames;
+          val = evaluateAnimationProgress(anim, animFrom, anim.to, cycleFrame, durationFrames, fps);
+        }
+      } else if (loopMode === 'pingpong' && !anim.exit) {
+        if (frame >= delayFrames) {
+          const elapsed = frame - delayFrames;
+          const cycleLength = durationFrames * 2;
+          const cycleFrame = elapsed % cycleLength;
+          if (cycleFrame < durationFrames) {
+            val = evaluateAnimationProgress(anim, animFrom, anim.to, cycleFrame, durationFrames, fps);
+          } else {
+            const reverseFrame = cycleFrame - durationFrames;
+            val = evaluateAnimationProgress(anim, anim.to, animFrom, reverseFrame, durationFrames, fps);
+          }
+        }
       } else {
-        // Easing curves
-        let easingFn = Easing.linear;
-        if (anim.easing === 'ease-in') easingFn = Easing.ease;
-        else if (anim.easing === 'ease-out') easingFn = Easing.out(Easing.ease);
-        else if (anim.easing === 'ease-in-out') easingFn = Easing.inOut(Easing.ease);
-
-        val = interpolate(frame, [delayFrames, delayFrames + durationFrames], [animFrom, anim.to], {
-          extrapolateRight: 'clamp',
-          extrapolateLeft: 'clamp',
-          easing: easingFn,
-        });
+        const localF = Math.max(0, frame - delayFrames);
+        val = evaluateAnimationProgress(anim, animFrom, anim.to, localF, durationFrames, fps);
       }
 
       if (anim.property === 'opacity') {
@@ -169,6 +491,8 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
         s.transform += ` rotateX(${val}deg)`;
       } else if (anim.property === 'rotateY') {
         s.transform += ` rotateY(${val}deg)`;
+      } else if (anim.property === 'translateZ') {
+        s.transform += ` translateZ(${val}px)`;
       } else if (anim.property === 'blur') {
         s.filter = `${s.filter || ''} blur(${Math.max(0, val)}px)`.trim();
       } else if (anim.property === 'brightness') {
@@ -190,18 +514,64 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     if (cameraOffset.rotation !== 0) {
       s.transform += ` rotate(${cameraOffset.rotation}deg)`;
     }
+
+    // 3. Perspective and 3D depth context
+    const has3D = (animations || []).some(
+      (a) => a && (a.property === 'rotateX' || a.property === 'rotateY' || a.property === 'translateZ')
+    ) || perspective !== undefined;
+
+    if (has3D) {
+      s.transformStyle = 'preserve-3d';
+      const persVal = typeof perspective === 'number' ? `${perspective}px` : (perspective || '1000px');
+      const curTransform = s.transform || '';
+      if (!curTransform.includes('perspective')) {
+        s.transform = `perspective(${persVal}) ${curTransform}`.trim();
+      }
+      // The perspective() FUNCTION above gives the wrapper's OWN animated
+      // transform its depth — but CSS perspective-origin only affects the
+      // perspective PROPERTY (never the function). Set the property too so it
+      // projects *children* (the static container's transform) with the
+      // vanishing point honored; the static container skips its own
+      // perspective() when this shared camera is active (see ASTRenderer).
+      s.perspective = persVal;
+      if (perspective_origin) {
+        s.perspectiveOrigin = perspective_origin;
+      }
+    }
     
     return s;
-  }, [animations, cameraOffset, floating, frame, qFrameFloat, fps, transform_origin]);
+  }, [animations, cameraOffset, floating, frame, qFrameFloat, fps, transform_origin, perspective, perspective_origin]);
+
+  // Mask clips: the static shape lives on the outer (transform) div while
+  // the animated reveal lives on an inner wrapper, so a reveal animates
+  // INTO the shape (e.g. iris opening inside a hexagon) instead of the
+  // reveal discarding the shape until it completes.
+  const shapeClip = useMemo(() => computeStaticShapeClip(mask), [mask]);
+  const revealClip = useMemo(
+    () => computeRevealClip(mask, frame, fps),
+    [mask, frame, fps]
+  );
 
   // If exit cutoff has been reached, unmount the layer completely so it doesn't linger
   if (exitFrame !== null && frame >= exitFrame) {
     return null;
   }
 
-  return (
-    <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
+  const shapeStyle: React.CSSProperties = shapeClip
+    ? { clipPath: shapeClip, WebkitClipPath: shapeClip }
+    : {};
+  const content = revealClip ? (
+    <div style={{
+      width: '100%', height: '100%', position: 'absolute',
+      clipPath: revealClip, WebkitClipPath: revealClip,
+    }}>
       {children}
+    </div>
+  ) : children;
+
+  return (
+    <div style={{ width: '100%', height: '100%', position: 'absolute', ...style, ...shapeStyle }}>
+      {content}
     </div>
   );
 };
@@ -227,7 +597,14 @@ const BlurGate: React.FC<ASTAnimatorProps> = ({
   if (samples <= 0) return <>{children}</>;
   const hasMotion = hasSpatialMotion(animations, floating, camera_shake);
   if (!hasMotion) return <>{children}</>;
-  const alwaysMoving = floating || (camera_shake && camera_shake !== 'none');
+  // Only *spatial* loops keep a layer perpetually moving: an opacity
+  // pingpong renders spatially identical subframes, so it must not defeat
+  // the settled-blur bypass on its own.
+  const hasLoopingMotion = (animations || []).some(
+    (a) => a && a.loop_mode && a.loop_mode !== 'none' && !a.exit
+      && SPATIAL_ANIMATION_PROPS.has(String(a.property ?? ''))
+  );
+  const alwaysMoving = floating || (camera_shake && camera_shake !== 'none') || hasLoopingMotion;
   if (shouldBypassSettledBlur(policy) && !alwaysMoving && animations && animations.length > 0) {
     let windowEnd = 0;
     let windowStart = Number.POSITIVE_INFINITY;
@@ -256,7 +633,7 @@ const BlurGate: React.FC<ASTAnimatorProps> = ({
 };
 
 export const ASTAnimator: React.FC<ASTAnimatorProps> = (props) => {
-  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, exit, children } = props;
+  const { animations = [], motion_blur = false, camera_shake = 'none', floating = false, exit, mask, perspective, perspective_origin, children } = props;
   const content = (
     <AnimatedLayer
       animations={animations}
@@ -264,6 +641,9 @@ export const ASTAnimator: React.FC<ASTAnimatorProps> = (props) => {
       camera_shake={camera_shake}
       transform_origin={props.transform_origin}
       floating={floating}
+      mask={mask}
+      perspective={perspective}
+      perspective_origin={perspective_origin}
     >
       {children}
     </AnimatedLayer>

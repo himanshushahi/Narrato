@@ -34,19 +34,21 @@ You will receive a single `sub_visual` object from a video script, along with su
 * `Shape`: `shape_type` (`"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`), `icon_name` (1,500+ Lucide icons), `fill`, `stroke`, `stroke_width`, `corner_radius`, `preset_path` (`"route_arch"` | `"horizontal_line"` | `"pointer_curve"` | `"corner_brackets"` | `"wave_pulse"` | `"circle_reticle"`), `draw_animation`, `glow`.
 * `Chart`: `chart_type` (`"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`), `data: [{"label", "value", "color"}]`, `title`, `title_size`, `bar_radius`, `bar_gap`, `bar_max_width`, `bar_glow`, `style.color`.
 * `Background`: Procedural shader canvas: `background_preset` (`"gradient_mesh"` | `"grid_flow"` | `"waves"` | `"dots"` | `"blueprint"` | `"vignette_loop"` | `"paper_grain"`), `colors: [base, accent1, accent2]`, `speed`. Fullscreen bottom layer.
-* `Image`: `query` + `source` (`"pexels"` | `"pixabay"` | `"wikipedia"`). Pixabay `image_type: "illustration"`/`"vector"` for cutouts. `objectFit`: `"cover"` | `"contain"` | `"fill"`.
-* `Video`: `query` + `source` (`"pexels"` | `"pixabay"` | `"youtube"`). `volume`, `loop: false/true`, `yt_start_offset`, `yt_duration`, `objectFit`.
+* `Image`: `query` + `source` (`"pexels"` | `"pixabay"` | `"wikipedia"` | `"archive"`). Pixabay `image_type: "illustration"`/`"vector"` for cutouts; `"archive"` for historical/space photos. `objectFit`: `"cover"` | `"contain"` | `"fill"`.
+* `Video`: `query` + `source` (`"pexels"` | `"pixabay"` | `"youtube"` | `"archive"`). `volume`, `loop: false/true`, `yt_start_offset`, `yt_duration`, `objectFit`.
 * `Lottie`: `lottie_url` or `animation_data`, `loop`, `playback_rate`, `direction: "forward" | "backward"`.
 * `Particles`: `particle_preset` (`"confetti"` | `"embers"` | `"dust"` | `"money_rain"` | `"snow"` | `"stars"`), `particle_count`, `particle_colors`, `particle_speed`, `particle_opacity`.
 * `Map`: `map_style` (`"modern_dark"` | `"vintage"` | `"minimal_light"` | `"nautical_blue"`), `locations: [{"name", "coord": [lat, lon]}]`.
 * `HTML`: `html_content` (inline CSS/SVG/HTML for documents, code windows, receipts). 100% filler root, fluid type, no remote assets.
 
 ### Part 2: Universal Advanced Manipulation (Any Layer)
-* **Geometry (`style`)**: LayerBox SOT v1 `%` strings (`left`, `top`, `width`, `height`, or `bottom`). `borderRadius` (`16px`, `24px`, `50%` circle), `aspectRatio` (`"1 / 1"`). Static `rotate`, `scale`, `scaleX: -1` (flip H), `scaleY: -1` (flip V). Center math: `left = 50 - width/2`.
-* **Animations (`animations`)**: 9 keyframe properties: 6 spatial (`translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`) + 3 optical fades (`opacity`, `blur`, `brightness`). Easings: `"spring"`, `"ease-out"`, `"ease-in-out"`, `"linear"`. Word sync when timestamps exist. Pair `delay > 0` with `opacity: 0 -> 1`.
+* **Geometry (`style`)**: LayerBox SOT v1 `%` strings (`left`, `top`, `width`, `height`, or `bottom`). `borderRadius` (`16px`, `24px`, `50%` circle), `aspectRatio` (`"1 / 1"`). Static `rotate`, `scale`, `scaleX: -1` (flip H), `scaleY: -1` (flip V), 3D tilt `rotateX`, `rotateY`, `translateZ`. Center math: `left = 50 - width/2`.
+* **Animations (`animations`)**: 10 keyframe properties: 7 spatial (`translateY`, `translateX`, `translateZ`, `scale`, `rotate`, `rotateX`, `rotateY`) + 3 optical fades (`opacity`, `blur`, `brightness`). Easings: `"spring"` (supports `damping`, `stiffness`, `mass`, `overshoot_clamping`), `"ease-out"`, `"ease-in-out"`, `"linear"`, `"bounce"`, `"elastic"`, `"back"`, `"steps"`, `"bezier"`. Continuous motion: `loop_mode: "loop" | "pingpong"`. Word sync when timestamps exist. Pair `delay > 0` with `opacity: 0 -> 1`.
 * **Physics & Dynamics (`motion`)**: `floating: true` harmonic drift; `motion_blur: true` + `shutter_angle: 45–360`; `camera_shake: "handheld" | "shockwave" | "glitch" | "none"`; `transform_origin` pivot.
+* **3D Perspective & Camera**: `perspective: 1000` (or 400-3000px FOV distance; lower = wide angle, higher = telephoto), `perspective_origin: "center center" | "50% 0%"`.
 * **Filters & Looks (`filters`)**: 8 CSS looks (`Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur`, `Cinematic Dark Base`) + 6 SVG looks (`"url(#fx-emboss)"`, `"url(#fx-sharpen)"`, `"url(#fx-duotone-midnight)"`, `"url(#fx-duotone-inferno)"`, etc.) + blend modes (`"mix-blend-mode: overlay"`).
 * **Layer Exit & Stagger (`exit`)**: `exit: true` or `exit: <seconds>` on layer, or animation track `exit: true` for clean sequential beats without overlap.
+* **Shape Masking & Ergonomics (`mask`)**: `mask: {"shape": "circle"|"ellipse"|"inset"|"polygon", "polygon_preset": "hexagon"|"diamond"|"triangle"|"star"|"slant_left"|"slant_right", "reveal": "circle_iris"|"wipe_right"|"wipe_down"|"split_vertical"|"wipe_diagonal"}` (a reveal animates INTO the static shape when both are set). Layer ergonomics: `name`, `visible: false` (hide), `locked: true` (lock canvas).
 
 ### Part 3: Cut Transitions & Energy
 * **Transitions**: `"transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none"`.
@@ -64,8 +66,8 @@ You will receive a single `sub_visual` object from a video script, along with su
   { "type": "Video", "query": "spacex starship launch", "source": "youtube", "yt_start_offset": 15 }
   ```
 - Sources allowed:
-  * `Image`: `"pexels"` | `"pixabay"` | `"wikipedia"`.
-  * `Video`: `"pexels"` (generic stock B-roll) | `"pixabay"` | `"youtube"` (real-world news/events, tech/hardware demos, science animations, archival history).
+  * `Image`: `"pexels"` | `"pixabay"` | `"wikipedia"` | `"archive"`.
+  * `Video`: `"pexels"` (generic stock B-roll) | `"pixabay"` | `"youtube"` (real-world news/events, tech/hardware demos, science animations) | `"archive"` (historical newsreels, archival footage, classic documentaries).
 - **NEVER emit `sources[]`, `url`, `local_path` or `asset_url`** — output query+source only; pipeline downloads media downstream.
 
 ---

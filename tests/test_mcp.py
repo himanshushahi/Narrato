@@ -754,6 +754,10 @@ def test_server_search_media_validates(monkeypatch):
                         lambda name, args: f"URL({name},{args['query']})")
     result = server.search_media("pexels_photo", "monsoon clouds")
     assert result["ok"] is True and "pexels_photo" in result["result"]
+    result_arc_p = server.search_media("archive_photo", "apollo 11")
+    assert result_arc_p["ok"] is True and "search_archive_photo" in result_arc_p["result"]
+    result_arc_v = server.search_media("archive_video", "apollo 11 launch")
+    assert result_arc_v["ok"] is True and "search_archive_video" in result_arc_v["result"]
     result = server.web_search("   ")
     assert result["ok"] is False
 

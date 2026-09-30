@@ -13,6 +13,7 @@ interface AstAnimationBuilderProps {
 const ANIMATION_PROPERTIES: { id: ASTAnimation['property']; label: string; icon: string; unit: string; defaultFrom: number; defaultTo: number }[] = [
   { id: 'translateY', label: 'Translate Y (Vertical)', icon: '↕️', unit: 'px', defaultFrom: 45, defaultTo: 0 },
   { id: 'translateX', label: 'Translate X (Horizontal)', icon: '↔️', unit: 'px', defaultFrom: 60, defaultTo: 0 },
+  { id: 'translateZ', label: 'Translate Z (3D Depth)', icon: '🪐', unit: 'px', defaultFrom: -150, defaultTo: 0 },
   { id: 'scale', label: 'Scale (Zoom Drift)', icon: '🔍', unit: 'x', defaultFrom: 0.85, defaultTo: 1.0 },
   { id: 'opacity', label: 'Opacity (Fade)', icon: '👁️', unit: '%', defaultFrom: 0, defaultTo: 1 },
   { id: 'rotate', label: 'Rotate 2D', icon: '🔄', unit: '°', defaultFrom: -10, defaultTo: 0 },
@@ -320,9 +321,202 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                       <option value="ease-in-out">Ease In-Out</option>
                       <option value="ease-in">Ease In</option>
                       <option value="linear">Linear Drift</option>
+                      <option value="bounce">Bounce</option>
+                      <option value="elastic">Elastic Overshoot</option>
+                      <option value="back">Anticipation Wind-Up</option>
+                      <option value="steps">Stepped Frames</option>
+                      <option value="bezier">Cubic Bézier</option>
                     </select>
                   </div>
                 </div>
+
+                {/* Row 4: Continuous Motion (Loop Mode) */}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/5">
+                  <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 shrink-0">
+                    Motion Cycle
+                  </label>
+                  <div className="flex items-center gap-1">
+                    {(['none', 'loop', 'pingpong'] as const).map(mode => {
+                      const active = (anim.loop_mode || 'none') === mode;
+                      const label = mode === 'none' ? 'One-Shot' : mode === 'loop' ? '🔁 Loop' : '🏓 Ping-Pong';
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => handleUpdate(idx, 'loop_mode', mode === 'none' ? undefined : mode)}
+                          className={`px-2 py-0.5 text-[9px] rounded border font-semibold transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                              : 'bg-black/40 border-white/10 text-stone-400 hover:text-stone-200'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Curve-specific manual parameters */}
+                {anim.easing === 'spring' && (
+                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1.5">
+                    <div className="flex justify-between items-center text-[9px] font-bold uppercase tracking-wider text-amber-400/90">
+                      <span>Spring Physics Controls</span>
+                      <span className="text-[8px] text-stone-500 font-mono">Damping / Stiffness / Mass</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-[8px] text-stone-400 font-mono">
+                          <span>Damp</span>
+                          <span className="text-amber-400">{anim.damping ?? 14}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="1"
+                          max="100"
+                          step="1"
+                          value={anim.damping ?? 14}
+                          onChange={e => handleUpdate(idx, 'damping', parseFloat(e.target.value) || 14)}
+                          className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                          title="Damping (bounciness friction: lower = bouncier, higher = stiffer)"
+                        />
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-[8px] text-stone-400 font-mono">
+                          <span>Stiff</span>
+                          <span className="text-amber-400">{anim.stiffness ?? 100}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="1"
+                          max="500"
+                          step="5"
+                          value={anim.stiffness ?? 100}
+                          onChange={e => handleUpdate(idx, 'stiffness', parseFloat(e.target.value) || 100)}
+                          className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                          title="Stiffness (tension/snap speed: higher = faster snap)"
+                        />
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-[8px] text-stone-400 font-mono">
+                          <span>Mass</span>
+                          <span className="text-amber-400">{anim.mass ?? 0.9}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="0.1"
+                          max="10"
+                          step="0.1"
+                          value={anim.mass ?? 0.9}
+                          onChange={e => handleUpdate(idx, 'mass', parseFloat(e.target.value) || 0.9)}
+                          className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                          title="Mass (weight/inertia: higher = heavier overshoot)"
+                        />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-1.5 pt-0.5 text-[9px] text-stone-400 hover:text-stone-200 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={!!(anim.overshoot_clamping ?? anim.overshootClamping)}
+                        onChange={e => handleUpdate(idx, 'overshoot_clamping', e.target.checked || undefined)}
+                        className="rounded bg-black/60 border-white/20 text-amber-500 focus:ring-0 cursor-pointer w-3 h-3"
+                      />
+                      <span>Overshoot Clamping (stop at target value)</span>
+                    </label>
+                  </div>
+                )}
+
+                {anim.easing === 'elastic' && (
+                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1">
+                    <div className="flex justify-between text-[8px] text-stone-400 font-mono">
+                      <span>Elastic Bounciness</span>
+                      <span className="text-amber-400">{anim.elastic_bounciness ?? 1.0}</span>
+                    </div>
+                    <input
+                      type="number"
+                      min="0.1"
+                      max="5"
+                      step="0.1"
+                      value={anim.elastic_bounciness ?? 1.0}
+                      onChange={e => handleUpdate(idx, 'elastic_bounciness', parseFloat(e.target.value) || 1.0)}
+                      className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                {anim.easing === 'back' && (
+                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1">
+                    <div className="flex justify-between text-[8px] text-stone-400 font-mono">
+                      <span>Anticipation Overshoot Factor</span>
+                      <span className="text-amber-400">{anim.back_overshoot ?? 1.7}</span>
+                    </div>
+                    <input
+                      type="number"
+                      min="0.1"
+                      max="10"
+                      step="0.1"
+                      value={anim.back_overshoot ?? 1.7}
+                      onChange={e => handleUpdate(idx, 'back_overshoot', parseFloat(e.target.value) || 1.7)}
+                      className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                {anim.easing === 'steps' && (
+                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1">
+                    <div className="flex justify-between text-[8px] text-stone-400 font-mono">
+                      <span>Discrete Steps Count</span>
+                      <span className="text-amber-400">{anim.steps_count ?? 5}</span>
+                    </div>
+                    <input
+                      type="number"
+                      min="1"
+                      max="60"
+                      step="1"
+                      value={anim.steps_count ?? 5}
+                      onChange={e => handleUpdate(idx, 'steps_count', parseInt(e.target.value, 10) || 5)}
+                      className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                {anim.easing === 'bezier' && (
+                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1">
+                    <div className="flex justify-between text-[8px] text-stone-400 font-mono">
+                      <span>Cubic Bézier Points [X1, Y1, X2, Y2]</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {([0, 1, 2, 3] as const).map(pIdx => {
+                        const pts = anim.bezier_points || [0.16, 1.0, 0.3, 1.0];
+                        const labels = ['X1', 'Y1', 'X2', 'Y2'];
+                        // Remotion throws when X1/X2 leave [0, 1] — constrain
+                        // at the input so a typo can't break the whole layer.
+                        const isX = pIdx % 2 === 0;
+                        return (
+                          <div key={pIdx} className="space-y-0.5">
+                            <span className="text-[7px] text-stone-500 font-mono block text-center">{labels[pIdx]}</span>
+                            <input
+                              type="number"
+                              step="0.05"
+                              min={isX ? 0 : undefined}
+                              max={isX ? 1 : undefined}
+                              value={pts[pIdx] ?? (pIdx % 2 === 1 ? 1 : 0.2)}
+                              onChange={e => {
+                                const nextPts = [...pts] as [number, number, number, number];
+                                let v = parseFloat(e.target.value);
+                                if (!Number.isFinite(v)) v = 0;
+                                if (isX) v = Math.min(1, Math.max(0, v));
+                                nextPts[pIdx] = v;
+                                handleUpdate(idx, 'bezier_points', nextPts);
+                              }}
+                              className="w-full bg-black/60 border border-white/10 rounded px-1 py-0.5 text-[10px] text-stone-200 font-mono text-center focus:outline-none"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })
@@ -373,6 +567,11 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
               <span className="text-[9px] text-stone-500 font-mono">s</span>
             </div>
           </div>
+          {exit === true && animations.some(a => a && (a.loop_mode === 'loop' || a.loop_mode === 'pingpong') && !a.exit) && (
+            <div className="text-[9px] text-amber-400/90 font-mono px-0.5">
+              ⚠️ Looping tracks never end — exit timing uses the finite tracks only (pure-loop layers persist the full cut).
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -167,7 +167,7 @@ from backend.agent.schemas import (
     ScriptIntroResponse, ScriptConclusionResponse, ScriptSceneResponse,
     BaseScriptResponse, OutlineResponse, StoryboardPlanResponse,
     DesignSystemResponse, SubVisualAST, VisualsArrayResponse,
-    AnimationNode, ASTLayerNode, LayerContent,
+    AnimationNode, ASTLayerNode, LayerContent, ASTMaskConfig,
     get_model_json_schema, parse_and_validate_model
 )
 
@@ -175,6 +175,7 @@ from backend.agent.schemas import (
 ANIMATION_SCHEMA = AnimationNode.model_json_schema()
 LAYER_CONTENT_SCHEMA = LayerContent.model_json_schema()
 AST_LAYER_SCHEMA = ASTLayerNode.model_json_schema()
+MASK_CONFIG_SCHEMA = ASTMaskConfig.model_json_schema()
 SUB_VISUAL_SCHEMA = SubVisualAST.model_json_schema()
 SCRIPT_INTRO_JSON_SCHEMA = ScriptIntroResponse.model_json_schema()
 SCRIPT_SCENE_JSON_SCHEMA = ScriptSceneResponse.model_json_schema()
@@ -1992,12 +1993,12 @@ Example: sub-visual starts at 4.0s in the scene and keyword is spoken at [6.3s] 
   Other renderable CSS passes through but may lack a visual editor — prefer
   `rotate`/`scale`, `animations`, and `filters`.
 - `query` in `Image` and `Video` content MUST ALWAYS be in English.
-- SOURCE MATRIX (hard): `Image` ← `pexels|pixabay|wikipedia` (never `youtube`); `Video` ← `pexels|pixabay|youtube` (never `wikipedia`). Crossed sources are ignored with a wrong-type Pexels fallback (intended source lost, fetch time wasted) — always match the matrix.
+- SOURCE MATRIX (hard): `Image` ← `pexels|pixabay|wikipedia|archive` (never `youtube`); `Video` ← `pexels|pixabay|youtube|archive` (never `wikipedia`). Crossed sources are ignored with a wrong-type Pexels fallback (intended source lost, fetch time wasted) — always match the matrix.
 - `subtitle_position` (sub-visual level, sibling of `transition`): `"bottom"|"top"|"hidden"` — per-cut caption override (`"top"` when a key card sits in the lower third, `"hidden"` on full-bleed typography). Omit = default.
 - All text content: project language for narration-matched text; English for search queries. For complex scripts (Hindi, Marathi, Bengali, Tamil, Arabic, etc.), MUST specify the corresponding Noto font (e.g. `Noto Sans Devanagari`) to guarantee proper Unicode shaping.
 - QUERY-ONLY MEDIA CONTRACT (critical): for `Image`/`Video` layers output ONLY
-  `{{"type": "Image", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"wikipedia"}}`
-  or `{{"type": "Video", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"youtube"}}`
+  `{{"type": "Image", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"wikipedia"|"archive"}}`
+  or `{{"type": "Video", "query": "1-3 english keywords", "source": "pexels"|"pixabay"|"youtube"|"archive"}}`
   (per-type matrix — never `youtube` on Image, never `wikipedia` on Video).
   NEVER emit `sources[]`, `url`, `local_path`, `asset_url`, `visual_path` or
   `visual_url` — no hardcoded remote links. Search-tool URLs are for
@@ -2100,19 +2101,21 @@ Part 1: 11 Content Types (combine freely in any count, stacking is children arra
 - Shape: shape_type (rectangle, circle, star, triangle, arrow, polygon, path, icon), icon_name (1500+ Lucide icons), fill, stroke, stroke_width, corner_radius, preset_path (route_arch, horizontal_line, pointer_curve, corner_brackets, wave_pulse, circle_reticle), draw_animation (true), glow (true).
 - Chart: chart_type (bar, line, pie, donut, progress), data ([{label, value, color}]), title, title_size, bar_radius, bar_gap, bar_max_width, bar_glow, style.color.
 - Background: 7 procedural shaders (gradient_mesh, grid_flow, waves, dots, blueprint, vignette_loop, paper_grain), 3-color palette [base, accent1, accent2], speed. Zero asset downloads, always fullscreen children[0].
-- Image: query (1-3 English keywords) + source (pexels, pixabay, wikipedia). Pixabay image_type: illustration/vector for transparent cutouts. objectFit: cover/contain/fill.
-- Video: query (1-3 English keywords) + source (pexels for generic stock B-roll; youtube for real-world events, tech/product demos, science simulations, archival footage). volume (0-1), loop (false/true freezes or loops), yt_start_offset (default 15s), yt_duration (default 15s, max 30s), objectFit.
+- Image: query (1-3 English keywords) + source (pexels, pixabay, wikipedia, archive). Pixabay image_type: illustration/vector for transparent cutouts; archive for authentic historical/space photos. objectFit: cover/contain/fill.
+- Video: query (1-3 English keywords) + source (pexels for generic stock B-roll; youtube for real-world events, tech/product demos, science simulations; archive for historical newsreels, archival footage, classic documentaries). volume (0-1), loop (false/true freezes or loops), yt_start_offset (default 15s), yt_duration (default 15s, max 30s), objectFit.
 - Lottie: lottie_url or animation_data, loop, playback_rate, direction: forward/backward.
 - Particles: 6 atmospheric presets (confetti, embers, dust, money_rain, snow, stars), count (10-300), hex colors, speed, opacity.
 - Map: map_style (modern_dark, vintage, minimal_light, nautical_blue), locations ([{name, coord: [lat, lon]}]).
 - HTML: html_content (custom documents, code windows, receipts, glass cards). Fluid 100% filler root, no remote assets.
 
 Part 2: Universal Advanced Manipulation (any layer):
-- Geometry (style): LayerBox % coordinates (left, top, width, height, or bottom). borderRadius (16px, 24px, 50% circle), aspectRatio ("1 / 1"). Static rotate deg, scale multiplier, scaleX: -1 (flip H), scaleY: -1 (flip V). Center math: left = 50 - width/2.
-- Animations (animations): 9 properties: 6 spatial (translateY, translateX, scale, rotate, rotateX, rotateY) + 3 optical fades (opacity, blur px rack-focus, brightness flash). Easings: spring, ease-out, ease-in-out, linear. Pair delay > 0 with opacity: 0 -> 1. Word sync via delay when timestamps exist.
-- Physics & Dynamics (motion): floating: true harmonic drift; motion_blur: true + shutter_angle: 45-360 (default 180); camera_shake: "handheld" | "shockwave" | "glitch" | "none"; transform_origin pivot.
-- Filters & Looks (filters): 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur, Cinematic Dark Base) + 6 SVG looks (url(#fx-emboss), url(#fx-sharpen), url(#fx-duotone-midnight), url(#fx-duotone-inferno), etc.) + blend modes ("mix-blend-mode: overlay").
+- Geometry (style): LayerBox % coordinates (left, top, width, height, or bottom). borderRadius (16px, 24px, 50% circle), aspectRatio ("1 / 1"). Static rotate deg, scale multiplier, scaleX: -1 (flip H), scaleY: -1 (flip V), static 3D rotateX, rotateY, translateZ (depth px). Center math: left = 50 - width/2.
+- Animations (animations): 10 properties: 7 spatial (translateY, translateX, translateZ, scale, rotate, rotateX, rotateY) + 3 optical fades (opacity, blur px rack-focus, brightness flash). Easings: spring (damping/stiffness/mass/overshoot_clamping), ease-out, ease-in-out, ease-in, linear, bounce, elastic (elastic_bounciness), back (back_overshoot), steps (steps_count), bezier (bezier_points [x1,y1,x2,y2], x in [0,1]). Continuous motion: loop_mode loop|pingpong (one direction per duration; full pingpong round trip = 2x duration). Pair delay > 0 with opacity: 0 -> 1. Word sync via delay when timestamps exist.
+- Physics, Camera & 3D Perspective (motion): floating: true harmonic drift; motion_blur: true + shutter_angle: 45-360 (default 180); camera_shake: "handheld" | "shockwave" | "glitch" | "none"; transform_origin pivot; perspective: 1000 (300-3000px FOV distance; lower = wide angle, higher = telephoto), perspective_origin: "center center" | "50% 0%".
+- Filters & Looks (filters): 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur, Cinematic Dark Base) + 6 SVG looks (url(#fx-emboss), url(#fx-sharpen), url(#fx-duotone-midnight), url(#fx-duotone-inferno), etc.) + blend modes ("mix-blend-mode: overlay") + optical blurs: layer content blur "blur(12px)" (0-50px, softens own pixels for B-roll behind text) or style {{"blur": 12}}, and frosted-glass backdrop blur "backdrop-filter: blur(16px)" (0-30px, blurs layers beneath without blurring own text; pair with translucent backgroundColor).
 - Layer Exit & Stagger (exit): exit: true or exit: <seconds> on layer, or animation track exit: true for sequential beats in one cut without visual collisions.
+- Shape Masking & Reveals (mask): {{"shape": circle (size/x/y) | ellipse (rx/ry/x/y) | inset (top/right/bottom/left/corner_radius) | polygon (polygon_preset hexagon/diamond/triangle/star/slant_left/slant_right/custom+points)}} + {{"reveal": circle_iris | wipe_right | wipe_down | split_vertical (center-out curtain) | wipe_diagonal (corner-to-corner), reveal_duration (default 0.8), reveal_delay, reveal_easing (linear/ease-in/ease-out/ease-in-out/bounce), inverted}}. A reveal animates INTO the static shape when both are set — combine polygon badges with circle_iris, never bare rectangles.
+- Layer Ergonomics: name (descriptive label), visible: false (hide from preview+export), locked: true (lock canvas), color_tag (grouping hex).
 
 Part 3: Cut Transitions & Energy (cut level):
 - Transitions: "transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none".

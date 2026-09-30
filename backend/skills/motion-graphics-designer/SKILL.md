@@ -48,10 +48,11 @@ Any layer can carry an array of keyframe tracks:
 }
 ```
 
-### The 9 Animatable Properties
+### The 10 Animatable Properties
 * **Spatial Properties (Drive Camera Shutter Motion Blur)**:
   * `translateY`: Vertical travel in pixels (`45 -> 0` = slide up entrance, `0 -> -45` = slide up exit).
   * `translateX`: Horizontal travel in pixels (`60 -> 0` = slide in entrance).
+  * `translateZ`: 3D depth travel in pixels along camera Z-axis (`-150 -> 0` = fly-in toward camera from screen depth, `0 -> 100` = pop out toward viewer).
   * `scale`: Zoom multiplier (`0.85 -> 1.0` = spring pop, `1.0 -> 1.06` = slow cinematic parallax drift).
   * `rotate`: 2D planar rotation in degrees (`-12 -> 0`).
   * `rotateX`: 3D card tilt angle (`25 -> 0`).
@@ -62,11 +63,18 @@ Any layer can carry an array of keyframe tracks:
   * `brightness`: Exposure flash multiplier (`0.3 -> 1.0` = flash-in, `1.8 -> 1.0` = lens flare settle).
 
 ### Physics & Easing Curves
-* `"spring"`: High-energy organic snap with physical spring bounce (ideal for cards, icons, counters, and callout badges).
+* `"spring"`: High-energy organic snap with physical spring bounce (ideal for cards, icons, counters, and callout badges). Supports `damping` (default 14), `stiffness` (default 100), `mass` (default 0.9), and `overshoot_clamping` (boolean).
+* `"bounce"`: Gravitational bouncing impact.
+* `"elastic"`: Rubber-band overshoot (with optional `elastic_bounciness`).
+* `"back"`: Anticipation wind-up before launching forward (with optional `back_overshoot`).
+* `"steps"`: Stepped stop-motion / 8-bit frame rate effect (with optional `steps_count`).
+* `"bezier"`: Custom cubic Bézier curve with `bezier_points: [x1, y1, x2, y2]`.
 * `"ease-out"`: Smooth deceleration (ideal for charts, lines, and typography).
 * `"ease-in-out"`: Graceful S-curve for continuous flowing movement.
 * `"linear"`: Constant-rate drift (ideal for slow background scale zooms and ticker scrolls).
 * `"ease-in"`: Acceleration attack (ideal for whip pans and exits).
+* **Continuous Motion (`loop_mode`)**: `"loop"` (repeats from start) or `"pingpong"` (oscillates continuously, e.g. scale `1.0 -> 1.08` pulsing).
+
 
 ### Timing & Opacity Pairing Rules
 * `delay`: Absolute seconds from CUT start (not video start).
@@ -94,6 +102,16 @@ By default, layers persist for the full cut duration. To choreograph multi-beat 
   * `"shockwave"`: Dramatic earthquake tremor for high-impact facts and reveals.
   * `"glitch"`: Cybernetic high-frequency jitter.
 * **`transform_origin`**: CSS pivot point for scale/rotate (`"center center"`, `"top left"`, `"bottom center"`, etc.).
+* **Shape Masking & Animated Reveals (`mask`)**:
+  * Shape: `"circle"`, `"ellipse"`, `"inset"` (with `corner_radius`), or `"polygon"` (`"hexagon"`, `"diamond"`, `"triangle"`, `"star"`, `"slant_left"`, `"slant_right"`, `"custom"` points).
+  * Animated reveals: `"circle_iris"`, `"wipe_right"`, `"wipe_down"`, `"split_vertical"` (center-out curtain), `"wipe_diagonal"` (corner-to-corner) with `reveal_duration`, `reveal_delay`, `reveal_easing` (`linear`/`ease-in`/`ease-out`/`ease-in-out`/`bounce`), `inverted`. A reveal animates INTO the static shape when both are set.
+* **3D Camera Perspective & Spatial Depth (`perspective`, `perspective_origin`)**:
+  * `perspective: 1000`: Camera lens focal distance in pixels (lower = wide-angle dramatic depth; higher = telephoto flat).
+  * `perspective_origin: "center center"`: Vanishing point (supports `"50% 0%"` for bird's-eye looking down, `"50% 100%"` for worm's-eye looking up).
+  * Static 3D transforms on `content.style`: `rotateX` (pitch tilt, -90° to +90°), `rotateY` (pan yaw, -90° to +90°), `translateZ` (spatial depth, -500px to +500px).
+* **Layer Timeline Ergonomics**:
+  * `name`: Descriptive label in timeline (e.g. `"Presenter Spotlight"`, `"Metric Card"`).
+  * `visible`: `false` hides layer; `locked`: `true` locks layer against canvas drag.
 
 ---
 
@@ -135,6 +153,9 @@ Apply cinematic looks and composite blending via the `filters` string array:
   * `"url(#fx-duotone-inferno)"`: Dark amber → fire grade
   * `"url(#fx-thermal)"`: Multi-band thermal heat signature
 * **10 Blend Modes**: `filters: ["mix-blend-mode: overlay"]` (or `screen`, `multiply`, `color-dodge`, etc.).
+* **Optical Blurs (Layer Blur & Backdrop Blur)**:
+  * **Layer Content Blur**: `filters: ["blur(12px)"]` or `"style": { "blur": 12 }` (softens layer pixels; edge-bleed protection auto-scales fullscreen footage).
+  * **Backdrop Blur (Frosted Glass / Privacy Blur)**: `filters: ["backdrop-filter: blur(16px)"]` or `"style": { "backdropFilter": "blur(16px)" }` (frosts layers underneath without blurring layer contents). Ideal for translucent cards, metric backing, or Shape privacy overlays.
 
 ---
 

@@ -45,8 +45,8 @@ Visuals are authored as a composable, declarative Abstract Syntax Tree:
   - `Timeline`: Milestone sequences and chronological event trackers with glowing nodes.
   - `Shape`: Vector shapes, directional arrows, callouts, and animated SVG paths (`@remotion/shapes` & `@remotion/paths`).
   - `Text`: Dynamic typography with kinetic animation modes (`words_stagger`, `typewriter`, `marker_highlight`).
-  - `Image`: High-res photos, Ken Burns scale/pan effects, transparent PNG cutouts (Pixabay/Wikipedia/Pexels).
-  - `Video`: Cinematic B-roll footage, timelapses, and ambient backgrounds.
+  - `Image`: High-res photos, Ken Burns scale/pan effects, transparent PNG cutouts (Pixabay/Wikipedia/Pexels/Internet Archive).
+  - `Video`: Cinematic B-roll footage, archival newsreels (Internet Archive), timelapses, and ambient backgrounds.
   - `Map`: Geographic territory visualizations (`modern_dark`, `nautical_blue`, `vintage`).
   - `Particles`: Dynamic particle overlays (`dust`, `snow`, `sparkles`, `smoke`, `fireflies`) matched to beat moods.
   - `HTML` / `Lottie`: Inline SVG, custom CSS micro-animations, and vector Lottie animations.
@@ -172,7 +172,7 @@ Narrato/
 │   │   ├── ai.py              # LLM script, design & visual generation pipelines
 │   │   ├── tts.py             # Neural TTS (Edge TTS & OmniVoice voice cloning)
 │   │   ├── transcribe.py      # Faster-Whisper word-level transcription & subtitles
-│   │   ├── assets.py          # Media asset search & download (Pexels, Pixabay, Wikipedia)
+│   │   ├── assets.py          # Media asset search & download (Pexels, Pixabay, Wikipedia, YouTube, Internet Archive)
 │   │   ├── render.py          # Chunked Remotion rendering & FFmpeg muxing
 │   │   ├── icons.py           # Lucide icon registry & search
 │   │   ├── sfx.py             # Audio sound effect triggers & ducking
@@ -293,7 +293,7 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 | **Web Search** | LangSearch (master toggle + API key) — feeds real-time web facts to scriptwriter agent |
 | **Whisper** | Faster-Whisper models (`turbo`, `large-v3`, `medium`, `small`), device CPU/CUDA |
 | **TTS Engine** | Edge TTS (voices, speed, pitch) or OmniVoice (voice profiles, reference clip, ~3.3 GB model) |
-| **Media Sources** | Pexels API key, Pixabay illustrations/vectors, Wikipedia images, YouTube clips |
+| **Media Sources** | Pexels API key, Pixabay illustrations/vectors, Wikipedia images, Internet Archive, YouTube clips |
 | **Render Engine** | Resolution, FPS, CRF, codec, concurrency, hardware acceleration (CPU / NVENC) |
 | **GPU Acceleration** | Detect NVIDIA GPU, download CUDA runtime (2.6 GB), enable/disable, remove |
 | **Agent Control (MCP)** | Live endpoint URL, connect snippets, build flow, safety rules, registered tool inventory |

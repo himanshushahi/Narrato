@@ -23,7 +23,7 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 │                            ASSET PREPARATION                                │
 │                                                                             │
 │  backend/pipeline/assets.py [_fetch_ast_layer_asset]                        │
-│  (Downloads Pexels/Pixabay/Wikipedia/YouTube media -> local_path)           │
+│  (Downloads Pexels/Pixabay/Wikipedia/YouTube/Archive media -> local_path)    │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │
                                        ▼
@@ -61,8 +61,8 @@ Remotion Canvas uses a **Declarative Abstract Syntax Tree (AST)** architecture. 
 
 | # | Layer Type | Primary Purpose | Key Fields / Parameters | Remotion Component |
 |---|---|---|---|---|
-| 1 | `Image` | High-res stock photos, historical portraits, transparent PNG cutouts | `query`, `source` (`pexels` \| `pixabay` \| `wikipedia`), `image_type`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<AsyncMediaNode>` |
-| 2 | `Video` | Cinematic B-roll, timelapses, dramatic motion backgrounds | `query`, `source` (`pexels` \| `pixabay` \| `youtube`), `volume`, `yt_start_offset`, `yt_duration`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<AsyncMediaNode>` |
+| 1 | `Image` | High-res stock photos, historical portraits, transparent PNG cutouts | `query`, `source` (`pexels` \| `pixabay` \| `wikipedia` \| `archive`), `image_type`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<AsyncMediaNode>` |
+| 2 | `Video` | Cinematic B-roll, timelapses, dramatic motion backgrounds | `query`, `source` (`pexels` \| `pixabay` \| `youtube` \| `archive`), `volume`, `yt_start_offset`, `yt_duration`, `style` | [ASTRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ASTRenderer.tsx) `<AsyncMediaNode>` |
 | 3 | `Text` | Dynamic headlines, kinetic quotes, data callouts | `text`, `font`, `weight`, `color`, `animation_mode`, `highlight_words`, `highlight_color`, `style` | [KineticText.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/KineticText.tsx) |
 | 4 | `Chart` | Statistics, comparisons, growth trends, distributions | `chart_type` (`bar` \| `line` \| `pie` \| `donut` \| `progress`), `data`, `title`, `style` | [ChartRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ChartRenderer.tsx) |
 | 5 | `Shape` | Hardware-accelerated vector shapes & animated SVG paths | `shape_type` (`rectangle` \| `circle` \| `star` \| `triangle` \| `arrow` \| `polygon` \| `path` \| `icon`), `icon_name`, `fill`, `stroke`, `stroke_width`, `radius`, `direction`, `angle`, `preset_path`, `path_d`, `draw_animation`, `glow`, `style` | [ShapeRenderer.tsx](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/components/video/ShapeRenderer.tsx) |

@@ -1,14 +1,14 @@
 ---
 name: stock-asset-searcher
 version: "2.0"
-description: "Stock media search optimization guide for Pexels, Pixabay, Wikipedia, and YouTube asset sourcing in Remotion AST layers."
-when_to_use: "When crafting search queries for stock media (Pexels photos/videos, Pixabay photos/videos/illustrations, Wikipedia images) or choosing visual_cue keywords."
+description: "Stock media search optimization guide for Pexels, Pixabay, Wikipedia, YouTube, and Internet Archive asset sourcing in Remotion AST layers."
+when_to_use: "When crafting search queries for stock media (Pexels photos/videos, Pixabay photos/videos/illustrations, Wikipedia images, Internet Archive historical media) or choosing visual_cue keywords."
 ---
 
 # Stock Asset Sourcing & Search Optimization Guide
 
 > **Role**: Asset Acquisition Specialist & Stock Media Researcher  
-> **Mission**: Formulate high-signal, keyword-optimized queries for Pexels, Pixabay, Wikipedia, and YouTube that return relevant, high-resolution media without breaking AST contracts.
+> **Mission**: Formulate high-signal, keyword-optimized queries for Pexels, Pixabay, Wikipedia, YouTube, and Internet Archive that return relevant, high-resolution media without breaking AST contracts.
 
 ---
 
@@ -20,6 +20,7 @@ when_to_use: "When crafting search queries for stock media (Pexels photos/videos
 | **`pixabay`** | `Image`, `Video` | Transparent PNG cutouts, vector art, icon badges, digital illustrations | Fast | Concrete nouns + `"image_type": "illustration"` or `"vector"` |
 | **`wikipedia`** | `Image` only | Real historical figures, politicians, CEOs, company logos, country flags | Medium | **EXACT entity name** (e.g. `"Narendra Modi"`, `"Apple Inc."`) |
 | **`youtube`** | `Video` only | Real-world news & events, tech/product demos, science simulations, archival footage | Automatic (yt-dlp) | 1–4 specific English keywords (e.g. `"spacex starship launch"`) |
+| **`archive`** | `Image`, `Video` | Authentic historical newsreels, space/NASA missions, vintage photography, documentary archives | Fast (Open API) | 1–4 specific English keywords (e.g. `"apollo 11 astronaut"`, `"great depression breadline"`) |
 
 ---
 
@@ -109,6 +110,45 @@ Example AST layer for a YouTube clip:
   * **BAD**: `"Indian Prime Minister"`
 - Falls back to Pexels if Wikipedia has no image.
 
+### 5. Internet Archive (`source: "archive"`)
+- **Dual Support**: Supports BOTH `Image` and `Video` content types.
+- **Zero API Keys Required**: Direct access to millions of public domain media items on archive.org.
+- **WHEN TO USE (Primary Trigger Rule)**:
+  * **Historic & Archival Events**: Apollo missions, moon landings, early 20th century history, World War newsreels, Great Depression, historic speeches.
+  * **Space & NASA Archival Footage**: Space Shuttle launches, Mars Rover images, ISS footage, Hubble photography.
+  * **Vintage & Classic Documentaries**: Classic public domain educational films, archival news broadcasts, retro city streetscapes.
+  * **Authentic Documentary Proof**: Historical documents, vintage patents, newspaper front pages, antique maps.
+- **Automatic Fallback**: If an archive query yields no files, the pipeline seamlessly falls back to Pexels/Pixabay.
+- **Pre-verification**:
+  * In MCP, call `search_media(source="archive_photo", query=...)` or `search_media(source="archive_video", query=...)`.
+  * For internal LLM, use tools `search_archive_photo` or `search_archive_video`.
+
+Example AST layer for an Internet Archive historic photo:
+```json
+{
+  "type": "Layer",
+  "content": {
+    "type": "Image",
+    "query": "apollo 11 astronaut moon surface",
+    "source": "archive",
+    "style": { "position": "absolute", "width": "100%", "height": "100%", "objectFit": "cover" }
+  }
+}
+```
+
+Example AST layer for an Internet Archive historical video:
+```json
+{
+  "type": "Layer",
+  "content": {
+    "type": "Video",
+    "query": "world war 2 newsreel pacific",
+    "source": "archive",
+    "style": { "position": "absolute", "width": "100%", "height": "100%", "objectFit": "cover" }
+  }
+}
+```
+
 ---
 
 ## 4. Search Quality & Entity Guidelines
@@ -117,21 +157,23 @@ Example AST layer for a YouTube clip:
 - **For Pexels videos**: prefer queries with motion potential (e.g. `"traffic timelapse"` over `"traffic"`).
 - **For Wikipedia/portrait**: use the EXACT full name of the person/entity only — no descriptors.
 - **For Pixabay illustrations**: use simple, concrete noun keywords (e.g. `"rocket launch"`, `"magnifying glass"`, `"gear cog"`).
+- **For Internet Archive**: use 1–4 specific keywords describing the historical event, mission, or documentary topic (e.g. `"apollo 11"`, `"pearl harbor newsreel"`, `"wright brothers flight"`).
 
 ---
 
 ## 5. Fallback Rules & Media Contract
 
 - If a search returns nothing, broaden the query to a more generic category, then fall back to a generic scene visual.
-- If Pixabay has no match, the system automatically tries Pexels instead.
+- If Pixabay or Archive has no match, the system automatically tries Pexels instead.
 - **QUERY-ONLY CONTRACT**: Output ONLY `query` and `source`. Never fabricate an image URL or copy URLs into AST JSON — downstream pipeline downloads and resolves local paths automatically.
 
 ---
 
 ## 6. Pre-Search Verification Checklist
 
-- [ ] Query is written in English (1–3 broad keywords)
+- [ ] Query is written in English (1–3 broad keywords, or 1–4 specific keywords for YouTube/Archive)
 - [ ] Wikipedia queries use exact entity names (e.g., `"Satya Nadella"`)
 - [ ] Transparent graphics use `source: "pixabay"` with `image_type: "illustration"`
 - [ ] YouTube sources specify `yt_start_offset` and `yt_duration`
+- [ ] Archival/historical media uses `source: "archive"` or `source: "youtube"`
 - [ ] No fabricated remote URLs in layer content

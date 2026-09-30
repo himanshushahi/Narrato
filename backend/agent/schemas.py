@@ -141,20 +141,68 @@ class DesignSystemResponse(AppBaseModel):
 # ============================================================================
 
 AnimationProperty = Literal[
-    "scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY",
+    "scale", "opacity", "translateX", "translateY", "translateZ", "rotate", "rotateX", "rotateY",
     "blur", "brightness",
 ]
-EasingType = Literal["linear", "spring", "ease-in", "ease-out", "ease-in-out"]
+EasingType = Literal[
+    "linear", "spring", "ease-in", "ease-out", "ease-in-out",
+    "bounce", "elastic", "back", "steps", "bezier",
+]
+LoopModeType = Literal["none", "loop", "pingpong"]
 
 class AnimationNode(AppBaseModel):
     """Keyframe animation instruction for an AST Layer."""
-    property: Literal["scale", "opacity", "translateX", "translateY", "rotate", "rotateX", "rotateY", "blur", "brightness"] = Field(..., description="Animatable property (spatial: scale/translate/rotate for shutter motion; blur px rack-focus; brightness multiplier flash)")
+    property: AnimationProperty = Field(..., description="Animatable property (spatial: scale/translate/rotate for shutter motion; blur px rack-focus; brightness multiplier flash)")
     from_: float = Field(..., alias="from", description="Initial value")
     to: float = Field(..., description="Target value")
     duration: float = Field(..., gt=0, description="Duration of the animation in seconds")
     delay: Optional[float] = Field(default=0.0, ge=0, description="Delay in seconds before animation begins (optional, default 0)")
-    easing: Literal["linear", "spring", "ease-in", "ease-out", "ease-in-out"] = Field(default="ease-out", description="Animation easing curve")
+    easing: EasingType = Field(default="ease-out", description="Animation easing curve: spring, ease-out, ease-in-out, ease-in, linear, bounce, elastic, back, steps, bezier")
     exit: Optional[bool] = Field(default=None, description="If true, marks an exit transition: skips evaluating until delay begins, and layer unmounts when complete")
+
+    # Remotion spring physics parameters (when easing="spring")
+    damping: Optional[float] = Field(default=None, gt=0, description="Spring damping / friction resistance (default 14, lower is bouncier)")
+    stiffness: Optional[float] = Field(default=None, gt=0, description="Spring stiffness / tension snap (default 100, higher is snappier)")
+    mass: Optional[float] = Field(default=None, gt=0, description="Spring mass / weight inertia (default 0.9, higher is heavier)")
+    overshoot_clamping: Optional[bool] = Field(default=None, description="Spring overshoot clamping (if true, prevents bouncing beyond target value)")
+
+    # Curve-specific parameters
+    elastic_bounciness: Optional[float] = Field(default=None, gt=0, description="Elastic curve bounciness factor (default 1.0)")
+    back_overshoot: Optional[float] = Field(default=None, ge=0, description="Back curve anticipation overshoot factor (default 1.7)")
+    steps_count: Optional[int] = Field(default=None, gt=0, description="Steps curve discrete step count (default 5)")
+    bezier_points: Optional[List[float]] = Field(default=None, description="Cubic bezier [x1, y1, x2, y2] control points (e.g. [0.16, 1.0, 0.3, 1.0])")
+
+    # Continuous motion loop mode
+    loop_mode: Optional[LoopModeType] = Field(default=None, description="Continuous motion cycle: 'none' (one-shot), 'loop' (repeats from start), 'pingpong' (oscillates forward and reverse; one direction per duration, full round trip = 2x duration)")
+
+    @field_validator("bezier_points", mode="before")
+    @classmethod
+    def sanitize_bezier_points(cls, v: Any) -> Any:
+        """Repair (never punish) cubic-bezier control points.
+
+        The Remotion renderer throws when x1/x2 fall outside [0, 1],
+        which would break the whole layer at export — so clamp x into
+        range (y stays unbounded) and drop malformed shapes (wrong
+        length / non-finite) so the renderer falls back to its default
+        curve instead of crashing.
+        """
+        import math
+        if v is None:
+            return None
+        if not isinstance(v, (list, tuple)) or len(v) != 4:
+            logger.warning("AnimationNode: bezier_points must be [x1, y1, x2, y2] — dropping malformed %r", v)
+            return None
+        try:
+            nums = [float(x) for x in v]
+        except (TypeError, ValueError):
+            logger.warning("AnimationNode: bezier_points has non-numeric values — dropping %r", v)
+            return None
+        if any(not math.isfinite(n) for n in nums):
+            logger.warning("AnimationNode: bezier_points has non-finite values — dropping %r", v)
+            return None
+        nums[0] = min(1.0, max(0.0, nums[0]))
+        nums[2] = min(1.0, max(0.0, nums[2]))
+        return nums
 
 
 class ChartDataPoint(AppBaseModel):
@@ -186,8 +234,9 @@ UNIVERSAL_STYLE_KEYS = frozenset({
     "padding", "paddingTop", "paddingBottom", "paddingLeft", "paddingRight",
     "border", "borderTop", "borderBottom", "borderLeft", "borderRight",
     "borderWidth", "borderStyle", "borderColor",
-    "backgroundColor", "background", "backdropFilter", "WebkitBackdropFilter",
-    "rotate", "scale", "scaleX", "scaleY", "aspectRatio",
+    "backgroundColor", "background", "backdropFilter", "WebkitBackdropFilter", "backdrop-filter",
+    "rotate", "rotateX", "rotateY", "translateZ", "perspective", "perspectiveOrigin", "perspective_origin",
+    "scale", "scaleX", "scaleY", "aspectRatio", "blur",
 })
 # Per-type extras the renderer reads from the inner (non-layout) style.
 TEXT_STYLE_KEYS = frozenset({
@@ -519,8 +568,8 @@ def sanitize_layer_style(content_type: Any, style: Any,
 class LayerContent(AppBaseModel):
     """Rich polymorphic content payload for an AST Layer."""
     type: Literal["Image", "Video", "Text", "Chart", "Shape", "Map", "HTML", "Lottie", "Particles", "Counter", "Background"] = Field(..., description="Content type: Image, Video, Text, Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background")
-    query: Optional[str] = Field(default=None, min_length=2, description="REQUIRED when type is Image/Video: 1-3 broad English stock keywords (e.g. 'city skyline night'). Search query for Pexels, Wikipedia, Pixabay, or YouTube. A media layer without a query can never download an asset and breaks the cut — always provide one.")
-    source: Optional[str] = Field(default=None, description="Source of media (if Image/Video). MATRIX: Image accepts pexels|pixabay|wikipedia (never youtube); Video accepts pexels|pixabay|youtube (never wikipedia). Use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed.", json_schema_extra={"enum": ["pexels", "wikipedia", "pixabay", "youtube"]})
+    query: Optional[str] = Field(default=None, min_length=2, description="REQUIRED when type is Image/Video: 1-3 broad English stock keywords (e.g. 'city skyline night'). Search query for Pexels, Wikipedia, Pixabay, YouTube, or Internet Archive. A media layer without a query can never download an asset and breaks the cut — always provide one.")
+    source: Optional[str] = Field(default=None, description="Source of media (if Image/Video). MATRIX: Image accepts pexels|pixabay|wikipedia|archive (never youtube); Video accepts pexels|pixabay|youtube|archive (never wikipedia). Use 'archive' for authentic historical, space/NASA, documentary, newsreel footage or photos; use 'youtube' for animation loops, cinematic B-roll, or specific footage not available on Pexels/Pixabay — yt-dlp must be installed.", json_schema_extra={"enum": ["pexels", "wikipedia", "pixabay", "youtube", "archive"]})
     text: Optional[str] = Field(default=None, description="Text content (if Text)")
     animation_mode: Optional[str] = Field(default=None, description="Kinetic typography animation mode (if Text)", json_schema_extra={"enum": ["static", "words_stagger", "typewriter", "marker_highlight"]})
     highlight_words: Optional[List[str]] = Field(default=None, description="Words to highlight with marker/color (if Text)")
@@ -763,6 +812,37 @@ class LayerContent(AppBaseModel):
         return self
 
 
+MaskShapeType = Literal["none", "circle", "ellipse", "inset", "polygon"]
+MaskRevealType = Literal[
+    "none", "circle_iris", "wipe_right", "wipe_down", "split_vertical", "wipe_diagonal"
+]
+PolygonPresetType = Literal[
+    "hexagon", "diamond", "triangle", "star", "slant_left", "slant_right", "custom"
+]
+
+
+class ASTMaskConfig(AppBaseModel):
+    """Shape mask and animated reveal configuration for an AST layer."""
+    shape: Optional[MaskShapeType] = Field(default=None, description="Mask shape: none, circle, ellipse, inset, polygon")
+    size: Optional[Union[float, str]] = Field(default=None, description="Circle radius/size (percentage e.g. 50 or '50%')")
+    rx: Optional[Union[float, str]] = Field(default=None, description="Ellipse horizontal radius")
+    ry: Optional[Union[float, str]] = Field(default=None, description="Ellipse vertical radius")
+    x: Optional[Union[float, str]] = Field(default=None, description="Center X coordinate (default '50%')")
+    y: Optional[Union[float, str]] = Field(default=None, description="Center Y coordinate (default '50%')")
+    top: Optional[Union[float, str]] = Field(default=None, description="Inset top crop")
+    right: Optional[Union[float, str]] = Field(default=None, description="Inset right crop")
+    bottom: Optional[Union[float, str]] = Field(default=None, description="Inset bottom crop")
+    left: Optional[Union[float, str]] = Field(default=None, description="Inset left crop")
+    corner_radius: Optional[Union[float, str]] = Field(default=None, description="Inset corner radius (px or %)")
+    polygon_preset: Optional[PolygonPresetType] = Field(default=None, description="Polygon preset: hexagon, diamond, triangle, star, slant_left, slant_right, custom")
+    points: Optional[str] = Field(default=None, description="Custom polygon points e.g. '50% 0%, 100% 50%, 50% 100%, 0% 50%'")
+    reveal: Optional[MaskRevealType] = Field(default=None, description="Animated reveal transition: none, circle_iris, wipe_right, wipe_down, split_vertical, wipe_diagonal")
+    reveal_duration: Optional[float] = Field(default=None, gt=0, description="Duration of the reveal animation in seconds")
+    reveal_delay: Optional[float] = Field(default=None, ge=0, description="Delay before the reveal animation starts in seconds")
+    reveal_easing: Optional[Literal["linear", "ease-in", "ease-out", "ease-in-out", "bounce"]] = Field(default=None, description="Reveal animation easing: linear, ease-in, ease-out, ease-in-out, bounce (no spring — overshoot past fully-revealed is invisible)")
+    inverted: Optional[bool] = Field(default=None, description="Invert wipe direction or iris close")
+
+
 class ASTLayerNode(AppBaseModel):
     """A single renderable layer in an AST Sequence composition.
 
@@ -770,6 +850,10 @@ class ASTLayerNode(AppBaseModel):
     children[N-1] is the top foreground. No ordering fields exist.
     """
     type: Literal["Layer"] = Field(default="Layer", description="Layer node identifier", json_schema_extra={"const": "Layer"})
+    name: Optional[str] = Field(default=None, description="Human-readable layer name/label for timeline ergonomics")
+    visible: Optional[bool] = Field(default=None, description="Whether the layer is visible (false hides the layer from render and canvas)")
+    locked: Optional[bool] = Field(default=None, description="Whether the layer is locked against accidental canvas drag/resize")
+    color_tag: Optional[str] = Field(default=None, description="Color tag for visual grouping in editor")
     content: Union[LayerContent, Dict[str, Any]] = Field(..., description="Layer content specification")
     animations: Optional[List[Union[AnimationNode, Dict[str, Any]]]] = Field(default_factory=list, description="Keyframe animation list (spatial props drive shutter blur; blur/brightness are non-spatial fades)")
     exit: Optional[Union[bool, float]] = Field(default=None, description="Exit behavior: if true, layer unmounts when its animations complete; if number, seconds from cut start when layer unmounts. If omitted/false, layer persists for the full cut.")
@@ -779,6 +863,9 @@ class ASTLayerNode(AppBaseModel):
     camera_shake: Optional[str] = Field(default=None, description="Procedural noise camera motion effect", json_schema_extra={"enum": ["none", "handheld", "shockwave", "glitch"]})
     transform_origin: Optional[str] = Field(default=None, description="CSS transform-origin pivot for scale/rotate (e.g. 'center center', 'top left'); only visible with motion")
     filters: Optional[List[str]] = Field(default_factory=list, description="CSS/SVG filter strings (brightness/contrast/saturate/hue-rotate/blur/drop-shadow/url(#fx-*) or 'mix-blend-mode: X' — blend needs a layer beneath)")
+    mask: Optional[Union[ASTMaskConfig, Dict[str, Any]]] = Field(default=None, description="Shape masking & animated reveal configuration")
+    perspective: Optional[Union[float, str]] = Field(default=None, description="3D camera perspective distance in pixels or CSS length (e.g. 1000, '1000px', '800px'). Lower = wide angle, higher = telephoto.")
+    perspective_origin: Optional[str] = Field(default=None, description="3D camera vanishing point / perspective-origin (e.g. 'center center', '50% 0%', 'top left')")
 
     @model_validator(mode="before")
     @classmethod

@@ -136,6 +136,7 @@ Every `Layer` node carries a `content` object defining one of the 11 supported c
   * `"pexels"`: High-resolution stock photography and atmospheric textures.
   * `"pixabay"`: Photos and transparent cutouts. Use `image_type: "illustration"` or `"vector"` for isolated objects/stickers without backgrounds.
   * `"wikipedia"`: High-res Wikimedia Commons files, official company/brand logos, flags, and historical figures (query exact entity name).
+  * `"archive"`: Authentic historical, space (NASA/Apollo), archival news, vintage photographs, documents from archive.org (query: 1-4 descriptive English keywords).
 * `objectFit`: `"cover"` (fills box, default) | `"contain"` (preserves aspect ratio without cropping, ideal for logos/badges) | `"fill"`.
 
 ### 7. `Video` (Dynamic B-Roll & Ambient Motion)
@@ -144,6 +145,7 @@ Every `Layer` node carries a `content` object defining one of the 11 supported c
   * `"pexels"`: High-quality generic cinematic stock B-roll (nature, cities, generic office, crowd lifestyle).
   * `"pixabay"`: Additional stock video library and looping abstract clips.
   * `"youtube"`: **Essential for real-world subjects**: real news events, product/tech demonstrations (Tesla, Apple, Nvidia), space launches, scientific simulations, archival history, and specialized machinery that generic stock libraries lack.
+  * `"archive"`: Authentic archival newsreels, early 20th century footage, military archives, space missions, public domain documentary clips from archive.org.
 * `volume`: Audio volume multiplier (`0.0`–`1.0`, default `0`). Keep low (`0.1`–`0.2`) unless voiceover is muted.
 * `loop`: `false` (default: naturally freezes on the last frame if video ends before cut) | `true` (loops continuously).
 * `yt_start_offset`: Seconds to skip from start of YouTube video (default `15s` to skip intros).
@@ -179,7 +181,7 @@ Every `Layer` node carries a `content` object defining one of the 11 supported c
 
 ## 3. Part 2: Universal Advanced Manipulation Features & Motion Grammar (Any Layer)
 
-These 5 manipulation feature sets apply to **any layer type**:
+These 6 universal manipulation feature sets apply to **any layer type**:
 
 ### 1. Geometry & Layout (`style` — LayerBox SOT v1)
 * **`%`-Only Bounding Box**: `left`, `top`, `width`, `height` (or `bottom` for lower-thirds; `right` for right-aligned). Never write raw `px` or unitless numbers.
@@ -206,10 +208,11 @@ Any layer can carry an array of keyframe tracks:
   "easing": "spring"
 }
 ```
-* **9 Animatable Properties**:
+* **10 Animatable Properties**:
   * **Spatial (drive camera shutter motion blur)**:
     * `translateY`: Vertical travel in pixels (`45 -> 0` = slide up entrance).
     * `translateX`: Horizontal travel in pixels (`60 -> 0` = slide in entrance).
+    * `translateZ`: 3D depth travel in pixels along camera Z-axis (`-150 -> 0` = fly-in toward camera from screen depth, `0 -> 100` = pop out toward viewer).
     * `scale`: Zoom scale multiplier (`0.85 -> 1.0` = spring pop, `1.0 -> 1.06` = slow parallax drift).
     * `rotate`: 2D planar rotation in degrees (`-10 -> 0`).
     * `rotateX`: 3D card tilt angle (`25 -> 0`).
@@ -218,7 +221,25 @@ Any layer can carry an array of keyframe tracks:
     * `opacity`: Transparency fade (`0 -> 1`).
     * `blur`: Rack-focus in pixels (`12 -> 0` = sharpens from blurred focus).
     * `brightness`: Exposure flash multiplier (`0.3 -> 1.0` or `1.8 -> 1.0`).
-* **Easings**: `"spring"` (bouncy physical snap), `"ease-out"` (smooth deceleration), `"ease-in-out"` (graceful S-curve), `"ease-in"`, `"linear"` (continuous drift).
+* **Easings**:
+  * `"spring"`: Configurable Remotion spring physics simulation.
+    * `damping`: Friction resistance (default `14`; lower = springier/bouncier, higher = stiffer).
+    * `stiffness`: Spring tension / snap velocity (default `100`; higher = faster snap).
+    * `mass`: Inertia / weight (default `0.9`; higher = heavier overshoot).
+    * `overshoot_clamping`: `true` | `false` (prevents spring from bouncing beyond target value).
+  * `"ease-out"`: Smooth deceleration glide.
+  * `"ease-in-out"`: Graceful S-curve.
+  * `"ease-in"`: Acceleration attack.
+  * `"linear"`: Constant speed drift.
+  * `"bounce"`: Gravitational bouncing impact.
+  * `"elastic"`: Rubber-band overshoot. Optional `elastic_bounciness` (default `1.0`).
+  * `"back"`: Anticipation wind-up before launching forward. Optional `back_overshoot` (default `1.7`).
+  * `"steps"`: Stepped stop-motion / 8-bit frame rate effect. Optional `steps_count` (default `5`).
+  * `"bezier"`: Cubic Bézier curve with custom control points `bezier_points: [x1, y1, x2, y2]` (e.g. `[0.16, 1.0, 0.3, 1.0]`). x1/x2 MUST be in `[0, 1]` (clamped at save; y is unbounded).
+* **Continuous Motion (`loop_mode`)**:
+  * `"loop"`: Continuously repeats the animation cycle from `from` to `to` every `duration` seconds (ideal for continuous rotation or repeating wipes).
+  * `"pingpong"`: Continuously oscillates back and forth (`from -> to -> from`). Each direction takes `duration` seconds, so a full round trip takes `2 × duration` (ideal for pulsing scale `1.0 -> 1.08` or breathing opacity).
+  * Omit or set to `"none"` for standard one-shot entrance/exit animations.
 * **Timing & Narration Sync**:
   * `delay`: Absolute seconds from the start of the cut. When spoken word timestamps exist, sync `delay` to when the word is uttered.
   * **Opacity Pairing Rule**: Every entrance with `delay > 0` MUST pair with an `opacity: 0 -> 1` animation at the same delay, ensuring elements remain invisible until their entrance movement begins.
@@ -256,6 +277,16 @@ Apply cinematic color grades and composite blending via the `filters` string arr
   * `"url(#fx-duotone-inferno)"`: Dark amber → fire grade
   * `"url(#fx-thermal)"`: Multi-band thermal heat signature
 * **10 Blend Modes**: `filters: ["mix-blend-mode: overlay"]` (also: `screen`, `color-dodge`, `multiply`, `color-burn`, `soft-light`, `hard-light`, `difference`, `luminosity`, `normal`). Stacks graphics seamlessly over background footage.
+* **Optical Blurs (Gaussian Layer Blur & Frosted Glass Backdrop Blur)**:
+  * **Layer Content Blur**: Softens the layer's own pixels. Ideal for background B-roll or imagery behind foreground typography and charts.
+    * Via `filters`: `filters: ["blur(12px)"]` (range `0px`–`50px`).
+    * Via `content.style`: `"style": { "blur": 12 }`.
+    * *Edge-bleed protection*: Fullscreen layers with `blur >= 8px` are automatically expanded with scale(1.05) and overflow hidden to prevent dark/transparent edge vignetting.
+  * **Backdrop Blur (Frosted Glass / Privacy Blur)**: Blurs media *beneath* the layer's bounding box without blurring the layer's own text or vector glyphs. Ideal for frosted glass cards, lower thirds, or Shape privacy boxes.
+    * Via `filters`: `filters: ["backdrop-filter: blur(16px)"]` (range `0px`–`30px`).
+    * Via `content.style`: `"style": { "backdropFilter": "blur(16px)" }`.
+    * Combine with subtle backgrounds: `"backgroundColor": "rgba(255, 255, 255, 0.08)"` or `"rgba(0, 0, 0, 0.45)"` and fine borders: `"border": "1px solid rgba(255, 255, 255, 0.15)"`.
+    * *Render cap*: backdrop radii are clamped by Settings → Rendering Engine (preview ≤12px, export ≤24px). Authoring above the cap previews softer than exported — stay ≤12px for WYSIWYG. Static `filter: blur()` and animated `blur` keyframes compose on separate wrappers (they add, not override).
 
 ### 5. Layer Exit & Staggered Sequencing (`exit`)
 By default, layers persist for the full cut duration. To sequence multiple visual beats inside a single cut without visual clutter:
@@ -263,6 +294,56 @@ By default, layers persist for the full cut duration. To sequence multiple visua
 * `exit: <seconds>` on a `Layer`: Unmounts the layer at an exact timestamp from cut start (e.g. `exit: 2.0`).
 * `exit: true` on an animation track: Evaluates only when its delay begins and unmounts the layer once complete.
 * Subsequent layers enter at or after the exit timestamp (`delay: 2.2`), cleanly sharing prime screen space.
+
+### 6. Shape & Vector Masking (`mask`) & Layer Ergonomics (`name`, `visible`, `locked`, `color_tag`)
+Clip layer geometry into geometric shapes and animated transitions using CSS/SVG vector clip paths without modifying the underlying asset:
+```json
+"mask": {
+  "shape": "polygon",
+  "polygon_preset": "hexagon",
+  "reveal": "circle_iris",
+  "reveal_duration": 0.8,
+  "reveal_delay": 0.2,
+  "reveal_easing": "ease-out"
+}
+```
+A reveal animates INTO the static shape when both are set (iris opening inside the hexagon above) — they compose, the reveal never discards the shape.
+* **Mask Shapes (`shape`)**:
+  * `"circle"`: Circular focal spotlight. Configurable `size` (radius %, default `50`), center `x` (default `50`), `y` (default `50`).
+  * `"ellipse"`: Elliptical mask. Configurable `rx` (horizontal radius %), `ry` (vertical radius %), `x`, `y`.
+  * `"inset"`: Inset crop box with rounded corners. Configurable `top`, `right`, `bottom`, `left` (crop %), and `corner_radius` (e.g. `"24px"`).
+  * `"polygon"`: Complex vector polygon geometry. Uses `polygon_preset`:
+    * `"hexagon"`: Modern 6-sided tech polygon.
+    * `"diamond"`: Rhombus diamond frame.
+    * `"triangle"`: Upward triangular portal.
+    * `"star"`: 5-point star cutout.
+    * `"slant_left"` / `"slant_right"`: 15° dynamic angled editorial crop.
+    * `"custom"`: Arbitrary CSS polygon string via `points` (e.g. `"50% 0%, 100% 50%, 50% 100%, 0% 50%"`).
+* **Animated Reveals (`reveal`)**:
+  * `"circle_iris"`: Expand outward from center like a camera shutter aperture.
+  * `"wipe_right"`: Horizontal wipe reveal from left to right.
+  * `"wipe_down"`: Vertical wipe reveal from top to bottom.
+  * `"split_vertical"`: Cinematic curtain opening outward from the vertical center line (halves part left/right).
+  * `"wipe_diagonal"`: Dynamic corner-to-corner diagonal wipe.
+  * Parameters: `reveal_duration` (seconds, default `0.8`), `reveal_delay` (seconds, default `0`), `reveal_easing` (`"ease-out"`, `"ease-in-out"`, `"ease-in"`, `"bounce"`, `"linear"` — no `"spring"`: overshoot past fully-revealed is invisible), `inverted: true` (reverses wipe/iris direction).
+* **Layer Timeline Ergonomics**:
+  * `name`: Descriptive human-readable label displayed in timeline (e.g. `"Presenter Cutout"`, `"Headline Bar"`, `"Background Footage"`).
+  * `visible: false`: Hides the layer from both the preview player and export render (as well as canvas click-selection).
+  * `locked: true`: Locks the layer against accidental drag or resize gestures on the visual canvas.
+  * `color_tag`: Hex color for visual category grouping in the editor.
+
+### 7. 3D Camera Perspective & Spatial Layout (`perspective`, `perspective_origin`, 3D Transforms)
+Place layers in genuine 3D spatial perspective:
+* **Camera Perspective (`perspective`)**: Distance in pixels from viewer to the z=0 canvas plane (e.g. `1000` or `"1000px"`).
+  * Lower values (`300px`–`600px`): Dramatic wide-angle distortion with intense vanishing-point perspective.
+  * Medium values (`1000px`): Cinematic standard FOV (natural human eye level perspective).
+  * Higher values (`2000px`–`3000px`): Telephoto flattened perspective.
+* **Vanishing Point (`perspective_origin`)**: Camera look-at position (e.g. `"center center"` for straight-ahead eye level, `"50% 0%"` for bird's-eye looking down, `"50% 100%"` for worm's-eye looking up, `"0% 50%"` for lateral viewpoint from the left).
+* **Static 3D Transforms (on `content.style`)**:
+  * `rotateX`: Pitch tilt angle along horizontal axis in degrees (`-90` to `+90`).
+  * `rotateY`: Yaw pan angle along vertical axis in degrees (`-90` to `+90`).
+  * `translateZ`: Z-depth position in pixels (`-500` to `+500`). Pushes graphics into canvas depth or pulls them toward the camera.
+* Composes seamlessly with 3D animation keyframes (`translateZ`, `rotateX`, `rotateY`).
 
 ---
 

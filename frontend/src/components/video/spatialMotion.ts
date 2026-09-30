@@ -11,6 +11,7 @@ export const SPATIAL_ANIMATION_PROPS: ReadonlySet<string> = new Set([
   'scale',
   'translateX',
   'translateY',
+  'translateZ',
   'rotate',
   'rotateX',
   'rotateY',

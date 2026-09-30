@@ -292,3 +292,474 @@ def test_ast_schemas_support_exit():
     )
     assert layer_sec.exit == 2.5
 
+
+def test_ast_schemas_support_physics_and_advanced_curves():
+    from backend.agent.schemas import AnimationNode
+
+    # 1. Custom spring physics
+    spring_anim = AnimationNode(
+        property="scale",
+        **{"from": 0.8},
+        to=1.0,
+        duration=0.6,
+        delay=0.2,
+        easing="spring",
+        damping=22.0,
+        stiffness=180.0,
+        mass=0.75,
+        overshoot_clamping=True,
+    )
+    assert spring_anim.easing == "spring"
+    assert spring_anim.damping == 22.0
+    assert spring_anim.stiffness == 180.0
+    assert spring_anim.mass == 0.75
+    assert spring_anim.overshoot_clamping is True
+
+    # 2. Advanced curves: elastic, back, steps, bezier
+    elastic_anim = AnimationNode(
+        property="translateY",
+        **{"from": 60.0},
+        to=0.0,
+        duration=0.8,
+        easing="elastic",
+        elastic_bounciness=1.4,
+    )
+    assert elastic_anim.easing == "elastic"
+    assert elastic_anim.elastic_bounciness == 1.4
+
+    bezier_anim = AnimationNode(
+        property="translateX",
+        **{"from": -50.0},
+        to=0.0,
+        duration=0.5,
+        easing="bezier",
+        bezier_points=[0.16, 1.0, 0.3, 1.0],
+    )
+    assert bezier_anim.easing == "bezier"
+    assert bezier_anim.bezier_points == [0.16, 1.0, 0.3, 1.0]
+
+    # 3. Continuous motion loop modes
+    loop_anim = AnimationNode(
+        property="rotate",
+        **{"from": 0.0},
+        to=360.0,
+        duration=4.0,
+        easing="linear",
+        loop_mode="loop",
+    )
+    assert loop_anim.loop_mode == "loop"
+
+    pingpong_anim = AnimationNode(
+        property="scale",
+        **{"from": 1.0},
+        to=1.08,
+        duration=1.2,
+        easing="ease-in-out",
+        loop_mode="pingpong",
+    )
+    assert pingpong_anim.loop_mode == "pingpong"
+
+
+def test_timing_lint_accepts_all_renderer_easings():
+    from backend.agent.timing import lint_cut_timing
+
+    for easing in ("linear", "spring", "ease-in", "ease-out", "ease-in-out",
+                   "bounce", "elastic", "back", "steps", "bezier"):
+        cut = {
+            "duration": 3.0,
+            "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Text", "text": "hi"},
+                 "animations": [{"property": "scale", "from": 0.8, "to": 1.0,
+                                 "duration": 0.6, "delay": 0,
+                                 "easing": easing}]},
+            ]},
+        }
+        rep = lint_cut_timing(cut)
+        assert not any("unknown" in w and easing in w
+                       for w in rep["warnings"]), easing
+
+    cut["composition"]["children"][0]["animations"][0]["easing"] = "wiggle"
+    rep = lint_cut_timing(cut)
+    assert any("unknown" in w for w in rep["warnings"])
+
+
+def test_bezier_points_validator_repairs_instead_of_crashing():
+    from backend.agent.schemas import AnimationNode
+
+    # x values clamp into [0, 1]; y stays unbounded.
+    anim = AnimationNode(
+        property="translateX",
+        **{"from": -50.0},
+        to=0.0,
+        duration=0.5,
+        easing="bezier",
+        bezier_points=[1.5, 3.0, -0.4, 0.5],
+    )
+    assert anim.bezier_points == [1.0, 3.0, 0.0, 0.5]
+
+    # Wrong length / non-numeric / non-finite shapes drop to None so the
+    # renderer falls back to its default curve instead of throwing.
+    for bad in ([0.5, 1.0], [0.5, 1.0, 0.3, 1.0, 0.0],
+                ["a", 1.0, 0.3, 1.0], [float("nan"), 1, 0.3, 1]):
+        anim = AnimationNode(
+            property="translateX",
+            **{"from": -50.0},
+            to=0.0,
+            duration=0.5,
+            easing="bezier",
+            bezier_points=bad,
+        )
+        assert anim.bezier_points is None
+
+    # Valid curve passes through untouched.
+    anim = AnimationNode(
+        property="translateX",
+        **{"from": -50.0},
+        to=0.0,
+        duration=0.5,
+        easing="bezier",
+        bezier_points=[0.16, 1.0, 0.3, 1.0],
+    )
+    assert anim.bezier_points == [0.16, 1.0, 0.3, 1.0]
+
+
+def test_ast_schemas_support_mask_configurations():
+    from backend.agent.schemas import ASTLayerNode, ASTMaskConfig
+
+    # Circle mask with reveal
+    layer_circle = ASTLayerNode(
+        content={"type": "Image", "query": "modern skyline"},
+        mask=ASTMaskConfig(
+            shape="circle",
+            size=45,
+            x=50,
+            y=50,
+            reveal="circle_iris",
+            reveal_duration=0.9,
+            reveal_delay=0.2,
+            reveal_easing="ease-out",
+        ),
+    )
+    assert layer_circle.mask.shape == "circle"
+    assert layer_circle.mask.size == 45
+    assert layer_circle.mask.reveal == "circle_iris"
+    assert layer_circle.mask.reveal_duration == 0.9
+
+    # Polygon mask with star preset
+    layer_star = ASTLayerNode(
+        content={"type": "Image", "query": "space nebula"},
+        mask=ASTMaskConfig(
+            shape="polygon",
+            polygon_preset="star",
+            reveal="wipe_diagonal",
+            inverted=True,
+        ),
+    )
+    assert layer_star.mask.shape == "polygon"
+    assert layer_star.mask.polygon_preset == "star"
+    assert layer_star.mask.reveal == "wipe_diagonal"
+    assert layer_star.mask.inverted is True
+
+    # Inset mask with rounded corners
+    layer_inset = ASTLayerNode(
+        content={"type": "Image", "query": "document report"},
+        mask={
+            "shape": "inset",
+            "top": "10%",
+            "right": "10%",
+            "bottom": "10%",
+            "left": "10%",
+            "corner_radius": "24px",
+            "reveal": "split_vertical",
+        },
+    )
+    assert layer_inset.mask.shape == "inset"
+    assert layer_inset.mask.corner_radius == "24px"
+
+
+def test_ast_layer_supports_ergonomics_attributes():
+    from backend.agent.schemas import ASTLayerNode
+
+    layer = ASTLayerNode(
+        name="Keynote Speaker Cutout",
+        visible=False,
+        locked=True,
+        color_tag="#38bdf8",
+        content={"type": "Image", "query": "speaker portrait"},
+    )
+    assert layer.name == "Keynote Speaker Cutout"
+    assert layer.visible is False
+    assert layer.locked is True
+    assert layer.color_tag == "#38bdf8"
+
+
+def test_validate_sub_visuals_preserves_mask_and_ergonomics():
+    from backend.agent.validators import validate_sub_visuals
+
+    svs = [
+        {
+            "duration": 4.0,
+            "transition": "fade",
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "name": "Subject photo",
+                        "visible": True,
+                        "locked": True,
+                        "color_tag": "#38bdf8",
+                        "content": {
+                            "type": "Image",
+                            "query": "modern skyline",
+                            "source": "pexels",
+                            "style": {
+                                "position": "absolute",
+                                "left": "4%", "top": "6%",
+                                "width": "92%", "height": "52%",
+                            },
+                        },
+                        "animations": [],
+                        "mask": {
+                            "shape": "polygon",
+                            "polygon_preset": "hexagon",
+                            "reveal": "wipe_right",
+                            "reveal_duration": 0.6,
+                            "reveal_easing": "ease-out",
+                        },
+                        "filters": [],
+                    },
+                ],
+            },
+        }
+    ]
+    ok, normalized, err = validate_sub_visuals(svs, 4.0)
+    assert ok, err
+    layer = normalized[0]["composition"]["children"][0]
+    assert layer["name"] == "Subject photo"
+    assert layer["visible"] is True
+    assert layer["locked"] is True
+    assert layer["color_tag"] == "#38bdf8"
+    assert layer["mask"]["shape"] == "polygon"
+    assert layer["mask"]["reveal"] == "wipe_right"
+
+
+def test_sanitize_layer_masks_repairs_instead_of_punishing():
+    from backend.agent.validators import sanitize_layer_masks
+
+    # Empty / no-op / non-dict masks are dropped.
+    layers = [
+        {"type": "Layer", "content": {}, "mask": {}},
+        {"type": "Layer", "content": {}, "mask": {"shape": "none", "reveal": "none"}},
+        {"type": "Layer", "content": {}, "mask": "circle"},
+    ]
+    assert sanitize_layer_masks(layers, cut_label="cut#0") == 3
+    assert all("mask" not in l for l in layers)
+
+    # Unknown shape/reveal/preset keys dropped; legacy spring easing
+    # coerced to ease-out; bad durations/delays and blank points dropped.
+    layers = [
+        {"type": "Layer", "content": {}, "mask": {
+            "shape": "octagon", "reveal": "spiral",
+            "reveal_easing": "spring", "reveal_duration": -1,
+            "reveal_delay": -0.5, "polygon_preset": "octagon",
+            "points": "   ",
+        }},
+    ]
+    n = sanitize_layer_masks(layers, cut_label="cut#0")
+    assert n >= 6
+    assert "mask" not in layers[0]  # emptied by repairs → key dropped
+
+    # Valid masks pass through untouched (idempotent second run repairs 0).
+    layers = [
+        {"type": "Layer", "content": {}, "mask": {
+            "shape": "polygon", "polygon_preset": "hexagon",
+            "reveal": "wipe_diagonal", "reveal_duration": 0.6,
+            "reveal_easing": "bounce",
+        }},
+    ]
+    assert sanitize_layer_masks(layers, cut_label="cut#0") == 0
+    assert layers[0]["mask"]["reveal"] == "wipe_diagonal"
+
+
+def test_canonical_sample_cut_demonstrates_mask():
+    from backend.agent.validators import build_sample_cut, validate_sub_visuals
+
+    sample = build_sample_cut("landscape")
+    masks = [l.get("mask") for l in sample["composition"]["children"]
+             if isinstance(l, dict) and l.get("mask")]
+    assert masks, "canonical sample must include a masked layer for agent grounding"
+    ok, normalized, err = validate_sub_visuals([sample], 4.0)
+    assert ok, err
+    assert normalized[0]["composition"]["children"][1]["mask"]["reveal"] == "wipe_right"
+
+
+def test_3d_spatial_transforms_and_perspective_in_ast_layers():
+    from backend.agent.validators import validate_sub_visuals, SPATIAL_ANIMATION_PROPS
+    from backend.agent.schemas import SubVisualAST, AnimationNode, ASTLayerNode, LayerContent
+
+    # 1. translateZ is recognized as spatial animation
+    assert "translateZ" in SPATIAL_ANIMATION_PROPS
+
+    # 2. Pydantic validation of AnimationNode with translateZ
+    anim = AnimationNode(
+        property="translateZ",
+        **{"from": -200.0},
+        to=0.0,
+        duration=0.8,
+        delay=0.2,
+        easing="spring",
+    )
+    assert anim.property == "translateZ"
+    assert anim.from_ == -200.0
+
+    # 3. Pydantic validation of ASTLayerNode with perspective & 3D layout styles
+    layer_node = ASTLayerNode(
+        type="Layer",
+        perspective=1200,
+        perspective_origin="50% 0%",
+        content=LayerContent(
+            type="Text",
+            text="3D Spatial Perspective",
+            style={
+                "position": "absolute",
+                "left": "10%",
+                "top": "20%",
+                "width": "80%",
+                "rotateX": 25,
+                "rotateY": -15,
+                "translateZ": 100,
+            },
+        ),
+        animations=[anim],
+    )
+    assert layer_node.perspective == 1200
+    assert layer_node.perspective_origin == "50% 0%"
+    assert layer_node.content.style.get("rotateX") == 25
+    assert layer_node.content.style.get("rotateY") == -15
+    assert layer_node.content.style.get("translateZ") == 100
+
+    # 4. End-to-end validate_sub_visuals passes without stripping 3D properties
+    svs = [
+        {
+            "duration": 5.0,
+            "transition": "fade",
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "perspective": "1000px",
+                        "perspective_origin": "center center",
+                        "content": {
+                            "type": "Image",
+                            "query": "cinematic neon city",
+                            "source": "pexels",
+                            "style": {
+                                "position": "absolute",
+                                "left": "5%",
+                                "top": "10%",
+                                "width": "90%",
+                                "height": "70%",
+                                "rotateX": 15,
+                                "rotateY": -20,
+                                "translateZ": 50,
+                            },
+                        },
+                        "animations": [
+                            {
+                                "property": "translateZ",
+                                "from": -150,
+                                "to": 0,
+                                "duration": 0.8,
+                                "delay": 0.3,
+                                "easing": "spring",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    ]
+    ok, normalized, err = validate_sub_visuals(svs, 5.0)
+    assert ok, err
+    norm_layer = normalized[0]["composition"]["children"][0]
+    assert norm_layer.get("perspective") == "1000px"
+    assert norm_layer.get("perspective_origin") == "center center"
+    style = norm_layer["content"]["style"]
+    assert style.get("rotateX") == 15
+    assert style.get("rotateY") == -20
+    assert style.get("translateZ") == 50
+    assert norm_layer["animations"][0]["property"] == "translateZ"
+
+
+def test_layer_blur_and_backdrop_blur():
+    from backend.agent.schemas import sanitize_layer_style, UNIVERSAL_STYLE_KEYS
+    from backend.agent.validators import validate_sub_visuals
+
+    # 1. Check UNIVERSAL_STYLE_KEYS
+    assert "blur" in UNIVERSAL_STYLE_KEYS
+    assert "backdropFilter" in UNIVERSAL_STYLE_KEYS
+
+    # 2. Check sanitize_layer_style preserves blur and backdropFilter
+    raw_style = {
+        "position": "absolute",
+        "left": "10%",
+        "top": "15%",
+        "width": "80%",
+        "height": "60%",
+        "blur": 15,
+        "backdropFilter": "blur(20px)",
+    }
+    cleaned, stripped, moves = sanitize_layer_style("Image", raw_style)
+    assert "blur" not in stripped
+    assert "backdropFilter" not in stripped
+    assert cleaned["blur"] == 15
+    assert cleaned["backdropFilter"] == "blur(20px)"
+
+    # 3. Check validate_sub_visuals with blur filters & direct style blur
+    svs = [
+        {
+            "sub_id": "test_blur",
+            "section_type": "b_roll",
+            "composition": {
+                "children": [
+                    {
+                        "type": "Layer",
+                        "filters": [
+                            "blur(12px)",
+                            "backdrop-filter: blur(16px)",
+                            "mix-blend-mode: overlay",
+                        ],
+                        "content": {
+                            "type": "Image",
+                            "query": "cinematic moody rain",
+                            "source": "pexels",
+                            "style": {
+                                "position": "absolute",
+                                "left": "0%",
+                                "top": "0%",
+                                "width": "100%",
+                                "height": "100%",
+                                "blur": 8,
+                                "backdropFilter": "blur(12px)",
+                            },
+                        },
+                    }
+                ],
+            },
+        }
+    ]
+    ok, normalized, err = validate_sub_visuals(svs, 5.0)
+    assert ok, err
+    norm_layer = normalized[0]["composition"]["children"][0]
+    assert "blur(12px)" in norm_layer["filters"]
+    assert "backdrop-filter: blur(16px)" in norm_layer["filters"]
+    assert norm_layer["content"]["style"]["blur"] == 8
+    assert norm_layer["content"]["style"]["backdropFilter"] == "blur(12px)"
+
+
+
+
+

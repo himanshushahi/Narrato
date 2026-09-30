@@ -54,8 +54,8 @@ Tools are strictly controlled via **Scope-Based Allowlists** in [**`backend/agen
 | Category | Tools | Allowed In | Purpose |
 |---|---|---|---|
 | **Research & Context** | `web_search`, `get_skill`, `read_project_file`, `list_project_files`, `project_status_report` | Pipeline & Bridge | Live web browsing, reading skill instructions, inspecting project structure and status. |
-| **Asset Verification** | `search_pexels_photo`, `search_pexels_video`, `search_wikipedia_image`, `search_pixabay_photo`, `search_pixabay_video`, `search_youtube_video` | Pipeline Visuals & Bridge Visuals | Validates that stock media, entity portraits, or YouTube clips exist before creating visual AST cuts. |
-| **~~Project Mutation~~ (removed)** | ~~`edit_sub_visual_property`, `regenerate_scene_visuals`, `rewrite_script_section`, `update_visual_settings`, `insert_scene`, `delete_scene`, `invalidate_scene_cache`~~ | — | **Deleted during dead-code cleanup:** no allowlist ever included mutation tools and the GUI never called them (scene operations live directly in `backend/core/bridge.py` as `ApiBridge` methods). The registry is now fully read-only (11 tools). See `docs/llm_calls_complete_guide.md` §7–§8. |
+| **Asset Verification** | `search_pexels_photo`, `search_pexels_video`, `search_wikipedia_image`, `search_pixabay_photo`, `search_pixabay_video`, `search_youtube_video`, `search_archive_photo`, `search_archive_video` | Pipeline Visuals & Bridge Visuals | Validates that stock media, entity portraits, YouTube clips, or Internet Archive assets exist before creating visual AST cuts. |
+| **~~Project Mutation~~ (removed)** | ~~`edit_sub_visual_property`, `regenerate_scene_visuals`, `rewrite_script_section`, `update_visual_settings`, `insert_scene`, `delete_scene`, `invalidate_scene_cache`~~ | — | **Deleted during dead-code cleanup:** no allowlist ever included mutation tools and the GUI never called them (scene operations live directly in `backend/core/bridge.py` as `ApiBridge` methods). The registry is now fully read-only (18 tools). See `docs/llm_calls_complete_guide.md` §7–§8. |
 
 ### Scope Allowlists (`agent_engine.py`)
 
@@ -68,6 +68,7 @@ PIPELINE_VISUAL_TOOLS = frozenset({
     "search_wikipedia_image",
     "search_pixabay_photo", "search_pixabay_video",
     "search_youtube_video",
+    "search_archive_photo", "search_archive_video",
 })
 
 # Bulk Script Pipeline (Research only)

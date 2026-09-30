@@ -1,6 +1,6 @@
 import React from 'react';
 import { AbsoluteFill, Img, Video } from 'remotion';
-import { ASTAnimator, ASTAnimation } from './ASTAnimator';
+import { ASTAnimator, ASTAnimation, ASTLayerMask, hasMask } from './ASTAnimator';
 import { DataVisualizations } from './DataVisualizations';
 import { ChartRenderer, ChartDataItem } from './ChartRenderer';
 import { ShapeRenderer, ShapeProps, PresetPathType } from './ShapeRenderer';
@@ -98,6 +98,10 @@ interface ASTLayerContent {
 
 export interface ASTLayer {
   type: 'Layer';
+  name?: string;
+  visible?: boolean;
+  locked?: boolean;
+  color_tag?: string;
   content: ASTLayerContent;
   animations?: ASTAnimation[];
   exit?: boolean | number;
@@ -107,6 +111,9 @@ export interface ASTLayer {
   transform_origin?: string;
   floating?: boolean;
   filters?: string[];
+  mask?: ASTLayerMask;
+  perspective?: number | string;
+  perspective_origin?: string;
 }
 
 // CSS properties that control layout/positioning of the layer container
@@ -120,9 +127,28 @@ const LAYOUT_PROPS = new Set([
   'backgroundColor', 'background', 'backdropFilter', 'WebkitBackdropFilter',
   // Static transform (Layout tab): consumed below into a `transform` string —
   // never spread raw (would double-apply as CSS individual properties).
-  'rotate', 'scale', 'scaleX', 'scaleY',
+  'rotate', 'rotateX', 'rotateY', 'scale', 'scaleX', 'scaleY', 'translateZ',
+  'perspective', 'perspectiveOrigin', 'perspective_origin',
   'aspectRatio',
+  // Static Gaussian blur (`content.style.blur` in px): consumed by
+  // parseFilters into a `filter: blur(Npx)` string — never spread raw
+  // (blur is not a valid CSS property and would leak into innerStyle).
+  'blur',
 ]);
+
+/**
+ * Lenient numeric parse for style values authored as numbers or strings
+ * (`25`, `"25"`, `"25deg"`, `"25px"`). Shared by parseStaticTransform and
+ * has3DStatic so both agree on what counts as a 3D value.
+ */
+function parseNumericStyle(raw: any): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  if (typeof raw === 'string') {
+    const n = parseFloat(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  return NaN;
+}
 
 /**
  * Static rotate/scale from the Layout tab (`content.style.rotate` in degrees,
@@ -130,19 +156,33 @@ const LAYOUT_PROPS = new Set([
  * Per-axis values win over legacy uniform `scale` when present. Applied on the
  * layer *container*, separate from ASTAnimator's animated transform wrapper
  * so the two compose instead of clobbering each other.
+ *
+ * ownPerspective=false skips the perspective() prepend: the ASTAnimator
+ * wrapper above already provides `perspective` as a CSS property (the shared
+ * camera), which projects this container's transform — prepending too would
+ * project the static rotation twice.
  */
-function parseStaticTransform(layoutStyle: Record<string, any>): string | undefined {
+function parseStaticTransform(layoutStyle: Record<string, any>, defaultPerspective?: number | string, ownPerspective = true): string | undefined {
   const parts: string[] = [];
 
-  const rawRotate = layoutStyle.rotate;
-  const deg =
-    typeof rawRotate === 'number'
-      ? rawRotate
-      : typeof rawRotate === 'string'
-        ? parseFloat(rawRotate)
-        : NaN;
-  if (Number.isFinite(deg) && deg !== 0) {
-    parts.push(`rotate(${deg}deg)`);
+  const rawRotate = parseNumericStyle(layoutStyle.rotate);
+  if (Number.isFinite(rawRotate) && rawRotate !== 0) {
+    parts.push(`rotate(${rawRotate}deg)`);
+  }
+
+  const rawRotateX = parseNumericStyle(layoutStyle.rotateX);
+  if (Number.isFinite(rawRotateX) && rawRotateX !== 0) {
+    parts.push(`rotateX(${rawRotateX}deg)`);
+  }
+
+  const rawRotateY = parseNumericStyle(layoutStyle.rotateY);
+  if (Number.isFinite(rawRotateY) && rawRotateY !== 0) {
+    parts.push(`rotateY(${rawRotateY}deg)`);
+  }
+
+  const rawTranslateZ = parseNumericStyle(layoutStyle.translateZ);
+  if (Number.isFinite(rawTranslateZ) && rawTranslateZ !== 0) {
+    parts.push(`translateZ(${rawTranslateZ}px)`);
   }
 
   const parseAxis = (raw: any): number => {
@@ -173,6 +213,16 @@ function parseStaticTransform(layoutStyle: Record<string, any>): string | undefi
     parts.push(`scale(${norm(sx)}, 1)`);
   } else if (Number.isFinite(sy) && sy !== 1) {
     parts.push(`scale(1, ${norm(sy)})`);
+  }
+
+  const has3D = (Number.isFinite(rawRotateX) && rawRotateX !== 0)
+    || (Number.isFinite(rawRotateY) && rawRotateY !== 0)
+    || (Number.isFinite(rawTranslateZ) && rawTranslateZ !== 0);
+
+  if (has3D && ownPerspective && parts.length > 0) {
+    const pers = defaultPerspective || layoutStyle.perspective || 1000;
+    const persStr = typeof pers === 'number' ? `${pers}px` : pers;
+    return `perspective(${persStr}) ${parts.join(' ')}`;
   }
 
   return parts.length > 0 ? parts.join(' ') : undefined;
@@ -228,28 +278,97 @@ function normalizeBorderRadius(val: any): string | undefined {
   return s;
 }
 
+/** Non-px length units valid inside blur() — kept as-is (authoring contract
+ * is px, so only px feeds the edge-bleed heuristic and the 50px clamp). */
+const CSS_LENGTH_UNITS: ReadonlySet<string> = new Set([
+  'em', 'rem', 'ex', 'rex', 'cap', 'rcap', 'ch', 'rch', 'ic', 'ric',
+  'lh', 'rlh', 'vw', 'svw', 'lvw', 'dvw', 'vh', 'svh', 'lvh', 'dvh',
+  'vi', 'svi', 'lvi', 'dvi', 'vb', 'svb', 'lvb', 'dvb', 'vmin', 'svmin',
+  'lvmin', 'dvmin', 'vmax', 'svmax', 'lvmax', 'dvmax', 'cqw', 'cqh',
+  'cqi', 'cqb', 'cqmin', 'cqmax', 'cm', 'mm', 'q', 'in', 'pt', 'pc',
+]);
+
 /**
  * Extracts mix-blend-mode from filters array (it's a CSS property, not a filter)
  * and returns the cleaned filters string and blend mode style.
  */
-function parseFilters(filters?: string[]): { filterStyle?: string; blendStyle: React.CSSProperties } {
-  if (!filters || filters.length === 0) return { filterStyle: undefined, blendStyle: {} };
-
+function parseFilters(
+  filters?: string[],
+  directBlur?: number | string
+): {
+  filterStyle?: string;
+  blendStyle: React.CSSProperties;
+  backdropFilterStyle?: string;
+  contentBlurPx: number;
+} {
   const blendStyle: React.CSSProperties = {};
+  let backdropFilterStyle: string | undefined = undefined;
   const realFilters: string[] = [];
+  let hasExplicitBlur = false;
+  let contentBlurPx = 0;
 
-  for (const f of filters) {
-    const blendMatch = f.match(/mix-blend-mode:\s*(\w+)/);
-    if (blendMatch) {
-      blendStyle.mixBlendMode = blendMatch[1] as any;
-    } else {
-      realFilters.push(f);
+  if (filters && filters.length > 0) {
+    for (const f of filters) {
+      const blendMatch = f.match(/mix-blend-mode:\s*([a-zA-Z-]+)/i);
+      const backdropMatch = f.match(/(?:-webkit-)?backdrop-filter:\s*([^;]+)/i);
+      if (blendMatch) {
+        blendStyle.mixBlendMode = blendMatch[1] as any;
+      } else if (backdropMatch) {
+        backdropFilterStyle = backdropMatch[1].trim();
+      } else {
+        // Sanitize blur() occurrences: CSS blur() only accepts a non-negative
+        // length, and ONE invalid function makes the browser drop the WHOLE
+        // filter declaration (innocent siblings included). So clamp huge px
+        // radii (fullscreen blur(200px) freezes Chromium) and drop invalid
+        // occurrences (negative / unitless-nonzero / % / unparseable /
+        // unknown units). A surviving valid blur owns the blur channel so
+        // style.blur doesn't double-apply; fully-dropped tokens don't block it.
+        let tokenHasValidBlur = false;
+        const sanitized = f.replace(/blur\(\s*([^)]*)\)/gi, (m, inner) => {
+          const im = String(inner).trim().match(/^(-?\d+(?:\.\d+)?)\s*([a-z%]*)$/i);
+          if (!im) return '';
+          const n = parseFloat(im[1]);
+          const unit = (im[2] || '').toLowerCase();
+          if (!Number.isFinite(n) || n < 0 || unit === '%') return '';
+          if (unit !== '' && unit !== 'px' && !CSS_LENGTH_UNITS.has(unit)) return '';
+          if (n === 0) { tokenHasValidBlur = true; return m; }
+          if (unit === '') return ''; // unitless nonzero length is invalid
+          tokenHasValidBlur = true;
+          if (unit === 'px') {
+            contentBlurPx = Math.max(contentBlurPx, Math.min(50, n));
+            if (n > 50) return 'blur(50px)';
+          }
+          return m;
+        });
+        if (tokenHasValidBlur) hasExplicitBlur = true;
+        // A trailing 'blur(' with no closing paren is malformed (and would
+        // nuke the whole declaration in the browser) — cut the broken tail,
+        // keep the valid siblings. Closed blur(...) occurrences above are
+        // either kept or already removed, so anything left is repairable text.
+        const repaired = sanitized.replace(/\s*blur\([^)]*$/i, '');
+        const collapsed = repaired.replace(/\s+/g, ' ').trim();
+        if (collapsed) {
+          realFilters.push(collapsed);
+        }
+      }
+    }
+  }
+
+  // If content.style has a direct blur property and no blur filter was specified:
+  if (!hasExplicitBlur && directBlur !== undefined && directBlur !== null) {
+    const n = typeof directBlur === 'number' ? directBlur : parseFloat(String(directBlur));
+    if (Number.isFinite(n) && n > 0) {
+      const clamped = Math.min(50, n);
+      realFilters.push(`blur(${clamped}px)`);
+      contentBlurPx = clamped;
     }
   }
 
   return {
     filterStyle: realFilters.length > 0 ? realFilters.join(' ') : undefined,
     blendStyle,
+    backdropFilterStyle,
+    contentBlurPx,
   };
 }
 
@@ -392,7 +511,10 @@ const ASTLayerView: React.FC<{
           () => splitStyles(contentStyle),
           [contentStyle]
         );
-        const { filterStyle, blendStyle } = React.useMemo(() => parseFilters(filters), [filters]);
+        const { filterStyle, blendStyle, backdropFilterStyle, contentBlurPx } = React.useMemo(
+          () => parseFilters(filters, (contentStyle as any)?.blur),
+          [filters, (contentStyle as any)?.blur]
+        );
 
         // Check if this layer has custom positioning (not fullscreen).
         // LayerBox SOT v1: Map/Particles are full-frame canvases — their box
@@ -411,14 +533,51 @@ const ASTLayerView: React.FC<{
           () => normalizeBorderRadius((layoutStyle as any).borderRadius || (innerStyle as any).borderRadius),
           [layoutStyle, innerStyle]
         );
+        const effectivePerspective = layer.perspective ?? (layoutStyle as any).perspective;
+        const effectivePerspectiveOrigin = layer.perspective_origin ?? (layoutStyle as any).perspective_origin ?? (layoutStyle as any).perspectiveOrigin;
+
+        // ASTAnimator mount gate, hoisted: the static container below needs to
+        // know whether the animated wrapper will mount (single shared camera).
+        // Keep in sync with the renderedLayer condition below.
+        const animatorMounted = ((animations && animations.length > 0) || (layer as any).motion_blur
+          || ((layer as any).camera_shake && (layer as any).camera_shake !== 'none')
+          || !!(layer as any).transform_origin || !!(layer as any).floating
+          || (layer.exit !== undefined && layer.exit !== false) || hasMask(layer.mask)
+          || !!effectivePerspective || (animations?.some(a => a && a.property === 'translateZ')));
+        const hasPerspectiveValue = effectivePerspective !== undefined && effectivePerspective !== null
+          && (effectivePerspective as any) !== '' && (effectivePerspective as any) !== 0;
+        // When the wrapper mounts with a perspective set, it provides the
+        // `perspective` CSS property projecting this container — so the
+        // container skips its own perspective() prepend (no double projection).
+        const sharedCamera = animatorMounted && hasPerspectiveValue;
+        const perspectiveProp = !hasPerspectiveValue
+          ? undefined
+          : (typeof effectivePerspective === 'number' ? `${effectivePerspective}px` : String(effectivePerspective));
+
         // Static transform (Layout tab) — memoized, only re-parsed on layout change.
         const staticTransform = React.useMemo(
-          () => parseStaticTransform(layoutStyle as Record<string, any>),
-          [layoutStyle]
+          () => parseStaticTransform(layoutStyle as Record<string, any>, effectivePerspective, !sharedCamera),
+          [layoutStyle, effectivePerspective, sharedCamera]
         );
-        // Strip raw rotate/scale/scaleX/scaleY/borderRadius so they never leak
+        // Strip raw rotate/scale/scaleX/scaleY/borderRadius and 3D transforms so they never leak
         // as CSS individual properties alongside the composed transform below.
-        const { rotate: _rot, scale: _scl, scaleX: _sx, scaleY: _sy, borderRadius: _br, ...layoutRest } = layoutStyle as Record<string, any>;
+        const {
+          rotate: _rot,
+          scale: _scl,
+          scaleX: _sx,
+          scaleY: _sy,
+          rotateX: _rx,
+          rotateY: _ry,
+          translateZ: _tz,
+          perspective: _pers,
+          perspectiveOrigin: _po,
+          perspective_origin: _po2,
+          borderRadius: _br,
+          backdropFilter: _bf,
+          WebkitBackdropFilter: _wbf,
+          blur: _blur,
+          ...layoutRest
+        } = layoutStyle as Record<string, any>;
 
         const hasRadius = !!effectiveRadius;
         // LayerBox SOT v1: Shape box = stage, glyph = content. Small accent
@@ -633,16 +792,34 @@ const ASTLayerView: React.FC<{
 
         // Clamp expensive backdrop-blur radii to the Settings cap and isolate
         // the layer so Chromium's backdrop readback stays local.
+        const rawBackdrop = (layoutStyle as any).backdropFilter || backdropFilterStyle;
+        // Safari needs the -webkit- prefixed property: fall back to the
+        // standard value when only one source is set so both stay in sync.
+        const rawWebkitBackdrop =
+          (layoutStyle as any).WebkitBackdropFilter || backdropFilterStyle || rawBackdrop;
+
         const optimizedBackdrop =
-          typeof (layoutStyle as any).backdropFilter === 'string'
-            ? optimizeBackdropFilter((layoutStyle as any).backdropFilter, glassCap)
-            : (layoutStyle as any).backdropFilter;
+          typeof rawBackdrop === 'string'
+            ? optimizeBackdropFilter(rawBackdrop, glassCap)
+            : rawBackdrop;
         const optimizedWebkitBackdrop =
-          typeof (layoutStyle as any).WebkitBackdropFilter === 'string'
-            ? optimizeBackdropFilter((layoutStyle as any).WebkitBackdropFilter as string, glassCap)
-            : (layoutStyle as any).WebkitBackdropFilter;
+          typeof rawWebkitBackdrop === 'string'
+            ? optimizeBackdropFilter(rawWebkitBackdrop, glassCap)
+            : rawWebkitBackdrop;
         const hasGlass = !!optimizedBackdrop || !!optimizedWebkitBackdrop;
-        const containerTransform = [staticTransform, hasGlass ? 'translateZ(0)' : null]
+
+        // Edge bleed protection: when a fullscreen layer is blurred (contentBlurPx >= 8),
+        // CSS blur samples transparent pixels outside the frame boundary, causing dark/transparent borders.
+        // Scaling slightly (1.05) keeps the blurred image fully flush; frame
+        // bounds (export) / the Player viewport (preview) clip the overscan.
+        // Force overflow hidden on the container itself so rounded/small-box
+        // variants clip too, and note the scale pivots around transform_origin
+        // when one is set. Static filters / style.blur only — animated blur
+        // keyframes don't trigger expansion.
+        const needsEdgeBleedExpansion = contentBlurPx >= 8 && !hasCustomLayout;
+        const edgeScaleTransform = needsEdgeBleedExpansion ? 'scale(1.05)' : null;
+
+        const containerTransform = [staticTransform, edgeScaleTransform, hasGlass ? 'translateZ(0)' : null]
           .filter(Boolean)
           .join(' ') || undefined;
 
@@ -650,32 +827,44 @@ const ASTLayerView: React.FC<{
         // content type (e.g. mid-edit in VisualsTab) renders nothing, but the
         // hook count must stay constant or React throws "Rendered fewer hooks
         // than expected" and trips the Player error boundary.
-        if (!node) return null;
+        if (!node || layer.visible === false) return null;
+
+        // String-authored statics ("25", "25deg") parse like numbers — use the
+        // same lenient parser as parseStaticTransform so preserve-3d agrees.
+        const staticRotateX = parseNumericStyle((layoutStyle as any).rotateX);
+        const staticRotateY = parseNumericStyle((layoutStyle as any).rotateY);
+        const staticTranslateZ = parseNumericStyle((layoutStyle as any).translateZ);
+        const has3DStatic = (Number.isFinite(staticRotateX) && staticRotateX !== 0)
+          || (Number.isFinite(staticRotateY) && staticRotateY !== 0)
+          || (Number.isFinite(staticTranslateZ) && staticTranslateZ !== 0)
+          || !!effectivePerspective;
 
         const inner = (
           <div
             data-ast-layer-idx={idx}
             data-ast-layer-type={content.type}
             style={{
-            ...containerBaseStyle,
-            ...(optimizedBackdrop !== (layoutStyle as any).backdropFilter
-              ? { backdropFilter: optimizedBackdrop }
-              : null),
-            ...(optimizedWebkitBackdrop !== (layoutStyle as any).WebkitBackdropFilter
-              ? { WebkitBackdropFilter: optimizedWebkitBackdrop }
-              : null),
-            filter: filterStyle,
-            ...(hasGlass ? { isolation: 'isolate' as const } : null),
-            ...(containerTransform ? { transform: containerTransform } : null),
-            ...(containerTransform && transform_origin ? { transformOrigin: transform_origin } : null),
+              ...containerBaseStyle,
+              ...(optimizedBackdrop ? { backdropFilter: optimizedBackdrop } : null),
+              ...(optimizedWebkitBackdrop ? { WebkitBackdropFilter: optimizedWebkitBackdrop } : null),
+              filter: filterStyle,
+              ...(hasGlass ? { isolation: 'isolate' as const } : null),
+              ...(needsEdgeBleedExpansion ? { overflow: 'hidden' as const } : null),
+              ...(containerTransform ? { transform: containerTransform } : null),
+              ...(containerTransform && transform_origin ? { transformOrigin: transform_origin } : null),
+              ...(has3DStatic ? { transformStyle: 'preserve-3d' as const } : null),
+            // Perspective PROPERTY (not the function in containerTransform):
+            // this is what perspectiveOrigin actually affects, and it gives
+            // perspective-only layers a projection context for 3D descendants.
+            ...(perspectiveProp ? { perspective: perspectiveProp } : null),
+            ...(effectivePerspectiveOrigin ? { perspectiveOrigin: effectivePerspectiveOrigin } : null),
             ...blendStyle,
           }}>
             {node}
           </div>
         );
 
-        const hasExit = layer.exit !== undefined && layer.exit !== false;
-        const renderedLayer = ((animations && animations.length > 0) || motion_blur || (camera_shake && camera_shake !== 'none') || !!transform_origin || !!floating || hasExit) ? (
+        const renderedLayer = (animatorMounted) ? (
           <ASTAnimator
             animations={animations}
             exit={layer.exit}
@@ -684,6 +873,9 @@ const ASTLayerView: React.FC<{
             camera_shake={camera_shake}
             transform_origin={transform_origin}
             floating={floating}
+            mask={layer.mask}
+            perspective={effectivePerspective}
+            perspective_origin={effectivePerspectiveOrigin}
             qualityMode={mode}
             quality={policy}
           >
@@ -743,15 +935,17 @@ const ASTRendererInner: React.FC<{
           in layer `filters` arrays. Rendered once per composition. */}
       <FxFilterDefs />
       {orderedChildren.map((layer, idx) => (
-        <ASTLayerView
-          key={idx}
-          layer={layer}
-          idx={idx}
-          zIndex={idx + 1}
-          mode={mode}
-          policy={policy}
-          glassCap={glassCap}
-        />
+        layer.visible === false ? null : (
+          <ASTLayerView
+            key={idx}
+            layer={layer}
+            idx={idx}
+            zIndex={idx + 1}
+            mode={mode}
+            policy={policy}
+            glassCap={glassCap}
+          />
+        )
       ))}
     </AbsoluteFill>
   );

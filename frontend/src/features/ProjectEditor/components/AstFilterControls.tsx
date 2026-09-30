@@ -64,6 +64,16 @@ const FILTER_PRESETS: { label: string; icon: string; filters: string[] }[] = [
     icon: '👻',
     filters: ['mix-blend-mode: overlay'],
   },
+  {
+    label: 'Cinematic B-Roll Blur',
+    icon: '🌫️',
+    filters: ['blur(12px)', 'brightness(0.75)', 'contrast(1.1)'],
+  },
+  {
+    label: 'Frosted Glass Surface',
+    icon: '🧊',
+    filters: ['backdrop-filter: blur(16px)', 'contrast(1.05)'],
+  },
   // ── 2026 FX pack: CSS-grade cinematic looks ──────────────────────────
   {
     label: 'Neon Glow Pop',
@@ -170,15 +180,43 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
   const grayscale = getFilterValue('grayscale', 0.0);
   const sepia = getFilterValue('sepia', 0.0);
 
+  // Parse Gaussian blur (blur(Npx)) — strip backdrop-filter tokens first:
+  // `backdrop-filter: blur(16px)` contains a blur() substring but must NOT
+  // drive the Layer Blur slider (that double-counts frosted glass as content
+  // blur and writes back a duplicate blur() on the next slider edit).
+  const filterStringNoBackdrop = filterString.replace(/(?:-webkit-)?backdrop-filter:\s*[^;]+;?/gi, ' ');
+  const blurMatch = filterStringNoBackdrop.match(/blur\(\s*([\d.]+)\s*px\s*\)/i);
+  const blur = blurMatch ? parseFloat(blurMatch[1]) : 0;
+
+  // Parse Backdrop blur per-token (not on the joined string: the join of
+  // `['backdrop-filter: blur(16px)', 'contrast(1.05)']` has trailing tokens
+  // after the backdrop, so a $-anchored match on filterString would miss it).
+  // Only a pure `blur(Npx)` backdrop is slider-owned; compound values
+  // (`blur(16px) brightness(1.2)`) stay in extraTokens so slider edits never
+  // drop the unmodeled functions.
+  const backdropToken = (filters || []).find((f) =>
+    /^(-webkit-)?backdrop-filter:\s*blur\(\s*[\d.]+\s*px\s*\)\s*;?\s*$/i.test(f.trim())
+  );
+  const backdropNumMatch = backdropToken
+    ? backdropToken.match(/blur\(\s*([\d.]+)\s*px\s*\)/i)
+    : null;
+  const backdropBlur = backdropNumMatch ? parseFloat(backdropNumMatch[1]) : 0;
+
   // Parse mix-blend-mode
   const blendMatch = filterString.match(/mix-blend-mode:\s*([a-zA-Z-]+)/);
   const blendMode = blendMatch ? blendMatch[1] : 'normal';
 
   // FX tokens the sliders don't model (SVG url() looks, saturate,
-  // hue-rotate, invert, blur, drop-shadow…) survive slider edits: the
-  // sliders only own brightness/contrast/grayscale/sepia/blend, so carry
+  // hue-rotate, invert, drop-shadow…) survive slider edits: the
+  // sliders own brightness/contrast/grayscale/sepia/blur/backdrop-filter/blend, so carry
   // everything else through untouched.
-  const SLIDER_OWNED = /^(brightness|contrast|grayscale|sepia)\([\d.]+(?:%|px)?\)$|^mix-blend-mode:/;
+  // Anchored per-token on purpose:
+  // - blur() requires px (CSS blur rejects %/unitless) so an invalid
+  //   `blur(50%)` stays in extraTokens instead of being swallowed and
+  //   silently dropped by updateFilters;
+  // - backdrop-filter matches ONLY a pure `blur(Npx)` value so compound
+  //   backdrops (`blur(16px) brightness(1.2)`) survive slider edits intact.
+  const SLIDER_OWNED = /^(brightness|contrast|grayscale|sepia)\(\s*[\d.]+\s*(?:%|px)?\s*\)\s*;?$|^blur\(\s*[\d.]+\s*px\s*\)\s*;?$|^mix-blend-mode:\s*[a-zA-Z-]+\s*;?$|^(-webkit-)?backdrop-filter:\s*blur\(\s*[\d.]+\s*px\s*\)\s*;?\s*$/i;
   const extraTokens = (filters || []).filter((f) => !SLIDER_OWNED.test(f.trim()));
 
   const updateFilters = (newVals: {
@@ -186,12 +224,16 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
     contrast?: number;
     grayscale?: number;
     sepia?: number;
+    blur?: number;
+    backdropBlur?: number;
     blendMode?: string;
   }) => {
     const b = newVals.brightness !== undefined ? newVals.brightness : brightness;
     const c = newVals.contrast !== undefined ? newVals.contrast : contrast;
     const g = newVals.grayscale !== undefined ? newVals.grayscale : grayscale;
     const s = newVals.sepia !== undefined ? newVals.sepia : sepia;
+    const bl = newVals.blur !== undefined ? newVals.blur : blur;
+    const bb = newVals.backdropBlur !== undefined ? newVals.backdropBlur : backdropBlur;
     const bm = newVals.blendMode !== undefined ? newVals.blendMode : blendMode;
 
     const list: string[] = [];
@@ -199,10 +241,17 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
     if (c !== 1.0) list.push(`contrast(${c.toFixed(2)})`);
     if (g > 0) list.push(`grayscale(${g.toFixed(2)})`);
     if (s > 0) list.push(`sepia(${s.toFixed(2)})`);
+    if (bl > 0) list.push(`blur(${bl % 1 === 0 ? bl.toFixed(0) : bl.toFixed(1)}px)`);
+    if (bb > 0) list.push(`backdrop-filter: blur(${bb % 1 === 0 ? bb.toFixed(0) : bb.toFixed(1)}px)`);
     if (bm && bm !== 'normal') list.push(`mix-blend-mode: ${bm}`);
     // Re-attach untouched FX tokens (SVG url() looks, drop-shadows, etc.)
     // that the sliders don't model, so grading never wipes the FX pack.
+    // When the user sets a pure backdrop value, drop any compound
+    // backdrop-filter token carried in extras — two backdrop-filter
+    // declarations would stack confusingly (last-wins) instead of replacing.
+    const isBackdropToken = (t: string) => /(?:-webkit-)?backdrop-filter:/i.test(t);
     for (const t of extraTokens) {
+      if (bb > 0 && isBackdropToken(t)) continue;
       if (!list.includes(t)) list.push(t);
     }
 
@@ -348,6 +397,51 @@ const AstFilterControlsInner: React.FC<AstFilterControlsProps> = ({
             />
           </div>
         </div>
+
+        {/* Layer Content Blur & Backdrop Blur */}
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5">
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+              <span title="Applies Gaussian blur to this layer's content (0-50px)">Layer Blur</span>
+              <span className="text-amber-400 font-mono">{Number.isInteger(blur) ? `${blur}px` : `${blur.toFixed(1)}px`}</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="50"
+              step="1"
+              value={blur}
+              onChange={e => updateFilters({ blur: parseFloat(e.target.value) })}
+              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
+              <span title="Blurs content beneath this layer's bounding box (frosted glass, 0-30px)">Backdrop Blur</span>
+              <span className="text-amber-400 font-mono">{Number.isInteger(backdropBlur) ? `${backdropBlur}px` : `${backdropBlur.toFixed(1)}px`}</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="30"
+              step="1"
+              value={backdropBlur}
+              onChange={e => updateFilters({ backdropBlur: parseFloat(e.target.value) })}
+              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
+            />
+          </div>
+        </div>
+
+        {(blur > 0 || backdropBlur > 0) && (
+          <p className="text-[9px] text-stone-500 leading-relaxed">
+            {blur > 0 && backdropBlur > 0
+              ? 'Layer blur softens layer pixels; Backdrop blur frosts media underneath.'
+              : blur > 0
+              ? 'Softens this layer’s pixels (ideal for background B-roll or dreamy visuals).'
+              : 'Frosted glass effect: blurs background layers underneath this layer.'}
+          </p>
+        )}
 
         {/* Mix Blend Mode */}
         <div className="space-y-1 pt-2 border-t border-white/5">

@@ -30,8 +30,8 @@ when_to_use: "Always loaded during bulk scene visual generation, storyboarding, 
 3. **`Shape`**: `shape_type` (`"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`), `icon_name` (1,500+ Lucide icons in kebab-case, e.g. `"trending-up"`, `"shield-alert"`, `"zap"`), `fill`, `stroke`, `stroke_width`, `corner_radius`, `direction`, `preset_path` (`"route_arch"` | `"horizontal_line"` | `"pointer_curve"` | `"corner_brackets"` | `"wave_pulse"` | `"circle_reticle"`), `path_d` (1920×1080 canvas), `draw_animation` (animates stroke drawing), `glow` (neon bloom).
 4. **`Chart`**: `chart_type` (`"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`), `data: [{"label", "value", "color"}]`, `title`, `title_size`, `bar_radius`, `bar_gap`, `bar_max_width`, `bar_glow`, `style.color`.
 5. **`Background`**: Procedural shaders (zero asset downloads): `background_preset` (`"gradient_mesh"` | `"grid_flow"` | `"waves"` | `"dots"` | `"blueprint"` | `"vignette_loop"` | `"paper_grain"`), `colors: [base, accent1, accent2]`, `speed` (0.2–3.0). Always fullscreen, bottom layer.
-6. **`Image`**: `query` (1–3 English keywords) + `source` (`"pexels"` | `"pixabay"` | `"wikipedia"`). Use Pixabay `image_type: "illustration"`/`"vector"` for transparent cutouts/stickers. `objectFit`: `"cover"` | `"contain"` | `"fill"`.
-7. **`Video`**: `query` (1–3 English keywords) + `source` (`"pexels"` for generic stock B-roll | `"pixabay"` | `"youtube"` for real-world events, tech/product demos, science simulations, archival footage). `volume` (0.0–1.0), `loop: false` (freezes last frame) | `true`, `yt_start_offset` (default 15s), `yt_duration` (max 30s), `objectFit`.
+6. **`Image`**: `query` (1–3 English keywords) + `source` (`"pexels"` | `"pixabay"` | `"wikipedia"` | `"archive"`). Use Pixabay `image_type: "illustration"`/`"vector"` for transparent cutouts/stickers; `"archive"` for historical/space photos. `objectFit`: `"cover"` | `"contain"` | `"fill"`.
+7. **`Video`**: `query` (1–3 English keywords) + `source` (`"pexels"` for generic stock B-roll | `"pixabay"` | `"youtube"` for real-world events, tech/product demos, science simulations | `"archive"` for historical newsreels, archival footage, classic documentaries). `volume` (0.0–1.0), `loop: false` (freezes last frame) | `true`, `yt_start_offset` (default 15s), `yt_duration` (max 30s), `objectFit`.
 8. **`Lottie`**: `lottie_url` or `animation_data`, `loop`, `playback_rate`, `direction: "forward" | "backward"`.
 9. **`Particles`**: `particle_preset` (`"confetti"` | `"embers"` | `"dust"` | `"money_rain"` | `"snow"` | `"stars"`), `particle_count` (10–300), `particle_colors`, `particle_speed`, `particle_direction`, `particle_opacity`.
 10. **`Map`**: `map_style` (`"modern_dark"` | `"vintage"` | `"minimal_light"` | `"nautical_blue"`), `locations: [{"name", "coord": [lat, lon]}]`.
@@ -45,16 +45,17 @@ when_to_use: "Always loaded during bulk scene visual generation, storyboarding, 
    - LayerBox SOT v1: `%` strings ONLY (`left`, `top`, `width`, `height`, or `bottom`). Never write raw `px`.
    - Centering formula: `left: "30%"` for `width: "40%"` (`50 - width/2`).
    - `borderRadius`: `"0px"`, `"16px"`, `"24px"`, `"32px"`, `"50%"` (circle with `aspectRatio: "1 / 1"`).
-   - Static transform: `rotate` (deg tilt), `scale` (10–500%), `scaleX: -1` (flip H mirror), `scaleY: -1` (flip V).
+   - Static transform: `rotate` (deg tilt), `scale` (10–500%), `scaleX: -1` (flip H mirror), `scaleY: -1` (flip V), static 3D `rotateX`, `rotateY`, `translateZ`.
 2. **Keyframe Animations (`animations`)**:
-   - Spatial props (drive shutter blur): `translateY`, `translateX`, `scale`, `rotate`, `rotateX`, `rotateY`.
+   - Spatial props (drive shutter blur): `translateY`, `translateX`, `translateZ`, `scale`, `rotate`, `rotateX`, `rotateY`.
    - Non-spatial props (optical fades): `opacity` (0->1), `blur` (px rack focus, e.g. 10->0), `brightness` (multiplier flash).
-   - Parameters: `from`, `to`, `duration`, `delay` (seconds from cut start), `easing` (`"spring"` | `"ease-out"` | `"ease-in-out"` | `"linear"`).
+   - Parameters: `from`, `to`, `duration`, `delay` (seconds from cut start), `easing` (`"spring"` | `"ease-out"` | `"ease-in-out"` | `"linear"` | `"bounce"` | `"elastic"` | `"back"` | `"steps"` | `"bezier"`), optional spring physics (`damping`, `stiffness`, `mass`, `overshoot_clamping`), and `loop_mode` (`"loop"` | `"pingpong"`).
    - Word Sync & Opacity: When word timestamps exist, sync `delay` to the spoken word time. Always pair `delay > 0` with `opacity: 0 -> 1`.
-3. **Physics & Camera Dynamics (`motion`)**:
+3. **Physics, Camera & 3D Perspective (`motion`)**:
    - `floating: true`: Organic harmonic floating drift (sinusoidal hovering bob). Counts as spatial motion.
    - `motion_blur: true` + `shutter_angle`: Camera shutter blur (45–360, default 180).
    - `camera_shake: "handheld" | "shockwave" | "glitch" | "none"`.
+   - `perspective: 1000` (FOV camera distance 300-3000px), `perspective_origin: "center center" | "50% 0%"`.
    - `transform_origin`: Pivot point for scale/rotate (`"center center"`, `"top left"`, etc.).
 4. **Looks, Filters & Blend Modes (`filters`)**:
    - CSS Looks: `Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur`, `Cinematic Dark Base`.
@@ -62,6 +63,9 @@ when_to_use: "Always loaded during bulk scene visual generation, storyboarding, 
    - Blend Modes: `filters: ["mix-blend-mode: overlay"]` (or `screen`, `multiply`, `color-dodge`, etc.).
 5. **Layer Exit & Stagger (`exit`)**:
    - Layer-level `exit: true` or `exit: <seconds>`, or animation track `exit: true`. Unmounts the layer cleanly so subsequent elements can enter the same screen space without visual collision.
+6. **Shape Masking & Ergonomics (`mask`)**:
+   - `mask`: Vector shapes (`"circle"`, `"ellipse"`, `"inset"`, `"polygon"` with hexagon/diamond/triangle/star/slant presets or custom points) and animated transitions (`"circle_iris"`, `"wipe_right"`, `"wipe_down"`, `"split_vertical"`, `"wipe_diagonal"` — a reveal animates INTO the static shape when both are set).
+   - Timeline ergonomics: `name` (label), `visible: false` (hide), `locked: true` (lock canvas).
 
 ---
 

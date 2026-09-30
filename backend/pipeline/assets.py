@@ -953,6 +953,201 @@ def search_wikipedia_image(query):
         return None
 
 
+ARCHIVE_ORG_USER_AGENT = "RemotionCanvas/1.0 (https://github.com/remotion-canvas)"
+
+
+def _clean_archive_query(query: str) -> str:
+    """Sanitize query string for Internet Archive Lucene search syntax."""
+    if not query:
+        return ""
+    import re
+    cleaned = re.sub(r'[\+\-\&\|\!\(\)\{\}\[\]\^\"\~\*\?\:\\\/]', ' ', str(query))
+    words = [w.strip() for w in cleaned.split() if len(w.strip()) > 1]
+    return " ".join(words)
+
+
+def search_archive_photo(query: str, video_format=None) -> str | None:
+    """Searches Internet Archive (archive.org) for a public domain or historical image.
+
+    Returns direct download URL (JPG/PNG) or None if no match found.
+    Zero API keys required.
+    """
+    cleaned_query = _clean_archive_query(query)
+    if not cleaned_query:
+        return None
+
+    import urllib.parse
+    headers = {"User-Agent": ARCHIVE_ORG_USER_AGENT}
+
+    # Query variations: first try full grouped query, then first 2-3 keywords if multi-word
+    query_variants = [f"({cleaned_query}) AND mediatype:(image)"]
+    words = cleaned_query.split()
+    if len(words) > 2:
+        query_variants.append(f"({' '.join(words[:2])}) AND mediatype:(image)")
+
+    try:
+        docs = []
+        for q_str in query_variants:
+            search_params = {
+                "q": q_str,
+                "fl[]": ["identifier", "title", "mediatype", "downloads"],
+                "rows": "8",
+                "page": "1",
+                "output": "json"
+            }
+            search_url = "https://archive.org/advancedsearch.php?" + urllib.parse.urlencode(search_params, doseq=True)
+            res = requests.get(search_url, headers=headers, timeout=12)
+            if res.status_code == 200:
+                docs = res.json().get("response", {}).get("docs", [])
+                if docs:
+                    break
+
+        if not docs:
+            logger.info(f"Archive.org photo search returned no items for '{query}'")
+            return None
+
+        # Inspect up to top 5 items for high-res photo assets
+        for doc in docs[:5]:
+            ident = doc.get("identifier")
+            if not ident:
+                continue
+            meta_url = f"https://archive.org/metadata/{ident}/files"
+            try:
+                meta_res = requests.get(meta_url, headers=headers, timeout=10)
+                if meta_res.status_code != 200:
+                    continue
+                files = meta_res.json().get("result", [])
+                valid_images = [
+                    f for f in files
+                    if isinstance(f, dict)
+                    and f.get("name", "").lower().endswith((".jpg", ".jpeg", ".png"))
+                    and not f.get("name", "").lower().endswith(("_thumb.jpg", "_thumb.png", "__ia_thumb.jpg", "_icon.png", "_itemimage.jpg", "_itemimage.png"))
+                ]
+                if valid_images:
+                    # Filter out excessively giant raw scans (> 30MB)
+                    reasonable_imgs = [f for f in valid_images if int(f.get("size") or 0) <= 30 * 1024 * 1024]
+                    candidates = reasonable_imgs if reasonable_imgs else valid_images
+                    candidates.sort(key=lambda x: int(x.get("size") or 0), reverse=True)
+                    best_name = candidates[0]["name"]
+                    download_url = f"https://archive.org/download/{ident}/{urllib.parse.quote(best_name)}"
+                    logger.info(f"Archive.org: found image for '{query}' in item '{ident}': {download_url}")
+                    return download_url
+            except Exception as meta_err:
+                logger.debug(f"Archive.org metadata lookup failed for '{ident}': {meta_err}")
+                continue
+
+    except Exception as e:
+        logger.warning(f"Archive.org photo search failed for '{query}': {e}")
+
+    return None
+
+
+def search_archive_video(query: str, video_format=None) -> str | None:
+    """Searches Internet Archive (archive.org) for public domain or archival video footage.
+
+    Returns direct download URL (MP4) or None if no match found.
+    Zero API keys required.
+    """
+    cleaned_query = _clean_archive_query(query)
+    if not cleaned_query:
+        return None
+
+    import urllib.parse
+    headers = {"User-Agent": ARCHIVE_ORG_USER_AGENT}
+
+    # Query variations: first try grouped relevance query, then first 2 words if multi-word
+    query_variants = [f"({cleaned_query}) AND mediatype:(movies)"]
+    words = cleaned_query.split()
+    if len(words) > 2:
+        query_variants.append(f"({' '.join(words[:2])}) AND mediatype:(movies)")
+
+    try:
+        docs = []
+        for q_str in query_variants:
+            search_params = {
+                "q": q_str,
+                "fl[]": ["identifier", "title", "mediatype", "downloads"],
+                "rows": "8",
+                "page": "1",
+                "output": "json"
+            }
+            search_url = "https://archive.org/advancedsearch.php?" + urllib.parse.urlencode(search_params, doseq=True)
+            res = requests.get(search_url, headers=headers, timeout=12)
+            if res.status_code == 200:
+                docs = res.json().get("response", {}).get("docs", [])
+                if docs:
+                    break
+
+        if not docs:
+            logger.info(f"Archive.org video search returned no items for '{query}'")
+            return None
+
+        # Inspect up to top 5 items for playable web MP4 video files
+        for doc in docs[:5]:
+            ident = doc.get("identifier")
+            if not ident:
+                continue
+            meta_url = f"https://archive.org/metadata/{ident}/files"
+            try:
+                meta_res = requests.get(meta_url, headers=headers, timeout=10)
+                if meta_res.status_code != 200:
+                    continue
+                files = meta_res.json().get("result", [])
+                mp4_files = [
+                    f for f in files
+                    if isinstance(f, dict)
+                    and f.get("name", "").lower().endswith(".mp4")
+                    and not f.get("name", "").lower().endswith("_thumb.mp4")
+                ]
+                if mp4_files:
+                    # Priority 1: H.264 MP4 under 150MB (smooth chromium playback, reasonable download size)
+                    max_bytes = 150 * 1024 * 1024
+                    h264_candidates = [
+                        f for f in mp4_files
+                        if "h.264" in str(f.get("format", "")).lower()
+                        and 100_000 <= int(f.get("size") or 0) <= max_bytes
+                    ]
+                    # Priority 2: Non-512kb MP4 under 150MB
+                    non_512k_candidates = [
+                        f for f in mp4_files
+                        if "_512kb" not in f.get("name", "").lower()
+                        and 100_000 <= int(f.get("size") or 0) <= max_bytes
+                    ]
+                    # Priority 3: Any MP4 under 200MB
+                    playable_mp4s = [
+                        f for f in mp4_files
+                        if int(f.get("size") or 0) <= 200 * 1024 * 1024
+                    ]
+
+                    chosen = None
+                    if h264_candidates:
+                        # Sort by height or size descending for highest resolution
+                        h264_candidates.sort(key=lambda x: int(x.get("height") or x.get("size") or 0), reverse=True)
+                        chosen = h264_candidates[0]
+                    elif non_512k_candidates:
+                        non_512k_candidates.sort(key=lambda x: int(x.get("size") or 0), reverse=True)
+                        chosen = non_512k_candidates[0]
+                    elif playable_mp4s:
+                        chosen = playable_mp4s[0]
+                    else:
+                        # Fallback to the smallest MP4 available
+                        mp4_files.sort(key=lambda x: int(x.get("size") or 0))
+                        chosen = mp4_files[0]
+
+                    best_name = chosen["name"]
+                    download_url = f"https://archive.org/download/{ident}/{urllib.parse.quote(best_name)}"
+                    logger.info(f"Archive.org: found video for '{query}' in item '{ident}': {download_url}")
+                    return download_url
+            except Exception as meta_err:
+                logger.debug(f"Archive.org metadata lookup failed for '{ident}': {meta_err}")
+                continue
+
+    except Exception as e:
+        logger.warning(f"Archive.org video search failed for '{query}': {e}")
+
+    return None
+
+
 def download_youtube_video(query, dest_path, start_offset=15, duration=15, cancel_event=None):
     """
     Downloads a short clip from YouTube matching the query using yt-dlp.
@@ -1443,6 +1638,18 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
                 logger.warning(f"YouTube download failed for '{query}', falling back to Pexels video.")
                 asset_url = search_pexels_video(query, api_key, video_format) if api_key else None
 
+    elif source == "archive":
+        if content_type == "Video":
+            asset_url = search_archive_video(query, video_format)
+            if not asset_url and api_key:
+                logger.info(f"Archive.org video search returned no match for '{query}', falling back to Pexels.")
+                asset_url = search_pexels_video(query, api_key, video_format)
+        else:
+            asset_url = search_archive_photo(query, video_format)
+            if not asset_url and api_key:
+                logger.info(f"Archive.org photo search returned no match for '{query}', falling back to Pexels.")
+                asset_url = search_pexels_photo(query, api_key, video_format)
+
     else:
         # Default to pexels
         if content_type == "Video" and api_key:
@@ -1457,7 +1664,7 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
         # The primary source (and its in-branch fallback) returned nothing.
         # Try the other stock provider to maximise the chance of getting
         # *some* visual rather than leaving the layer empty.
-        tried_pexels = source in ("pexels", "wikipedia", "youtube")
+        tried_pexels = source in ("pexels", "wikipedia", "youtube", "archive")
         tried_pixabay = source == "pixabay"
         if not tried_pixabay and pixabay_api_key:
             logger.info(f"Layer [{seg_idx}:{sub_idx}:{layer_idx}] primary source '{source}' returned nothing — trying Pixabay last-resort.")
@@ -1816,11 +2023,11 @@ def fetch_single_scene_asset(project_id, manifest_scene_index, sub_visual_index)
     return {"success": True, "segment": segment, "sub_visual": sub_visual}
 
 
-def preview_asset_download(project_id, query, visual_type="image"):
+def preview_asset_download(project_id, query, visual_type="image", source="pexels", image_type="all"):
     """
     Downloads a single asset for preview without modifying manifest or script.
     Saves to assets/previews/ directory with a unique temp name.
-    Called from the frontend visual editor so users can preview a keyword/type
+    Called from the frontend visual editor so users can preview a keyword/type/source
     before committing (Save) or discarding (Cancel).
 
     Returns:
@@ -1833,9 +2040,14 @@ def preview_asset_download(project_id, query, visual_type="image"):
     if not query:
         return {"success": False, "error": "Query is required"}
 
+    source = (source or "pexels").strip().lower()
     api_key = get_setting("pexels_api_key")
-    if not api_key:
+    pixabay_api_key = get_setting("pixabay_api_key")
+
+    if source == "pexels" and not api_key:
         return {"success": False, "error": "Pexels API key not configured"}
+    if source == "pixabay" and not pixabay_api_key and not api_key:
+        return {"success": False, "error": "Pixabay API key not configured in settings"}
 
     from backend.core.config import get_storage_dir
     import uuid
@@ -1845,7 +2057,6 @@ def preview_asset_download(project_id, query, visual_type="image"):
     preview_dir.mkdir(parents=True, exist_ok=True)
 
     content_type = "Video" if (visual_type or "").lower() == "video" else "Image"
-    source = "pexels"
 
     # Mock AST Layer for preview fetching
     layer = {
@@ -1853,12 +2064,13 @@ def preview_asset_download(project_id, query, visual_type="image"):
         "content": {
             "type": content_type,
             "query": query,
-            "source": source
+            "source": source,
+            "image_type": image_type or "all",
         }
     }
 
     _fetch_ast_layer_asset(
-        layer, preview_dir, 0, 0, 99, api_key, get_setting("pixabay_api_key"),
+        layer, preview_dir, 0, 0, 99, api_key, pixabay_api_key,
         cancel_event=None, video_format=project.get("video_format", "landscape")
     )
 
@@ -1871,13 +2083,18 @@ def preview_asset_download(project_id, query, visual_type="image"):
         try:
             Path(local_path).rename(dest_path)
             local_path = str(dest_path)
-        except:
-            pass
+        except Exception:
+            try:
+                import shutil
+                shutil.move(str(local_path), str(dest_path))
+                local_path = str(dest_path)
+            except Exception:
+                pass
 
         logger.info(f"Preview asset downloaded to {local_path}")
         return {"success": True, "visual_path": local_path}
     else:
-        return {"success": False, "error": "Failed to download asset"}
+        return {"success": False, "error": f"Failed to download asset from {source} for query '{query}'"}
 
 
 def materialize_rewrite_previews(project_id, sub_visuals, video_format=None, cancel_event=None):

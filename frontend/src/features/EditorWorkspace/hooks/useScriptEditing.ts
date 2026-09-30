@@ -1703,7 +1703,17 @@ export function useScriptEditing(
     }
   }, [projectId, selectedProject, addToast, manifestData, previewAssets]);
   
-  const handlePreviewSubVisual = useCallback(async (sceneIdx: number, sectionType: string, subIdx: number, query: string, _latestData?: any, layerIdx?: number, visualType?: string) => {
+  const handlePreviewSubVisual = useCallback(async (
+    sceneIdx: number,
+    sectionType: string,
+    subIdx: number,
+    query: string,
+    _latestData?: any,
+    layerIdx?: number,
+    visualType?: string,
+    source?: string,
+    imageType?: string
+  ) => {
     if (!projectId) return undefined;
     // Same project-identity rule as uploads: the download await can span a
     // switch, and the old project's preview must not land in the new one.
@@ -1720,7 +1730,7 @@ export function useScriptEditing(
 
     try {
       const result = await callApi<{ success: boolean; visual_path?: string; error?: string }>(
-        'preview_asset_download', projectId, query, visualType || 'image'
+        'preview_asset_download', projectId, query, visualType || 'image', source || 'pexels', imageType || 'all'
       );
       if (isPreviewStale()) return undefined;
       if (result?.success && result.visual_path) {

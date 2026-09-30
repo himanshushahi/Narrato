@@ -37,7 +37,7 @@ Every skill file (`SKILL.md`) adheres to the following structural standard:
 | **11** | [`motion-graphics-designer`](motion-graphics-designer/SKILL.md) | Visuals (Motion) | Animation system, text modes, compositing facts | — |
 | **12** | [`sub-visual-rewriter`](sub-visual-rewriter/SKILL.md) | Visuals Bridge | Targeted single sub-visual AST modification | `{design_system_text}`, `{visual_rules}` |
 | **13** | [`visual-rewriter`](visual-rewriter/SKILL.md) | Visuals Bridge | Multi-cut scene visual regeneration | `{design_system_text}`, `{visual_rules}` |
-| **14** | [`stock-asset-searcher`](stock-asset-searcher/SKILL.md) | Media Sourcing | Pexels, Pixabay, Wikipedia, YouTube sourcing | — |
+| **14** | [`stock-asset-searcher`](stock-asset-searcher/SKILL.md) | Media Sourcing | Pexels, Pixabay, Wikipedia, YouTube, Internet Archive sourcing | — |
 | **15** | [`search-query-optimizer`](search-query-optimizer/SKILL.md) | Research | High-signal web search query formulation | — |
 | **16** | [`subtitle-designer`](subtitle-designer/SKILL.md) | Subtitles | Contrast outlines, positioning, safe areas | — |
 | **17** | [`editor-qa`](editor-qa/SKILL.md) | Verification | Pre-submission QA guardrails & math checks | — |
