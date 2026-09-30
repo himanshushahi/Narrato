@@ -30,7 +30,8 @@ export const DEFAULT_QUALITY: QualityPolicy = { motionBlur: 'balanced', glassCap
 export const MOTION_BLUR_SETTLE_GRACE_FRAMES = 6;
 
 const FULL_SAMPLES = 5;
-const BALANCED_PREVIEW_SAMPLES = 2;
+const BALANCED_PREVIEW_SAMPLES = 0; // Skip multi-pass wrapper during interactive preview for smooth 30-60fps
+const FULL_PREVIEW_SAMPLES = 2;
 const BALANCED_EXPORT_SAMPLES = 3;
 
 /**
@@ -55,8 +56,10 @@ export function parseQuality(input: unknown): QualityPolicy {
 export function getMotionBlurSamples(mode: QualityMode, quality?: QualityPolicy): number {
   const policy = quality ?? DEFAULT_QUALITY;
   if (policy.motionBlur === 'off') return 0;
-  if (policy.motionBlur === 'full') return FULL_SAMPLES;
-  return mode === 'preview' ? BALANCED_PREVIEW_SAMPLES : BALANCED_EXPORT_SAMPLES;
+  if (mode === 'preview') {
+    return policy.motionBlur === 'full' ? FULL_PREVIEW_SAMPLES : BALANCED_PREVIEW_SAMPLES;
+  }
+  return policy.motionBlur === 'full' ? FULL_SAMPLES : BALANCED_EXPORT_SAMPLES;
 }
 
 /** Whether settled/static frames may bypass the blur wrapper (balanced only). */
@@ -64,10 +67,10 @@ export function shouldBypassSettledBlur(quality?: QualityPolicy): boolean {
   return (quality ?? DEFAULT_QUALITY).motionBlur === 'balanced';
 }
 
-/** Max backdrop-blur radius kept under the given policy (preview caps tighter). */
+/** Max backdrop-blur radius kept under the given policy (preview caps tighter to prevent GPU fill-rate drop). */
 export function getGlassBlurCap(mode: QualityMode, quality?: QualityPolicy): number {
   const policy = quality ?? DEFAULT_QUALITY;
-  const previewCap = Math.min(policy.glassCap, 12);
+  const previewCap = Math.min(policy.glassCap, 4);
   return mode === 'preview' ? previewCap : policy.glassCap;
 }
 

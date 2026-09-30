@@ -204,6 +204,12 @@ export function hasMask(mask: ASTLayerMask | undefined | null): boolean {
   return !!(mask.reveal && mask.reveal !== 'none');
 }
 
+/** True ONLY when a mask requires frame-dependent reveal animation. */
+export function hasAnimatedReveal(mask: ASTLayerMask | undefined | null): boolean {
+  if (!mask) return false;
+  return !!(mask.reveal && mask.reveal !== 'none');
+}
+
 export function computeClipPath(
   mask: ASTLayerMask | undefined,
   frame: number,
@@ -234,8 +240,12 @@ export function computeRevealClip(
 
   let t = 0;
   if (localFrame <= 0) {
+    if (mask.inverted) return undefined;
     t = 0;
   } else if (localFrame >= durationFrames) {
+    // Reveal has converged to 100% visibility — drop clip-path so the GPU
+    // skips clipping shaders and React skips per-frame element cloning.
+    if (!mask.inverted) return undefined;
     t = 1;
   } else {
     const rawT = localFrame / durationFrames;

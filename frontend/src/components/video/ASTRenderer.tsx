@@ -1,6 +1,6 @@
 import React from 'react';
 import { AbsoluteFill, Img, Video } from 'remotion';
-import { ASTAnimator, ASTAnimation, ASTLayerMask, hasMask } from './ASTAnimator';
+import { ASTAnimator, ASTAnimation, ASTLayerMask, hasAnimatedReveal, computeStaticShapeClip } from './ASTAnimator';
 import { DataVisualizations } from './DataVisualizations';
 import { ChartRenderer, ChartDataItem } from './ChartRenderer';
 import { ShapeRenderer, ShapeProps, PresetPathType } from './ShapeRenderer';
@@ -536,14 +536,30 @@ const ASTLayerView: React.FC<{
         const effectivePerspective = layer.perspective ?? (layoutStyle as any).perspective;
         const effectivePerspectiveOrigin = layer.perspective_origin ?? (layoutStyle as any).perspective_origin ?? (layoutStyle as any).perspectiveOrigin;
 
-        // ASTAnimator mount gate, hoisted: the static container below needs to
-        // know whether the animated wrapper will mount (single shared camera).
-        // Keep in sync with the renderedLayer condition below.
-        const animatorMounted = ((animations && animations.length > 0) || (layer as any).motion_blur
-          || ((layer as any).camera_shake && (layer as any).camera_shake !== 'none')
-          || !!(layer as any).transform_origin || !!(layer as any).floating
-          || (layer.exit !== undefined && layer.exit !== false) || hasMask(layer.mask)
-          || !!effectivePerspective || (animations?.some(a => a && a.property === 'translateZ')));
+        const staticShapeClip = React.useMemo(() => computeStaticShapeClip(layer.mask), [layer.mask]);
+
+        // ASTAnimator mount gate: only mount the animated wrapper when the layer
+        // actually requires per-frame interpolation (active keyframes, motion blur,
+        // camera shake, floating, exit cutoff, or dynamic reveal clip).
+        // Static shape masks, static perspective, and static transform_origin are
+        // applied directly via CSS on the container div below, bypassing useCurrentFrame() entirely.
+        const hasActiveAnimations = Boolean(animations && animations.length > 0);
+        const hasActiveMotionBlur = Boolean((layer as any).motion_blur);
+        const hasActiveCameraShake = Boolean((layer as any).camera_shake && (layer as any).camera_shake !== 'none');
+        const hasActiveFloating = Boolean((layer as any).floating);
+        const hasActiveExit = layer.exit !== undefined && layer.exit !== false;
+        const hasActiveReveal = hasAnimatedReveal(layer.mask);
+
+        const animatorMounted = hasActiveAnimations
+          || hasActiveMotionBlur
+          || hasActiveCameraShake
+          || hasActiveFloating
+          || hasActiveExit
+          || hasActiveReveal;
+
+        // If the animated wrapper is NOT mounted, apply static shape clip directly on the container div
+        const containerStaticClip = !animatorMounted ? staticShapeClip : undefined;
+
         const hasPerspectiveValue = effectivePerspective !== undefined && effectivePerspective !== null
           && (effectivePerspective as any) !== '' && (effectivePerspective as any) !== 0;
         // When the wrapper mounts with a perspective set, it provides the
@@ -559,25 +575,28 @@ const ASTLayerView: React.FC<{
           () => parseStaticTransform(layoutStyle as Record<string, any>, effectivePerspective, !sharedCamera),
           [layoutStyle, effectivePerspective, sharedCamera]
         );
-        // Strip raw rotate/scale/scaleX/scaleY/borderRadius and 3D transforms so they never leak
-        // as CSS individual properties alongside the composed transform below.
-        const {
-          rotate: _rot,
-          scale: _scl,
-          scaleX: _sx,
-          scaleY: _sy,
-          rotateX: _rx,
-          rotateY: _ry,
-          translateZ: _tz,
-          perspective: _pers,
-          perspectiveOrigin: _po,
-          perspective_origin: _po2,
-          borderRadius: _br,
-          backdropFilter: _bf,
-          WebkitBackdropFilter: _wbf,
-          blur: _blur,
-          ...layoutRest
-        } = layoutStyle as Record<string, any>;
+        // Memoize layoutRest so its object reference is stable across renders
+        // unless layoutStyle actually changed (preventing containerBaseStyle memo invalidation).
+        const layoutRest = React.useMemo(() => {
+          const {
+            rotate: _rot,
+            scale: _scl,
+            scaleX: _sx,
+            scaleY: _sy,
+            rotateX: _rx,
+            rotateY: _ry,
+            translateZ: _tz,
+            perspective: _pers,
+            perspectiveOrigin: _po,
+            perspective_origin: _po2,
+            borderRadius: _br,
+            backdropFilter: _bf,
+            WebkitBackdropFilter: _wbf,
+            blur: _blur,
+            ...rest
+          } = (layoutStyle || {}) as Record<string, any>;
+          return rest;
+        }, [layoutStyle]);
 
         const hasRadius = !!effectiveRadius;
         // LayerBox SOT v1: Shape box = stage, glyph = content. Small accent
@@ -858,6 +877,7 @@ const ASTLayerView: React.FC<{
             // perspective-only layers a projection context for 3D descendants.
             ...(perspectiveProp ? { perspective: perspectiveProp } : null),
             ...(effectivePerspectiveOrigin ? { perspectiveOrigin: effectivePerspectiveOrigin } : null),
+            ...(containerStaticClip ? { clipPath: containerStaticClip, WebkitClipPath: containerStaticClip } : null),
             ...blendStyle,
           }}>
             {node}

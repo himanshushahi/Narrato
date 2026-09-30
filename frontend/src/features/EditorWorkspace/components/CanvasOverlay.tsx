@@ -1249,21 +1249,31 @@ export const CanvasOverlay: React.FC<{
   const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
   const setSelectedLayerIndex = useEditorStore((s) => s.setSelectedLayerIndex);
   const isPlaying = useEditorStore((s) => s.isPlaying);
-  // Fix 12: throttled subscription — previously the whole overlay
-  // re-rendered at 20Hz during playback. While playing, ticks are quantized
-  // to ~10fps (tree is hidden via isPlaying anyway); while paused every
-  // scrub frame still notifies so boxes track the playhead.
+  // Optimization: while playing, the canvas overlay is hidden (returns null on line 1926).
+  // Bailing out via equality function avoids waking up CanvasOverlay during playback.
+  // When paused or scrubbing, it updates to s.currentFrame so handles follow the playhead.
   const currentFrame = useStoreWithEqualityFn(
     usePlaybackStore,
     (s) => s.currentFrame,
-    (a, b) => {
-      // Same-frame bail; boundary diffing happens in activeSceneIdx memo.
-      // Coarse quantize to ~10fps while playing (overlay hidden anyway).
-      if (a === b) return true;
-      if (useEditorStore.getState().isPlaying) return Math.floor(a / 3) === Math.floor(b / 3);
-      return false;
-    }
+    (a, b) => (isPlaying ? true : a === b)
   );
+
+  // Active scene resolution
+  const activeSceneIdx = useMemo(() => {
+    return getActiveSceneIdx(scenes, currentFrame);
+  }, [scenes, currentFrame]);
+
+  // Boxes describe the cut under the playhead — scrubbing the timeline or
+  // preview bar swaps the overlay without moving the editor selection (the
+  // selection only adopts the previewed cut on click/cycle/drag). Falls back
+  // to the selected cut when timings are unavailable.
+  const playheadSubIdx =
+    selectedSceneIndex !== null &&
+    selectedSceneIndex !== undefined &&
+    selectedSceneIndex === activeSceneIdx
+      ? getPlayheadSubIdx(sceneTimings, selectedSceneIndex, currentFrame)
+      : -1;
+
   const isLocked = locked === true;
   const compW = compositionSize?.w ?? 1920;
   const compH = compositionSize?.h ?? 1080;
@@ -1297,68 +1307,80 @@ export const CanvasOverlay: React.FC<{
   // Measures the exact rendered bounding box of layers (especially kinetic text).
   const [domRects, setDomRects] = useState<Record<number, { left: number; top: number; width: number; height: number }>>({});
 
-  useEffect(() => {
+  const measure = useCallback(() => {
+    if (useEditorStore.getState().isPlaying) return;
     if (!rootRef.current) return;
     const root = rootRef.current;
     const parent = root.parentElement;
     if (!parent) return;
 
-    const measure = () => {
-      const rootRect = root.getBoundingClientRect();
-      if (rootRect.width <= 0 || rootRect.height <= 0) return;
+    const rootRect = root.getBoundingClientRect();
+    if (rootRect.width <= 0 || rootRect.height <= 0) return;
 
-      const newRects: Record<number, { left: number; top: number; width: number; height: number }> = {};
-      const layerEls = parent.querySelectorAll<HTMLElement>('[data-ast-layer-idx]');
-      layerEls.forEach((el) => {
-        const idxAttr = el.getAttribute('data-ast-layer-idx');
-        if (idxAttr === null) return;
-        const idx = parseInt(idxAttr, 10);
-        if (isNaN(idx)) return;
+    const newRects: Record<number, { left: number; top: number; width: number; height: number }> = {};
+    const layerEls = parent.querySelectorAll<HTMLElement>('[data-ast-layer-idx]');
+    layerEls.forEach((el) => {
+      const idxAttr = el.getAttribute('data-ast-layer-idx');
+      if (idxAttr === null) return;
+      const idx = parseInt(idxAttr, 10);
+      if (isNaN(idx)) return;
 
-        const isTextLayer = el.getAttribute('data-ast-layer-type') === 'Text';
-        const targetNode = isTextLayer ? (el.querySelector<HTMLElement>('[data-kinetic-text]') || el) : el;
-        const targetRect = targetNode.getBoundingClientRect();
+      const isTextLayer = el.getAttribute('data-ast-layer-type') === 'Text';
+      const targetNode = isTextLayer ? (el.querySelector<HTMLElement>('[data-kinetic-text]') || el) : el;
+      const targetRect = targetNode.getBoundingClientRect();
 
-        const left = ((targetRect.left - rootRect.left) / rootRect.width) * 100;
-        const top = ((targetRect.top - rootRect.top) / rootRect.height) * 100;
-        const width = (targetRect.width / rootRect.width) * 100;
-        const height = (targetRect.height / rootRect.height) * 100;
+      const left = ((targetRect.left - rootRect.left) / rootRect.width) * 100;
+      const top = ((targetRect.top - rootRect.top) / rootRect.height) * 100;
+      const width = (targetRect.width / rootRect.width) * 100;
+      const height = (targetRect.height / rootRect.height) * 100;
 
-        if (width > 0 && height > 0) {
-          newRects[idx] = {
-            left: Math.round(left * 100) / 100,
-            top: Math.round(top * 100) / 100,
-            width: Math.round(width * 100) / 100,
-            height: Math.round(height * 100) / 100,
-          };
+      if (width > 0 && height > 0) {
+        newRects[idx] = {
+          left: Math.round(left * 100) / 100,
+          top: Math.round(top * 100) / 100,
+          width: Math.round(width * 100) / 100,
+          height: Math.round(height * 100) / 100,
+        };
+      }
+    });
+
+    setDomRects((prev) => {
+      const prevKeys = Object.keys(prev);
+      const newKeys = Object.keys(newRects);
+      if (prevKeys.length !== newKeys.length) return newRects;
+      for (const k of newKeys) {
+        const p = prev[Number(k)];
+        const n = newRects[Number(k)];
+        if (
+          !p ||
+          Math.abs(p.left - n.left) > 0.5 ||
+          Math.abs(p.top - n.top) > 0.5 ||
+          Math.abs(p.width - n.width) > 0.5 ||
+          Math.abs(p.height - n.height) > 0.5
+        ) {
+          return newRects;
         }
-      });
+      }
+      return prev;
+    });
+  }, []);
 
-      setDomRects((prev) => {
-        const prevKeys = Object.keys(prev);
-        const newKeys = Object.keys(newRects);
-        if (prevKeys.length !== newKeys.length) return newRects;
-        for (const k of newKeys) {
-          const p = prev[Number(k)];
-          const n = newRects[Number(k)];
-          if (
-            !p ||
-            Math.abs(p.left - n.left) > 0.5 ||
-            Math.abs(p.top - n.top) > 0.5 ||
-            Math.abs(p.width - n.width) > 0.5 ||
-            Math.abs(p.height - n.height) > 0.5
-          ) {
-            return newRects;
-          }
-        }
-        return prev;
-      });
-    };
-
+  // Primary measure effect: executes when playback pauses, when cuts switch,
+  // or when scene selection / layer composition changes.
+  useEffect(() => {
+    if (!rootRef.current || isPlaying) return;
     measure();
     const t = setTimeout(measure, 60);
     return () => clearTimeout(t);
-  }, [scenes, selectedSceneIndex, selectedSubVisualIndex, currentFrame]);
+  }, [scenes, selectedSceneIndex, selectedSubVisualIndex, playheadSubIdx, isPlaying, measure]);
+
+  // Debounced measurement when scrubbing frames while paused: keeps scrubbing fluid
+  // at 60fps without synchronous layout reflow on each frame, while updating rects once settled.
+  useEffect(() => {
+    if (isPlaying) return;
+    const t = setTimeout(measure, 80);
+    return () => clearTimeout(t);
+  }, [currentFrame, isPlaying, measure]);
 
   // Prop mirrors: gesture callbacks and global listeners stay referentially
   // stable while always reading the latest values, so window listeners
@@ -1627,25 +1649,7 @@ export const CanvasOverlay: React.FC<{
     if (sel > kids.length) st.setSelectedLayerIndex(null);
   }, [scenes, selectedSceneIndex, selectedSubVisualIndex, selectedLayerIndex]);
 
-  // NOTE: All hooks must run unconditionally before any early return.
-  // Previously useMemo(activeSceneIdx) sat after `if (isPlaying) return null`,
-  // so toggling play / clicking preview changed the hook count and React threw
-  // "Rendered fewer hooks than expected" inside <CanvasOverlay>.
-  // Active scene resolution
-  const activeSceneIdx = useMemo(() => {
-    return getActiveSceneIdx(scenes, currentFrame);
-  }, [scenes, currentFrame]);
-
-  // Boxes describe the cut under the playhead — scrubbing the timeline or
-  // preview bar swaps the overlay without moving the editor selection (the
-  // selection only adopts the previewed cut on click/cycle/drag). Falls back
-  // to the selected cut when timings are unavailable.
-  const playheadSubIdx =
-    selectedSceneIndex !== null &&
-    selectedSceneIndex !== undefined &&
-    selectedSceneIndex === activeSceneIdx
-      ? getPlayheadSubIdx(sceneTimings, selectedSceneIndex, currentFrame)
-      : -1;
+  // NOTE: activeSceneIdx and playheadSubIdx are hoisted above to drive DOM measurement
 
   // Committed box geometry for the displayed cut, memoized so playhead ticks
   // and drag previews (which don't touch committed data) reuse the previous
