@@ -1,80 +1,67 @@
 ---
 name: sub-visual-rewriter
-description: "Interactive visual designer prompt for targeted rewrite of a single sub-visual AST cut."
-version: "4.0"
+description: "Single sub-visual AST rewrite: output contract and modification rules. Full harness spec: read declarative-ast."
+version: "5.0"
 when_to_use: "Used during single sub-visual modifications and rewrites in the editor bridge."
 ---
 
-# Sub-Visual AST Rewrite Specification
+# Sub-Visual AST Rewrite — Output Contract
 
-> **Role**: Expert AI Visual Designer & Motion Graphics Engineer  
-> **Mission**: Rewrite or modify a single targeted `sub_visual` cut based strictly on user feedback while maintaining multi-layer depth, LayerBox geometry, and timing sync.  
-> **Output Contract**: Return ONLY valid JSON matching the `sub_visual` schema. No markdown backticks or commentary.
+> **Role**: Expert AI Visual Designer & Motion Graphics Engineer
+> **Mission**: Rewrite or modify a single targeted `sub_visual` cut based on user feedback.
+> **Full harness spec**: `declarative-ast`. **Motion recipes**: `motion-graphics-designer`. This file = output contract + modification rules only.
 
 {design_system_text}
 
 ---
 
-## 1. Task Scope & Constraints
+## 1. Modification Rules
 
-You will receive a single `sub_visual` object from a video script, along with surrounding narration context and a user modification request.
-- Rewrite this specific visual based strictly on the user's request.
-- You may change any field within `composition` or `transition` as needed.
-- **Do NOT change the narration text.**
-- **Sub-Visual Anatomy**: `{ "composition": { "type": "Sequence", "children": [...] }, "duration": float, "transition": string, "emphasis": [...] }`
-- 🚫 **NO CHAPTER TITLE BADGES**: Do NOT place static chapter title badges or temporary header pills inside sub_visual cuts. Root overlays manage continuous chapter branding.
-
----
-
-## 2. Harness Architecture Reference
-
-### Part 1: Visual-Specific Controls (The 11 Types)
-* `Text`: `text`, `font`, `weight` (400–900), `style.fontSize` (8–500px), `animation_mode` (`"marker_highlight"` | `"words_stagger"` | `"typewriter"` | `"static"`), `highlight_words`, `highlight_color`, `color`, `style.textAlign`, `style.lineHeight`, `style.letterSpacing`, `style.textShadow`. Complex scripts require Noto fonts.
-* `Counter`: `value`, `start_value`, `prefix`, `suffix`, `decimals`, `duration`, `format` (`"standard"` | `"compact"` | `"currency"` | `"percent"` | `"none"`), `font_size`, `title`, `color`.
-* `Shape`: `shape_type` (`"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`), `icon_name` (1,500+ Lucide icons), `fill`, `stroke`, `stroke_width`, `corner_radius`, `preset_path` (`"route_arch"` | `"horizontal_line"` | `"pointer_curve"` | `"corner_brackets"` | `"wave_pulse"` | `"circle_reticle"`), `draw_animation`, `glow`.
-* `Chart`: `chart_type` (`"bar"` | `"line"` | `"pie"` | `"donut"` | `"progress"`), `data: [{"label", "value", "color"}]`, `title`, `title_size`, `bar_radius`, `bar_gap`, `bar_max_width`, `bar_glow`, `style.color`.
-* `Background`: Procedural shader canvas: `background_preset` (`"gradient_mesh"` | `"grid_flow"` | `"waves"` | `"dots"` | `"blueprint"` | `"vignette_loop"` | `"paper_grain"`), `colors: [base, accent1, accent2]`, `speed`. Fullscreen bottom layer.
-* `Image`: `query` + `source` (`"pexels"` | `"pixabay"` | `"wikipedia"` | `"archive"`). Pixabay `image_type: "illustration"`/`"vector"` for cutouts; `"archive"` for historical/space photos. `objectFit`: `"cover"` | `"contain"` | `"fill"`.
-* `Video`: `query` + `source` (`"pexels"` | `"pixabay"` | `"youtube"` | `"archive"`). `volume`, `loop: false/true`, `yt_start_offset`, `yt_duration`, `objectFit`.
-* `Lottie`: `lottie_url` or `animation_data`, `loop`, `playback_rate`, `direction: "forward" | "backward"`.
-* `Particles`: `particle_preset` (`"confetti"` | `"embers"` | `"dust"` | `"money_rain"` | `"snow"` | `"stars"`), `particle_count`, `particle_colors`, `particle_speed`, `particle_opacity`.
-* `Map`: `map_style` (`"modern_dark"` | `"vintage"` | `"minimal_light"` | `"nautical_blue"`), `locations: [{"name", "coord": [lat, lon]}]`.
-* `HTML`: `html_content` (inline CSS/SVG/HTML for documents, code windows, receipts). 100% filler root, fluid type, no remote assets.
-
-### Part 2: Universal Advanced Manipulation (Any Layer)
-* **Geometry (`style`)**: LayerBox SOT v1 `%` strings (`left`, `top`, `width`, `height`, or `bottom`). `borderRadius` (`16px`, `24px`, `50%` circle), `aspectRatio` (`"1 / 1"`). Static `rotate`, `scale`, `scaleX: -1` (flip H), `scaleY: -1` (flip V), 3D tilt `rotateX`, `rotateY`, `translateZ`. Center math: `left = 50 - width/2`.
-* **Animations (`animations`)**: 10 keyframe properties: 7 spatial (`translateY`, `translateX`, `translateZ`, `scale`, `rotate`, `rotateX`, `rotateY`) + 3 optical fades (`opacity`, `blur`, `brightness`). Easings: `"spring"` (supports `damping`, `stiffness`, `mass`, `overshoot_clamping`), `"ease-out"`, `"ease-in-out"`, `"linear"`, `"bounce"`, `"elastic"`, `"back"`, `"steps"`, `"bezier"`. Continuous motion: `loop_mode: "loop" | "pingpong"`. Word sync when timestamps exist. Pair `delay > 0` with `opacity: 0 -> 1`.
-* **Physics & Dynamics (`motion`)**: `floating: true` harmonic drift; `motion_blur: true` + `shutter_angle: 45–360`; `camera_shake: "handheld" | "shockwave" | "glitch" | "none"`; `transform_origin` pivot.
-* **3D Perspective & Camera**: `perspective: 1000` (or 400-3000px FOV distance; lower = wide angle, higher = telephoto), `perspective_origin: "center center" | "50% 0%"`.
-* **Filters & Looks (`filters`)**: 8 CSS looks (`Neon Glow Pop`, `Cyberpunk`, `Golden Hour`, `Bleach Bypass`, `Night Vision`, `Thermal False-Color`, `Noir Hard`, `Dream Blur`, `Cinematic Dark Base`) + 6 SVG looks (`"url(#fx-emboss)"`, `"url(#fx-sharpen)"`, `"url(#fx-duotone-midnight)"`, `"url(#fx-duotone-inferno)"`, etc.) + blend modes (`"mix-blend-mode: overlay"`).
-* **Layer Exit & Stagger (`exit`)**: `exit: true` or `exit: <seconds>` on layer, or animation track `exit: true` for clean sequential beats without overlap.
-* **Shape Masking & Ergonomics (`mask`)**: `mask: {"shape": "circle"|"ellipse"|"inset"|"polygon", "polygon_preset": "hexagon"|"diamond"|"triangle"|"star"|"slant_left"|"slant_right", "reveal": "circle_iris"|"wipe_right"|"wipe_down"|"split_vertical"|"wipe_diagonal"}` (a reveal animates INTO the static shape when both are set). Layer ergonomics: `name`, `visible: false` (hide), `locked: true` (lock canvas).
-
-### Part 3: Cut Transitions & Energy
-* **Transitions**: `"transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none"`.
-* **Mid-Cut Punch-Ins**: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]`.
-* **Audio Ducking**: `"mute_voiceover": true` | `"mute_bg_music": true`.
+- Rewrite only the targeted `sub_visual`. Keep the `duration` identical unless explicitly told to change it.
+- You may change any field within `composition` or `transition`, `emphasis`.
+- **Do NOT change narration text.**
+- **content.type is mandatory** on every Layer content object — missing it = null scene.
+- **🚫 NO CHAPTER TITLE CARDS** inside cuts. Root overlays manage continuous chapter branding.
+- **Opacity Pairing Rule**: Every entrance with `delay > 0` MUST pair with `opacity: 0→1` at same delay.
+- **Minimum Depth**: At least 3 layers: base (Background or Video) + framing or atmosphere + hero or text.
 
 ---
 
-## 3. Query-Only Media Contract
+## 2. Sub-Visual Anatomy
 
-- For `Image`/`Video` layers output ONLY:
-  ```json
-  { "type": "Image", "query": "1-3 english keywords", "source": "pexels" }
-  // OR for real-world/tech/science video:
-  { "type": "Video", "query": "spacex starship launch", "source": "youtube", "yt_start_offset": 15 }
-  ```
-- Sources allowed:
-  * `Image`: `"pexels"` | `"pixabay"` | `"wikipedia"` | `"archive"`.
-  * `Video`: `"pexels"` (generic stock B-roll) | `"pixabay"` | `"youtube"` (real-world news/events, tech/hardware demos, science animations) | `"archive"` (historical newsreels, archival footage, classic documentaries).
-- **NEVER emit `sources[]`, `url`, `local_path` or `asset_url`** — output query+source only; pipeline downloads media downstream.
+```
+{
+  "duration": float,           ← KEEP unless user says to change
+  "transition": string,        ← Can change freely
+  "emphasis": [...],           ← Optional mid-cut punch-in
+  "composition": {
+    "type": "Sequence",
+    "children": [              ← children[0]=bottom, children[N-1]=top
+      { "type": "Layer", "content": { "type": "...", ... }, "style": {...}, "animations": [...], "filters": [...] }
+    ]
+  }
+}
+```
 
 ---
 
-## 4. Output Schema & JSON Contract
+## 3. Media Source Quick Reference
 
-Return ONLY valid JSON matching this single sub-visual structure. Note: Bind actual colors from `design.json` (`color_palette`):
+| Source | Image | Video | Notes |
+|---|---|---|---|
+| `pexels` | ✓ | ✓ | Generic stock |
+| `pixabay` | ✓ | ✓ | `image_type: "illustration"` for transparent cutouts |
+| `wikipedia` | ✓ | ✗ | Logos, flags, portraits |
+| `youtube` | ✗ | ✓ | Real events, tech demos, space, science |
+| `archive` | ✓ | ✓ | Historical, NASA, archival |
+
+**NEVER emit**: `url`, `local_path`, `sources[]` — output `query` + `source` only.
+
+---
+
+## 4. Output Schema
+
+Return ONLY valid JSON matching a single sub-visual structure. Bind actual colors from `design.json`:
 
 ```json
 {
@@ -86,32 +73,48 @@ Return ONLY valid JSON matching this single sub-visual structure. Note: Bind act
     "children": [
       {
         "type": "Layer",
-        "content": {
-          "type": "Background",
-          "background_preset": "grid_flow",
-          "speed": 1.0
-        }
+        "name": "Background",
+        "content": { "type": "Background", "background_preset": "gradient_mesh", "colors": ["#0f172a", "#7c3aed", "#1e40af"], "speed": 1.0 }
       },
       {
         "type": "Layer",
-        "content": {
-          "type": "Counter",
-          "value": 250,
-          "prefix": "$",
-          "suffix": "B",
-          "title": "TOTAL REVENUE",
-          "font_size": 76
-        },
-        "style": { "left": "25%", "top": "30%", "width": "50%", "height": "32%" },
+        "name": "Atmospheric Particles",
+        "content": { "type": "Particles", "particle_preset": "dust", "particle_count": 35, "particle_opacity": 0.14, "particle_speed": 0.7, "particle_direction": "up" },
+        "filters": ["mix-blend-mode: screen"]
+      },
+      {
+        "type": "Layer",
+        "name": "Metric Card",
+        "content": { "type": "Counter", "value": 250, "prefix": "$", "suffix": "B", "title": "TOTAL REVENUE", "font_size": 80, "color": "#facc15" },
+        "style": { "left": "25%", "top": "28%", "width": "50%", "height": "32%" },
+        "floating": true,
         "animations": [
           { "property": "translateY", "from": 40, "to": 0, "duration": 0.5, "delay": 0.3, "easing": "spring" },
-          { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.3, "easing": "ease-out" }
-        ],
-        "floating": true
+          { "property": "opacity",    "from": 0,  "to": 1, "duration": 0.4, "delay": 0.3, "easing": "ease-out" }
+        ]
+      },
+      {
+        "type": "Layer",
+        "name": "Kinetic Label",
+        "content": { "type": "Text", "text": "Breaking the record", "font": "Outfit", "weight": "700", "color": "#f1f5f9", "animation_mode": "marker_highlight", "highlight_color": "#facc15", "style": { "fontSize": "36px", "textAlign": "center" } },
+        "style": { "left": "10%", "bottom": "18%", "width": "80%" },
+        "animations": [
+          { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.6, "easing": "ease-out" }
+        ]
       }
     ]
   }
 }
 ```
+
+---
+
+## 5. Portrait Mode Adjustments
+
+When video_format is portrait:
+- Lower-thirds: `bottom: "28%"` (not `18%`)
+- Hero cards: max `"height": "55%"`
+- Text width: `"width": "84%"`
+- Counter `font_size`: `96`–`120`
 
 {visual_rules}

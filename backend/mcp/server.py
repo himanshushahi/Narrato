@@ -52,7 +52,7 @@ Instead, you MUST conduct the "New Narrative Build" intake interview and ask the
 
 1. Narrative Topic / Name: Confirm the exact title or subject.
 2. Language:
-   - Hindi (हिंदी) [`hi`] (narration written in Devanagari Hindi prose)
+   - Hindi (\u0939\u093f\u0928\u094d\u0926\u0940) [`hi`] (narration written in Devanagari Hindi prose)
    - English (EN) [`en`]
 3. Video Format:
    - Landscape (YouTube 16:9) [`landscape`]
@@ -71,16 +71,51 @@ UI vs API NUMBERING & SECTION TARGETING:
 - When the user asks to inspect or modify a scene or cut (e.g. "fix scene 1 cut 2" or "probe scene 3"):
   * Pass 1-based parameters `scene_number` and `cut_number` (e.g. `scene_number=1, cut_number=2`). This directly matches what the user sees in the UI!
   * OR pass 0-based parameters `scene_index = scene_number - 1` and `cut_index = cut_number - 1` (e.g. `scene_index=0, cut_index=1`).
-  * Never pass `scene_index=1` for "Scene 1" — in 0-based indexing that targets Scene 2!
+  * Never pass `scene_index=1` for "Scene 1" -- in 0-based indexing that targets Scene 2!
   * Introduction and Conclusion: use `section_type="introduction"` (or `"intro"`) and `section_type="conclusion"` (or `"outro"`). Cuts within them are referenced with `cut_number` (1-based) or `cut_index` (0-based). Do not specify a `scene_index` for intro/conclusion.
 
 MANDATORY SKILL GROUNDING (hard gate, not guidance):
 - save_script REQUIRES scriptwriter first.
 - save_design REQUIRES art-director-design-system first.
 - save_visuals REQUIRES declarative-ast + visual-director-core + motion-graphics-designer first (brief=true counts).
-- EASIEST: one call get_stage_skills(stage, project_id) per stage — it returns the starter pack AND satisfies the gate.
+- EASIEST: one call get_stage_skills(stage, project_id) per stage -- it returns the starter pack AND satisfies the gate.
   script -> get_stage_skills('script', project_id); design -> get_stage_skills('design', project_id); visuals -> get_stage_skills('visuals', project_id).
-- The server REJECTS save_* with SKILL_REQUIRED if you skip this. get_section_timings also pushes a creative_blueprint (layer reference + sample cut) — use it.
+- The server REJECTS save_* with SKILL_REQUIRED if you skip this. get_section_timings also pushes a creative_blueprint (layer reference + sample cut) -- use it.
+
+PROBE TOOLS -- WHAT THEY RETURN:
+- `probe_cut(project_id, section_type, scene_index, cut_index)`: Returns the full AST JSON for one sub-visual cut (duration, transition, composition children). Use before rewriting a cut to see its current state.
+- `probe_scene(project_id, section_type, scene_index)`: Returns ALL cuts in a scene: count, durations, transitions, layer type breakdown. Use before planning a scene rewrite.
+- `probe_asset(project_id, section_type, scene_index, cut_index, layer_index)`: Returns resolved asset info for one media layer (local path, URL, content type). Asset paths are only valid AFTER run_stage('fetch_assets') completes -- before that, paths are empty.
+
+SAVE VISUALS -- BATCH vs SINGLE:
+- `save_visuals(...)`: Saves sub_visuals for ONE scene. Use for targeted rewrites.
+- `save_visuals_batch(project_id, visuals_map)`: Saves multiple scenes in one call. Use when generating ALL scenes. visuals_map = {scene_index: sub_visuals_list}. NEVER call save_visuals in parallel loops for multiple scenes -- use batch to avoid race conditions and silent data loss.
+
+ASSET PIPELINE TIMING:
+- Image/Video layers need only `query` + `source` during generation -- NOT a URL or path. Pipeline downloads assets via fetch_assets AFTER all visuals are saved.
+- query_verification status resets on app restart -- do not rely on it across sessions.
+
+VISUAL GENERATION CRITICAL GOTCHAS:
+- `content.type` is MANDATORY on every Layer's content -- missing it silently renders the scene null (no error, just blank).
+- Map and Particles are ALWAYS fullscreen -- position/size ignored. Overlay Shape/Text layers on top for framing.
+- Image sources: pexels / pixabay / wikipedia / archive ONLY. NEVER youtube for Image.
+- Video sources: pexels / pixabay / youtube / archive ONLY. NEVER wikipedia for Video.
+- YouTube clips: yt_duration max 30s; yt_start_offset default 15s (skips intros).
+- Portrait safe area: keep text above bottom: 28%. Landscape: above bottom: 18%.
+- Every entrance animation with delay > 0 MUST pair with opacity: 0->1 at same delay.
+- style box goes on the Layer node (sibling of content), NOT inside content.
+- Minimum 3 layers per cut: base + framing/atmosphere + hero or kinetic text.
+
+CONTINUOUS LEARNING -- SKILL SELF-IMPROVEMENT:
+When you discover a new edge case, rendering failure, useful pattern, or source selection insight during a session, call `append_skill_learning` to log it:
+- skill_name: which skill the learning belongs to (e.g. 'declarative-ast', 'visual-director-core', 'editor-qa')
+- title: short description (e.g. 'Map layer position silently ignored')
+- context: what triggered it (project type, scene type, prompt)
+- observation: what happened (the failure or new pattern)
+- fix_or_pattern: the concrete fix or rule to add
+- status: 'pending' for new; 'confirmed' if you've seen it before
+
+This is APPEND-ONLY to LEARNINGS.md -- it never modifies SKILL.md. A human reviews and folds confirmed learnings into SKILL.md. Use this proactively at session end or when you catch a bug.
 """
 
 mcp = MCPServer("narrato", instructions=NARRATO_SERVER_INSTRUCTIONS)
@@ -555,6 +590,37 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
                     "hint": "Pull one part with get_skill(section=\"...\")."})
         return out
     if section:
+        sec_lower = section.strip().lower()
+        if sec_lower in ("learnings", "learning", "learnings.md"):
+            learnings_parts = []
+            try:
+                sk_dir = Path(skill.file_path).parent.resolve()
+                p = sk_dir / "LEARNINGS.md"
+                if p.exists():
+                    t = p.read_text(encoding="utf-8").strip()
+                    if t:
+                        learnings_parts.append(t)
+            except Exception:
+                pass
+            try:
+                from backend.core.config import get_storage_dir
+                fallback_p = get_storage_dir() / "learnings" / f"{skill.name}_LEARNINGS.md"
+                if fallback_p.exists():
+                    fb_t = fallback_p.read_text(encoding="utf-8").strip()
+                    if fb_t and fb_t not in learnings_parts:
+                        learnings_parts.append(fb_t)
+            except Exception:
+                pass
+            if learnings_parts:
+                _record_skill_read(project_id, skill.name, section="Learnings")
+                return {
+                    "ok": True,
+                    "name": skill.name,
+                    "version": skill.version,
+                    "section": "Learnings",
+                    "content": "\n\n---\n\n".join(learnings_parts),
+                }
+
         found = skill.render_section(section, **ctx)
         if not found:
             titles = [s["title"] for s in
@@ -757,6 +823,204 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
         logger.error(f"MCP get_stage_skills failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
     return bundle
+
+
+@mcp.tool()
+def append_skill_learning(
+    skill_name: Annotated[
+        str,
+        Field(description=(
+            "Canonical skill name (e.g. 'declarative-ast', 'visual-director-core', "
+            "'motion-graphics-designer', 'scriptwriter', 'editor-qa'). "
+            "Use list_skills() to get the full list."
+        )),
+    ],
+    title: Annotated[
+        str,
+        Field(description=(
+            "Short title for this learning (e.g. 'Map layer position silently ignored'). "
+            "Becomes the ## heading. Keep it ≤ 80 chars."
+        )),
+    ],
+    context: Annotated[
+        str,
+        Field(description=(
+            "What project / scene type / prompt triggered this observation. "
+            "E.g. 'Finance video, scene 4, tried to position Map layer at left: 30%'"
+        )),
+    ],
+    observation: Annotated[
+        str,
+        Field(description=(
+            "What actually happened — the failure, unexpected behavior, or new pattern discovered."
+        )),
+    ],
+    fix_or_pattern: Annotated[
+        str,
+        Field(description=(
+            "The concrete fix or pattern that should be added to SKILL.md. "
+            "Be specific — e.g. 'Map and Particles are fullscreen; overlay Shape/Text on top instead of positioning them.'"
+        )),
+    ],
+    status: Annotated[
+        str,
+        Field(description="Status of this learning: 'pending' (new observation) | 'confirmed' (seen multiple times) | 'folded' (already merged into SKILL.md)."),
+    ] = "pending",
+) -> dict:
+    """**Append a learning observation to a skill's LEARNINGS.md file.**
+
+    Use this whenever you discover a new edge case, production failure mode, or
+    useful pattern during a video generation session. The LEARNINGS.md is an
+    append-only log — it never modifies SKILL.md directly.
+
+    A human reviews LEARNINGS.md periodically and folds confirmed learnings
+    into the canonical SKILL.md. This is the safe auto-learning path.
+
+    Rules:
+    - ONLY writes to LEARNINGS.md inside a skill folder. Cannot write to SKILL.md
+      or any file outside the skills directory.
+    - Append-only: never truncates existing content.
+    - skill_name must match a known skill (use list_skills() to check).
+
+    When to call this:
+    - You discover a rendering failure not documented in SKILL.md
+    - You find a source selection mistake that caused a broken asset
+    - You find a geometry/layout pattern that reliably works or breaks
+    - You discover a new composition recipe worth naming
+    """
+    from backend.agent.skill_loader import skill_loader
+    from pathlib import Path
+    import datetime
+
+    # ── Validate skill name ──────────────────────────────────────────────
+    norm = _norm_skill(skill_name)
+    all_skills = skill_loader.get_all_skills()
+    # Accept either normalized or raw name
+    matched_skill = all_skills.get(norm) or all_skills.get(skill_name)
+    if not matched_skill:
+        known = sorted({s.name for s in all_skills.values()})
+        return {
+            "ok": False,
+            "error": (
+                f"Skill {skill_name!r} not found. "
+                f"Use list_skills() to see valid names. "
+                f"Known: {known}"
+            ),
+        }
+
+    import sys
+    from backend.core.config import get_storage_dir
+
+    # ── Resolve LEARNINGS.md path (skill directory) ──────────────────────
+    skill_dir = None
+    learnings_path = None
+    try:
+        if matched_skill.file_path:
+            candidate_dir = Path(matched_skill.file_path).parent.resolve()
+            candidate_path = (candidate_dir / "LEARNINGS.md").resolve()
+            # Safety check: must stay inside the skill's directory
+            if (candidate_dir in candidate_path.parents or candidate_path.parent == candidate_dir) and candidate_path.name == "LEARNINGS.md":
+                skill_dir = candidate_dir
+                learnings_path = candidate_path
+    except Exception as e:
+        logger.warning(f"MCP append_skill_learning: skill directory resolution note: {e}")
+
+    # ── Validate inputs ──────────────────────────────────────────────────
+    title = (title or "").strip()[:120]
+    context = (context or "").strip()
+    observation = (observation or "").strip()
+    fix_or_pattern = (fix_or_pattern or "").strip()
+    status = (status or "pending").strip().lower()
+    if status not in ("pending", "confirmed", "folded"):
+        status = "pending"
+    if not title or not context or not observation or not fix_or_pattern:
+        return {
+            "ok": False,
+            "error": "All fields (title, context, observation, fix_or_pattern) are required and must be non-empty.",
+        }
+
+    # ── Format the entry ─────────────────────────────────────────────────
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    entry = (
+        f"\n## [{date_str}] {title}\n"
+        f"**Context**: {context}\n"
+        f"**Observation**: {observation}\n"
+        f"**Fix / Pattern**: {fix_or_pattern}\n"
+        f"**Status**: {status}\n"
+    )
+
+    # ── Multi-Tier Append (Frozen/Read-Only Production Resilient) ─────────
+    def _write_to(path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            # Bootstrap the file if it doesn't exist yet
+            header = (
+                f"# Learnings Log — {matched_skill.name}\n\n"
+                "Auto-generated observations from production sessions.\n"
+                "Reviewed and folded into SKILL.md periodically.\n\n---\n\n"
+                "<!-- New learnings are appended below this line -->\n"
+            )
+            path.write_text(header, encoding="utf-8")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(entry)
+
+    is_frozen = getattr(sys, "frozen", False)
+    write_path = None
+    write_errors = []
+
+    # Tier 1: Normal editable workspace (only if not frozen in PyInstaller bundle)
+    if not is_frozen and learnings_path is not None:
+        try:
+            _write_to(learnings_path)
+            write_path = learnings_path
+        except (PermissionError, OSError) as e:
+            write_errors.append(f"skill directory write blocked ({e})")
+
+    # Tier 2: Persistent User AppData Storage (%LOCALAPPDATA%/Narrato/storage/learnings)
+    # Guaranteed writable even in frozen .exe / read-only program files / docker
+    if write_path is None:
+        try:
+            storage_dir = get_storage_dir() / "learnings"
+            fallback_path = (storage_dir / f"{matched_skill.name}_LEARNINGS.md").resolve()
+            _write_to(fallback_path)
+            write_path = fallback_path
+        except Exception as e:
+            write_errors.append(f"persistent storage write blocked ({e})")
+
+    # Tier 3: Result delivery
+    if write_path is not None:
+        is_fallback = (learnings_path is None or write_path != learnings_path)
+        logger.info(f"MCP append_skill_learning: appended to {write_path} (fallback={is_fallback})")
+        return {
+            "ok": True,
+            "skill": matched_skill.name,
+            "file": str(write_path),
+            "entry_title": title,
+            "status": status,
+            "degraded": is_fallback,
+            "storage_mode": "persistent_storage" if is_fallback else "skill_directory",
+            "message": (
+                f"Learning appended to {write_path.name}. "
+                + ("NOTE: Environment is frozen/read-only; saved to persistent user storage fallback. " if is_fallback else "")
+                + "A human will review and fold confirmed learnings into SKILL.md."
+            ),
+        }
+    else:
+        # Tier 3 fallback: in-memory safe return so agent workflow does NOT crash
+        err_msg = "; ".join(write_errors)
+        logger.warning(f"MCP append_skill_learning: all write targets failed ({err_msg})")
+        return {
+            "ok": True,
+            "degraded": True,
+            "skill": matched_skill.name,
+            "entry_title": title,
+            "status": status,
+            "entry_text": entry.strip(),
+            "message": (
+                f"Storage environment is read-only ({err_msg}). "
+                f"Learning recorded in session output (entry_text) without breaking execution."
+            ),
+        }
 
 
 def _layer_reference() -> dict:

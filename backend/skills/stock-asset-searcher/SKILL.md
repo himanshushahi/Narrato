@@ -12,19 +12,69 @@ when_to_use: "When crafting search queries for stock media (Pexels photos/videos
 
 ---
 
-## 1. Quick Reference: Source Capability Matrix
+## 1. Quick Reference: Provider Decision Guide
 
-| Source | Content Types | Best Used For | Speed | Query Rules |
+**The core rule**: Use **authentic** providers for real, specific, named things. Use **stock** providers for generic, atmospheric, illustrative visuals.
+
+| Source | Image | Video | Primary Use | Hard Rules |
 |---|---|---|---|---|
-| **`pexels`** | `Image`, `Video` | High-quality cinematic B-roll, 4K nature/cityscapes, realistic photography | Fast | 1–3 broad English keywords (e.g. `"city neon"`) |
-| **`pixabay`** | `Image`, `Video` | Transparent PNG cutouts, vector art, icon badges, digital illustrations | Fast | Concrete nouns + `"image_type": "illustration"` or `"vector"` |
-| **`wikipedia`** | `Image` only | Real historical figures, politicians, CEOs, company logos, country flags | Medium | **EXACT entity name** (e.g. `"Narendra Modi"`, `"Apple Inc."`) |
-| **`youtube`** | `Video` only | Real-world news & events, tech/product demos, science simulations, archival footage | Automatic (yt-dlp) | 1–4 specific English keywords (e.g. `"spacex starship launch"`) |
-| **`archive`** | `Image`, `Video` | Authentic historical newsreels, space/NASA missions, vintage photography, documentary archives | Fast (Open API) | 1–4 specific English keywords (e.g. `"apollo 11 astronaut"`, `"great depression breadline"`) |
+| **`pexels`** | ✓ | ✓ | Generic cinematic B-roll, stock photos, nature, city, people | Use for atmospheric/illustrative content |
+| **`pixabay`** | ✓ | ✓ | Transparent PNG cutouts, illustrations, vector art, stock photos | `image_type: "illustration"` or `"vector"` for transparent PNG |
+| **`wikipedia`** | ✓ | ✗ | Real person portraits, brand logos, flags, official emblems | Query = EXACT full entity name only |
+| **`youtube`** | ✗ | ✓ | Real events, tech demos, product launches, sports, news, science animation | `yt_duration ≤ 30s`, skip intros with `yt_start_offset: 15` |
+| **`archive`** | ✓ | ✓ | Historical events, NASA/space, vintage newsreels, archival documentary | Pre-1990 events, WW-era, public domain |
+
+### 1.1 Topic → Provider Matrix
+
+| What the scene is about | Image | Video |
+|---|---|---|
+| Real person (politician, CEO, athlete, scientist, historical figure) | `wikipedia` + EXACT full name | `youtube` (interview / speech / event) |
+| Company logo / brand mark | `wikipedia` + EXACT company name | `youtube` (product launch / keynote) |
+| Country flag / government / institution | `wikipedia` | `youtube` (official event) |
+| Historical event (WW2, independence, moon landing, partition...) | `archive` | `archive` newsreel OR `youtube` documentary |
+| Space / NASA / planetary | `archive` NASA photos | `archive` mission footage OR `youtube` launch |
+| Tech product demo (iPhone, GPU, EV, robotics) | `pexels` device/hands shot | `youtube` review / demo / keynote |
+| Science concept / 3D simulation (DNA, black hole, neural net) | `pixabay` illustration | `youtube` 3D explanation animation |
+| Sports match / tournament highlight | `pexels` stadium (generic) | `youtube` match / highlight reel |
+| Financial news / market / economy | `pexels` trading floor | `youtube` news broadcast / Bloomberg |
+| Generic city / street / crowd / office | `pexels` | `pexels` |
+| Nature / landscape / environment | `pexels` | `pexels` |
+| Abstract concept (growth, data, AI, network) | `pexels` OR Background shader | `pexels` or `pixabay` |
+| Transparent badge / icon cutout / sticker | `pixabay` + `image_type: "illustration"` | — |
+| Vintage / retro / archival aesthetic | `archive` | `archive` |
+
+### 1.2 Anti-Patterns (Never Do These)
+
+```
+✗ Image + source: "youtube"         → YouTube = Video ONLY. Use pexels/wiki/archive for Image.
+✗ Video + source: "wikipedia"       → Wikipedia = Image ONLY. Never for Video.
+✗ "city skyline" + youtube          → Generic B-roll = pexels. YouTube is for real/named content.
+✗ "Tesla logo" + pexels             → Brand logo = wikipedia: "Tesla Inc."
+✗ "Elon Musk portrait" + pexels     → Real person = wikipedia: "Elon Musk"
+✗ "moon landing" + pexels           → Historical event = archive: "apollo 11 astronaut"
+✗ "cricket match" + pexels (video)  → Real match = youtube: "IPL 2024 cricket highlights"
+✗ yt_duration > 30                  → Pipeline hard-truncates at 30s. Plan ≤ 30s.
+✗ Query in Hindi/regional language  → ALL queries in English, regardless of video language.
+✗ Descriptive sentence as query     → Use 1-3 keywords: NOT "a busy street in Mumbai"
+                                       USE: "mumbai street crowded"
+```
+
+### 1.3 Worked Examples
+
+```
+"Narendra Modi speech"       → Image: wikipedia "Narendra Modi"  | Video: youtube "modi speech parliament"
+"Apple WWDC keynote"         → Image: wikipedia "Apple Inc."     | Video: youtube "apple wwdc 2024 keynote"
+"India flag"                 → Image: wikipedia "Flag of India"  | (no video needed)
+"Apollo 11 moon landing"     → Image: archive "apollo 11 moon"  | Video: archive "apollo 11 newsreel"
+"SpaceX Starship launch"     → Image: archive "rocket launch"    | Video: youtube "spacex starship launch 2024"
+"AI neural network concept"  → Image: pixabay "neural network" illustration | Video: youtube "neural network visualization"
+"IPL cricket match"          → Image: pexels "cricket stadium"  | Video: youtube "IPL 2024 cricket highlights"
+"Busy Mumbai street"         → Image: pexels "mumbai street"    | Video: pexels "india city street traffic"
+"Rupee coin badge"           → Image: pixabay "rupee coin gold" illustration (transparent PNG)
+"WW2 Pacific newsreel"       → Image: archive "world war 2 pacific soldiers" | Video: archive "world war 2 newsreel"
+```
 
 ---
-
-## 2. Stock Keyword & Query Formatting Rules
 
 - The `query` MUST always be in English, even when the video language is Hindi/Marathi/etc.
 - Use 1-3 BROAD keywords optimized for stock search engines — NOT sentences.
