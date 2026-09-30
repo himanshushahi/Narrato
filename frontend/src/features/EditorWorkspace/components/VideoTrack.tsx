@@ -1,12 +1,11 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { usePlaybackStore } from '../../../store/usePlaybackStore';
-import { VscTrash } from 'react-icons/vsc';
 import {
   Image as ImageIcon, Map as MapIcon, Layers,
   BarChart3, Shapes, Type, Video as VideoIcon,
   Code, Sparkles, Sparkle, Zap, ZoomIn, ZoomOut, MoveRight,
-  Minus, Wind, Hash, Palette
+  Minus, Wind, Hash, Palette, Trash2, Target, X
 } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
 import { FPS, HEADER_WIDTH } from '../timelineConstants';
@@ -237,7 +236,7 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
             className="w-5 h-5 flex items-center justify-center rounded-none bg-red-600 text-white hover:bg-red-500 shadow-md cursor-pointer"
             title="Delete full scene"
           >
-            <VscTrash className="text-[10px]" />
+            <Trash2 className="w-3 h-3" />
           </button>
         </div>
       )}
@@ -329,10 +328,11 @@ const SubVisualBlock: React.FC<SubVisualBlockProps> = React.memo(({
             {/* Punch-in emphasis marker */}
             {Array.isArray((block.raw as any)?.emphasis) && (block.raw as any).emphasis.length > 0 && (
               <span
-                className="text-[7px] font-mono font-bold px-1 py-0.2 rounded-none bg-black/80 text-amber-300 border border-amber-500/30 shrink-0"
+                className="text-[7px] font-mono font-bold px-1 py-0.2 rounded-none bg-black/80 text-amber-300 border border-amber-500/30 shrink-0 inline-flex items-center gap-0.5"
                 title={`${(block.raw as any).emphasis.length} punch-in zoom${(block.raw as any).emphasis.length > 1 ? 's' : ''} — edit in Visuals tab`}
               >
-                🎯{(block.raw as any).emphasis.length}
+                <Target className="w-2.5 h-2.5 text-amber-400" aria-hidden="true" />
+                <span>{(block.raw as any).emphasis.length}</span>
               </span>
             )}
 
@@ -567,9 +567,10 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
             <span>Select Transition</span>
             <button
               onClick={() => setActiveTransitionMenu(null)}
-              className="text-zinc-500 hover:text-white p-0.5 cursor-pointer"
+              className="text-zinc-500 hover:text-white p-0.5 cursor-pointer inline-flex items-center justify-center"
+              aria-label="Close"
             >
-              ✕
+              <X className="w-3 h-3" />
             </button>
           </div>
           <div className="max-h-48 overflow-y-auto space-y-0.5">

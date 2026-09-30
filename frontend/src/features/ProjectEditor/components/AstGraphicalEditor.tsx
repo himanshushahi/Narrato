@@ -1,6 +1,36 @@
 import { useState, useEffect, useRef, useMemo, memo } from 'react';
-import { BiTrashAlt, BiCopy } from 'react-icons/bi';
-import { BsPlus, BsSearch, BsUpload, BsChevronDown, BsChevronRight, BsSliders } from 'react-icons/bs';
+import {
+  Trash2,
+  Copy,
+  Plus,
+  Search,
+  Upload,
+  ChevronDown,
+  ChevronRight,
+  Sliders,
+  Eye,
+  EyeOff,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
+  AlertCircle,
+  AlertTriangle,
+  Info,
+  Video,
+  Zap,
+  Scissors,
+  Palette,
+  Maximize,
+  Minimize,
+  StretchVertical,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Volume2,
+  VolumeX,
+  Layout,
+} from 'lucide-react';
+import { TagChipInput } from '../../../components/ui/accessible/TagChipInput';
 import Editor from 'react-simple-code-editor';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
@@ -11,6 +41,7 @@ import { AstAnimationBuilder } from './AstAnimationBuilder';
 import { AstLayoutControls } from './AstLayoutControls';
 import { AstMaskControls } from './AstMaskControls';
 import { AstFilterControls } from './AstFilterControls';
+import { AstMotionControls } from './AstMotionControls';
 import { AstChartDataEditor } from './AstChartDataEditor';
 import { AstMapLocationsEditor } from './AstMapLocationsEditor';
 import { AstHtmlCodeEditor } from './AstHtmlCodeEditor';
@@ -161,7 +192,8 @@ export const AstGraphicalEditor = ({
   onDuplicateLayer,
   onMoveLayer,
   onReorderLayer,
-  uploadingSubVisual
+  uploadingSubVisual,
+  sceneDuration = 5.0,
 }: {
   initialValue: any;
   onChange: (val: any) => void;
@@ -172,6 +204,7 @@ export const AstGraphicalEditor = ({
   onMoveLayer?: (fromIdx: number, toIdx: number) => void;
   onReorderLayer?: (fromIdx: number, toIdx: number) => void;
   uploadingSubVisual?: string | null;
+  sceneDuration?: number;
 }) => {
   // New layers must be manipulable on the canvas immediately. A layer with
   // no content.style resolves to fullscreen in layerToBox (CanvasOverlay +
@@ -806,6 +839,7 @@ export const AstGraphicalEditor = ({
       onLocationsChange: (val: any) => api.updateContent(idx, 'locations', val),
       onAnimationDataChange: (val: any) => api.updateContent(idx, 'animation_data', val),
       onPreviewQuery: (query: string) => api.previewQuery(idx, query),
+      onMotionUpdate: (key: string, val: any) => api.updateLayer(idx, key, val),
     }));
   }, [api, (composition.children || []).length]);
 
@@ -866,10 +900,11 @@ export const AstGraphicalEditor = ({
                   onClick={(e) => { e.stopPropagation(); toggleCollapse(idx); }}
                   className="p-1 text-stone-400 hover:text-amber-400 transition-colors cursor-pointer shrink-0"
                   title={isCollapsed ? 'Expand layer editor' : 'Collapse to compact row for drag-reorder'}
+                  aria-label={isCollapsed ? 'Expand layer' : 'Collapse layer'}
                 >
                   {isCollapsed
-                    ? <BsChevronRight size={12} />
-                    : <BsChevronDown size={12} />}
+                    ? <ChevronRight size={12} />
+                    : <ChevronDown size={12} />}
                 </button>
                 <span
                   draggable
@@ -880,21 +915,24 @@ export const AstGraphicalEditor = ({
                   onClick={(e) => e.stopPropagation()}
                   title="Drag to reorder (bottom=background, top=foreground)"
                   className="text-stone-500 hover:text-amber-400 cursor-grab active:cursor-grabbing shrink-0 px-0.5 select-none"
-                >⋮⋮</span>
+                >
+                  <GripVertical size={13} />
+                </span>
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     api.updateLayer(idx, 'visible', layer.visible === false ? undefined : false);
                   }}
-                  className={`p-0.5 text-xs rounded transition-colors cursor-pointer shrink-0 select-none ${
+                  className={`p-1 text-xs rounded transition-colors cursor-pointer shrink-0 select-none ${
                     layer.visible === false
                       ? 'opacity-40 hover:opacity-100 text-stone-500 hover:text-stone-200'
                       : 'text-stone-300 hover:text-amber-400'
                   }`}
                   title={layer.visible === false ? 'Layer hidden — click to show' : 'Layer visible — click to hide'}
+                  aria-label={layer.visible === false ? 'Show layer' : 'Hide layer'}
                 >
-                  {layer.visible === false ? '👁️‍🗨️' : '👁️'}
+                  {layer.visible === false ? <EyeOff size={13} /> : <Eye size={13} />}
                 </button>
                 <span className="text-xs font-bold text-amber-400 select-none whitespace-nowrap shrink-0">
                   Layer {idx + 1}
@@ -905,7 +943,7 @@ export const AstGraphicalEditor = ({
                 <span className="text-[10px] font-semibold text-stone-300 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap">{cType}</span>
                 {keyIssueCount > 0 && (
                   <span
-                    className={`text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap border ${
+                    className={`text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap border flex items-center gap-1 ${
                       blockedKeys.length > 0
                         ? 'text-red-400 bg-red-500/10 border-red-500/30'
                         : 'text-amber-400 bg-amber-500/10 border-amber-500/30'
@@ -915,7 +953,17 @@ export const AstGraphicalEditor = ({
                       styleSupport.advanced.length > 0 ? `Advanced keys (no visual editor): ${styleSupport.advanced.join(', ')}` : null,
                     ].filter(Boolean).join(' · ')}
                   >
-                    {blockedKeys.length > 0 ? `⛔ unsupported${keyIssueCount > 1 ? ` ×${keyIssueCount}` : ''}` : `⚠ advanced${styleSupport.advanced.length > 1 ? ` ×${styleSupport.advanced.length}` : ''}`}
+                    {blockedKeys.length > 0 ? (
+                      <>
+                        <AlertCircle size={10} className="text-red-400" />
+                        <span>unsupported{keyIssueCount > 1 ? ` ×${keyIssueCount}` : ''}</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle size={10} className="text-amber-400" />
+                        <span>advanced{styleSupport.advanced.length > 1 ? ` ×${styleSupport.advanced.length}` : ''}</span>
+                      </>
+                    )}
                   </span>
                 )}
                 {isCollapsed && (
@@ -929,16 +977,22 @@ export const AstGraphicalEditor = ({
                     type="button"
                     disabled={idx === 0}
                     onClick={(e) => { e.stopPropagation(); handleMoveLayer(idx, -1); }}
-                    className="px-1.5 py-0.5 text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer disabled:opacity-30 text-xs"
+                    className="p-1 text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer disabled:opacity-30"
                     title="Move down (toward background)"
-                  >↓</button>
+                    aria-label="Move layer down"
+                  >
+                    <ArrowDown size={11} />
+                  </button>
                   <button
                     type="button"
                     disabled={idx === layers.length - 1}
                     onClick={(e) => { e.stopPropagation(); handleMoveLayer(idx, 1); }}
-                    className="px-1.5 py-0.5 text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer disabled:opacity-30 text-xs"
+                    className="p-1 text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer disabled:opacity-30"
                     title="Move up (toward foreground)"
-                  >↑</button>
+                    aria-label="Move layer up"
+                  >
+                    <ArrowUp size={11} />
+                  </button>
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -950,8 +1004,9 @@ export const AstGraphicalEditor = ({
                   }}
                   className="p-1.5 text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-white/10 rounded-md transition-colors cursor-pointer shrink-0"
                   title="Duplicate Layer"
+                  aria-label="Duplicate layer"
                 >
-                  <BiCopy size={13} />
+                  <Copy size={13} />
                 </button>
                 <button
                   type="button"
@@ -961,8 +1016,9 @@ export const AstGraphicalEditor = ({
                   }}
                   className="p-1.5 text-red-400/80 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-md transition-colors cursor-pointer shrink-0"
                   title="Delete Layer"
+                  aria-label="Delete layer"
                 >
-                  <BiTrashAlt size={13} />
+                  <Trash2 size={13} />
                 </button>
               </div>
             </div>
@@ -976,15 +1032,21 @@ export const AstGraphicalEditor = ({
                   : 'bg-amber-500/10 border-amber-500/30 text-amber-200/90'
               }`}>
                 {blockedKeys.map((k) => (
-                  <div key={`blocked-${k}`}>
-                    ⛔ <code className="font-mono font-bold">{k}</code>
-                    {BLOCKED_STYLE_HINTS[k] ? ` — ${BLOCKED_STYLE_HINTS[k]}` : ' — unsupported (stripped by the validator).'}
+                  <div key={`blocked-${k}`} className="flex items-center gap-1.5">
+                    <AlertCircle size={12} className="text-red-400 shrink-0" />
+                    <div>
+                      <code className="font-mono font-bold">{k}</code>
+                      {BLOCKED_STYLE_HINTS[k] ? ` — ${BLOCKED_STYLE_HINTS[k]}` : ' — unsupported (stripped by the validator).'}
+                    </div>
                   </div>
                 ))}
                 {styleSupport.advanced.map((k) => (
-                  <div key={`adv-${k}`}>
-                    ⚠ <code className="font-mono font-bold">{k}</code>
-                    {ADVANCED_STYLE_HINTS[k] ? ` — ${ADVANCED_STYLE_HINTS[k]}` : ' — renders; edit it in the Raw Style JSON below.'}
+                  <div key={`adv-${k}`} className="flex items-center gap-1.5">
+                    <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+                    <div>
+                      <code className="font-mono font-bold">{k}</code>
+                      {ADVANCED_STYLE_HINTS[k] ? ` — ${ADVANCED_STYLE_HINTS[k]}` : ' — renders; edit it in the Raw Style JSON below.'}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1044,10 +1106,10 @@ export const AstGraphicalEditor = ({
                         type="button"
                         disabled={previewingIdx === idx || content.source === 'upload'}
                         onClick={() => handlePreviewQuery(idx, content.query || '')}
-                        className="px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
+                        className="px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
                         title="Search stock preview"
                       >
-                        {previewingIdx === idx ? <div className="w-2.5 h-2.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" /> : <BsSearch size={10} />}
+                        {previewingIdx === idx ? <div className="w-2.5 h-2.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" /> : <Search size={10} />}
                         <span>Preview</span>
                       </button>
                       {onUploadSubVisual && (
@@ -1084,10 +1146,10 @@ export const AstGraphicalEditor = ({
                               setUploadingIdx(null);
                             }
                           }}
-                          className="px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
+                          className="px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-[10px] uppercase font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
                           title="Upload media file"
                         >
-                          {uploadingIdx === idx ? <div className="w-2.5 h-2.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" /> : <BsUpload size={10} />}
+                          {uploadingIdx === idx ? <div className="w-2.5 h-2.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" /> : <Upload size={10} />}
                           <span>Upload</span>
                         </button>
                       )}
@@ -1155,23 +1217,54 @@ export const AstGraphicalEditor = ({
                 {/* Object Fit (how media fills its layout box) */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Object Fit</label>
-                  <select
-                    className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
-                    value={content.style?.objectFit || 'cover'}
-                    onChange={e => api.updateContent(idx, 'style', { ...(content.style || {}), objectFit: e.target.value })}
-                  >
-                    <option value="cover">Cover (fill box, crop edges)</option>
-                    <option value="contain">Contain (fit inside, letterbox)</option>
-                    <option value="fill">Fill (stretch to box)</option>
-                  </select>
+                  <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-lg p-1" role="radiogroup" aria-label="Object Fit">
+                    {[
+                      { val: 'cover', icon: Maximize, label: 'Cover (Crop)' },
+                      { val: 'contain', icon: Minimize, label: 'Contain (Fit)' },
+                      { val: 'fill', icon: StretchVertical, label: 'Fill (Stretch)' },
+                    ].map(fit => {
+                      const Icon = fit.icon;
+                      const isSel = (content.style?.objectFit || 'cover') === fit.val;
+                      return (
+                        <button
+                          key={fit.val}
+                          type="button"
+                          role="radio"
+                          aria-checked={isSel}
+                          tabIndex={isSel ? 0 : -1}
+                          aria-label={fit.label}
+                          onClick={() => api.updateContent(idx, 'style', { ...(content.style || {}), objectFit: fit.val })}
+                          className={`flex-1 py-1.5 px-2 rounded-md text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 ${
+                            isSel
+                              ? 'bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30'
+                              : 'text-stone-400 hover:text-stone-200 hover:bg-white/5 border border-transparent'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5 shrink-0" />
+                          <span className="capitalize">{fit.val}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Video Volume & Playback Controls */}
                 {cType === 'Video' && (
                   <div className="space-y-2 pt-2">
                     <div className="flex items-center gap-2">
-                      <label htmlFor={`vol-${idx}`} className="text-[10px] font-bold uppercase tracking-wider text-stone-400 w-24 shrink-0 whitespace-nowrap">
-                        Volume: {Math.round((content.volume ?? 0) * 100)}%
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentVol = content.volume ?? 0;
+                          updateContent(idx, 'volume', currentVol > 0 ? 0 : 1);
+                        }}
+                        aria-label={(content.volume ?? 0) > 0 ? 'Mute Video' : 'Unmute Video'}
+                        className="p-1 rounded bg-black/40 border border-white/10 text-stone-400 hover:text-amber-400 transition-colors"
+                      >
+                        {(content.volume ?? 0) > 0 ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5 text-stone-500" />}
+                      </button>
+                      <label htmlFor={`vol-${idx}`} className="text-[10px] font-bold uppercase tracking-wider text-stone-400 w-20 shrink-0 whitespace-nowrap">
+                        Vol: {Math.round((content.volume ?? 0) * 100)}%
                       </label>
                       <input
                         type="range"
@@ -1276,19 +1369,12 @@ export const AstGraphicalEditor = ({
                 </div>
 
                 {(content.animation_mode === 'marker_highlight' || content.animation_mode === 'words_stagger') && (
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Highlight Words (comma separated)</label>
-                    <input
-                      type="text"
-                      className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-stone-200 focus:outline-none focus:border-amber-500/50"
-                      value={Array.isArray(content.highlight_words) ? content.highlight_words.join(', ') : ''}
-                      onChange={e => {
-                        const words = e.target.value.split(',').map((w: string) => w.trim()).filter(Boolean);
-                        updateContent(idx, 'highlight_words', words);
-                      }}
-                      placeholder="e.g. 240 MILLION DOLLARS, DISAPPEAR"
-                    />
-                  </div>
+                  <TagChipInput
+                    label="Highlight Words"
+                    tags={Array.isArray(content.highlight_words) ? content.highlight_words : []}
+                    onChange={tags => updateContent(idx, 'highlight_words', tags)}
+                    placeholder="Type word and press Enter..."
+                  />
                 )}
 
                 {/* Font Family Dropdown */}
@@ -1522,15 +1608,32 @@ export const AstGraphicalEditor = ({
 
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Align</label>
-                    <select
-                      className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-1.5 py-1 focus:outline-none cursor-pointer font-medium"
-                      value={content.style?.textAlign || 'center'}
-                      onChange={e => updateContentFields(idx, { style: { ...(content.style || {}), textAlign: e.target.value } })}
-                    >
-                      <option value="center">Center</option>
-                      <option value="left">Left</option>
-                      <option value="right">Right</option>
-                    </select>
+                    <div className="flex items-center bg-black/40 border border-white/10 rounded-md p-0.5" role="radiogroup" aria-label="Text Alignment">
+                      {[
+                        { val: 'left', icon: AlignLeft, label: 'Align Left' },
+                        { val: 'center', icon: AlignCenter, label: 'Align Center' },
+                        { val: 'right', icon: AlignRight, label: 'Align Right' },
+                      ].map(item => {
+                        const Icon = item.icon;
+                        const isSel = (content.style?.textAlign || 'center') === item.val;
+                        return (
+                          <button
+                            key={item.val}
+                            type="button"
+                            role="radio"
+                            aria-checked={isSel}
+                            tabIndex={isSel ? 0 : -1}
+                            aria-label={item.label}
+                            onClick={() => updateContentFields(idx, { style: { ...(content.style || {}), textAlign: item.val } })}
+                            className={`flex-1 py-1 flex items-center justify-center rounded transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 ${
+                              isSel ? 'bg-amber-500/20 text-amber-300 font-semibold shadow-sm' : 'text-stone-400 hover:text-stone-200'
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" />
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <div className="space-y-1 min-w-0">
@@ -1857,8 +1960,9 @@ export const AstGraphicalEditor = ({
                         k => st[k] !== undefined && st[k] !== null && String(st[k]).trim() !== '');
                       if (hasBox) {
                         return (
-                          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
-                            ℹ️ Layer box is the stage — fixed px size is disabled while a Layout box is set. Resize via the Layout tab below.
+                          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90 flex items-start gap-1.5">
+                            <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                            <span>Layer box is the stage — fixed px size is disabled while a Layout box is set. Resize via the Layout tab below.</span>
                           </div>
                         );
                       }
@@ -2439,15 +2543,15 @@ export const AstGraphicalEditor = ({
               <button
                 type="button"
                 onClick={() => toggleAdvanced(idx)}
-                className="w-full flex items-center justify-start gap-2 py-1 text-left text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                className="w-full flex items-center justify-between py-1 text-left text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
               >
                 <span className="flex items-center gap-1.5">
-                  <BsSliders size={11} className="text-amber-400" />
-                  Advanced (Layout, Animations, Masks, Filters & Motion FX)
+                  <Sliders className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Advanced Controls</span>
                 </span>
                 {isAdvancedOpen
-                  ? <BsChevronDown size={11} className="ml-auto shrink-0" />
-                  : <BsChevronRight size={11} className="ml-auto shrink-0" />}
+                  ? <ChevronDown className="w-3 h-3 shrink-0" />
+                  : <ChevronRight className="w-3 h-3 shrink-0" />}
               </button>
 
               {isAdvancedOpen && (
@@ -2455,24 +2559,25 @@ export const AstGraphicalEditor = ({
                   {/* 5-Tab Segmented Bar */}
                   <div className="grid grid-cols-5 gap-1 p-1 bg-black/60 border border-white/10 rounded-lg">
                     {[
-                      { id: 'layout', label: 'Layout', icon: '🪟' },
-                      { id: 'animations', label: 'Animations', icon: '🚀' },
-                      { id: 'masks', label: 'Mask & Clip', icon: '✂️' },
-                      { id: 'filters', label: 'Filters', icon: '🎨' },
-                      { id: 'motion', label: 'Motion FX', icon: '🎥' },
+                      { id: 'layout', label: 'Layout', icon: Layout },
+                      { id: 'animations', label: 'Animations', icon: Zap },
+                      { id: 'masks', label: 'Mask & Clip', icon: Scissors },
+                      { id: 'filters', label: 'Filters', icon: Palette },
+                      { id: 'motion', label: 'Motion FX', icon: Video },
                     ].map(tab => {
+                      const Icon = tab.icon;
                       const active = (advancedTab[idx] || 'layout') === tab.id;
                       return (
                         <button
                           key={tab.id}
                           type="button"
                           onClick={() => setAdvancedTab(prev => ({ ...prev, [idx]: tab.id as any }))}
-                          className={`py-1 text-[10px] font-bold rounded-md flex items-center justify-center gap-1 transition-colors cursor-pointer truncate ${active
+                          className={`py-1.5 px-1 text-[10px] font-bold rounded-md flex items-center justify-center gap-1.5 transition-colors cursor-pointer truncate ${active
                               ? 'bg-amber-500 text-black shadow-sm font-extrabold'
                               : 'text-stone-400 hover:text-stone-200 hover:bg-white/5'
                             }`}
                         >
-                          <span>{tab.icon}</span>
+                          <Icon className="w-3 h-3 shrink-0" />
                           <span className="truncate">{tab.label}</span>
                         </button>
                       );
@@ -2495,13 +2600,15 @@ export const AstGraphicalEditor = ({
                   {advancedTab[idx] === 'animations' && (
                     <div className="space-y-2.5">
                       {layerKind === 'Text' && content.animation_mode && content.animation_mode !== 'static' && (
-                        <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
-                          ℹ️ This text already animates internally ({content.animation_mode}). Layer keyframes stack on top — prefer one system to avoid double-transform timing clashes.
+                        <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90 flex items-start gap-1.5">
+                          <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                          <span>This text already animates internally ({content.animation_mode}). Layer keyframes stack on top — prefer one system to avoid double-transform timing clashes.</span>
                         </div>
                       )}
                       {(layerKind === 'Particles' || layerKind === 'Map' || layerKind === 'Background') && (
-                        <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
-                          ℹ️ [{layerKind}] is a full-frame canvas — 3D tilt (rotateX/Y) or large slides rotate the whole canvas and expose rectangular clipping edges. Opacity/scale keyframes are safest here.
+                        <div className="p-2.5 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90 flex items-start gap-1.5">
+                          <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                          <span>[{layerKind}] is a full-frame canvas — 3D tilt (rotateX/Y) or large slides rotate the whole canvas and expose rectangular clipping edges. Opacity/scale keyframes are safest here.</span>
                         </div>
                       )}
                       <AstAnimationBuilder
@@ -2509,6 +2616,7 @@ export const AstGraphicalEditor = ({
                         onChange={layerCallbacks[idx].onAnimationsChange}
                         exit={layer.exit}
                         onExitChange={layerCallbacks[idx].onExitChange}
+                        sceneDuration={sceneDuration}
                       />
                     </div>
                   )}
@@ -2518,6 +2626,7 @@ export const AstGraphicalEditor = ({
                     <AstMaskControls
                       mask={layer.mask}
                       onChange={layerCallbacks[idx].onMaskChange}
+                      sceneDuration={sceneDuration}
                     />
                   )}
 
@@ -2548,181 +2657,14 @@ export const AstGraphicalEditor = ({
                     />
                   )}
 
-                  {/* Tab 4: Motion & Camera FX */}
+                  {/* Tab 5: Motion & Camera FX */}
                   {advancedTab[idx] === 'motion' && (
-                    <div className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-3.5">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
-                        Motion Physics & Camera Dynamics
-                      </div>
-
-                      {/* Harmonic Floating & Motion Blur Toggles */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer p-2 bg-black/50 border border-white/5 rounded-lg hover:border-amber-500/30 transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={!!layer.floating}
-                            onChange={e => updateLayer(idx, 'floating', e.target.checked)}
-                            className="rounded accent-amber-500 cursor-pointer"
-                          />
-                          <span>🌊 Harmonic Floating</span>
-                        </label>
-
-                        <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer p-2 bg-black/50 border border-white/5 rounded-lg hover:border-amber-500/30 transition-colors" title={layer.motion_blur && !motionState.hasMotion ? 'Motion Blur is a no-op on this static layer — add an animation, floating or camera shake first (values are preserved)' : 'Physical shutter blur for moving layers'}>
-                          <input
-                            type="checkbox"
-                            checked={!!layer.motion_blur}
-                            onChange={e => updateLayer(idx, 'motion_blur', e.target.checked)}
-                            className="rounded accent-amber-500 cursor-pointer"
-                          />
-                          <span>💨 Motion Blur</span>
-                        </label>
-                      </div>
-
-                      {layer.motion_blur && !motionState.hasMotion && (
-                        <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[10px] leading-relaxed text-amber-200/90">
-                          ⚠️ Blur is armed but this [{layerKind}] layer is static — the renderer bypasses shutter blur without animations, floating or shake. Add a keyframe to activate it.
-                        </div>
-                      )}
-
-                      {/* Shutter Angle Slider — always visible so the disabled reason is discoverable */}
-                      <div
-                        className={`space-y-1 p-2.5 bg-black/50 border border-white/5 rounded-lg ${motionState.shutterDisabled ? 'opacity-60' : ''}`}
-                        title={motionState.shutterReason ?? undefined}
-                      >
-                        <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
-                          <span>Shutter Angle (Motion Blur Spread)</span>
-                          <span className="text-amber-400 font-mono">{layer.shutter_angle ?? 180}°</span>
-                        </div>
-                        <div title={motionState.shutterReason ?? undefined}>
-                          <input
-                            type="range"
-                            min="45"
-                            max="360"
-                            step="45"
-                            value={layer.shutter_angle ?? 180}
-                            disabled={motionState.shutterDisabled}
-                            onChange={e => updateLayer(idx, 'shutter_angle', parseInt(e.target.value, 10))}
-                            className="w-full accent-amber-500 h-1.5 bg-black/60 rounded disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                          />
-                        </div>
-                        <div className="flex justify-between text-[8px] text-stone-500 font-mono">
-                          <span>90° (Crisp)</span>
-                          <span>180° (Cinematic 24fps)</span>
-                          <span>360° (Dreamy)</span>
-                        </div>
-                        {motionState.shutterReason && (
-                          <p className="text-[9px] text-stone-500 leading-relaxed">{motionState.shutterReason}</p>
-                        )}
-                      </div>
-
-                      {/* Camera Shake */}
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Camera Shake / Jitter</label>
-                        <select
-                          className="w-full bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
-                          value={layer.camera_shake || 'none'}
-                          onChange={e => updateLayer(idx, 'camera_shake', e.target.value)}
-                        >
-                          <option value="none">None (Rock Solid)</option>
-                          <option value="handheld">Handheld Organic Drift</option>
-                          <option value="shockwave">Earthquake Shockwave</option>
-                          <option value="glitch">Glitch Jitter</option>
-                        </select>
-                      </div>
-
-                      {/* Transform Origin Anchor Selection */}
-                      <div className="space-y-1" title={!motionState.hasMotion ? 'Anchor point only matters with scale/rotate animations, floating or camera shake — no visible change on a static layer' : 'Pivot point for scale/rotate transforms'}>
-                        <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Transform Origin (Anchor Point)</label>
-                        <select
-                          className="w-full bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
-                          value={layer.transform_origin || 'center center'}
-                          onChange={e => updateLayer(idx, 'transform_origin', e.target.value)}
-                        >
-                          <option value="center center">Center Center (Default)</option>
-                          <option value="top left">Top Left</option>
-                          <option value="top center">Top Center</option>
-                          <option value="top right">Top Right</option>
-                          <option value="bottom left">Bottom Left</option>
-                          <option value="bottom center">Bottom Center</option>
-                          <option value="bottom right">Bottom Right</option>
-                        </select>
-                      </div>
-
-                      {/* 3D Camera Perspective & Vanishing Point */}
-                      <div className="pt-2 border-t border-white/5 space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
-                            🎥 3D Camera Perspective (FOV)
-                          </span>
-                          {(layer.perspective !== undefined || layer.perspective_origin !== undefined) && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                updateLayer(idx, 'perspective', undefined);
-                                updateLayer(idx, 'perspective_origin', undefined);
-                              }}
-                              className="text-[8px] text-stone-500 hover:text-amber-300 transition-colors uppercase font-semibold cursor-pointer"
-                              title="Reset camera perspective to default"
-                            >
-                              Reset Camera
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Perspective Distance Slider */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider text-stone-400">
-                            <span>Camera Distance (Perspective)</span>
-                            <span className="text-amber-400 font-mono">
-                              {layer.perspective != null && layer.perspective !== '' ? `${parseFloat(String(layer.perspective)) || 1000}px` : '1000px (Default)'}
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="300"
-                            max="3000"
-                            step="50"
-                            value={typeof layer.perspective === 'number' ? layer.perspective : (parseFloat(String(layer.perspective ?? '')) || 1000)}
-                            onChange={e => {
-                              const val = parseInt(e.target.value, 10);
-                              updateLayer(idx, 'perspective', val === 1000 ? undefined : val);
-                            }}
-                            className="w-full accent-amber-500 cursor-pointer h-1.5 bg-black/60 rounded"
-                            title="Camera lens distance in pixels (lower = wide angle dramatic depth; higher = telephoto flat)"
-                          />
-                          <div className="flex justify-between text-[8px] text-stone-500 font-mono">
-                            <span>300px (Wide Angle / Dramatic)</span>
-                            <span>1000px (Cinematic Standard)</span>
-                            <span>3000px (Telephoto / Flat)</span>
-                          </div>
-                        </div>
-
-                        {/* Perspective Origin (Vanishing Point) */}
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">
-                            Vanishing Point (Perspective Origin)
-                          </label>
-                          <select
-                            className="w-full bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer font-medium"
-                            value={layer.perspective_origin || 'center center'}
-                            onChange={e => {
-                              const val = e.target.value;
-                              updateLayer(idx, 'perspective_origin', val === 'center center' ? undefined : val);
-                            }}
-                          >
-                            <option value="center center">Center Center (Default Eye Level)</option>
-                            <option value="50% 0%">Top Center (Bird's Eye Looking Down)</option>
-                            <option value="50% 100%">Bottom Center (Worm's Eye Looking Up)</option>
-                            <option value="0% 50%">Left Center (Looking From Left)</option>
-                            <option value="100% 50%">Right Center (Looking From Right)</option>
-                            <option value="0% 0%">Top Left</option>
-                            <option value="100% 0%">Top Right</option>
-                            <option value="0% 100%">Bottom Left</option>
-                            <option value="100% 100%">Bottom Right</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
+                    <AstMotionControls
+                      layer={layer}
+                      onUpdate={layerCallbacks[idx].onMotionUpdate}
+                      motionState={motionState}
+                      layerKind={layerKind}
+                    />
                   )}
                 </div>
               )}
@@ -2739,7 +2681,7 @@ export const AstGraphicalEditor = ({
         onClick={handleAddLayer}
         className="w-full py-2.5 text-xs font-bold uppercase tracking-wider bg-amber-500/5 text-amber-400 hover:bg-amber-500/10 border border-amber-500/20 border-dashed rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-sm"
       >
-        <BsPlus size={16} /> Add Layer
+        <Plus className="w-4 h-4" /> Add Layer
       </button>
 
       {/* Lucide Icon Picker Modal */}

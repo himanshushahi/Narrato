@@ -1,32 +1,63 @@
 import React, { memo } from 'react';
 import { ASTAnimation } from '../../../components/video/ASTAnimator';
-import { BiTrashAlt, BiPlus, BiCopy } from 'react-icons/bi';
-import { BsLightningCharge } from 'react-icons/bs';
+import {
+  Trash2,
+  Plus,
+  Copy,
+  Zap,
+  Waves,
+  Sparkles,
+  LogOut,
+  ArrowUpDown,
+  ArrowLeftRight,
+  Layers,
+  ZoomIn,
+  Eye,
+  RotateCw,
+  Compass,
+  CloudFog,
+  Sun,
+  Repeat,
+  Repeat1,
+  Play,
+  AlertTriangle,
+  Check,
+} from 'lucide-react';
+import { AnimationTimingBar } from '../../../components/ui/accessible/AnimationTimingBar';
 
-interface AstAnimationBuilderProps {
+export interface AstAnimationBuilderProps {
   animations?: ASTAnimation[];
   onChange: (animations: ASTAnimation[]) => void;
   exit?: boolean | number;
   onExitChange?: (val: boolean | number | undefined) => void;
+  /** Full duration of the active scene/cut in seconds for the visual timing bar */
+  sceneDuration?: number;
 }
 
-const ANIMATION_PROPERTIES: { id: ASTAnimation['property']; label: string; icon: string; unit: string; defaultFrom: number; defaultTo: number }[] = [
-  { id: 'translateY', label: 'Translate Y (Vertical)', icon: '↕️', unit: 'px', defaultFrom: 45, defaultTo: 0 },
-  { id: 'translateX', label: 'Translate X (Horizontal)', icon: '↔️', unit: 'px', defaultFrom: 60, defaultTo: 0 },
-  { id: 'translateZ', label: 'Translate Z (3D Depth)', icon: '🪐', unit: 'px', defaultFrom: -150, defaultTo: 0 },
-  { id: 'scale', label: 'Scale (Zoom Drift)', icon: '🔍', unit: 'x', defaultFrom: 0.85, defaultTo: 1.0 },
-  { id: 'opacity', label: 'Opacity (Fade)', icon: '👁️', unit: '%', defaultFrom: 0, defaultTo: 1 },
-  { id: 'rotate', label: 'Rotate 2D', icon: '🔄', unit: '°', defaultFrom: -10, defaultTo: 0 },
-  { id: 'rotateX', label: 'Rotate X (3D Tilt)', icon: '📐', unit: '°', defaultFrom: 20, defaultTo: 0 },
-  { id: 'rotateY', label: 'Rotate Y (3D Pan)', icon: '📐', unit: '°', defaultFrom: 20, defaultTo: 0 },
-  { id: 'blur', label: 'Rack Focus (Blur)', icon: '🌫️', unit: 'px', defaultFrom: 10, defaultTo: 0 },
-  { id: 'brightness', label: 'Brightness Flash', icon: '💡', unit: 'x', defaultFrom: 0.3, defaultTo: 1.0 },
+const ANIMATION_PROPERTIES: {
+  id: ASTAnimation['property'];
+  label: string;
+  icon: React.ReactNode;
+  unit: string;
+  defaultFrom: number;
+  defaultTo: number;
+}[] = [
+  { id: 'translateY', label: 'Translate Y (Vertical)', icon: <ArrowUpDown size={12} className="text-amber-400" />, unit: 'px', defaultFrom: 45, defaultTo: 0 },
+  { id: 'translateX', label: 'Translate X (Horizontal)', icon: <ArrowLeftRight size={12} className="text-amber-400" />, unit: 'px', defaultFrom: 60, defaultTo: 0 },
+  { id: 'translateZ', label: 'Translate Z (3D Depth)', icon: <Layers size={12} className="text-amber-400" />, unit: 'px', defaultFrom: -150, defaultTo: 0 },
+  { id: 'scale', label: 'Scale (Zoom Drift)', icon: <ZoomIn size={12} className="text-amber-400" />, unit: 'x', defaultFrom: 0.85, defaultTo: 1.0 },
+  { id: 'opacity', label: 'Opacity (Fade)', icon: <Eye size={12} className="text-amber-400" />, unit: '%', defaultFrom: 0, defaultTo: 1 },
+  { id: 'rotate', label: 'Rotate 2D', icon: <RotateCw size={12} className="text-amber-400" />, unit: '°', defaultFrom: -10, defaultTo: 0 },
+  { id: 'rotateX', label: 'Rotate X (3D Tilt)', icon: <Compass size={12} className="text-amber-400" />, unit: '°', defaultFrom: 20, defaultTo: 0 },
+  { id: 'rotateY', label: 'Rotate Y (3D Pan)', icon: <Compass size={12} className="text-amber-400" />, unit: '°', defaultFrom: 20, defaultTo: 0 },
+  { id: 'blur', label: 'Rack Focus (Blur)', icon: <CloudFog size={12} className="text-amber-400" />, unit: 'px', defaultFrom: 10, defaultTo: 0 },
+  { id: 'brightness', label: 'Brightness Flash', icon: <Sun size={12} className="text-amber-400" />, unit: 'x', defaultFrom: 0.3, defaultTo: 1.0 },
 ];
 
-const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
+const PRESETS: { label: string; icon: React.ReactNode; animations: ASTAnimation[] }[] = [
   {
     label: 'Spring Pop In',
-    icon: '🚀',
+    icon: <Zap size={11} className="text-amber-400" />,
     animations: [
       { property: 'translateY', from: 45, to: 0, duration: 0.6, delay: 0.5, easing: 'spring' },
       { property: 'opacity', from: 0, to: 1, duration: 0.4, delay: 0.5, easing: 'ease-out' },
@@ -34,14 +65,14 @@ const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
   },
   {
     label: 'Parallax Drift',
-    icon: '🌊',
+    icon: <Waves size={11} className="text-cyan-400" />,
     animations: [
       { property: 'scale', from: 1.0, to: 1.06, duration: 4.5, delay: 0, easing: 'linear' },
     ],
   },
   {
     label: '3D Card Flip',
-    icon: '🔄',
+    icon: <RotateCw size={11} className="text-indigo-400" />,
     animations: [
       { property: 'rotateX', from: 20, to: 0, duration: 0.7, delay: 0.5, easing: 'spring' },
       { property: 'translateY', from: 40, to: 0, duration: 0.7, delay: 0.5, easing: 'spring' },
@@ -50,7 +81,7 @@ const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
   },
   {
     label: 'Rack Focus In',
-    icon: '🔍',
+    icon: <ZoomIn size={11} className="text-sky-400" />,
     animations: [
       { property: 'blur', from: 10, to: 0, duration: 0.6, delay: 0.5, easing: 'ease-out' },
       { property: 'opacity', from: 0, to: 1, duration: 0.5, delay: 0.5, easing: 'ease-out' },
@@ -58,7 +89,7 @@ const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
   },
   {
     label: 'Zoom Punch',
-    icon: '💥',
+    icon: <Sparkles size={11} className="text-amber-400" />,
     animations: [
       { property: 'scale', from: 1.15, to: 1.0, duration: 0.6, delay: 0.5, easing: 'spring' },
       { property: 'opacity', from: 0, to: 1, duration: 0.35, delay: 0.5, easing: 'ease-out' },
@@ -66,7 +97,7 @@ const PRESETS: { label: string; icon: string; animations: ASTAnimation[] }[] = [
   },
   {
     label: 'Fade Out Exit',
-    icon: '🚪',
+    icon: <LogOut size={11} className="text-rose-400" />,
     animations: [
       { property: 'opacity', from: 1, to: 0, duration: 0.4, delay: 2.0, easing: 'ease-out', exit: true },
     ],
@@ -78,6 +109,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
   onChange,
   exit,
   onExitChange,
+  sceneDuration = 5.0,
 }) => {
   const handleAddAnimation = (property: ASTAnimation['property'] = 'translateY') => {
     const propMeta = ANIMATION_PROPERTIES.find(p => p.id === property);
@@ -113,13 +145,28 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
     onChange(JSON.parse(JSON.stringify(presetAnims)));
   };
 
+  const isPresetActive = (presetAnims: ASTAnimation[]) => {
+    if (!animations || animations.length !== presetAnims.length) return false;
+    return presetAnims.every((pa, idx) => {
+      const a = animations[idx];
+      if (!a) return false;
+      return (
+        a.property === pa.property &&
+        a.easing === pa.easing &&
+        Math.abs((a.duration ?? 0) - (pa.duration ?? 0)) < 0.01 &&
+        Math.abs(((a as any).from ?? (a as any).from_ ?? 0) - ((pa as any).from ?? 0)) < 0.01 &&
+        Math.abs(((a as any).to ?? (a as any).to_ ?? 0) - ((pa as any).to ?? 0)) < 0.01
+      );
+    });
+  };
+
   return (
     <div className="space-y-3.5">
       {/* 1. Animation Presets */}
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-            <BsLightningCharge size={11} />
+          <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+            <Zap size={11} />
             Animation Presets
           </label>
           {animations.length > 0 && (
@@ -132,18 +179,36 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
             </button>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {PRESETS.map((preset, pIdx) => (
-            <button
-              key={pIdx}
-              type="button"
-              onClick={() => handleApplyPreset(preset.animations)}
-              className="px-2.5 py-1.5 bg-black/40 hover:bg-amber-500/15 border border-white/10 hover:border-amber-500/40 text-[10px] font-bold rounded-lg text-stone-300 hover:text-amber-300 transition-colors flex items-center gap-1.5 cursor-pointer"
-            >
-              <span>{preset.icon}</span>
-              <span>{preset.label}</span>
-            </button>
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+          {PRESETS.map((preset, pIdx) => {
+            const isActive = isPresetActive(preset.animations);
+            return (
+              <button
+                key={pIdx}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => {
+                  if (isActive) {
+                    onChange([]);
+                  } else {
+                    handleApplyPreset(preset.animations);
+                  }
+                }}
+                title={`${preset.label}${isActive ? ' (Active - click to remove)' : ''}`}
+                className={`w-full h-8 px-2 py-1 border text-[10px] font-medium rounded-lg flex items-center justify-between gap-1.5 transition-all text-left ${
+                  isActive
+                    ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 ring-1 ring-amber-500/30 font-semibold'
+                    : 'bg-zinc-950/60 hover:bg-amber-500/10 border-zinc-800 hover:border-amber-500/40 text-stone-300 hover:text-stone-100 cursor-pointer shadow-sm'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <span className="shrink-0">{preset.icon}</span>
+                  <span className="truncate">{preset.label}</span>
+                </div>
+                {isActive && <Check size={11} className="text-amber-400 shrink-0" />}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -158,12 +223,12 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
             onClick={() => handleAddAnimation()}
             className="px-2 py-0.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 text-[10px] font-bold uppercase rounded flex items-center gap-1 transition-colors cursor-pointer"
           >
-            <BiPlus size={12} /> Add Keyframe
+            <Plus size={12} /> Add Keyframe
           </button>
         </div>
 
         {animations.length === 0 ? (
-          <div className="p-3 bg-black/20 border border-white/5 rounded-lg text-center text-stone-500 text-[11px] italic">
+          <div className="p-3 bg-zinc-950/40 border border-white/5 rounded-xl text-center text-stone-500 text-[11px] italic">
             No active animations. Choose a preset above or click "+ Add Keyframe".
           </div>
         ) : (
@@ -174,66 +239,73 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
             return (
               <div
                 key={idx}
-                className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-2.5 relative group/item hover:border-white/20 transition-all"
+                className="p-3 bg-zinc-950/70 border border-zinc-800/80 rounded-xl space-y-3 relative group/item hover:border-zinc-700 transition-all shadow-sm"
               >
-                {/* Row 1: Property Selector, Duplicate & Delete */}
+                {/* Row 1: Property Selector, Exit Checkbox, Duplicate & Delete */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span className="text-[10px] font-mono font-bold text-amber-400/80 shrink-0">
-                      Track #{idx + 1}
+                      #{idx + 1}
                     </span>
-                    <select
-                      className="bg-black/60 border border-white/10 text-xs text-stone-200 rounded px-2 py-1 focus:outline-none focus:border-amber-500/50 cursor-pointer flex-1 font-semibold"
-                      value={anim.property}
-                      onChange={e => {
-                        const newProp = e.target.value as ASTAnimation['property'];
-                        const meta = ANIMATION_PROPERTIES.find(p => p.id === newProp);
-                        const updated = [...animations];
-                        updated[idx] = {
-                          ...updated[idx],
-                          property: newProp,
-                          from: meta?.defaultFrom ?? 0,
-                          to: meta?.defaultTo ?? 1,
-                        };
-                        onChange(updated);
-                      }}
-                    >
-                      {ANIMATION_PROPERTIES.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.icon} {p.label}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative flex-1">
+                      <select
+                        aria-label={`Track ${idx + 1} Animated Property`}
+                        className="w-full bg-zinc-900 border border-zinc-700/80 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer font-semibold"
+                        value={anim.property}
+                        onChange={e => {
+                          const newProp = e.target.value as ASTAnimation['property'];
+                          const meta = ANIMATION_PROPERTIES.find(p => p.id === newProp);
+                          const updated = [...animations];
+                          updated[idx] = {
+                            ...updated[idx],
+                            property: newProp,
+                            from: meta?.defaultFrom ?? 0,
+                            to: meta?.defaultTo ?? 1,
+                          };
+                          onChange(updated);
+                        }}
+                      >
+                        {ANIMATION_PROPERTIES.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.label} ({p.unit})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
                     <label
-                      className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-400 hover:text-amber-400 select-none shrink-0"
+                      className="flex items-center gap-1.5 cursor-pointer text-[10px] text-stone-400 hover:text-amber-400 select-none shrink-0 font-medium"
                       title="Mark as exit animation: stays idle until its delay starts, and unmounts layer once finished."
                     >
                       <input
                         type="checkbox"
                         checked={!!anim.exit}
                         onChange={e => handleUpdate(idx, 'exit', e.target.checked || undefined)}
-                        className="rounded bg-black/60 border-white/20 text-amber-500 focus:ring-0 cursor-pointer w-3 h-3"
+                        className="rounded bg-black/60 border-white/20 text-amber-500 focus:ring-0 cursor-pointer w-3.5 h-3.5"
                       />
-                      <span>🚪 Exit</span>
+                      <span className="flex items-center gap-1">
+                        <LogOut size={10} className="text-rose-400" /> Exit
+                      </span>
                     </label>
                     <button
                       type="button"
+                      aria-label="Duplicate Keyframe Track"
                       onClick={() => handleDuplicate(idx)}
                       className="p-1 text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-white/10 rounded transition-colors cursor-pointer"
                       title="Duplicate Keyframe Track"
                     >
-                      <BiCopy size={12} />
+                      <Copy size={12} />
                     </button>
                     <button
                       type="button"
+                      aria-label="Remove Keyframe Track"
                       onClick={() => handleDelete(idx)}
                       className="p-1 text-stone-400 hover:text-red-400 bg-white/5 hover:bg-red-500/10 rounded transition-colors cursor-pointer"
                       title="Remove Keyframe"
                     >
-                      <BiTrashAlt size={12} />
+                      <Trash2 size={12} />
                     </button>
                   </div>
                 </div>
@@ -248,10 +320,10 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                     <input
                       type="number"
                       step="any"
-                      className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1 text-xs text-stone-200 focus:outline-none font-mono"
+                      aria-label={`Track ${idx + 1} From Value`}
+                      className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-md px-2.5 py-1 text-xs text-stone-200 focus:outline-none focus:border-amber-500/60 font-mono"
                       value={(anim as any).from ?? (anim as any).from_ ?? 0}
                       onChange={e => {
-                        // Self-heal backend-serialized `from_` into the editor `from` contract.
                         const v = parseFloat(e.target.value) || 0;
                         const updated = [...animations];
                         const next: any = { ...updated[idx], from: v };
@@ -270,58 +342,47 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                     <input
                       type="number"
                       step="any"
-                      className="w-full bg-black/60 border border-white/10 rounded px-2.5 py-1 text-xs text-stone-200 focus:outline-none font-mono"
+                      aria-label={`Track ${idx + 1} To Value`}
+                      className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-md px-2.5 py-1 text-xs text-stone-200 focus:outline-none focus:border-amber-500/60 font-mono"
                       value={anim.to}
                       onChange={e => handleUpdate(idx, 'to', parseFloat(e.target.value) || 0)}
                     />
                   </div>
                 </div>
 
-                {/* Row 3: Timing & Physics Easing */}
-                <div className="grid grid-cols-3 gap-2 pt-1 border-t border-white/5">
-                  <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Duration</label>
-                    <div className="flex items-center gap-1 bg-black/60 border border-white/10 rounded px-1.5 py-0.5">
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono"
-                        value={anim.duration}
-                        onChange={e => handleUpdate(idx, 'duration', parseFloat(e.target.value) || 0.5)}
-                      />
-                      <span className="text-[9px] text-stone-500 font-mono">s</span>
-                    </div>
-                  </div>
+                {/* Row 3: Visual Scene-Duration Timing Bar (Delay + Duration) */}
+                <div className="pt-2 border-t border-white/5 space-y-2">
+                  <AnimationTimingBar
+                    sceneDuration={sceneDuration}
+                    delay={anim.delay ?? 0}
+                    duration={anim.duration ?? 0.6}
+                    isExit={!!anim.exit}
+                    loopMode={anim.loop_mode || 'none'}
+                    label={`Track #${idx + 1} Timeline`}
+                    onChange={({ delay, duration }) => {
+                      const updated = [...animations];
+                      updated[idx] = { ...updated[idx], delay, duration };
+                      onChange(updated);
+                    }}
+                  />
 
-                  <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block" title="Seconds from cut start. Cut transitions run ~0.5s — keep entrances at 0.5+ or they play hidden under the transition. Sync to the spoken word when possible.">Delay</label>
-                    <div className="flex items-center gap-1 bg-black/60 border border-white/10 rounded px-1.5 py-0.5">
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono"
-                        value={anim.delay ?? 0}
-                        onChange={e => handleUpdate(idx, 'delay', parseFloat(e.target.value) || 0)}
-                      />
-                      <span className="text-[9px] text-stone-500 font-mono">s</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">Curve</label>
+                  {/* Curve Easing Selector */}
+                  <div className="space-y-1 pt-1">
+                    <label className="text-[9px] font-bold uppercase tracking-wider text-stone-400 block">
+                      Easing Physics Curve
+                    </label>
                     <select
-                      className="w-full bg-black/60 border border-white/10 text-[11px] text-stone-200 rounded px-1.5 py-1 focus:outline-none cursor-pointer font-medium"
+                      aria-label={`Track ${idx + 1} Easing Curve`}
+                      className="w-full bg-zinc-900/90 border border-zinc-700/80 text-xs text-stone-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-amber-500/60 cursor-pointer font-medium"
                       value={anim.easing || 'spring'}
                       onChange={e => handleUpdate(idx, 'easing', e.target.value as any)}
                     >
-                      <option value="spring">Spring Physics</option>
-                      <option value="ease-out">Ease Out</option>
-                      <option value="ease-in-out">Ease In-Out</option>
-                      <option value="ease-in">Ease In</option>
-                      <option value="linear">Linear Drift</option>
-                      <option value="bounce">Bounce</option>
+                      <option value="spring">Spring Physics (Dynamic Tension)</option>
+                      <option value="ease-out">Ease Out (Decelerate)</option>
+                      <option value="ease-in-out">Ease In-Out (Smooth S-Curve)</option>
+                      <option value="ease-in">Ease In (Accelerate)</option>
+                      <option value="linear">Linear Drift (Constant Velocity)</option>
+                      <option value="bounce">Bounce (Elastic Impact)</option>
                       <option value="elastic">Elastic Overshoot</option>
                       <option value="back">Anticipation Wind-Up</option>
                       <option value="steps">Stepped Frames</option>
@@ -338,19 +399,30 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                   <div className="flex items-center gap-1">
                     {(['none', 'loop', 'pingpong'] as const).map(mode => {
                       const active = (anim.loop_mode || 'none') === mode;
-                      const label = mode === 'none' ? 'One-Shot' : mode === 'loop' ? '🔁 Loop' : '🏓 Ping-Pong';
                       return (
                         <button
                           key={mode}
                           type="button"
                           onClick={() => handleUpdate(idx, 'loop_mode', mode === 'none' ? undefined : mode)}
-                          className={`px-2 py-0.5 text-[9px] rounded border font-semibold transition-colors cursor-pointer ${
+                          className={`px-2 py-0.5 text-[9px] rounded-md border font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
                             active
                               ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                              : 'bg-black/40 border-white/10 text-stone-400 hover:text-stone-200'
+                              : 'bg-zinc-900/60 border-zinc-800 text-stone-400 hover:text-stone-200'
                           }`}
                         >
-                          {label}
+                          {mode === 'none' ? (
+                            <>
+                              <Play size={9} /> One-Shot
+                            </>
+                          ) : mode === 'loop' ? (
+                            <>
+                              <Repeat size={9} /> Loop
+                            </>
+                          ) : (
+                            <>
+                              <Repeat1 size={9} /> Ping-Pong
+                            </>
+                          )}
                         </button>
                       );
                     })}
@@ -359,15 +431,15 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
 
                 {/* Curve-specific manual parameters */}
                 {anim.easing === 'spring' && (
-                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1.5">
+                  <div className="p-2.5 bg-zinc-950/80 border border-zinc-800/80 rounded-lg space-y-2">
                     <div className="flex justify-between items-center text-[9px] font-bold uppercase tracking-wider text-amber-400/90">
                       <span>Spring Physics Controls</span>
                       <span className="text-[8px] text-stone-500 font-mono">Damping / Stiffness / Mass</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-1.5">
+                    <div className="grid grid-cols-3 gap-2">
                       <div className="space-y-0.5">
                         <div className="flex justify-between text-[8px] text-stone-400 font-mono">
-                          <span>Damp</span>
+                          <span>Damping</span>
                           <span className="text-amber-400">{anim.damping ?? 14}</span>
                         </div>
                         <input
@@ -377,13 +449,13 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                           step="1"
                           value={anim.damping ?? 14}
                           onChange={e => handleUpdate(idx, 'damping', parseFloat(e.target.value) || 14)}
-                          className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                          className="w-full bg-zinc-900 border border-zinc-700/80 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
                           title="Damping (bounciness friction: lower = bouncier, higher = stiffer)"
                         />
                       </div>
                       <div className="space-y-0.5">
                         <div className="flex justify-between text-[8px] text-stone-400 font-mono">
-                          <span>Stiff</span>
+                          <span>Stiffness</span>
                           <span className="text-amber-400">{anim.stiffness ?? 100}</span>
                         </div>
                         <input
@@ -393,7 +465,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                           step="5"
                           value={anim.stiffness ?? 100}
                           onChange={e => handleUpdate(idx, 'stiffness', parseFloat(e.target.value) || 100)}
-                          className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                          className="w-full bg-zinc-900 border border-zinc-700/80 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
                           title="Stiffness (tension/snap speed: higher = faster snap)"
                         />
                       </div>
@@ -409,7 +481,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                           step="0.1"
                           value={anim.mass ?? 0.9}
                           onChange={e => handleUpdate(idx, 'mass', parseFloat(e.target.value) || 0.9)}
-                          className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                          className="w-full bg-zinc-900 border border-zinc-700/80 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
                           title="Mass (weight/inertia: higher = heavier overshoot)"
                         />
                       </div>
@@ -427,7 +499,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                 )}
 
                 {anim.easing === 'elastic' && (
-                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1">
+                  <div className="p-2 bg-zinc-950/80 border border-zinc-800/80 rounded-lg space-y-1">
                     <div className="flex justify-between text-[8px] text-stone-400 font-mono">
                       <span>Elastic Bounciness</span>
                       <span className="text-amber-400">{anim.elastic_bounciness ?? 1.0}</span>
@@ -439,13 +511,13 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                       step="0.1"
                       value={anim.elastic_bounciness ?? 1.0}
                       onChange={e => handleUpdate(idx, 'elastic_bounciness', parseFloat(e.target.value) || 1.0)}
-                      className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                      className="w-full bg-zinc-900 border border-zinc-700/80 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
                     />
                   </div>
                 )}
 
                 {anim.easing === 'back' && (
-                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1">
+                  <div className="p-2 bg-zinc-950/80 border border-zinc-800/80 rounded-lg space-y-1">
                     <div className="flex justify-between text-[8px] text-stone-400 font-mono">
                       <span>Anticipation Overshoot Factor</span>
                       <span className="text-amber-400">{anim.back_overshoot ?? 1.7}</span>
@@ -457,13 +529,13 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                       step="0.1"
                       value={anim.back_overshoot ?? 1.7}
                       onChange={e => handleUpdate(idx, 'back_overshoot', parseFloat(e.target.value) || 1.7)}
-                      className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                      className="w-full bg-zinc-900 border border-zinc-700/80 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
                     />
                   </div>
                 )}
 
                 {anim.easing === 'steps' && (
-                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1">
+                  <div className="p-2 bg-zinc-950/80 border border-zinc-800/80 rounded-lg space-y-1">
                     <div className="flex justify-between text-[8px] text-stone-400 font-mono">
                       <span>Discrete Steps Count</span>
                       <span className="text-amber-400">{anim.steps_count ?? 5}</span>
@@ -475,13 +547,13 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                       step="1"
                       value={anim.steps_count ?? 5}
                       onChange={e => handleUpdate(idx, 'steps_count', parseInt(e.target.value, 10) || 5)}
-                      className="w-full bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
+                      className="w-full bg-zinc-900 border border-zinc-700/80 rounded px-1.5 py-0.5 text-[10px] text-stone-200 font-mono focus:outline-none"
                     />
                   </div>
                 )}
 
                 {anim.easing === 'bezier' && (
-                  <div className="p-2 bg-black/50 border border-white/5 rounded-lg space-y-1">
+                  <div className="p-2 bg-zinc-950/80 border border-zinc-800/80 rounded-lg space-y-1">
                     <div className="flex justify-between text-[8px] text-stone-400 font-mono">
                       <span>Cubic Bézier Points [X1, Y1, X2, Y2]</span>
                     </div>
@@ -489,8 +561,6 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                       {([0, 1, 2, 3] as const).map(pIdx => {
                         const pts = anim.bezier_points || [0.16, 1.0, 0.3, 1.0];
                         const labels = ['X1', 'Y1', 'X2', 'Y2'];
-                        // Remotion throws when X1/X2 leave [0, 1] — constrain
-                        // at the input so a typo can't break the whole layer.
                         const isX = pIdx % 2 === 0;
                         return (
                           <div key={pIdx} className="space-y-0.5">
@@ -509,7 +579,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                                 nextPts[pIdx] = v;
                                 handleUpdate(idx, 'bezier_points', nextPts);
                               }}
-                              className="w-full bg-black/60 border border-white/10 rounded px-1 py-0.5 text-[10px] text-stone-200 font-mono text-center focus:outline-none"
+                              className="w-full bg-zinc-900 border border-zinc-700/80 rounded px-1 py-0.5 text-[10px] text-stone-200 font-mono text-center focus:outline-none"
                             />
                           </div>
                         );
@@ -525,10 +595,10 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
 
       {/* 3. Layer Exit Behavior (Unmounts layer before cut finishes) */}
       {onExitChange && (
-        <div className="p-3 bg-black/30 border border-white/10 rounded-xl space-y-2">
+        <div className="p-3 bg-zinc-950/70 border border-zinc-800/80 rounded-xl space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-              🚪 Layer Exit Behavior
+            <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <LogOut size={11} /> Layer Exit Behavior
             </label>
             <span className="text-[9px] text-stone-500 font-mono">
               {exit === true ? 'Exit after motion' : typeof exit === 'number' ? `Exit at ${exit}s` : 'Persist full cut (default)'}
@@ -538,7 +608,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
             <button
               type="button"
               onClick={() => onExitChange(undefined)}
-              className={`px-2 py-1 text-[10px] rounded border transition-colors cursor-pointer text-center ${exit === undefined || exit === false ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-semibold' : 'bg-black/40 border-white/10 text-stone-400 hover:text-stone-200 font-medium'}`}
+              className={`px-2 py-1 text-[10px] rounded-md border transition-colors cursor-pointer text-center ${exit === undefined || exit === false ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-semibold' : 'bg-zinc-900 border-zinc-800 text-stone-400 hover:text-stone-200 font-medium'}`}
               title="Layer stays visible for the entire duration of this cut"
             >
               Full Cut
@@ -546,17 +616,18 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
             <button
               type="button"
               onClick={() => onExitChange(true)}
-              className={`px-2 py-1 text-[10px] rounded border transition-colors cursor-pointer text-center ${exit === true ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-semibold' : 'bg-black/40 border-white/10 text-stone-400 hover:text-stone-200 font-medium'}`}
+              className={`px-2 py-1 text-[10px] rounded-md border transition-colors cursor-pointer text-center ${exit === true ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-semibold' : 'bg-zinc-900 border-zinc-800 text-stone-400 hover:text-stone-200 font-medium'}`}
               title="Layer unmounts cleanly once its animation timeline ends"
             >
               After Motion
             </button>
-            <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded px-1.5 py-0.5">
+            <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-md px-1.5 py-0.5">
               <input
                 type="number"
                 step="0.1"
                 min="0.1"
                 placeholder="Sec"
+                aria-label="Custom Exit Time in Seconds"
                 className="w-full bg-transparent text-[10px] text-stone-200 focus:outline-none font-mono"
                 value={typeof exit === 'number' ? exit : ''}
                 onChange={e => {
@@ -568,8 +639,9 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
             </div>
           </div>
           {exit === true && animations.some(a => a && (a.loop_mode === 'loop' || a.loop_mode === 'pingpong') && !a.exit) && (
-            <div className="text-[9px] text-amber-400/90 font-mono px-0.5">
-              ⚠️ Looping tracks never end — exit timing uses the finite tracks only (pure-loop layers persist the full cut).
+            <div className="flex items-center gap-1 text-[9px] text-amber-400/90 font-mono px-0.5">
+              <AlertTriangle size={11} className="shrink-0 text-amber-400" />
+              <span>Looping tracks never end — exit timing uses finite tracks only (pure-loop layers persist full cut).</span>
             </div>
           )}
         </div>

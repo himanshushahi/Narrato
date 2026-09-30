@@ -1,5 +1,24 @@
 import React, { memo, useState, useEffect } from 'react';
-import { BsLayoutSplit, BsSliders } from 'react-icons/bs';
+import {
+  LayoutTemplate,
+  Sliders,
+  Maximize2,
+  Square,
+  PanelLeft,
+  PanelRight,
+  PanelBottom,
+  PanelTop,
+  FlipHorizontal,
+  FlipVertical,
+  Link2,
+  Unlink2,
+  RotateCw,
+  Box,
+  Monitor,
+  AlertTriangle,
+  Info,
+  Sparkles,
+} from 'lucide-react';
 import { useProjectStore } from '../../../store/useProjectStore';
 
 interface AstLayoutControlsProps {
@@ -16,10 +35,10 @@ interface AstLayoutControlsProps {
   fullscreenLocked?: boolean;
 }
 
-const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> }[] = [
+const LAYOUT_PRESETS: { label: string; icon: React.ComponentType<{ className?: string }>; style: Record<string, any> }[] = [
   {
     label: 'Fullscreen',
-    icon: '🔲',
+    icon: Maximize2,
     style: {
       position: 'absolute',
       left: '0%',
@@ -31,7 +50,7 @@ const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> 
   },
   {
     label: 'Center Card',
-    icon: '🪟',
+    icon: Square,
     style: {
       position: 'absolute',
       left: '15%',
@@ -42,7 +61,7 @@ const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> 
   },
   {
     label: 'Left Split (42%)',
-    icon: '🌓',
+    icon: PanelLeft,
     style: {
       position: 'absolute',
       left: '6%',
@@ -53,7 +72,7 @@ const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> 
   },
   {
     label: 'Right Split (42%)',
-    icon: '🌗',
+    icon: PanelRight,
     style: {
       position: 'absolute',
       left: '52%',
@@ -64,7 +83,7 @@ const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> 
   },
   {
     label: 'Lower Third',
-    icon: '📋',
+    icon: PanelBottom,
     style: {
       position: 'absolute',
       bottom: '18%',
@@ -75,7 +94,7 @@ const LAYOUT_PRESETS: { label: string; icon: string; style: Record<string, any> 
   },
   {
     label: 'Top Header Banner',
-    icon: '📌',
+    icon: PanelTop,
     style: {
       position: 'absolute',
       left: '8%',
@@ -195,8 +214,8 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
     return (
       <div className="space-y-3.5">
         <div className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
-            🖥️ Fullscreen Canvas
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+            <Monitor className="w-3.5 h-3.5 text-amber-400" /> Fullscreen Canvas
           </span>
           <p className="text-[10px] text-stone-400 leading-relaxed">
             This layer renders full-frame — position and size are locked to fullscreen.
@@ -419,23 +438,26 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
     <div className="space-y-3.5">
       {/* 1. Layout Presets */}
       <div className="space-y-1.5">
-        <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-          <BsLayoutSplit size={11} />
+        <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+          <LayoutTemplate className="w-3 h-3 text-amber-400" />
           Position Presets
         </label>
         <div className="grid grid-cols-2 gap-1.5">
-          {LAYOUT_PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              title={preset.label}
-              onClick={() => handleApplyPreset({ ...preset.style, bottom: undefined, right: undefined })}
-              className="w-full px-2.5 py-1.5 bg-black/40 border text-[10px] font-bold rounded-lg flex items-center gap-2 text-left truncate transition-colors hover:bg-amber-500/15 border-white/10 hover:border-amber-500/40 text-stone-300 hover:text-amber-300 cursor-pointer"
-            >
-              <span>{preset.icon}</span>
-              <span className="truncate">{preset.label}</span>
-            </button>
-          ))}
+          {LAYOUT_PRESETS.map((preset) => {
+            const Icon = preset.icon;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                title={preset.label}
+                onClick={() => handleApplyPreset({ ...preset.style, bottom: undefined, right: undefined })}
+                className="w-full px-2.5 py-1.5 bg-black/40 border text-[10px] font-bold rounded-lg flex items-center gap-2 text-left truncate transition-colors hover:bg-amber-500/15 border-white/10 hover:border-amber-500/40 text-stone-300 hover:text-amber-300 cursor-pointer"
+              >
+                <Icon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="truncate">{preset.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -559,7 +581,10 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
 
         {rawRadius === '50%' && !currentStyle.aspectRatio && isMedia && (
           <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[10px] leading-relaxed text-amber-200/90 flex items-center justify-between gap-2">
-            <span>⚠️ 50% radius on a rectangle creates an oval. Lock 1:1 aspect ratio to make it a perfect circle.</span>
+            <span className="flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              50% radius on a rectangle creates an oval. Lock 1:1 aspect ratio to make it a perfect circle.
+            </span>
             <button
               type="button"
               onClick={() => {
@@ -575,23 +600,25 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           </div>
         )}
 
-        <p className="text-[9px] text-stone-500 leading-relaxed">
-          💡 Tip: On full-frame layers, corner rounding trims outer canvas corners. For visible cards, insets, or circular badges, select a Layout Preset above or use Scale below.
+        <p className="text-[9px] text-stone-500 leading-relaxed flex items-start gap-1">
+          <Sparkles className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
+          <span>Tip: On full-frame layers, corner rounding trims outer canvas corners. For visible cards, insets, or circular badges, select a Layout Preset above or use Scale below.</span>
         </p>
       </div>
 
       {/* 3. Position & Base Box Size (box = layout; Scale below = emphasis/zoom) */}
       <div className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-            <BsSliders size={11} />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+            <Sliders className="w-3 h-3 text-amber-400" />
             Position &amp; Box Size
           </span>
           <span className="text-[9px] text-stone-500 font-mono">{gridLabel}</span>
         </div>
         {dimensionsNote && (
-          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
-            ℹ️ {dimensionsNote}
+          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90 flex items-start gap-1.5">
+            <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+            <span>{dimensionsNote}</span>
           </div>
         )}
 
@@ -851,8 +878,9 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           ) : null;
         })()}
         {isMedia && (
-          <p className="text-[9px] text-stone-500 leading-relaxed">
-            ✨ Media fills its box edge-to-edge. Corner radius rounds the photo directly.
+          <p className="text-[9px] text-stone-500 leading-relaxed flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+            <span>Media fills its box edge-to-edge. Corner radius rounds the photo directly.</span>
           </p>
         )}
       </div>
@@ -863,8 +891,9 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           Zoom on top of the base box above — 100% = box size. Box wrong? Fix Width/Height first.
         </p>
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
-            ⟳ Scale &amp; Rotation
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+            <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+            Scale &amp; Rotation
           </span>
           <div className="flex items-center gap-1.5">
             <button
@@ -872,28 +901,28 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
               onClick={() => {
                 handleApplyPreset({ scaleX: -scaleXVal, scale: undefined });
               }}
-              className={`text-[9px] font-medium px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+              className={`text-[9px] font-medium px-1.5 py-0.5 rounded border transition-colors cursor-pointer flex items-center gap-1 ${
                 signX < 0
                   ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
                   : 'bg-black/50 border-white/10 text-stone-400 hover:text-stone-200'
               }`}
               title={signX < 0 ? 'Horizontal mirror active — click to unflip' : 'Flip horizontally (mirror left/right)'}
             >
-              ↔ Flip H
+              <FlipHorizontal className="w-3 h-3" /> Flip H
             </button>
             <button
               type="button"
               onClick={() => {
                 handleApplyPreset({ scaleY: -scaleYVal, scale: undefined });
               }}
-              className={`text-[9px] font-medium px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+              className={`text-[9px] font-medium px-1.5 py-0.5 rounded border transition-colors cursor-pointer flex items-center gap-1 ${
                 signY < 0
                   ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
                   : 'bg-black/50 border-white/10 text-stone-400 hover:text-stone-200'
               }`}
               title={signY < 0 ? 'Vertical mirror active — click to unflip' : 'Flip vertically (mirror upside down)'}
             >
-              ↕ Flip V
+              <FlipVertical className="w-3 h-3" /> Flip V
             </button>
             <button
               type="button"
@@ -908,14 +937,14 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
                 }
                 setScaleLinked(v => !v);
               }}
-              className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+              className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors cursor-pointer flex items-center gap-1 ${
                 scaleLinked
                   ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
                   : 'bg-black/50 border-white/10 text-stone-500 hover:text-stone-300'
               }`}
               title={scaleLinked ? 'Uniform scale linked — X and Y move together (CapCut link ON)' : 'Uniform scale unlinked — X and Y move independently (CapCut link OFF)'}
             >
-              {scaleLinked ? '🔗 Linked' : '⛓️‍💥 Split'}
+              {scaleLinked ? <><Link2 className="w-3 h-3" /> Linked</> : <><Unlink2 className="w-3 h-3" /> Split</>}
             </button>
             {hasTransform && (
               <button
@@ -941,8 +970,9 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
           </div>
         </div>
         {transformNote && (
-          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90">
-            ℹ️ {transformNote}
+          <div className="p-2 bg-sky-500/10 border border-sky-500/25 rounded-lg text-[10px] leading-relaxed text-sky-200/90 flex items-start gap-1.5">
+            <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+            <span>{transformNote}</span>
           </div>
         )}
 
@@ -1057,8 +1087,8 @@ const AstLayoutControlsInner: React.FC<AstLayoutControlsProps> = ({
         {/* 3D Spatial Depth & Tilt Controls */}
         <div className="pt-2 border-t border-white/5 space-y-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/90 flex items-center gap-1">
-              <span>🪐</span> 3D Spatial Transforms
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/90 flex items-center gap-1.5">
+              <Box className="w-3.5 h-3.5 text-amber-400" /> 3D Spatial Transforms
             </span>
             {(rotateXVal !== 0 || rotateYVal !== 0 || translateZVal !== 0) && (
               <button

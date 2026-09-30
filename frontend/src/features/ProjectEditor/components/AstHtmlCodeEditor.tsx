@@ -4,7 +4,7 @@ import hljs from 'highlight.js/lib/core';
 import xml from 'highlight.js/lib/languages/xml';
 import css from 'highlight.js/lib/languages/css';
 import 'highlight.js/styles/atom-one-dark.css';
-import { BsCodeSlash, BsMagic, BsClipboard } from 'react-icons/bs';
+import { Code2, Wand2, Copy, Check } from 'lucide-react';
 
 try {
   hljs.registerLanguage('xml', xml);
@@ -90,7 +90,7 @@ const AstHtmlCodeEditorInner: React.FC<AstHtmlCodeEditorProps> = ({
       {/* Header Bar */}
       <div className="flex items-center justify-between gap-2">
         <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5 shrink-0 whitespace-nowrap">
-          <BsCodeSlash size={12} />
+          <Code2 className="w-3 h-3 text-amber-400" />
           HTML / SVG Code ({lineCount} {lineCount === 1 ? 'line' : 'lines'})
         </label>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -100,7 +100,7 @@ const AstHtmlCodeEditorInner: React.FC<AstHtmlCodeEditorProps> = ({
             className="px-2 py-0.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-bold uppercase rounded flex items-center gap-1 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
             title="Auto-format & indent HTML / SVG code"
           >
-            <BsMagic size={10} /> Format Code
+            <Wand2 className="w-3 h-3" /> Format Code
           </button>
           <button
             type="button"
@@ -108,7 +108,8 @@ const AstHtmlCodeEditorInner: React.FC<AstHtmlCodeEditorProps> = ({
             className="px-2 py-0.5 bg-white/5 hover:bg-white/10 border border-white/10 text-stone-300 text-[10px] font-bold uppercase rounded flex items-center gap-1 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
             title="Copy code to clipboard"
           >
-            <BsClipboard size={10} /> {copied ? 'Copied!' : 'Copy'}
+            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            {copied ? 'Copied!' : 'Copy'}
           </button>
         </div>
       </div>

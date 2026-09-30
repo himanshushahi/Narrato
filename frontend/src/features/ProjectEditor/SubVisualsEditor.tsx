@@ -2,8 +2,7 @@ import { CustomInput } from '../../components/ui/CustomInput';
 import { SubVisualsDurationBar } from './SubVisualsDurationBar';
 import { AstGraphicalEditor } from './components/AstGraphicalEditor';
 import { formatTime } from './constants';
-import { BiTrashAlt } from 'react-icons/bi';
-import { BsPlus, BsStars, BsSendFill } from 'react-icons/bs';
+import { Trash2, Plus, Sparkles, Send, ArrowLeftRight, Target, ZoomIn, Mic, MicOff, Music, VolumeX, ChevronsUpDown, Code, Layout } from 'lucide-react';
 import { useState, Fragment, useEffect, useRef, useCallback } from 'react';
 import Editor from 'react-simple-code-editor';
 import hljs from 'highlight.js/lib/core';
@@ -180,7 +179,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               <div className="flex items-center gap-2 group/insert">
                 <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
                 <button type="button" onClick={(e) => { e.stopPropagation(); handleInsert(idx); }} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-stone-500 hover:text-amber-400 opacity-0 group-hover/insert:opacity-100 transition-all duration-200 px-2 py-1 rounded hover:bg-amber-500/10 cursor-pointer" title="Insert layer here">
-                  <BsPlus size={14} /> Insert
+                  <Plus size={14} /> Insert
                 </button>
                 <div className="flex-1 h-px bg-white/5 group-hover/insert:bg-amber-500/20 transition-colors"></div>
               </div>
@@ -230,7 +229,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                       className={`px-2 py-1 rounded-md text-xs flex items-center gap-1 transition-colors ${aiDisabled ? 'opacity-40 cursor-not-allowed text-stone-500 bg-white/5 border border-white/10' : `cursor-pointer ${aiPromptIdx === idx ? 'bg-amber-500 text-black font-bold' : 'text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30'}`}`}
                       title={aiDisabled ? 'AI rewrites run one at a time — wait for the current one' : 'AI Magic Rewrite'}
                     >
-                      <BsStars size={12} />
+                      <Sparkles size={12} />
                       <span className="text-[10px] font-bold">AI Rewrite</span>
                     </button>
                   )}
@@ -241,7 +240,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                       className="p-1.5 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-md transition-colors cursor-pointer"
                       title="Delete Cut"
                     >
-                      <BiTrashAlt size={13} />
+                      <Trash2 size={13} />
                     </button>
                   )}
                 </div>
@@ -287,7 +286,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                       }}
                       className="bg-amber-600 hover:bg-amber-500 text-white px-3 rounded flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
                     >
-                      {isRewriting ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <BsSendFill size={12} />}
+                      {isRewriting ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send size={12} />}
                     </button>
                   </div>
                 </div>
@@ -297,8 +296,9 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
               <div className="p-2.5 bg-black/35 border border-white/5 rounded-lg space-y-2" onClick={e => e.stopPropagation()}>
                 {/* Transition Selector: Fills available horizontal width */}
                 <div className="flex items-center gap-2 w-full">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 shrink-0">
-                    ⚡ Transition:
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 shrink-0 inline-flex items-center gap-1.5">
+                    <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                    <span>Transition:</span>
                   </span>
                   <select
                     className="flex-1 w-full bg-black/60 border border-white/10 hover:border-amber-500/40 text-[11px] font-semibold text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
@@ -323,8 +323,9 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                 {/* Punch-in Emphasis Marks: mid-cut zoom snaps */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 shrink-0">
-                      🎯 Punch-ins ({(sv.emphasis || []).length}):
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 shrink-0 inline-flex items-center gap-1.5">
+                      <Target className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                      <span>Punch-ins ({(sv.emphasis || []).length}):</span>
                     </span>
                     <button
                       type="button"
@@ -334,10 +335,11 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                         marks.push({ at: Number(Math.min(Math.max(0.5, dur / 3), Math.max(0, dur - 0.6)).toFixed(2)), scale: 1.12, duration: 0.5 });
                         handleUpdate(idx, 'emphasis', marks);
                       }}
-                      className="text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded cursor-pointer"
+                      className="text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded cursor-pointer inline-flex items-center gap-1 transition-colors"
                       title="Add a punch-in zoom (sudden scale-up + settle) at 1/3 into this cut"
                     >
-                      + Add
+                      <Plus className="w-3 h-3" aria-hidden="true" />
+                      <span>Add</span>
                     </button>
                   </div>
                   {(sv.emphasis || []).map((m: any, mIdx: number) => {
@@ -353,10 +355,15 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     return (
                       <div key={mIdx} className="p-2 bg-black/40 border border-white/10 rounded-lg space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-bold text-stone-400">Punch {mIdx + 1}</span>
+                          <span className="text-[9px] font-bold text-stone-400 inline-flex items-center gap-1">
+                            <ZoomIn className="w-3 h-3 text-amber-400/80" aria-hidden="true" />
+                            <span>Punch {mIdx + 1}</span>
+                          </span>
                           <button type="button" onClick={delMark}
-                            className="text-[9px] text-stone-500 hover:text-red-400 uppercase font-semibold cursor-pointer">
-                            Remove
+                            className="text-[9px] text-stone-500 hover:text-red-400 uppercase font-semibold cursor-pointer inline-flex items-center gap-1 transition-colors"
+                            title={`Remove punch-in ${mIdx + 1}`}>
+                            <Trash2 className="w-2.5 h-2.5" aria-hidden="true" />
+                            <span>Remove</span>
                           </button>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
@@ -395,7 +402,17 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     className={`w-full py-1.5 px-2 rounded-md border text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5 ${sv.mute_voiceover ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-stone-300 hover:border-emerald-500/40 hover:text-emerald-400 hover:bg-emerald-500/10'}`}
                     title="Mute / Unmute narrator voiceover during this cut"
                   >
-                    {sv.mute_voiceover ? '✕ Voice Muted' : '🎙️ Voice On'}
+                    {sv.mute_voiceover ? (
+                      <>
+                        <MicOff className="w-3.5 h-3.5 text-red-400 shrink-0" aria-hidden="true" />
+                        <span>Voice Muted</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-emerald-400 shrink-0" aria-hidden="true" />
+                        <span>Voice On</span>
+                      </>
+                    )}
                   </button>
                   <button
                     type="button"
@@ -403,7 +420,17 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     className={`w-full py-1.5 px-2 rounded-md border text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5 ${sv.mute_bg_music ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-stone-300 hover:border-blue-500/40 hover:text-blue-400 hover:bg-blue-500/10'}`}
                     title="Mute / Unmute background music during this cut"
                   >
-                    {sv.mute_bg_music ? '✕ Music Off' : '🎵 Music On'}
+                    {sv.mute_bg_music ? (
+                      <>
+                        <VolumeX className="w-3.5 h-3.5 text-red-400 shrink-0" aria-hidden="true" />
+                        <span>Music Off</span>
+                      </>
+                    ) : (
+                      <>
+                        <Music className="w-3.5 h-3.5 text-blue-400 shrink-0" aria-hidden="true" />
+                        <span>Music On</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -417,19 +444,21 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('ast:toggle-collapse-all')); }}
-                        className="h-6 inline-flex items-center px-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                        className="h-6 inline-flex items-center gap-1 px-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                         title="Collapse all to compact rows, or expand them again (X)"
                       >
-                        Collapse
+                        <ChevronsUpDown className="w-3 h-3 text-stone-400" aria-hidden="true" />
+                        <span>Collapse</span>
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setViewMode(prev => ({ ...prev, [idx]: prev[idx] === 'json' ? 'gui' : 'json' })) }}
-                      className="h-6 inline-flex items-center px-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer whitespace-nowrap"
+                      className="h-6 inline-flex items-center gap-1.5 px-2 text-[10px] font-bold uppercase tracking-wider text-stone-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-colors cursor-pointer whitespace-nowrap"
                       title="Toggle Graphical / JSON view (V)"
                     >
-                      View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}
+                      {viewMode[idx] === 'json' ? <Layout className="w-3 h-3 text-amber-400" aria-hidden="true" /> : <Code className="w-3 h-3 text-amber-400" aria-hidden="true" />}
+                      <span>View: {viewMode[idx] === 'json' ? 'GUI' : 'JSON'}</span>
                     </button>
                   </div>
                 </div>
@@ -450,6 +479,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     onMoveLayer={onMoveLayer ? (fromIdx, toIdx) => onMoveLayer(idx, fromIdx, toIdx) : undefined}
                     onReorderLayer={onReorderLayer ? (fromIdx, toIdx) => onReorderLayer(idx, fromIdx, toIdx) : undefined}
                     uploadingSubVisual={uploadingSubVisual}
+                    sceneDuration={(sv ?? latestSubVisualsRef.current[idx])?.duration || 5.0}
                   />
                 )}
               </div>
@@ -461,7 +491,7 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
 
       {!singleCut && (
         <button type="button" onClick={handleAdd} className="w-full py-3 mt-2 text-xs font-bold uppercase tracking-wider bg-amber-600/10 text-amber-500 hover:bg-amber-600/20 border border-amber-600/30 border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors">
-          <BsPlus size={20} /> Add New Sub-Visual
+          <Plus size={20} /> Add New Sub-Visual
         </button>
       )}
     </div>

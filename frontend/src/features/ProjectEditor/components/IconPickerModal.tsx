@@ -1,7 +1,19 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import * as LucideIcons from 'lucide-react';
-import { BsSearch, BsX } from 'react-icons/bs';
+import {
+  Search,
+  X,
+  Sparkles,
+  Coins,
+  Shield,
+  Zap,
+  Globe,
+  Newspaper,
+  Dna,
+  Leaf,
+  Target,
+} from 'lucide-react';
 import { DynamicIcon } from '../../../components/video/DynamicIcon';
 
 export interface IconPickerModalProps {
@@ -53,16 +65,16 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   ui: ['arrow', 'chevron', 'plus', 'minus', 'x', 'check', 'search', 'settings', 'menu', 'layers', 'sliders', 'filter', 'more', 'copy', 'trash', 'edit', 'share', 'download', 'upload', 'refresh', 'external-link', 'star', 'bookmark', 'user', 'users', 'grid', 'layout', 'bell'],
 };
 
-const CATEGORIES: { id: string; label: string; icon: string }[] = [
-  { id: 'all', label: 'All Icons', icon: '✨' },
-  { id: 'finance', label: 'Finance & Crypto', icon: '💰' },
-  { id: 'security', label: 'Security & Law', icon: '🛡️' },
-  { id: 'tech', label: 'Tech & Hardware', icon: '⚡' },
-  { id: 'logistics', label: 'Travel & Logistics', icon: '🌍' },
-  { id: 'media', label: 'Media & Arts', icon: '📰' },
-  { id: 'science', label: 'Science & Health', icon: '🧬' },
-  { id: 'nature', label: 'Nature & Climate', icon: '🌿' },
-  { id: 'ui', label: 'UI & Controls', icon: '🎯' },
+const CATEGORIES: { id: string; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'all', label: 'All Icons', icon: Sparkles },
+  { id: 'finance', label: 'Finance & Crypto', icon: Coins },
+  { id: 'security', label: 'Security & Law', icon: Shield },
+  { id: 'tech', label: 'Tech & Hardware', icon: Zap },
+  { id: 'logistics', label: 'Travel & Logistics', icon: Globe },
+  { id: 'media', label: 'Media & Arts', icon: Newspaper },
+  { id: 'science', label: 'Science & Health', icon: Dna },
+  { id: 'nature', label: 'Nature & Climate', icon: Leaf },
+  { id: 'ui', label: 'UI & Controls', icon: Target },
 ];
 
 const INITIAL_PAGE_SIZE = 72;
@@ -131,6 +143,9 @@ export const IconPickerModal = ({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="icon-picker-modal-title"
         className="bg-stone-900 border border-stone-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] relative z-[10000]"
         onClick={e => e.stopPropagation()}
       >
@@ -141,7 +156,7 @@ export const IconPickerModal = ({
               <DynamicIcon name="sparkles" size={18} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-stone-100 flex items-center gap-2">
+              <h3 id="icon-picker-modal-title" className="text-sm font-bold text-stone-100 flex items-center gap-2">
                 <span>Lucide Vector Icon Catalog</span>
                 <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-mono font-normal">
                   {MASTER_ICON_REGISTRY.length}+ Icons
@@ -153,20 +168,23 @@ export const IconPickerModal = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close icon picker"
             className="p-1.5 text-stone-400 hover:text-stone-200 hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
           >
-            <BsX size={20} />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Search Bar & Categories */}
         <div className="p-4 border-b border-stone-800/80 bg-stone-950/40 space-y-2.5">
           <div className="relative flex items-center">
-            <BsSearch className="absolute left-3.5 text-stone-500" size={14} />
+            <Search className="absolute left-3.5 text-stone-500 w-3.5 h-3.5" />
             <input
               type="text"
               autoFocus
+              aria-label="Search icons"
               value={query}
               onChange={e => {
                 setQuery(e.target.value);
@@ -177,6 +195,8 @@ export const IconPickerModal = ({
             />
             {query && (
               <button
+                type="button"
+                aria-label="Clear icon search"
                 onClick={() => {
                   setQuery('');
                   setDisplayLimit(INITIAL_PAGE_SIZE);
@@ -189,25 +209,31 @@ export const IconPickerModal = ({
           </div>
 
           {/* Category Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-            {CATEGORIES.map(cat => (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => {
-                  setActiveCategory(cat.id);
-                  setDisplayLimit(INITIAL_PAGE_SIZE);
-                }}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0 flex items-center gap-1 border ${
-                  activeCategory === cat.id
-                    ? 'bg-amber-500 text-black border-amber-500 shadow-sm font-extrabold'
-                    : 'bg-stone-900 border-stone-800 text-stone-400 hover:text-stone-200 hover:bg-stone-800'
-                }`}
-              >
-                <span>{cat.icon}</span>
-                <span>{cat.label}</span>
-              </button>
-            ))}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" role="toolbar" aria-label="Icon categories">
+            {CATEGORIES.map(cat => {
+              const Icon = cat.icon;
+              const isSel = activeCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  aria-pressed={isSel}
+                  aria-label={`Filter by ${cat.label}`}
+                  onClick={() => {
+                    setActiveCategory(cat.id);
+                    setDisplayLimit(INITIAL_PAGE_SIZE);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 border ${
+                    isSel
+                      ? 'bg-amber-500 text-black border-amber-500 shadow-sm font-extrabold'
+                      : 'bg-stone-900 border-stone-800 text-stone-400 hover:text-stone-200 hover:bg-stone-800'
+                  }`}
+                >
+                  <Icon className="w-3 h-3" />
+                  <span>{cat.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -220,6 +246,7 @@ export const IconPickerModal = ({
                 <button
                   key={iconName}
                   type="button"
+                  aria-label={`Select icon ${iconName}`}
                   onClick={() => {
                     onSelectIcon(iconName);
                     onClose();

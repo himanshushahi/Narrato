@@ -1,6 +1,5 @@
 import React, { memo, useState, useEffect } from 'react';
-import { BiTrashAlt, BiPlus } from 'react-icons/bi';
-import { BsGeoAlt, BsCodeSquare } from 'react-icons/bs';
+import { Trash2, Plus, MapPin, Code } from 'lucide-react';
 
 interface MapLocation {
   name?: string;
@@ -85,8 +84,8 @@ const AstMapLocationsEditorInner: React.FC<AstMapLocationsEditorProps> = ({
     <div className="space-y-2.5">
       {/* Header & Quick City Add Selector */}
       <div className="flex items-center justify-between">
-        <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-          <BsGeoAlt size={11} />
+        <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+          <MapPin className="w-3 h-3 text-amber-400" />
           Map Waypoints ({locations.length})
         </label>
         <div className="flex items-center gap-2">
@@ -98,7 +97,7 @@ const AstMapLocationsEditorInner: React.FC<AstMapLocationsEditorProps> = ({
             }}
             className="text-[9px] text-stone-400 hover:text-stone-200 bg-white/5 hover:bg-white/10 px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer"
           >
-            <BsCodeSquare size={10} />
+            <Code className="w-3 h-3" />
             {showJson ? 'GUI Table' : 'Raw JSON'}
           </button>
           <button
@@ -106,7 +105,7 @@ const AstMapLocationsEditorInner: React.FC<AstMapLocationsEditorProps> = ({
             onClick={() => handleAddLocation()}
             className="px-2 py-0.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 text-[10px] font-bold uppercase rounded flex items-center gap-1 transition-colors cursor-pointer"
           >
-            <BiPlus size={12} /> Add Point
+            <Plus className="w-3 h-3" /> Add Point
           </button>
         </div>
       </div>
@@ -201,7 +200,7 @@ const AstMapLocationsEditorInner: React.FC<AstMapLocationsEditorProps> = ({
                   className="p-1 text-stone-500 hover:text-red-400 bg-white/5 hover:bg-red-500/10 rounded transition-colors cursor-pointer shrink-0"
                   title="Delete waypoint"
                 >
-                  <BiTrashAlt size={13} />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             ))

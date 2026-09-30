@@ -1,4 +1,14 @@
 import React, { memo } from 'react';
+import {
+  PartyPopper,
+  Flame,
+  Sparkles,
+  Coins,
+  Snowflake,
+  Star,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { PARTICLE_PRESETS, ParticlePreset } from '../../../components/video/ParticlesRenderer';
 
 interface AstParticlesEditorProps {
@@ -12,13 +22,13 @@ interface AstParticlesEditorProps {
   onChange: (updates: Record<string, any>) => void;
 }
 
-const PRESET_META: { value: ParticlePreset; label: string; icon: string; hint: string }[] = [
-  { value: 'confetti', label: 'Confetti', icon: '🎉', hint: 'Celebrations, wins' },
-  { value: 'embers', label: 'Embers', icon: '🔥', hint: 'Fire, energy, crisis' },
-  { value: 'dust', label: 'Dust', icon: '✨', hint: 'Ambient depth' },
-  { value: 'money_rain', label: 'Money Rain', icon: '💸', hint: 'Finance, profits' },
-  { value: 'snow', label: 'Snow', icon: '❄️', hint: 'Winter, calm' },
-  { value: 'stars', label: 'Stars', icon: '🌟', hint: 'Night, dreams' },
+const PRESET_META: { value: ParticlePreset; label: string; icon: React.ComponentType<{ className?: string }>; hint: string }[] = [
+  { value: 'confetti', label: 'Confetti', icon: PartyPopper, hint: 'Celebrations, wins' },
+  { value: 'embers', label: 'Embers', icon: Flame, hint: 'Fire, energy, crisis' },
+  { value: 'dust', label: 'Dust', icon: Sparkles, hint: 'Ambient depth' },
+  { value: 'money_rain', label: 'Money Rain', icon: Coins, hint: 'Finance, profits' },
+  { value: 'snow', label: 'Snow', icon: Snowflake, hint: 'Winter, calm' },
+  { value: 'stars', label: 'Stars', icon: Star, hint: 'Night, dreams' },
 ];
 
 const Slider: React.FC<{
@@ -32,6 +42,10 @@ const Slider: React.FC<{
     </div>
     <input
       type="range"
+      aria-label={label}
+      aria-valuenow={value}
+      aria-valuemin={min}
+      aria-valuemax={max}
       min={min}
       max={max}
       step={step}
@@ -76,26 +90,31 @@ const AstParticlesEditorInner: React.FC<AstParticlesEditorProps> = ({
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block">
-          ✨ Particle Preset
+        <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          Particle Preset
         </label>
         <div className="grid grid-cols-3 gap-1.5">
-          {PRESET_META.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => applyPreset(p.value)}
-              title={p.hint}
-              className={`px-2 py-2 rounded-lg border text-center transition-colors cursor-pointer ${
-                preset === p.value
-                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-200'
-                  : 'bg-black/40 border-white/10 hover:border-amber-500/40 text-stone-300 hover:text-amber-300'
-              }`}
-            >
-              <div className="text-lg leading-none">{p.icon}</div>
-              <div className="text-[9px] font-bold uppercase tracking-wider mt-1">{p.label}</div>
-            </button>
-          ))}
+          {PRESET_META.map((p) => {
+            const Icon = p.icon;
+            const isSel = preset === p.value;
+            return (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => applyPreset(p.value)}
+                title={p.hint}
+                className={`px-2 py-2.5 rounded-lg border text-center transition-colors cursor-pointer flex flex-col items-center justify-center ${
+                  isSel
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-200'
+                    : 'bg-black/40 border-white/10 hover:border-amber-500/40 text-stone-300 hover:text-amber-300'
+                }`}
+              >
+                <Icon className={`w-5 h-5 ${isSel ? 'text-amber-300' : 'text-stone-400'}`} />
+                <div className="text-[9px] font-bold uppercase tracking-wider mt-1.5">{p.label}</div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -183,19 +202,19 @@ const AstParticlesEditorInner: React.FC<AstParticlesEditorProps> = ({
                       const next = effColors.filter((_, j) => j !== i);
                       onChange({ particle_colors: next.length > 0 ? next : undefined });
                     }}
-                    className="text-[10px] text-stone-500 hover:text-red-400 transition-colors cursor-pointer shrink-0 px-1"
+                    className="p-1 text-stone-500 hover:text-red-400 transition-colors cursor-pointer shrink-0"
                     title="Remove color"
                   >
-                    ✕
+                    <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
               ))}
               <button
                 type="button"
                 onClick={() => onChange({ particle_colors: [...effColors, '#ffffff'] })}
-                className="w-full py-1 text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 text-stone-400 hover:text-amber-300 rounded transition-colors cursor-pointer"
+                className="w-full py-1 text-[10px] font-bold uppercase tracking-wider bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 text-stone-400 hover:text-amber-300 rounded transition-colors cursor-pointer flex items-center justify-center gap-1"
               >
-                + Add Color
+                <Plus className="w-3 h-3" /> Add Color
               </button>
             </div>
           ) : (
