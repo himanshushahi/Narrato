@@ -385,18 +385,95 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
 
-  const ordered = useMemo(
-    () => [...messages].sort((a, b) => a.ts - b.ts),
-    [messages],
-  );
+  const ordered = useMemo(() => {
+    const sorted = [...messages].sort((a, b) => a.ts - b.ts);
+    const result: ChatMessage[] = [];
+    let currentTurnStartIndex = 0;
 
-  const hasVisibleStream = !!stream && (!!stream.text.trim() || !!stream.thinking.trim());
+    for (const m of sorted) {
+      if (m.role === 'user') {
+        currentTurnStartIndex = result.length;
+        result.push(m);
+        continue;
+      }
+
+      if (m.role === 'assistant' || m.role === 'thinking') {
+        const norm = (m.text || '').trim();
+        if (!norm) continue;
+
+        // Check strictly within the current turn (from currentTurnStartIndex to end)
+        const currentTurnSlice = result.slice(currentTurnStartIndex);
+        const existingIdxInSlice = currentTurnSlice.findIndex(
+          (prev) => prev.role === m.role && prev.text && (
+            prev.text.trim() === norm ||
+            (norm.length >= 20 && prev.text.trim().length >= 20 &&
+              (prev.text.includes(norm) || norm.includes(prev.text.trim())))
+          )
+        );
+
+        if (existingIdxInSlice !== -1) {
+          const globalIdx = currentTurnStartIndex + existingIdxInSlice;
+          const existing = result[globalIdx];
+          // If the new one is longer/more complete (e.g. backend full text superseding a partial stream),
+          // update the existing entry in-place so its relative order (before tool calls) is preserved.
+          if (norm.length > existing.text.trim().length) {
+            result[globalIdx] = m;
+          }
+          continue;
+        }
+
+        result.push(m);
+        continue;
+      }
+
+      result.push(m);
+    }
+    return result;
+  }, [messages]);
+
+  const visibleStream = useMemo<StreamState | null>(() => {
+    if (!stream) return null;
+    const textNorm = (stream.text || '').trim();
+    const thinkNorm = (stream.thinking || '').trim();
+    if (!textNorm && !thinkNorm) return null;
+
+    // Only compare against messages in the CURRENT turn
+    const lastUserIdx = ordered.map((m) => m.role).lastIndexOf('user');
+    const currentTurn = lastUserIdx === -1 ? ordered : ordered.slice(lastUserIdx);
+
+    const textAlreadyInChat = textNorm.length > 0 && currentTurn.some((m) =>
+      m.role === 'assistant' && (
+        m.text.trim() === textNorm ||
+        (textNorm.length >= 20 && m.text.trim().length >= 20 &&
+          (m.text.includes(textNorm) || textNorm.includes(m.text.trim())))
+      )
+    );
+
+    const thinkAlreadyInChat = thinkNorm.length > 0 && currentTurn.some((m) =>
+      m.role === 'thinking' && (
+        m.text.trim() === thinkNorm ||
+        (thinkNorm.length >= 20 && m.text.trim().length >= 20 &&
+          (m.text.includes(thinkNorm) || thinkNorm.includes(m.text.trim())))
+      )
+    );
+
+    const activeText = textAlreadyInChat ? '' : stream.text;
+    const activeThink = thinkAlreadyInChat ? '' : stream.thinking;
+
+    if (!activeText.trim() && !activeThink.trim()) return null;
+
+    return {
+      id: stream.id,
+      text: activeText,
+      thinking: activeThink,
+    };
+  }, [stream, ordered]);
 
   useEffect(() => {
     if (stickToBottom.current) {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     }
-  }, [messages.length, running, activeTools.length, stream?.text.length, stream?.thinking.length]);
+  }, [ordered.length, running, activeTools.length, visibleStream?.text.length, visibleStream?.thinking.length]);
 
   const submit = () => {
     if (!input.trim() || running || pipelineRunning) return;
@@ -452,7 +529,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
         className="space-y-2.5 flex-1 min-h-0 overflow-y-auto pr-1 my-0.5"
       >
         {/* Empty state */}
-        {messages.length === 0 && !hasVisibleStream && activeTools.length === 0 && (
+        {ordered.length === 0 && !visibleStream && activeTools.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center py-6 text-center space-y-3">
             <div className="w-10 h-10 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 shadow-sm">
               <Bot className="w-5 h-5" />
@@ -509,7 +586,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
         ))}
 
         {/* Running idle status */}
-        {running && activeTools.length === 0 && !hasVisibleStream && (
+        {running && activeTools.length === 0 && !visibleStream && (
           <div className="flex items-center gap-2 py-1 text-[11px] text-blue-400 animate-pulse font-mono">
             <Loader2 className="w-3 h-3 animate-spin" />
             <span>Agent is thinking…</span>
@@ -517,7 +594,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
         )}
 
         {/* Live stream preview */}
-        {hasVisibleStream && stream && <StreamPreview stream={stream} />}
+        {visibleStream && <StreamPreview stream={visibleStream} />}
       </div>
 
       {/* Human-in-the-loop pending approval card */}

@@ -57,6 +57,8 @@ export function useAgentChat(projectId: string | undefined) {
   const [running, setRunning] = useState(false);
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const refreshingRef = useRef(false);
+  const refreshPendingRef = useRef(false);
   // Once a push event arrives the channel is alive — the poller drops to a
   // dead-man fallback cadence instead of racing every push with a full pull.
   const pushSeenRef = useRef(false);
@@ -83,11 +85,9 @@ export function useAgentChat(projectId: string | undefined) {
   // Commit the in-flight stream into the message list (as provisional
   // entries) so streamed text isn't lost when tools start / errors hit.
   // Upsert by id: several tool_starts can fire within one turn, and pushing
-  // the same `${turn}-t` id twice creates duplicate React keys (which also
-  // corrupts render order). The next refresh() supersedes provisionals by
-  // content (exact or prefix-inclusion), since backend ids never match.
-  // Blank-only content (models emit "\n\n" before tool calls) is dropped:
-  // it would render as an empty bubble the backend never persists.
+  // the same `${turn}-t` id twice creates duplicate React keys.
+  // Blank-only content is dropped. Also avoids adding a provisional assistant
+  // message if one with matching text is already present.
   const commitStream = useCallback((suffix = '') => {
     if (streamFlushRef.current) {
       clearTimeout(streamFlushRef.current);
@@ -96,23 +96,38 @@ export function useAgentChat(projectId: string | undefined) {
     const s = streamRef.current;
     streamRef.current = null;
     setStream(null);
-    const text = s?.text && s.text.trim() ? s.text : '';
-    const thinking = s?.thinking && s.thinking.trim() ? s.thinking : '';
+    const text = s?.text && s.text.trim() ? s.text.trim() : '';
+    const thinking = s?.thinking && s.thinking.trim() ? s.thinking.trim() : '';
     if (!text && !thinking) return;
     const now = Date.now() / 1000;
     setMessages((prev) => {
       let next = prev;
+      const lastUserIdx = prev.map((m) => m.role).lastIndexOf('user');
+      const currentTurn = lastUserIdx === -1 ? prev : prev.slice(lastUserIdx);
+
       if (thinking) {
-        next = upsert(next, {
-          id: `${s!.id}-t`, role: 'thinking', text: thinking,
-          ts: now, provisional: true,
-        });
+        const exists = currentTurn.some((m) => m.role === 'thinking' && m.text.trim() === thinking);
+        if (!exists) {
+          next = upsert(next, {
+            id: `${s!.id}-t`, role: 'thinking', text: thinking,
+            ts: now, provisional: true,
+          });
+        }
       }
       if (text) {
-        next = upsert(next, {
-          id: s!.id, role: 'assistant', text: text + suffix,
-          ts: now, provisional: true,
-        });
+        const fullText = (text + suffix).trim();
+        // Guard against duplicate assistant narration: if an assistant message
+        // with matching text already exists in the current turn, skip adding a duplicate.
+        const exists = currentTurn.some((m) => m.role === 'assistant' && (
+          m.text.trim() === fullText ||
+          (m.text.trim().length >= 20 && (m.text.includes(fullText) || fullText.includes(m.text.trim())))
+        ));
+        if (!exists) {
+          next = upsert(next, {
+            id: s!.id, role: 'assistant', text: fullText,
+            ts: now, provisional: true,
+          });
+        }
       }
       return next;
     });
@@ -120,84 +135,113 @@ export function useAgentChat(projectId: string | undefined) {
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
-    const res = await callApi<any>('chat_history', projectId, sessionId);
-    if (!res) {
-      // pywebview bridge missing (e.g. browser dev) — say so once instead
-      // of looking silently dead.
-      setMessages((prev) => prev.length ? prev : [{
-        id: 'backend-unreachable', role: 'system',
-        text: 'Backend unreachable — open this project in the desktop app to use agent chat.',
-        ts: Date.now() / 1000,
-      }]);
+    if (refreshingRef.current) {
+      refreshPendingRef.current = true;
       return;
     }
-    if (res?.success) {
-      const mapped: ChatMessage[] = (res.messages || []).map((m: any) => ({
-        id: m.id || uid(),
-        role: m.role,
-        text: String(m.text || ''),
-        tool: m.tool,
-        args: m.args,
-        ts: m.ts || Date.now() / 1000,
-      }));
-      // Merge, not wholesale replace: keep the previous array (and every
-      // unchanged message object) referentially stable when nothing changed,
-      // so memoized bubbles skip re-render on no-op polls.
-      setMessages((prev) => {
-        const argsKey = (m: ChatMessage) => JSON.stringify(m.args ?? null);
-        if (prev.length === mapped.length && prev.every((m, i) =>
-          m.id === mapped[i].id && m.role === mapped[i].role &&
-          m.text === mapped[i].text && m.tool === mapped[i].tool &&
-          argsKey(m) === argsKey(mapped[i]))) {
-          return prev;
-        }
-        const byId = new Map(prev.map((m) => [m.id, m]));
-        const next = mapped.map((m) => {
-          const old = byId.get(m.id);
-          if (old && old.role === m.role && old.text === m.text &&
-              old.tool === m.tool && argsKey(old) === argsKey(m)) {
-            return old;
+    refreshingRef.current = true;
+    try {
+      const res = await callApi<any>('chat_history', projectId, sessionId);
+      if (!res) {
+        // pywebview bridge missing (e.g. browser dev) — say so once instead
+        // of looking silently dead.
+        setMessages((prev) => prev.length ? prev : [{
+          id: 'backend-unreachable', role: 'system',
+          text: 'Backend unreachable — open this project in the desktop app to use agent chat.',
+          ts: Date.now() / 1000,
+        }]);
+        return;
+      }
+      if (res?.success) {
+        const mapped: ChatMessage[] = (res.messages || []).map((m: any) => ({
+          id: m.id || uid(),
+          role: m.role,
+          text: String(m.text || ''),
+          tool: m.tool,
+          args: m.args,
+          ts: m.ts || Date.now() / 1000,
+        }));
+        // Merge, not wholesale replace: keep the previous array (and every
+        // unchanged message object) referentially stable when nothing changed,
+        // so memoized bubbles skip re-render on no-op polls.
+        setMessages((prev) => {
+          const argsKey = (m: ChatMessage) => JSON.stringify(m.args ?? null);
+          if (prev.length === mapped.length && prev.every((m, i) =>
+            m.id === mapped[i].id && m.role === mapped[i].role &&
+            m.text === mapped[i].text && m.tool === mapped[i].tool &&
+            argsKey(m) === argsKey(mapped[i]))) {
+            return prev;
           }
-          return m;
+          const byId = new Map(prev.map((m) => [m.id, m]));
+          const next = mapped.map((m) => {
+            const old = byId.get(m.id);
+            if (old && old.role === m.role && old.text === m.text &&
+                old.tool === m.tool && argsKey(old) === argsKey(m)) {
+              return old;
+            }
+            return m;
+          });
+
+          // Text normalization (strip trailing whitespace & line endings)
+          const norm = (t: string) => (t || '').trim().replace(/\r\n/g, '\n');
+
+          // Current turn in mapped (messages after the latest user message in mapped)
+          const mappedLastUserIdx = mapped.map((m) => m.role).lastIndexOf('user');
+          const mappedCurrentTurn = mappedLastUserIdx === -1 ? mapped : mapped.slice(mappedLastUserIdx);
+
+          // For any message in prev not present by id in mapped:
+          // Keep only local-only unpersisted entries (e.g. system notices, or
+          // provisional user/assistant messages that backend hasn't saved yet).
+          for (const m of prev) {
+            if (mapped.some((x) => x.id === m.id)) continue;
+            const mNorm = norm(m.text);
+            if (!mNorm) continue;
+
+            // If user message is provisional, check if backend already persisted it in the current turn
+            if (m.role === 'user') {
+              const absorbed = mappedCurrentTurn.some((x) => x.role === 'user' && norm(x.text) === mNorm);
+              if (absorbed) continue;
+            }
+
+            // If assistant or thinking message is provisional, check if backend already persisted it in the current turn
+            if (m.role === 'assistant' || m.role === 'thinking') {
+              const absorbed = mappedCurrentTurn.some((x) => {
+                if (x.role !== m.role) return false;
+                const xNorm = norm(x.text);
+                if (xNorm === mNorm) return true;
+                if (mNorm.length >= 20 && xNorm.length >= 20 && (xNorm.includes(mNorm) || mNorm.includes(xNorm))) {
+                  return true;
+                }
+                return false;
+              });
+              if (absorbed) continue;
+            }
+
+            // Skip if next already contains an identical message in the current turn
+            const nextLastUserIdx = next.map((x) => x.role).lastIndexOf('user');
+            const nextCurrentTurn = nextLastUserIdx === -1 ? next : next.slice(nextLastUserIdx);
+            if (nextCurrentTurn.some((x) => x.role === m.role && norm(x.text) === mNorm)) {
+              continue;
+            }
+
+            next.push(m);
+          }
+
+          return next;
         });
-        // Local-only entries (user echo, committed stream, error notices)
-        // survive only when the backend doesn't already carry the same
-        // content — otherwise the echo would duplicate the persisted copy.
-        // Count-aware: N identical backend copies absorb at most N locals.
-        // Plus superset absorption: a committed stream partial is dropped
-        // once a NEWER backend entry of the same role contains it (the
-        // persisted full text always supersedes the committed prefix).
-        // The ≥20-char guard keeps short texts ("OK", "hi") on exact-match
-        // only, so unrelated same-role messages can't swallow each other.
-        const sig = (m: ChatMessage) => `${m.role}\n${m.tool || ''}\n${m.text}`;
-        const incomingCount = new Map<string, number>();
-        for (const m of mapped) {
-          const k = sig(m);
-          incomingCount.set(k, (incomingCount.get(k) || 0) + 1);
+        setPending(res.pending || null);
+        if (!res.running) {
+          setRunning(false);
+          setActiveTools([]);
+        } else {
+          setRunning(true);
         }
-        const absorbed = new Map<string, number>();
-        for (const m of prev) {
-          if (mapped.some((x) => x.id === m.id)) continue;
-          const k = sig(m);
-          const used = absorbed.get(k) || 0;
-          if (used < (incomingCount.get(k) || 0)) {
-            absorbed.set(k, used + 1);
-            continue;
-          }
-          if (m.text.length >= 20 && mapped.some((x) =>
-            x.role === m.role && x.ts >= m.ts - 1 && x.text.includes(m.text))) {
-            continue;
-          }
-          next.push(m);
-        }
-        return next;
-      });
-      setPending(res.pending || null);
-      if (!res.running) {
-        setRunning(false);
-        setActiveTools([]);
-      } else {
-        setRunning(true);
+      }
+    } finally {
+      refreshingRef.current = false;
+      if (refreshPendingRef.current) {
+        refreshPendingRef.current = false;
+        refresh();
       }
     }
   }, [projectId]);

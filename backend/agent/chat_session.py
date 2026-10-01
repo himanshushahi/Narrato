@@ -378,9 +378,17 @@ class ChatSession:
                                                  "arguments": json.dumps(c.arguments)}}
                                    for c in turn.tool_calls]})
                 if clean:
-                    self.history.append({"id": uuid.uuid4().hex[:8], "role": "assistant",
-                                         "text": clean[:6000], "ts": time.time()})
-                    self._save()
+                    # Deduplicate only within the current user turn (messages after the latest user message)
+                    current_turn_assistants = []
+                    for m in reversed(self.history):
+                        if m.get("role") == "user":
+                            break
+                        if m.get("role") == "assistant":
+                            current_turn_assistants.append((m.get("text") or "").strip())
+                    if clean.strip() not in current_turn_assistants:
+                        self.history.append({"id": uuid.uuid4().hex[:8], "role": "assistant",
+                                             "text": clean[:6000], "ts": time.time()})
+                        self._save()
                 for call in turn.tool_calls:
                     if self.cancel_event.is_set():
                         return "Stopped by user."
@@ -451,9 +459,16 @@ class ChatSession:
             # No tool calls: final reply.
             if clean:
                 self.llm_messages.append({"role": "assistant", "content": clean})
-                self.history.append({"id": uuid.uuid4().hex[:8], "role": "assistant",
-                                     "text": clean[:6000], "ts": time.time()})
-                self._save()
+                current_turn_assistants = []
+                for m in reversed(self.history):
+                    if m.get("role") == "user":
+                        break
+                    if m.get("role") == "assistant":
+                        current_turn_assistants.append((m.get("text") or "").strip())
+                if clean.strip() not in current_turn_assistants:
+                    self.history.append({"id": uuid.uuid4().hex[:8], "role": "assistant",
+                                         "text": clean[:6000], "ts": time.time()})
+                    self._save()
                 return clean
             self.llm_messages.append({"role": "system", "content":
                                       "Your reply was empty. Answer the user directly."})
