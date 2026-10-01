@@ -635,6 +635,94 @@ class ApiBridge:
         from backend.agent.telemetry import get_agent_activity
         return get_agent_activity()
 
+    # ── In-app agent chat (same tools/context as MCP, Export tab) ──
+    def chat_send(self, project_id: str, message: str, session_id: str = "default",
+                  confirm_render: bool = False, confirm_action=None) -> dict:
+        """Queue one chat turn in a background thread (non-blocking for pywebview).
+
+        confirm_action True/False resolves a pending human-in-the-loop gate
+        (render or destructive tool); None sends a normal message.
+        """
+        try:
+            from backend.agent.chat_session import ChatSession
+            if not project_id:
+                return {"success": False, "error": "project_id is required."}
+            if confirm_action is None and not (message or "").strip() and not confirm_render:
+                return {"success": False, "error": "message is empty."}
+            sess = ChatSession.get(project_id, session_id or "default")
+            # Claim synchronously: two rapid sends must not both pass the
+            # running check before either worker thread starts.
+            with ChatSession._lock:
+                if sess.running or getattr(sess, "_claimed", False):
+                    return {"success": False, "error": "A turn is already running — wait or stop it first."}
+                sess._claimed = True
+
+            def _push(evt: dict):
+                try:
+                    evt = dict(evt or {})
+                    evt.setdefault("project_id", project_id)
+                    evt.setdefault("session_id", sess.session_id)
+                    ui_queue.put(("onChatEvent", (evt,)))
+                except Exception:
+                    pass
+
+            def _worker():
+                try:
+                    # Normal turns: bridge owns started/done. Approval
+                    # resolutions emit their own lifecycle events inside the
+                    # session — pushing duplicates here would double-render.
+                    own_lifecycle = confirm_action is None
+                    if own_lifecycle:
+                        _push({"type": "started"})
+                    reply = sess.ask((message or "").strip() or
+                                     ("Approved — render with confirm_render=true." if confirm_render else ""),
+                                     confirm_render=bool(confirm_render),
+                                     confirm_action=None if confirm_action is None else bool(confirm_action),
+                                     on_event=_push)
+                    if own_lifecycle:
+                        _push({"type": "done", "text": reply})
+                except Exception as e:
+                    logger.error(f"chat turn failed: {e}", exc_info=True)
+                    _push({"type": "error", "error": str(e)})
+                finally:
+                    sess._claimed = False
+
+            threading.Thread(target=_worker, daemon=True,
+                             name=f"chat-{project_id[:8]}").start()
+            return {"success": True, "session_id": sess.session_id}
+        except Exception as e:
+            logger.error(f"chat_send failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def chat_history(self, project_id: str, session_id: str = "default") -> dict:
+        try:
+            from backend.agent.chat_session import ChatSession
+            return {"success": True, **ChatSession.get(project_id, session_id or "default").to_dict()}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def chat_cancel(self, project_id: str, session_id: str = "default") -> dict:
+        try:
+            from backend.agent.chat_session import ChatSession
+            sess = ChatSession.get(project_id, session_id or "default")
+            sess.cancel_event.set()
+            try:
+                from backend.pipeline.queue import global_queue_manager
+                global_queue_manager.cancel_project(project_id)
+            except Exception:
+                pass
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def chat_clear(self, project_id: str, session_id: str = "default") -> dict:
+        try:
+            from backend.agent.chat_session import ChatSession
+            ChatSession.get(project_id, session_id or "default").clear()
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def get_prefs(self):
         from backend.core.prefs import load_prefs
         return load_prefs()

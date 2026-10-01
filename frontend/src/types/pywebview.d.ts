@@ -61,6 +61,10 @@ interface PywebviewApi {
   get_prefs(): Promise<any>;
   save_prefs(prefs: any): Promise<void>;
   get_agent_activity(): Promise<any[]>;
+  chat_send(project_id: string, message: string, session_id?: string, confirm_render?: boolean, confirm_action?: boolean | null): Promise<{ success: boolean; session_id?: string; error?: string }>;
+  chat_history(project_id: string, session_id?: string): Promise<{ success: boolean; messages?: any[]; running?: boolean; pending?: { id: string; kind: string; tool: string; args: any } | null; error?: string }>;
+  chat_cancel(project_id: string, session_id?: string): Promise<{ success: boolean; error?: string }>;
+  chat_clear(project_id: string, session_id?: string): Promise<{ success: boolean; error?: string }>;
 }
 
 interface Window {
@@ -71,6 +75,7 @@ interface Window {
   onShowToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
   onProgressUpdate?: (data: any) => void;
   onAgentActivity?: (entry: any) => void;
+  onChatEvent?: (evt: any) => void;
   onOmniVoiceDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;
   onYtdlpUpdateProgress?: (data: any) => void;
