@@ -386,7 +386,9 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
   };
 
   const ordered = useMemo(() => {
-    const sorted = [...messages].sort((a, b) => a.ts - b.ts);
+    // Preserve natural chronological sequence from backend and live event stream.
+    // Unstable float sorting between client/server timestamps inverted thinking & tools in realtime.
+    const sorted = [...messages];
     const result: ChatMessage[] = [];
     let currentTurnStartIndex = 0;
 

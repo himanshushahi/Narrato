@@ -177,7 +177,7 @@ export function useAgentChat(projectId: string | undefined) {
             const old = byId.get(m.id);
             if (old && old.role === m.role && old.text === m.text &&
                 old.tool === m.tool && argsKey(old) === argsKey(m)) {
-              return old;
+              return old.ts === m.ts ? old : { ...old, ts: m.ts };
             }
             return m;
           });
@@ -268,7 +268,7 @@ export function useAgentChat(projectId: string | undefined) {
       } else if (evt.type === 'thinking') {
         setMessages((prev) => upsert(prev, {
           id: evt.id || uid(), role: 'thinking',
-          text: evt.text || '', ts: Date.now() / 1000,
+          text: evt.text || '', ts: evt.ts || Date.now() / 1000,
         }));
       } else if (evt.type === 'tool_start') {
         commitStream();

@@ -368,7 +368,7 @@ class ChatSession:
                 self.history.append(entry)
                 self._save()
                 self._emit(on_event, {"type": "thinking", "id": entry["id"],
-                                      "text": entry["text"]})
+                                      "text": entry["text"], "ts": entry["ts"]})
             if turn.tool_calls:
                 # Assistant message (may carry narration like "I'll check…").
                 self.llm_messages.append({
