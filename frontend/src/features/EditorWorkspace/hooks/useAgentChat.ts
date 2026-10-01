@@ -9,6 +9,11 @@ export interface ChatMessage {
   args?: Record<string, any>;
   ok?: boolean;
   ts: number;
+  // Local-only entry not (yet) confirmed by persisted history: the user echo
+  // and committed stream partials. The backend assigns a fresh random id to
+  // every persisted entry, so provisionals can NEVER reconcile by id — they
+  // are superseded by content (see merge below) and purged on clean done.
+  provisional?: boolean;
 }
 
 export interface ActiveTool {
@@ -77,7 +82,10 @@ export function useAgentChat(projectId: string | undefined) {
 
   // Commit the in-flight stream into the message list (as provisional
   // entries) so streamed text isn't lost when tools start / errors hit.
-  // The next refresh() reconciles against persisted history by id.
+  // Upsert by id: several tool_starts can fire within one turn, and pushing
+  // the same `${turn}-t` id twice creates duplicate React keys (which also
+  // corrupts render order). The next refresh() supersedes provisionals by
+  // content (exact or prefix-inclusion), since backend ids never match.
   const commitStream = useCallback((suffix = '') => {
     if (streamFlushRef.current) {
       clearTimeout(streamFlushRef.current);
@@ -87,10 +95,21 @@ export function useAgentChat(projectId: string | undefined) {
     streamRef.current = null;
     setStream(null);
     if (!s || (!s.text && !s.thinking)) return;
+    const now = Date.now() / 1000;
     setMessages((prev) => {
-      const next = prev.slice();
-      if (s.thinking) next.push({ id: `${s.id}-t`, role: 'thinking', text: s.thinking, ts: Date.now() / 1000 });
-      if (s.text) next.push({ id: s.id, role: 'assistant', text: s.text + suffix, ts: Date.now() / 1000 });
+      let next = prev;
+      if (s.thinking) {
+        next = upsert(next, {
+          id: `${s.id}-t`, role: 'thinking', text: s.thinking,
+          ts: now, provisional: true,
+        });
+      }
+      if (s.text) {
+        next = upsert(next, {
+          id: s.id, role: 'assistant', text: s.text + suffix,
+          ts: now, provisional: true,
+        });
+      }
       return next;
     });
   }, []);
@@ -141,6 +160,11 @@ export function useAgentChat(projectId: string | undefined) {
         // survive only when the backend doesn't already carry the same
         // content — otherwise the echo would duplicate the persisted copy.
         // Count-aware: N identical backend copies absorb at most N locals.
+        // Plus superset absorption: a committed stream partial is dropped
+        // once a NEWER backend entry of the same role contains it (the
+        // persisted full text always supersedes the committed prefix).
+        // The ≥20-char guard keeps short texts ("OK", "hi") on exact-match
+        // only, so unrelated same-role messages can't swallow each other.
         const sig = (m: ChatMessage) => `${m.role}\n${m.tool || ''}\n${m.text}`;
         const incomingCount = new Map<string, number>();
         for (const m of mapped) {
@@ -154,6 +178,10 @@ export function useAgentChat(projectId: string | undefined) {
           const used = absorbed.get(k) || 0;
           if (used < (incomingCount.get(k) || 0)) {
             absorbed.set(k, used + 1);
+            continue;
+          }
+          if (m.text.length >= 20 && mapped.some((x) =>
+            x.role === m.role && x.ts >= m.ts - 1 && x.text.includes(m.text))) {
             continue;
           }
           next.push(m);
@@ -220,6 +248,13 @@ export function useAgentChat(projectId: string | undefined) {
         setActiveTools([]);
         streamRef.current = null;
         setStream(null);
+        if (evt.type === 'done') {
+          // Turn settled — backend history is canonical; drop provisionals
+          // so committed partials can't linger next to their persisted full
+          // text. Error/cancel keep them: the partial is all the user gets.
+          setMessages((prev) => prev.some((m) => m.provisional)
+            ? prev.filter((m) => !m.provisional) : prev);
+        }
         if (evt.type === 'error') {
           setMessages((prev) => [...prev, { id: uid(), role: 'system', text: evt.error || 'Turn failed.', ts: Date.now() / 1000 }]);
         }
@@ -262,7 +297,7 @@ export function useAgentChat(projectId: string | undefined) {
     const trimmed = text.trim();
     if (!trimmed && !opts?.confirmRender && opts?.confirmAction === undefined) return;
     if (opts?.confirmAction === undefined) {
-      setMessages((prev) => [...prev, { id: uid(), role: 'user', text: trimmed || '(approved render)', ts: Date.now() / 1000 }]);
+      setMessages((prev) => [...prev, { id: uid(), role: 'user', text: trimmed || '(approved render)', ts: Date.now() / 1000, provisional: true }]);
     }
     setRunning(true);
     if (opts?.confirmRender || opts?.confirmAction !== undefined) setPending(null);

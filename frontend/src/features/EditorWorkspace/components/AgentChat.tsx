@@ -2,7 +2,8 @@ import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
-import { VscSend, VscStopCircle, VscTrash, VscCheck, VscTerminal, VscSparkle, VscChevronDown, VscChevronRight, VscLightbulb } from 'react-icons/vsc';
+import { copyText } from '../../../utils/clipboard';
+import { VscSend, VscStopCircle, VscTrash, VscCheck, VscCopy, VscTerminal, VscSparkle, VscChevronDown, VscChevronRight, VscLightbulb } from 'react-icons/vsc';
 import { useAgentChat, ChatMessage, StreamState } from '../hooks/useAgentChat';
 
 // Markdown rendering for assistant replies — styled to the app theme
@@ -149,6 +150,18 @@ const ToolCard: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
 });
 
 const MessageBubble: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+  const onCopy = async () => {
+    if (await copyText(msg.text)) {
+      setCopied(true);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1500);
+    }
+  };
   if (msg.role === 'system') {
     return (
       <div className="border rounded-lg px-2 py-1.5 text-[8px] bg-zinc-900/60 border-zinc-800 text-zinc-500 italic break-words">
@@ -156,12 +169,21 @@ const MessageBubble: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
       </div>
     );
   }
+  const copyable = msg.role === 'assistant' && msg.text.length > 0;
   return (
     <div
-      className={`border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words ${
+      className={`group relative border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words ${
         msg.role === 'user' ? 'bg-blue-600/10 border-blue-600/25 text-zinc-200 ml-6'
         : 'bg-zinc-900/50 border-zinc-800 text-zinc-300 mr-4'
       }`}>
+      {copyable && (
+        <button onClick={onCopy} title={copied ? 'Copied!' : 'Copy response'}
+          className="absolute top-1 right-1 p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800/80 transition-all opacity-0 group-hover:opacity-100 cursor-pointer">
+          {copied
+            ? <VscCheck className="text-[11px] text-emerald-400" />
+            : <VscCopy className="text-[11px]" />}
+        </button>
+      )}
       {msg.role === 'assistant'
         ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{msg.text}</ReactMarkdown>
         : msg.text}
@@ -171,18 +193,41 @@ const MessageBubble: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
 
 // Stream preview isolated in its own component: it re-renders on stream
 // ticks while memoized history bubbles (stable refs) skip them.
-const StreamPreview: React.FC<{ stream: StreamState }> = memo(({ stream }) => (
-  <div className="border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words bg-zinc-900/50 border-blue-600/25 text-zinc-300 mr-4">
-    {stream.thinking && (
-      <p className="text-[8px] text-zinc-500 italic mb-1 leading-relaxed whitespace-pre-wrap break-words">
-        {stream.thinking.length > 400 ? 'Thinking…' : stream.thinking}
-      </p>
-    )}
-    {stream.text
-      ? <><ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{stream.text}</ReactMarkdown><span className="text-blue-400 animate-pulse">▍</span></>
-      : <p className="text-[9px] text-blue-400 animate-pulse font-mono">Agent is thinking…<span>▍</span></p>}
-  </div>
-));
+const StreamPreview: React.FC<{ stream: StreamState }> = memo(({ stream }) => {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+  const onCopy = async () => {
+    if (!stream.text) return;
+    if (await copyText(stream.text)) {
+      setCopied(true);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1500);
+    }
+  };
+  return (
+    <div className="group relative border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words bg-zinc-900/50 border-blue-600/25 text-zinc-300 mr-4">
+      {stream.text && (
+        <button onClick={onCopy} title={copied ? 'Copied!' : 'Copy response'}
+          className="absolute top-1 right-1 p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800/80 transition-all opacity-0 group-hover:opacity-100 cursor-pointer">
+          {copied
+            ? <VscCheck className="text-[11px] text-emerald-400" />
+            : <VscCopy className="text-[11px]" />}
+        </button>
+      )}
+      {stream.thinking && (
+        <p className="text-[8px] text-zinc-500 italic mb-1 leading-relaxed whitespace-pre-wrap break-words">
+          {stream.thinking.length > 400 ? 'Thinking…' : stream.thinking}
+        </p>
+      )}
+      {stream.text
+        ? <><ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{stream.text}</ReactMarkdown><span className="text-blue-400 animate-pulse">▍</span></>
+        : <p className="text-[9px] text-blue-400 animate-pulse font-mono">Agent is thinking…<span>▍</span></p>}
+    </div>
+  );
+});
 
 interface AgentChatProps {
   projectId: string;
@@ -200,6 +245,14 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
     if (!el) return;
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
+
+  // Chronological render: backend history arrives ordered but provisional
+  // locals are appended out of band — ts sort (stable) keeps the live view
+  // in the same order a reopen shows.
+  const ordered = useMemo(
+    () => [...messages].sort((a, b) => a.ts - b.ts),
+    [messages],
+  );
 
   useEffect(() => {
     // Only follow the stream while the user is already at the bottom —
@@ -246,7 +299,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
             <span className="text-zinc-400 font-mono">“Show me what is in scene 1”</span>
           </p>
         )}
-        {messages.map((m) => {
+        {ordered.map((m) => {
           if (m.role === 'tool') return <ToolCard key={m.id} msg={m} />;
           if (m.role === 'thinking') return <ThinkingBlock key={m.id} msg={m} />;
           return <MessageBubble key={m.id} msg={m} />;
