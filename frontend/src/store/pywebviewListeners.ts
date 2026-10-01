@@ -75,7 +75,7 @@ export const initializePywebviewListeners = async () => {
           error_message
         } as Task;
 
-        if (step === "render" && status === "completed") {
+        if (status === "completed") {
           setTimeout(() => projectStore.fetchProjectDetail(project_id), 100);
         }
 
@@ -98,7 +98,7 @@ export const initializePywebviewListeners = async () => {
   const pendingDetailIds = new Set<string>();
   const pendingTickIds = new Set<string>();
   let lastDetailFetchAt = 0;
-  let pendingDeletedOpenId: string | null = null;
+  const pendingDeletedIds = new Set<string>();
   const flushProjectEvents = () => {
     projectEventTimer = null;
     const projectStore = useProjectStore.getState();
@@ -106,16 +106,18 @@ export const initializePywebviewListeners = async () => {
       pendingListFetch = false;
       projectStore.fetchProjects();
     }
-    if (pendingDeletedOpenId &&
-        projectStore.selectedProject?.id === pendingDeletedOpenId) {
+    const hashMatch = window.location.hash.match(/#\/editor\/([^/?#]+)/);
+    const routeProjectId = hashMatch ? decodeURIComponent(hashMatch[1]) : null;
+    const currentOpenId = projectStore.selectedProject?.id || routeProjectId;
+    if (currentOpenId && pendingDeletedIds.has(currentOpenId)) {
       // The open project is gone — leave /editor/:id (a HashRouter route)
       // for the dashboard instead of showing a ghost editor.
       useProjectStore.setState({ selectedProject: null, tasks: {} });
       useUIStore.getState().addToast('This project was deleted.', 'warning');
       window.location.hash = '#/';
     }
-    pendingDeletedOpenId = null;
-    const openId = projectStore.selectedProject?.id;
+    pendingDeletedIds.clear();
+    const openId = projectStore.selectedProject?.id || routeProjectId;
     if (openId) {
       if (pendingDetailIds.has(openId)) {
         lastDetailFetchAt = Date.now();
@@ -143,7 +145,7 @@ export const initializePywebviewListeners = async () => {
       // Create or delete: the dashboard list is stale.
       pendingListFetch = true;
       if (evt.action === 'deleted' && evt.project_id) {
-        pendingDeletedOpenId = evt.project_id;
+        pendingDeletedIds.add(evt.project_id);
       }
       scheduleProjectFlush();
       return;

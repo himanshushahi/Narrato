@@ -1171,6 +1171,11 @@ class ApiBridge:
                 except Exception as e:
                     logger.warning(f"Could not remove project folder from disk: {e}")
         delete_project(project_id)
+        try:
+            from backend.mcp.server import _notify_ui_project_event
+            _notify_ui_project_event("projects_changed", project_id, action="deleted")
+        except Exception:
+            pass
         return True
 
     def db_get_project_tasks(self, project_id: str) -> list:
@@ -1186,6 +1191,11 @@ class ApiBridge:
     def create_new_project(self, name: str, style_hint: str, export_folder: str, language: str = "hi", style: str = "nitish_rajput", duration_mode: str = "medium", video_format: str = "landscape") -> dict:
         try:
             project_id = create_project(name, style_hint, export_folder, language, style, duration_mode, video_format)
+            try:
+                from backend.mcp.server import _notify_ui_project_event
+                _notify_ui_project_event("projects_changed", project_id, action="created")
+            except Exception:
+                pass
             return {"project_id": project_id, "success": True}
         except Exception as e:
             logger.error(f"Error creating project: {e}")

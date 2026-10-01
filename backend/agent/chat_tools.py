@@ -367,6 +367,11 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
         ok = global_queue_manager.queue_project(project_id, [stage])
         if not ok:
             return {"ok": False, "stage": stage, "error": "Queue rejected the stage (already queued?)."}
+        try:
+            from backend.mcp.server import _notify_ui_project_event
+            _notify_ui_project_event("project_updated", project_id, files_changed=False)
+        except Exception:
+            pass
         if not wait:
             return {"ok": True, "accepted": True, "project_id": project_id, "stage": stage,
                     "status": "submitted", "hint": "Poll stage_status until completed/failed."}
@@ -376,6 +381,11 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
         while time.time() < deadline:
             if cancel_event is not None:
                 if cancel_event.wait(3):
+                    try:
+                        from backend.mcp.server import _notify_ui_project_event
+                        _notify_ui_project_event("project_updated", project_id)
+                    except Exception:
+                        pass
                     return {"ok": False, "project_id": project_id, "stage": stage,
                             "error": "Cancelled.", "cancelled": True}
             else:
@@ -386,6 +396,11 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
                 rows = {}
             row = rows.get(stage)
             if row and row.get("status") in ("completed", "failed"):
+                try:
+                    from backend.mcp.server import _notify_ui_project_event
+                    _notify_ui_project_event("project_updated", project_id)
+                except Exception:
+                    pass
                 if row.get("status") == "completed":
                     out: dict = {"ok": True, "project_id": project_id, "stage": stage}
                     if stage == "render":
@@ -420,6 +435,11 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
     # cancel_stage
     try:
         global_queue_manager.cancel_project(project_id)
+        try:
+            from backend.mcp.server import _notify_ui_project_event
+            _notify_ui_project_event("project_updated", project_id, files_changed=False)
+        except Exception:
+            pass
         return {"ok": True, "task_id": task_id, "cancel_requested": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}

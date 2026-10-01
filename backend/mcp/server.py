@@ -204,6 +204,8 @@ def _emit_project_event(event_type: str, action: str | None = None,
                     pid = kwargs.get("project_id")
                     if pid is None and args and isinstance(args[0], str):
                         pid = args[0]
+                    if pid is None and isinstance(result, dict) and result.get("project_id"):
+                        pid = result.get("project_id")
                 if isinstance(pid, str) and pid:
                     _notify_ui_project_event(event_type, pid, action,
                                              files_changed=files_changed)

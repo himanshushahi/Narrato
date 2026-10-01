@@ -131,3 +131,58 @@ def test_wrapped_tool_preserves_name_and_signature(tool):
     assert hasattr(fn, "__wrapped__")
     assert (list(inspect.signature(fn).parameters)
             == list(inspect.signature(fn.__wrapped__).parameters))
+
+
+def test_pid_fallback_from_result_dict(captured_events):
+    # When pid_from_result is False and pid was not passed in args/kwargs,
+    # fallback to result.get('project_id')
+    @_emit("project_updated")
+    def fake(data: dict):
+        return {"ok": True, "project_id": "fallback-pid"}
+
+    fake({"some": "arg"})
+    assert _shape(captured_events) == {
+        "type": "project_updated", "project_id": "fallback-pid", "files_changed": True}
+
+
+def test_chat_stage_via_queue_run_stage_notifies(captured_events, monkeypatch):
+    from backend.agent import chat_tools
+    from backend.pipeline.queue import global_queue_manager
+
+    monkeypatch.setattr(global_queue_manager, "queue_project", lambda pid, steps: True)
+    res = chat_tools._stage_via_queue("run_stage", {"stage": "generate_voiceover", "wait": False}, "p-chat")
+    assert res.get("ok") is True
+    assert _shape(captured_events) == {
+        "type": "project_updated", "project_id": "p-chat", "files_changed": False}
+
+
+def test_chat_stage_via_queue_cancel_notifies(captured_events, monkeypatch):
+    from backend.agent import chat_tools
+    from backend.pipeline.queue import global_queue_manager
+
+    monkeypatch.setattr(global_queue_manager, "cancel_project", lambda pid: None)
+    res = chat_tools._stage_via_queue("cancel_stage", {"stage": "generate_voiceover"}, "p-chat")
+    assert res.get("ok") is True
+    assert _shape(captured_events) == {
+        "type": "project_updated", "project_id": "p-chat", "files_changed": False}
+
+
+def test_bridge_create_and_delete_project_notifies(captured_events, monkeypatch):
+    from backend.core import bridge
+
+    monkeypatch.setattr(bridge, "create_project", lambda *a, **k: "p-new")
+    monkeypatch.setattr(bridge, "delete_project", lambda *a, **k: True)
+    monkeypatch.setattr(bridge, "get_project", lambda *a, **k: None)
+
+    api = bridge.ApiBridge()
+    created = api.create_new_project("New Proj", "", "C:/tmp")
+    assert created.get("success") is True
+    assert _shape(captured_events) == {
+        "type": "projects_changed", "project_id": "p-new", "action": "created", "files_changed": True}
+
+    captured_events.clear()
+    deleted = api.db_delete_project("p-new")
+    assert deleted is True
+    assert _shape(captured_events) == {
+        "type": "projects_changed", "project_id": "p-new", "action": "deleted", "files_changed": True}
+

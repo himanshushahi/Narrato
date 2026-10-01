@@ -119,7 +119,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
     // Tasks have no DB ordering — compare via sorted steps.
     const sig = JSON.stringify([project, Object.keys(tasksMap).sort().map((k) => tasksMap[k])]);
-    if (sig === get()._detailSig) return;
+    if (sig === get()._detailSig && get().selectedProject?.id === projectId) return;
     set({ selectedProject: project, tasks: tasksMap, _detailSig: sig });
   },
 

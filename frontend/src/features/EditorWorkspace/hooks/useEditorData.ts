@@ -77,6 +77,18 @@ interface UseEditorDataReturn {
   getBGMUrl: () => string;
 }
 
+interface LoadedSnapshot {
+  script: string;
+  design: string;
+  manifest: string;
+  transcript: string;
+  audioPath?: string;
+  videoPath?: string;
+  transcriptionPath?: string;
+  assetsManifestPath?: string;
+  status?: string;
+}
+
 export function useEditorData(projectId: string | undefined): UseEditorDataReturn {
   const fetchProjectDetail = useProjectStore((s) => s.fetchProjectDetail);
 
@@ -89,7 +101,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   // Last-loaded file snapshots: focus/agent reloads that read identical
   // bytes skip every setState (and the reloadKey media cache-bust) so an
   // unchanged project costs no timeline recompute or player rebuffer.
-  const lastLoadedRef = useRef<{ script: string; design: string; manifest: string; transcript: string } | null>(null);
+  const lastLoadedRef = useRef<LoadedSnapshot | null>(null);
 
   // Read generated JSON assets from Python server static bridges
   // Shared manifest enrichment (media URLs for thumbnails/previews).
@@ -138,9 +150,16 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
                 setDesignData(design);
                 changed = true;
               }
+            } else if (lastLoadedRef.current?.design && lastLoadedRef.current.design !== 'null') {
+              setDesignData(null);
+              changed = true;
             }
           }
+        } else if (lastLoadedRef.current?.script && lastLoadedRef.current.script !== 'null') {
+          setScriptData(null);
+          changed = true;
         }
+
         if (project.assets_manifest_path) {
           try {
             const manifest = await callApi<any>('read_json_file', project.assets_manifest_path);
@@ -194,6 +213,12 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
             }
           }
         }
+
+        if (reloadedManifest.length === 0 && lastLoadedRef.current?.manifest && lastLoadedRef.current.manifest !== '[]' && lastLoadedRef.current.manifest !== 'null') {
+          setManifestData([]);
+          changed = true;
+        }
+
         if (project.transcription_path) {
           const transcript = await callApi<any>('read_json_file', project.transcription_path);
           if (transcript) {
@@ -202,22 +227,44 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
               setTranscriptionData(transcript);
               changed = true;
             }
+          } else if (lastLoadedRef.current?.transcript && lastLoadedRef.current.transcript !== '{"segments":[]}' && lastLoadedRef.current.transcript !== 'null') {
+            setTranscriptionData({ segments: [] });
+            changed = true;
           } else if (!lastLoadedRef.current) {
             // First load with an unreadable transcript: fall back to empty
             // rather than leaving stale state from a previous project.
             setTranscriptionData({ segments: [] });
             changed = true;
           }
+        } else if (lastLoadedRef.current?.transcript && lastLoadedRef.current.transcript !== '{"segments":[]}' && lastLoadedRef.current.transcript !== 'null') {
+          setTranscriptionData({ segments: [] });
+          changed = true;
+        }
+
+        // Compare project row fields (audio/video/manifest/transcription paths, status)
+        if (
+          project.audio_path !== lastLoadedRef.current?.audioPath ||
+          project.video_path !== lastLoadedRef.current?.videoPath ||
+          project.assets_manifest_path !== lastLoadedRef.current?.assetsManifestPath ||
+          project.transcription_path !== lastLoadedRef.current?.transcriptionPath ||
+          project.status !== lastLoadedRef.current?.status
+        ) {
+          changed = true;
         }
 
         // Update store with fresh project metadata (audio_path, transcription_path, etc.)
         // and bust media cache so the preview player picks up new audio/subtitles
-        // — but only when file bytes actually changed.
+        // — but only when file bytes or project row actually changed.
         lastLoadedRef.current = {
           script: snapJson(reloadedScript),
           design: snapJson(reloadedDesign),
           manifest: snapJson(reloadedManifest),
-          transcript: snapJson(reloadedTranscript),
+          transcript: snapJson(reloadedTranscript || { segments: [] }),
+          audioPath: project.audio_path || '',
+          videoPath: project.video_path || '',
+          transcriptionPath: project.transcription_path || '',
+          assetsManifestPath: project.assets_manifest_path || '',
+          status: project.status || '',
         };
         if (changed) {
           useProjectStore.getState().setSelectedProject(project);
@@ -254,6 +301,12 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   // Load project detail on mount — sequence: fetch detail first, then files,
   // so selectedProject + tasks are in the store before loadFiles reads paths.
   useEffect(() => {
+    lastLoadedRef.current = null;
+    setScriptData(null);
+    setDesignData(null);
+    setManifestData([]);
+    setTranscriptionData({ segments: [] });
+
     if (projectId) {
       lastLoadAtRef.current = Date.now();
       (async () => {
