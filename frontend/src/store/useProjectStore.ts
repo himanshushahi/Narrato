@@ -54,6 +54,10 @@ interface ProjectStore {
   setProjects: (projects: Project[]) => void;
   setSelectedProject: (project: Project | null) => void;
   setTasks: (tasks: Record<string, Task>) => void;
+  // Equality signatures: dedupe consecutive identical pulls so focus
+  // refetches and tick-adjacent pulls don't churn identities + re-renders.
+  _projectsSig: string;
+  _detailSig: string;
   fetchProjects: () => Promise<void>;
   fetchProjectDetail: (projectId: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
@@ -85,11 +89,18 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   setProjects: (projects) => set({ projects }),
   setSelectedProject: (project) => set({ selectedProject: project }),
   setTasks: (tasks) => set({ tasks }),
+  _projectsSig: '',
+  _detailSig: '',
 
   fetchProjects: async () => {
     const result = await safeApiCall<any[]>('db_get_projects');
     if (result) {
-      set({ projects: result || [] });
+      // get_all_projects is ORDER BY created_at DESC — serialization order
+      // is stable, so identical pulls compare equal and skip the set.
+      const sig = JSON.stringify(result);
+      if (sig !== get()._projectsSig) {
+        set({ projects: result || [], _projectsSig: sig });
+      }
     }
   },
 
@@ -106,7 +117,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       });
     }
 
-    set({ selectedProject: project, tasks: tasksMap });
+    // Tasks have no DB ordering — compare via sorted steps.
+    const sig = JSON.stringify([project, Object.keys(tasksMap).sort().map((k) => tasksMap[k])]);
+    if (sig === get()._detailSig) return;
+    set({ selectedProject: project, tasks: tasksMap, _detailSig: sig });
   },
 
   deleteProject: async (projectId) => {

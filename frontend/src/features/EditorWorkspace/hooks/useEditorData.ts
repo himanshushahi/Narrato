@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
+import { useUIStore } from '../../../store/useUIStore';
 import { callApi } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import { getCleanAudioKey } from './useAudioWaveform';
+import { isEditorDirty, subscribeEditorDirty } from './editorDirty';
 
 /** Clip-list equality ignoring the `&t=` cache-buster (clip files are uuid-named,
  *  never overwritten in place, so identical fields mean identical bytes). */
@@ -44,6 +46,15 @@ function sameTimings(
   return true;
 }
 
+/** Stable JSON snapshot for change detection (unserializable → ''). */
+function snapJson(v: any): string {
+  try {
+    return JSON.stringify(v ?? null);
+  } catch {
+    return '';
+  }
+}
+
 interface UseEditorDataReturn {
   scriptData: any;
   setScriptData: (data: any) => void;
@@ -75,6 +86,10 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const [transcriptionData, setTranscriptionData] = useState<any>({ segments: [] });
   const [loadingScript, setLoadingScript] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // Last-loaded file snapshots: focus/agent reloads that read identical
+  // bytes skip every setState (and the reloadKey media cache-bust) so an
+  // unchanged project costs no timeline recompute or player rebuffer.
+  const lastLoadedRef = useRef<{ script: string; design: string; manifest: string; transcript: string } | null>(null);
 
   // Read generated JSON assets from Python server static bridges
   // Shared manifest enrichment (media URLs for thumbnails/previews).
@@ -95,28 +110,47 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
       };
     });
   }, []);
-  const loadFiles = useCallback(async (projId: string): Promise<{ script: any; manifest: any[] }> => {
+  const _loadFilesInner = useCallback(async (projId: string): Promise<{ script: any; manifest: any[] }> => {
     setLoadingScript(true);
     let reloadedScript: any = null;
+    let reloadedDesign: any = null;
     let reloadedManifest: any[] = [];
+    let reloadedTranscript: any = null;
+    let changed = false;
     try {
       const project = await callApi<any>('db_get_project', projId);
       if (project) {
         if (project.script_path) {
           const script = await callApi<any>('read_json_file', project.script_path);
-          setScriptData(script);
-          reloadedScript = script;
-          const designPath = project.script_path.replace(/script\.json$/, 'design.json');
-          const design = await callApi<any>('read_json_file', designPath);
-          setDesignData(design);
+          // Transient read failure (mid-write partial file) returns null —
+          // keep good in-memory state instead of null-clobbering it.
+          if (script) {
+            reloadedScript = script;
+            if (snapJson(script) !== lastLoadedRef.current?.script) {
+              setScriptData(script);
+              changed = true;
+            }
+            const designPath = project.script_path.replace(/script\.json$/, 'design.json');
+            const design = await callApi<any>('read_json_file', designPath);
+            if (design) {
+              reloadedDesign = design;
+              if (snapJson(design) !== lastLoadedRef.current?.design) {
+                setDesignData(design);
+                changed = true;
+              }
+            }
+          }
         }
         if (project.assets_manifest_path) {
           try {
             const manifest = await callApi<any>('read_json_file', project.assets_manifest_path);
             if (Array.isArray(manifest) && manifest.length > 0) {
               const enrichedManifest = enrichManifest(manifest);
-              setManifestData(enrichedManifest);
               reloadedManifest = enrichedManifest;
+              if (snapJson(enrichedManifest) !== lastLoadedRef.current?.manifest) {
+                setManifestData(enrichedManifest);
+                changed = true;
+              }
             }
             // Wrong-shaped JSON (or missing/corrupt file) falls through to
             // the disk fallback below instead of killing the whole load.
@@ -142,8 +176,11 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
               const manifest = await callApi<any>('read_json_file', candidate);
               if (Array.isArray(manifest) && manifest.length > 0) {
                 const enrichedManifest = enrichManifest(manifest);
-                setManifestData(enrichedManifest);
                 reloadedManifest = enrichedManifest;
+                if (snapJson(enrichedManifest) !== lastLoadedRef.current?.manifest) {
+                  setManifestData(enrichedManifest);
+                  changed = true;
+                }
                 // Heal the DB pointer so later loads (and every other
                 // assets_manifest_path consumer) skip this fallback.
                 // Fire-and-forget: must never fail or loop the load.
@@ -159,13 +196,33 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
         }
         if (project.transcription_path) {
           const transcript = await callApi<any>('read_json_file', project.transcription_path);
-          setTranscriptionData(transcript || { segments: [] });
+          if (transcript) {
+            reloadedTranscript = transcript;
+            if (snapJson(transcript) !== lastLoadedRef.current?.transcript) {
+              setTranscriptionData(transcript);
+              changed = true;
+            }
+          } else if (!lastLoadedRef.current) {
+            // First load with an unreadable transcript: fall back to empty
+            // rather than leaving stale state from a previous project.
+            setTranscriptionData({ segments: [] });
+            changed = true;
+          }
         }
 
         // Update store with fresh project metadata (audio_path, transcription_path, etc.)
         // and bust media cache so the preview player picks up new audio/subtitles
-        useProjectStore.getState().setSelectedProject(project);
-        setReloadKey(k => k + 1);
+        // — but only when file bytes actually changed.
+        lastLoadedRef.current = {
+          script: snapJson(reloadedScript),
+          design: snapJson(reloadedDesign),
+          manifest: snapJson(reloadedManifest),
+          transcript: snapJson(reloadedTranscript),
+        };
+        if (changed) {
+          useProjectStore.getState().setSelectedProject(project);
+          setReloadKey(k => k + 1);
+        }
       }
     } catch (e) {
       console.error("Failed to load asset JSONs:", e);
@@ -177,16 +234,107 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     return { script: reloadedScript, manifest: reloadedManifest };
   }, []);
 
+  // Serialize overlapping loads: mount + agent burst + focus fallback can
+  // otherwise interleave two readers (double enrich, interleaved setState).
+  // Callers chain onto the latest load and always receive its result, so
+  // save tails still observe their own reload landing; a failed load never
+  // poisons the chain for later callers.
+  const loadChainRef = useRef<Promise<{ script: any; manifest: any[] }>>(
+    Promise.resolve({ script: null, manifest: [] }),
+  );
+  const loadFiles = useCallback((projId: string): Promise<{ script: any; manifest: any[] }> => {
+    const next = loadChainRef.current.then(
+      () => _loadFilesInner(projId),
+      () => _loadFilesInner(projId),
+    );
+    loadChainRef.current = next.catch(() => ({ script: null, manifest: [] as any[] }));
+    return next;
+  }, [_loadFilesInner]);
+
   // Load project detail on mount — sequence: fetch detail first, then files,
   // so selectedProject + tasks are in the store before loadFiles reads paths.
   useEffect(() => {
     if (projectId) {
+      lastLoadAtRef.current = Date.now();
       (async () => {
         await fetchProjectDetail(projectId);
         await loadFiles(projectId);
       })().catch(console.error);
     }
   }, [projectId, fetchProjectDetail, loadFiles]);
+
+  // Live agent updates: pywebviewListeners rebroadcasts onProjectEvent here
+  // (the store holds only the DB row + tasks; file contents live in this
+  // hook). Debounced trailing reload so a burst of agent saves (script +
+  // design + visuals batch) settles into one load. Same clobber semantics
+  // as the pipeline-completion reload in usePipeline — except when the user
+  // holds unsaved edits: then the reload defers until the edit closes and
+  // a toast says why, instead of silently wiping their work.
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingReloadRef = useRef(false);
+  const lastToastRef = useRef(0);
+  const lastLoadAtRef = useRef(0);
+  const scheduleReload = useCallback((projId: string) => {
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(() => {
+      reloadTimerRef.current = null;
+      if (isEditorDirty()) {
+        pendingReloadRef.current = true;
+        const now = Date.now();
+        if (now - lastToastRef.current > 10000) {
+          lastToastRef.current = now;
+          useUIStore.getState().addToast(
+            'Agent updated this project — finish or cancel your edit to load it.',
+            'info',
+          );
+        }
+        return;
+      }
+      pendingReloadRef.current = false;
+      lastLoadAtRef.current = Date.now();
+      loadFiles(projId).catch(console.error);
+    }, 800);
+  }, [loadFiles]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    const onFilesChanged = (e: Event) => {
+      const pid = (e as CustomEvent).detail?.project_id;
+      if (pid !== projectId) return;
+      scheduleReload(projectId);
+    };
+    window.addEventListener('narrato:project-files-changed', onFilesChanged);
+    return () => {
+      window.removeEventListener('narrato:project-files-changed', onFilesChanged);
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    };
+  }, [projectId, scheduleReload]);
+
+  // Deferred reload: an agent update that arrived mid-edit applies once the
+  // user saves or cancels (which clears the dirty flag).
+  useEffect(() => {
+    if (!projectId) return;
+    return subscribeEditorDirty((d) => {
+      if (!d && pendingReloadRef.current) {
+        pendingReloadRef.current = false;
+        scheduleReload(projectId);
+      }
+    });
+  }, [projectId, scheduleReload]);
+
+  // Detached-client fallback (e.g. a stdio MCP client on the same machine
+  // has no UI push channel): re-pull detail + files when the window regains
+  // focus, at most once per 10s.
+  useEffect(() => {
+    if (!projectId) return;
+    const onFocus = () => {
+      if (Date.now() - lastLoadAtRef.current < 10000) return;
+      fetchProjectDetail(projectId);
+      scheduleReload(projectId);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [projectId, fetchProjectDetail, scheduleReload]);
 
   /** Build a scene object from script data (used when manifest is unavailable) */
   const buildSceneFromScript = useCallback((

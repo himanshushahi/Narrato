@@ -6,6 +6,7 @@ import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import { inferMediaType } from '../../../utils/mediaExtensions';
 
 import { estimateTextDuration } from '../../../utils/duration';
+import { setEditorDirty } from './editorDirty';
 import { getNotoFamilyForLang } from '../../../components/video/complexScriptFonts';
 
 function isTempPreviewFile(filePath: string | undefined | null): boolean {
@@ -158,6 +159,16 @@ export function useScriptEditing(
   const showConfirm = useUIStore((s) => s.showConfirm);
 
   const [editingCard, setEditingCard] = useState<{ key: string, mode: 'script' | 'visuals' } | null>(null);
+  // Publish edit-session state cross-hook: while a card is being edited the
+  // user may hold unsaved changes, so useEditorData defers live agent file
+  // reloads (instead of clobbering them) until the session closes.
+  useEffect(() => {
+    setEditorDirty(editingCard !== null);
+  }, [editingCard]);
+  // Unmount-only reset (separate effect: folding this into the effect above
+  // would publish false on every card switch and flush deferred reloads
+  // mid-edit). Without it, unmounting mid-edit sticks dirty=true forever.
+  useEffect(() => () => { setEditorDirty(false); }, []);
   const [rewritePrompt, setRewritePrompt] = useState('');
   const [originalScriptData, setOriginalScriptData] = useState<any>(null);
   const [originalManifestData, setOriginalManifestData] = useState<any[]>([]);

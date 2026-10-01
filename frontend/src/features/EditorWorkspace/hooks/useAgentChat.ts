@@ -46,14 +46,43 @@ export function useAgentChat(projectId: string | undefined) {
   const [activeTools, setActiveTools] = useState<ActiveTool[]>([]);
   const [stream, setStream] = useState<StreamState | null>(null);
   const streamRef = useRef<StreamState | null>(null);
+  // Stream deltas arrive per token — buffer them and flush to state at most
+  // every ~120ms so each chunk doesn't re-render the whole history.
+  const streamFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [running, setRunning] = useState(false);
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Once a push event arrives the channel is alive — the poller drops to a
+  // dead-man fallback cadence instead of racing every push with a full pull.
+  const pushSeenRef = useRef(false);
+  const [pushLive, setPushLive] = useState(false);
+  const markPushSeen = useCallback(() => {
+    if (!pushSeenRef.current) {
+      pushSeenRef.current = true;
+      setPushLive(true);
+    }
+  }, []);
+
+  const flushStream = useCallback(() => {
+    streamFlushRef.current = null;
+    const s = streamRef.current;
+    if (s) setStream({ ...s });
+  }, []);
+
+  const queueStreamFlush = useCallback(() => {
+    if (!streamFlushRef.current) {
+      streamFlushRef.current = setTimeout(flushStream, 120);
+    }
+  }, [flushStream]);
 
   // Commit the in-flight stream into the message list (as provisional
   // entries) so streamed text isn't lost when tools start / errors hit.
   // The next refresh() reconciles against persisted history by id.
   const commitStream = useCallback((suffix = '') => {
+    if (streamFlushRef.current) {
+      clearTimeout(streamFlushRef.current);
+      streamFlushRef.current = null;
+    }
     const s = streamRef.current;
     streamRef.current = null;
     setStream(null);
@@ -88,7 +117,49 @@ export function useAgentChat(projectId: string | undefined) {
         args: m.args,
         ts: m.ts || Date.now() / 1000,
       }));
-      setMessages(mapped);
+      // Merge, not wholesale replace: keep the previous array (and every
+      // unchanged message object) referentially stable when nothing changed,
+      // so memoized bubbles skip re-render on no-op polls.
+      setMessages((prev) => {
+        const argsKey = (m: ChatMessage) => JSON.stringify(m.args ?? null);
+        if (prev.length === mapped.length && prev.every((m, i) =>
+          m.id === mapped[i].id && m.role === mapped[i].role &&
+          m.text === mapped[i].text && m.tool === mapped[i].tool &&
+          argsKey(m) === argsKey(mapped[i]))) {
+          return prev;
+        }
+        const byId = new Map(prev.map((m) => [m.id, m]));
+        const next = mapped.map((m) => {
+          const old = byId.get(m.id);
+          if (old && old.role === m.role && old.text === m.text &&
+              old.tool === m.tool && argsKey(old) === argsKey(m)) {
+            return old;
+          }
+          return m;
+        });
+        // Local-only entries (user echo, committed stream, error notices)
+        // survive only when the backend doesn't already carry the same
+        // content — otherwise the echo would duplicate the persisted copy.
+        // Count-aware: N identical backend copies absorb at most N locals.
+        const sig = (m: ChatMessage) => `${m.role}\n${m.tool || ''}\n${m.text}`;
+        const incomingCount = new Map<string, number>();
+        for (const m of mapped) {
+          const k = sig(m);
+          incomingCount.set(k, (incomingCount.get(k) || 0) + 1);
+        }
+        const absorbed = new Map<string, number>();
+        for (const m of prev) {
+          if (mapped.some((x) => x.id === m.id)) continue;
+          const k = sig(m);
+          const used = absorbed.get(k) || 0;
+          if (used < (incomingCount.get(k) || 0)) {
+            absorbed.set(k, used + 1);
+            continue;
+          }
+          next.push(m);
+        }
+        return next;
+      });
       setPending(res.pending || null);
       if (!res.running) {
         setRunning(false);
@@ -103,6 +174,7 @@ export function useAgentChat(projectId: string | undefined) {
   useEffect(() => {
     (window as any).onChatEvent = (evt: any) => {
       if (!evt || evt.project_id !== projectId) return;
+      markPushSeen();
       if (evt.type === 'started') {
         setRunning(true);
         setActiveTools([]);
@@ -116,7 +188,7 @@ export function useAgentChat(projectId: string | undefined) {
         if (evt.kind === 'thinking') next.thinking += delta;
         else next.text += delta;
         streamRef.current = next;
-        setStream(next);
+        queueStreamFlush();
       } else if (evt.type === 'thinking') {
         setMessages((prev) => upsert(prev, {
           id: evt.id || uid(), role: 'thinking',
@@ -156,17 +228,25 @@ export function useAgentChat(projectId: string | undefined) {
         setMessages((prev) => [...prev, { id: uid(), role: 'system', text: evt.text || '', ts: Date.now() / 1000 }]);
       }
     };
-    return () => { (window as any).onChatEvent = undefined; };
-  }, [projectId, refresh, commitStream]);
+    return () => {
+      (window as any).onChatEvent = undefined;
+      if (streamFlushRef.current) {
+        clearTimeout(streamFlushRef.current);
+        streamFlushRef.current = null;
+      }
+    };
+  }, [projectId, refresh, commitStream, markPushSeen, queueStreamFlush]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   useEffect(() => {
+    // Poll only as a dead-man fallback: once pushes arrive, back off.
+    const cadence = pushLive ? 10000 : 2500;
     if (running) {
       if (!pollRef.current) {
-        pollRef.current = setInterval(refresh, 2500);
+        pollRef.current = setInterval(refresh, cadence);
       }
     } else if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -175,7 +255,7 @@ export function useAgentChat(projectId: string | undefined) {
     return () => {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [running, refresh]);
+  }, [running, refresh, pushLive]);
 
   const send = useCallback(async (text: string, opts?: { confirmRender?: boolean; confirmAction?: boolean }) => {
     if (!projectId || running) return;

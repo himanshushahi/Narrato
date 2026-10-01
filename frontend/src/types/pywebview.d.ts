@@ -76,6 +76,7 @@ interface Window {
   onProgressUpdate?: (data: any) => void;
   onAgentActivity?: (entry: any) => void;
   onChatEvent?: (evt: any) => void;
+  onProjectEvent?: (evt: any) => void;
   onOmniVoiceDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;
   onYtdlpUpdateProgress?: (data: any) => void;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useProjectStore, Project } from '../store/useProjectStore';
@@ -32,6 +32,22 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     fetchProjects();
   }, []);
+
+  // Catch-all for mutations made outside this process (e.g. a detached
+  // stdio MCP client on the same machine, which has no UI push channel):
+  // re-pull the list whenever the window regains focus, at most once
+  // per 10s so plain alt-tabs don't double-fetch alongside push events.
+  const lastFocusFetch = useRef(0);
+  useEffect(() => {
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - lastFocusFetch.current < 10000) return;
+      lastFocusFetch.current = now;
+      fetchProjects();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [fetchProjects]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

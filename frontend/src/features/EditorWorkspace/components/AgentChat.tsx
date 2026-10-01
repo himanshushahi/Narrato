@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import { VscSend, VscStopCircle, VscTrash, VscCheck, VscTerminal, VscSparkle, VscChevronDown, VscChevronRight, VscLightbulb } from 'react-icons/vsc';
-import { useAgentChat, ChatMessage } from '../hooks/useAgentChat';
+import { useAgentChat, ChatMessage, StreamState } from '../hooks/useAgentChat';
 
 // Markdown rendering for assistant replies — styled to the app theme
 // (zinc text, blue links, compact code blocks).
@@ -56,7 +56,10 @@ const summarizeResult = (parsed: any): { ok: boolean | null; label: string } => 
   return { ok: null, label: '' };
 };
 
-const ThinkingBlock: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
+// Memoized: the parent re-renders on every stream tick, but message objects
+// are referentially stable across no-op refreshes (see useAgentChat merge),
+// so history bubbles skip re-render — no O(history) markdown re-parse.
+const ThinkingBlock: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
   const [open, setOpen] = useState(false);
   const text = msg.text.length > 3000 ? msg.text.slice(0, 3000) + '…' : msg.text;
   return (
@@ -73,20 +76,24 @@ const ThinkingBlock: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
       )}
     </div>
   );
-};
+});
 
-const ToolCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
+const ToolCard: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
   const [openArgs, setOpenArgs] = useState(false);
   const [openResult, setOpenResult] = useState(false);
-  const parsed = tryParseJson(msg.text);
-  const summary = summarizeResult(parsed);
+  // Parsed once per message content — not on every parent render.
+  const parsed = useMemo(() => tryParseJson(msg.text), [msg.text]);
+  const summary = useMemo(() => summarizeResult(parsed), [parsed]);
   const ok = summary.ok;
   // review_frame persists a contact sheet the agent actually saw — show it.
   const imagePath = parsed && typeof parsed === 'object'
     ? (parsed.image_path || parsed.image_file || null)
     : null;
   const imageUrl = imagePath ? getMediaUrlSync(String(imagePath)) : null;
-  const argsEntries = msg.args ? Object.entries(msg.args).filter(([, v]) => v !== '' && v != null) : [];
+  const argsEntries = useMemo(
+    () => msg.args ? Object.entries(msg.args).filter(([, v]) => v !== '' && v != null) : [],
+    [msg.args],
+  );
 
   return (
     <div className={`border rounded-lg px-2 py-1.5 bg-zinc-900/50 ${ok === false ? 'border-red-600/30' : 'border-zinc-800'}`}>
@@ -139,7 +146,43 @@ const ToolCard: React.FC<{ msg: ChatMessage }> = ({ msg }) => {
       )}
     </div>
   );
-};
+});
+
+const MessageBubble: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
+  if (msg.role === 'system') {
+    return (
+      <div className="border rounded-lg px-2 py-1.5 text-[8px] bg-zinc-900/60 border-zinc-800 text-zinc-500 italic break-words">
+        {msg.text.length > 600 ? msg.text.slice(0, 600) + '…' : msg.text}
+      </div>
+    );
+  }
+  return (
+    <div
+      className={`border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words ${
+        msg.role === 'user' ? 'bg-blue-600/10 border-blue-600/25 text-zinc-200 ml-6'
+        : 'bg-zinc-900/50 border-zinc-800 text-zinc-300 mr-4'
+      }`}>
+      {msg.role === 'assistant'
+        ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{msg.text}</ReactMarkdown>
+        : msg.text}
+    </div>
+  );
+});
+
+// Stream preview isolated in its own component: it re-renders on stream
+// ticks while memoized history bubbles (stable refs) skip them.
+const StreamPreview: React.FC<{ stream: StreamState }> = memo(({ stream }) => (
+  <div className="border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words bg-zinc-900/50 border-blue-600/25 text-zinc-300 mr-4">
+    {stream.thinking && (
+      <p className="text-[8px] text-zinc-500 italic mb-1 leading-relaxed whitespace-pre-wrap break-words">
+        {stream.thinking.length > 400 ? 'Thinking…' : stream.thinking}
+      </p>
+    )}
+    {stream.text
+      ? <><ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{stream.text}</ReactMarkdown><span className="text-blue-400 animate-pulse">▍</span></>
+      : <p className="text-[9px] text-blue-400 animate-pulse font-mono">Agent is thinking…<span>▍</span></p>}
+  </div>
+));
 
 interface AgentChatProps {
   projectId: string;
@@ -206,24 +249,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
         {messages.map((m) => {
           if (m.role === 'tool') return <ToolCard key={m.id} msg={m} />;
           if (m.role === 'thinking') return <ThinkingBlock key={m.id} msg={m} />;
-          if (m.role === 'system') {
-            return (
-              <div key={m.id} className="border rounded-lg px-2 py-1.5 text-[8px] bg-zinc-900/60 border-zinc-800 text-zinc-500 italic break-words">
-                {m.text.length > 600 ? m.text.slice(0, 600) + '…' : m.text}
-              </div>
-            );
-          }
-          return (
-            <div key={m.id}
-              className={`border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words ${
-                m.role === 'user' ? 'bg-blue-600/10 border-blue-600/25 text-zinc-200 ml-6'
-                : 'bg-zinc-900/50 border-zinc-800 text-zinc-300 mr-4'
-              }`}>
-              {m.role === 'assistant'
-                ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{m.text}</ReactMarkdown>
-                : m.text}
-            </div>
-          );
+          return <MessageBubble key={m.id} msg={m} />;
         })}
         {activeTools.map((t, i) => (
           <div key={`${t.tool}-${i}`} className="flex items-center gap-2 border rounded-lg px-2 py-1.5 bg-blue-600/5 border-blue-600/20">
@@ -236,18 +262,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
         {running && activeTools.length === 0 && !stream && (
           <p className="text-[9px] text-blue-400 animate-pulse font-mono">Agent is thinking…</p>
         )}
-        {stream && (stream.text || stream.thinking) && (
-          <div className="border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words bg-zinc-900/50 border-blue-600/25 text-zinc-300 mr-4">
-            {stream.thinking && (
-              <p className="text-[8px] text-zinc-500 italic mb-1 leading-relaxed whitespace-pre-wrap break-words">
-                {stream.thinking.length > 400 ? 'Thinking…' : stream.thinking}
-              </p>
-            )}
-            {stream.text
-              ? <><ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{stream.text}</ReactMarkdown><span className="text-blue-400 animate-pulse">▍</span></>
-              : <p className="text-[9px] text-blue-400 animate-pulse font-mono">Agent is thinking…<span>▍</span></p>}
-          </div>
-        )}
+        {stream && (stream.text || stream.thinking) && <StreamPreview stream={stream} />}
       </div>
 
       {pending ? (
