@@ -201,10 +201,10 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 ${view === 'chat' ? 'flex flex-col' : ''}`}>
+    <div className="flex flex-col h-full min-h-0">
+      <div className={`flex-1 overflow-x-hidden ${view === 'chat' ? 'overflow-hidden flex flex-col min-h-0 p-3 space-y-2.5' : 'overflow-y-auto p-4 space-y-4'}`}>
         {/* Pipeline / Chat switcher */}
-        <div className="flex gap-1 bg-zinc-900/60 p-1 rounded-lg border border-zinc-800">
+        <div className="flex gap-1 bg-zinc-900/60 p-1 rounded-lg border border-zinc-800 shrink-0">
           {(['pipeline', 'chat'] as const).map((v) => (
             <button
               key={v}
