@@ -86,6 +86,8 @@ export function useAgentChat(projectId: string | undefined) {
   // the same `${turn}-t` id twice creates duplicate React keys (which also
   // corrupts render order). The next refresh() supersedes provisionals by
   // content (exact or prefix-inclusion), since backend ids never match.
+  // Blank-only content (models emit "\n\n" before tool calls) is dropped:
+  // it would render as an empty bubble the backend never persists.
   const commitStream = useCallback((suffix = '') => {
     if (streamFlushRef.current) {
       clearTimeout(streamFlushRef.current);
@@ -94,19 +96,21 @@ export function useAgentChat(projectId: string | undefined) {
     const s = streamRef.current;
     streamRef.current = null;
     setStream(null);
-    if (!s || (!s.text && !s.thinking)) return;
+    const text = s?.text && s.text.trim() ? s.text : '';
+    const thinking = s?.thinking && s.thinking.trim() ? s.thinking : '';
+    if (!text && !thinking) return;
     const now = Date.now() / 1000;
     setMessages((prev) => {
       let next = prev;
-      if (s.thinking) {
+      if (thinking) {
         next = upsert(next, {
-          id: `${s.id}-t`, role: 'thinking', text: s.thinking,
+          id: `${s!.id}-t`, role: 'thinking', text: thinking,
           ts: now, provisional: true,
         });
       }
-      if (s.text) {
+      if (text) {
         next = upsert(next, {
-          id: s.id, role: 'assistant', text: s.text + suffix,
+          id: s!.id, role: 'assistant', text: text + suffix,
           ts: now, provisional: true,
         });
       }

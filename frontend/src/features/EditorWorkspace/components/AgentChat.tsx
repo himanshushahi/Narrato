@@ -169,6 +169,9 @@ const MessageBubble: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
       </div>
     );
   }
+  if (msg.role === 'assistant' && !msg.text?.trim()) {
+    return null;
+  }
   const copyable = msg.role === 'assistant' && msg.text.length > 0;
   return (
     <div
@@ -209,7 +212,7 @@ const StreamPreview: React.FC<{ stream: StreamState }> = memo(({ stream }) => {
   };
   return (
     <div className="group relative border rounded-lg px-2 py-1.5 text-[9px] leading-relaxed break-words bg-zinc-900/50 border-blue-600/25 text-zinc-300 mr-4">
-      {stream.text && (
+      {stream.text?.trim() && (
         <button onClick={onCopy} title={copied ? 'Copied!' : 'Copy response'}
           className="absolute top-1 right-1 p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800/80 transition-all opacity-0 group-hover:opacity-100 cursor-pointer">
           {copied
@@ -217,14 +220,14 @@ const StreamPreview: React.FC<{ stream: StreamState }> = memo(({ stream }) => {
             : <VscCopy className="text-[11px]" />}
         </button>
       )}
-      {stream.thinking && (
+      {stream.thinking?.trim() && (
         <p className="text-[8px] text-zinc-500 italic mb-1 leading-relaxed whitespace-pre-wrap break-words">
           {stream.thinking.length > 400 ? 'Thinking…' : stream.thinking}
         </p>
       )}
-      {stream.text
+      {stream.text?.trim()
         ? <><ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{stream.text}</ReactMarkdown><span className="text-blue-400 animate-pulse">▍</span></>
-        : <p className="text-[9px] text-blue-400 animate-pulse font-mono">Agent is thinking…<span>▍</span></p>}
+        : stream.thinking?.trim() ? null : <p className="text-[9px] text-blue-400 animate-pulse font-mono">Agent is thinking…<span>▍</span></p>}
     </div>
   );
 });
@@ -253,6 +256,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
     () => [...messages].sort((a, b) => a.ts - b.ts),
     [messages],
   );
+  // Blank-only stream content (models emit "\n\n" before tool calls) never
+  // renders — it would show as an empty preview box, same as the committed
+  // empty bubbles fixed in useAgentChat.commitStream.
+  const hasVisibleStream = !!stream && (!!stream.text.trim() || !!stream.thinking.trim());
 
   useEffect(() => {
     // Only follow the stream while the user is already at the bottom —
@@ -292,7 +299,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
       )}
 
       <div ref={scrollRef} onScroll={handleScroll} className="space-y-1.5 flex-1 min-h-[160px] overflow-y-auto pr-1">
-        {messages.length === 0 && !stream && activeTools.length === 0 && (
+        {messages.length === 0 && !hasVisibleStream && activeTools.length === 0 && (
           <p className="text-[9px] text-zinc-600 text-center py-4 leading-relaxed">
             Ask the agent to work on this project, e.g.<br />
             <span className="text-zinc-400 font-mono">“Check project status and tell me what is missing”</span><br />
@@ -312,10 +319,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
             </span>
           </div>
         ))}
-        {running && activeTools.length === 0 && !stream && (
+        {running && activeTools.length === 0 && !hasVisibleStream && (
           <p className="text-[9px] text-blue-400 animate-pulse font-mono">Agent is thinking…</p>
         )}
-        {stream && (stream.text || stream.thinking) && <StreamPreview stream={stream} />}
+        {hasVisibleStream && stream && <StreamPreview stream={stream} />}
       </div>
 
       {pending ? (
