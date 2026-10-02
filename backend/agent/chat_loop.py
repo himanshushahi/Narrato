@@ -28,6 +28,7 @@ class NativeToolCall:
     name: str
     arguments: dict = field(default_factory=dict)
     arguments_error: str = ""
+    extra_content: dict | None = None
 
 
 @dataclass
@@ -147,7 +148,16 @@ def call_llm_with_tools(messages: list, tools: list, cancel_event=None,
                     pending_think.append(delta.reasoning_content)
                 _flush()
                 for tc in getattr(delta, "tool_calls", None) or []:
-                    slot = calls.setdefault(tc.index, {"id": "", "name": "", "args": []})
+                    idx = getattr(tc, "index", None)
+                    if idx is None:
+                        idx = 0
+                        tc_id = getattr(tc, "id", None)
+                        if tc_id:
+                            for k, v in calls.items():
+                                if v.get("id") == tc_id:
+                                    idx = k
+                                    break
+                    slot = calls.setdefault(idx, {"id": "", "name": "", "args": [], "extra_content": None})
                     if getattr(tc, "id", None):
                         slot["id"] = tc.id
                     fn = getattr(tc, "function", None)
@@ -156,6 +166,11 @@ def call_llm_with_tools(messages: list, tools: list, cancel_event=None,
                             slot["name"] = fn.name
                         if getattr(fn, "arguments", None):
                             slot["args"].append(fn.arguments)
+                    extra = getattr(tc, "extra_content", None)
+                    if not extra and getattr(tc, "model_extra", None):
+                        extra = tc.model_extra.get("extra_content")
+                    if extra:
+                        slot["extra_content"] = extra
                 if getattr(chunk, "usage", None) is not None:
                     usage = chunk.usage
 
@@ -163,7 +178,7 @@ def call_llm_with_tools(messages: list, tools: list, cancel_event=None,
 
             turn = NativeTurn(content="".join(content_parts).strip(),
                               reasoning="".join(reasoning_parts).strip())
-            for idx in sorted(calls):
+            for idx in sorted(calls, key=lambda k: (0 if isinstance(k, int) else 1, k or 0)):
                 slot = calls[idx]
                 if not slot["name"]:
                     continue
@@ -177,7 +192,8 @@ def call_llm_with_tools(messages: list, tools: list, cancel_event=None,
                     parsed, err = {}, f"arguments were not valid JSON: {e}"
                 turn.tool_calls.append(NativeToolCall(
                     call_id=slot["id"] or f"call_{idx}",
-                    name=slot["name"], arguments=parsed, arguments_error=err))
+                    name=slot["name"], arguments=parsed, arguments_error=err,
+                    extra_content=slot.get("extra_content")))
 
             if not turn.content and not turn.tool_calls and not turn.reasoning:
                 # Empty stream (some models/reasoning setups) — one
@@ -195,9 +211,13 @@ def call_llm_with_tools(messages: list, tools: list, cancel_event=None,
                                 parsed = {}
                         except Exception as e:
                             parsed, err = {}, f"arguments were not valid JSON: {e}"
+                        extra = getattr(tc, "extra_content", None)
+                        if not extra and getattr(tc, "model_extra", None):
+                            extra = tc.model_extra.get("extra_content")
                         turn.tool_calls.append(NativeToolCall(
                             call_id=tc.id, name=tc.function.name,
-                            arguments=parsed, arguments_error=err))
+                            arguments=parsed, arguments_error=err,
+                            extra_content=extra))
                     usage = resp.usage
 
             if usage is not None:

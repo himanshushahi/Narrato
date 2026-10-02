@@ -353,10 +353,15 @@ class ChatSession:
         pend_turn = pend.get("turn")
         if pend.get("kind") == "render" and name == "run_stage":
             args["confirm_render"] = True
+        tc_item = {
+            "id": call_id, "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)}
+        }
+        if pend.get("extra_content"):
+            tc_item["extra_content"] = pend["extra_content"]
         self.llm_messages.append({
             "role": "assistant", "content": None,
-            "tool_calls": [{"id": call_id, "type": "function",
-                            "function": {"name": name, "arguments": json.dumps(args)}}]})
+            "tool_calls": [tc_item]})
         self._emit(on_event, {"type": "tool_start", "tool": name,
                                   "args": args, "call_id": call_id,
                                   "turn": pend_turn})
@@ -414,12 +419,18 @@ class ChatSession:
                                       "seq": entry["seq"], "turn": turn_id})
             if turn.tool_calls:
                 # Assistant message (may carry narration like "I'll check…").
+                tc_payload = []
+                for c in turn.tool_calls:
+                    item = {
+                        "id": c.call_id, "type": "function",
+                        "function": {"name": c.name, "arguments": json.dumps(c.arguments)}
+                    }
+                    if getattr(c, "extra_content", None):
+                        item["extra_content"] = c.extra_content
+                    tc_payload.append(item)
                 self.llm_messages.append({
                     "role": "assistant", "content": clean or None,
-                    "tool_calls": [{"id": c.call_id, "type": "function",
-                                    "function": {"name": c.name,
-                                                 "arguments": json.dumps(c.arguments)}}
-                                   for c in turn.tool_calls]})
+                    "tool_calls": tc_payload})
                 if clean:
                     # Deduplicate only within the current user turn (messages after the latest user message)
                     current_turn_assistants = []
@@ -479,7 +490,8 @@ class ChatSession:
                             break
                         self.pending = {"id": uuid.uuid4().hex[:8], "kind": gate,
                                         "tool": call.name, "args": call.arguments,
-                                        "call_id": call.call_id, "turn": turn_id}
+                                        "call_id": call.call_id, "turn": turn_id,
+                                        "extra_content": getattr(call, "extra_content", None)}
                         self._save()
                         self._emit(on_event, {"type": "confirm", "id": self.pending["id"],
                                               "kind": gate, "tool": call.name,
