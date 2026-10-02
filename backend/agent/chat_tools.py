@@ -104,13 +104,19 @@ def get_chat_tools_schema() -> List[Dict[str, Any]]:
         _func_def("review_frame", "Contact-sheet snapshot: rendered/composition/asset lineup for a cut or section.",
                   {"project_id": _PID, "section_type": _STR, "scene_index": _INT, "cut_index": _INT,
                    "scene_number": _INT, "cut_number": _INT, "scope": _STR, "mode": _STR, "max_cells": _INT}, []),
-        _func_def("run_stage", "Execute mechanical stage: generate_voiceover|transcribe|fetch_assets|render. Render needs confirm_render=true.",
+        _func_def("run_stage", "Execute mechanical stage: generate_voiceover|transcribe|fetch_assets|render. Render needs confirm_render=true. "
+                   "Slow stages (generate_voiceover, transcribe, render) take minutes: use wait=true and await the result. "
+                   "Only use wait=false when the user wants to keep chatting meanwhile — then loop sleep→stage_status until completed.",
                   {"project_id": _PID, "stage": {"type": "string", "enum": ["generate_voiceover", "transcribe", "fetch_assets", "render"]},
                    "wait": _BOOL, "confirm_render": _BOOL}, ["stage"]),
         _func_def("stage_status", "Poll a queued/background stage (task row).",
                   {"project_id": _PID, "stage": _STR}, ["stage"]),
         _func_def("cancel_stage", "Cancel a running queued stage.",
                   {"project_id": _PID, "stage": _STR}, ["stage"]),
+        _func_def("sleep", "Pause this turn for a bounded time (max 120s per call), then continue. "
+                   "Use while a wait=false stage finishes: sleep, then stage_status, repeat until "
+                   "completed/failed. Honors the chat Stop button.",
+                  {"seconds": {"type": "integer", "description": "Seconds to pause (1-120)."}}, []),
         _func_def("update_voice_settings", "Change voice/audio columns (tts_engine,tts_voice,tts_speed,tts_pitch,bg_music_volume).",
                   {"project_id": _PID, "settings": _OBJ}, ["settings"]),
         _func_def("update_transcribe_settings", "Change whisper model/device.",
@@ -131,6 +137,85 @@ CHAT_TOOL_NAMES = [t["function"]["name"] for t in get_chat_tools_schema()]
 
 # Stages the chat may run through the desktop queue (same vocabulary as MCP).
 CHAT_RUNNABLE_STAGES = ("generate_voiceover", "transcribe", "fetch_assets", "render")
+
+# One bounded pause per sleep call: long enough to skip poll spam, short
+# enough to stay responsive (and safe under MCP HTTP client timeouts).
+SLEEP_MAX_SECONDS = 120
+
+# Suggested first sleep per stage for a wait=false loop (slow three first).
+# In-app values: no HTTP tool timeout applies here, unlike the smaller
+# HTTP-safe table in mcp/server.py (same stages, same intent).
+STAGE_SLEEP_SUGGESTIONS = {
+    "generate_voiceover": 90,
+    "transcribe": 90,
+    "render": 90,
+    "fetch_assets": 45,
+}
+
+# Mutating chat tools locked while a pipeline stage runs on the project.
+_CHAT_GUARDED_TOOLS = frozenset({
+    "save_script", "save_design", "save_visuals", "save_visuals_batch",
+    "clear_visuals", "clear_assets", "delete_project",
+    "update_voice_settings", "update_transcribe_settings",
+})
+
+
+def _queue_ids(queued) -> list:
+    """Project ids in the desktop queue. Entries are
+    (project_id, steps, is_resume) tuples — never compare a bare id
+    against the raw list (always False)."""
+    ids = []
+    for q in queued or []:
+        if isinstance(q, (list, tuple)) and q:
+            ids.append(q[0])
+        elif isinstance(q, str):
+            ids.append(q)
+    return ids
+
+
+def _chat_busy_stage(project_id: str):
+    """Step name of the in-flight desktop-queue stage for a project, or None.
+
+    Returns the DB step name when identifiable, else "unknown" (busy, unnamed
+    — always a string so agents can parse awaiting_stage reliably).
+    Mirrors the one-driver check run_stage itself performs.
+    """
+    if not project_id:
+        return None
+    try:
+        from backend.pipeline.queue import global_queue_manager
+        active = getattr(global_queue_manager, "_active_project_id", None)
+        queued = list(getattr(global_queue_manager, "_queue", []) or [])
+        if not (active == project_id or project_id in _queue_ids(queued)):
+            return None
+    except Exception:
+        return None
+    try:
+        from backend.database import db as _db
+        for t in (_db.get_project_tasks(project_id) or []):
+            if t.get("status") in ("running", "pending") and t.get("step"):
+                return t.get("step")
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _sleep_tool(args: dict, cancel_event=None) -> dict:
+    """Bounded, interruptible pause. Never raises except on user cancel."""
+    try:
+        # OverflowError covers inf/1e999 (int(inf) raises); ValueError covers NaN.
+        secs = int(float(str(args.get("seconds", 60)).strip() or 60))
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        secs = 60
+    secs = max(1, min(SLEEP_MAX_SECONDS, secs))
+    end = time.time() + secs
+    while time.time() < end:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Cancelled")
+        time.sleep(min(3.0, max(0.1, end - time.time())))
+    return {"ok": True, "slept_seconds": secs,
+            "hint": "Time is up — now call stage_status for the running stage. "
+                    "Do not start other work while its status is queued/running."}
 
 
 def _results_json(result) -> str:
@@ -191,7 +276,8 @@ def execute_chat_tool(tool_name: str, arguments: Dict[str, Any], default_project
         # Most tools are project-scoped; default to the open project so the
         # model does not have to repeat it every call.
         if tool_name not in ("create_project", "list_projects", "list_skills", "get_skill",
-                              "list_voice_options", "web_search", "append_skill_learning"):
+                              "list_voice_options", "web_search", "append_skill_learning",
+                              "sleep"):
             args["project_id"] = default_project_id
 
     entry_id = emit_activity("tool", tool_name, json.dumps(args, ensure_ascii=False, default=str)[:300],
@@ -218,6 +304,23 @@ def execute_chat_tool(tool_name: str, arguments: Dict[str, Any], default_project
 
 def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=None):
     from backend.mcp import server as S
+
+    # Waiting discipline: while a pipeline stage runs on this project, refuse
+    # state-mutating tools so a wait=false polling turn cannot wander into
+    # side quests. Read-only tools, sleep, stage_status and cancel_stage pass;
+    # dry_run validations write nothing and also pass.
+    if tool_name in _CHAT_GUARDED_TOOLS:
+        if tool_name in ("save_visuals", "save_visuals_batch") and _to_bool(args.get("dry_run", False)):
+            pass
+        else:
+            pid = args.get("project_id", "") or default_project_id
+            busy = _chat_busy_stage(pid)
+            if busy:
+                name = busy if isinstance(busy, str) else "unknown"
+                return {"ok": False, "awaiting_stage": name,
+                        "error": (f"Stage {name!r} is running on this project — wait for it first: "
+                                  "sleep, then stage_status, repeat until completed/failed. "
+                                  "Mutating tools are locked until it settles; read-only probes are fine.")}
 
     # --- thin wrappers: same functions MCP calls (incl. skill-gate checks) ---
     if tool_name == "create_project":
@@ -314,6 +417,8 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
         return _review_frame_chat(args, default_project_id)
     if tool_name in ("run_stage", "stage_status", "cancel_stage"):
         return _stage_via_queue(tool_name, args, default_project_id, cancel_event)
+    if tool_name == "sleep":
+        return _sleep_tool(args, cancel_event)
     if tool_name == "update_voice_settings":
         return S.update_voice_settings(args.get("project_id", "") or default_project_id,
                                        args.get("settings", {}))
@@ -359,7 +464,7 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
         try:
             active = getattr(global_queue_manager, "_active_project_id", None)
             queued = list(getattr(global_queue_manager, "_queue", []) or [])
-            if active == project_id or project_id in queued:
+            if active == project_id or project_id in _queue_ids(queued):
                 return {"ok": False, "stage": stage,
                         "error": f"Project {project_id!r} already has a queued/running pipeline stage; wait or cancel it first."}
         except Exception:
@@ -373,8 +478,12 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
         except Exception:
             pass
         if not wait:
+            nap = STAGE_SLEEP_SUGGESTIONS.get(stage, 60)
             return {"ok": True, "accepted": True, "project_id": project_id, "stage": stage,
-                    "status": "submitted", "hint": "Poll stage_status until completed/failed."}
+                    "status": "submitted",
+                    "hint": (f"Poll stage_status until completed/failed. This stage takes a while — "
+                             f"call sleep({nap}) first, then stage_status, and repeat. "
+                             "Run no other mutating tool while it is queued/running.")}
         # wait=true: block until the task row settles, but stay responsive
         # to the chat Stop button (cancel_event wakes the wait immediately).
         deadline = time.time() + 60 * 60  # 1h hard cap per stage
@@ -426,7 +535,7 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
         try:
             active = getattr(global_queue_manager, "_active_project_id", None)
             queued = list(getattr(global_queue_manager, "_queue", []) or [])
-            running = active == project_id or project_id in queued
+            running = active == project_id or project_id in _queue_ids(queued)
         except Exception:
             running = False
         return {"ok": True, "task_id": task_id, "status": row.get("status"),
