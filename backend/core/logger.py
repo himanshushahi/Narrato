@@ -22,6 +22,26 @@ def _get_log_retention_days() -> int:
 
 LOG_RETENTION_DAYS = _get_log_retention_days()
 
+# Cap on how many app_*.log files are kept (newest win, 0 disables).
+# Per-PID filenames mean every launch leaves a file behind — age pruning
+# alone lets dozens accumulate within the retention window.
+def _get_log_keep_files() -> int:
+    val = os.environ.get("NARRATO_LOG_KEEP_FILES", "10")
+    try:
+        return max(0, int(val.strip() if val else 10))
+    except (ValueError, TypeError):
+        return 10
+
+LOG_KEEP_FILES = _get_log_keep_files()
+
+
+def _configured_level(env_name: str, default: str) -> int:
+    """Resolve a logging level from env (e.g. NARRATO_FILE_LOG_LEVEL=DEBUG)."""
+    try:
+        return getattr(logging, str(os.environ.get(env_name, default) or default).strip().upper())
+    except (AttributeError, TypeError):
+        return logging.INFO
+
 # Define log format
 LOG_FORMAT = logging.Formatter(
     "[%(asctime)s] [%(levelname)s] [%(name)s:%(filename)s:%(lineno)d]: %(message)s"
@@ -66,18 +86,22 @@ def setup_logger():
     console_handler.setFormatter(LOG_FORMAT)
     logger.addHandler(console_handler)
 
-    # File handler (Rotating, max 5MB, keeps 3 backups)
+    # File handler (Rotating, max 5MB, keeps 3 backups). Level INFO by
+    # default: DEBUG here turned every per-layer/per-request trace into
+    # thousands of lines per agent run (78% DEBUG in the worst files).
+    # Opt back into the firehose with NARRATO_FILE_LOG_LEVEL=DEBUG.
     if not NO_FILE_LOG:
         file_handler = RotatingFileHandler(
             LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8", delay=True
         )
-        file_handler.setLevel(logging.DEBUG)
+        file_handler.setLevel(_configured_level("NARRATO_FILE_LOG_LEVEL", "INFO"))
         file_handler.setFormatter(LOG_FORMAT)
         logger.addHandler(file_handler)
 
-    # UI custom handler for webview streaming
+    # UI custom handler for webview streaming (INFO: same firehose reason;
+    # NARRATO_UI_LOG_LEVEL=DEBUG restores full streaming).
     ui_handler = UILogHandler()
-    ui_handler.setLevel(logging.DEBUG)
+    ui_handler.setLevel(_configured_level("NARRATO_UI_LOG_LEVEL", "INFO"))
     ui_handler.setFormatter(LOG_FORMAT)
     logger.addHandler(ui_handler)
 
@@ -86,26 +110,59 @@ def setup_logger():
 
 
 def _prune_old_logs() -> int:
-    """Delete app_*.log* files older than LOG_RETENTION_DAYS (except our own
-    current file). Returns the pruned count. Best-effort, never raises."""
-    if LOG_RETENTION_DAYS <= 0:
-        return 0
+    """Delete app_*.log* files older than LOG_RETENTION_DAYS, then cap the
+    survivors at LOG_KEEP_FILES newest (except our own current file). Returns
+    the pruned count. Best-effort, never raises."""
+    import re
     import time
-    cutoff = time.time() - LOG_RETENTION_DAYS * 86400
     pruned = 0
     current_prefix = f"{LOG_FILE.name}."
     try:
-        for path in LOGS_DIR.glob("app_*.log*"):
+        paths = list(LOGS_DIR.glob("app_*.log*"))
+    except OSError:
+        return 0
+    if LOG_RETENTION_DAYS > 0:
+        cutoff = time.time() - LOG_RETENTION_DAYS * 86400
+        survivors = []
+        for path in paths:
             try:
                 if path.resolve() == LOG_FILE.resolve() or path.name.startswith(current_prefix):
                     continue
                 if path.stat().st_mtime < cutoff:
                     path.unlink()
                     pruned += 1
+                else:
+                    survivors.append(path)
             except OSError:
                 continue
-    except OSError:
-        pass
+    else:
+        try:
+            survivors = [p for p in paths
+                         if p.resolve() != LOG_FILE.resolve()
+                         and not p.name.startswith(current_prefix)]
+        except OSError:
+            survivors = []
+    # Count cap: per-PID names accumulate fast (every launch + dev restart),
+    # so keep only the newest LOG_KEEP_FILES primary logs. A primary's
+    # rotated backups (app_<pid>.log.<n>) go down with it.
+    if LOG_KEEP_FILES > 0:
+        primary_re = re.compile(r"^app_.*\.log$")
+        primaries = sorted(
+            (p for p in survivors if primary_re.match(p.name)),
+            key=lambda p: p.stat().st_mtime if p.exists() else 0,
+            reverse=True,
+        )
+        doomed = set(primaries[LOG_KEEP_FILES:])
+        doomed_names = {d.name for d in doomed}
+        for path in survivors:
+            try:
+                if path in doomed or any(
+                    path.name.startswith(name + ".") for name in doomed_names
+                ):
+                    path.unlink(missing_ok=True)
+                    pruned += 1
+            except OSError:
+                continue
     return pruned
 
 
@@ -127,7 +184,7 @@ def enable_file_logging() -> None:
     file_handler = RotatingFileHandler(
         LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8", delay=True
     )
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(_configured_level("NARRATO_FILE_LOG_LEVEL", "INFO"))
     file_handler.setFormatter(LOG_FORMAT)
     logger.addHandler(file_handler)
 

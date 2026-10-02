@@ -523,7 +523,17 @@ class MediaHandler(http.server.BaseHTTPRequestHandler):
                 pass
 
     def log_message(self, format, *args):
-        logger.debug("FileServer: " + (format % args))
+        # BaseHTTPRequestHandler funnels EVERY request through here — media
+        # polling turns that into hundreds of lines per session. Surface only
+        # failures; full access logging is opt-in via NARRATO_HTTP_LOG=1.
+        try:
+            code = int(args[1]) if len(args) > 1 else 0
+        except (TypeError, ValueError):
+            code = 0
+        if code >= 400:
+            logger.warning("FileServer: " + (format % args))
+        elif os.environ.get("NARRATO_HTTP_LOG", "").strip() == "1":
+            logger.debug("FileServer: " + (format % args))
 
 
 def start_file_server():
