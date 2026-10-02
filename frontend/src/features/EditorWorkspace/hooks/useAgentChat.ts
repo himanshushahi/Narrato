@@ -8,6 +8,9 @@ export interface ChatMessage {
   tool?: string;
   args?: Record<string, any>;
   ok?: boolean;
+  // Persisted system subtype from the backend (error | notice). Error =
+  // agent-stopping failure (LLM/provider/budget); notice = user cancel.
+  kind?: 'error' | 'notice';
   ts: number;
   // Canonical backend ordering key (monotonic per session). Persisted entries
   // always carry one; local-only provisionals don't until the backend
@@ -183,6 +186,7 @@ export function useAgentChat(projectId: string | undefined) {
           text: String(m.text || ''),
           tool: m.tool,
           args: m.args,
+          kind: m.kind,
           callId: m.call_id,
           seq: typeof m.seq === 'number' ? m.seq : undefined,
           turn: m.turn,
@@ -204,6 +208,7 @@ export function useAgentChat(projectId: string | undefined) {
           if (prev.length === mapped.length && prev.every((m, i) =>
             m.id === mapped[i].id && m.role === mapped[i].role &&
             m.text === mapped[i].text && m.tool === mapped[i].tool &&
+            m.kind === mapped[i].kind &&
             argsKey(m) === argsKey(mapped[i]))) {
             return prev;
           }
@@ -211,7 +216,7 @@ export function useAgentChat(projectId: string | undefined) {
           const next = mapped.map((m) => {
             const old = byId.get(m.id);
             if (old && old.role === m.role && old.text === m.text &&
-                old.tool === m.tool && argsKey(old) === argsKey(m)) {
+                old.tool === m.tool && old.kind === m.kind && argsKey(old) === argsKey(m)) {
               // Adopt seq/turn/ts metadata without breaking memo identity.
               if (old.seq === m.seq && old.turn === m.turn && old.ts === m.ts) return old;
               return { ...old, seq: m.seq, turn: m.turn, ts: m.ts };
@@ -402,11 +407,31 @@ export function useAgentChat(projectId: string | undefined) {
           });
         }
         if (evt.type === 'error') {
-          setMessages((prev) => [...prev, { id: uid(), role: 'system', text: evt.error || 'Turn failed.', ts: Date.now() / 1000 }]);
+          // Backend now persists the error (stable id/seq/turn) before
+          // emitting. Upsert by that id so the follow-up refresh adopts it
+          // instead of wiping it as a stray. If the error event carries no id
+          // (e.g. out-of-session fallback in bridge._worker), mark it provisional
+          // so refresh() carries it over instead of dropping it as a stray.
+          const errMsg: ChatMessage = {
+            id: evt.id || uid(), role: 'system', kind: 'error',
+            text: evt.error || evt.text || 'Turn failed.',
+            ts: evt.ts || Date.now() / 1000,
+            seq: typeof evt.seq === 'number' ? evt.seq : undefined,
+            turn: evt.turn,
+            provisional: !evt.id,
+          };
+          setMessages((prev) => upsert(prev, errMsg));
         }
         refresh();
       } else if (evt.type === 'notice') {
-        setMessages((prev) => [...prev, { id: uid(), role: 'system', text: evt.text || '', ts: Date.now() / 1000 }]);
+        const noticeMsg: ChatMessage = {
+          id: evt.id || uid(), role: 'system', kind: 'notice',
+          text: evt.text || evt.error || '', ts: evt.ts || Date.now() / 1000,
+          seq: typeof evt.seq === 'number' ? evt.seq : undefined,
+          turn: evt.turn,
+          provisional: !evt.id,
+        };
+        setMessages((prev) => upsert(prev, noticeMsg));
       }
     };
     return () => {
@@ -454,9 +479,10 @@ export function useAgentChat(projectId: string | undefined) {
     );
     if (!res?.success) {
       setRunning(false);
-      setMessages((prev) => [...prev, { id: uid(), role: 'system', text: res?.error || 'Failed to send.', ts: Date.now() / 1000 }]);
+      setMessages((prev) => [...prev, { id: uid(), role: 'system', kind: 'error', text: res?.error || 'Failed to send.', ts: Date.now() / 1000, provisional: true }]);
+      refresh();
     }
-  }, [projectId, running]);
+  }, [projectId, running, refresh]);
 
   const cancel = useCallback(async () => {
     if (!projectId) return;

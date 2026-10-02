@@ -679,7 +679,10 @@ class ApiBridge:
                              on_event=_push)
                 except Exception as e:
                     logger.error(f"chat turn failed: {e}", exc_info=True)
-                    _push({"type": "error", "error": str(e)})
+                    try:
+                        sess.report_error(f"Agent stopped: {e}", on_event=_push)
+                    except Exception:
+                        _push({"type": "error", "kind": "error", "error": str(e), "text": str(e)})
                 finally:
                     sess._claimed = False
 

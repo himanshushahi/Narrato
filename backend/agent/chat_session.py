@@ -308,7 +308,15 @@ class ChatSession:
             self._save()
             if on_event:
                 self._emit(on_event, {"type": "started"})
-            reply = self._run_loop(on_event, MAX_CHAT_TURNS)
+            try:
+                reply = self._run_loop(on_event, MAX_CHAT_TURNS)
+            except InterruptedError:
+                self._push_notice("Stopped by user.", on_event)
+                reply = "Stopped by user."
+            except Exception as e:
+                logger.error(f"chat turn failed: {e}", exc_info=True)
+                self._push_error(f"Agent stopped: {e}", on_event)
+                reply = f"Agent stopped: {e}"
             self._save()
             self._emit(on_event, {"type": "done", "text": reply})
             return reply
@@ -362,21 +370,36 @@ class ChatSession:
         self.llm_messages.append({
             "role": "assistant", "content": None,
             "tool_calls": [tc_item]})
-        self._emit(on_event, {"type": "tool_start", "tool": name,
-                                  "args": args, "call_id": call_id,
-                                  "turn": pend_turn})
-        try:
-            result_text = execute_chat_tool(name, args, self.project_id,
-                                            self.cancel_event)
-        except InterruptedError:
-            return "Stopped by user."
-        self._push_tool_result(name, call_id, args, result_text, on_event,
-                               turn=pend_turn)
         self.running = True
         self.cancel_event.clear()
         try:
             self._emit(on_event, {"type": "started"})
-            reply = self._run_loop(on_event, MAX_CHAT_TURNS)
+            self._emit(on_event, {"type": "tool_start", "tool": name,
+                                  "args": args, "call_id": call_id,
+                                  "turn": pend_turn})
+            try:
+                result_text = execute_chat_tool(name, args, self.project_id,
+                                                self.cancel_event)
+            except InterruptedError:
+                self._push_notice("Stopped by user.", on_event, turn=pend_turn)
+                self._emit(on_event, {"type": "done", "text": "Stopped by user."})
+                return "Stopped by user."
+            except Exception as e:
+                logger.error(f"chat approved tool {name} failed: {e}", exc_info=True)
+                self._push_error(f"Agent stopped during {name}: {e}", on_event, turn=pend_turn)
+                self._emit(on_event, {"type": "done", "text": f"Agent stopped during {name}: {e}"})
+                return f"Agent stopped during {name}: {e}"
+            self._push_tool_result(name, call_id, args, result_text, on_event,
+                                   turn=pend_turn)
+            try:
+                reply = self._run_loop(on_event, MAX_CHAT_TURNS)
+            except InterruptedError:
+                self._push_notice("Stopped by user.", on_event, turn=pend_turn)
+                reply = "Stopped by user."
+            except Exception as e:
+                logger.error(f"chat turn failed: {e}", exc_info=True)
+                self._push_error(f"Agent stopped: {e}", on_event, turn=pend_turn)
+                reply = f"Agent stopped: {e}"
             self._emit(on_event, {"type": "done", "text": reply})
             return reply
         finally:
@@ -389,6 +412,7 @@ class ChatSession:
         label = f"Chat ({self.project_id[:8]})"
         for _ in range(budget):
             if self.cancel_event.is_set():
+                self._push_notice("Stopped by user.", on_event)
                 return "Stopped by user."
             turn_id = uuid.uuid4().hex[:8]
 
@@ -401,9 +425,17 @@ class ChatSession:
                                            tools, self.cancel_event, label,
                                            on_delta=_on_delta if on_event else None)
             except InterruptedError:
+                self._push_notice("Stopped by user.", on_event, turn=turn_id)
                 return "Stopped by user."
             except RuntimeError as e:
-                return str(e)
+                logger.error(f"chat LLM turn failed: {e}", exc_info=True)
+                self._push_error(f"Agent stopped: {e}", on_event, turn=turn_id)
+                return f"Agent stopped: {e}"
+            except Exception as e:
+                logger.error(f"chat LLM turn failed: {e}", exc_info=True)
+                self._push_error(f"Agent stopped: {type(e).__name__}: {e}",
+                                 on_event, turn=turn_id)
+                return f"Agent stopped: {type(e).__name__}: {e}"
             thinking, clean = _split_thinking(turn.content or "")
             parts = []
             if (turn.reasoning or "").strip():
@@ -448,6 +480,7 @@ class ChatSession:
                                               "seq": entry["seq"], "turn": turn_id})
                 for call in turn.tool_calls:
                     if self.cancel_event.is_set():
+                        self._push_notice("Stopped by user.", on_event, turn=turn_id)
                         return "Stopped by user."
                     if call.arguments_error:
                         self._push_tool_result(
@@ -510,7 +543,13 @@ class ChatSession:
                         result_text = execute_chat_tool(call.name, call.arguments,
                                                         self.project_id, self.cancel_event)
                     except InterruptedError:
+                        self._push_notice("Stopped by user.", on_event, turn=turn_id)
                         return "Stopped by user."
+                    except Exception as e:
+                        logger.error(f"chat tool {call.name} failed: {e}", exc_info=True)
+                        self._push_error(f"Agent stopped during {call.name}: {e}",
+                                         on_event, turn=turn_id)
+                        return f"Agent stopped during {call.name}: {e}"
                     self._push_tool_result(call.name, call.call_id, call.arguments,
                                            result_text, on_event, turn=turn_id)
                 self._save()
@@ -534,10 +573,82 @@ class ChatSession:
                 return clean
             self.llm_messages.append({"role": "system", "content":
                                       "Your reply was empty. Answer the user directly."})
-        return "I ran out of steps for this turn — please ask me to continue."
+        msg = "Agent stopped: ran out of steps for this turn — please ask me to continue."
+        self._push_error(msg, on_event)
+        return msg
+
+    def _push_error(self, text: str, on_event, turn: str | None = None) -> dict:
+        """Persist an agent-stopping error to history AND push it live.
+
+        Previously LLM failures (provider 400, rate limits, unexpected
+        exceptions) were returned as bare strings: the frontend's `done`
+        handler ignores text, and the bridge's transient `error` event used
+        a random id wiped by the next refresh. Both made the stop reason
+        invisible. Errors now live in `history` (role=system, kind=error)
+        like every other message, so refresh keeps them.
+        """
+        payload: dict = {"role": "system", "kind": "error",
+                         "text": str(text or "Turn failed.")[:6000]}
+        if turn is not None:
+            payload["turn"] = turn
+        entry = self._append_history(payload)
+        self._save()
+        evt: dict = {"type": "error", "kind": "error",
+                     "error": str(text or "Turn failed.")[:2000],
+                     "text": str(text or "Turn failed.")[:2000],
+                     "id": entry["id"], "seq": entry["seq"], "ts": entry["ts"]}
+        if turn is not None:
+            evt["turn"] = turn
+        self._emit(on_event, evt)
+        return entry
+
+    def _push_notice(self, text: str, on_event, turn: str | None = None) -> dict:
+        """Persist a non-error stop reason (user cancel). Same dual
+        history + live delivery as errors, but rendered as a neutral pill."""
+        payload: dict = {"role": "system", "kind": "notice",
+                         "text": str(text or "Stopped.")[:6000]}
+        if turn is not None:
+            payload["turn"] = turn
+        entry = self._append_history(payload)
+        self._save()
+        evt: dict = {"type": "notice", "kind": "notice",
+                     "text": str(text or "Stopped.")[:2000],
+                     "id": entry["id"], "seq": entry["seq"], "ts": entry["ts"]}
+        if turn is not None:
+            evt["turn"] = turn
+        self._emit(on_event, evt)
+        return entry
+
+    # Public entry for out-of-session reporters (e.g. bridge._worker) that
+    # catch an exception outside _run_loop. Same persistence guarantee.
+    def report_error(self, text: str, on_event=None, turn: str | None = None) -> dict:
+        try:
+            return self._push_error(text, on_event, turn=turn)
+        except Exception as e:
+            logger.warning(f"chat report_error failed to persist/emit: {e}", exc_info=True)
+            fallback_id = uuid.uuid4().hex[:8]
+            fallback_entry: dict = {
+                "role": "system",
+                "kind": "error",
+                "text": str(text or "Turn failed.")[:6000],
+                "id": fallback_id,
+            }
+            if turn is not None:
+                fallback_entry["turn"] = turn
+            fallback_evt: dict = {
+                "type": "error",
+                "kind": "error",
+                "error": str(text or "Turn failed.")[:2000],
+                "text": str(text or "Turn failed.")[:2000],
+                "id": fallback_id,
+            }
+            if turn is not None:
+                fallback_evt["turn"] = turn
+            self._emit(on_event, fallback_evt)
+            return fallback_entry
 
     def _push_tool_result(self, name: str, call_id: str, args: dict,
-                          result_text: str, on_event, turn: str | None = None) -> None:
+                           result_text: str, on_event, turn: str | None = None) -> None:
         self.llm_messages.append({"role": "tool", "tool_call_id": call_id,
                                   "content": result_text[:6000]})
         history_entry: dict = {"role": "tool", "tool": name,

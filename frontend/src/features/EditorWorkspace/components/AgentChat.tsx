@@ -263,10 +263,25 @@ const MessageBubble: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
   };
 
   if (msg.role === 'system') {
+    if (msg.kind === 'error') {
+      const text = msg.text || 'An unexpected error occurred.';
+      return (
+        <div className="w-full rounded-xl border border-red-500/30 bg-red-950/15 p-3 space-y-1.5 shadow-sm">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+            <p className="text-[11px] font-bold text-red-300">Agent stopped</p>
+          </div>
+          <p className="text-[10px] text-red-200/90 leading-relaxed whitespace-pre-wrap break-words">
+            {text.length > 2000 ? text.slice(0, 2000) + '…' : text}
+          </p>
+        </div>
+      );
+    }
+    const text = msg.text || '';
     return (
       <div className="flex justify-center w-full my-1">
         <div className="border rounded-full px-3 py-1 text-[9px] bg-zinc-900/80 border-zinc-800 text-zinc-500 italic max-w-[90%] text-center truncate">
-          {msg.text.length > 300 ? msg.text.slice(0, 300) + '…' : msg.text}
+          {text.length > 300 ? text.slice(0, 300) + '…' : text}
         </div>
       </div>
     );
