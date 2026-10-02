@@ -668,19 +668,15 @@ class ApiBridge:
 
             def _worker():
                 try:
-                    # Normal turns: bridge owns started/done. Approval
-                    # resolutions emit their own lifecycle events inside the
-                    # session — pushing duplicates here would double-render.
-                    own_lifecycle = confirm_action is None
-                    if own_lifecycle:
-                        _push({"type": "started"})
-                    reply = sess.ask((message or "").strip() or
-                                     ("Approved — render with confirm_render=true." if confirm_render else ""),
-                                     confirm_render=bool(confirm_render),
-                                     confirm_action=None if confirm_action is None else bool(confirm_action),
-                                     on_event=_push)
-                    if own_lifecycle:
-                        _push({"type": "done", "text": reply})
+                    # Single lifecycle owner: ChatSession.ask / _resolve_pending
+                    # emit exactly one started/done pair per turn via on_event.
+                    # Bridge-level pushes here previously duplicated them,
+                    # causing double purge + double refresh flicker downstream.
+                    sess.ask((message or "").strip() or
+                             ("Approved — render with confirm_render=true." if confirm_render else ""),
+                             confirm_render=bool(confirm_render),
+                             confirm_action=None if confirm_action is None else bool(confirm_action),
+                             on_event=_push)
                 except Exception as e:
                     logger.error(f"chat turn failed: {e}", exc_info=True)
                     _push({"type": "error", "error": str(e)})

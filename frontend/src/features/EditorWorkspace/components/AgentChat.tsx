@@ -386,48 +386,58 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
   };
 
   const ordered = useMemo(() => {
-    // Preserve natural chronological sequence from backend and live event stream.
-    // Unstable float sorting between client/server timestamps inverted thinking & tools in realtime.
-    const sorted = [...messages];
+    // messages already arrive in canonical order (backend seq for persisted,
+    // event order for live upserts, provisionals trailing). This pass is only
+    // a safety net: drop blanks, collapse true duplicates by id, and absorb a
+    // provisional when the same turn was persisted or its exact text already
+    // appears in the current user-turn. Matching is exact-only on purpose —
+    // the old substring heuristic merged distinct narrations sharing
+    // boilerplate and stranded survivors out of order.
+    const norm = (t: string) => (t || '').trim().replace(/\r\n/g, '\n');
+    const seenIds = new Set<string>();
     const result: ChatMessage[] = [];
     let currentTurnStartIndex = 0;
 
-    for (const m of sorted) {
+    for (const m of messages) {
+      if (seenIds.has(m.id)) continue;
       if (m.role === 'user') {
+        seenIds.add(m.id);
         currentTurnStartIndex = result.length;
         result.push(m);
         continue;
       }
 
       if (m.role === 'assistant' || m.role === 'thinking') {
-        const norm = (m.text || '').trim();
-        if (!norm) continue;
-
-        // Check strictly within the current turn (from currentTurnStartIndex to end)
+        const text = norm(m.text);
+        if (!text) continue;
         const currentTurnSlice = result.slice(currentTurnStartIndex);
-        const existingIdxInSlice = currentTurnSlice.findIndex(
-          (prev) => prev.role === m.role && prev.text && (
-            prev.text.trim() === norm ||
-            (norm.length >= 20 && prev.text.trim().length >= 20 &&
-              (prev.text.includes(norm) || norm.includes(prev.text.trim())))
-          )
+        // A persisted entry for the same turn supersedes a provisional one.
+        if (m.turn && currentTurnSlice.some((p) =>
+          p.role === m.role && !p.provisional && p.turn === m.turn)) {
+          if (m.provisional) continue;
+        }
+        const dupIdx = currentTurnSlice.findIndex(
+          (p) => p.role === m.role && norm(p.text) === text,
         );
-
-        if (existingIdxInSlice !== -1) {
-          const globalIdx = currentTurnStartIndex + existingIdxInSlice;
+        if (dupIdx !== -1) {
+          const globalIdx = currentTurnStartIndex + dupIdx;
           const existing = result[globalIdx];
-          // If the new one is longer/more complete (e.g. backend full text superseding a partial stream),
-          // update the existing entry in-place so its relative order (before tool calls) is preserved.
-          if (norm.length > existing.text.trim().length) {
+          // Prefer the persisted entry in place so its position (ahead of
+          // its tool calls) never moves.
+          if (!existing.provisional && m.provisional) continue;
+          if (existing.provisional && !m.provisional) {
+            seenIds.add(m.id);
             result[globalIdx] = m;
+            continue;
           }
           continue;
         }
-
+        seenIds.add(m.id);
         result.push(m);
         continue;
       }
 
+      seenIds.add(m.id);
       result.push(m);
     }
     return result;
@@ -435,29 +445,22 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
 
   const visibleStream = useMemo<StreamState | null>(() => {
     if (!stream) return null;
-    const textNorm = (stream.text || '').trim();
-    const thinkNorm = (stream.thinking || '').trim();
+    const norm = (t: string) => (t || '').trim().replace(/\r\n/g, '\n');
+    const textNorm = norm(stream.text);
+    const thinkNorm = norm(stream.thinking);
     if (!textNorm && !thinkNorm) return null;
 
-    // Only compare against messages in the CURRENT turn
+    // Only compare against messages in the CURRENT turn. A turn already
+    // persisted (same turn key present) or exact-text duplicated means the
+    // preview content is already shown — hide it to avoid double rendering.
     const lastUserIdx = ordered.map((m) => m.role).lastIndexOf('user');
     const currentTurn = lastUserIdx === -1 ? ordered : ordered.slice(lastUserIdx);
 
     const textAlreadyInChat = textNorm.length > 0 && currentTurn.some((m) =>
-      m.role === 'assistant' && (
-        m.text.trim() === textNorm ||
-        (textNorm.length >= 20 && m.text.trim().length >= 20 &&
-          (m.text.includes(textNorm) || textNorm.includes(m.text.trim())))
-      )
-    );
+      m.role === 'assistant' && (m.turn === stream.id || norm(m.text) === textNorm));
 
     const thinkAlreadyInChat = thinkNorm.length > 0 && currentTurn.some((m) =>
-      m.role === 'thinking' && (
-        m.text.trim() === thinkNorm ||
-        (thinkNorm.length >= 20 && m.text.trim().length >= 20 &&
-          (m.text.includes(thinkNorm) || thinkNorm.includes(m.text.trim())))
-      )
-    );
+      m.role === 'thinking' && (m.turn === stream.id || norm(m.text) === thinkNorm));
 
     const activeText = textAlreadyInChat ? '' : stream.text;
     const activeThink = thinkAlreadyInChat ? '' : stream.thinking;
@@ -564,10 +567,16 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
           return <MessageBubble key={m.id} msg={m} />;
         })}
 
+        {/* Live stream preview (narration precedes its tool call, so the
+            preview renders above the running-tool spinners — matching the
+            canonical user → thinking → assistant → tool order instead of
+            teleporting on every tool_done). */}
+        {visibleStream && <StreamPreview stream={visibleStream} />}
+
         {/* Active running tools */}
         {activeTools.map((t, i) => (
           <div
-            key={`${t.tool}-${i}`}
+            key={t.callId || `${t.tool}-${i}`}
             className="w-full rounded-xl border border-blue-500/25 bg-blue-500/[0.04] p-2.5 flex items-center justify-between gap-3 shadow-sm"
           >
             <div className="flex items-center gap-2.5 min-w-0">
@@ -594,9 +603,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
             <span>Agent is thinking…</span>
           </div>
         )}
-
-        {/* Live stream preview */}
-        {visibleStream && <StreamPreview stream={visibleStream} />}
       </div>
 
       {/* Human-in-the-loop pending approval card */}

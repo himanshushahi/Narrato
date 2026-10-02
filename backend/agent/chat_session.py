@@ -130,6 +130,10 @@ class ChatSession:
         self.session_id = session_id or "default"
         self.cancel_event = threading.Event()
         self.running = False
+        # Monotonic sequence for canonical ordering. Every history entry
+        # gets a seq on append; the frontend sorts persisted entries by seq
+        # instead of relying on live-insertion order or float timestamps.
+        self._seq = 0
         # UI log: user | thinking | assistant | tool | system
         self.history: List[dict] = []
         # Native LLM messages: system | user | assistant(+tool_calls) | tool
@@ -165,6 +169,21 @@ class ChatSession:
         except Exception as e:
             logger.warning(f"chat history load failed: {e}")
             self.history, self.llm_messages, self.pending = [], [], None
+        # Backfill seq for sessions persisted before seq existed, then
+        # resume the counter past the highest seen value.
+        try:
+            max_seq = -1
+            for m in self.history:
+                if isinstance(m, dict) and isinstance(m.get("seq"), int):
+                    max_seq = max(max_seq, m["seq"])
+            next_seq = 0
+            for m in self.history:
+                if isinstance(m, dict) and not isinstance(m.get("seq"), int):
+                    m["seq"] = next_seq
+                    next_seq += 1
+            self._seq = max(max_seq + 1, next_seq, len(self.history))
+        except Exception:
+            self._seq = len(self.history)
         if not self.llm_messages:
             self.llm_messages = [{"role": "system",
                                   "content": _build_system_prompt(self.project_id)}]
@@ -229,8 +248,24 @@ class ChatSession:
                 if isinstance(m, dict) and m.get("role") != "system"]
         return sys_msgs + rest[-(MAX_LLM_MESSAGES - 1):]
 
+    def _next_seq(self) -> int:
+        s = self._seq
+        self._seq += 1
+        return s
+
+    def _append_history(self, entry: dict) -> dict:
+        """Append one UI-log entry with a stable id, timestamp and monotonic
+        seq. The seq is the canonical ordering key consumed by the frontend;
+        array position alone is not reliable across live merges."""
+        entry.setdefault("id", uuid.uuid4().hex[:8])
+        entry.setdefault("ts", time.time())
+        entry["seq"] = self._next_seq()
+        self.history.append(entry)
+        return entry
+
     def clear(self):
         self.history = []
+        self._seq = 0
         self.pending = None
         self.llm_messages = [{"role": "system",
                               "content": _build_system_prompt(self.project_id)}]
@@ -260,8 +295,7 @@ class ChatSession:
             text = (user_text or "").strip()
             if confirm_render and not text:
                 text = "Approved — proceed with the final render."
-            self.history.append({"id": uuid.uuid4().hex[:8], "role": "user",
-                                 "text": text, "ts": time.time()})
+            self._append_history({"role": "user", "text": text})
             self.llm_messages.append({"role": "user", "content": text})
             if confirm_render:
                 note = ("The user approved the final render in the app. "
@@ -303,13 +337,16 @@ class ChatSession:
                     f"({pend.get('tool')}). Do not retry it; ask how to proceed instead.")
             self.llm_messages.append({"role": "system", "content": note})
             reply = "Understood — I won't do that. Tell me how you'd like to proceed."
-            self.history.append({"id": uuid.uuid4().hex[:8], "role": "assistant",
-                                 "text": reply, "ts": time.time()})
+            entry = self._append_history({"role": "assistant", "text": reply})
             self._save()
+            self._emit(on_event, {"type": "assistant", "id": entry["id"],
+                                  "text": entry["text"], "ts": entry["ts"],
+                                  "seq": entry["seq"]})
             self._emit(on_event, {"type": "done", "text": reply})
             return reply
         # Approved: run exactly the held action, then keep reasoning.
         name, args, call_id = pend.get("tool"), dict(pend.get("args") or {}), pend.get("call_id")
+        pend_turn = pend.get("turn")
         if pend.get("kind") == "render" and name == "run_stage":
             args["confirm_render"] = True
         self.llm_messages.append({
@@ -317,13 +354,15 @@ class ChatSession:
             "tool_calls": [{"id": call_id, "type": "function",
                             "function": {"name": name, "arguments": json.dumps(args)}}]})
         self._emit(on_event, {"type": "tool_start", "tool": name,
-                                  "args": args, "call_id": call_id})
+                                  "args": args, "call_id": call_id,
+                                  "turn": pend_turn})
         try:
             result_text = execute_chat_tool(name, args, self.project_id,
                                             self.cancel_event)
         except InterruptedError:
             return "Stopped by user."
-        self._push_tool_result(name, call_id, args, result_text, on_event)
+        self._push_tool_result(name, call_id, args, result_text, on_event,
+                               turn=pend_turn)
         self.running = True
         self.cancel_event.clear()
         try:
@@ -363,12 +402,12 @@ class ChatSession:
             if thinking:
                 parts.append(thinking)
             if parts:
-                entry = {"id": uuid.uuid4().hex[:8], "role": "thinking",
-                         "text": "\n\n".join(parts)[:6000], "ts": time.time()}
-                self.history.append(entry)
+                entry = self._append_history({"role": "thinking",
+                         "text": "\n\n".join(parts)[:6000], "turn": turn_id})
                 self._save()
                 self._emit(on_event, {"type": "thinking", "id": entry["id"],
-                                      "text": entry["text"], "ts": entry["ts"]})
+                                      "text": entry["text"], "ts": entry["ts"],
+                                      "seq": entry["seq"], "turn": turn_id})
             if turn.tool_calls:
                 # Assistant message (may carry narration like "I'll check…").
                 self.llm_messages.append({
@@ -386,9 +425,12 @@ class ChatSession:
                         if m.get("role") == "assistant":
                             current_turn_assistants.append((m.get("text") or "").strip())
                     if clean.strip() not in current_turn_assistants:
-                        self.history.append({"id": uuid.uuid4().hex[:8], "role": "assistant",
-                                             "text": clean[:6000], "ts": time.time()})
+                        entry = self._append_history({"role": "assistant",
+                                             "text": clean[:6000], "turn": turn_id})
                         self._save()
+                        self._emit(on_event, {"type": "assistant", "id": entry["id"],
+                                              "text": entry["text"], "ts": entry["ts"],
+                                              "seq": entry["seq"], "turn": turn_id})
                 for call in turn.tool_calls:
                     if self.cancel_event.is_set():
                         return "Stopped by user."
@@ -397,14 +439,14 @@ class ChatSession:
                             call.name, call.call_id, call.arguments,
                             json.dumps({"ok": False,
                                         "error": call.arguments_error + " — retry with valid JSON arguments."}),
-                            on_event)
+                            on_event, turn=turn_id)
                         continue
                     if call.name not in CHAT_TOOL_NAMES:
                         self._push_tool_result(
                             call.name, call.call_id, call.arguments,
                             json.dumps({"ok": False,
                                         "error": f"Unknown tool {call.name!r}. Use only the provided functions."}),
-                            on_event)
+                            on_event, turn=turn_id)
                         continue
                     gate = self._wants_approval(call.name, call.arguments)
                     if gate:
@@ -433,7 +475,7 @@ class ChatSession:
                             break
                         self.pending = {"id": uuid.uuid4().hex[:8], "kind": gate,
                                         "tool": call.name, "args": call.arguments,
-                                        "call_id": call.call_id}
+                                        "call_id": call.call_id, "turn": turn_id}
                         self._save()
                         self._emit(on_event, {"type": "confirm", "id": self.pending["id"],
                                               "kind": gate, "tool": call.name,
@@ -446,14 +488,15 @@ class ChatSession:
                     # Normal path: run the tool NOW and append its result so the
                     # next turn reasons over real outcomes.
                     self._emit(on_event, {"type": "tool_start", "tool": call.name,
-                                          "args": call.arguments, "call_id": call.call_id})
+                                          "args": call.arguments, "call_id": call.call_id,
+                                          "turn": turn_id})
                     try:
                         result_text = execute_chat_tool(call.name, call.arguments,
                                                         self.project_id, self.cancel_event)
                     except InterruptedError:
                         return "Stopped by user."
                     self._push_tool_result(call.name, call.call_id, call.arguments,
-                                           result_text, on_event)
+                                           result_text, on_event, turn=turn_id)
                 self._save()
                 continue  # results appended — next turn reasons over them
             # No tool calls: final reply.
@@ -466,29 +509,39 @@ class ChatSession:
                     if m.get("role") == "assistant":
                         current_turn_assistants.append((m.get("text") or "").strip())
                 if clean.strip() not in current_turn_assistants:
-                    self.history.append({"id": uuid.uuid4().hex[:8], "role": "assistant",
-                                         "text": clean[:6000], "ts": time.time()})
+                    entry = self._append_history({"role": "assistant",
+                                         "text": clean[:6000], "turn": turn_id})
                     self._save()
+                    self._emit(on_event, {"type": "assistant", "id": entry["id"],
+                                          "text": entry["text"], "ts": entry["ts"],
+                                          "seq": entry["seq"], "turn": turn_id})
                 return clean
             self.llm_messages.append({"role": "system", "content":
                                       "Your reply was empty. Answer the user directly."})
         return "I ran out of steps for this turn — please ask me to continue."
 
     def _push_tool_result(self, name: str, call_id: str, args: dict,
-                          result_text: str, on_event) -> None:
+                          result_text: str, on_event, turn: str | None = None) -> None:
         self.llm_messages.append({"role": "tool", "tool_call_id": call_id,
                                   "content": result_text[:6000]})
-        self.history.append({"id": uuid.uuid4().hex[:8], "role": "tool", "tool": name,
+        history_entry: dict = {"role": "tool", "tool": name,
                              "call_id": call_id, "args": args if isinstance(args, dict) else {},
-                             "text": result_text[:6000], "ts": time.time()})
+                             "text": result_text[:6000]}
+        if turn is not None:
+            history_entry["turn"] = turn
+        entry = self._append_history(history_entry)
         self._save()
         try:
             lowered = result_text.lower()
             ok = '"ok": true' in lowered or '"ok":true' in lowered
         except Exception:
             ok = True
-        self._emit(on_event, {"type": "tool_done", "tool": name, "ok": ok,
-                              "call_id": call_id, "text": result_text[:2000]})
+        evt: dict = {"type": "tool_done", "tool": name, "ok": ok,
+                     "call_id": call_id, "text": result_text[:2000],
+                     "id": entry["id"], "seq": entry["seq"], "ts": entry["ts"]}
+        if turn is not None:
+            evt["turn"] = turn
+        self._emit(on_event, evt)
 
     @staticmethod
     def _emit(on_event, evt: dict) -> None:

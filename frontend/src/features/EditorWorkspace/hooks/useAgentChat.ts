@@ -9,12 +9,26 @@ export interface ChatMessage {
   args?: Record<string, any>;
   ok?: boolean;
   ts: number;
+  // Canonical backend ordering key (monotonic per session). Persisted entries
+  // always carry one; local-only provisionals don't until the backend
+  // confirms them via a matching id/turn event or refresh snapshot.
+  seq?: number;
+  // LLM turn that produced this entry (stream id). Lets provisionals created
+  // by commitStream reconcile against the persisted entry for the SAME turn
+  // by key instead of by fuzzy text overlap.
+  turn?: string;
+  callId?: string;
   // Local-only entry not (yet) confirmed by persisted history: the user echo
-  // and committed stream partials. The backend assigns a fresh random id to
-  // every persisted entry, so provisionals can NEVER reconcile by id — they
-  // are superseded by content (see merge below) and purged on clean done.
+  // and committed stream partials. Superseded by id/turn (see merge below)
+  // and purged on clean done.
   provisional?: boolean;
 }
+
+// Exact-match normalization for the fallback path (old sessions without
+// turn/seq, user echo). Deliberately NOT substring-based: substring overlap
+// between two distinct narrations in one turn collapsed them into one slot
+// and teleported survivors to the end of the list.
+const normText = (t: string) => (t || '').trim().replace(/\r\n/g, '\n');
 
 export interface ActiveTool {
   tool: string;
@@ -86,8 +100,10 @@ export function useAgentChat(projectId: string | undefined) {
   // entries) so streamed text isn't lost when tools start / errors hit.
   // Upsert by id: several tool_starts can fire within one turn, and pushing
   // the same `${turn}-t` id twice creates duplicate React keys.
-  // Blank-only content is dropped. Also avoids adding a provisional assistant
-  // message if one with matching text is already present.
+  // Blank-only content is dropped. A provisional is skipped when the SAME
+  // turn already has a persisted entry (assistant/thinking events arrive
+  // before tool_start and carry the persisted id + turn), or when an
+  // exact-text match already exists in the current user-turn.
   const commitStream = useCallback((suffix = '') => {
     if (streamFlushRef.current) {
       clearTimeout(streamFlushRef.current);
@@ -106,27 +122,35 @@ export function useAgentChat(projectId: string | undefined) {
       const currentTurn = lastUserIdx === -1 ? prev : prev.slice(lastUserIdx);
 
       if (thinking) {
-        const exists = currentTurn.some((m) => m.role === 'thinking' && m.text.trim() === thinking);
-        if (!exists) {
-          next = upsert(next, {
-            id: `${s!.id}-t`, role: 'thinking', text: thinking,
-            ts: now, provisional: true,
-          });
+        const thinkingNorm = normText(thinking);
+        // The persisted thinking entry for this turn (if the backend already
+        // emitted it) supersedes any stream partial — never duplicate it.
+        const persistedForTurn = currentTurn.some((m) =>
+          m.role === 'thinking' && !m.provisional && (m.turn === s!.id || normText(m.text) === thinkingNorm));
+        if (!persistedForTurn) {
+          const exists = currentTurn.some((m) => m.role === 'thinking' && normText(m.text) === thinkingNorm);
+          if (!exists) {
+            next = upsert(next, {
+              id: `${s!.id}-t`, role: 'thinking', text: thinking,
+              ts: now, turn: s!.id, provisional: true,
+            });
+          }
         }
       }
       if (text) {
-        const fullText = (text + suffix).trim();
-        // Guard against duplicate assistant narration: if an assistant message
-        // with matching text already exists in the current turn, skip adding a duplicate.
-        const exists = currentTurn.some((m) => m.role === 'assistant' && (
-          m.text.trim() === fullText ||
-          (m.text.trim().length >= 20 && (m.text.includes(fullText) || fullText.includes(m.text.trim())))
-        ));
-        if (!exists) {
-          next = upsert(next, {
-            id: s!.id, role: 'assistant', text: fullText,
-            ts: now, provisional: true,
-          });
+        const fullText = normText(text + suffix);
+        // Same-turn persisted assistant (delivered via the assistant event
+        // just before tool_start) wins over the stream partial.
+        const persistedForTurn = currentTurn.some((m) =>
+          m.role === 'assistant' && !m.provisional && (m.turn === s!.id || normText(m.text) === fullText));
+        if (!persistedForTurn) {
+          const exists = currentTurn.some((m) => m.role === 'assistant' && normText(m.text) === fullText);
+          if (!exists) {
+            next = upsert(next, {
+              id: s!.id, role: 'assistant', text: fullText,
+              ts: now, turn: s!.id, provisional: true,
+            });
+          }
         }
       }
       return next;
@@ -159,8 +183,19 @@ export function useAgentChat(projectId: string | undefined) {
           text: String(m.text || ''),
           tool: m.tool,
           args: m.args,
+          callId: m.call_id,
+          seq: typeof m.seq === 'number' ? m.seq : undefined,
+          turn: m.turn,
           ts: m.ts || Date.now() / 1000,
         }));
+        // Canonical order: persisted entries sort by backend seq. Entries
+        // without a seq (legacy sessions) keep their arrival order at the
+        // position they were stored — never interleaved by timestamp, which
+        // proved unstable across client/server float clocks.
+        mapped.sort((a, b) => {
+          if (typeof a.seq === 'number' && typeof b.seq === 'number') return a.seq - b.seq;
+          return 0;
+        });
         // Merge, not wholesale replace: keep the previous array (and every
         // unchanged message object) referentially stable when nothing changed,
         // so memoized bubbles skip re-render on no-op polls.
@@ -177,50 +212,49 @@ export function useAgentChat(projectId: string | undefined) {
             const old = byId.get(m.id);
             if (old && old.role === m.role && old.text === m.text &&
                 old.tool === m.tool && argsKey(old) === argsKey(m)) {
-              return old.ts === m.ts ? old : { ...old, ts: m.ts };
+              // Adopt seq/turn/ts metadata without breaking memo identity.
+              if (old.seq === m.seq && old.turn === m.turn && old.ts === m.ts) return old;
+              return { ...old, seq: m.seq, turn: m.turn, ts: m.ts };
             }
             return m;
           });
 
-          // Text normalization (strip trailing whitespace & line endings)
-          const norm = (t: string) => (t || '').trim().replace(/\r\n/g, '\n');
-
-          // Current turn in mapped (messages after the latest user message in mapped)
+          // Current turn in mapped (messages after the latest user message).
           const mappedLastUserIdx = mapped.map((m) => m.role).lastIndexOf('user');
           const mappedCurrentTurn = mappedLastUserIdx === -1 ? mapped : mapped.slice(mappedLastUserIdx);
+          const persistedTurns = new Set(
+            mappedCurrentTurn.filter((x) => !x.provisional && x.turn).map((x) => x.turn as string),
+          );
 
-          // For any message in prev not present by id in mapped:
-          // Keep only local-only unpersisted entries (e.g. system notices, or
-          // provisional user/assistant messages that backend hasn't saved yet).
+          // Carry over local-only entries ONLY: provisional echoes/partials
+          // and ephemeral system notices. Anything with a persisted id is
+          // already in `next`. A provisional is absorbed (dropped) when the
+          // same turn was persisted (id/turn match) or its exact normalized
+          // text already exists in the current turn — no substring guessing,
+          // which used to merge distinct narrations and strand survivors at
+          // the end of the list out of order.
+          // Provisionals keep their relative order and always trail the
+          // persisted snapshot: they are by construction the newest items.
           for (const m of prev) {
             if (mapped.some((x) => x.id === m.id)) continue;
-            const mNorm = norm(m.text);
+            if (!m.provisional) {
+              // Non-provisional strays (e.g. superseded live upserts) never
+              // re-enter: the snapshot is canonical for persisted entries.
+              continue;
+            }
+            const mNorm = normText(m.text);
             if (!mNorm) continue;
 
-            // If user message is provisional, check if backend already persisted it in the current turn
-            if (m.role === 'user') {
-              const absorbed = mappedCurrentTurn.some((x) => x.role === 'user' && norm(x.text) === mNorm);
-              if (absorbed) continue;
-            }
+            // Same-turn persisted entry supersedes this provisional.
+            if (m.turn && persistedTurns.has(m.turn)) continue;
 
-            // If assistant or thinking message is provisional, check if backend already persisted it in the current turn
-            if (m.role === 'assistant' || m.role === 'thinking') {
-              const absorbed = mappedCurrentTurn.some((x) => {
-                if (x.role !== m.role) return false;
-                const xNorm = norm(x.text);
-                if (xNorm === mNorm) return true;
-                if (mNorm.length >= 20 && xNorm.length >= 20 && (xNorm.includes(mNorm) || mNorm.includes(xNorm))) {
-                  return true;
-                }
-                return false;
-              });
-              if (absorbed) continue;
-            }
+            const absorbed = mappedCurrentTurn.some((x) =>
+              x.role === m.role && normText(x.text) === mNorm);
+            if (absorbed) continue;
 
-            // Skip if next already contains an identical message in the current turn
             const nextLastUserIdx = next.map((x) => x.role).lastIndexOf('user');
             const nextCurrentTurn = nextLastUserIdx === -1 ? next : next.slice(nextLastUserIdx);
-            if (nextCurrentTurn.some((x) => x.role === m.role && norm(x.text) === mNorm)) {
+            if (nextCurrentTurn.some((x) => x.role === m.role && normText(x.text) === mNorm)) {
               continue;
             }
 
@@ -266,10 +300,41 @@ export function useAgentChat(projectId: string | undefined) {
         streamRef.current = next;
         queueStreamFlush();
       } else if (evt.type === 'thinking') {
-        setMessages((prev) => upsert(prev, {
-          id: evt.id || uid(), role: 'thinking',
-          text: evt.text || '', ts: evt.ts || Date.now() / 1000,
-        }));
+        // Persisted entry arrives with its stable id (+ turn/seq). Any
+        // stream partial for the same turn is superseded — drop it so the
+        // same reasoning block never occupies two slots.
+        setMessages((prev) => {
+          const turn = evt.turn;
+          let next = upsert(prev, {
+            id: evt.id || uid(), role: 'thinking',
+            text: evt.text || '', ts: evt.ts || Date.now() / 1000,
+            seq: typeof evt.seq === 'number' ? evt.seq : undefined,
+            turn,
+          });
+          if (turn) {
+            next = next.filter((m) =>
+              !(m.provisional && m.turn === turn && m.id !== (evt.id || '')));
+          }
+          return next;
+        });
+      } else if (evt.type === 'assistant') {
+        // Persisted narration for a turn (emitted right after the history
+        // append, before tool_start). Supersedes the stream partial for the
+        // same turn; commitStream later skips re-adding it (see above).
+        setMessages((prev) => {
+          const turn = evt.turn;
+          let next = upsert(prev, {
+            id: evt.id || uid(), role: 'assistant',
+            text: evt.text || '', ts: evt.ts || Date.now() / 1000,
+            seq: typeof evt.seq === 'number' ? evt.seq : undefined,
+            turn,
+          });
+          if (turn) {
+            next = next.filter((m) =>
+              !(m.provisional && m.turn === turn && m.id !== (evt.id || '')));
+          }
+          return next;
+        });
       } else if (evt.type === 'tool_start') {
         commitStream();
         setActiveTools((prev) => [...prev, { tool: evt.tool, detail: JSON.stringify(evt.args || {}), callId: evt.call_id }]);
@@ -284,6 +349,19 @@ export function useAgentChat(projectId: string | undefined) {
           const i = prev.findIndex((t) => t.tool === evt.tool);
           return i === -1 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)];
         });
+        // Place the tool card immediately in event order (events arrive via
+        // the ordered ui_queue). The follow-up refresh upgrades it in place
+        // with full args + untruncated result under the same id.
+        if (evt.id) {
+          const toolMsg: ChatMessage = {
+            id: evt.id, role: 'tool',
+            text: evt.text || '', tool: evt.tool,
+            ts: evt.ts || Date.now() / 1000,
+            seq: typeof evt.seq === 'number' ? evt.seq : undefined,
+            turn: evt.turn, callId: evt.call_id,
+          };
+          setMessages((prev) => upsert(prev, toolMsg));
+        }
         // Pull the persisted entry (with args + full result) into the list.
         refresh();
       } else if (evt.type === 'confirm') {
@@ -297,11 +375,31 @@ export function useAgentChat(projectId: string | undefined) {
         streamRef.current = null;
         setStream(null);
         if (evt.type === 'done') {
-          // Turn settled — backend history is canonical; drop provisionals
-          // so committed partials can't linger next to their persisted full
-          // text. Error/cancel keep them: the partial is all the user gets.
-          setMessages((prev) => prev.some((m) => m.provisional)
-            ? prev.filter((m) => !m.provisional) : prev);
+          // Turn settled — backend history is canonical. Drop only
+          // provisionals superseded by a persisted entry: same turn already
+          // confirmed, or exact normalized text already present in the
+          // current user-turn. User echoes are left for refresh() to absorb
+          // (so a failed refresh can't erase the user's own message), and
+          // error/cancel paths keep partials: they're all the user gets.
+          setMessages((prev) => {
+            if (!prev.some((m) => m.provisional)) return prev;
+            const lastUserIdx = prev.map((m) => m.role).lastIndexOf('user');
+            const persistedTurns = new Set(
+              prev.filter((m) => !m.provisional && m.turn).map((m) => m.turn as string),
+            );
+            const currentTurn = lastUserIdx === -1 ? prev : prev.slice(lastUserIdx);
+            return prev.filter((m) => {
+              if (!m.provisional) return true;
+              if (m.role === 'user') return true;
+              if (m.turn && persistedTurns.has(m.turn)) return false;
+              const mNorm = normText(m.text);
+              if (mNorm && currentTurn.some((x) =>
+                !x.provisional && x.role === m.role && normText(x.text) === mNorm)) {
+                return false;
+              }
+              return true;
+            });
+          });
         }
         if (evt.type === 'error') {
           setMessages((prev) => [...prev, { id: uid(), role: 'system', text: evt.error || 'Turn failed.', ts: Date.now() / 1000 }]);
