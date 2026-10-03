@@ -47,7 +47,7 @@ These are the actual failure modes observed in production — check all before s
 | **6** | Preserve Untouched | On targeted edits, non-targeted scenes and fields stay byte-identical. |
 | **7** | Opacity Fade on Entrance | Every entrance animation with `delay > 0` MUST pair with matching `opacity: 0→1`. |
 | **8** | Harness Reports | Read `timing`/`variety` reports on every save and apply their fixes (delay-fit, enum remaps). |
-| **9** | Minimum Depth | Every cut has ≥3 layers. Never submit a cut with only 1 layer (Background alone = unacceptable). |
+| **9** | Layer Count (No Quota) | Use as many layers as the beat needs — usually a rich stack. Every layer earns its place (clear job + motion); never stack blindly, never ship a single bare layer (Background alone = unfinished). |
 | **10** | Variety | Don't use the same Background preset, transition, or composition recipe for consecutive cuts across the whole video. |
 
 ---
@@ -102,4 +102,4 @@ Video-only sources:   pexels ✓   pixabay ✓   wikipedia ✗   archive ✓   y
 - [ ] Spoken text in correct native script (no transliterations)
 - [ ] Complex scripts use Noto fonts
 - [ ] No markdown/backticks wrapping the JSON output
-- [ ] Minimum 3 layers per cut
+- [ ] Rich purposeful layering — every layer earns its place, no single bare layer, no blind stacking

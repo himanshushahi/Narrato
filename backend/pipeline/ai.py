@@ -2122,7 +2122,8 @@ Part 3: Cut Transitions & Energy (cut level):
 - Mid-Cut Punch-Ins: "emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}].
 - Audio Ducking: "mute_voiceover": true | "mute_bg_music": true.
 
-COMPOSITING DEPTH:
+COMPOSITING DEPTH (no quota — as many layers as the beat needs, usually rich;
+every layer earns its place with a clear job + motion; never stack blindly):
 Layer 0: Procedural Background shader or darkened B-roll Video with scale drift.
 Layer 1: Atmospheric Particles or Shape framing (corner_brackets or glass card).
 Layer 2: Hero infographic (Chart, Counter, cutout Image, or animated SVG path).

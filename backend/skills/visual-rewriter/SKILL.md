@@ -25,7 +25,7 @@ when_to_use: "Used during interactive visual rewrites and sub-visual modificatio
 | **Opacity Fade Pairing** | Every entrance with `delay > 0` MUST pair with `opacity: 0→1` at same delay. |
 | **Design Token Binding** | Bind colors from `color_palette` (primary, secondary, accent, background, text). |
 | **No Static Chapter Cards** | NEVER place chapter title text inside sub-visual cuts. Root overlays manage chapter pills. |
-| **Minimum Depth** | Every cut needs ≥3 layers: base (Background/Video) + framing/atmosphere + hero or kinetic text. |
+| **Layer Count (No Quota)** | Use as many layers as the beat needs — usually a rich stack (base + framing/atmosphere + hero + kinetic text). Every layer must earn its place; never stack blindly, never ship a single bare layer. |
 
 ---
 

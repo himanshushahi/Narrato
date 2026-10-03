@@ -1,7 +1,7 @@
 ---
 name: storyboard-planner
 description: "Storyboard planning: break narration into timed visual beats with explicit layouts, layer type decisions, and recipe selection guidance."
-version: "4.0"
+version: "4.1"
 when_to_use: "Used during Stage 1 visual planning to plan timed beats before generating AST code."
 ---
 
@@ -21,28 +21,43 @@ For each scene, output a storyboard plan describing:
 3. **Layer Types per beat**: list content types + approximate positions (e.g. "Background(grid_flow) + Counter(left 20%, metric) + Text(lower-third, words_stagger)").
 4. **Media needs per beat**: for Image/Video, state the `query` + `source` explicitly.
 5. **Transition per beat**: pick the transition that matches the energy shift.
+6. **Spatial Layout per beat**: every beat line states layer types + approximate
+   positions + motion phases (canvas, establish/develop/evolve/resolve), so the
+   AST author never invents geometry.
 
-**Plan format:**
+**Plan format (single continuous take — the default):**
 ```
-Scene 3 (total: 9.0s):
-  Beat 1 (3.5s, zoom_in): Recipe A "Data Drop" — Counter($450M) + frosted Shape card + Text(words_stagger, lower-third)
-    Media: none (Background: grid_flow)
-  Beat 2 (3.5s, whip_pan): Recipe B "Cinematic B-Roll" — Video(youtube, "tesla factory robots") darkened + Particles(embers) + Text(marker_highlight, headline)
-  Beat 3 (2.0s, slide_left): Recipe C "Infographic Reveal" — Background(waves) + Chart(bar, "quarterly growth") + Text(typewriter, label)
+Scene 3 (total: 9.0s, 1 continuous take, zoom_in):
+  Canvas: archive map image ("atlantic ocean vintage map") fullscreen + Archival Monochrome + scale drift 1.0→1.3 over full 9s + Particles(dust, loop)
+  0.0–2.5s ESTABLISH: full map + vignette; copper route path draws (draw_animation) toward Ireland
+  2.5–5.0s DEVELOP: camera pans/translates onto Ireland; depth gauge card (frosted Shape + backdrop blur) slides in from right
+  5.0–7.5s EVOLVE (word-synced: "4000 meters" @5.1s, "snapped" @6.8s): gauge marker_highlight @5.1s; map grades abyssal blue; route path exits, crack reticle pulses @6.8s
+  7.5–9.0s RESOLVE: callout recedes with blur; concluding headline (words_stagger) + emphasis punch @8.0s
+  Media: Image(archive, "atlantic ocean vintage map") — authentic, not stock. No 2nd cut: one geography, one camera journey.
+```
+
+Multi-cut plan (only with beat-shift justification):
+```
+Scene 5 (total: 9.0s, 2 cuts — Cut 2 because: 1858 London → 2024 Mumbai, geography one map canvas cannot pan to):
+  Cut 1 (5.0s, whip_pan): continuous take as above, ending on London callout
+  Cut 2 (4.0s, dissolve): Mumbai B-roll take — Video(youtube, "mumbai coastline aerial") + gauge exit/stagger pair
 ```
 
 ---
 
-## 2. Beat Count Decision Guide
+## 2. Beat Count Decision Guide — One Continuous Take by Default
 
 | Scene Duration | Recommended Cuts | Notes |
 |---|---|---|
-| 3–5s | 1 cut | Single strong visual beat |
-| 6–9s | 2 cuts | Main beat + supporting beat |
-| 9–12s | 2–3 cuts | Standard scene: 3 acts (intro, data, cta) |
-| 12s+ | 3–4 cuts | Full narrative arc within scene |
+| 3–6s | 1 cut | Single continuous take: establish → evolve → resolve |
+| 6–9s | 1 cut | Single continuous take with camera journey + exit/stagger pair |
+| 9–12s | 1 cut (2 only on beat shift) | Prefer one 9–12s living canvas; split only for location/time/energy breaks |
+| 12s+ | 1–2 cuts | One long take preferred; 2nd cut only with written justification |
 
-**Never force extra cuts** — a 4s scene with 3 cuts means each cut is ~1.3s. Too short for animations to land.
+**Default is 1 cut per scene.** A second cut needs a one-line justification
+naming the beat shift it serves (location change, time jump, data→human pivot,
+energy reset). **Never force extra cuts** — chopping a 9s thought into halves
+to hit a quota resets the viewer's eye and reads as slideshow editing.
 
 ---
 

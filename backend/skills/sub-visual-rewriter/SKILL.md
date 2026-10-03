@@ -23,7 +23,7 @@ when_to_use: "Used during single sub-visual modifications and rewrites in the ed
 - **content.type is mandatory** on every Layer content object — missing it = null scene.
 - **🚫 NO CHAPTER TITLE CARDS** inside cuts. Root overlays manage continuous chapter branding.
 - **Opacity Pairing Rule**: Every entrance with `delay > 0` MUST pair with `opacity: 0→1` at same delay.
-- **Minimum Depth**: At least 3 layers: base (Background or Video) + framing or atmosphere + hero or text.
+- **Layer Count (No Quota)**: as many layers as the beat needs — usually a rich stack (base + framing/atmosphere + hero + text). Every layer must earn its place; never stack blindly, never leave a single bare layer.
 
 ---
 

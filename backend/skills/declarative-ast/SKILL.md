@@ -1,7 +1,7 @@
 ---
 name: declarative-ast
 description: Complete capability specification for the Declarative AST rendering engine — layer types, motion grammar, compositing architecture, named composition recipes, and source selection rules. Single source of truth for all visual skills.
-version: "5.0"
+version: "5.1"
 when_to_use: "Always loaded during scene visual generation, sub-visual rewrites, and motion graphics planning."
 ---
 
@@ -19,7 +19,7 @@ MANDATORY CONTENT.TYPE: Every Layer MUST have content.type — missing it = null
 GEOMETRY: style uses % strings ONLY. Never px or bare numbers.
 FULLSCREEN: Map / Particles / Background ignore position — they are always 100%×100%.
 QUERY REQUIRED: Image and Video layers MUST have a query field or the cut breaks.
-DEPTH MINIMUM: Every cut needs ≥3 layers (base + atmosphere/framing + hero or text).
+LAYER COUNT — NO QUOTA: use as many layers as the beat needs — usually a rich stack, not a bare one. Every layer must earn its place (a clear visual job + motion alive past the take's midpoint); never stack blindly, never ship a single bare layer.
 PORTRAIT SAFE: Keep content above bottom: 28% in portrait, bottom: 18% in landscape.
 OPACITY PAIR: Every entrance with delay > 0 MUST pair with opacity: 0→1 at same delay.
 NO CHAPTER CARDS: Never put chapter title text inside sub-visual cuts.
@@ -65,7 +65,9 @@ Root Video Composition
 
 **Rules:**
 1. `children[0]` = bottom/background; `children[N-1]` = top foreground.
-2. **🚫 NO CHAPTER TITLE CARDS inside cuts** — they flash and vanish. Global overlays own that.
+2. **Chapter Guidelines**: NEVER put chapter title cards, pills, or branding
+   text inside cuts — they flash and vanish on 2–9s takes. Global overlays own
+   chapter branding continuously.
 3. Every sub-visual must be 100% storytelling: motion graphics, infographics, data viz, kinetic type.
 
 ---
@@ -405,7 +407,18 @@ Sequential stagger: Layer A exits at `2.0s`, Layer B enters at `delay: 2.2s` —
 
 ---
 
-## 5. Cut-Level Controls
+## 5. Compose Freely (no prescribed looks)
+
+There is no mandatory layer sandwich. Compose any types, counts, and geometry
+the schema allows to serve THIS narration beat — one Image + Text take with a
+9s camera drift beats a 4-layer template that says nothing. The starter-pack
+sample and Recipe A are structural shapes to imitate, never looks to repeat:
+identical templates across cuts get flagged as repetition, while original
+compositions are always safe. When in doubt, reach for authentic evidence
+(archive photo, map with a drawn route, real footage, document) choreographed
+as a continuous take (§6.5) instead of another centered icon + headline card.
+
+Cut-level tools (set on the sub-visual, never on Layers):
 
 ### Transitions (on sub-visual, not on Layer)
 ```json
@@ -438,6 +451,115 @@ Layer 0 [Bottom]:   Canvas Foundation (Procedural Background OR darkened B-roll 
 2. When presenting a `Chart`, `Counter`, or `Text`, place a frosted `Shape` card behind it.
 3. Choreograph entrances with stagger: base at 0.0s, hero at 0.3s, text at 0.6s.
 4. Apply `floating: true` on hero badges. Apply `motion_blur: true` + `shutter_angle: 180` on fast pans.
+
+---
+
+## 6.5 Single-Take Continuous Scene (Default — copy and adapt this)
+
+One scene = ONE cut whose canvas stays alive for the full duration. This 9s
+take is the reference implementation: camera drift spans all 9s, mid-timeline
+beats are word-synced (delays 2.5 / 5.0 / 6.8 = spoken-word times, not
+defaults), an early layer exits to free space, ambient loops never freeze, and
+an emphasis punch carries the eye into the next cut. Adapt queries, words, and
+delays to YOUR narration — keep the phase skeleton. Geometry follows the
+canonical cut shape (box inside `content.style`, exactly like the starter-pack
+`sample_cut` — that is what the validator enforces).
+
+```json
+{
+  "duration": 9.0, "transition": "zoom_in",
+  "emphasis": [{ "at": 8.0, "scale": 1.12, "duration": 0.6 }],
+  "composition": { "type": "Sequence", "children": [
+    { "type": "Layer", "name": "Archival map canvas",
+      "content": { "type": "Image", "query": "atlantic ocean vintage map",
+        "source": "archive", "objectFit": "cover",
+        "style": { "position": "absolute", "left": "0%", "top": "0%",
+          "width": "100%", "height": "100%" } },
+      "motion_blur": true, "shutter_angle": 180, "camera_shake": "handheld",
+      "animations": [
+        { "property": "scale", "from": 1.0, "to": 1.32,
+          "duration": 9.0, "delay": 0, "easing": "linear" },
+        { "property": "translateX", "from": 0, "to": -60,
+          "duration": 9.0, "delay": 0, "easing": "ease-in-out" }
+      ],
+      "filters": ["grayscale(0.85)", "contrast(1.25)", "brightness(0.8)"] },
+    { "type": "Layer", "name": "Copper route draw",
+      "content": { "type": "Shape", "shape_type": "path",
+        "preset_path": "route_arch", "stroke": "#b87333",
+        "stroke_width": 3, "draw_animation": true, "glow": true,
+        "fill": "transparent",
+        "style": { "position": "absolute", "left": "0%", "top": "0%",
+          "width": "100%", "height": "100%" } },
+      "animations": [
+        { "property": "opacity", "from": 0, "to": 1,
+          "duration": 0.5, "delay": 2.5, "easing": "ease-out" }
+      ],
+      "filters": [] },
+    { "type": "Layer", "name": "Depth gauge card",
+      "content": { "type": "Shape", "shape_type": "rectangle",
+        "fill": "rgba(0,0,0,0.45)", "stroke": "rgba(255,255,255,0.25)",
+        "stroke_width": 1.5, "corner_radius": 20,
+        "style": { "position": "absolute", "left": "58%", "top": "30%",
+          "width": "34%", "height": "40%",
+          "backdropFilter": "blur(16px)",
+          "border": "1px solid rgba(255,255,255,0.12)" } },
+      "exit": 7.5,
+      "animations": [
+        { "property": "translateX", "from": 60, "to": 0,
+          "duration": 0.6, "delay": 5.0, "easing": "spring" },
+        { "property": "opacity", "from": 0, "to": 1,
+          "duration": 0.4, "delay": 5.0, "easing": "ease-out" },
+        { "property": "opacity", "from": 1, "to": 0,
+          "duration": 0.3, "delay": 7.2, "exit": true, "easing": "ease-out" }
+      ],
+      "filters": ["backdrop-filter: blur(16px)"] },
+    { "type": "Layer", "name": "Depth headline",
+      "content": { "type": "Text", "text": "4000 meters beneath the waves",
+        "font": "Outfit", "weight": "700", "color": "#ffffff",
+        "animation_mode": "marker_highlight",
+        "highlight_words": ["4000 meters"], "highlight_color": "#facc15",
+        "style": { "position": "absolute", "left": "8%", "bottom": "18%",
+          "width": "50%", "fontSize": "54px", "textAlign": "left",
+          "textShadow": "0 4px 20px rgba(0,0,0,0.8)" } },
+      "animations": [
+        { "property": "opacity", "from": 0, "to": 1,
+          "duration": 0.4, "delay": 5.0, "easing": "ease-out" }
+      ],
+      "filters": [] },
+    { "type": "Layer", "name": "Crack reticle pulse",
+      "content": { "type": "Shape", "shape_type": "path",
+        "preset_path": "circle_reticle", "stroke": "#ff5544",
+        "stroke_width": 2.5, "glow": true, "fill": "transparent",
+        "style": { "position": "absolute", "left": "30%", "top": "35%",
+          "width": "18%", "aspectRatio": "1 / 1" } },
+      "floating": true,
+      "animations": [
+        { "property": "scale", "from": 0.7, "to": 1.0,
+          "duration": 0.5, "delay": 6.8, "easing": "back" },
+        { "property": "opacity", "from": 0, "to": 1,
+          "duration": 0.3, "delay": 6.8, "easing": "ease-out" },
+        { "property": "scale", "from": 1.0, "to": 1.08,
+          "duration": 1.2, "delay": 7.3, "easing": "ease-in-out",
+          "loop_mode": "pingpong" }
+      ],
+      "filters": [] },
+    { "type": "Layer", "name": "Atmosphere",
+      "content": { "type": "Particles", "particle_preset": "dust",
+        "particle_count": 40, "particle_opacity": 0.15,
+        "particle_direction": "up",
+        "style": { "position": "absolute", "width": "100%",
+          "height": "100%" } },
+      "animations": [],
+      "filters": [] }
+  ]}
+}
+```
+
+Why this works: the base Image moves for 9s (no frozen tail); reveals fire
+on word times (5.0 = "4000 meters", 6.8 = "snapped"); the gauge exits at 7.5
+so the resolve phase has room; the reticle loops gently after landing; the
+emphasis at 8.0 hands momentum to the next cut. No centered bouncing icon —
+the hero is the map + drawn route (authentic evidence), text is a lower-third.
 
 ---
 

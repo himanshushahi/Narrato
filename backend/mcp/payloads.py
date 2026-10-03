@@ -1709,8 +1709,9 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                 f"Same kinds in different layouts are a design system, not repetition.")
         if cut_total and deep_cuts == cut_total and cut_total >= 2:
             report["normalizations"].append(
-                f"Multi-layer depth: all {cut_total} cuts carry 3+ layers "
-                f"(avg {report['avg_layers_per_cut']}) — keep it up.")
+                f"Layered depth: all {cut_total} cuts carry rich stacks "
+                f"(avg {report['avg_layers_per_cut']} layers/cut) — keep every "
+                f"layer earning its place: a clear job plus motion, no blind stacking.")
         # Source-matrix check (non-blocking): crossed sources are ignored
         # with a wrong-type Pexels fallback — flag so the agent fixes intent.
         for i, cut in enumerate(normalized):

@@ -1,7 +1,7 @@
 ---
 name: motion-graphics-designer
 description: "Motion choreography cookbook: concrete entrance patterns, exit/stagger sequences, filter application guide, and timing recipes. Full harness spec: read declarative-ast."
-version: "5.0"
+version: "5.1"
 when_to_use: "Used during visual generation, motion graphics choreography, and styling."
 ---
 
@@ -26,7 +26,7 @@ Map / Particles / Background = always fullscreen (100%×100%), no positioning.
 Transform in style = STRIPPED. Use animations[] for motion, not transform CSS.
 ```
 
-**Card Layout Quick-Picks:**
+**Card Layout Presets (Quick-Picks):**
 ```
 Hero Center:        left: "15%", top: "15%",  width: "70%", height: "65%", borderRadius: "24px"
 Left Split:         left: "8%",  top: "15%",  width: "42%", height: "70%", borderRadius: "20px"
@@ -115,6 +115,43 @@ Spatial properties trigger shutter motion blur. Optical do not.
   { "property": "scale", "from": 1.0, "to": 1.06, "duration": 5.0, "delay": 0, "easing": "linear" }
 ]
 ```
+For a single-take canvas, stretch the drift to the FULL cut duration
+(`duration` = cut length, e.g. 9.0) and pair it with a slow translate
+(`translateX: 0→-60`, `ease-in-out`) — this is the camera journey. Add
+`motion_blur: true, shutter_angle: 180` on the drifting layer.
+
+---
+
+## 3.5 Continuous-Take Choreography (default — one living canvas per scene)
+
+A single take evolves in four phases. Delays below are fractions of the cut,
+not fixed seconds — scale them to YOUR cut duration, and bind key beats to
+transcription word timestamps (delay = word_start − cut_start):
+
+```
+ESTABLISH (0–25%):    base enters with cut transition + full-duration
+                      camera drift starts + ambient loop starts
+DEVELOP (25–55%):     camera pushes in (scale/translate); SVG path draws
+                      (draw_animation); supporting evidence fades in
+EVOLVE (55–80%):      word-synced reveals — frosted card / gauge / document
+                      slides in on the keyword; marker_highlight sweeps;
+                      Counter lands on the number word; spent layers exit
+RESOLVE (80–100%):    motion eases, never freezes — blur settles, callout
+                      recedes, concluding headline reveals; emphasis
+                      punch-in near the end hands momentum to the next cut
+```
+
+### Frozen-tail rule (mandatory per cut)
+
+If nothing moves after 50% of the cut, the take is unfinished. Every cut MUST
+satisfy at least one of:
+- a camera drift / scale animation whose `duration` spans ≥80% of the cut, or
+- a `loop_mode` ambient (particles, floating hero, breathing glow), or
+- an `exit` + delayed-entrance stagger pair in the back half, or
+- an `emphasis` punch-in at ≥70% of the cut.
+
+Entrance-only choreography (everything lands by 0.8s, then static) is the #1
+cause of slideshow-looking output. Full working take: `declarative-ast` §6.5.
 
 ---
 
@@ -188,7 +225,7 @@ Apply filters to match the scene's emotional tone:
 
 ---
 
-## 8. Kinetic Typography Reference
+## 8. Kinetic Typography Recipes
 
 ```json
 // marker_highlight — sweep ALL words (no highlight_words needed)
@@ -233,11 +270,31 @@ Apply filters to match the scene's emotional tone:
 
 ## 10. Timing Density Guide
 
-| Cut Duration | Recommended Layers | Beats | Notes |
-|---|---|---|---|
-| 1.5–2.5s | 2–3 | 1 | Background + hero or text only. Keep it snappy. |
-| 2.5–4s | 3–4 | 1–2 | Standard depth stack. One stagger beat. |
-| 4–6s | 4–5 | 2–3 | Full depth. Use exit/stagger for 2nd beat. Floating on hero. |
-| 6s+ | 4–5 | 2–3 | Add loop_mode motion. Consider `mute_voiceover` for a dramatic pause beat. |
+No layer quota — use as many layers as the beat needs (usually a rich stack).
+Typical depth per cut length, tuned for the eye, not the count:
 
-**Rule**: A 1.5s cut should NOT have 6 animated layers. Animation should land before the cut ends. For short cuts: simpler entrances (0.3s delay max, no stagger).
+| Cut Duration | Typical Depth | Beats | Notes |
+|---|---|---|---|
+| 1.5–2.5s | lean (2–3 purposeful) | 1 | Background + hero or text only. Keep it snappy. |
+| 2.5–4s | rich (3–5 purposeful) | 1–2 | Full depth stack. One stagger beat. |
+| 4–6s | rich (4–6 purposeful) | 2–3 | Full depth. Use exit/stagger for 2nd beat. Floating on hero. |
+| 6s+ | rich (4–6 purposeful) | 2–3 | Add loop_mode motion. Consider `mute_voiceover` for a dramatic pause beat. |
+
+**Rule**: every layer must earn its place — a clear job plus motion (or a
+deliberate static role, like a backdrop). A 1.5s cut should NOT carry 6
+animated entrances; animation should land before the cut ends. For short cuts:
+simpler entrances (0.3s delay max, no stagger). Richness means living layers,
+not layer count.
+
+---
+
+## 11. Multi-Layer Depth Rules (with visual-director-core §4)
+
+Motion serves depth, not decoration. Every take keeps a rich, purposeful stack —
+foundation, atmosphere/framing, hero, kinetic text in whatever count the beat
+needs — and every layer gets a job across time, not just an entrance: the foundation drifts the full take
+(§3.5 camera journey), the hero floats or loops, mid-timeline beats
+exit/stagger, the headline lands word-synced (§8). If a layer's last keyframe
+is before the take's midpoint, give it a loop, a drift extension, an exit, or
+cut it — dead layers are visual noise. Full take skeleton: `declarative-ast`
+§6.5.

@@ -107,7 +107,7 @@ VISUAL GENERATION CRITICAL GOTCHAS:
 - Portrait safe area: keep text above bottom: 28%. Landscape: above bottom: 18%.
 - Every entrance animation with delay > 0 MUST pair with opacity: 0->1 at same delay.
 - style box goes on the Layer node (sibling of content), NOT inside content.
-- Minimum 3 layers per cut: base + framing/atmosphere + hero or kinetic text.
+- Layer count, no quota: use as many layers as the beat needs (usually a rich stack: base + framing/atmosphere + hero + kinetic text). Every layer must earn its place with a clear job + motion; never stack blindly, never ship a single bare layer.
 
 CONTINUOUS LEARNING -- SKILL SELF-IMPROVEMENT:
 When you discover a new edge case, rendering failure, useful pattern, or source selection insight during a session, call `append_skill_learning` to log it:
@@ -1200,10 +1200,10 @@ def _sample_cut_template(video_format: str) -> dict:
 # (skill name, section query, pack key).
 _VISUALS_PACK_SECTIONS: tuple = (
     ("declarative-ast", "content types", "content_types"),
-    ("declarative-ast", "motion grammar", "motion_grammar"),
-    ("declarative-ast", "cut transitions", "transitions"),
-    ("visual-director-core", "motion", "motion_fx"),
-    ("visual-director-core", "layer types", "layer_types"),
+    ("declarative-ast", "advanced manipulation", "motion_grammar"),
+    ("declarative-ast", "compose freely", "transitions"),
+    ("visual-director-core", "choreography", "motion_fx"),
+    ("visual-director-core", "compositing", "layer_types"),
     ("motion-graphics-designer", "geometry", "geometry"),
 )
 
@@ -1248,14 +1248,16 @@ def _visuals_storyboard_pack(ctx: dict, project_id: str) -> dict:
     """
     from backend.agent.skill_loader import skill_loader
     pack: dict = {
-        "why": ("Plan beats before authoring cuts: one line per cut "
-                "(intent + transition + media query). Sections planned "
-                "this way repeat by design, not by accident."),
+        "why": ("Plan beats before authoring cuts: default ONE continuous "
+                "take per scene (establish → develop → evolve → resolve, "
+                "word-synced); a 2nd cut only on a genuine beat shift, named "
+                "in one justification line. Planned takes repeat by design, "
+                "not by accident."),
         "beat_plan_template": (
-            "cut0: <intent> | whip_pan | <english query> | <layers>\n"
-            "cut1: <intent> | slide_left | <english query> | <layers>\n"
-            "cut2: <intent> | dissolve | <english query> | <layers>\n"
-            "(one line per planned cut)"),
+            "Scene 3 (9.0s, 1 take, zoom_in): canvas=archive map + 9s drift | "
+            "0-2.5 establish+draw route | 2.5-5 develop+pan | "
+            "5(word@5.1)-7.5 evolve+gauge+highlight | 7.5-9 resolve+emphasis@8.0\n"
+            "(one take per scene; 2nd cut only with 'because:' justification)"),
     }
     try:
         sk = skill_loader.get_skill("storyboard-planner", context="tool")
@@ -2359,8 +2361,10 @@ def save_visuals_batch(project_id: str, sections: list,
     Supports 1-based scene_number (matches UI Scene N) and cut_number (matches UI Cut #N),
     as well as 0-based scene_index and cut_index.
     A 30-section video costs 3 calls (batch dry_run → re-dry-run fixed
-    sections → batch persist) instead of 60-90 — write 2-3 cuts per ~10s
-    scene like the internal loop does instead of rationing 1 cut per section.
+    sections → batch persist) instead of 60-90 — default ONE continuous
+    take per scene (living canvas: camera drift + exit/stagger +
+    word-synced reveals, see visual-director-core §2/§5); add a 2nd cut
+    only on a genuine beat shift, with a one-line justification in the plan.
     Sections are independent: one bad section never blocks the rest; the
     response tells you exactly which indexes failed with fix/retry_with
     patches. Same canonical cut shape, auto-repair, and variety/timing

@@ -1,6 +1,6 @@
 ---
 name: visual-director-core
-version: "5.0"
+version: "5.1"
 description: "Visual Director operational rules, production gotchas, and multi-layer depth architecture. Full capability spec: read declarative-ast."
 when_to_use: "Always loaded during bulk scene visual generation, storyboarding, and visual direction."
 ---
@@ -26,9 +26,23 @@ Before generating any visual output, verify:
 
 ---
 
-## 2. Cut Structure & Timing Rules
+## 2. Cut Structure & Timing Rules — Single Take First
 
-- **1 Cut Per Visual Beat**: Emit multiple sub-visual cuts per scene to match narration pacing. A 9s scene typically needs 2–3 cuts.
+**Default: ONE continuous cut per scene.** A scene is one living canvas whose
+camera and layers evolve across the full narration — not a slideshow of
+mini-cuts. Chopping a 9s thought into two arbitrary 4.5s halves resets the
+viewer's eye, kills momentum, and reads as amateur editing.
+
+- **1 scene = 1 continuous take** (up to ~12s): choreograph camera drift,
+  exit/stagger beats, word-synced reveals, and continuous ambient motion
+  *inside* the single cut (see `declarative-ast` §6.5 and
+  `motion-graphics-designer` §3.5). The canvas must stay alive for the whole
+  duration — never frozen after the first second.
+- **A 2nd cut only on a genuine beat shift**: location change, time jump,
+  data→human pivot, or energy reset the single canvas cannot absorb. Each
+  extra cut MUST be justified in one line in the beat plan
+  ("Cut 2 because: 1858 London → 2024 Mumbai — geography the map canvas
+  cannot pan to"). No justification = no second cut.
 - **Duration Math**: Sum of all `duration` fields MUST equal total scene duration exactly (2 decimal places). The validator auto-corrects minor float drift but not structural gaps.
 - **Array Stacking**: `children[0]` = bottom background; `children[N-1]` = foreground. Stacking order IS the rendering order — no z_index.
 - **Transition**: Set on each sub-visual, not on layers. Vary transitions across cuts in a scene (don't repeat the same transition 3× in a row).
@@ -62,7 +76,10 @@ Before generating any visual output, verify:
 
 ## 4. Multi-Layer Compositing Architecture
 
-Always build cuts with layered visual depth — never a single layer. Minimum 3 layers per cut:
+Build cuts with layered visual depth — no fixed quota. Use as many layers as
+the beat needs (usually a rich stack, not a bare one), and make every layer
+earn its place: a clear visual job plus motion alive past the take's midpoint.
+Six dead layers are worse than three living ones. Typical depth roles:
 
 ```
 Layer 3 [Top]:      Kinetic Typography (synced headline, metric callout, words_stagger)
@@ -74,24 +91,59 @@ Layer 0 [Bottom]:   Canvas Foundation (Background shader OR darkened Video)
 **Foundation Rules:**
 - **Layer 0**: Always `Background` preset OR `Video`/`Image` with `Cinematic Dark Base` filter (`["brightness(0.35)", "contrast(1.2)"]`) + slow `scale: 1.0→1.06` drift animation.
 - **Layer 1**: Use `Particles` sparingly (`opacity: 0.12–0.18`), or `Shape` with `preset_path: "corner_brackets"` for HUD framing, or a translucent frosted `Shape` card backing.
-- **Layer 2**: The data/story hero: `Chart`, `Counter`, transparent `Image` (Pixabay illustration), or `Shape` path with `draw_animation: true`.
+- **Layer 2**: The data/story hero: `Chart`, `Counter`, authentic evidence
+  (`archive` photo/document, `Map` with drawn route, real `Video`), transparent
+  `Image` (Pixabay illustration), or `Shape` path with `draw_animation: true`.
+  Lucide icons are small accents (badges, bullets) — NEVER a lone centered
+  bouncing icon as the hero of a documentary beat.
 - **Layer 3**: Kinetic text with `bottom: "18%"` (landscape) or `bottom: "28%"` (portrait). Use `marker_highlight` or `words_stagger` for narrative sync.
 
 ---
 
-## 5. Entrance Choreography Template
+## 5. Entrance Choreography Template — Continuous-Take Phases
 
-Use this stagger to give each layer a deliberate entrance:
+A single take evolves in four phases across its FULL duration. For a 9s cut:
 
 ```
-0.0s  Background / Video enters with cut transition
-0.3s  Frosted card / framing Shape springs in (scale: 0.88→1.0, spring) + opacity: 0→1
-0.5s  Hero data graphic / Counter enters (translateY: 40→0, spring) + opacity: 0→1
-0.8s  Kinetic headline / label reveals (words_stagger or marker_highlight)
+0.0–2.5s  ESTABLISH: base canvas enters with the cut transition
+          (map / archive image / B-roll with slow scale drift 1.0→1.3
+          spanning the whole 9s, not 5s). Ambient loop starts (particles /
+          floating hero) so the frame breathes from frame one.
+2.5–5.0s  DEVELOP: camera moves INTO the story — pan/zoom toward the
+          subject (translateX drift + scale), an SVG path draws
+          (draw_animation) along the journey, supporting evidence fades in.
+5.0–7.5s  EVOLVE: timed to the narration's key spoken words (use the
+          transcription word timestamps for delay values, not 0.3s
+          defaults) — a frosted card / gauge / document slides in, a
+          marker_highlight sweeps the headline, a Counter lands on the
+          exact number word. Earlier layers exit (exit:) to free space.
+7.5–9.5s  RESOLVE: motion eases, not freezes — depth-of-field blur settles,
+          the callout recedes, the concluding headline reveals. An
+          emphasis punch-in or slow push-in carries the eye INTO the next cut.
 ```
 
-For 2s cuts — compress: 0.0s base, 0.2s hero, 0.4s text.
-For 5s+ cuts — expand: add a second beat using `exit:` + delayed second layer.
+For 4s cuts — compress: establish 0–1s, develop 1–2.5s, evolve+resolve 2.5–4s.
+For 12s cuts — expand the DEVELOP phase (longer camera journey) and add a
+second exit/stagger pair in EVOLVE.
+
+### Anti-patterns (what makes visuals look 10 years old)
+
+- **Frozen tail**: all animations start at delay 0.2–0.8s and finish by ~1s,
+  leaving the rest of the cut static. RULE: every cut needs motion alive past
+  its midpoint — a camera drift spanning full duration, a loop_mode ambient, an
+  exit/stagger beat, or an emphasis punch-in. If nothing moves after 50% of the
+  cut, the take is unfinished.
+- **Bouncing center icon**: a generic Lucide icon (anchor, zap, lock, globe)
+  springing in the dead center as the "hero" of a serious documentary beat.
+  Icons are accents, never heroes. Heroes are authentic evidence: archival
+  photos, maps with drawn routes, documents, charts, real footage — composed as
+  collages / split-screens, not lone centered badges.
+- **Arbitrary delays**: hardcoding 0.3s / 0.5s delays when word-level
+  transcription timestamps exist. Key reveals MUST bind `delay` to the spoken
+  word time (delay = word_start − cut_start). A highlight that fires 2s before
+  the narrator says the word looks broken.
+- **Quota chopping**: splitting a scene into N cuts to hit a number instead of
+  because the story beats demand it. One continuous take is the default.
 
 ---
 

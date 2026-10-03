@@ -775,9 +775,9 @@ def build_sample_cut(video_format: str = "landscape") -> Dict[str, Any]:
                     },
                     "animations": [
                         {"property": "translateY", "from": 8, "to": 0,
-                         "duration": 0.5, "delay": 0.1, "easing": "ease-out"},
+                          "duration": 0.5, "delay": 0.1, "easing": "spring"},
                         {"property": "opacity", "from": 0, "to": 1,
-                         "duration": 0.5, "delay": 0.1, "easing": "ease-out"},
+                          "duration": 0.5, "delay": 0.1, "easing": "ease-out"},
                     ],
                     "filters": [],
                 },
@@ -798,8 +798,11 @@ def build_sample_cut(video_format: str = "landscape") -> Dict[str, Any]:
                 },
             ],
         },
-        "note": "Background + Subject + Kinetic Text. "
-                "Replace query/text per beat.",
+        "note": "Shape contract (not the look): Background + Subject + "
+                "Kinetic Text. Replace query/text per beat. For production "
+                "takes, choreograph a LIVING canvas — full-duration drift, "
+                "word-synced reveals, exit/stagger, no frozen tail "
+                "(see declarative-ast §6.5 single-take reference).",
     }
 
 
