@@ -158,7 +158,7 @@ class AnimationNode(AppBaseModel):
     duration: float = Field(..., gt=0, description="Duration of the animation in seconds")
     delay: Optional[float] = Field(default=0.0, ge=0, description="Delay in seconds before animation begins (optional, default 0)")
     easing: EasingType = Field(default="ease-out", description="Animation easing curve: spring, ease-out, ease-in-out, ease-in, linear, bounce, elastic, back, steps, bezier")
-    exit: Optional[bool] = Field(default=None, description="If true, marks an exit transition: skips evaluating until delay begins, and layer unmounts when complete")
+    exit: Optional[bool] = Field(default=None, description="If true, marks an exit transition: skips evaluating until delay begins, and layer unmounts when complete. Only exit tails should set this (opacity 1->0, scale->0, brightness->0, or a translate slide ending far off-screen); entrances must not. Non-fade exits (slide-offs) REQUIRE this flag — the layer-level exit alone only recognizes fade-to-hidden tails.")
 
     # Remotion spring physics parameters (when easing="spring")
     damping: Optional[float] = Field(default=None, gt=0, description="Spring damping / friction resistance (default 14, lower is bouncier)")
@@ -856,7 +856,7 @@ class ASTLayerNode(AppBaseModel):
     color_tag: Optional[str] = Field(default=None, description="Color tag for visual grouping in editor")
     content: Union[LayerContent, Dict[str, Any]] = Field(..., description="Layer content specification")
     animations: Optional[List[Union[AnimationNode, Dict[str, Any]]]] = Field(default_factory=list, description="Keyframe animation list (spatial props drive shutter blur; blur/brightness are non-spatial fades)")
-    exit: Optional[Union[bool, float]] = Field(default=None, description="Exit behavior: if true, layer unmounts when its animations complete; if number, seconds from cut start when layer unmounts. If omitted/false, layer persists for the full cut.")
+    exit: Optional[Union[bool, float]] = Field(default=None, description="Exit behavior: if true, layer unmounts when its exit tail finishes (requires a fade-to-hidden tail — opacity 1->0 / scale->0 / brightness->0 — or a far slide-off translate, ideally with exit:true on the track; entrance-only layers persist full cut even with exit:true); if number, seconds from cut start when layer unmounts (must be >= exit-tail end). If omitted/false, layer persists for the full cut. One-shot animations hold their end value; only exit removes the layer.")
     floating: Optional[bool] = Field(default=None, description="Harmonic floating drift (slow organic bob). Counts as spatial motion for shutter blur.")
     motion_blur: Optional[bool] = Field(default=None, description="Whether to apply physical camera shutter motion blur to moving elements (needs spatial motion: keyframe/floating/shake, else no-op)")
     shutter_angle: Optional[float] = Field(default=None, description="Camera shutter angle in degrees for motion blur (45-360, default 180; 90 crisp, 180 cinematic, 360 dreamy)")

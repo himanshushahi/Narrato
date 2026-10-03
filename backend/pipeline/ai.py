@@ -1947,11 +1947,12 @@ Do NOT create static chapter title badges, scene name cards, or temporary header
 - Text reveal animations timed to when specific words are spoken using `delay` in seconds.
 - Layer animation entrances synced to narration beats.
 - Element entry/exit timings matching spoken content transitions.
-- LAYER EXIT & SEQUENTIAL STAGGER: By default, layers persist for the entire cut.
+- LAYER EXIT & SEQUENTIAL STAGGER: By default, layers persist for the entire cut. One-shot
+  entrances (loop_mode none) hold their end value — they do NOT remove the layer; only `exit` unmounts.
   To replace or remove a layer before the cut ends (e.g. staggering two elements in the same screen space):
-  * Set `exit: true` on the Layer to unmount it cleanly when its animations finish.
-  * Or set `exit: <seconds>` (number) on the Layer to unmount at an exact cut time (e.g. `exit: 2.2`).
-  * Or set `exit: true` on an exit keyframe track (e.g. {{"property": "opacity", "from": 1, "to": 0, "duration": 0.35, "delay": 2.0, "exit": true}}): skips before delay, and layer unmounts when the animation completes.
+  * Add an exit tail track (e.g. {{"property": "opacity", "from": 1, "to": 0, "duration": 0.35, "delay": 2.0, "easing": "ease-out", "exit": true}}): skips before delay, and layer unmounts when the animation completes. Slide-off exits (translate ending far off-screen, e.g. to 800) MUST carry "exit": true on the track — the layer flag alone only recognizes fade-to-hidden tails (opacity/scale/brightness ~0).
+  * Optionally ALSO set `exit: true` on the Layer (needs the exit tail above — NEVER set layer exit:true on an entrance-only layer: entrances like opacity 0->1 persist instead of unmounting, otherwise the foreground would vanish early leaving a background-only cut).
+  * Or set `exit: <seconds>` (number) on the Layer to unmount at an exact cut time (e.g. `exit: 2.2` — must be >= the exit-track delay+duration so the fade finishes).
   * Pair with a later layer entering at or after that time to sequence information without visual overlap.
 Example: sub-visual starts at 4.0s in the scene and keyword is spoken at [6.3s] → set `delay: 2.3` on that layer's entrance animation.
 
@@ -2113,7 +2114,7 @@ Part 2: Universal Advanced Manipulation (any layer):
 - Animations (animations): 10 properties: 7 spatial (translateY, translateX, translateZ, scale, rotate, rotateX, rotateY) + 3 optical fades (opacity, blur px rack-focus, brightness flash). Easings: spring (damping/stiffness/mass/overshoot_clamping), ease-out, ease-in-out, ease-in, linear, bounce, elastic (elastic_bounciness), back (back_overshoot), steps (steps_count), bezier (bezier_points [x1,y1,x2,y2], x in [0,1]). Continuous motion: loop_mode loop|pingpong (one direction per duration; full pingpong round trip = 2x duration). Pair delay > 0 with opacity: 0 -> 1. Word sync via delay when timestamps exist.
 - Physics, Camera & 3D Perspective (motion): floating: true harmonic drift; motion_blur: true + shutter_angle: 45-360 (default 180); camera_shake: "handheld" | "shockwave" | "glitch" | "none"; transform_origin pivot; perspective: 1000 (300-3000px FOV distance; lower = wide angle, higher = telephoto), perspective_origin: "center center" | "50% 0%".
 - Filters & Looks (filters): 8 CSS looks (Neon Glow Pop, Cyberpunk, Golden Hour, Bleach Bypass, Night Vision, Thermal False-Color, Noir Hard, Dream Blur, Cinematic Dark Base) + 6 SVG looks (url(#fx-emboss), url(#fx-sharpen), url(#fx-duotone-midnight), url(#fx-duotone-inferno), etc.) + blend modes ("mix-blend-mode: overlay") + optical blurs: layer content blur "blur(12px)" (0-50px, softens own pixels for B-roll behind text) or style {{"blur": 12}}, and frosted-glass backdrop blur "backdrop-filter: blur(16px)" (0-30px, blurs layers beneath without blurring own text; pair with translucent backgroundColor).
-- Layer Exit & Stagger (exit): exit: true or exit: <seconds> on layer, or animation track exit: true for sequential beats in one cut without visual collisions.
+- Layer Exit & Stagger (exit): one-shot holds its end value (persist); only exit unmounts. Exit tail track exit:true (+ optional layer exit:true, never on entrance-only layers) or exit:<seconds> (>= exit-track end) for sequential beats in one cut without visual collisions.
 - Shape Masking & Reveals (mask): {{"shape": circle (size/x/y) | ellipse (rx/ry/x/y) | inset (top/right/bottom/left/corner_radius) | polygon (polygon_preset hexagon/diamond/triangle/star/slant_left/slant_right/custom+points)}} + {{"reveal": circle_iris | wipe_right | wipe_down | split_vertical (center-out curtain) | wipe_diagonal (corner-to-corner), reveal_duration (default 0.8), reveal_delay, reveal_easing (linear/ease-in/ease-out/ease-in-out/bounce), inverted}}. A reveal animates INTO the static shape when both are set — combine polygon badges with circle_iris, never bare rectangles.
 - Layer Ergonomics: name (descriptive label), visible: false (hide from preview+export), locked: true (lock canvas), color_tag (grouping hex).
 

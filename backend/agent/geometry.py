@@ -88,8 +88,56 @@ def _is_fullscreen_rect(rect: Any) -> bool:
             and abs(x1 - 100.0) < 0.01 and abs(y1 - 100.0) < 0.01)
 
 
+# Exit-tail thresholds — MUST match the frontend renderer
+# (ASTAnimator isExitLikeAnimation / EXIT_LIKE_* constants). Opacity/
+# brightness ~0 and scale ~0 read as hidden; a translate ending >=600px
+# off its rest position reads as slid off-screen on 1080p canvas.
+EXIT_LIKE_OPACITY_MAX = 0.05
+EXIT_LIKE_SCALE_MAX = 0.01
+EXIT_LIKE_BRIGHTNESS_MAX = 0.05
+EXIT_LIKE_TRANSLATE_PX = 600
+
+
+def is_exit_like_track(anim: Dict[str, Any]) -> bool:
+    """True when a track animates toward a hidden end state (mirrors the
+    frontend ASTAnimator cutoff). Looping cycle tracks never count — their
+    duration is a cycle length, not an end time."""
+    if not isinstance(anim, dict):
+        return False
+    if anim.get("loop_mode") in ("loop", "pingpong") and anim.get("exit") is not True:
+        return False
+    raw_to = anim.get("to")
+    if isinstance(raw_to, bool):
+        return False
+    try:
+        to_val = float(raw_to)
+    except (TypeError, ValueError):
+        return False
+    prop = anim.get("property")
+    if prop == "opacity":
+        return to_val <= EXIT_LIKE_OPACITY_MAX
+    if prop == "scale":
+        return to_val <= EXIT_LIKE_SCALE_MAX
+    if prop == "brightness":
+        return to_val <= EXIT_LIKE_BRIGHTNESS_MAX
+    if prop in ("translateX", "translateY"):
+        try:
+            return abs(to_val) >= EXIT_LIKE_TRANSLATE_PX
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
 def _layer_time_window(layer: Dict[str, Any]) -> Tuple[float, float]:
-    """Estimate (start_sec, end_sec) for a layer based on animations and exit property."""
+    """Estimate (start_sec, end_sec) for a layer based on animations and exit property.
+
+    Mirrors the frontend ASTAnimator cutoff: layer ``exit: True`` without an
+    explicit exit tail only ends the layer when a finite track actually fades
+    toward hidden (opacity/scale ~0). Entrance-only layers (opacity ends at 1)
+    persist for the full cut even with a stray ``exit: True`` — otherwise the
+    overlap linter (and any agent reading it) believes the foreground vacates
+    early and suppresses real collisions.
+    """
     anims = [a for a in (layer.get("animations") or []) if isinstance(a, dict)]
     start = 0.0
     for a in anims:
@@ -106,14 +154,21 @@ def _layer_time_window(layer: Dict[str, Any]) -> Tuple[float, float]:
     if isinstance(exit_val, (int, float)) and not isinstance(exit_val, bool):
         end = float(exit_val)
     elif exit_val is True and anims:
+        # Explicit exit tails win; otherwise only honor the cutoff when an
+        # exit-like (fade-to-hidden / slide-off) track exists, using the
+        # exit tail's own end (matching the renderer — not unrelated
+        # drifts). Entrance-only + exit:true persists (end stays inf).
+        exit_anims = [a for a in anims if a.get("exit") is True]
+        tails = exit_anims if exit_anims else [a for a in anims if is_exit_like_track(a)]
         ends = []
-        for a in anims:
+        for a in tails:
             try:
                 ends.append(float(a.get("delay") or 0.0) + float(a.get("duration") or 0.0))
             except (ValueError, TypeError):
                 pass
         if ends:
             end = max(ends)
+        # else: entrance-only — persist full cut (end stays inf)
     else:
         # Check if any animation track has exit: True
         exit_anims = [a for a in anims if a.get("exit") is True]

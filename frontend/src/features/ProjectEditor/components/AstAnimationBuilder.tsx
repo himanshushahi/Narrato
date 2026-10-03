@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { ASTAnimation } from '../../../components/video/ASTAnimator';
+import { ASTAnimation, isExitLikeAnimation } from '../../../components/video/ASTAnimator';
 import {
   Trash2,
   Plus,
@@ -617,7 +617,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
               type="button"
               onClick={() => onExitChange(true)}
               className={`px-2 py-1 text-[10px] rounded-md border transition-colors cursor-pointer text-center ${exit === true ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-semibold' : 'bg-zinc-900 border-zinc-800 text-stone-400 hover:text-stone-200 font-medium'}`}
-              title="Layer unmounts cleanly once its animation timeline ends"
+              title="Layer unmounts once its exit tail finishes. Needs a fade-out track with Exit checked — entrance-only layers persist instead."
             >
               After Motion
             </button>
@@ -642,6 +642,24 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
             <div className="flex items-center gap-1 text-[9px] text-amber-400/90 font-mono px-0.5">
               <AlertTriangle size={11} className="shrink-0 text-amber-400" />
               <span>Looping tracks never end — exit timing uses finite tracks only (pure-loop layers persist full cut).</span>
+            </div>
+          )}
+          {exit === true && animations.length === 0 && (
+            <div className="flex items-center gap-1 text-[9px] text-rose-400/90 font-mono px-0.5">
+              <AlertTriangle size={11} className="shrink-0 text-rose-400" />
+              <span>Exit is set but the layer has no animations — nothing unmounts it, so it persists for the full cut. Remove exit or add an exit tail.</span>
+            </div>
+          )}
+          {exit === true && animations.length > 0 && !animations.some(a => a && (a as any).exit === true) && !animations.some(a => isExitLikeAnimation(a)) && (
+            <div className="flex items-center gap-1 text-[9px] text-rose-400/90 font-mono px-0.5">
+              <AlertTriangle size={11} className="shrink-0 text-rose-400" />
+              <span>Entrance-only layer: no fade-out/slide-off exit tail, so the renderer keeps it for the full cut (no early unmount). Remove exit or add an opacity 1→0 track with Exit checked.</span>
+            </div>
+          )}
+          {typeof exit === 'number' && animations.some(a => a && typeof a.duration === 'number' && ((a as any).exit === true || isExitLikeAnimation(a)) && (exit as number) < (a.delay || 0) + a.duration - 0.05) && (
+            <div className="flex items-center gap-1 text-[9px] text-rose-400/90 font-mono px-0.5">
+              <AlertTriangle size={11} className="shrink-0 text-rose-400" />
+              <span>Exit time cuts an exit tail mid-fade — move exit past the tail end for a clean fade.</span>
             </div>
           )}
         </div>

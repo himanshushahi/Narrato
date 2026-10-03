@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig, Easing, getRemotionEnvironment } from 'remotion';
 import { CameraMotionBlur } from '@remotion/motion-blur';
 import { getCameraNoise, CameraShakeType } from './CameraNoise';
@@ -363,6 +363,36 @@ export function computeStaticShapeClip(
   }
 }
 
+// Shared exit-tail thresholds (single source of truth for the renderer;
+// the backend geometry/timing linters and the editor mirror these values):
+// opacity/brightness ~0 and scale ~0 read as hidden; a translate ending
+// >=600px off its rest position reads as slid off-screen on 1080p canvas.
+export const EXIT_LIKE_OPACITY_MAX = 0.05;
+export const EXIT_LIKE_SCALE_MAX = 0.01;
+export const EXIT_LIKE_BRIGHTNESS_MAX = 0.05;
+export const EXIT_LIKE_TRANSLATE_PX = 600;
+
+/**
+ * Exit-intent heuristic shared with the backend geometry linter: a track
+ * only counts as an exit tail when it animates toward a hidden end state.
+ * Entrance-only tracks (opacity ends at 1) must never trigger an early
+ * unmount. Slide-out exits (translate ending far off-screen) and
+ * brightness flashes to black count; blur/rotate never hide a layer.
+ */
+export function isExitLikeAnimation(a: ASTAnimation | null | undefined): boolean {
+  if (!a || typeof a.to !== 'number') return false;
+  if ((a.loop_mode === 'loop' || a.loop_mode === 'pingpong') && !(a as any).exit) {
+    return false;
+  }
+  if (a.property === 'opacity') return a.to <= EXIT_LIKE_OPACITY_MAX;
+  if (a.property === 'scale') return a.to <= EXIT_LIKE_SCALE_MAX;
+  if (a.property === 'brightness') return a.to <= EXIT_LIKE_BRIGHTNESS_MAX;
+  if (a.property === 'translateX' || a.property === 'translateY') {
+    return Math.abs(a.to) >= EXIT_LIKE_TRANSLATE_PX;
+  }
+  return false;
+}
+
 const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
   animations = [],
   exit,
@@ -401,27 +431,95 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
       // is a cycle length, not an end time — so they must not contribute to
       // the unmount cutoff. If every track loops, there is no finite end:
       // persist the layer for the full cut (return null).
-      let maxEnd = 0;
-      let finiteTracks = 0;
+      //
+      // BUG FIX (foreground vanishes leaving background-only cut): an
+      // entrance-only layer (e.g. Spring Pop In: opacity 0->1 @0.5s) with a
+      // stray layer-level `exit: true` used to unmount at max(delay+duration)
+      // (~1.1s), hiding the foreground for the rest of the cut. `exit: true`
+      // means "remove me", not "play entrance then stay" — so without an
+      // explicit exit tail it must persist. Only honor the cutoff when at
+      // least one finite track actually heads toward hidden (see
+      // isExitLikeAnimation); otherwise persist for the full cut (return
+      // null). The cutoff is the end of the exit tail itself (matching the
+      // backend linter) — not the end of unrelated drifts — so overlap
+      // checks and the renderer agree on when the layer vacates.
+      // (No console.warn here: this runs per render incl. headless export.
+      // Stray-flag warnings live in the editor + timing linter.)
+      let tailEnd = 0;
+      let exitLikeTracks = 0;
       for (const a of animations) {
-        if (a && (a.loop_mode === 'loop' || a.loop_mode === 'pingpong') && !(a as any).exit) {
+        if (typeof a?.duration !== 'number') {
           continue;
         }
-        if (typeof a.duration === 'number') {
-          const delayFrames = Math.max(0, Math.round((a.delay || 0) * fps));
-          const durationFrames = Math.max(1, Math.round(a.duration * fps));
-          maxEnd = Math.max(maxEnd, delayFrames + durationFrames);
-          finiteTracks += 1;
+        if (!isExitLikeAnimation(a)) {
+          continue;
         }
+        const delayFrames = Math.max(0, Math.round((a.delay || 0) * fps));
+        const durationFrames = Math.max(1, Math.round(a.duration * fps));
+        tailEnd = Math.max(tailEnd, delayFrames + durationFrames);
+        exitLikeTracks += 1;
       }
-      if (finiteTracks === 0) {
+      if (exitLikeTracks === 0) {
+        // Entrance-only + exit:true is almost always a stray flag (AI or
+        // "After Motion" misclick): persisting avoids the background-only cut.
         return null;
       }
-      return maxEnd;
+      return tailEnd;
     }
 
     return null;
   }, [exit, animations, fps]);
+
+  // Authoring-mistake warnings (dev preview only, as an effect so headless
+  // export stays log-clean). NOTE on renderer semantics: opacity tracks are
+  // last-win (`s.opacity =`), but spatial/filter tracks ACCUMULATE (`+=` on
+  // the transform/filter string) — so duplicate same-prop delays on spatial
+  // props double-apply instead of overriding, and chained spatial phases do
+  // not hand off. Only opacity chains are checked for from-mismatch here.
+  useEffect(() => {
+    if (import.meta.env.PROD) return;
+    if (typeof console === 'undefined' || !animations || animations.length < 2) return;
+    try {
+      const seen = new Map<string, number>();
+      for (let i = 0; i < animations.length; i++) {
+        const a = animations[i] as any;
+        if (!a || typeof a.property !== 'string') continue;
+        const delayKey = Number(a.delay || 0).toFixed(2);
+        const key = `${a.property}@${delayKey}`;
+        if (seen.has(key)) {
+          const stacking = a.property !== 'opacity'
+            ? 'spatial/filter tracks accumulate (+=), so both apply at once (usually unintended)'
+            : 'the later track wins for opacity';
+          console.warn(
+            `[AST] duplicate ${a.property} tracks at delay ${delayKey}s ` +
+            `(tracks #${(seen.get(key) ?? 0) + 1} and #${i + 1}): ${stacking} — ` +
+            `stagger delays or remove one.`
+          );
+        } else {
+          seen.set(key, i);
+        }
+      }
+      // Opacity chains are last-win: a chained track starting away from the
+      // previous end value visibly jumps at its delay.
+      let lastOpacityTo: number | null = null;
+      for (let i = 0; i < animations.length; i++) {
+        const a = animations[i] as any;
+        if (!a || a.property !== 'opacity') continue;
+        const fromVal = typeof a.from === 'number' ? a.from : a.from_;
+        if (typeof fromVal !== 'number' || typeof a.to !== 'number') continue;
+        if (lastOpacityTo !== null && Math.abs(lastOpacityTo - fromVal) > 0.011
+            && !(a.exit === true)) {
+          console.warn(
+            `[AST] chained opacity track #${i + 1} starts at ${fromVal} ` +
+            `but previous ends at ${lastOpacityTo} — expect a visible jump at delay ${Number(a.delay || 0)}s.`
+          );
+        }
+        lastOpacityTo = a.to;
+      }
+    } catch {
+      /* warnings must never break rendering */
+    }
+  }, [animations]);
 
   // Fix 10: quantize floating drift to every 2nd frame (sin/cos + string
   // rebuild per layer per frame was wasteful for a 4px drift).

@@ -181,6 +181,116 @@ def lint_cut_timing(cut: Dict[str, Any], cut_index: int = 0) -> Dict[str, Any]:
                         f"\"to\": 1, \"duration\": 0.5, \"delay\": {delay:g}, "
                         f"\"easing\": \"ease-out\"}}")
                     break  # one pairing warning per layer is enough.
+        # Exit-lifecycle checks (renderer ASTAnimator semantics):
+        # - one-shot holds `to` forever; only `exit` unmounts.
+        # - layer exit:true without an exit tail on an entrance-only layer
+        #   persists (renderer fix) — flag the stray flag so authors don't
+        #   expect an early vacate.
+        # - fade-to-hidden without any exit leaves an invisible mounted tail.
+        # - exit:<n> before an exit tail finishes truncates the fade mid-way.
+        exit_val = layer.get("exit")
+        explicit_exits = [a for a in anims
+                          if isinstance(a, dict) and a.get("exit") is True]
+        finite_anims = [a for a in anims
+                        if isinstance(a, dict)
+                        and _fnum(a.get("duration")) is not None
+                        and _fnum(a.get("duration")) > 0
+                        and not (a.get("loop_mode") in ("loop", "pingpong")
+                                 and a.get("exit") is not True)]
+
+        def _to_num(a: Dict[str, Any]) -> float | None:
+            raw = a.get("to")
+            if isinstance(raw, bool):
+                return None
+            return _fnum(raw)
+
+        # Shared exit-tail heuristic (thresholds live in geometry.py and
+        # mirror the frontend renderer). Local import to avoid a hard
+        # module cycle at import time.
+        from backend.agent.geometry import is_exit_like_track as _is_exit_like
+
+        def _is_numeric_exit(value: Any) -> bool:
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+        has_exit_like = any(_is_exit_like(a) for a in finite_anims)
+        if exit_val is True and finite_anims and not explicit_exits and not has_exit_like:
+            latest = max(_adelay(a) + (_fnum(a.get("duration")) or 0.0)
+                         for a in finite_anims)
+            warnings.append(
+                f"{label}: exit:true on an entrance-only layer (no fade-to-hidden / "
+                f"slide-off exit tail) — renderer persists the full cut instead of "
+                f"unmounting at {latest:g}s; drop the flag or add an exit tail with exit:true")
+            fixes.append(
+                f"{label}: remove exit:true to persist, or add "
+                f"{{\"property\": \"opacity\", \"from\": 1, \"to\": 0, "
+                f"\"duration\": 0.4, \"delay\": {round(max(0.0, dur - 0.5), 2):g}, "
+                f"\"easing\": \"ease-out\", \"exit\": true}}")
+        if has_exit_like and not explicit_exits and not (
+                exit_val is True or _is_numeric_exit(exit_val)):
+            warnings.append(
+                f"{label}: fade-to-hidden tail without any exit flag stays mounted "
+                f"invisible to cut end — add exit:true on the layer or the exit track")
+            fixes.append(
+                f"{label}: set exit:true on the fade-out track (unmounts when done)")
+        if _is_numeric_exit(exit_val):
+            # Numeric exit truncating ANY tail (explicit or implicit exit-like).
+            tails = explicit_exits or [a for a in finite_anims if _is_exit_like(a)]
+            for a in tails:
+                tail_end = _adelay(a) + (_fnum(a.get("duration")) or 0.0)
+                if float(exit_val) < tail_end - _TOL:
+                    warnings.append(
+                        f"{label}: exit at {float(exit_val):g}s truncates exit tail "
+                        f"({a.get('property')} ending at {tail_end:g}s) — fade is cut mid-way")
+                    fixes.append(
+                        f"{label}: move exit to >= {tail_end:g}s or shorten the exit tail")
+                    break
+        # Same-property same-delay duplicates: opacity is last-win, but
+        # spatial/filter tracks ACCUMULATE (+=) in the renderer — both apply
+        # at once, which is almost never intended.
+        _seen_delays: Dict[str, float] = {}
+        for a in anims:
+            if not isinstance(a, dict):
+                continue
+            prop = a.get("property")
+            if not isinstance(prop, str):
+                continue
+            dkey = round(_adelay(a), 2)
+            mkey = f"{prop}@{dkey:.2f}"
+            if mkey in _seen_delays:
+                effect = ("later track wins" if prop == "opacity"
+                          else "both tracks apply at once (values stack)")
+                warnings.append(
+                    f"{label}: duplicate {prop} tracks at delay {dkey:g}s — "
+                    f"{effect}")
+                fixes.append(
+                    f"{label}: stagger the {prop} delays or remove one track")
+                break
+            _seen_delays[mkey] = dkey
+        # Opacity chains are last-win: a chained track starting away from the
+        # previous end value visibly jumps at its delay. (Spatial/filter
+        # tracks stack instead of handing off, so no from==prev.to rule
+        # applies to them — see renderer comment.)
+        _last_opacity_to: float | None = None
+        for a in anims:
+            if not isinstance(a, dict):
+                continue
+            if a.get("property") != "opacity" or a.get("exit") is True:
+                continue
+            from_raw = a.get("from", a.get("from_"))
+            from_v = _fnum(from_raw)
+            to_v = _to_num(a)
+            if from_v is None or to_v is None:
+                continue
+            if (_last_opacity_to is not None
+                    and abs(_last_opacity_to - from_v) > 0.011):
+                warnings.append(
+                    f"{label}: chained opacity track starts at {from_v:g} but "
+                    f"previous ends at {_last_opacity_to:g} — visible jump at "
+                    f"delay {_adelay(a):g}s")
+                fixes.append(
+                    f"{label}: set from to {_last_opacity_to:g} for a seamless handoff")
+                break
+            _last_opacity_to = to_v
         # motion_blur without spatial motion = renderer bypass.
         if layer.get("motion_blur"):
             spatial = any(_is_spatial(a) for a in anims)
