@@ -635,6 +635,93 @@ class ApiBridge:
         from backend.agent.telemetry import get_agent_activity
         return get_agent_activity()
 
+    # ── In-app agent chat (same tools/context as MCP, Export tab) ──
+    def chat_send(self, project_id: str, message: str, session_id: str = "default",
+                  confirm_render: bool = False, confirm_action=None) -> dict:
+        """Queue one chat turn in a background thread (non-blocking for pywebview).
+
+        confirm_action True/False resolves a pending human-in-the-loop gate
+        (render or destructive tool); None sends a normal message.
+        """
+        try:
+            from backend.agent.chat_session import ChatSession
+            if not project_id:
+                return {"success": False, "error": "project_id is required."}
+            if confirm_action is None and not (message or "").strip() and not confirm_render:
+                return {"success": False, "error": "message is empty."}
+            sess = ChatSession.get(project_id, session_id or "default")
+            # Claim synchronously: two rapid sends must not both pass the
+            # running check before either worker thread starts.
+            with ChatSession._lock:
+                if sess.running or getattr(sess, "_claimed", False):
+                    return {"success": False, "error": "A turn is already running — wait or stop it first."}
+                sess._claimed = True
+
+            def _push(evt: dict):
+                try:
+                    evt = dict(evt or {})
+                    evt.setdefault("project_id", project_id)
+                    evt.setdefault("session_id", sess.session_id)
+                    ui_queue.put(("onChatEvent", (evt,)))
+                except Exception:
+                    pass
+
+            def _worker():
+                try:
+                    # Single lifecycle owner: ChatSession.ask / _resolve_pending
+                    # emit exactly one started/done pair per turn via on_event.
+                    # Bridge-level pushes here previously duplicated them,
+                    # causing double purge + double refresh flicker downstream.
+                    sess.ask((message or "").strip() or
+                             ("Approved — render with confirm_render=true." if confirm_render else ""),
+                             confirm_render=bool(confirm_render),
+                             confirm_action=None if confirm_action is None else bool(confirm_action),
+                             on_event=_push)
+                except Exception as e:
+                    logger.error(f"chat turn failed: {e}", exc_info=True)
+                    try:
+                        sess.report_error(f"Agent stopped: {e}", on_event=_push)
+                    except Exception:
+                        _push({"type": "error", "kind": "error", "error": str(e), "text": str(e)})
+                finally:
+                    sess._claimed = False
+
+            threading.Thread(target=_worker, daemon=True,
+                             name=f"chat-{project_id[:8]}").start()
+            return {"success": True, "session_id": sess.session_id}
+        except Exception as e:
+            logger.error(f"chat_send failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def chat_history(self, project_id: str, session_id: str = "default") -> dict:
+        try:
+            from backend.agent.chat_session import ChatSession
+            return {"success": True, **ChatSession.get(project_id, session_id or "default").to_dict()}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def chat_cancel(self, project_id: str, session_id: str = "default") -> dict:
+        try:
+            from backend.agent.chat_session import ChatSession
+            sess = ChatSession.get(project_id, session_id or "default")
+            sess.cancel_event.set()
+            try:
+                from backend.pipeline.queue import global_queue_manager
+                global_queue_manager.cancel_project(project_id)
+            except Exception:
+                pass
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def chat_clear(self, project_id: str, session_id: str = "default") -> dict:
+        try:
+            from backend.agent.chat_session import ChatSession
+            ChatSession.get(project_id, session_id or "default").clear()
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def get_prefs(self):
         from backend.core.prefs import load_prefs
         return load_prefs()
@@ -1083,6 +1170,11 @@ class ApiBridge:
                 except Exception as e:
                     logger.warning(f"Could not remove project folder from disk: {e}")
         delete_project(project_id)
+        try:
+            from backend.mcp.server import _notify_ui_project_event
+            _notify_ui_project_event("projects_changed", project_id, action="deleted")
+        except Exception:
+            pass
         return True
 
     def db_get_project_tasks(self, project_id: str) -> list:
@@ -1098,6 +1190,11 @@ class ApiBridge:
     def create_new_project(self, name: str, style_hint: str, export_folder: str, language: str = "hi", style: str = "nitish_rajput", duration_mode: str = "medium", video_format: str = "landscape") -> dict:
         try:
             project_id = create_project(name, style_hint, export_folder, language, style, duration_mode, video_format)
+            try:
+                from backend.mcp.server import _notify_ui_project_event
+                _notify_ui_project_event("projects_changed", project_id, action="created")
+            except Exception:
+                pass
             return {"project_id": project_id, "success": True}
         except Exception as e:
             logger.error(f"Error creating project: {e}")

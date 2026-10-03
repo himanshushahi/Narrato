@@ -3,58 +3,11 @@ import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import {
-  VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscFlame, VscClose,
-  VscTerminal, VscBook, VscFile, VscSparkle, VscGlobe, VscTrash,
-  VscChevronDown, VscChevronRight
+  VscPlay, VscPulse, VscCheck, VscError, VscLoading, VscFlame, VscClose
 } from 'react-icons/vsc';
 import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
 import { Task, useProjectStore } from '../../../store/useProjectStore';
-import { useUIStore, AgentActivity } from '../../../store/useUIStore';
-
-const AGENT_KIND_META: Record<AgentActivity['kind'], { label: string; icon: React.ReactNode; cls: string }> = {
-  tool: { label: 'Tool', icon: <VscTerminal />, cls: 'text-violet-400 bg-violet-500/10 border-violet-500/25' },
-  skill: { label: 'Skill', icon: <VscBook />, cls: 'text-amber-400 bg-amber-500/10 border-amber-500/25' },
-  file: { label: 'File', icon: <VscFile />, cls: 'text-sky-400 bg-sky-500/10 border-sky-500/25' },
-  llm: { label: 'LLM', icon: <VscSparkle />, cls: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/25' },
-  web: { label: 'Web', icon: <VscGlobe />, cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25' },
-};
-
-const AGENT_STATUS_CLS: Record<AgentActivity['status'], string> = {
-  running: 'bg-blue-500 animate-pulse',
-  ok: 'bg-emerald-500',
-  error: 'bg-red-500',
-  skipped: 'bg-zinc-500',
-};
-
-type ActivityFilter = 'all' | 'tools' | 'skills' | 'llms' | 'filesweb';
-
-const ACTIVITY_FILTERS: { id: ActivityFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'tools', label: 'Tools' },
-  { id: 'skills', label: 'Skills' },
-  { id: 'llms', label: 'LLMs' },
-  { id: 'filesweb', label: 'Files/Web' },
-];
-
-const activityFilterOf = (kind: AgentActivity['kind']): Exclude<ActivityFilter, 'all'> =>
-  kind === 'tool' ? 'tools' : kind === 'skill' ? 'skills' : kind === 'llm' ? 'llms' : 'filesweb';
-
-const AGENT_STATUS_LABEL: Record<AgentActivity['status'], string> = {
-  running: 'running',
-  ok: 'success',
-  error: 'error',
-  skipped: 'skipped',
-};
-
-const fmtDetail = (value: any): string =>
-  typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-
-const fmtRelative = (ts: number): string => {
-  const diff = Math.max(0, Math.floor((Date.now() / 1000) - ts));
-  if (diff < 60) return `${diff}s ago`;
-  const mins = Math.floor(diff / 60);
-  return `${mins}m ago`;
-};
+import { AgentChat } from '../components/AgentChat';
 
 interface ExportTabProps {
   tasks: Record<string, Task>;
@@ -73,39 +26,17 @@ interface ExportTabProps {
 
 const ExportTabInner: React.FC<ExportTabProps> = ({
   tasks, isRunning, targetStage, activeTaskStep,
-  hasScriptData,
+  hasScriptData, projectId,
   onSetTargetStage, onTriggerFullPipeline, onResumePipeline, onResumeFromStage, onCancelPipeline
 }) => {
   const [confirmStageId, setConfirmStageId] = useState<string | null>(null);
+  const [view, setView] = useState<'pipeline' | 'chat'>('pipeline');
   const [showPreview, setShowPreview] = useState(false);
   const [previewKey, setPreviewKey] = useState<number>(0);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
-  const [activityOpen, setActivityOpen] = useState(true);
-  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   // Fix 4: granular selector — previously subscribed to entire project store
   // (tasks/queue/activeTask) so every render-progress % re-rendered the tab.
   const selectedProject = useProjectStore((s) => s.selectedProject);
-  const agentActivity = useUIStore((s) => s.agentActivity);
-  const clearAgentActivity = useUIStore((s) => s.clearAgentActivity);
-  const activityCount = agentActivity.length;
-  const runningActivityCount = useMemo(
-    () => agentActivity.reduce((n, a) => n + (a.status === 'running' ? 1 : 0), 0),
-    [agentActivity]
-  );
-
-  const activityCounts = useMemo(() => {
-    const counts: Record<Exclude<ActivityFilter, 'all'>, number> = { tools: 0, skills: 0, llms: 0, filesweb: 0 };
-    for (const entry of agentActivity) {
-      counts[activityFilterOf(entry.kind)] += 1;
-    }
-    return counts;
-  }, [agentActivity]);
-
-  const filteredActivity = useMemo(() => {
-    if (activityFilter === 'all') return agentActivity;
-    return agentActivity.filter((entry) => activityFilterOf(entry.kind) === activityFilter);
-  }, [agentActivity, activityFilter]);
 
   const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.currentTarget;
@@ -270,10 +201,26 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4">
-        {/* Production Pipeline */}
+    <div className="flex flex-col h-full min-h-0">
+      <div className={`flex-1 overflow-x-hidden ${view === 'chat' ? 'overflow-hidden flex flex-col min-h-0 p-3 space-y-2.5' : 'overflow-y-auto p-4 space-y-4'}`}>
+        {/* Pipeline / Chat switcher */}
+        <div className="flex gap-1 bg-zinc-900/60 p-1 rounded-lg border border-zinc-800 shrink-0">
+          {(['pipeline', 'chat'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`flex-1 text-[9px] py-1.5 font-bold uppercase tracking-wider rounded transition-all cursor-pointer ${view === v ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}
+            >
+              {v === 'pipeline' ? 'Production Pipeline' : 'Agent Chat'}
+            </button>
+          ))}
+        </div>
+
+        {view === 'chat' ? (
+          <AgentChat projectId={projectId} pipelineRunning={isRunning} />
+        ) : (
         <div className="glass-panel rounded-xl p-4 space-y-3">
+          {/* Production Pipeline header */}
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Production Pipeline</h3>
@@ -369,152 +316,10 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
             )}
           </div>
         </div>
+        )}
 
-        {/* AI Agent Activity */}
-        <div className="glass-panel rounded-xl p-3 space-y-2">
-          <div className="flex items-center justify-between cursor-pointer" onClick={() => setActivityOpen(!activityOpen)}>
-            <div className="flex items-center gap-1.5">
-              {activityOpen ? <VscChevronDown className="text-zinc-500 text-[9px]" /> : <VscChevronRight className="text-zinc-500 text-[9px]" />}
-              <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">AI Agent Activity</h3>
-              {runningActivityCount > 0 && (
-                <span className="text-[8px] bg-blue-600/15 text-blue-400 px-1.5 py-0.5 rounded border border-blue-600/20 font-bold uppercase flex items-center gap-1 animate-pulse">
-                  <VscPulse className="animate-spin text-[9px]" /> {runningActivityCount} active
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[8px] text-zinc-600 font-mono">{activityCount} events</span>
-              {activityCount > 0 && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); clearAgentActivity(); }}
-                  title="Clear activity feed"
-                  className="text-zinc-600 hover:text-red-400 transition-colors cursor-pointer p-0.5"
-                >
-                  <VscTrash className="text-[10px]" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <p className="text-[8px] text-zinc-600 -mt-1">Live view of the tools, skills, files and LLM calls the AI agent uses.</p>
-
-          {activityOpen && (
-            <>
-              <div className="flex gap-1">
-                {ACTIVITY_FILTERS.map((f) => {
-                  const count = f.id === 'all' ? agentActivity.length : activityCounts[f.id];
-                  const isActive = activityFilter === f.id;
-                  return (
-                    <button
-                      key={f.id}
-                      onClick={() => {
-                        setActivityFilter(f.id);
-                        setExpandedId(null);
-                      }}
-                      className={`flex-1 text-[8px] py-1 px-0.5 rounded border font-bold uppercase tracking-wider transition-colors cursor-pointer ${isActive ? 'bg-zinc-700/70 text-white border-zinc-500' : 'text-zinc-500 border-zinc-800 hover:bg-zinc-800/50 hover:text-zinc-300'
-                        }`}
-                    >
-                      {f.label} <span className="font-mono opacity-70">{count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                {filteredActivity.length === 0 ? (
-                  <p className="text-[9px] text-zinc-600 text-center py-3">
-                    {agentActivity.length === 0
-                      ? 'No agent activity yet — run a pipeline step to see the AI work live.'
-                      : 'No activity in this category yet.'}
-                  </p>
-                ) : (
-                  filteredActivity.map((entry) => {
-                    const kindMeta = AGENT_KIND_META[entry.kind] || AGENT_KIND_META.tool;
-                    const isExpanded = expandedId === entry.id;
-                    return (
-                      <div
-                        key={entry.id}
-                        onClick={() => setExpandedId(isExpanded ? null : entry.id)}
-                        className={`flex flex-col gap-1.5 border rounded-lg px-2 py-1.5 transition-colors cursor-pointer ${isExpanded ? 'bg-zinc-900/70 border-violet-500/25' : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
-                          }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className={`shrink-0 w-5 h-5 rounded flex items-center justify-center border text-[9px] ${kindMeta.cls}`}>
-                            {kindMeta.icon}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[9px] font-bold text-zinc-300 truncate">{entry.name}</span>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <span className={`w-1.5 h-1.5 rounded-full ${AGENT_STATUS_CLS[entry.status] || 'bg-zinc-500'}`} />
-                                <span className="text-[8px] text-zinc-600 font-mono">{fmtRelative(entry.ts)}</span>
-                              </div>
-                            </div>
-                            {!isExpanded && entry.detail && (
-                              <p className="text-[8px] text-zinc-500 font-mono truncate mt-0.5">{entry.detail}</p>
-                            )}
-                          </div>
-                          {isExpanded ? (
-                            <VscChevronDown className="text-[9px] text-zinc-500 shrink-0" />
-                          ) : (
-                            <VscChevronRight className="text-[9px] text-zinc-600 shrink-0" />
-                          )}
-                        </div>
-
-                        {isExpanded && (
-                          <div className="space-y-1.5 border-t border-zinc-800 pt-1.5">
-                            {entry.detail && (
-                              <p className="text-[8px] text-zinc-400 font-mono whitespace-pre-wrap break-words leading-relaxed">{entry.detail}</p>
-                            )}
-
-                            {entry.kind === 'tool' && entry.args !== undefined && (
-                              <div>
-                                <p className="text-[7px] font-bold uppercase tracking-wider text-violet-400/80 mb-0.5">Input Arguments</p>
-                                <pre className="text-[8px] font-mono text-zinc-400 bg-zinc-950/70 border border-zinc-800 rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-words">
-                                  {fmtDetail(entry.args)}
-                                </pre>
-                              </div>
-                            )}
-
-                            {entry.kind === 'tool' && entry.result !== undefined && (
-                              <div>
-                                <p className="text-[7px] font-bold uppercase tracking-wider text-emerald-400/80 mb-0.5">Return Output</p>
-                                <pre className="text-[8px] font-mono text-zinc-400 bg-zinc-950/70 border border-zinc-800 rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-words max-h-32">
-                                  {fmtDetail(entry.result)}
-                                </pre>
-                              </div>
-                            )}
-
-                            {entry.kind === 'skill' && (
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-amber-500/25 bg-amber-500/10 text-amber-400">
-                                  v{entry.args?.version ?? '?'}
-                                </span>
-                                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-zinc-700 bg-zinc-900 text-zinc-400">
-                                  {entry.args?.scope === 'tool' ? 'Agent Tool Call' : 'System Prompt Preload'}
-                                </span>
-                              </div>
-                            )}
-
-                            <div className="flex items-center justify-between">
-                              <span className={`text-[8px] font-bold uppercase tracking-wider ${entry.status === 'running' ? 'text-blue-400' : entry.status === 'ok' ? 'text-emerald-400' : entry.status === 'error' ? 'text-red-400' : 'text-zinc-500'
-                                }`}>
-                                {AGENT_STATUS_LABEL[entry.status]}
-                              </span>
-                              <span className="text-[8px] text-zinc-600 font-mono">{kindMeta.label} · {fmtRelative(entry.ts)}</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </>
-          )}
-        </div>
       </div>
-      
+
       {showPreview && videoUrl && createPortal(
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div

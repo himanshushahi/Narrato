@@ -218,6 +218,11 @@ class QueueManager:
                 self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelled', 'pending')
 
         self._broadcast_queue_status()
+        try:
+            from backend.mcp.server import _notify_ui_project_event
+            _notify_ui_project_event("project_updated", project_id, files_changed=False)
+        except Exception:
+            pass
         logger.info(f"Project {project_id} cancel requested.")
 
     def get_queue_status(self):
@@ -289,6 +294,11 @@ class QueueManager:
                         
                         update_task(task_id, status='completed', progress=100.0, message='Step completed.')
                         self._broadcast_task_progress(project_id, step, 100.0, 'Step completed.', 'completed')
+                        try:
+                            from backend.mcp.server import _notify_ui_project_event
+                            _notify_ui_project_event("project_updated", project_id, files_changed=True)
+                        except Exception:
+                            pass
                     except InterruptedError:
                         logger.warning(f"Step {step} interrupted/cancelled.")
                         update_task(task_id, status='failed', progress=0.0, error_message='Step cancelled by user.', message='Cancelled')
@@ -315,12 +325,22 @@ class QueueManager:
                 if success:
                     logger.info(f"Pipeline completed successfully for project: {project_id}")
                     update_project(project_id, status='completed')
+                    try:
+                        from backend.mcp.server import _notify_ui_project_event
+                        _notify_ui_project_event("project_updated", project_id, files_changed=True)
+                    except Exception:
+                        pass
                 else:
                     logger.warning(f"Pipeline failed or was cancelled for project: {project_id}")
                     # Don't overwrite if it was already marked cancelled
                     proj = get_project(project_id)
                     if proj and proj['status'] != 'cancelled':
                         update_project(project_id, status='failed')
+                        try:
+                            from backend.mcp.server import _notify_ui_project_event
+                            _notify_ui_project_event("project_updated", project_id, files_changed=False)
+                        except Exception:
+                            pass
             finally:
                 power_manager.release()
 

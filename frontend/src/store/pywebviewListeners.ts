@@ -75,12 +75,103 @@ export const initializePywebviewListeners = async () => {
           error_message
         } as Task;
 
-        if (step === "render" && status === "completed") {
+        if (status === "completed") {
           setTimeout(() => projectStore.fetchProjectDetail(project_id), 100);
         }
 
         return { tasks: updatedTasks };
       });
+    }
+  };
+
+  // Live agent updates: the MCP server thread and the in-app chat agent
+  // both mutate projects through backend/mcp/server.py, which pushes one
+  // of these per successful mutation (save_*, create/delete, stage
+  // start/progress/completion). UI-initiated actions already refetch
+  // explicitly, so this handler only needs the agent-driven side.
+  //
+  // Store refetches are coalesced: a burst of agent saves (script + design
+  // + visuals batch) settles into one list + one detail pull per 500ms
+  // quiet window instead of a fetch storm.
+  let projectEventTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingListFetch = false;
+  const pendingDetailIds = new Set<string>();
+  const pendingTickIds = new Set<string>();
+  let lastDetailFetchAt = 0;
+  const pendingDeletedIds = new Set<string>();
+  const flushProjectEvents = () => {
+    projectEventTimer = null;
+    const projectStore = useProjectStore.getState();
+    if (pendingListFetch) {
+      pendingListFetch = false;
+      projectStore.fetchProjects();
+    }
+    const hashMatch = window.location.hash.match(/#\/editor\/([^/?#]+)/);
+    const routeProjectId = hashMatch ? decodeURIComponent(hashMatch[1]) : null;
+    const currentOpenId = projectStore.selectedProject?.id || routeProjectId;
+    if (currentOpenId && pendingDeletedIds.has(currentOpenId)) {
+      // The open project is gone — leave /editor/:id (a HashRouter route)
+      // for the dashboard instead of showing a ghost editor.
+      useProjectStore.setState({ selectedProject: null, tasks: {} });
+      useUIStore.getState().addToast('This project was deleted.', 'warning');
+      window.location.hash = '#/';
+    }
+    pendingDeletedIds.clear();
+    const openId = projectStore.selectedProject?.id || routeProjectId;
+    if (openId) {
+      if (pendingDetailIds.has(openId)) {
+        lastDetailFetchAt = Date.now();
+        projectStore.fetchProjectDetail(openId);
+      } else if (pendingTickIds.has(openId) && Date.now() - lastDetailFetchAt > 10000) {
+        // Mid-stage progress tick: no status transition, no file change —
+        // a 10s-throttled detail pull keeps bars moving without churning
+        // the store on every tick.
+        lastDetailFetchAt = Date.now();
+        projectStore.fetchProjectDetail(openId);
+      }
+    }
+    pendingDetailIds.clear();
+    pendingTickIds.clear();
+  };
+  const scheduleProjectFlush = () => {
+    if (projectEventTimer) clearTimeout(projectEventTimer);
+    projectEventTimer = setTimeout(flushProjectEvents, 500);
+  };
+
+  window.onProjectEvent = (evt: any) => {
+    if (!evt || typeof evt !== 'object') return;
+
+    if (evt.type === 'projects_changed') {
+      // Create or delete: the dashboard list is stale.
+      pendingListFetch = true;
+      if (evt.action === 'deleted' && evt.project_id) {
+        pendingDeletedIds.add(evt.project_id);
+      }
+      scheduleProjectFlush();
+      return;
+    }
+
+    if (evt.type === 'project_updated' && evt.project_id) {
+      if (evt.progress_tick) {
+        // Throttled mid-stage tick: no list refetch, no file reload —
+        // the flush downgrades it to a 10s-throttled detail pull.
+        pendingTickIds.add(evt.project_id);
+        scheduleProjectFlush();
+        return;
+      }
+      // Row + detail/tasks refresh (status chips, ExportTab task list).
+      pendingListFetch = true;
+      pendingDetailIds.add(evt.project_id);
+      scheduleProjectFlush();
+      // Status-only ticks (stage start/progress) carry no file changes —
+      // skip the file reload; only real content mutations re-read files.
+      if (evt.files_changed === false) return;
+      // File contents (script/design/manifest/transcript) live in
+      // useEditorData, not the store — the open editor reloads them
+      // (dirty-guarded + debounced there).
+      window.dispatchEvent(new CustomEvent('narrato:project-files-changed', {
+        detail: { project_id: evt.project_id },
+      }));
     }
   };
 

@@ -1557,7 +1557,7 @@ def _fetch_ast_layer_asset(layer, assets_dir, seg_idx, sub_idx, layer_idx, api_k
             except OSError:
                 pass
         else:
-            logger.info(f"Asset already exists for layer [{seg_idx}:{sub_idx}:{layer_idx}] '{existing_path}', skipping download.")
+            logger.debug(f"Asset already exists for layer [{seg_idx}:{sub_idx}:{layer_idx}] '{existing_path}', skipping download.")
             return layer
 
     # Deterministic resume: re-download the exact URL this layer used before

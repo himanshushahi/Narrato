@@ -14,10 +14,13 @@ with the app via WAL. Do NOT run a stage here for a project that the
 desktop app is simultaneously processing.
 """
 
+import functools
+import inspect
 import json
 import os
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -119,6 +122,147 @@ This is APPEND-ONLY to LEARNINGS.md -- it never modifies SKILL.md. A human revie
 """
 
 mcp = MCPServer("narrato", instructions=NARRATO_SERVER_INSTRUCTIONS)
+
+
+# ── UI live-update push (desktop app, same process) ───────────────────
+# The desktop UI pulls project state (dashboard list, open-project detail).
+# Agent mutations would otherwise stay invisible until the user manually
+# revisits the page. Both agents funnel through the S.* functions below for
+# content mutations (the MCP HTTP server runs as an app thread; the in-app
+# chat agent calls the same functions in-process), so wrapping each mutating
+# tool with @_emit_project_event refreshes the UI live via
+# window.onProjectEvent. Stage execution differs by agent — chat run_stage
+# goes through global_queue_manager (whose queue_update events already drive
+# the UI), MCP run_stage uses _run_stage_inner below, which notifies on
+# start / terminal states (+ throttled mid-run progress) for the same reason.
+def _notify_ui_project_event(event_type: str, project_id: str | None = None,
+                             action: str | None = None,
+                             files_changed: bool = True,
+                             progress_tick: bool = False) -> None:
+    """Best-effort push of a project event to the desktop UI.
+
+    files_changed=False marks status-only ticks (stage start/progress):
+    the UI refetches row + task status but skips re-reading script/design/
+    manifest files, which don't change mid-stage. progress_tick=True marks
+    the throttled mid-run ticks specifically: the UI further downgrades
+    those to a 10s-throttled detail pull with no list refetch (stage start
+    and completion carry the transitions that matter). Never raises.
+    Same-process only: in a detached stdio MCP process there is no webview
+    loop draining the queue (the dashboard refetches on window focus as a
+    catch-all there).
+    """
+    try:
+        evt: dict = {"type": event_type, "files_changed": files_changed}
+        if project_id:
+            evt["project_id"] = project_id
+        if action:
+            evt["action"] = action
+        if progress_tick:
+            evt["progress_tick"] = True
+        from backend.core.bridge import ui_queue
+        ui_queue.put(("onProjectEvent", (evt,)))
+    except Exception:
+        pass
+
+
+def _emit_project_event(event_type: str, action: str | None = None,
+                        pid_from_result: bool = False,
+                        files_changed: bool = True):
+    """Wrap a mutating MCP tool: on {"ok": truthy} results push a UI event.
+
+    - pid_from_result: create_project returns the new id in the result dict.
+    - dry_run calls validate only — never notify (bound via signature, so
+      positional dry_run=True is honoured too).
+    - Rejections/failures (ok falsy) never notify.
+    Notification is best-effort and never breaks the tool result.
+    Applied UNDER @mcp.tool() so FastMCP still sees the original signature
+    (functools.wraps preserves __wrapped__; see tests/test_project_events.py,
+    which pins this). Sync tools only — an async tool would return an
+    un-awaited coroutine instead of a dict, so fail fast at import.
+    """
+    def decorator(fn):
+        assert not inspect.iscoroutinefunction(fn), \
+            f"_emit_project_event wraps sync tools only: {fn.__name__}"
+        sig = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            result = fn(*args, **kwargs)
+            try:
+                if not (isinstance(result, dict) and result.get("ok")):
+                    return result
+                try:
+                    bound = sig.bind_partial(*args, **kwargs)
+                except TypeError:
+                    bound = None
+                if bound is not None and bound.arguments.get("dry_run"):
+                    return result
+                pid = None
+                if pid_from_result:
+                    pid = result.get("project_id")
+                else:
+                    pid = kwargs.get("project_id")
+                    if pid is None and args and isinstance(args[0], str):
+                        pid = args[0]
+                    if pid is None and isinstance(result, dict) and result.get("project_id"):
+                        pid = result.get("project_id")
+                if isinstance(pid, str) and pid:
+                    _notify_ui_project_event(event_type, pid, action,
+                                             files_changed=files_changed)
+                elif event_type == "projects_changed":
+                    _notify_ui_project_event(event_type, None, action,
+                                             files_changed=files_changed)
+            except Exception:
+                pass
+            return result
+        return wrapper
+    return decorator
+
+
+def _refuse_if_stage_running(fn):
+    """Refuse mutating MCP tools while one of the project's stages runs.
+
+    A wait=false polling loop must not wander into side quests: saves,
+    clears and settings changes are locked until the stage settles, while
+    read-only tools, sleep, stage_status and cancel_stage pass through.
+    dry_run validations write nothing and also pass. Defined up here (before
+    first use) because decorators apply at import time; _STAGE_LOCK and
+    _project_active_stage resolve at call time. Applied UNDER @mcp.tool()
+    (beside @_emit_project_event, which skips notification for falsy-ok
+    refusals automatically).
+    """
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            bound = sig.bind_partial(*args, **kwargs)
+            pid = bound.arguments.get("project_id", "")
+            dry = bound.arguments.get("dry_run", False)
+        except Exception:
+            return fn(*args, **kwargs)
+        # Lenient truthy: LLMs send true/"true"/1/"1" interchangeably, and a
+        # validation-only dry_run writes nothing, so it must never be refused.
+        if dry is True or dry == 1 or (isinstance(dry, str) and dry.strip().lower() in ("true", "1", "yes")):
+            return fn(*args, **kwargs)
+        if pid:
+            with _STAGE_LOCK:
+                active = _project_active_stage(pid)
+            if active is not None:
+                # Task ids are f"{project_id}_{stage}" — strip the known
+                # prefix instead of splitting on "_" (project ids may
+                # contain underscores themselves).
+                if pid and active.startswith(pid + "_"):
+                    stage = active[len(pid) + 1:]
+                else:
+                    stage = active.rsplit("_", 1)[-1] if "_" in active else active
+                return {"ok": False, "awaiting_stage": stage,
+                        "error": (f"Project {pid!r} has a running MCP stage ({stage}); "
+                                  "sleep, then stage_status until it completes. "
+                                  "Mutating tools are locked meanwhile; read-only probes are fine.")}
+        return fn(*args, **kwargs)
+
+    return wrapper
 
 
 # ── Skill-read gate (mandatory grounding + easy bundle) ──────────────
@@ -317,6 +461,7 @@ DurationModeType = Literal["short", "medium", "long", "extra_long"]
 
 
 @mcp.tool()
+@_emit_project_event("projects_changed", action="created", pid_from_result=True)
 def create_project(
     name: Annotated[
         str,
@@ -1125,6 +1270,8 @@ def _visuals_storyboard_pack(ctx: dict, project_id: str) -> dict:
 
 
 @mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
 def save_script(project_id: str, script: dict, force: bool = False) -> dict:
     """Validate and persist a complete video script.
 
@@ -1175,6 +1322,8 @@ def get_script(project_id: str, include_visuals: bool = False) -> dict:
 # ── Design system (agent-authored, server-validated) ──────────────────
 
 @mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
 def save_design(project_id: str, design: dict) -> dict:
     """Validate and persist the global design system
     ({theme_name, color_palette, typography, css_guidelines, fonts?}).
@@ -1208,6 +1357,16 @@ _STAGE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mcp-stage")
 _STAGE_FUTURES = {}
 _STAGE_CANCEL = {}
 _STAGE_LOCK = threading.Lock()
+
+# Suggested first nap per stage for a wait=false → sleep → stage_status loop.
+# Conservative on purpose: MCP-over-HTTP clients often time out tools around
+# ~60s, and sleep() is uninterruptible server-side (unlike the chat twin,
+# which wakes for Stop). chat_tools keeps a larger in-app table for the same
+# stages — same intent, different transport constraints.
+STAGE_SLEEP_SUGGESTIONS = {
+    "generate_voiceover": 60, "transcribe": 60,
+    "render": 60, "fetch_assets": 30,
+}
 
 
 def _project_active_stage(project_id: str) -> str | None:
@@ -1311,11 +1470,29 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
             _db.update_task(task_id, progress=float(pct), message=msg or "")
         except Exception:
             pass
+        # Live UI: task rows only reach the open project via refetch — push
+        # a throttled status-only tick so status/progress bars move without
+        # spamming the bridge (each event costs the UI two local DB reads)
+        # and without re-reading files, which don't change mid-stage.
+        try:
+            now = time.monotonic()
+            if now - _progress._last_notify >= 5.0:
+                _progress._last_notify = now
+                _notify_ui_project_event("project_updated", project_id,
+                                         files_changed=False,
+                                         progress_tick=True)
+        except Exception:
+            pass
 
     try:
         _db.create_task(project_id, stage)
         _db.update_task(task_id, status="running", progress=0.0, message="Starting (MCP)...")
         _db.update_project(project_id, status="processing")
+        _notify_ui_project_event("project_updated", project_id,
+                                 files_changed=False)
+        # Seed the throttle from the start tick so the first _progress
+        # callback doesn't fire a back-to-back duplicate event.
+        _progress._last_notify = time.monotonic()
     except Exception as e:
         # Bookkeeping itself failed (DB locked/gone): fail loudly instead
         # of running a stage no task row tracks — otherwise wait=false
@@ -1332,6 +1509,7 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
                         error_message="Stage cancelled via MCP.",
                         message="Cancelled")
         _db.update_project(project_id, status="cancelled")
+        _notify_ui_project_event("project_updated", project_id)
         return {"ok": False, "error": "Stage cancelled.", "stage": stage,
                 "cancelled": True}
     except Exception as e:
@@ -1339,9 +1517,11 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
         _db.update_task(task_id, status="failed", error_message=str(e),
                         message=f"Failed: {str(e)[:80]}")
         _db.update_project(project_id, status="failed")
+        _notify_ui_project_event("project_updated", project_id)
         return {"ok": False, "error": str(e), "stage": stage}
     _db.update_task(task_id, status="completed", progress=100.0, message="Step completed (MCP).")
     _maybe_complete_project(project_id)
+    _notify_ui_project_event("project_updated", project_id)
     result: dict = {"ok": True, "project_id": project_id, "stage": stage}
     if stage == "render":
         fresh = _db.get_project(project_id) or {}
@@ -1411,9 +1591,12 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
                         _STAGE_FUTURES.pop(_task_id, None)
             future.add_done_callback(_forget_done)
             _STAGE_FUTURES[task_id] = future
+            sleep_nap = STAGE_SLEEP_SUGGESTIONS.get(stage, 60)
             return {"ok": True, "accepted": True, "task_id": task_id,
                     "status": "submitted",
-                    "hint": "Poll stage_status until status is completed/failed."}
+                    "hint": (f"Poll stage_status until status is completed/failed. This stage takes a while — "
+                             f"call sleep({sleep_nap}) first, then stage_status, and repeat. "
+                             "Run no other mutating tool while it is running.")}
         # wait=true executes inline but still registers, so a concurrent
         # wait=false submission sees it and vice versa.
         _executing_marker = object()
@@ -1454,6 +1637,31 @@ def stage_status(project_id: str, stage: str) -> dict:
 
 
 @mcp.tool()
+def sleep(seconds: int = 60) -> dict:
+    """Pause for a bounded time (max 120s per call), then continue.
+
+    Use while a wait=false stage finishes: sleep, then stage_status, repeat
+    until completed/failed. The slow three (generate_voiceover, transcribe,
+    render) take minutes — sleep ~60s between polls (~30s for fetch_assets),
+    staying under HTTP tool timeouts. Run no other mutating tool while the
+    stage is running (they are locked until it settles); read-only probes
+    are fine.
+    """
+    try:
+        # OverflowError covers inf/1e999 (int(inf) raises); ValueError covers NaN.
+        secs = int(float(str(seconds).strip() or 60))
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        secs = 60
+    # Keep in sync with chat_tools.SLEEP_MAX_SECONDS (one bound, two transports).
+    secs = max(1, min(120, secs))
+    time.sleep(secs)
+    return {"ok": True, "slept_seconds": secs,
+            "hint": "Time is up — now call stage_status for the running stage. "
+                    "Do not start other work while its status is queued/running."}
+
+
+@mcp.tool()
+@_emit_project_event("project_updated")
 def cancel_stage(project_id: str, stage: str) -> dict:
     """Signal a running MCP-submitted stage to stop at the next safe
     checkpoint. The worker marks the task cancelled; poll stage_status
@@ -1481,6 +1689,8 @@ def cancel_stage(project_id: str, stage: str) -> dict:
 # ── Project settings, deletion, research & inspection ────────────────
 
 @mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
 def update_voice_settings(project_id: str, settings: dict) -> dict:
     """Change voice/audio columns (tts_engine, tts_voice, tts_speed,
     tts_pitch, bg_music_volume). Voiceover/transcribe/render reset to
@@ -1497,6 +1707,8 @@ def update_voice_settings(project_id: str, settings: dict) -> dict:
 
 
 @mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
 def update_transcribe_settings(project_id: str, settings: dict) -> dict:
     """Change transcription columns (whisper_model, whisper_device).
     Transcribe + render reset to pending (new timings); voiceover/assets
@@ -1512,6 +1724,7 @@ def update_transcribe_settings(project_id: str, settings: dict) -> dict:
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+@_emit_project_event("projects_changed", action="deleted")
 def delete_project(project_id: str) -> dict:
     """Permanently delete a project: DB row + tasks + its storage folder.
     Cannot be undone. Refused while an MCP stage is running on the project
@@ -1669,7 +1882,9 @@ already explicitly specified in the user's request):
       returns outline_targets (authoritative) — match them. save_script rejects under/over-scened
       or thin-narration scripts with SCRIPT_PACING_ERROR.
 3. update_voice_settings (only if user chose non-default voice)
-4. run_stage(generate_voiceover, wait=false) → stage_status until completed
+4. run_stage(generate_voiceover, wait=false) → sleep(60) → stage_status, repeat
+   until completed. While it runs, call NOTHING mutating (server locks
+   saves/clears/settings until it settles); read-only probes are fine.
 5. run_stage(transcribe, wait=true is fine) → word timings ready.
    If it fails with "model ... is not downloaded", use
    update_transcribe_settings (whisper_model must be downloaded) and retry.
@@ -1735,7 +1950,8 @@ already explicitly specified in the user's request):
     clear_assets=false). clear_assets deletes ONLY downloads (cuts/queries kept,
     so fetch_assets re-downloads without re-authoring). Both reset fetch_assets
     + render to pending. Never hand-edit script.json/manifests to clear — use these.
-11. run_stage(fetch_assets, wait=false) → stage_status until completed.
+11. run_stage(fetch_assets, wait=false) → sleep(30) → stage_status, repeat
+    until completed (same waiting rule as step 4).
     Fetch AFTER all sections are saved so every query resolves to a
     downloaded local_path. Composition review without this step shows
     placeholders, not final visuals.
@@ -1753,7 +1969,7 @@ already explicitly specified in the user's request):
 13. STOP. Do not render. Summarize the build (title, scene count, voice,
     design, review_frame highlights) and ask the user to review/edit in
     the app. Only after explicit approval: run_stage(render,
-    confirm_render=true) → stage_status → video_path.
+    confirm_render=true, wait=false) → sleep(60) → stage_status → video_path.
     (review_frame on the mp4 for the final check)
 
 ## Gotchas
@@ -1767,8 +1983,12 @@ already explicitly specified in the user's request):
   (the server normalizes, but gross mismatches mean mistimed visuals).
 - Opacity fade: pair entrances with opacity fade whenever delay > 0 so elements stay hidden until they enter; spatial-only allowed at delay: 0.
 - generate_visuals is NOT an MCP stage — YOU author visuals via save_visuals.
-- run_stage(wait=true) blocks; over HTTP always use wait=false + stage_status
-  for voiceover/fetch_assets/render (minutes long).
+- run_stage(wait=true) blocks; over HTTP always use wait=false + sleep +
+  stage_status for voiceover/transcribe/render (minutes long: sleep ~60s
+  between polls, ~30s for fetch_assets — sleeps must stay comfortably under
+  HTTP tool timeouts). Never run another mutating tool
+  while a stage is queued/running — the server refuses them with
+  awaiting_stage; sleep, then poll, until it completes.
 - UI vs API Numbering: The UI is 1-based (Scene 1, Scene 2; Cut #1, Cut #2).
   In MCP tools (`get_visuals`, `save_visuals`, `probe_cut`, `probe_scene`, `probe_asset`, `review_frame`, `get_transcription`),
   you can pass 1-based `scene_number` and `cut_number` directly (e.g. `scene_number=1, cut_number=2`).
@@ -2012,6 +2232,8 @@ def probe_asset(project_id: str, section_type: str, scene_index: int | None = No
 
 
 @mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
 def save_visuals(project_id: str, section_type: str, sub_visuals: list,
                  scene_index: int | None = None, cut_index: int | None = None,
                  dry_run: bool = False, auto_migrate: bool = False,
@@ -2127,6 +2349,8 @@ def _release_project_marker(task_id: str | None, marker) -> None:
 
 
 @mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
 def save_visuals_batch(project_id: str, sections: list,
                        dry_run: bool = False) -> dict:
     """Validate/persist sub_visuals for MANY sections in ONE call.
@@ -2174,6 +2398,8 @@ def save_visuals_batch(project_id: str, sections: list,
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
 def clear_visuals(project_id: str, clear_assets: bool = True) -> dict:
     """Delete ALL generated visual ASTs (every section's sub_visuals → []).
 
@@ -2202,6 +2428,8 @@ def clear_visuals(project_id: str, clear_assets: bool = True) -> dict:
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
 def clear_assets(project_id: str) -> dict:
     """Delete ALL downloaded asset files (assets/asset_*, preview_*,
     assets_manifest.json, previews) and strip their local_path/asset_url

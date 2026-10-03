@@ -57,6 +57,7 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
     tools: [
       { name: 'run_stage', blurb: 'Run voiceover / transcribe / assets / render (wait or background)' },
       { name: 'stage_status', blurb: 'Poll a background stage' },
+      { name: 'sleep', blurb: 'Pause up to 120s between polls (sleep → stage_status until done)' },
       { name: 'cancel_stage', blurb: 'Stop a running agent stage' },
       { name: 'get_section_timings', blurb: 'True audio durations + word timestamps' },
       { name: 'save_visuals', blurb: 'Validate + save sub-visuals per section (variety stats, cut patch + dry-run)' },
@@ -285,7 +286,7 @@ export const McpAgentCard: React.FC = () => {
             ))}
           </ol>
           <p className="text-[10px] text-stone-500">
-            Long stages (voiceover, assets, render) run in background — the agent polls stage_status.
+            Long stages (voiceover, transcribe, render) run in background — the agent loops sleep → stage_status until done, and mutating tools stay locked meanwhile.
             The agent authors visuals itself (generate_visuals is not an MCP stage).
           </p>
           <div className="bg-amber-950/20 border border-amber-800/30 rounded-md px-3 py-2">

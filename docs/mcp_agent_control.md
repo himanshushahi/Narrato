@@ -75,6 +75,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 | `list_skills` / `get_skill` | All 18 writing/visual guides (scriptwriter, visual-director-core, declarative-ast, …). Big skills are ~50KB: `brief=true` returns a section map first, `section="..."` (fuzzy title/subhead/number) pulls one part — never read a whole 50KB skill when a section will do |
 | `get_stage_skills` | One-call starter pack per stage (script/design/visuals); satisfies the skill gate |
+| `append_skill_learning` | Append-only learning observation to a skill's LEARNINGS.md (edge cases, failure modes, patterns) |
 | `probe_cut` / `probe_scene` / `probe_asset` | Read-only inspectors: one cut / one section / one media layer (timing, file truth) |
 
 ### Mechanical stages (no LLM inside)
@@ -82,6 +83,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 |---|---|
 | `run_stage` | `generate_voiceover → transcribe → fetch_assets → render`; `wait=true` blocks, `wait=false` submits + poll; strictly serialized per project |
 | `stage_status` | Poll background submissions |
+| `sleep` | Bounded pause (max 120s) while a `wait=false` stage finishes: `sleep(~90s for voiceover/transcribe/render, ~45s for fetch_assets)` → `stage_status`, repeat until completed |
 | `cancel_stage` | Stop a running MCP stage at the next checkpoint |
 | `get_section_timings` | True audio durations + `start_time` + word timestamps per section |
 | `get_visuals` | Read back sub_visuals for ONE section or a SINGLE cut (symmetrical to `save_visuals`, avoids 100KB+ dumps) |
@@ -106,7 +108,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 ## 4. Human review gate (render)
 
-`run_stage(render)` is **refused without `confirm_render=true`** — in both wait modes, before any DB write — returning `needs_confirmation: true` plus instructions to fetch assets, then composition-review each section, summarize the build and ask the user. Default agent flow therefore ends at `fetch_assets` + `review_frame(composition)`; the user reviews/edits in the app; only explicit approval renders. The desktop app's own render path is unaffected. Long stages should use `wait=false` + `stage_status` over HTTP to avoid client timeouts.
+`run_stage(render)` is **refused without `confirm_render=true`** — in both wait modes, before any DB write — returning `needs_confirmation: true` plus instructions to fetch assets, then composition-review each section, summarize the build and ask the user. Default agent flow therefore ends at `fetch_assets` + `review_frame(composition)`; the user reviews/edits in the app; only explicit approval renders. The desktop app's own render path is unaffected. Long stages should use `wait=false` + `sleep` + `stage_status` over HTTP to avoid client timeouts — and run no other mutating tool while a stage is queued/running (the server locks saves/clears/settings until it settles with `awaiting_stage`).
 
 ---
 

@@ -104,16 +104,52 @@ def _looks_like_tool_call(call) -> bool:
     return _normalize_tool_call(call) is not None
 
 
+# Some providers/models emit XML-ish tool calls instead of JSON, e.g.:
+#   <dots_function_call>
+#   <name>probe_scene</name>
+#   <parameter name="project_id" string="true">...</parameter>
+#   <parameter name="scene_number" string="true">1</parameter>
+#   </invoke>
+#   </dots_function_call>
+# Real-world output is often malformed (<name">, </invoke> closers), so the
+# patterns below are deliberately lenient. Values stay strings — downstream
+# validators/coercers (_coerce_int_param, _coerce_bool, int(...)) accept them.
+DOTS_CALL_RE = re.compile(r"<dots_function_call>(.*?)(?:</dots_function_call\s*>|</invoke\s*>)",
+                          re.DOTALL | re.IGNORECASE)
+DOTS_NAME_RE = re.compile(r"<name\"?\s*>([^<]*)", re.IGNORECASE)
+DOTS_PARAM_RE = re.compile(
+    r"<parameter\s+name=\"([^\"]+)\"[^>]*>(.*?)</parameter\s*>",
+    re.DOTALL | re.IGNORECASE)
+
+
+def _extract_dots_calls(text: str) -> list:
+    """Parse <dots_function_call> blocks into normalized {name, arguments}."""
+    calls = []
+    for block in DOTS_CALL_RE.findall(text or ""):
+        name_match = DOTS_NAME_RE.search(block)
+        if not name_match:
+            continue
+        name = name_match.group(1).strip().strip("\"'")
+        if not name:
+            continue
+        args: dict = {}
+        for key, val in DOTS_PARAM_RE.findall(block):
+            args[key.strip()] = val.strip()
+        calls.append({"name": name, "arguments": args})
+    return calls
+
+
 def _extract_tool_blocks(text: str) -> list:
     """Extract tool-call objects from model output across all common formats:
     ```tool``` fenced blocks, ```json```-fenced blocks, plain ``` fences,
+    <dots_function_call> XML blocks (some providers),
     bare JSON objects shaped like {"name": ..., "arguments": ...} or {"tool": ...},
     and JSON arrays containing multiple tool calls.
     Deduplicates identical calls (same name + same arguments) while preserving order.
     """
     # Strip <think>...</think> blocks from reasoning models before extracting tools
     text = re.sub(r'<think>.*?(?:</think>|$)', '', text, flags=re.DOTALL | re.IGNORECASE)
-    
+
     found = []
     seen = set()
 
@@ -165,6 +201,10 @@ def _extract_tool_blocks(text: str) -> list:
             _add(json.loads(obj))
         except (json.JSONDecodeError, ValueError):
             continue
+
+    # Provider-native XML tool calls (e.g. dots-style models).
+    for call in _extract_dots_calls(text):
+        _add(call)
 
     return found
 

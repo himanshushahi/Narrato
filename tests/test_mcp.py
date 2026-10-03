@@ -1734,14 +1734,14 @@ def test_mcp_inventory_shape_and_counts():
     templates = asyncio.run(server.mcp.list_resource_templates())
     prompts = asyncio.run(server.mcp.list_prompts())
     tool_names = sorted(t.name for t in tools)
-    assert len(tool_names) == 31
+    assert len(tool_names) == 33
     assert set(tool_names) == {
         "create_project", "list_projects", "project_status", "delete_project",
         "save_script", "get_script", "save_design",
         "list_voice_options", "update_voice_settings", "update_transcribe_settings",
         "get_transcription",
-        "list_skills", "get_skill", "get_stage_skills",
-        "run_stage", "stage_status", "cancel_stage",
+        "list_skills", "get_skill", "get_stage_skills", "append_skill_learning",
+        "run_stage", "stage_status", "cancel_stage", "sleep",
         "get_section_timings", "get_visuals", "save_visuals",
         "save_visuals_batch",
         "clear_visuals", "clear_assets",
@@ -1758,7 +1758,7 @@ def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
     monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
     inv = http_host.get_mcp_inventory()
     assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
-    assert len(inv["tools"]) == 31
+    assert len(inv["tools"]) == 33
     assert len(inv["resources"]) == 1
     assert inv["resource_templates"] == []
     assert len(inv["prompts"]) == 1
