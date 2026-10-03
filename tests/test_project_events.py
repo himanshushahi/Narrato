@@ -81,6 +81,32 @@ def test_dry_run_positional_skips_notify(captured_events):
     assert captured_events == []
 
 
+def test_dry_run_string_true_skips_notify(captured_events):
+    # LLMs send string flags; "true"/"1"/"yes" are real dry runs.
+    @_emit("project_updated")
+    def fake(project_id: str, dry_run: bool = False):
+        return {"ok": True}
+
+    for flag in ("true", "True", "1", "yes"):
+        captured_events.clear()
+        fake("p1", dry_run=flag)
+        assert captured_events == [], flag
+
+
+def test_dry_run_string_false_still_notifies(captured_events):
+    # Persist-without-notify regression: the payload coerces "false" to a
+    # real persist, so the gate must notify too ("saved but UI never
+    # updated" otherwise).
+    @_emit("project_updated")
+    def fake(project_id: str, dry_run: bool = False):
+        return {"ok": True}
+
+    for flag in ("false", "False", "0", "no", "off", "", False, None, 0):
+        captured_events.clear()
+        fake("p1", dry_run=flag)
+        assert _shape(captured_events)["project_id"] == "p1", repr(flag)
+
+
 def test_pid_from_result_for_create(captured_events):
     @_emit("projects_changed", action="created", pid_from_result=True)
     def fake(name: str):
@@ -110,6 +136,17 @@ def test_broken_queue_never_breaks_result(captured_events, monkeypatch):
         return {"ok": True, "data": 1}
 
     assert fake("p1") == {"ok": True, "data": 1}
+
+
+def test_fail_task_row_notifies_status_only(captured_events, monkeypatch):
+    # Pre-execution stage failure mutates task + project status rows — the
+    # UI must refetch instead of showing stale running/pending chips.
+    monkeypatch.setattr(S._db, "create_task", lambda *a, **k: "x")
+    monkeypatch.setattr(S._db, "update_task", lambda *a, **k: None)
+    monkeypatch.setattr(S._db, "update_project", lambda *a, **k: None)
+    S._fail_task_row("p9", "transcribe", "boom")
+    assert _shape(captured_events) == {
+        "type": "project_updated", "project_id": "p9", "files_changed": False}
 
 
 def _emit(*a, **k):

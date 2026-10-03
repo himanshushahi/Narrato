@@ -161,8 +161,37 @@ def _notify_ui_project_event(event_type: str, project_id: str | None = None,
             evt["progress_tick"] = True
         from backend.core.bridge import ui_queue
         ui_queue.put(("onProjectEvent", (evt,)))
+        # Production diagnosis: content-mutation pushes are infrequent, so
+        # log them — when a save "doesn't show in the UI", the app log now
+        # proves whether the push was emitted (frontend dropped it) or never
+        # sent. Throttled mid-run ticks stay at debug to avoid 5s log spam.
+        if progress_tick:
+            logger.debug(f"UI event {event_type} project={project_id} (progress tick)")
+        else:
+            logger.info(f"UI event {event_type} project={project_id}"
+                        + (f" action={action}" if action else "")
+                        + f" files_changed={files_changed}")
     except Exception:
         pass
+
+
+def _is_dry_run_flag(value) -> bool:
+    """Lenient dry_run check for the notify gate (mirrors _coerce_bool).
+
+    The payload layer coerces string flags, so the gate must too: a raw
+    truthiness test treats dry_run="false" as a dry run and skips the UI
+    push — while the payload persists the save. That persist-without-notify
+    combination is exactly "agent saved, UI never updated".
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value)
 
 
 def _emit_project_event(event_type: str, action: str | None = None,
@@ -195,7 +224,7 @@ def _emit_project_event(event_type: str, action: str | None = None,
                     bound = sig.bind_partial(*args, **kwargs)
                 except TypeError:
                     bound = None
-                if bound is not None and bound.arguments.get("dry_run"):
+                if bound is not None and _is_dry_run_flag(bound.arguments.get("dry_run")):
                     return result
                 pid = None
                 if pid_from_result:
@@ -1403,7 +1432,12 @@ def _future_running(task_id: str) -> bool:
 def _fail_task_row(project_id: str, stage: str, error: str) -> None:
     """Best-effort failed marking for pre-execution failures (missing
     project, bad path, unimportable runner). Never raises — the worker
-    must always leave a visible task row instead of a stuck 'running'."""
+    must always leave a visible task row instead of a stuck 'running'.
+
+    Pushes a status-only UI tick: the task row + project status changed in
+    the DB, so the open UI must refetch them instead of showing stale
+    running/pending chips until the next window-focus fallback.
+    """
     task_id = f"{project_id}_{stage}"
     try:
         _db.create_task(project_id, stage)
@@ -1418,6 +1452,9 @@ def _fail_task_row(project_id: str, stage: str, error: str) -> None:
         _db.update_project(project_id, status="failed")
     except Exception:
         pass
+    # files_changed=False: only task/status rows changed, no content files.
+    _notify_ui_project_event("project_updated", project_id,
+                             files_changed=False)
 
 
 def _maybe_complete_project(project_id: str) -> None:
