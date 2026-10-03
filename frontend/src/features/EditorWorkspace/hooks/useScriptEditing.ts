@@ -6,7 +6,7 @@ import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import { inferMediaType } from '../../../utils/mediaExtensions';
 
 import { estimateTextDuration } from '../../../utils/duration';
-import { setEditorDirty } from './editorDirty';
+import { setEditorDirty, markSelfSaveStart, markSelfSaveEnd } from './editorDirty';
 import { getNotoFamilyForLang } from '../../../components/video/complexScriptFonts';
 
 function isTempPreviewFile(filePath: string | undefined | null): boolean {
@@ -649,6 +649,11 @@ export function useScriptEditing(
     }
     const saveOwner = { projectId, epoch: rewriteEpochRef.current };
     saveOwnerRef.current = saveOwner;
+    // Own-save quiet window: the card stays open (dirty) for the whole save,
+    // so any files-changed event landing mid-save is our own echo — the save
+    // tail reconciles via loadFiles, no toast needed (see editorDirty).
+    // Scoped to this project: never suppress another project's events.
+    markSelfSaveStart(projectId);
     const saveRevision = ++saveRevisionRef.current;
     // Project identity for this save: revision alone can't detect a project
     // switch mid-save (no second save bumps it), so every state mutation
@@ -1276,6 +1281,8 @@ export function useScriptEditing(
       // The spinner is cleared for our own revision and the lock released
       // only if still ours (a new project may have stolen it) — a throw
       // anywhere above must never leave the editor permanently locked.
+      // Always close the self-save quiet window, even on early stale returns.
+      markSelfSaveEnd(projectId);
       if (saveRevision === saveRevisionRef.current) {
         setSavingCardKey(null);
       }
@@ -1444,6 +1451,10 @@ export function useScriptEditing(
                 aiOwner = { projectId, epoch: rewriteEpochRef.current };
                 saveOwnerRef.current = aiOwner;
                 aiPersistHeld = true;
+                // AI auto-persist is a whole-doc writer like handleSaveCard:
+                // mark the same quiet window so its echo never toasts while
+                // the user holds another card dirty.
+                markSelfSaveStart(projectId);
                 try {
                   const persistRes = await callApi<any>('save_project_with_cleanup', projectId, latest, nextManifest);
                   if (persistRes && persistRes.success === false) throw new Error(persistRes.error || 'AI persist failed');
@@ -1508,6 +1519,9 @@ export function useScriptEditing(
                   saveOwnerRef.current = null;
                 }
                 aiPersistHeld = false;
+                // Covers the primary persist and the revert-convergence write
+                // above — both are whole-doc writes under this mutex.
+                markSelfSaveEnd(projectId);
               }
             }
             // The pre-edit baseline is consumed only by a successful auto-save —

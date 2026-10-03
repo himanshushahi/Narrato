@@ -4,7 +4,7 @@ import { useUIStore } from '../../../store/useUIStore';
 import { callApi } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import { getCleanAudioKey } from './useAudioWaveform';
-import { isEditorDirty, subscribeEditorDirty } from './editorDirty';
+import { isEditorDirty, subscribeEditorDirty, isSelfSaveQuiet } from './editorDirty';
 
 /** Clip-list equality ignoring the `&t=` cache-buster (clip files are uuid-named,
  *  never overwritten in place, so identical fields mean identical bytes). */
@@ -335,16 +335,21 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     reloadTimerRef.current = setTimeout(() => {
       reloadTimerRef.current = null;
       if (isEditorDirty()) {
-        // Focus regain is not an agent mutation: never claim one, never
-        // defer a reload for it. Silently skip so minimizing another app
-        // while an edit card is open shows no toast.
         if (source !== 'agent') return;
+        // Defer FIRST, toast second: a genuine concurrent edit landing in
+        // our own save window must still apply on card close instead of
+        // being lost. Own-echo defers are snapshot no-ops via lastLoadedRef.
         pendingReloadRef.current = true;
+        // Own Ctrl+S / AI-persist echo: the card stays dirty for the whole
+        // save, so events in this project-scoped window are our own writes
+        // (their tails reconcile via loadFiles). Skip the toast, keep the
+        // defer. Genuine outside updates still toast below.
+        if (isSelfSaveQuiet(projId)) return;
         const now = Date.now();
         if (now - lastToastRef.current > 10000) {
           lastToastRef.current = now;
           useUIStore.getState().addToast(
-            'Agent updated this project — finish or cancel your edit to load it.',
+            'Project updated elsewhere — finish or cancel your edit to load it.',
             'info',
           );
         }
@@ -386,7 +391,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   // has no UI push channel): re-pull detail + files when the window regains
   // focus, at most once per 10s. Quiet path: a focus regain is not proof an
   // agent mutated anything, so when the user holds unsaved edits this skips
-  // silently instead of toasting "Agent updated this project".
+  // silently instead of toasting "Project updated elsewhere".
   useEffect(() => {
     if (!projectId) return;
     const onFocus = () => {
