@@ -327,11 +327,18 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
   const pendingReloadRef = useRef(false);
   const lastToastRef = useRef(0);
   const lastLoadAtRef = useRef(0);
-  const scheduleReload = useCallback((projId: string) => {
+  const scheduleReload = useCallback((projId: string, source: 'agent' | 'focus' = 'agent') => {
+    // Focus regain while an edit card is open: skip up-front so a focus
+    // tick can never cancel/replace a pending real agent reload timer.
+    if (source !== 'agent' && isEditorDirty()) return;
     if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = setTimeout(() => {
       reloadTimerRef.current = null;
       if (isEditorDirty()) {
+        // Focus regain is not an agent mutation: never claim one, never
+        // defer a reload for it. Silently skip so minimizing another app
+        // while an edit card is open shows no toast.
+        if (source !== 'agent') return;
         pendingReloadRef.current = true;
         const now = Date.now();
         if (now - lastToastRef.current > 10000) {
@@ -377,13 +384,15 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
 
   // Detached-client fallback (e.g. a stdio MCP client on the same machine
   // has no UI push channel): re-pull detail + files when the window regains
-  // focus, at most once per 10s.
+  // focus, at most once per 10s. Quiet path: a focus regain is not proof an
+  // agent mutated anything, so when the user holds unsaved edits this skips
+  // silently instead of toasting "Agent updated this project".
   useEffect(() => {
     if (!projectId) return;
     const onFocus = () => {
       if (Date.now() - lastLoadAtRef.current < 10000) return;
       fetchProjectDetail(projectId);
-      scheduleReload(projectId);
+      scheduleReload(projectId, 'focus');
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
