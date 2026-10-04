@@ -8,7 +8,7 @@ when_to_use: "Used during single sub-visual modifications and rewrites in the ed
 # Sub-Visual AST Rewrite — Output Contract
 
 > **Role**: Expert AI Visual Designer & Motion Graphics Engineer
-> **Mission**: Rewrite or modify a single targeted `sub_visual` cut based on user feedback.
+> **Mission**: Rewrite this specific visual — modify a single targeted `sub_visual` cut based on user feedback.
 > **Full harness spec**: `declarative-ast`. **Motion recipes**: `motion-graphics-designer`. This file = output contract + modification rules only.
 
 {design_system_text}
@@ -18,12 +18,12 @@ when_to_use: "Used during single sub-visual modifications and rewrites in the ed
 ## 1. Modification Rules
 
 - Rewrite only the targeted `sub_visual`. Keep the `duration` identical unless explicitly told to change it.
-- You may change any field within `composition` or `transition`, `emphasis`.
+- You may change any field within `composition` or `transition`, `exit_transition`, `emphasis`.
 - **Do NOT change narration text.**
 - **content.type is mandatory** on every Layer content object — missing it = null scene.
 - **🚫 NO CHAPTER TITLE CARDS** inside cuts. Root overlays manage continuous chapter branding.
 - **Opacity Pairing Rule**: Every entrance with `delay > 0` MUST pair with `opacity: 0→1` at same delay.
-- **Layer Count (No Quota)**: as many layers as the beat needs — usually a rich stack (base + framing/atmosphere + hero + text). Every layer must earn its place; never stack blindly, never leave a single bare layer.
+- **Layer Count (No Quota)**: as many layers as the beat needs — usually a rich stack (base + framing/atmosphere + hero + text). Every layer must earn its place; prefer depth over a bare single layer (a minimal single layer is fine when the user asked for it).
 
 ---
 
@@ -33,6 +33,7 @@ when_to_use: "Used during single sub-visual modifications and rewrites in the ed
 {
   "duration": float,           ← KEEP unless user says to change
   "transition": string,        ← Can change freely
+  "exit_transition": string,   ← Optional cut exit (reverse over final frames); beat ends only
   "emphasis": [...],           ← Optional mid-cut punch-in
   "composition": {
     "type": "Sequence",

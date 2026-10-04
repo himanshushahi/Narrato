@@ -1591,7 +1591,7 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
     returns what it could compute.
     """
     report: dict = {"normalizations": [], "kinds_used": {},
-                    "transitions_used": [], "energy_cuts": 0,
+                    "transitions_used": [], "exits_used": [], "energy_cuts": 0,
                     "max_template_run": {"length": 0, "from_cut": None},
                     "unused_kinds": [], "avg_layers_per_cut": 0.0,
                     "deep_cuts": 0}
@@ -1630,8 +1630,12 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                 shake = layer.get("camera_shake")
                 if shake and shake != "none":
                     fx = True
+            # High-energy transitions (mirror the storyboard-planner energy
+            # groups): glitch/flash/flip. Mid-energy effects (slides, zooms,
+            # blur_focus, wipe_right, iris_open, rise) are motion, not energy.
             if (cut.get("emphasis")
-                    or (cut.get("transition") or "") in ("whip_pan", "glitch")):
+                    or (cut.get("transition") or "") in ("glitch", "flash", "flip")
+                    or (cut.get("exit_transition") or "") in ("glitch", "flash", "flip")):
                 fx = True
             return layer_kinds, fx, tuple(geom_buckets)
 
@@ -1651,6 +1655,15 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                     f"cut#{i}: transition {raw_t.strip()!r} is not a valid "
                     f"enum value, remapped to {norm_t.strip()!r} — use a valid "
                     f"value from the visual-director skill next time.")
+            raw_e = cut.get("exit_transition")
+            norm_e = norm.get("exit_transition")
+            if (isinstance(raw_e, str) and raw_e.strip()
+                    and isinstance(norm_e, str)
+                    and raw_e.strip().lower() != norm_e.strip().lower()):
+                report["normalizations"].append(
+                    f"cut#{i}: exit_transition {raw_e.strip()!r} is not a valid "
+                    f"enum value, remapped to {norm_e.strip()!r} — use a valid "
+                    f"value from the visual-director skill next time.")
 
         try:
             in_total = sum(float(c.get("duration", 0) or 0)
@@ -1665,6 +1678,7 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
 
         kind_counts: dict = {}
         transitions: dict = {}
+        exits: dict = {}
         prev_sig = None
         run_len, run_start = 0, 0
         layer_total, cut_total, deep_cuts = 0, 0, 0
@@ -1681,6 +1695,9 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
             t = cut.get("transition")
             if isinstance(t, str):
                 transitions[t] = transitions.get(t, 0) + 1
+            e = cut.get("exit_transition")
+            if isinstance(e, str) and e not in ("none", "cut"):
+                exits[e] = exits.get(e, 0) + 1
             if fx:
                 report["energy_cuts"] += 1
             sig = (tuple(layer_kinds), geom)
@@ -1696,6 +1713,7 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                                           "from_cut": run_start}
         report["kinds_used"] = kind_counts
         report["transitions_used"] = sorted(transitions)
+        report["exits_used"] = sorted(exits)
         report["unused_kinds"] = [k for k in kinds if k not in kind_counts]
         report["avg_layers_per_cut"] = round(layer_total / cut_total, 2) if cut_total else 0.0
         report["deep_cuts"] = deep_cuts
@@ -2224,6 +2242,7 @@ def _video_variety_rollup(ok_entries: list) -> dict:
     signature flag, and single-kind section indexes."""
     kinds_total: dict = {}
     transitions_total: dict = {}
+    exits_total: dict = {}
     energy_total = 0
     sig_sets = []
     single_kind_sections = []
@@ -2240,6 +2259,8 @@ def _video_variety_rollup(ok_entries: list) -> dict:
                 pass
         for trans in (variety.get("transitions_used") or []):
             transitions_total[trans] = transitions_total.get(trans, 0) + 1
+        for ext in (variety.get("exits_used") or []):
+            exits_total[ext] = exits_total.get(ext, 0) + 1
         try:
             energy_total += int(variety.get("energy_cuts", 0) or 0)
         except (TypeError, ValueError):
@@ -2272,6 +2293,7 @@ def _video_variety_rollup(ok_entries: list) -> dict:
             "kinds_total": kinds_total,
             "kinds_used_count": len(kinds_total),
             "transitions_total": transitions_total,
+            "exits_total": exits_total,
             "energy_cuts_total": energy_total,
             "uniform_signature": uniform_signature,
             "single_kind_sections": single_kind_sections,

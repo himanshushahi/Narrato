@@ -48,7 +48,7 @@ These are the actual failure modes observed in production — check all before s
 | **7** | Opacity Fade on Entrance | Every entrance animation with `delay > 0` MUST pair with matching `opacity: 0→1`. |
 | **8** | Harness Reports | Read `timing`/`variety` reports on every save and apply their fixes (delay-fit, enum remaps). |
 | **9** | Layer Count (No Quota) | Use as many layers as the beat needs — usually a rich stack. Every layer earns its place (clear job + motion); never stack blindly, never ship a single bare layer (Background alone = unfinished). |
-| **10** | Variety | Don't use the same Background preset, transition, or composition recipe for consecutive cuts across the whole video. |
+| **10** | Variety | Don't use the same Background preset, transition, or composition recipe for consecutive cuts across the whole video. Exit transitions (`exit_transition`) count toward variety — and avoid them on consecutive cuts. |
 
 ---
 

@@ -137,18 +137,22 @@ EVOLVE (55–80%):      word-synced reveals — frosted card / gauge / document
                       slides in on the keyword; marker_highlight sweeps;
                       Counter lands on the number word; spent layers exit
 RESOLVE (80–100%):    motion eases, never freezes — blur settles, callout
-                      recedes, concluding headline reveals; emphasis
-                      punch-in near the end hands momentum to the next cut
+                       recedes, concluding headline reveals; emphasis
+                       punch-in near the end hands momentum to the next cut
+                       (or an `exit_transition` carries the whole cut out —
+                       beat ends only, never consecutive cuts)
 ```
 
-### Frozen-tail rule (mandatory per cut)
+### Frozen-tail rule (strong default per cut)
 
-If nothing moves after 50% of the cut, the take is unfinished. Every cut MUST
-satisfy at least one of:
+If nothing moves after 50% of the cut, the take usually reads as slideshow.
+Aim for at least one of:
 - a camera drift / scale animation whose `duration` spans ≥80% of the cut, or
 - a `loop_mode` ambient (particles, floating hero, breathing glow), or
 - an `exit` + delayed-entrance stagger pair in the back half, or
 - an `emphasis` punch-in at ≥70% of the cut.
+A deliberate still hold (testimony, memorial) is fine with a one-line reason
+in the beat plan.
 
 Entrance-only choreography (everything lands by 0.8s, then static) is the #1
 cause of slideshow-looking output. Full working take: `declarative-ast` §6.5.

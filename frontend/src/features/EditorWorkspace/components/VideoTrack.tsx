@@ -4,8 +4,10 @@ import { usePlaybackStore } from '../../../store/usePlaybackStore';
 import {
   Image as ImageIcon, Map as MapIcon, Layers,
   BarChart3, Shapes, Type, Video as VideoIcon,
-  Code, Sparkles, Sparkle, Zap, ZoomIn, ZoomOut, MoveRight,
-  Minus, Wind, Hash, Palette, Trash2, Target, X
+  Code, Sparkles, Sparkle, Zap, ZoomIn, ZoomOut, MoveRight, MoveLeft,
+  MoveUp, MoveDown, SeparatorVertical,
+  Minus, Hash, Palette, Trash2, Target, X, Focus, Sun,
+  Circle, ArrowUp, FlipHorizontal2
 } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
 import { FPS, HEADER_WIDTH } from '../timelineConstants';
@@ -26,13 +28,18 @@ const SCENE_COLORS = [
 export const TRANSITION_OPTIONS = [
   { id: 'cut', label: 'Hard Cut', icon: Minus, desc: 'Instant frame cut' },
   { id: 'fade', label: 'Fade In/Out', icon: Layers, desc: 'Smooth cross-dissolve' },
-  { id: 'slide_left', label: 'Slide Left', icon: MoveRight, desc: 'Push from right to left' },
+  { id: 'slide_left', label: 'Slide Left', icon: MoveLeft, desc: 'Push from right to left' },
   { id: 'slide_right', label: 'Slide Right', icon: MoveRight, desc: 'Push from left to right' },
-  { id: 'slide_up', label: 'Slide Up', icon: MoveRight, desc: 'Push from bottom to top' },
-  { id: 'slide_down', label: 'Slide Down', icon: MoveRight, desc: 'Push from top to bottom' },
+  { id: 'slide_up', label: 'Slide Up', icon: MoveUp, desc: 'Push from bottom to top' },
+  { id: 'slide_down', label: 'Slide Down', icon: MoveDown, desc: 'Push from top to bottom' },
   { id: 'zoom_in', label: 'Zoom In', icon: ZoomIn, desc: 'Dramatic punch-in scale' },
   { id: 'zoom_out', label: 'Zoom Out', icon: ZoomOut, desc: 'Reveal scale-down' },
-  { id: 'whip_pan', label: 'Whip Pan', icon: Wind, desc: 'Fast directional whip' },
+  { id: 'blur_focus', label: 'Blur Focus', icon: Focus, desc: 'Rack-focus pull sharp' },
+  { id: 'flash', label: 'Flash', icon: Sun, desc: 'Light-leak overexposure pop' },
+  { id: 'wipe_right', label: 'Wipe Right', icon: SeparatorVertical, desc: 'Mask edge reveals L to R' },
+  { id: 'iris_open', label: 'Iris Open', icon: Circle, desc: 'Circle iris expands' },
+  { id: 'rise', label: 'Rise', icon: ArrowUp, desc: 'Soft float-up settle' },
+  { id: 'flip', label: 'Flip', icon: FlipHorizontal2, desc: '3D card turn' },
   { id: 'glitch', label: 'Glitch Shift', icon: Zap, desc: 'Digital chromatic glitch' },
   { id: 'crossfade', label: 'Crossfade', icon: Sparkles, desc: 'Seamless layer blend' },
   { id: 'dissolve', label: 'Dissolve', icon: Sparkles, desc: 'Soft film dissolve' },
@@ -102,6 +109,7 @@ interface SubVisualBlockData {
   astTypes: string[];
   thumbnailUrl: string | null;
   transition: string;
+  exitTransition: string;
 }
 
 interface SceneBlockProps {
@@ -119,7 +127,7 @@ interface SceneBlockProps {
   onSceneBoundaryResizeStart: (e: React.MouseEvent, idx: number) => void;
   onSceneAbsoluteResizeStart: (e: React.MouseEvent, idx: number) => void;
   onDeleteScene: ((index: number) => void) | undefined;
-  onOpenTransitionMenu: (sceneIdx: number, subIdx: number, btnRect: DOMRect, currentTransition: string) => void;
+  onOpenTransitionMenu: (sceneIdx: number, subIdx: number, btnRect: DOMRect, currentTransition: string, kind: 'entrance' | 'exit') => void;
   onOpenContextMenu?: (e: React.MouseEvent, sceneIdx: number, subIdx: number) => void;
   onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
 }
@@ -148,6 +156,7 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
         astTypes: extractAstPrimitives(raw),
         thumbnailUrl: extractMediaThumbnail(raw),
         transition: raw.transition || 'fade',
+        exitTransition: (raw as any).exit_transition || 'none',
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,7 +167,7 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
     return timing.subs.map((sub, subIdx) => {
       const subX = ((sub.start - timing.start) / FPS) * timelineZoom;
       const subW = Math.max(4, ((sub.end - sub.start) / FPS) * timelineZoom);
-      const st = staticSubs[subIdx] || { raw: {}, astTypes: [], thumbnailUrl: null, transition: 'fade' };
+      const st = staticSubs[subIdx] || { raw: {}, astTypes: [], thumbnailUrl: null, transition: 'fade', exitTransition: 'none' };
 
       return {
         subX,
@@ -171,6 +180,7 @@ const SceneBlock: React.FC<SceneBlockProps> = React.memo(({
         astTypes: st.astTypes,
         thumbnailUrl: st.thumbnailUrl,
         transition: st.transition,
+        exitTransition: (st as any).exitTransition || 'none',
       };
     });
   }, [timing, timelineZoom, activeSubIdx, staticSubs, idx]);
@@ -272,7 +282,7 @@ interface SubVisualBlockProps {
   onSeek: (frame: number) => void;
   onResizeStart: (e: React.MouseEvent, sceneIdx: number, subIdx: number) => void;
   sceneIdx: number;
-  onOpenTransitionMenu: (sceneIdx: number, subIdx: number, btnRect: DOMRect, currentTransition: string) => void;
+  onOpenTransitionMenu: (sceneIdx: number, subIdx: number, btnRect: DOMRect, currentTransition: string, kind: 'entrance' | 'exit') => void;
   onOpenContextMenu?: (e: React.MouseEvent, sceneIdx: number, subIdx: number) => void;
   onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
 }
@@ -286,6 +296,9 @@ const SubVisualBlock: React.FC<SubVisualBlockProps> = React.memo(({
 
   const activeTransition = TRANSITION_OPTIONS.find(t => t.id === block.transition || (block.transition === 'none' && t.id === 'cut')) || TRANSITION_OPTIONS[0];
   const TransitionIcon = activeTransition.icon;
+  const activeExit = TRANSITION_OPTIONS.find(t => t.id === block.exitTransition) || TRANSITION_OPTIONS.find(t => t.id === 'none')!;
+  const ExitIcon = activeExit.icon;
+  const hasExit = !!block.exitTransition && block.exitTransition !== 'none' && block.exitTransition !== 'cut';
 
   return (
     <div
@@ -370,13 +383,32 @@ const SubVisualBlock: React.FC<SubVisualBlockProps> = React.memo(({
             onClick={(e) => {
               e.stopPropagation();
               const rect = e.currentTarget.getBoundingClientRect();
-              onOpenTransitionMenu(sceneIdx, block.subIdx, rect, block.transition);
+              onOpenTransitionMenu(sceneIdx, block.subIdx, rect, block.transition, 'entrance');
             }}
             className="flex items-center gap-1 px-1 py-0.5 rounded-none bg-zinc-950 border border-zinc-700 text-[7px] text-zinc-200 hover:text-white hover:border-cyan-500 cursor-pointer shadow-lg active:scale-95"
             title={`Transition: ${activeTransition.label} (Click to change)`}
           >
             <TransitionIcon className="w-2 h-2 text-cyan-400" />
             {block.subW > 80 && <span>{activeTransition.label.split(' ')[0]}</span>}
+          </button>
+        </div>
+      )}
+
+      {/* Exit Transition Badge on Cut Right Edge — Left-click opens floating menu */}
+      {!readOnly && block.subW > 52 && (
+        <div className="absolute right-1 bottom-1 z-30 pointer-events-auto opacity-0 group-hover/sub:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              onOpenTransitionMenu(sceneIdx, block.subIdx, rect, block.exitTransition, 'exit');
+            }}
+            className={`flex items-center gap-1 px-1 py-0.5 rounded-none bg-zinc-950 border text-[7px] cursor-pointer shadow-lg active:scale-95 ${hasExit ? 'border-amber-500/60 text-amber-300 hover:text-amber-200 hover:border-amber-400' : 'border-zinc-700 text-zinc-400 hover:text-white hover:border-amber-500'}`}
+            title={`Exit transition: ${activeExit.label} (Click to change)`}
+          >
+            <ExitIcon className={`w-2 h-2 ${hasExit ? 'text-amber-400' : ''}`} />
+            {block.subW > 110 && <span>{activeExit.label.split(' ')[0]}</span>}
           </button>
         </div>
       )}
@@ -417,6 +449,7 @@ interface VideoTrackProps {
   onSceneAbsoluteResizeStart: (e: React.MouseEvent, idx: number) => void;
   onDeleteScene: ((index: number) => void) | undefined;
   onUpdateSubVisualTransition?: (sceneIdx: number, subIdx: number, transition: string) => void;
+  onUpdateSubVisualExitTransition?: (sceneIdx: number, subIdx: number, transition: string) => void;
   onOpenContextMenu?: (e: React.MouseEvent, sceneIdx: number, subIdx: number) => void;
   onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
   // Drag reordering props
@@ -436,6 +469,7 @@ interface ActiveTransitionMenuState {
   x: number;
   y: number;
   currentTransition: string;
+  kind: 'entrance' | 'exit';
 }
 
 export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
@@ -443,7 +477,7 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
   isDraggingScene, readOnly,
   onSeek,
   onSubVisualResizeStart, onSceneBoundaryResizeStart, onSceneAbsoluteResizeStart, onDeleteScene,
-  onUpdateSubVisualTransition, onOpenContextMenu, onSelectSubVisual,
+  onUpdateSubVisualTransition, onUpdateSubVisualExitTransition, onOpenContextMenu, onSelectSubVisual,
   index, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, isDragOver
 }) => {
   // Single active transition popover state across the entire video track
@@ -461,13 +495,14 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
     return () => window.removeEventListener('pointerdown', handlePointerDown);
   }, []);
 
-  const handleOpenTransitionMenu = useCallback((sceneIdx: number, subIdx: number, btnRect: DOMRect, currentTransition: string) => {
+  const handleOpenTransitionMenu = useCallback((sceneIdx: number, subIdx: number, btnRect: DOMRect, currentTransition: string, kind: 'entrance' | 'exit' = 'entrance') => {
     setActiveTransitionMenu({
       sceneIdx,
       subIdx,
       x: btnRect.left,
       y: Math.max(10, btnRect.top - 200),
       currentTransition,
+      kind,
     });
   }, []);
 
@@ -564,7 +599,7 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-zinc-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
-            <span>Select Transition</span>
+            <span>{activeTransitionMenu.kind === 'exit' ? 'Select Exit Transition' : 'Select Transition'}</span>
             <button
               onClick={() => setActiveTransitionMenu(null)}
               className="text-zinc-500 hover:text-white p-0.5 cursor-pointer inline-flex items-center justify-center"
@@ -582,7 +617,11 @@ export const VideoTrack: React.FC<VideoTrackProps> = React.memo(({
                   key={opt.id}
                   type="button"
                   onClick={() => {
-                    onUpdateSubVisualTransition?.(activeTransitionMenu.sceneIdx, activeTransitionMenu.subIdx, opt.id);
+                    if (activeTransitionMenu.kind === 'exit') {
+                      onUpdateSubVisualExitTransition?.(activeTransitionMenu.sceneIdx, activeTransitionMenu.subIdx, opt.id);
+                    } else {
+                      onUpdateSubVisualTransition?.(activeTransitionMenu.sceneIdx, activeTransitionMenu.subIdx, opt.id);
+                    }
                     setActiveTransitionMenu(null);
                   }}
                   className={`w-full flex items-center gap-2 px-2 py-1 rounded-none text-left transition-colors cursor-pointer ${

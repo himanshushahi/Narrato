@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 VALID_TRANSITIONS = {
     "none", "cut", "fade", "crossfade", "slide_left", "slide_right", 
     "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "dissolve",
-    "whip_pan",
+    "blur_focus", "flash", "wipe_right", "iris_open", "rise", "flip",
 }
 
 
@@ -65,8 +65,14 @@ def normalize_transition(transition: str) -> str:
     # Legacy alias: old AI/manual value, maps to slide_left (same motion).
     if "subtle_slide" in t:
         return "slide_left"
+    # Removed enum value: old projects/AI outputs still carrying whip_pan
+    # render as slide_left (closest surviving motion).
+    if "whip" in t:
+        return "slide_left"
     for key in ("slide_left", "slide_right", "slide_up",
-                "slide_down", "zoom_in", "zoom_out", "whip_pan", "glitch", "crossfade", "dissolve", "cut", "none"):
+                "slide_down", "zoom_in", "zoom_out", "glitch", "crossfade", "dissolve",
+                "blur_focus", "flash", "wipe_right", "iris_open", "rise", "flip",
+                "cut", "none"):
         if key in t:
             return key
     if "fade" in t:
@@ -1055,6 +1061,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
         entry = {
             "composition": v.get("composition", {"type": "Sequence", "children": []}),
             "transition": normalize_transition(v.get("transition", "cut")),
+            "exit_transition": normalize_transition(v.get("exit_transition") or "none"),
             "duration": dur,
         }
         # Hard-clean the composition BEFORE validation: the LLM repair path
@@ -1070,7 +1077,7 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
                 entry["composition"] = {"type": "Sequence", "children": []}
             else:
                 comp = dict(raw_comp)
-                for _stray in ("duration", "transition", "composition", "emphasis", "subtitle_position", "visual_path", "visual_url"):
+                for _stray in ("duration", "transition", "exit_transition", "composition", "emphasis", "subtitle_position", "visual_path", "visual_url"):
                     comp.pop(_stray, None)
                 if comp.get("type") != "Sequence":
                     comp["type"] = "Sequence"

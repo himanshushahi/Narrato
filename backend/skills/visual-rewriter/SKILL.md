@@ -50,7 +50,8 @@ Return ONLY valid JSON matching this schema. Bind actual hex values from `design
   "sub_visuals": [
     {
       "duration": 3.5,
-      "transition": "whip_pan",
+      "transition": "slide_left",
+      "exit_transition": "none",
       "emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }],
       "composition": {
         "type": "Sequence",

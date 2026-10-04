@@ -1033,8 +1033,8 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
       }}
       className={`group/box transition-colors ${
         selected
-          ? 'border-2 border-amber-500 bg-amber-500/10 shadow-[0_0_14px_rgba(245,158,11,0.25)]'
-          : 'border border-dashed border-transparent hover:border-amber-500/70 hover:bg-amber-500/5'
+          ? 'border-2 border-amber-400 bg-amber-400/10 shadow-[0_0_16px_rgba(245,158,11,0.35)] ring-1 ring-amber-400/40'
+          : 'border border-dashed border-white/25 hover:border-amber-400/80 hover:bg-amber-400/5'
       }`}
     >
       {/* Mask echo: same clip-path the renderer applies, on a
@@ -1060,12 +1060,16 @@ const LayerBox: React.FC<LayerBoxProps> = React.memo(({
           left: badgeLeft,
           pointerEvents: 'none',
           fontSize: 10,
-          fontWeight: 700,
+          fontWeight: 800,
+          letterSpacing: '0.04em',
           whiteSpace: 'nowrap',
-          padding: '1px 6px',
-          borderRadius: 6,
-          background: selected ? 'rgba(245,158,11,0.95)' : 'rgba(0,0,0,0.75)',
-          color: selected ? '#000' : '#fcd34d',
+          padding: '2px 8px',
+          borderRadius: 999,
+          background: selected ? '#f59e0b' : 'rgba(9,9,11,0.85)',
+          color: selected ? '#09090b' : '#fcd34d',
+          border: selected ? '1px solid #fbbf24' : '1px solid rgba(245,158,11,0.45)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.45)',
+          backdropFilter: 'blur(6px)',
           opacity: selected ? 1 : 0,
           transform: counterRotate,
           transformOrigin: 'top left',
@@ -1277,6 +1281,7 @@ export const CanvasOverlay: React.FC<{
   const isLocked = locked === true;
   const compW = compositionSize?.w ?? 1920;
   const compH = compositionSize?.h ?? 1080;
+  const isPortrait = compH > compW;
 
   // P3 drag state: `drag` renders the live box; `dragRef` is the handler-live
   // session (refs are never written during render). `pendingCommit` keeps the
@@ -1680,6 +1685,17 @@ export const CanvasOverlay: React.FC<{
       isViewingSelectedCut: displaySubIdx === selectedSubVisualIndex,
       children,
       ordered,
+      cutTotal: subVisuals.length,
+      sceneBadge: scene.section_type === 'introduction'
+        ? 'INTRO'
+        : scene.section_type === 'conclusion'
+          ? 'OUTRO'
+          : `SCENE ${scenes.slice(0, selectedSceneIndex + 1).filter((s: any) => s?.section_type === 'scene').length}`,
+      sceneTitle: scene.title
+        || (scene.section_type === 'introduction' ? 'Introduction'
+          : scene.section_type === 'conclusion' ? 'Conclusion' : ''),
+      sceneTotal: scenes.filter((s: any) => s?.section_type === 'scene').length,
+      isSceneSection: scene.section_type !== 'introduction' && scene.section_type !== 'conclusion',
     };
   }, [scenes, selectedSceneIndex, selectedSubVisualIndex, activeSceneIdx, playheadSubIdx, compW, compH, domRects]);
 
@@ -2047,71 +2063,63 @@ export const CanvasOverlay: React.FC<{
 
       {/* Selected Cut Info Chip + P2 prev/next layer controls */}
       <div
-        style={{
-          position: 'absolute',
-          left: 8,
-          bottom: 8,
-          pointerEvents: 'auto',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          fontSize: 10,
-          fontWeight: 700,
-          padding: '2px 4px',
-          borderRadius: 8,
-          background: 'rgba(0,0,0,0.75)',
-          color: '#fcd34d',
-          border: '1px solid rgba(245,158,11,0.35)',
-          zIndex: 110,
-        }}
+        className={`absolute left-2 bottom-2 z-[110] pointer-events-auto w-fit whitespace-nowrap flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-xl bg-zinc-950/85 backdrop-blur-md border border-zinc-700/60 shadow-lg shadow-black/40 origin-bottom-left transition-transform ${
+          isPortrait ? 'scale-[0.80]' : 'scale-100'
+        }`}
       >
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            cycleLayer(-1);
-          }}
-          disabled={isLocked || view.children.length === 0}
-          title="Previous layer ([)"
-          aria-label="Previous layer"
-          className="hover:bg-amber-500/20 active:bg-amber-500/30 transition-colors disabled:hover:bg-transparent text-amber-400 disabled:text-amber-400/40 select-none"
-          style={{
-            padding: '0 6px',
-            borderRadius: 6,
-            cursor: isLocked || view.children.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: isLocked || view.children.length === 0 ? 0.4 : 1,
-            background: 'transparent',
-            border: 'none',
-          }}
+        <span
+          className="shrink-0 rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-extrabold tracking-wider text-amber-300"
+          title={view.isSceneSection ? `${view.sceneBadge} of ${view.sceneTotal}` : view.sceneBadge}
         >
-          {'<'}
-        </button>
-        <span style={{ padding: '0 4px', whiteSpace: 'nowrap' }}>
-          {`Cut ${view.displaySubIdx + 1} · ${view.children.length} layer${view.children.length === 1 ? '' : 's'}${
-            hasValidSelection ? ` · L${selectedLayerIndex + 1} selected` : ''
-          }${isLocked ? ' · AI rewriting…' : ''}`}
+          {view.sceneBadge}
         </span>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            cycleLayer(1);
-          }}
-          disabled={isLocked || view.children.length === 0}
-          title="Next layer (])"
-          aria-label="Next layer"
-          className="hover:bg-amber-500/20 active:bg-amber-500/30 transition-colors disabled:hover:bg-transparent text-amber-400 disabled:text-amber-400/40 select-none"
-          style={{
-            padding: '0 6px',
-            borderRadius: 6,
-            cursor: isLocked || view.children.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: isLocked || view.children.length === 0 ? 0.4 : 1,
-            background: 'transparent',
-            border: 'none',
-          }}
-        >
-          {'>'}
-        </button>
+        <span className="shrink-0 text-[10px] font-bold text-zinc-400 tabular-nums">
+          Cut {view.displaySubIdx + 1}/{view.cutTotal}
+        </span>
+        {!isPortrait && (
+          <span className="shrink-0 hidden sm:inline text-[9px] font-semibold text-zinc-500">
+            {view.children.length} layer{view.children.length === 1 ? '' : 's'}
+          </span>
+        )}
+        {hasValidSelection && (
+          <span className="shrink-0 rounded-full bg-amber-500 px-1.5 py-px text-[9px] font-extrabold text-black tabular-nums">
+            L{selectedLayerIndex + 1}
+          </span>
+        )}
+        {isLocked && (
+          <span className="shrink-0 text-[9px] font-bold text-amber-400/80">
+            AI rewriting…
+          </span>
+        )}
+        <div className="shrink-0 flex items-center gap-0.5">
+          <div className="w-px h-3.5 bg-zinc-700/60 mr-0.5" />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              cycleLayer(-1);
+            }}
+            disabled={isLocked || view.children.length === 0}
+            title="Previous layer ([)"
+            aria-label="Previous layer"
+            className="w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold text-amber-400 bg-transparent border-none cursor-pointer transition-colors hover:bg-amber-500/20 active:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent select-none"
+          >
+            {'‹'}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              cycleLayer(1);
+            }}
+            disabled={isLocked || view.children.length === 0}
+            title="Next layer (])"
+            aria-label="Next layer"
+            className="w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold text-amber-400 bg-transparent border-none cursor-pointer transition-colors hover:bg-amber-500/20 active:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent select-none"
+          >
+            {'›'}
+          </button>
+        </div>
       </div>
     </div>
   );

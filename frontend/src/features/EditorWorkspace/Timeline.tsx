@@ -42,6 +42,7 @@ interface TimelineProps {
   onToggleSubVisualAudioFlag?: (sceneIdx: number, subIdx: number, flag: 'mute_voiceover' | 'mute_bg_music') => void;
   onSelectSubVisual?: (sceneIdx: number, subIdx: number) => void;
   onUpdateSubVisualTransition?: (sceneIdx: number, subIdx: number, transition: string) => void;
+  onUpdateSubVisualExitTransition?: (sceneIdx: number, subIdx: number, transition: string) => void;
   onSplitSubVisualAtFrame?: (sceneIdx: number, subIdx: number, frame: number) => void;
   onDuplicateSubVisual?: (sceneIdx: number, subIdx: number) => void;
   onDeleteSubVisual?: (sceneIdx: number, subIdx: number) => void;
@@ -66,6 +67,7 @@ interface ContextMenuState {
   sceneIdx: number;
   subIdx: number;
   showTransitionsSubmenu?: boolean;
+  showExitSubmenu?: boolean;
   showDeleteConfirm?: boolean;
 }
 
@@ -90,6 +92,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
   onToggleSubVisualAudioFlag,
   onSelectSubVisual,
   onUpdateSubVisualTransition,
+  onUpdateSubVisualExitTransition,
   onSplitSubVisualAtFrame,
   onDuplicateSubVisual,
   onDeleteSubVisual,
@@ -749,6 +752,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
                     onSceneAbsoluteResizeStart={startSceneAbsoluteResize}
                     onDeleteScene={onDeleteScene ? handleDeleteScene : undefined}
                     onUpdateSubVisualTransition={onUpdateSubVisualTransition}
+                    onUpdateSubVisualExitTransition={onUpdateSubVisualExitTransition}
                     onOpenContextMenu={handleOpenContextMenu}
                     onSelectSubVisual={onSelectSubVisual}
                   />
@@ -969,6 +973,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
               onClick={() => setContextMenu(prev => prev ? {
                 ...prev,
                 showTransitionsSubmenu: !prev.showTransitionsSubmenu,
+                showExitSubmenu: false,
                 showDeleteConfirm: false,
               } : null)}
               className="w-full flex items-center justify-between px-2 py-1.5 rounded-none text-left hover:bg-zinc-800 text-zinc-200 transition-colors cursor-pointer"
@@ -1009,6 +1014,62 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
                         <span>{opt.label}</span>
                       </div>
                       {isCurrent && <Check className="w-3 h-3 text-cyan-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Change Exit Transition Submenu */}
+          <div className="relative group/trans">
+            <button
+              type="button"
+              onClick={() => setContextMenu(prev => prev ? {
+                ...prev,
+                showExitSubmenu: !prev.showExitSubmenu,
+                showTransitionsSubmenu: false,
+                showDeleteConfirm: false,
+              } : null)}
+              className="w-full flex items-center justify-between px-2 py-1.5 rounded-none text-left hover:bg-zinc-800 text-zinc-200 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                <span>Change Exit Transition</span>
+              </div>
+              <ChevronRight className="w-3 h-3 text-zinc-500" />
+            </button>
+
+            {/* Nested Exit Transitions Submenu */}
+            {contextMenu.showExitSubmenu && (
+              <div
+                className={`absolute z-[300] w-48 bg-zinc-900 border border-zinc-700 rounded-none shadow-2xl p-1 space-y-0.5 max-h-56 overflow-y-auto ${
+                  contextMenu.x + 230 + 195 > window.innerWidth
+                    ? 'right-full mr-1 top-0'
+                    : 'left-full ml-1 top-0'
+                }`}
+              >
+                {TRANSITION_OPTIONS.map((opt) => {
+                  const Icon = opt.icon;
+                  const isCurrent = (activeTargetSubVisual as any)?.exit_transition === opt.id
+                    || ((activeTargetSubVisual as any)?.exit_transition === undefined && opt.id === 'none');
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        onUpdateSubVisualExitTransition?.(contextMenu.sceneIdx, contextMenu.subIdx, opt.id);
+                        setContextMenu(null);
+                      }}
+                      className={`w-full flex items-center justify-between px-2 py-1 rounded-none text-left text-[11px] transition-colors cursor-pointer ${
+                        isCurrent ? 'bg-amber-500/20 text-amber-300 font-bold' : 'text-zinc-300 hover:bg-zinc-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Icon className="w-3 h-3 text-zinc-400" />
+                        <span>{opt.label}</span>
+                      </div>
+                      {isCurrent && <Check className="w-3 h-3 text-amber-400" />}
                     </button>
                   );
                 })}
@@ -1080,7 +1141,6 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
 
             return (
               <>
-                <div className="h-px bg-zinc-800 my-1" />
                 <div className="relative group/delete">
                   <button
                     type="button"
@@ -1091,6 +1151,7 @@ export const Timeline: React.FC<TimelineProps> = React.memo(({
                           ...prev,
                           showDeleteConfirm: !prev.showDeleteConfirm,
                           showTransitionsSubmenu: false,
+                          showExitSubmenu: false,
                         } : null);
                       }
                     }}

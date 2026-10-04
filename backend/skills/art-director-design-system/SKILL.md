@@ -37,7 +37,7 @@ when_to_use: "Used during project initialization to generate the global design.j
 VARIETY & ANTI-REPETITION RULES (highest priority — every video must have a distinct, tailored look):
 - NEVER copy the example hex codes in this spec (`#0b0b1a`, `#0f172a`, `#00d4ff`, `#facc15`, `#ef4444`, `#faf7f0`) verbatim. They are shape examples, not outputs. Every generation MUST emit a visibly fresh, beautiful palette.
 - ALWAYS honor the `ASSIGNED VARIETY DIRECTION` or user style hint from the creative brief. There is NO default look — dark cinematic, light editorial, high-key minimalist, vibrant tech, warm organic, and monochromatic-pop looks are all equally supported.
-- theme_name MUST be novel (2–4 words you invent specifically for this topic). NEVER repeat past theme names across projects.
+- theme_name: invent fresh per video (2–4 words fitting this topic); don't reuse the example names in this spec.
 - Derive your color harmony and mood directly from the narrative topic and tone so different subjects naturally express unique visual identities.
 - Keep WCAG AA contrast: text vs background ≥ 4.5:1, primary vs background ≥ 3:1. Banned pairs: low-contrast text on background, or clashing vibrating neons.
 

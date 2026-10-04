@@ -1207,12 +1207,13 @@ def _layer_reference() -> dict:
         "layer_types": ["Image", "Video", "Text", "Chart", "Shape", "Map",
                         "HTML", "Lottie", "Particles", "Counter",
                         "Background"],
-        "cut_flags": ["transition", "emphasis", "mute_voiceover",
+        "cut_flags": ["transition", "exit_transition", "emphasis", "mute_voiceover",
                       "mute_bg_music"],
         "transitions": ["cut", "none", "fade", "crossfade", "dissolve",
                         "slide_left", "slide_right", "slide_up",
-                        "slide_down", "zoom_in", "zoom_out", "whip_pan",
-                        "glitch"],
+                        "slide_down", "zoom_in", "zoom_out",
+                        "glitch", "blur_focus", "flash", "wipe_right",
+                        "iris_open", "rise", "flip"],
         "tip": "Compose each cut from any types/counts/geometry the schema allows; "
                "field semantics live in declarative-ast Part 1 & Part 2.",
     }
@@ -1949,7 +1950,7 @@ already explicitly specified in the user's request):
      (transitions, text treatments, overlay/texture) is documented in the
      art-director + motion-graphics-designer skills.
   9. search_media to verify each English query resolves BEFORE writing the cut. Successful verifications are recorded session-wide — save_visuals reports any query you did NOT verify as unverified_queries (they fail at fetch_assets). No silent skipping.
-  9b. BEAT PLAN per section (mirrors the internal storyboard stage — unplanned sections repeat by accident): write 1 line per planned cut (intent + transition + media query + layers) BEFORE authoring, e.g. `cut0: main reveal | whip_pan | parliament building wide | <layers>`.
+  9b. BEAT PLAN per section (mirrors the internal storyboard stage — unplanned sections repeat by accident): write 1 line per planned cut (intent + transition + media query + layers) BEFORE authoring, e.g. `cut0: main reveal | slide_left | parliament building wide | <layers>`.
    10. save_visuals_batch for the WHOLE video, DRY-RUN FIRST (MANDATORY WORKFLOW, gates already satisfied in step 6;
       3 calls total: batch dry_run → fix failed indexes → re-dry-run ONLY
       the fixed sections → batch persist. Coverage is content-hashed:
@@ -1969,13 +1970,13 @@ already explicitly specified in the user's request):
     CAPABILITY NOTES (what the harness supports — composition is yours):
     - All 11 content kinds are valid per video (Image, Video, Text,
       Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background). Any Lucide icon, particle overrides, chart tuning, Lottie URLs, yt offsets, loop/volume are allowed.
-    - Cut-level tools: transitions (13 + alias), emphasis punch-ins,
+    - Cut-level tools: transitions (18 + aliases), emphasis punch-ins,
       mute_voiceover/mute_bg_music, motion_blur, camera_shake, FX filters,
       rack-focus blur/brightness keyframes, floating. Field semantics in declarative-ast Part 1 & Part 2.
     - Pair entrance animations (translateY, translateX, translateZ, scale, rotate, rotateX, rotateY)
       with a simultaneous opacity fade ({property: "opacity", from: 0, to: 1, ...})
       whenever delay > 0 so elements stay hidden until they move; spatial-only
-      without fade is allowed ONLY for instant punch/whip beats at delay: 0.
+      without fade is allowed ONLY for instant punch beats at delay: 0.
     The save_visuals response reports variety stats + normalizations +
     timing + unverified_queries:
      read them and enrich flat spots BEFORE moving on. A dry_run with zero
@@ -2293,7 +2294,7 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     - For single-cut patches, supply cut_number or cut_index and a 1-element sub_visuals array.
     - Introduction and Conclusion: pass section_type="introduction" (or "intro") /
       section_type="conclusion" (or "outro") and cut_number (or cut_index).
-    Canonical cut shape ONLY: {duration, transition?,
+    Canonical cut shape ONLY: {duration, transition?, exit_transition?,
     composition:{type:Sequence, children:[{type:Layer,
     content:{type, query/source/text/...,
     style:{left/top/width/height % strings}}, animations, filters}]}}.

@@ -20,7 +20,7 @@ For each scene, output a storyboard plan describing:
 2. **Recipe per beat**: name the recipe from `declarative-ast §7` (A–J) OR describe a custom pattern.
 3. **Layer Types per beat**: list content types + approximate positions (e.g. "Background(grid_flow) + Counter(left 20%, metric) + Text(lower-third, words_stagger)").
 4. **Media needs per beat**: for Image/Video, state the `query` + `source` explicitly.
-5. **Transition per beat**: pick the transition that matches the energy shift.
+5. **Transition per beat**: pick the transition that matches the energy shift. Optional `exit_transition` (reverse over final frames) on beat ends only — never consecutive beats.
 6. **Spatial Layout per beat**: every beat line states layer types + approximate
    positions + motion phases (canvas, establish/develop/evolve/resolve), so the
    AST author never invents geometry.
@@ -39,7 +39,7 @@ Scene 3 (total: 9.0s, 1 continuous take, zoom_in):
 Multi-cut plan (only with beat-shift justification):
 ```
 Scene 5 (total: 9.0s, 2 cuts — Cut 2 because: 1858 London → 2024 Mumbai, geography one map canvas cannot pan to):
-  Cut 1 (5.0s, whip_pan): continuous take as above, ending on London callout
+  Cut 1 (5.0s, slide_left): continuous take as above, ending on London callout
   Cut 2 (4.0s, dissolve): Mumbai B-roll take — Video(youtube, "mumbai coastline aerial") + gauge exit/stagger pair
 ```
 
@@ -158,8 +158,8 @@ Across the full scene sequence:
 - **Alternate energy**: high-energy beat → lower-energy beat → high-energy
 - **Vary base layers**: don't use the same Background preset more than twice in a row
 - **Vary transitions**: pick from different energy groups per scene
-  - High energy: `whip_pan`, `glitch`, `zoom_in`, `slide_left`/`right`
-  - Mid energy: `slide_up`/`down`, `zoom_out`
+  - High energy: `glitch`, `flash`, `flip`, `zoom_in`, `slide_left`/`right`
+  - Mid energy: `slide_up`/`down`, `zoom_out`, `wipe_right`, `iris_open`, `blur_focus`, `rise`
   - Low energy: `crossfade`, `dissolve`, `fade`
 - **Vary recipes**: don't repeat the same recipe for consecutive scenes unless narration demands it
 - **Mix content types**: if 3 consecutive scenes use Counter, plan a Chart or Video beat instead
@@ -173,7 +173,7 @@ Across the full scene sequence:
 - Keep primary content above subtitle safe areas: `18%` landscape, `28%` portrait.
 - Map and Particles cannot be positioned — plan overlay Shapes/Text on top.
 - YouTube clips max 30s — plan accordingly for the beat duration.
-- `content.type` MUST be set on every layer — note it in the plan for the AST author.
+- `content.type` is set on every layer — note it in the plan so the AST author sets it.
 
 ---
 
@@ -185,3 +185,5 @@ Across the full scene sequence:
 - [ ] No chapter title cards planned inside cuts
 - [ ] Layouts are explicit per beat (types + positions + motion described)
 - [ ] Variety rules satisfied (transitions, base layers, recipes varied)
+- [ ] CTA / proof / timeline beats start from a Viral Kit recipe (K–R) or state why the beat needs an original layout
+- [ ] Every beat plans its landing (exit stagger, emphasis punch, or exit_transition — or a reason for a hard stop)
