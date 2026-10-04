@@ -1281,6 +1281,7 @@ export const CanvasOverlay: React.FC<{
   const isLocked = locked === true;
   const compW = compositionSize?.w ?? 1920;
   const compH = compositionSize?.h ?? 1080;
+  const isPortrait = compH > compW;
 
   // P3 drag state: `drag` renders the live box; `dragRef` is the handler-live
   // session (refs are never written during render). `pendingCommit` keeps the
@@ -2061,24 +2062,25 @@ export const CanvasOverlay: React.FC<{
       })}
 
       {/* Selected Cut Info Chip + P2 prev/next layer controls */}
-      <div className="absolute left-2 bottom-2 z-[110] pointer-events-auto flex items-center gap-1.5 pl-1.5 pr-1 py-1 rounded-xl bg-zinc-950/85 backdrop-blur-md border border-zinc-700/60 shadow-lg shadow-black/40 max-w-[calc(100%-16px)]">
+      <div
+        className={`absolute left-2 bottom-2 z-[110] pointer-events-auto w-fit whitespace-nowrap flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-xl bg-zinc-950/85 backdrop-blur-md border border-zinc-700/60 shadow-lg shadow-black/40 origin-bottom-left transition-transform ${
+          isPortrait ? 'scale-[0.80]' : 'scale-100'
+        }`}
+      >
         <span
           className="shrink-0 rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-px text-[10px] font-extrabold tracking-wider text-amber-300"
           title={view.isSceneSection ? `${view.sceneBadge} of ${view.sceneTotal}` : view.sceneBadge}
         >
           {view.sceneBadge}
         </span>
-        {view.sceneTitle && (
-          <span className="truncate text-[10px] font-bold text-zinc-200 max-w-36" title={view.sceneTitle}>
-            {view.sceneTitle}
-          </span>
-        )}
         <span className="shrink-0 text-[10px] font-bold text-zinc-400 tabular-nums">
           Cut {view.displaySubIdx + 1}/{view.cutTotal}
         </span>
-        <span className="shrink-0 hidden sm:inline text-[9px] font-semibold text-zinc-500">
-          {view.children.length} layer{view.children.length === 1 ? '' : 's'}
-        </span>
+        {!isPortrait && (
+          <span className="shrink-0 hidden sm:inline text-[9px] font-semibold text-zinc-500">
+            {view.children.length} layer{view.children.length === 1 ? '' : 's'}
+          </span>
+        )}
         {hasValidSelection && (
           <span className="shrink-0 rounded-full bg-amber-500 px-1.5 py-px text-[9px] font-extrabold text-black tabular-nums">
             L{selectedLayerIndex + 1}
@@ -2089,33 +2091,35 @@ export const CanvasOverlay: React.FC<{
             AI rewriting…
           </span>
         )}
-        <div className="shrink-0 w-px self-stretch bg-zinc-700/60" />
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            cycleLayer(-1);
-          }}
-          disabled={isLocked || view.children.length === 0}
-          title="Previous layer ([)"
-          aria-label="Previous layer"
-          className="shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-amber-400 bg-transparent border-none cursor-pointer transition-colors hover:bg-amber-500/20 active:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent select-none"
-        >
-          {'‹'}
-        </button>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            cycleLayer(1);
-          }}
-          disabled={isLocked || view.children.length === 0}
-          title="Next layer (])"
-          aria-label="Next layer"
-          className="shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-amber-400 bg-transparent border-none cursor-pointer transition-colors hover:bg-amber-500/20 active:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent select-none"
-        >
-          {'›'}
-        </button>
+        <div className="shrink-0 flex items-center gap-0.5">
+          <div className="w-px h-3.5 bg-zinc-700/60 mr-0.5" />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              cycleLayer(-1);
+            }}
+            disabled={isLocked || view.children.length === 0}
+            title="Previous layer ([)"
+            aria-label="Previous layer"
+            className="w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold text-amber-400 bg-transparent border-none cursor-pointer transition-colors hover:bg-amber-500/20 active:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent select-none"
+          >
+            {'‹'}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              cycleLayer(1);
+            }}
+            disabled={isLocked || view.children.length === 0}
+            title="Next layer (])"
+            aria-label="Next layer"
+            className="w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold text-amber-400 bg-transparent border-none cursor-pointer transition-colors hover:bg-amber-500/20 active:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent select-none"
+          >
+            {'›'}
+          </button>
+        </div>
       </div>
     </div>
   );
