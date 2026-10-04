@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 VALID_TRANSITIONS = {
     "none", "cut", "fade", "crossfade", "slide_left", "slide_right", 
     "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "dissolve",
+    "blur_focus", "flash", "wipe_right", "iris_open", "rise", "flip",
 }
 
 
@@ -69,7 +70,9 @@ def normalize_transition(transition: str) -> str:
     if "whip" in t:
         return "slide_left"
     for key in ("slide_left", "slide_right", "slide_up",
-                "slide_down", "zoom_in", "zoom_out", "glitch", "crossfade", "dissolve", "cut", "none"):
+                "slide_down", "zoom_in", "zoom_out", "glitch", "crossfade", "dissolve",
+                "blur_focus", "flash", "wipe_right", "iris_open", "rise", "flip",
+                "cut", "none"):
         if key in t:
             return key
     if "fade" in t:

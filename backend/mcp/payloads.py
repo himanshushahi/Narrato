@@ -1630,9 +1630,12 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                 shake = layer.get("camera_shake")
                 if shake and shake != "none":
                     fx = True
+            # High-energy transitions (mirror the storyboard-planner energy
+            # groups): glitch/flash/flip. Mid-energy effects (slides, zooms,
+            # blur_focus, wipe_right, iris_open, rise) are motion, not energy.
             if (cut.get("emphasis")
-                    or (cut.get("transition") or "") == "glitch"
-                    or (cut.get("exit_transition") or "") == "glitch"):
+                    or (cut.get("transition") or "") in ("glitch", "flash", "flip")
+                    or (cut.get("exit_transition") or "") in ("glitch", "flash", "flip")):
                 fx = True
             return layer_kinds, fx, tuple(geom_buckets)
 

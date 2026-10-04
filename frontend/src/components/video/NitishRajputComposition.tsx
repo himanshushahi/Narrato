@@ -279,6 +279,77 @@ function buildCutTransitionStyle(
       style = { ...style, transform: `scale(${scale})`, opacity };
       break;
     }
+    case 'blur_focus': {
+      // Rack-focus pull: heavy blur snaps sharp + fade. Perf: blur on the
+      // whole-cut wrapper forces a full-subtree repaint per frame — peak
+      // capped at 8px and use sparingly, never on consecutive cuts.
+      const blur = interpolate(frame, [start, end], [8, 0], {
+        ...clampBoth,
+        easing: Easing.out(Easing.cubic),
+      });
+      const opacity = interpolate(frame, [start, start + Math.min(8, len)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, filter: `${style.filter || ''} blur(${Math.max(0, blur)}px)`.trim(), opacity };
+      break;
+    }
+    case 'flash': {
+      // Light-leak pop: hot overexposure decays to normal + fade.
+      const bright = interpolate(frame, [start, end], [2.4, 1], {
+        ...clampBoth,
+        easing: Easing.out(Easing.quad),
+      });
+      const opacity = interpolate(frame, [start, start + Math.min(6, len)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, filter: `${style.filter || ''} brightness(${Math.max(1, bright)})`.trim(), opacity };
+      break;
+    }
+    case 'wipe_right': {
+      // True wipe: content stays static, a mask edge travels left to right.
+      const pct = interpolate(frame, [start, end], [100, 0], {
+        ...clampBoth,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const clip = `inset(0 ${pct}% 0 0)`;
+      const opacity = interpolate(frame, [start, start + Math.min(6, len)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, clipPath: clip, WebkitClipPath: clip, opacity };
+      break;
+    }
+    case 'iris_open': {
+      // Focal reveal: circle iris expands from center + fade.
+      const r = interpolate(frame, [start, end], [0, 75], {
+        ...clampBoth,
+        easing: Easing.out(Easing.cubic),
+      });
+      const clip = `circle(${Math.max(0, r)}% at 50% 50%)`;
+      const opacity = interpolate(frame, [start, start + Math.min(8, len)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, clipPath: clip, WebkitClipPath: clip, opacity };
+      break;
+    }
+    case 'rise': {
+      // Soft float-up: short travel + fade (calm-narration slide_up).
+      // Percent units so travel scales with canvas size (unlike px).
+      const y = interpolate(frame, [start, end], [6, 0], {
+        ...clampBoth,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
+      const opacity = interpolate(frame, [start, start + Math.min(8, len)], [MIN_OPACITY, 1], clampBoth);
+      style = { ...style, transform: `translateY(${y}%)`, opacity };
+      break;
+    }
+    case 'flip': {
+      // 3D card turn: rotateY flattens out with inline perspective + fade.
+      // 45° peak (not edge-on) keeps content readable through the turn.
+      const deg = interpolate(frame, [start, end], [45, 0], {
+        ...clampBoth,
+        easing: Easing.out(Easing.cubic),
+      });
+      const opacity = interpolate(frame, [start, start + Math.min(6, len)], [MIN_OPACITY, 1], clampBoth);
+      style = {
+        ...style,
+        transform: `perspective(1000px) rotateY(${deg}deg)`,
+        transformOrigin: 'center center',
+        opacity,
+      };
+      break;
+    }
     case 'glitch': {
       const isGlitching = rel < Math.min(8, len);
       const glitchX = isGlitching ? (rel % 2 === 0 ? (rel % 4 === 0 ? 15 : -15) : 0) : 0;

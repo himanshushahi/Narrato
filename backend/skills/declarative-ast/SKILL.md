@@ -346,7 +346,7 @@ Spring physics: `damping` (default 14, lower = bouncier), `stiffness` (default 1
 0.9s: Headline kinetic reveal (words_stagger or marker_highlight)
 ```
 
-**Exit Transition** (cut level, optional): `"exit_transition"` plays the reverse of an entrance over the cut's final frames (`"none"` default; same 11 effects as `transition`). Use sparingly — beat ends / section closers only, never on consecutive cuts. Exit and entrance never overlap: sequential with a hard cut between.
+**Exit Transition** (cut level, optional): `"exit_transition"` plays the reverse of an entrance over the cut's final frames (`"none"` default; same effects as `transition`). Use sparingly — beat ends / section closers only, never on consecutive cuts. Exit and entrance never overlap: sequential with a hard cut between. Perf: `blur_focus` (full-cut repaint) and clip-path wipes/iris are the most expensive effects — never on consecutive cuts.
 
 ### 4.3 Physics & Camera Dynamics (Layer Properties)
 ```json
@@ -426,7 +426,7 @@ Cut-level tools (set on the sub-visual, never on Layers):
 ```json
 "transition": "slide_left"
 ```
-`"cut"` | `"slide_left"` | `"slide_right"` | `"slide_up"` | `"slide_down"` | `"zoom_in"` | `"zoom_out"` | `"glitch"` | `"crossfade"` | `"dissolve"` | `"fade"` | `"none"`
+`"cut"` | `"slide_left"` | `"slide_right"` | `"slide_up"` | `"slide_down"` | `"zoom_in"` | `"zoom_out"` | `"glitch"` | `"blur_focus"` | `"flash"` | `"wipe_right"` | `"iris_open"` | `"rise"` | `"flip"` | `"crossfade"` | `"dissolve"` | `"fade"` | `"none"`
 
 ### Mid-Cut Punch-In (`emphasis`)
 ```json

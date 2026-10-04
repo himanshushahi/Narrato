@@ -1212,7 +1212,8 @@ def _layer_reference() -> dict:
         "transitions": ["cut", "none", "fade", "crossfade", "dissolve",
                         "slide_left", "slide_right", "slide_up",
                         "slide_down", "zoom_in", "zoom_out",
-                        "glitch"],
+                        "glitch", "blur_focus", "flash", "wipe_right",
+                        "iris_open", "rise", "flip"],
         "tip": "Compose each cut from any types/counts/geometry the schema allows; "
                "field semantics live in declarative-ast Part 1 & Part 2.",
     }
@@ -1969,7 +1970,7 @@ already explicitly specified in the user's request):
     CAPABILITY NOTES (what the harness supports — composition is yours):
     - All 11 content kinds are valid per video (Image, Video, Text,
       Chart, Shape, Map, HTML, Lottie, Particles, Counter, Background). Any Lucide icon, particle overrides, chart tuning, Lottie URLs, yt offsets, loop/volume are allowed.
-    - Cut-level tools: transitions (13 + alias), emphasis punch-ins,
+    - Cut-level tools: transitions (18 + aliases), emphasis punch-ins,
       mute_voiceover/mute_bg_music, motion_blur, camera_shake, FX filters,
       rack-focus blur/brightness keyframes, floating. Field semantics in declarative-ast Part 1 & Part 2.
     - Pair entrance animations (translateY, translateX, translateZ, scale, rotate, rotateX, rotateY)

@@ -885,8 +885,8 @@ class SubVisualAST(AppBaseModel):
     """A single sub-visual beat/cut in a scene."""
     duration: float = Field(..., gt=0, description="Precise duration in seconds")
     composition: Union[SequenceComposition, Dict[str, Any]] = Field(..., description="Declarative AST composition")
-    transition: Optional[str] = Field(default="cut", description="Transition into this cut (cut, fade, crossfade, dissolve, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, none)")
-    exit_transition: Optional[str] = Field(default="none", description="Transition out of this cut over its final frames, reverse of the entrance (none, cut, fade, crossfade, dissolve, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch). Use sparingly — beat ends only.")
+    transition: Optional[str] = Field(default="cut", description="Transition into this cut (cut, fade, crossfade, dissolve, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, blur_focus, flash, wipe_right, iris_open, rise, flip, none)")
+    exit_transition: Optional[str] = Field(default="none", description="Transition out of this cut over its final frames, reverse of the entrance (none, cut, fade, crossfade, dissolve, slide_left, slide_right, slide_up, slide_down, zoom_in, zoom_out, glitch, blur_focus, flash, wipe_right, iris_open, rise, flip). Use sparingly — beat ends only.")
     emphasis: Optional[List[Dict[str, Any]]] = Field(default=None, description="Mid-cut punch-in zooms: [{at: seconds sub-relative, scale: peak zoom 1.02-1.6, duration: seconds 0.2-2}]")
     subtitle_position: Optional[str] = Field(default=None, description="Subtitle placement override (bottom/top/hidden)")
     visual_path: Optional[str] = Field(default=None, description="Resolved local media file path")

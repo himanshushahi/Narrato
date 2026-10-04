@@ -158,8 +158,8 @@ Across the full scene sequence:
 - **Alternate energy**: high-energy beat → lower-energy beat → high-energy
 - **Vary base layers**: don't use the same Background preset more than twice in a row
 - **Vary transitions**: pick from different energy groups per scene
-  - High energy: `glitch`, `zoom_in`, `slide_left`/`right`
-  - Mid energy: `slide_up`/`down`, `zoom_out`
+  - High energy: `glitch`, `flash`, `flip`, `zoom_in`, `slide_left`/`right`
+  - Mid energy: `slide_up`/`down`, `zoom_out`, `wipe_right`, `iris_open`, `blur_focus`, `rise`
   - Low energy: `crossfade`, `dissolve`, `fade`
 - **Vary recipes**: don't repeat the same recipe for consecutive scenes unless narration demands it
 - **Mix content types**: if 3 consecutive scenes use Counter, plan a Chart or Video beat instead

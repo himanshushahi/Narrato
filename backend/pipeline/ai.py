@@ -2119,8 +2119,8 @@ Part 2: Universal Advanced Manipulation (any layer):
 - Layer Ergonomics: name (descriptive label), visible: false (hide from preview+export), locked: true (lock canvas), color_tag (grouping hex).
 
 Part 3: Cut Transitions & Energy (cut level):
-- Transitions: "transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "glitch" | "crossfade" | "dissolve" | "fade" | "none".
-- Exit transitions (final frames of the cut, reverse of the entrance): "exit_transition": "none" (default) | "cut" | same 11 effects as above. Use SPARINGLY — beat ends / section closers only, never on consecutive cuts. Exit and entrance never overlap: each plays sequentially with a hard cut between.
+- Transitions: "transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "glitch" | "blur_focus" | "flash" | "wipe_right" | "iris_open" | "rise" | "flip" | "crossfade" | "dissolve" | "fade" | "none".
+- Exit transitions (final frames of the cut, reverse of the entrance): "exit_transition": "none" (default) | "cut" | same effects as above. Use SPARINGLY — beat ends / section closers only, never on consecutive cuts. Exit and entrance never overlap: each plays sequentially with a hard cut between.
 - Mid-Cut Punch-Ins: "emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}].
 - Audio Ducking: "mute_voiceover": true | "mute_bg_music": true.
 

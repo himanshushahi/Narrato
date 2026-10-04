@@ -4,8 +4,10 @@ import { usePlaybackStore } from '../../../store/usePlaybackStore';
 import {
   Image as ImageIcon, Map as MapIcon, Layers,
   BarChart3, Shapes, Type, Video as VideoIcon,
-  Code, Sparkles, Sparkle, Zap, ZoomIn, ZoomOut, MoveRight,
-  Minus, Hash, Palette, Trash2, Target, X
+  Code, Sparkles, Sparkle, Zap, ZoomIn, ZoomOut, MoveRight, MoveLeft,
+  MoveUp, MoveDown, SeparatorVertical,
+  Minus, Hash, Palette, Trash2, Target, X, Focus, Sun,
+  Circle, ArrowUp, FlipHorizontal2
 } from 'lucide-react';
 import { formatTime } from '../../../features/ProjectEditor/constants';
 import { FPS, HEADER_WIDTH } from '../timelineConstants';
@@ -26,12 +28,18 @@ const SCENE_COLORS = [
 export const TRANSITION_OPTIONS = [
   { id: 'cut', label: 'Hard Cut', icon: Minus, desc: 'Instant frame cut' },
   { id: 'fade', label: 'Fade In/Out', icon: Layers, desc: 'Smooth cross-dissolve' },
-  { id: 'slide_left', label: 'Slide Left', icon: MoveRight, desc: 'Push from right to left' },
+  { id: 'slide_left', label: 'Slide Left', icon: MoveLeft, desc: 'Push from right to left' },
   { id: 'slide_right', label: 'Slide Right', icon: MoveRight, desc: 'Push from left to right' },
-  { id: 'slide_up', label: 'Slide Up', icon: MoveRight, desc: 'Push from bottom to top' },
-  { id: 'slide_down', label: 'Slide Down', icon: MoveRight, desc: 'Push from top to bottom' },
+  { id: 'slide_up', label: 'Slide Up', icon: MoveUp, desc: 'Push from bottom to top' },
+  { id: 'slide_down', label: 'Slide Down', icon: MoveDown, desc: 'Push from top to bottom' },
   { id: 'zoom_in', label: 'Zoom In', icon: ZoomIn, desc: 'Dramatic punch-in scale' },
   { id: 'zoom_out', label: 'Zoom Out', icon: ZoomOut, desc: 'Reveal scale-down' },
+  { id: 'blur_focus', label: 'Blur Focus', icon: Focus, desc: 'Rack-focus pull sharp' },
+  { id: 'flash', label: 'Flash', icon: Sun, desc: 'Light-leak overexposure pop' },
+  { id: 'wipe_right', label: 'Wipe Right', icon: SeparatorVertical, desc: 'Mask edge reveals L to R' },
+  { id: 'iris_open', label: 'Iris Open', icon: Circle, desc: 'Circle iris expands' },
+  { id: 'rise', label: 'Rise', icon: ArrowUp, desc: 'Soft float-up settle' },
+  { id: 'flip', label: 'Flip', icon: FlipHorizontal2, desc: '3D card turn' },
   { id: 'glitch', label: 'Glitch Shift', icon: Zap, desc: 'Digital chromatic glitch' },
   { id: 'crossfade', label: 'Crossfade', icon: Sparkles, desc: 'Seamless layer blend' },
   { id: 'dissolve', label: 'Dissolve', icon: Sparkles, desc: 'Soft film dissolve' },

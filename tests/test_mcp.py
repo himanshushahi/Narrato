@@ -1610,6 +1610,43 @@ def test_save_visuals_counts_energy_moments(tmp_path, monkeypatch):
     assert result["variety"]["energy_cuts"] == 1
 
 
+def test_save_visuals_accepts_new_transitions_and_exit(tmp_path, monkeypatch):
+    from backend.agent.validators import VALID_TRANSITIONS
+    for t in ("blur_focus", "flash", "wipe_right", "iris_open", "rise", "flip"):
+        assert t in VALID_TRANSITIONS
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    cut = _text_cut(duration=8.0)
+    cut["transition"] = "iris_open"
+    cut["exit_transition"] = "rise"
+    result = payloads.save_visuals_payload("proj_mcp", "introduction", [cut])
+    assert result["ok"] is True
+    assert result["variety"]["transitions_used"] == ["iris_open"]
+    assert result["variety"]["exits_used"] == ["rise"]
+    assert not any("remapped" in n for n in result["variety"]["normalizations"])
+    # Mid-energy effects are motion, not energy moments.
+    assert result["variety"]["energy_cuts"] == 0
+
+
+def test_save_visuals_flash_flip_count_as_energy(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    cut = _text_cut(duration=8.0)
+    cut["transition"] = "flash"
+    cut["exit_transition"] = "flip"
+    result = payloads.save_visuals_payload("proj_mcp", "introduction", [cut])
+    assert result["ok"] is True
+    assert result["variety"]["energy_cuts"] == 1
+
+
+def test_save_visuals_remaps_whip_pan_legacy(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    cut = _text_cut(duration=8.0)
+    cut["transition"] = "whip_pan"
+    result = payloads.save_visuals_payload("proj_mcp", "introduction", [cut])
+    assert result["ok"] is True
+    assert any("whip_pan" in n and "slide_left" in n
+               for n in result["variety"]["normalizations"])
+
+
 def test_create_and_list_projects_via_server(tmp_path, monkeypatch):
     from backend.mcp import server
     _patch_storage(monkeypatch, tmp_path)
