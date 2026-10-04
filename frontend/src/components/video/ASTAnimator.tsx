@@ -659,11 +659,10 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     [mask, frame, fps]
   );
 
-  // If exit cutoff has been reached, unmount the layer completely so it doesn't linger
-  if (exitFrame !== null && frame >= exitFrame) {
-    return null;
-  }
-
+  // Rules-of-hooks: this memo MUST stay above the exit early-return below.
+  // Returning null before it changes the hook count between renders, which
+  // throws "Rendered fewer hooks than expected" the moment an exit cutoff
+  // is crossed — the boundary then swallowed the layer for the session.
   const content = useMemo(() => {
     if (!shapeClip && !revealClip) {
       return children;
@@ -728,6 +727,11 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
       },
     });
   }, [children, shapeClip, revealClip]);
+
+  // If exit cutoff has been reached, unmount the layer completely so it doesn't linger
+  if (exitFrame !== null && frame >= exitFrame) {
+    return null;
+  }
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', ...style }}>
