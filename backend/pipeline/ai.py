@@ -2131,6 +2131,17 @@ Layer 1: Atmospheric Particles or Shape framing (corner_brackets or glass card).
 Layer 2: Hero infographic (Chart, Counter, cutout Image, or animated SVG path).
 Layer 3: Synced kinetic Text with marker_highlight or words_stagger above bottom: 18% (landscape) / 28% (portrait).
 
+VIRAL KIT (declarative-ast §7 Recipes K–R + Craft Notes — study them):
+CTA/subscribe, lower-third, ticker, device mockup, testimonial, before/after,
+countdown, and milestone beats work best starting from the matching Viral Kit
+recipe, adapted to the topic — depart whenever your 1-line beat plan gives the
+beat a better idea. House style to internalize: typically a rich stack
+(foundation + atmosphere + hero + text) where the count follows the beat,
+staggered entrances (0.0/0.3/0.6s + opacity pairing), motion through the whole
+cut, an intentional filter grade, and every cut landing with a closer (exit
+stagger, emphasis punch, or exit_transition). Single static centered cards with
+nothing moving are the one look to avoid.
+
 RULES:
 - DURATION: Sum of cut durations MUST equal exactly the provided scene duration.
 - 🚫 NO CHAPTER TITLE BADGES: Root composition overlay engine handles continuous chapter branding.

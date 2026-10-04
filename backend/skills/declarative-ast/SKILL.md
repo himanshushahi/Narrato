@@ -665,6 +665,182 @@ These are proven patterns — pick one and adapt to the topic. Don't repeat the 
 // Add: motion_blur: true, shutter_angle: 90 for crisp but dimensional feel
 ```
 
+### Viral Kit — Senior-Editor Compositions (K–R)
+
+Generic output looks like PowerPoint: one centered card, one fade, nothing moves.
+The recipes below show how senior editors compose the formats viewers already
+love — start from one and adapt colors/text/motion to the topic, or depart
+entirely when the beat has a better idea (say why in the beat plan). The one
+habit to keep either way: 3+ layers with jobs, staggered entrances
+(0.0s / 0.3s / 0.6s), continuous motion somewhere, and a closer (exit stagger,
+`emphasis` punch, or `exit_transition`). Avoid repeating a recipe on
+consecutive cuts.
+
+### Recipe K: "Subscribe Surge" (2.5–3.5s) — Channel CTA that converts
+```json
+{
+  "duration": 3.0, "transition": "zoom_in",
+  "composition": { "type": "Sequence", "children": [
+    { "type": "Layer", "content": { "type": "Background", "background_preset": "vignette_loop", "colors": ["#0a0a1a", "#7c3aed", "#ec4899"], "speed": 1.4 } },
+    { "type": "Layer", "content": { "type": "Particles", "particle_preset": "embers", "particle_count": 25, "particle_opacity": 0.2, "particle_speed": 0.9, "particle_direction": "up" } },
+    { "type": "Layer", "content": { "type": "Shape", "shape_type": "rectangle", "fill": "#ff0033", "corner_radius": 50 }, "style": { "left": "30%", "top": "38%", "width": "40%", "height": "14%" },
+      "animations": [{"property": "scale", "from": 0.6, "to": 1.0, "duration": 0.45, "delay": 0.25, "easing": "spring"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.25, "easing": "ease-out"}] },
+    { "type": "Layer", "content": { "type": "Text", "text": "SUBSCRIBE", "font": "Inter", "weight": "900", "color": "#ffffff", "animation_mode": "static", "style": { "fontSize": "54px", "textAlign": "center" } }, "style": { "left": "30%", "top": "39%", "width": "40%" },
+      "animations": [{"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.4, "easing": "ease-out"}] },
+    { "type": "Layer", "content": { "type": "Shape", "shape_type": "icon", "icon_name": "bell-ring", "fill": "#facc15", "glow": true }, "style": { "left": "72%", "top": "36%", "width": "10%", "height": "18%" }, "floating": true,
+      "animations": [{"property": "scale", "from": 0, "to": 1.0, "duration": 0.5, "delay": 0.6, "easing": "back"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.6, "easing": "ease-out"}] },
+    { "type": "Layer", "content": { "type": "Counter", "value": 1000000, "suffix": "", "title": "JOIN THE COMMUNITY", "font_size": 44, "color": "#facc15" }, "style": { "left": "30%", "top": "58%", "width": "40%", "height": "20%" },
+      "animations": [{"property": "translateY", "from": 30, "to": 0, "duration": 0.5, "delay": 0.7, "easing": "ease-out"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.7, "easing": "ease-out"}] }
+  ]}
+}
+```
+
+### Recipe L: "Lower Third" (3–4s) — Name/title card over B-roll
+```json
+// Layer 0: Video (pexels/youtube B-roll) + Cinematic Dark Base filter + slow scale drift
+// Layer 1: Shape (rectangle, accent fill e.g. #38bdf8, no radius) — vertical bar at left: "6%", top: "68%", width: "1.2%", height: "18%". Entrance: scale 0→1 spring at 0.3s
+// Layer 2: Text (name, weight 800, 44px, white) at left: "9%", top: "66%", width: "50%" — words_stagger at 0.4s
+// Layer 3: Text (role/context, weight 400, 26px, #94a3b8) at left: "9%", top: "76%", width: "50%" — opacity at 0.6s
+// Layer 4 (optional): Shape (icon relevant to person: mic, trophy, building) small at right, floating
+// Closer: whole card exits via layer exit:true tracks at (duration - 0.8s), or cut exit_transition: slide_left
+```
+
+### Recipe M: "Ticker Tape" (3–5s) — Breaking-news urgency strip
+```json
+// Layer 0: Background (dots or blueprint, dim) OR Video B-roll darkened
+// Layer 1: Shape (rectangle full-bleed band: left: "0%", top: "78%", width: "100%", height: "12%", fill: "rgba(220,38,38,0.92)") — opacity entrance at 0.1s
+// Layer 2: Text (ALL-CAPS headline, 40px, white, static mode, headline text written TWICE with wide gap) full band: left: "0%", top: "79%", width: "100%" — loop_mode: loop, translateX from: 0, to: -960 (px, half the 1920 canvas), duration = cut duration, linear easing. The duplicated halves make each cycle seamless; validator clamps width to 100% so never author wider
+// Layer 3: Shape (icon: zap or flame, white) pinned left inside band — static anchor while text scrolls behind
+// Transition: cut (the motion IS the transition)
+```
+
+### Recipe N: "Device Mockup" (3–4s) — Screenshots that feel native
+```json
+// Layer 0: Background (gradient_mesh with brand colors) + Particles (dust, 20 count)
+// Layer 1: HTML (phone frame: rounded 48px border, notch bar, status row with time/battery via inline HTML/CSS) at left: "32%", top: "8%", width: "36%", height: "84%" — spring scale 0.9→1 at 0.2s + floating
+// Layer 2: Image/Video (the screenshot or screen recording, objectFit: cover) inset INSIDE the frame: left: "34.5%", top: "14%", width: "31%", height: "68%" — opacity at 0.4s
+// Layer 3: Text (caption below device, words_stagger at 0.6s): left: "20%", top: "88%", width: "60%"
+// Rule: Harness rule — the HTML frame NEVER carries the media (fetch_assets
+// only registers Image/Video layers) — media is always a separate layer
+// registered for fetch_assets, positioned inside the frame area
+```
+
+### Recipe O: "Social Proof Card" (3–4s) — Testimonial/review that sells
+```json
+// Layer 0: Video (soft lifestyle B-roll) + Dream Blur filter + slow scale drift
+// Layer 1: HTML (glass card: backdrop blur, 5 gold stars ★★★★★, quote text, avatar circle + name/handle row) at left: "18%", top: "22%", width: "64%", height: "52%" — spring scale 0.85→1 at 0.3s
+// Layer 2: Shape (icon: heart or thumbs-up, fill #ec4899, glow) top-right of card — back-ease pop at 0.7s + floating
+// Layer 3: Counter (the metric: 4.9 rating, 12K reviews, suffix as needed) under card — translateY entrance at 0.9s
+// Layer 4: Particles (stars, 15 count, opacity 0.15) — celebration dust
+// Transition: rise or blur_focus (soft, trustworthy — never glitch)
+```
+
+### Recipe P: "Before/After Reveal" (3.5–5s) — Transformation beats
+```json
+// Layer 0: Image (BEFORE state, cover, full canvas) + Noir Hard or Archival Monochrome filter + label Text ("BEFORE", top-left chip) at 0.0s
+// Layer 1: Image (AFTER state, cover, full canvas) with mask: { "reveal": "wipe_right", "reveal_duration": 1.2, "reveal_delay": 1.2, "reveal_easing": "ease-in-out" } — wipes over the before at the narration turning point
+// Layer 2: Text ("AFTER", top-right chip, accent color) — opacity paired to reveal_delay
+// Layer 3: Shape (horizontal_line divider, draw_animation) + Counter (the delta: +212%, -30 days) — punch at reveal end
+// Rule: the two images should share framing (same subject/scale) or the wipe reads as a cut
+```
+
+### Recipe Q: "Countdown Payoff" (3–4s) — Quiz/hook resolution
+```json
+// Layer 0: Background (vignette_loop, tense color e.g. deep red/indigo) + camera_shake: handheld (subtle)
+// Layer 1: Text ("3", 400px, weight 900, center) — entrance scale 1.4→1 at 0.2s + layer exit:true at 1.0s
+// Layer 2: Text ("2", same style) — entrance at 1.1s + layer exit:true at 1.9s
+// Layer 3: Text ("1", same style) — entrance at 2.0s + layer exit:true at 2.8s
+// Layer 4: Text (THE ANSWER, marker_highlight, 72px) — spring entrance at 2.9s, holds past cut end
+// Audio: mute_bg_music: true on this cut for the tension pause, music returns next cut
+// Pattern: Recipe I (exit stagger) applied to numerals — each number vacates before the next lands
+```
+
+### Recipe R: "Milestone Journey" (4–6s) — N-event timelines
+```json
+// Layer 0: Background (blueprint — engineering graph suits timelines)
+// Layer 1: Shape (path preset: horizontal_line, stroke accent, stroke_width 4, draw_animation: true) full-width mid-canvas — the track draws itself in the first 1.5s
+// Layer 2/3/4: Three Shape nodes (circle, fill background color, stroke accent, glow) at 20% / 50% / 80% x — scale 0→1 back-ease at 0.8s / 1.6s / 2.4s, each paired with opacity
+// Layer 5/6/7: Three Text labels (year + event, 30px) under each node — opacity paired to node delays
+// Layer 8: Counter (final cumulative metric) top-right — entrance at last node + 0.3s
+// Portrait: stack vertically — track becomes vertical line at left: "12%", nodes at 25% / 50% / 75% y
+```
+
+### Craft Notes (how senior editors think — internalize, don't memorize)
+
+These are the habits that separate broadcast work from slideshows. Treat them
+as strong defaults; break one whenever the beat has a reason, and note the
+reason in the beat plan. The only look with no reason is a single static
+centered card with nothing moving.
+
+1. **Give every layer a job.** Foundation / atmosphere / hero / text — if you
+   can't name what a layer does for the narration, cut it. Three working
+   layers beat five decorative ones.
+2. **Stagger entrances.** 0.0s / 0.3s / 0.6s reads as choreography; everything
+   at delay 0 reads as a template. Pair every delayed entrance with opacity
+   0→1 at the same delay.
+3. **Keep the canvas alive.** Drift, loop, floating, draw_animation, ticker —
+   plan motion past the midpoint so no tail freezes (see the frozen-tail rule
+   in motion-graphics-designer).
+4. **Land every cut.** An exit stagger, an `emphasis` punch, or an
+   `exit_transition` tells the viewer the beat is over; cuts that just stop
+   feel unfinished.
+5. **Grade with intent.** Flat stock reads as slideshow: darken B-roll under
+   text (Cinematic Dark Base), set mood (Golden Hour / Noir Hard / Night
+   Vision), frost cards with backdrop blur.
+6. **One headline per frame.** Headline (large, kinetic mode) + support line
+   (small, static, muted). Two competing large texts split attention.
+7. **Transitions carry meaning.** Calm narration: fade/dissolve/rise/blur_focus.
+   Energy shift: slide/zoom/flash/flip/wipe_right. Shock only: glitch. Avoid the
+   same transition twice in a row — repetition reads louder than the effect.
+8. **Reach for evidence.** Archive photo, map route, document, real footage —
+   the real thing beats another icon + headline card (§5).
+9. **Use the whole canvas.** Geometry is free-form LayerBox % — nothing forces
+   centered cards. Corners, edges, asymmetry, rule-of-thirds intersections:
+   vary the occupied region cut to cut so consecutive beats don't share a
+   silhouette. The only hard limits are the subtitle safe areas
+   (`bottom: 18%` landscape / `28%` portrait).
+
+### Modern Editing Techniques (the grammar already supports all of these)
+
+These are how working editors shape feeling across cuts. Each names the beats
+it suits — use the technique, not necessarily the example layout.
+
+- **Match cut.** Same palette, same screen position, same motion direction on
+  both sides of a `cut` transition (e.g. red circle wipe-position → red sun in
+  footage). Continuity does the work; no effect needed. Best for: time jumps,
+  before/after eras.
+- **Invisible cut.** Same Background preset + same drift direction on both
+  cuts, `cut` transition, one foreground element crossing the boundary
+  (a sliding Shape or ticker that starts in cut A and re-enters in cut B).
+  Best for: long explainers that must feel like one take.
+- **Montage rhythm.** 0.8–1.2s cuts, one job each (face → hands → map →
+  document), same music bed unmuted throughout, `cut` transitions only.
+  Energy comes from cutting pace, not effects. Best for: travel/action
+  sequences, "meanwhile" passages.
+- **Let the bed run (J-cut feel).** Don't duck music across an emotional
+  boundary (`mute_bg_music` stays off); pair with dissolve so the continuous
+  audio carries the visual change. True J-cuts need audio timelines — this is
+  the closest the cut-flag grammar gets, and it works.
+- **Reaction beat.** After a punchline stat, hold 1.2s+ on a human face with a
+  slow push-in (scale 1.0→1.06) and dissolve out. Silence + face beats any
+  graphic for emotional landings.
+- **Split-screen duel.** Two Image/Video layers at 50% width each + Shape
+  divider line with draw_animation + competing labels. Auto-animating divider
+  optional (divider drifts 50→42% over the cut). Best for: vs comparisons,
+  then/now, two viewpoints.
+- **Loop seam.** `loop_mode: loop` textures, particles, or ticker beds make
+  long takes feel endless — verify the loop point is invisible (linear easing,
+  matching start/end values). A visible pop at the seam ruins the take.
+- **Speed feel without time-remap.** The grammar has no retiming, so imply
+  velocity: `motion_blur: true` + narrow `shutter_angle` (45–90) + fast slide
+  + scale punch on the same beat. Best for: launches, crashes, reveals.
+- **Text echo.** Oversized muted Text (10–15% opacity, 200px+) behind the hero
+  as texture — a repeated keyword or giant number. Depth without another
+  asset. Best for: data beats that need weight.
+- **Cold open.** First cut of the video starts mid-motion: delay-0 entrances,
+  `cut` transition, hook text already moving on frame 0. No logo, no fade-in
+  from black — the viewer lands inside the story.
+
 ---
 
 ## 8. Landscape vs Portrait Mode Reference

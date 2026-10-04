@@ -173,7 +173,7 @@ Across the full scene sequence:
 - Keep primary content above subtitle safe areas: `18%` landscape, `28%` portrait.
 - Map and Particles cannot be positioned — plan overlay Shapes/Text on top.
 - YouTube clips max 30s — plan accordingly for the beat duration.
-- `content.type` MUST be set on every layer — note it in the plan for the AST author.
+- `content.type` is set on every layer — note it in the plan so the AST author sets it.
 
 ---
 
@@ -185,3 +185,5 @@ Across the full scene sequence:
 - [ ] No chapter title cards planned inside cuts
 - [ ] Layouts are explicit per beat (types + positions + motion described)
 - [ ] Variety rules satisfied (transitions, base layers, recipes varied)
+- [ ] CTA / proof / timeline beats start from a Viral Kit recipe (K–R) or state why the beat needs an original layout
+- [ ] Every beat plans its landing (exit stagger, emphasis punch, or exit_transition — or a reason for a hard stop)
