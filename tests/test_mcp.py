@@ -1571,7 +1571,7 @@ def test_save_design_warns_palette_only(tmp_path, monkeypatch):
             "typography": {"heading_font": "Inter"}, "css_guidelines": "…"}
     result = payloads.save_design_payload("proj_mcp", bare)
     assert result["ok"] is True and "warning" in result
-    rich = dict(bare, motion_language={"transitions": "whip_pan for shock beats"})
+    rich = dict(bare, motion_language={"transitions": "slide_left for shock beats"})
     result = payloads.save_design_payload("proj_mcp", rich)
     assert result["ok"] is True and "warning" not in result
 
@@ -1603,7 +1603,7 @@ def test_save_visuals_flags_transition_remap(tmp_path, monkeypatch):
 def test_save_visuals_counts_energy_moments(tmp_path, monkeypatch):
     _setup_visuals_proj(tmp_path, monkeypatch)
     cut = _text_cut(duration=8.0)
-    cut["transition"] = "whip_pan"
+    cut["transition"] = "glitch"
     cut["emphasis"] = [{"at": 1.0, "scale": 1.2, "duration": 0.5}]
     result = payloads.save_visuals_payload("proj_mcp", "introduction", [cut])
     assert result["ok"] is True

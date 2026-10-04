@@ -29,7 +29,7 @@ NO CHAPTER CARDS: Never put chapter title text inside sub-visual cuts.
 ```json
 {
   "duration": 3.5,
-  "transition": "whip_pan",
+  "transition": "slide_left",
   "emphasis": [{ "at": 1.2, "scale": 1.15, "duration": 0.5 }],
   "composition": {
     "type": "Sequence",
@@ -346,6 +346,8 @@ Spring physics: `damping` (default 14, lower = bouncier), `stiffness` (default 1
 0.9s: Headline kinetic reveal (words_stagger or marker_highlight)
 ```
 
+**Exit Transition** (cut level, optional): `"exit_transition"` plays the reverse of an entrance over the cut's final frames (`"none"` default; same 11 effects as `transition`). Use sparingly — beat ends / section closers only, never on consecutive cuts. Exit and entrance never overlap: sequential with a hard cut between.
+
 ### 4.3 Physics & Camera Dynamics (Layer Properties)
 ```json
 { "floating": true, "motion_blur": true, "shutter_angle": 180, "camera_shake": "handheld" }
@@ -422,9 +424,9 @@ Cut-level tools (set on the sub-visual, never on Layers):
 
 ### Transitions (on sub-visual, not on Layer)
 ```json
-"transition": "whip_pan"
+"transition": "slide_left"
 ```
-`"cut"` | `"slide_left"` | `"slide_right"` | `"slide_up"` | `"slide_down"` | `"zoom_in"` | `"zoom_out"` | `"whip_pan"` | `"glitch"` | `"crossfade"` | `"dissolve"` | `"fade"` | `"none"`
+`"cut"` | `"slide_left"` | `"slide_right"` | `"slide_up"` | `"slide_down"` | `"zoom_in"` | `"zoom_out"` | `"glitch"` | `"crossfade"` | `"dissolve"` | `"fade"` | `"none"`
 
 ### Mid-Cut Punch-In (`emphasis`)
 ```json
@@ -589,7 +591,7 @@ These are proven patterns — pick one and adapt to the topic. Don't repeat the 
 // Layer 1: Particles (dust, 30-50 count, opacity 0.12-0.18) — atmospheric depth
 // Layer 2: Shape (horizontal_line preset, draw_animation: true) — divider accent
 // Layer 3: Text (words_stagger or marker_highlight, large headline)
-// Transition: whip_pan or slide_left for high energy
+// Transition: slide_left for high energy
 ```
 
 ### Recipe C: "Infographic Reveal" (3–4.5s) — Chart with data story

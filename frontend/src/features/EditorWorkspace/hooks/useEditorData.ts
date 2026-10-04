@@ -460,10 +460,12 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
           // the script side keeps the player and timeline badges in sync with
           // unsaved editor changes instead of showing the stale manifest value.
           const resolvedTransition = lsv.transition || lsv.transition_type || osv.transition || osv.transition_type;
+          const resolvedExit = (lsv as any).exit_transition || (osv as any).exit_transition || 'none';
           return {
             ...osv,
             transition: resolvedTransition,
             transition_type: resolvedTransition,
+            exit_transition: resolvedExit,
             // Script is the source of truth for punch-ins too (same reason).
             emphasis: (lsv as any).emphasis ?? (osv as any).emphasis,
             visual_meta: lsv.visual_meta,

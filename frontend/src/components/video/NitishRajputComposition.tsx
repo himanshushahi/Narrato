@@ -19,6 +19,8 @@ interface SubVisual {
   mute_bg_music?: boolean;
   /** Entrance transition animation */
   transition?: string;
+  /** Exit transition animation (plays over the final frames of the cut) */
+  exit_transition?: string;
   /** Mid-cut punch-in zooms (MrBeast-style emphasis): sudden scale-up + settle. */
   emphasis?: EmphasisMark[];
 }
@@ -144,27 +146,69 @@ const SceneGate: React.FC<{
 
 const SubVisualTransitionWrapper: React.FC<{
   transition?: string;
+  exitTransition?: string;
   durationInFrames: number;
   children: React.ReactNode;
-}> = ({ transition = 'cut', durationInFrames, children }) => {
+}> = ({ transition = 'cut', exitTransition = 'none', durationInFrames, children }) => {
   const frame = useCurrentFrame();
 
-  if (!transition || transition === 'none' || transition === 'cut') {
+  const hasEntrance = !!transition && transition !== 'none' && transition !== 'cut';
+  const hasExit = !!exitTransition && exitTransition !== 'none' && exitTransition !== 'cut';
+  if (!hasEntrance && !hasExit) {
     return <>{children}</>;
   }
 
-  // 12-15 frame entrance animation, capped at half the cut duration
-  const transFrames = Math.min(14, Math.max(4, Math.floor(durationInFrames / 2)));
-  // Settle-bail WITHOUT unmounting: past transFrames every branch has
-  // converged to opacity 1 + identity transform, so render that final style
-  // directly (no interpolate calls) but KEEP the same wrapper div. Returning
-  // a bare fragment here previously swapped div -> fragment mid-cut, which
-  // made React unmount + remount the whole subtree — destroying loaded
-  // <Video>/<Img> elements ~0.5s into the cut (white/black flash while the
-  // fresh element re-buffered). glitch keeps its own window (handled in case).
-  if (transition !== 'glitch' && frame > transFrames) {
+  // Entrance and exit share the cut's frame budget — when both are set each
+  // is capped at a third so the windows can never overlap on short cuts.
+  // The 4-frame floor can still overflow a degenerate micro-cut (split to
+  // minimum): then the budget is split evenly and the entrance keeps
+  // precedence on any shared frame.
+  const both = hasEntrance && hasExit;
+  const cap = both
+    ? Math.max(4, Math.floor(durationInFrames / 3))
+    : Math.max(4, Math.floor(durationInFrames / 2));
+  let inFrames = hasEntrance ? Math.min(14, cap) : 0;
+  let outFrames = hasExit ? Math.min(14, cap) : 0;
+  if (both && inFrames + outFrames > durationInFrames) {
+    inFrames = Math.max(1, Math.floor(durationInFrames / 2));
+    outFrames = Math.max(0, durationInFrames - inFrames);
+  }
+  const exitStart = durationInFrames - outFrames;
+
+  // Hold zone: past the entrance every effect has converged to opacity 1 +
+  // identity transform, so render that final style directly (no interpolate
+  // calls) but KEEP the same wrapper div. Returning a bare fragment here
+  // previously swapped div -> fragment mid-cut, which made React unmount +
+  // remount the whole subtree — destroying loaded <Video>/<Img> elements
+  // ~0.5s into the cut (white/black flash while the fresh element
+  // re-buffered). glitch keeps its own window (handled in the builder).
+  if (frame >= inFrames && frame < exitStart) {
     return <div style={{ width: '100%', height: '100%', opacity: 1 }}>{children}</div>;
   }
+
+  let style: React.CSSProperties = { width: '100%', height: '100%' };
+  if (hasEntrance && frame < inFrames) {
+    style = { ...style, ...buildCutTransitionStyle(transition, frame, 0, inFrames) };
+  } else if (hasExit && frame >= exitStart) {
+    // Mirror time so the exit is the reverse of the entrance: identity at
+    // exitStart, full displacement at the cut end. Reuses the same builder.
+    const mirrored = exitStart + (exitStart + outFrames - frame);
+    style = { ...style, ...buildCutTransitionStyle(exitTransition, mirrored, exitStart, outFrames) };
+  }
+  return <div style={style}>{children}</div>;
+};
+/**
+ * One cut-transition effect evaluated over the window [start, start+len].
+ * Shared by entrances (window at cut start) and exits (caller mirrors time
+ * so the exit reads as the reverse: identity at window start, full
+ * displacement at window end).
+ */
+function buildCutTransitionStyle(
+  kind: string | undefined,
+  frame: number,
+  start: number,
+  len: number,
+): React.CSSProperties {
   // Clamp config shared by every interpolation – prevents black flash during
   // headless export where sub-visuals are non-overlapping and the previous
   // sub-visual is already unmounted when this one starts at opacity 0.
@@ -172,84 +216,73 @@ const SubVisualTransitionWrapper: React.FC<{
   // Minimum opacity ensures the content is never fully invisible on frame 0,
   // which avoids exposing the black background between non-overlapping sequences.
   const MIN_OPACITY = 0.35;
-  let style: React.CSSProperties = { width: '100%', height: '100%' };
+  const end = start + len;
+  let style: React.CSSProperties = {};
+  const rel = frame - start;
+  // Legacy alias: whip_pan was removed from the enum — old projects still
+  // carrying it render as slide_left (closest surviving motion).
+  const kindEff = kind === 'whip_pan' ? 'slide_left' : kind;
 
-  switch (transition) {
+  switch (kindEff) {
     case 'slide_left':
     case 'subtle_slide': {
-      const x = interpolate(frame, [0, transFrames], [100, 0], {
+      const x = interpolate(frame, [start, end], [100, 0], {
         ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      const opacity = interpolate(frame, [start, start + Math.min(6, len)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `translateX(${x}%)`, opacity };
       break;
     }
     case 'slide_right': {
-      const x = interpolate(frame, [0, transFrames], [-100, 0], {
+      const x = interpolate(frame, [start, end], [-100, 0], {
         ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      const opacity = interpolate(frame, [start, start + Math.min(6, len)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `translateX(${x}%)`, opacity };
       break;
     }
     case 'slide_up': {
-      const y = interpolate(frame, [0, transFrames], [100, 0], {
+      const y = interpolate(frame, [start, end], [100, 0], {
         ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      const opacity = interpolate(frame, [start, start + Math.min(6, len)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `translateY(${y}%)`, opacity };
       break;
     }
     case 'slide_down': {
-      const y = interpolate(frame, [0, transFrames], [-100, 0], {
+      const y = interpolate(frame, [start, end], [-100, 0], {
         ...clampBoth,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
       });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      const opacity = interpolate(frame, [start, start + Math.min(6, len)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `translateY(${y}%)`, opacity };
       break;
     }
     case 'zoom_in': {
-      const scale = interpolate(frame, [0, transFrames], [1.18, 1], {
+      const scale = interpolate(frame, [start, end], [1.18, 1], {
         ...clampBoth,
         easing: Easing.out(Easing.cubic),
       });
-      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      const opacity = interpolate(frame, [start, start + Math.min(8, len)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `scale(${scale})`, opacity };
       break;
     }
     case 'zoom_out': {
-      const scale = interpolate(frame, [0, transFrames], [0.85, 1], {
+      const scale = interpolate(frame, [start, end], [0.85, 1], {
         ...clampBoth,
         easing: Easing.out(Easing.cubic),
       });
-      const opacity = interpolate(frame, [0, Math.min(8, transFrames)], [MIN_OPACITY, 1], clampBoth);
+      const opacity = interpolate(frame, [start, start + Math.min(8, len)], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, transform: `scale(${scale})`, opacity };
       break;
     }
-    case 'whip_pan': {
-      // Fast directional whip: short high-velocity slide + scale punch +
-      // motion streak. Shorter travel than slide (60% vs 100%) with an
-      // ease-in attack so it reads as a whip, not a glide.
-      const x = interpolate(frame, [0, transFrames], [60, 0], {
-        ...clampBoth,
-        easing: Easing.in(Easing.quad),
-      });
-      const scale = interpolate(frame, [0, transFrames], [1.18, 1], {
-        ...clampBoth,
-        easing: Easing.out(Easing.cubic),
-      });
-      const opacity = interpolate(frame, [0, Math.min(6, transFrames)], [MIN_OPACITY, 1], clampBoth);
-      style = { ...style, transform: `translateX(${x}%) scale(${scale})`, opacity };
-      break;
-    }
     case 'glitch': {
-      const isGlitching = frame < Math.min(8, transFrames);
-      const glitchX = isGlitching ? (frame % 2 === 0 ? (frame % 4 === 0 ? 15 : -15) : 0) : 0;
-      const opacity = interpolate(frame, [0, 4], [0.4, 1], clampBoth);
+      const isGlitching = rel < Math.min(8, len);
+      const glitchX = isGlitching ? (rel % 2 === 0 ? (rel % 4 === 0 ? 15 : -15) : 0) : 0;
+      const opacity = interpolate(frame, [start, start + 4], [0.4, 1], clampBoth);
       style = {
         ...style,
         transform: glitchX ? `translateX(${glitchX}px)` : undefined,
@@ -260,7 +293,7 @@ const SubVisualTransitionWrapper: React.FC<{
     }
     case 'crossfade':
     case 'dissolve': {
-      const opacity = interpolate(frame, [0, transFrames], [MIN_OPACITY, 1], {
+      const opacity = interpolate(frame, [start, end], [MIN_OPACITY, 1], {
         ...clampBoth,
         easing: Easing.inOut(Easing.quad),
       });
@@ -269,22 +302,23 @@ const SubVisualTransitionWrapper: React.FC<{
     }
     case 'fade':
     default: {
-      const opacity = interpolate(frame, [0, transFrames], [MIN_OPACITY, 1], clampBoth);
+      const opacity = interpolate(frame, [start, end], [MIN_OPACITY, 1], clampBoth);
       style = { ...style, opacity };
       break;
     }
   }
 
-  return <div style={style}>{children}</div>;
+  return style;
 };
 
 const SubGate: React.FC<{
   subFrom: number;
   subDuration: number;
   transition?: string;
+  exitTransition?: string;
   emphasis?: EmphasisMark[];
   children: React.ReactNode;
-}> = ({ subFrom, subDuration, transition, emphasis, children }) => {
+}> = ({ subFrom, subDuration, transition, exitTransition, emphasis, children }) => {
   // frame is scene-relative here (SubGate lives inside SceneGate's Sequence).
   const frame = useCurrentFrame();
   const isRendering = getRemotionEnvironment().isRendering;
@@ -292,7 +326,7 @@ const SubGate: React.FC<{
   const isNear = isRendering || (frame >= subFrom - 60 && frame <= subFrom + subDuration + 60);
   return isNear ? (
     <Sequence from={subFrom} durationInFrames={subDuration} premountFor={30}>
-      <SubVisualTransitionWrapper transition={transition} durationInFrames={subDuration}>
+      <SubVisualTransitionWrapper transition={transition} exitTransition={exitTransition} durationInFrames={subDuration}>
         <EmphasisWrapper emphasis={emphasis}>
           {children}
         </EmphasisWrapper>
@@ -579,6 +613,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
                 subFrom={subFrom}
                 subDuration={subDuration}
                 transition={subVis.transition}
+                exitTransition={subVis.exit_transition}
                 emphasis={subVis.emphasis}
               >
                 {renderSubVisual(subVis)}

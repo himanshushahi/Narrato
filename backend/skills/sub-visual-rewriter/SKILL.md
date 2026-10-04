@@ -18,7 +18,7 @@ when_to_use: "Used during single sub-visual modifications and rewrites in the ed
 ## 1. Modification Rules
 
 - Rewrite only the targeted `sub_visual`. Keep the `duration` identical unless explicitly told to change it.
-- You may change any field within `composition` or `transition`, `emphasis`.
+- You may change any field within `composition` or `transition`, `exit_transition`, `emphasis`.
 - **Do NOT change narration text.**
 - **content.type is mandatory** on every Layer content object — missing it = null scene.
 - **🚫 NO CHAPTER TITLE CARDS** inside cuts. Root overlays manage continuous chapter branding.
@@ -33,6 +33,7 @@ when_to_use: "Used during single sub-visual modifications and rewrites in the ed
 {
   "duration": float,           ← KEEP unless user says to change
   "transition": string,        ← Can change freely
+  "exit_transition": string,   ← Optional cut exit (reverse over final frames); beat ends only
   "emphasis": [...],           ← Optional mid-cut punch-in
   "composition": {
     "type": "Sequence",

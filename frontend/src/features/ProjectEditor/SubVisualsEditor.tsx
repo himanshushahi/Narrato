@@ -306,13 +306,39 @@ export const SubVisualsEditor = ({ subVisuals, onChange, timings, activeIdx, onS
                     onChange={e => handleUpdate(idx, 'transition', e.target.value)}
                   >
                     <option value="cut">Cut (Instant)</option>
+                    <option value="none">None</option>
                     <option value="slide_left">Slide Left</option>
                     <option value="slide_right">Slide Right</option>
                     <option value="slide_up">Slide Up</option>
                     <option value="slide_down">Slide Down</option>
                     <option value="zoom_in">Zoom In (Punch)</option>
                     <option value="zoom_out">Zoom Out</option>
-                    <option value="whip_pan">Whip Pan (Motion Blur)</option>
+                    <option value="glitch">Glitch Jitter</option>
+                    <option value="crossfade">Crossfade</option>
+                    <option value="dissolve">Dissolve</option>
+                    <option value="fade">Fade</option>
+                  </select>
+                </div>
+
+                {/* Exit Transition Selector: plays over the final frames of the cut */}
+                <div className="flex items-center gap-2 w-full">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 shrink-0 inline-flex items-center gap-1.5">
+                    <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400 shrink-0 scale-x-[-1]" aria-hidden="true" />
+                    <span>Exit:</span>
+                  </span>
+                  <select
+                    className="flex-1 w-full bg-black/60 border border-white/10 hover:border-amber-500/40 text-[11px] font-semibold text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                    value={(sv as any).exit_transition || 'none'}
+                    onChange={e => handleUpdate(idx, 'exit_transition', e.target.value)}
+                  >
+                    <option value="none">None</option>
+                    <option value="cut">Cut (Instant)</option>
+                    <option value="slide_left">Slide Left</option>
+                    <option value="slide_right">Slide Right</option>
+                    <option value="slide_up">Slide Up</option>
+                    <option value="slide_down">Slide Down</option>
+                    <option value="zoom_in">Zoom In (Punch)</option>
+                    <option value="zoom_out">Zoom Out</option>
                     <option value="glitch">Glitch Jitter</option>
                     <option value="crossfade">Crossfade</option>
                     <option value="dissolve">Dissolve</option>

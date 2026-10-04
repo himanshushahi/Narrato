@@ -274,10 +274,12 @@ const EditorWorkspace: React.FC = () => {
     }
   }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
 
-  // ── Timeline: Update Sub-Visual Transition ─────────────────────────────────
-  const handleUpdateSubVisualTransition = useCallback(async (sceneIdx: number, subIdx: number, transition: string) => {
+  // ── Timeline: Update Sub-Visual Transition / Exit Transition ──────────────
+  const persistSubVisualField = useCallback(async (
+    sceneIdx: number, subIdx: number, field: 'transition' | 'exit_transition', value: string, label: string,
+  ) => {
     if (!id || !scriptDataRef.current || !manifestDataRef.current || !selectedProject?.script_path) return;
-    if (!requireSectionUnlocked(sceneIdx, 'Transition change')) return;
+    if (!requireSectionUnlocked(sceneIdx, label)) return;
     const manifestScene = manifestDataRef.current[sceneIdx];
     if (!manifestScene?.sub_visuals?.[subIdx]) return;
 
@@ -291,10 +293,10 @@ const EditorWorkspace: React.FC = () => {
     else scriptScene = scriptCopy.scenes?.[manifestToScriptSceneIndex(manifestDataRef.current, sceneIdx)];
 
     if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
-      scriptScene.sub_visuals[subIdx].transition = transition;
+      scriptScene.sub_visuals[subIdx][field] = value;
     }
     if (manifestCopy[sceneIdx]?.sub_visuals?.[subIdx]) {
-      manifestCopy[sceneIdx].sub_visuals[subIdx].transition = transition;
+      manifestCopy[sceneIdx].sub_visuals[subIdx][field] = value;
     }
 
     setScriptData(scriptCopy);
@@ -304,9 +306,17 @@ const EditorWorkspace: React.FC = () => {
       await enqueueSave(() => callApi('save_json_file', selectedProject.script_path, scriptCopy));
       await enqueueSave(() => callApi('save_project_with_cleanup', id, scriptCopy, manifestCopy));
     } catch (e) {
-      console.error('Failed to persist transition:', e);
+      console.error(`Failed to persist ${field}:`, e);
     }
   }, [id, selectedProject, enqueueSave, setScriptData, setManifestData]);
+
+  const handleUpdateSubVisualTransition = useCallback(async (sceneIdx: number, subIdx: number, transition: string) => {
+    await persistSubVisualField(sceneIdx, subIdx, 'transition', transition, 'Transition change');
+  }, [persistSubVisualField]);
+
+  const handleUpdateSubVisualExitTransition = useCallback(async (sceneIdx: number, subIdx: number, transition: string) => {
+    await persistSubVisualField(sceneIdx, subIdx, 'exit_transition', transition, 'Exit transition change');
+  }, [persistSubVisualField]);
 
   // ── Timeline: Split Sub-Visual at Playhead ─────────────────────────────────
   const handleSplitSubVisualAtFrame = useCallback(async (sceneIdx: number, subIdx: number, frame: number) => {
@@ -351,15 +361,18 @@ const EditorWorkspace: React.FC = () => {
 
     if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
       const origSub = scriptScene.sub_visuals[subIdx];
-      const leftSub = { ...origSub, duration: leftDuration };
-      const rightSub = JSON.parse(JSON.stringify({ ...origSub, duration: rightDuration }));
+      // Split halves continue one beat: the left half keeps the entrance but
+      // must not exit mid-beat; the right half keeps the exit but must not
+      // replay the entrance.
+      const leftSub = { ...origSub, duration: leftDuration, exit_transition: 'none' };
+      const rightSub = JSON.parse(JSON.stringify({ ...origSub, duration: rightDuration, transition: 'cut' }));
       scriptScene.sub_visuals.splice(subIdx, 1, leftSub, rightSub);
     }
 
     if (Array.isArray(manifestCopy[sceneIdx]?.sub_visuals) && manifestCopy[sceneIdx].sub_visuals[subIdx]) {
       const origManSub = manifestCopy[sceneIdx].sub_visuals[subIdx];
-      const leftManSub = { ...origManSub, duration: leftDuration };
-      const rightManSub = JSON.parse(JSON.stringify({ ...origManSub, duration: rightDuration }));
+      const leftManSub = { ...origManSub, duration: leftDuration, exit_transition: 'none' };
+      const rightManSub = JSON.parse(JSON.stringify({ ...origManSub, duration: rightDuration, transition: 'cut' }));
       manifestCopy[sceneIdx].sub_visuals.splice(subIdx, 1, leftManSub, rightManSub);
     }
 
@@ -408,13 +421,18 @@ const EditorWorkspace: React.FC = () => {
     if (Array.isArray(scriptScene?.sub_visuals) && scriptScene.sub_visuals[subIdx]) {
       const origSub = scriptScene.sub_visuals[subIdx];
       origSub.duration = leftDur;
-      const cloneSub = JSON.parse(JSON.stringify({ ...origSub, duration: rightDur }));
+      // The clone continues the beat: it inherits the exit (transferred off
+      // the original so it doesn't fire mid-beat) but must not replay the
+      // entrance.
+      const cloneSub = JSON.parse(JSON.stringify({ ...origSub, duration: rightDur, transition: 'cut' }));
+      origSub.exit_transition = 'none';
       scriptScene.sub_visuals.splice(subIdx + 1, 0, cloneSub);
     }
 
     if (Array.isArray(manifestCopy[sceneIdx]?.sub_visuals) && manifestCopy[sceneIdx].sub_visuals[subIdx]) {
       origManSub.duration = leftDur;
-      const cloneManSub = JSON.parse(JSON.stringify({ ...origManSub, duration: rightDur }));
+      const cloneManSub = JSON.parse(JSON.stringify({ ...origManSub, duration: rightDur, transition: 'cut' }));
+      (origManSub as any).exit_transition = 'none';
       manifestCopy[sceneIdx].sub_visuals.splice(subIdx + 1, 0, cloneManSub);
     }
 
@@ -1592,6 +1610,7 @@ const EditorWorkspace: React.FC = () => {
           onToggleSubVisualAudioFlag={handleToggleSubVisualAudioFlag}
           onSelectSubVisual={handleSelectSubVisual}
           onUpdateSubVisualTransition={handleUpdateSubVisualTransition}
+          onUpdateSubVisualExitTransition={handleUpdateSubVisualExitTransition}
           onSplitSubVisualAtFrame={handleSplitSubVisualAtFrame}
           onDuplicateSubVisual={handleDuplicateSubVisual}
           onDeleteSubVisual={handleDeleteSubVisual}

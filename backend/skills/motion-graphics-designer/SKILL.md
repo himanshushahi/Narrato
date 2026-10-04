@@ -137,8 +137,10 @@ EVOLVE (55–80%):      word-synced reveals — frosted card / gauge / document
                       slides in on the keyword; marker_highlight sweeps;
                       Counter lands on the number word; spent layers exit
 RESOLVE (80–100%):    motion eases, never freezes — blur settles, callout
-                      recedes, concluding headline reveals; emphasis
-                      punch-in near the end hands momentum to the next cut
+                       recedes, concluding headline reveals; emphasis
+                       punch-in near the end hands momentum to the next cut
+                       (or an `exit_transition` carries the whole cut out —
+                       beat ends only, never consecutive cuts)
 ```
 
 ### Frozen-tail rule (mandatory per cut)

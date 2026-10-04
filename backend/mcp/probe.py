@@ -271,6 +271,7 @@ def probe_cut_payload(project_id: str, section_type: str,
             "total_cuts": len(cuts),
             "cut_duration": timing.get("cut_duration"),
             "transition": cut.get("transition"),
+            "exit_transition": cut.get("exit_transition", "none"),
             "cut": cut, "layers": layers,
             "timing": timing,
             "assets_missing": missing,
@@ -313,8 +314,7 @@ def probe_scene_payload(project_id: str, section_type: str,
             _c = layer.get("content")
             types.append(_c.get("type") if isinstance(_c, dict) else None)
         _, missing = _layer_rows(cut, proj_dir)
-        energy = bool(cut.get("emphasis")) or (cut.get("transition") in (
-            "whip_pan", "glitch"))
+        energy = bool(cut.get("emphasis")) or (cut.get("transition") == "glitch") or (cut.get("exit_transition") == "glitch")
         if not energy and isinstance(children, list):
             for layer in children:
                 if not isinstance(layer, dict):
@@ -333,6 +333,7 @@ def probe_scene_payload(project_id: str, section_type: str,
                           "display_label": f"{display_label} : Cut #{idx + 1}",
                           "duration": dur,
                           "transition": cut.get("transition"),
+                          "exit_transition": cut.get("exit_transition", "none"),
                           "layer_count": len(children) if isinstance(children, list) else 0,
                           "layer_types": types, "has_energy": energy,
                           "assets_missing": missing})

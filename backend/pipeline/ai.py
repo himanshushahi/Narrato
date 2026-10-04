@@ -1939,7 +1939,7 @@ Do NOT create static chapter title badges, scene name cards, or temporary header
 === ANIMATION TIMING WITH WORD TIMESTAMPS ===
 `delay` on a layer animation is in seconds from the CUT (sub-visual) start — NOT from scene/video start. Missing `delay` defaults to 0.
 - Guidance: missing `delay` defaults to 0. Choreograph freely within the timing facts below.
-- Pair entrances with opacity fade on delayed reveals: adding {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out"}} ensures elements stay hidden until they start moving. Whenever `delay > 0`, ALWAYS pair spatial entrances with an opacity fade at the same delay. Spatial-only entrances without fade are allowed ONLY for instant punch/whip beats at `delay: 0`.
+- Pair entrances with opacity fade on delayed reveals: adding {{"property": "opacity", "from": 0, "to": 1, "duration": 0.45, "delay": ..., "easing": "ease-out"}} ensures elements stay hidden until they start moving. Whenever `delay > 0`, ALWAYS pair spatial entrances with an opacity fade at the same delay. Spatial-only entrances without fade are allowed ONLY for instant punch beats at `delay: 0`.
 - Animate whichever layers carry the beat.
 - When word-level timestamps are provided (e.g. "market [1.2s] crashed [1.8s] today [2.3s]"), prefer syncing entrances: `delay` = (word timestamp − this sub-visual's start offset within the scene), clamped to `[0, cut_duration − animation_duration]`, so each visual enters when the narration mentions it.
 - `delay + duration` SHOULD fit inside the sub-visual's `duration` (overflow is clipped).
@@ -2119,7 +2119,8 @@ Part 2: Universal Advanced Manipulation (any layer):
 - Layer Ergonomics: name (descriptive label), visible: false (hide from preview+export), locked: true (lock canvas), color_tag (grouping hex).
 
 Part 3: Cut Transitions & Energy (cut level):
-- Transitions: "transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "whip_pan" | "glitch" | "crossfade" | "dissolve" | "fade" | "none".
+- Transitions: "transition": "cut" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "zoom_in" | "zoom_out" | "glitch" | "crossfade" | "dissolve" | "fade" | "none".
+- Exit transitions (final frames of the cut, reverse of the entrance): "exit_transition": "none" (default) | "cut" | same 11 effects as above. Use SPARINGLY — beat ends / section closers only, never on consecutive cuts. Exit and entrance never overlap: each plays sequentially with a hard cut between.
 - Mid-Cut Punch-Ins: "emphasis": [{{"at": 1.2, "scale": 1.15, "duration": 0.5}}].
 - Audio Ducking: "mute_voiceover": true | "mute_bg_music": true.
 
@@ -2138,7 +2139,7 @@ RULES:
 
 OUTPUT STRUCTURE:
 Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
-{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "duration": 3.5, "transition": "whip_pan"}}]}}
+{{"sub_visuals": [{{"composition": {{"type": "Sequence", "children": [...]}}, "duration": 3.5, "transition": "slide_left"}}]}}
 
 {visual_rules}"""
 
