@@ -411,6 +411,17 @@ export const VisualsTab = React.memo(function VisualsTab({
   const rewriteKey = resolved.sectionType === 'introduction' ? 'intro'
     : isScene ? `scene_${resolved.sceneNumber}` : 'conclusion';
   const isRewritingSection = rewritingSection === rewriteKey;
+  const totalScenes = Array.isArray(scriptData?.scenes) ? scriptData.scenes.length : 0;
+  const sceneBadgeText = resolved.sectionType === 'introduction'
+    ? 'INTRO'
+    : resolved.sectionType === 'conclusion'
+      ? 'OUTRO'
+      : `SCENE ${resolved.sceneNumber + 1}`;
+  const sceneBadgeClass = resolved.sectionType === 'introduction'
+    ? 'bg-sky-500/15 text-sky-300 border-sky-500/40'
+    : resolved.sectionType === 'conclusion'
+      ? 'bg-violet-500/15 text-violet-300 border-violet-500/40'
+      : 'bg-amber-500/15 text-amber-300 border-amber-500/40';
 
   /** Single-cut lens: the editor works on [cut], merge the item back. */
   const handleLensChange = (newSubs: any[]) => {
@@ -689,6 +700,17 @@ export const VisualsTab = React.memo(function VisualsTab({
       <div className="bg-zinc-900/60 rounded-xl border border-zinc-800/60 overflow-hidden">
         <div className="px-4 pt-3 pb-2 border-b border-zinc-800/40">
           <div className="flex items-center gap-2">
+            <span
+              className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-extrabold tracking-wider ${sceneBadgeClass}`}
+              title={isScene && totalScenes > 0 ? `Scene ${resolved.sceneNumber + 1} of ${totalScenes}` : sceneBadgeText}
+            >
+              {sceneBadgeText}
+            </span>
+            {isScene && totalScenes > 0 && (
+              <span className="text-[9px] font-bold text-zinc-500 shrink-0">
+                of {totalScenes}
+              </span>
+            )}
             <VscLayers className="text-[10px] text-zinc-500" />
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300 truncate">
               {resolved.title}
