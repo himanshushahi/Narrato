@@ -33,7 +33,7 @@ when_to_use: "Used during single sub-visual modifications and rewrites in the ed
 {
   "duration": float,           ← KEEP unless user says to change
   "transition": string,        ← Can change freely
-  "exit_transition": string,   ← Optional cut exit (reverse over final frames); beat ends only
+  "exit_transition": string,   ← Cut exit (reverse over final frames); give beat-ending cuts one so the beat lands finished
   "emphasis": [...],           ← Optional mid-cut punch-in
   "composition": {
     "type": "Sequence",

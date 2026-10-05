@@ -20,7 +20,7 @@ For each scene, output a storyboard plan describing:
 2. **Recipe per beat**: name the recipe from `declarative-ast §7` (A–J) OR describe a custom pattern.
 3. **Layer Types per beat**: list content types + approximate positions (e.g. "Background(grid_flow) + Counter(left 20%, metric) + Text(lower-third, words_stagger)").
 4. **Media needs per beat**: for Image/Video, state the `query` + `source` explicitly.
-5. **Transition per beat**: pick the transition that matches the energy shift. Optional `exit_transition` (reverse over final frames) on beat ends only — never consecutive beats.
+5. **Transition per beat**: pick the transition that matches the energy shift. Plan an `exit_transition` (reverse over final frames) on beat ends so each beat lands finished — never on consecutive beats.
 6. **Spatial Layout per beat**: every beat line states layer types + approximate
    positions + motion phases (canvas, establish/develop/evolve/resolve), so the
    AST author never invents geometry.

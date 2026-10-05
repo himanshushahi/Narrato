@@ -120,6 +120,10 @@ When you discover a new edge case, rendering failure, useful pattern, or source 
 - status: 'pending' for new; 'confirmed' if you've seen it before
 
 This is APPEND-ONLY to LEARNINGS.md -- it never modifies SKILL.md. A human reviews and folds confirmed learnings into SKILL.md. Use this proactively at session end or when you catch a bug.
+READ PAST LEARNINGS BEFORE AUTHORING: past session observations live outside SKILL.md — pull them with
+`get_skill(skill_name='...', section='learnings')` (merges the skill-folder LEARNINGS.md plus the
+persistent-storage fallback, so nothing is lost). Do this for the skills you are about to use, BEFORE
+save_script / save_design / save_visuals, so you don't repeat known failures.
 """
 
 mcp = MCPServer("narrato", instructions=NARRATO_SERVER_INSTRUCTIONS)
@@ -737,6 +741,9 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
     Big skills are ~50KB: pass brief=true for a section map first, then
     section="..." (fuzzy: title, subhead like "particles", or number)
     to pull ONE part instead of the whole file.
+    section='learnings' returns the merged session-observations log for that skill
+    (skill-folder LEARNINGS.md + persistent-storage fallback) — pull it for the
+    skills you are about to use BEFORE authoring, so you don't repeat known failures.
     MANDATORY GATE: save_script requires scriptwriter; save_design requires
     art-director-design-system; save_visuals requires declarative-ast +
     visual-director-core + motion-graphics-designer (brief=true counts) PLUS
@@ -859,7 +866,8 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
     SKILL_REQUIRED gate for save_script / save_design / save_visuals.
     Prefer this over 3 separate get_skill calls when moving fast.
     After this, pull deeper sections only as needed via
-    get_skill(NAME, section="...")."""
+    get_skill(NAME, section="...") — including section='learnings' for past
+    session observations on the skills you are about to use."""
     from backend.agent.skill_loader import skill_loader
     _STAGE_ALIASES = {
         "generate_visuals": "visuals",
@@ -2093,6 +2101,8 @@ already explicitly specified in the user's request):
      Required reading: declarative-ast Part 1 & Part 2 (layer types, contracts,
      cut flags) + the motion/FX sections. Rules you must not skim past:
      LayerBox %-only geometry, no chapter title cards inside cuts.
+     Also pull get_skill(NAME, section='learnings') for the skills you will use —
+     past session observations (known failures/patterns) live outside SKILL.md.
   7. get_section_timings (TRUE audio durations + word timestamps per section
      + pushed creative_blueprint with layer reference + sample cut — use it)
   8. save_design (required once — cuts bind to its hash; MANDATORY GATE:

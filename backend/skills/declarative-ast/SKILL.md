@@ -346,7 +346,7 @@ Spring physics: `damping` (default 14, lower = bouncier), `stiffness` (default 1
 0.9s: Headline kinetic reveal (words_stagger or marker_highlight)
 ```
 
-**Exit Transition** (cut level, optional): `"exit_transition"` plays the reverse of an entrance over the cut's final frames (`"none"` default; same effects as `transition`). Use sparingly — beat ends / section closers only, never on consecutive cuts. Exit and entrance never overlap: sequential with a hard cut between. Perf: `blur_focus` (full-cut repaint) and clip-path wipes/iris are the most expensive effects — never on consecutive cuts.
+**Exit Transition** (cut level): `"exit_transition"` plays the reverse of an entrance over the cut's final frames (`"none"` default; same effects as `transition`). Reach for it on beat ends and section closers — a cut that lands its exit feels finished, one that just stops feels cut off. Aim for an exit on most beat-ending cuts (a few per video); just avoid putting them on consecutive cuts. Exit and entrance never overlap: sequential with a hard cut between. Perf: `blur_focus` (full-cut repaint) and clip-path wipes/iris are the most expensive effects — never on consecutive cuts.
 
 ### 4.3 Physics & Camera Dynamics (Layer Properties)
 ```json

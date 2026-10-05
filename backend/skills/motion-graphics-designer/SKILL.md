@@ -140,7 +140,7 @@ RESOLVE (80–100%):    motion eases, never freezes — blur settles, callout
                        recedes, concluding headline reveals; emphasis
                        punch-in near the end hands momentum to the next cut
                        (or an `exit_transition` carries the whole cut out —
-                       beat ends only, never consecutive cuts)
+                       prefer one on beat ends, just never on consecutive cuts)
 ```
 
 ### Frozen-tail rule (strong default per cut)
