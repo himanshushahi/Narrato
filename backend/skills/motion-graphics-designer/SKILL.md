@@ -18,7 +18,7 @@ when_to_use: "Used during visual generation, motion graphics choreography, and s
 Quick card — full rules in `declarative-ast` §4.1:
 
 ```
-Style box goes on the LAYER NODE (sibling of content), NOT inside content.
+Style box goes INSIDE content as content.style — the ONLY geometry authority.
 % strings only. Never px or bare numbers in left/top/width/height.
 top XOR bottom (never both). left XOR right (prefer left).
 Center formula: left = 50 - width/2.

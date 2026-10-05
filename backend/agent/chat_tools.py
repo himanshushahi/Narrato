@@ -75,8 +75,8 @@ def get_chat_tools_schema() -> List[Dict[str, Any]]:
                   {"project_id": _PID, "include_visuals": _BOOL}, []),
         _func_def("save_design", "Validate + persist design system {theme_name,color_palette,typography,css_guidelines}.",
                   {"project_id": _PID, "design": _OBJ}, ["design"]),
-        _func_def("get_section_timings", "Per-section TRUE audio durations + word timestamps. Run after transcribe.",
-                  {"project_id": _PID, "include_words": _BOOL}, []),
+        _func_def("get_section_timings", "Per-section TRUE audio durations + word timestamps. Run after transcribe. Long videos: include_words=false for summary; scene_number=N or section_type for one section.",
+                  {"project_id": _PID, "include_words": _BOOL, "scene_number": _INT, "section_type": _STR}, []),
         _func_def("get_transcription", "Word-level transcription, section-scoped or paginated.",
                   {"project_id": _PID, "section_type": _STR, "scene_index": _INT, "scene_number": _INT,
                    "segment_id": _INT, "offset": _INT, "limit": _INT}, []),
@@ -360,7 +360,9 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
         return S.save_design(args.get("project_id", "") or default_project_id, args.get("design", {}))
     if tool_name == "get_section_timings":
         return S.get_section_timings(args.get("project_id", "") or default_project_id,
-                                     include_words=_to_bool(args.get("include_words", True)))
+                                     include_words=_to_bool(args.get("include_words", True)),
+                                     scene_number=_to_int_or_none(args.get("scene_number")),
+                                     section_type=args.get("section_type", "") or "")
     if tool_name == "get_transcription":
         return S.get_transcription(
             args.get("project_id", "") or default_project_id, section_type=args.get("section_type", ""),

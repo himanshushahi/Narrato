@@ -46,9 +46,9 @@ NO CHAPTER CARDS: Never put chapter title text inside sub-visual cuts.
 }
 ```
 
-Style box goes on the Layer node as a sibling of `content`, NOT inside `content`:
+Style box goes inside `content` as `content.style` — the ONLY geometry authority the renderer reads (frontend `layer.content.style`, `layer_box()`, validator all resolve `content.style`):
 ```json
-{ "type": "Layer", "content": { ... }, "style": { "left": "15%", "top": "20%", "width": "70%", "height": "60%" } }
+{ "type": "Layer", "content": { "type": "Text", "text": "Headline", "style": { "left": "15%", "top": "20%", "width": "70%", "height": "60%" } } }
 ```
 
 ---
@@ -283,12 +283,12 @@ Root Video Composition
 
 ## 4. Universal Advanced Manipulation (Any Layer)
 
-### 4.1 Geometry & Layout (`style` — LayerBox SOT v1)
+### 4.1 Geometry & Layout (`content.style` — LayerBox SOT v1)
 
-**CRITICAL**: `style` box goes on the `Layer` node (sibling of `content`), NOT inside `content`.
+**CRITICAL**: `style` lives INSIDE `content` as `content.style`. A `style` key placed as a sibling of `content` on the Layer node is IGNORED by the renderer (and auto-hoisted into `content.style` at save with a warning — verify in review_frame).
 
 ```json
-{ "type": "Layer", "content": { "type": "Text", "text": "Headline" }, "style": { "left": "10%", "bottom": "18%", "width": "80%" } }
+{ "type": "Layer", "content": { "type": "Text", "text": "Headline", "style": { "left": "10%", "bottom": "18%", "width": "80%" } } }
 ```
 
 - **`%` Strings Only**: `left`, `top`, `width`, `height`, `right`, `bottom`. NEVER raw px or bare numbers.
@@ -575,11 +575,11 @@ These are proven patterns — pick one and adapt to the topic. Don't repeat the 
   "duration": 3.0, "transition": "zoom_in",
   "composition": { "type": "Sequence", "children": [
     { "type": "Layer", "content": { "type": "Background", "background_preset": "grid_flow", "colors": ["#0a0a1a", "#1e40af", "#7c3aed"], "speed": 1.2 } },
-    { "type": "Layer", "content": { "type": "Shape", "shape_type": "rectangle", "fill": "rgba(255,255,255,0.05)", "stroke": "#38bdf8", "stroke_width": 1.5, "corner_radius": 24 }, "style": { "left": "15%", "top": "18%", "width": "70%", "height": "60%" }, "floating": true,
+    { "type": "Layer", "content": { "type": "Shape", "shape_type": "rectangle", "fill": "rgba(255,255,255,0.05)", "stroke": "#38bdf8", "stroke_width": 1.5, "corner_radius": 24, "style": { "left": "15%", "top": "18%", "width": "70%", "height": "60%" } }, "floating": true,
       "animations": [{"property": "scale", "from": 0.88, "to": 1.0, "duration": 0.5, "delay": 0.2, "easing": "spring"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.2, "easing": "ease-out"}] },
-    { "type": "Layer", "content": { "type": "Counter", "value": 450, "prefix": "$", "suffix": "M", "title": "CAPITAL RAISED", "font_size": 84, "color": "#facc15" }, "style": { "left": "20%", "top": "28%", "width": "60%", "height": "32%" },
+    { "type": "Layer", "content": { "type": "Counter", "value": 450, "prefix": "$", "suffix": "M", "title": "CAPITAL RAISED", "font_size": 84, "color": "#facc15", "style": { "left": "20%", "top": "28%", "width": "60%", "height": "32%" } },
       "animations": [{"property": "translateY", "from": 40, "to": 0, "duration": 0.6, "delay": 0.4, "easing": "spring"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.4, "easing": "ease-out"}] },
-    { "type": "Layer", "content": { "type": "Text", "text": "Record Q3 2024", "font": "Inter", "weight": "500", "color": "#94a3b8", "animation_mode": "static", "style": { "fontSize": "28px", "textAlign": "center" } }, "style": { "left": "25%", "top": "62%", "width": "50%" },
+    { "type": "Layer", "content": { "type": "Text", "text": "Record Q3 2024", "font": "Inter", "weight": "500", "color": "#94a3b8", "animation_mode": "static", "style": { "left": "25%", "top": "62%", "width": "50%", "fontSize": "28px", "textAlign": "center" } },
       "animations": [{"property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.7, "easing": "ease-out"}] }
   ]}
 }
@@ -683,13 +683,13 @@ consecutive cuts.
   "composition": { "type": "Sequence", "children": [
     { "type": "Layer", "content": { "type": "Background", "background_preset": "vignette_loop", "colors": ["#0a0a1a", "#7c3aed", "#ec4899"], "speed": 1.4 } },
     { "type": "Layer", "content": { "type": "Particles", "particle_preset": "embers", "particle_count": 25, "particle_opacity": 0.2, "particle_speed": 0.9, "particle_direction": "up" } },
-    { "type": "Layer", "content": { "type": "Shape", "shape_type": "rectangle", "fill": "#ff0033", "corner_radius": 50 }, "style": { "left": "30%", "top": "38%", "width": "40%", "height": "14%" },
+    { "type": "Layer", "content": { "type": "Shape", "shape_type": "rectangle", "fill": "#ff0033", "corner_radius": 50, "style": { "left": "30%", "top": "38%", "width": "40%", "height": "14%" } },
       "animations": [{"property": "scale", "from": 0.6, "to": 1.0, "duration": 0.45, "delay": 0.25, "easing": "spring"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.25, "easing": "ease-out"}] },
-    { "type": "Layer", "content": { "type": "Text", "text": "SUBSCRIBE", "font": "Inter", "weight": "900", "color": "#ffffff", "animation_mode": "static", "style": { "fontSize": "54px", "textAlign": "center" } }, "style": { "left": "30%", "top": "39%", "width": "40%" },
+    { "type": "Layer", "content": { "type": "Text", "text": "SUBSCRIBE", "font": "Inter", "weight": "900", "color": "#ffffff", "animation_mode": "static", "style": { "left": "30%", "top": "39%", "width": "40%", "fontSize": "54px", "textAlign": "center" } },
       "animations": [{"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.4, "easing": "ease-out"}] },
-    { "type": "Layer", "content": { "type": "Shape", "shape_type": "icon", "icon_name": "bell-ring", "fill": "#facc15", "glow": true }, "style": { "left": "72%", "top": "36%", "width": "10%", "height": "18%" }, "floating": true,
+    { "type": "Layer", "content": { "type": "Shape", "shape_type": "icon", "icon_name": "bell-ring", "fill": "#facc15", "glow": true, "style": { "left": "72%", "top": "36%", "width": "10%", "height": "18%" } }, "floating": true,
       "animations": [{"property": "scale", "from": 0, "to": 1.0, "duration": 0.5, "delay": 0.6, "easing": "back"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.6, "easing": "ease-out"}] },
-    { "type": "Layer", "content": { "type": "Counter", "value": 1000000, "suffix": "", "title": "JOIN THE COMMUNITY", "font_size": 44, "color": "#facc15" }, "style": { "left": "30%", "top": "58%", "width": "40%", "height": "20%" },
+    { "type": "Layer", "content": { "type": "Counter", "value": 1000000, "suffix": "", "title": "JOIN THE COMMUNITY", "font_size": 44, "color": "#facc15", "style": { "left": "30%", "top": "58%", "width": "40%", "height": "20%" } },
       "animations": [{"property": "translateY", "from": 30, "to": 0, "duration": 0.5, "delay": 0.7, "easing": "ease-out"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.7, "easing": "ease-out"}] }
   ]}
 }

@@ -87,7 +87,7 @@ MANDATORY SKILL GROUNDING (hard gate, not guidance):
 
 PROBE TOOLS -- WHAT THEY RETURN:
 - `probe_cut(project_id, section_type, scene_index, cut_index)`: Returns the full AST JSON for one sub-visual cut (duration, transition, composition children). Use before rewriting a cut to see its current state.
-- `probe_scene(project_id, section_type, scene_index)`: Returns ALL cuts in a scene: count, durations, transitions, layer type breakdown. Use before planning a scene rewrite.
+- `probe_scene(project_id, section_type, scene_index)`: Returns ALL cuts in a scene: count, durations, transitions, layer type breakdown. Use before planning a scene rewrite. Pre-visuals sections return ok:true with has_visuals=false + audio_duration for planning.
 - `probe_asset(project_id, section_type, scene_index, cut_index, layer_index)`: Returns resolved asset info for one media layer (local path, URL, content type). Asset paths are only valid AFTER run_stage('fetch_assets') completes -- before that, paths are empty.
 
 SAVE VISUALS -- BATCH vs SINGLE:
@@ -100,13 +100,14 @@ ASSET PIPELINE TIMING:
 
 VISUAL GENERATION CRITICAL GOTCHAS:
 - `content.type` is MANDATORY on every Layer's content -- missing it silently renders the scene null (no error, just blank).
+- Geometry SOT is `content.style` (INSIDE content). A `style` key placed as a sibling of `content` on the Layer node is IGNORED by the renderer — the server auto-hoists it into `content.style` with an auto_fixed warning, but always author `content.style` directly.
 - Map and Particles are ALWAYS fullscreen -- position/size ignored. Overlay Shape/Text layers on top for framing.
 - Image sources: pexels / pixabay / wikipedia / archive ONLY. NEVER youtube for Image.
 - Video sources: pexels / pixabay / youtube / archive ONLY. NEVER wikipedia for Video.
+- search_media accepts both generic (source="pexels") and qualified (source="pexels_photo"/"pexels_video") names; generic pexels/pixabay/archive resolve to _photo, youtube to _video, wikipedia to _image.
 - YouTube clips: yt_duration max 30s; yt_start_offset default 15s (skips intros).
 - Portrait safe area: keep text above bottom: 28%. Landscape: above bottom: 18%.
 - Every entrance animation with delay > 0 MUST pair with opacity: 0->1 at same delay.
-- style box goes on the Layer node (sibling of content), NOT inside content.
 - Layer count, no quota: use as many layers as the beat needs (usually a rich stack: base + framing/atmosphere + hero + kinetic text). Every layer must earn its place with a clear job + motion; never stack blindly, never ship a single bare layer.
 
 CONTINUOUS LEARNING -- SKILL SELF-IMPROVEMENT:
@@ -825,8 +826,9 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
             titles = [s["title"] for s in
                       skill.brief(**ctx)["sections"]]
             return {"ok": False,
-                    "error": f"No section matching {section!r} in {skill.name}.",
-                    "available_sections": titles}
+                    "error": f"No section matching {section!r} in {skill.name}. Try aliases: layers→'content types', motion→'keyframe animation', recipes→'named composition recipes', geometry→'geometry'.",
+                    "available_sections": titles,
+                    "hint": "Aliases accepted: layers, motion, recipes, geometry, particles, map, chart, text, filters, mask, exit."}
         _record_skill_read(project_id, skill.name,
                            section=found["title"])
         return {"ok": True, "name": skill.name, "version": skill.version,
@@ -1262,6 +1264,11 @@ def append_skill_learning(
     if write_path is not None:
         is_fallback = (learnings_path is None or write_path != learnings_path)
         logger.info(f"MCP append_skill_learning: appended to {write_path} (fallback={is_fallback})")
+        _view_hint = (
+            f"Retrieve merged learnings anytime via get_skill(skill_name='{matched_skill.name}', "
+            f"section='learnings') — it merges the skill-folder LEARNINGS.md plus this fallback file, "
+            f"so nothing is lost."
+        )
         return {
             "ok": True,
             "skill": matched_skill.name,
@@ -1270,10 +1277,12 @@ def append_skill_learning(
             "status": status,
             "degraded": is_fallback,
             "storage_mode": "persistent_storage" if is_fallback else "skill_directory",
+            "view_hint": _view_hint,
             "message": (
-                f"Learning appended to {write_path.name}. "
-                + ("NOTE: Environment is frozen/read-only; saved to persistent user storage fallback. " if is_fallback else "")
-                + "A human will review and fold confirmed learnings into SKILL.md."
+                f"Learning appended to {write_path.name} at {write_path}. "
+                + ("NOTE: Skill folder is frozen/read-only in this build; saved to persistent user storage fallback "
+                   "(<storage>/learnings/). " if is_fallback else "")
+                + "A human will review and fold confirmed learnings into SKILL.md. " + _view_hint
             ),
         }
     else:
@@ -1677,9 +1686,11 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
     get_section_timings + save_design + save_visuals between transcribe and
     fetch_assets, and review_frame(mode=composition) AFTER fetch_assets).
 
-    wait=true (default) blocks until the stage finishes — fine over
-    stdio, but HTTP clients should pass wait=false for long stages and
-    poll stage_status instead (voiceover/render can take many minutes).
+    wait=true blocks until the stage finishes — fine over stdio, but HTTP
+    clients (MCP error -32001 timeout ~60s) MUST pass wait=false + sleep +
+    stage_status for fetch_assets with >10 cuts and for voiceover/transcribe/
+    render (minutes long). wait=true on a 20-asset fetch times out at ~73%
+    while the worker keeps going — poll instead so you see completion.
 
     HUMAN REVIEW GATE: the render stage is refused unless confirm_render
     is true. Default flow is build everything through fetch_assets, then
@@ -1888,6 +1899,41 @@ _SEARCH_SOURCES = ("pexels_photo", "pexels_video", "wikipedia_image",
                    "pixabay_photo", "pixabay_video", "youtube_video",
                    "archive_photo", "archive_video")
 
+# Generic aliases agents naturally write (skills say `source: "pexels"`).
+# Maps to the photo/video-qualified tool name. Photo is the safe default for
+# ambiguous libraries (pexels/pixabay/archive); youtube defaults to video,
+# wikipedia defaults to image (its only valid use).
+_SEARCH_SOURCE_ALIASES = {
+    "pexels": "pexels_photo",
+    "pexels_photo": "pexels_photo",
+    "pexels_video": "pexels_video",
+    "pexelsvideo": "pexels_video",
+    "pexelsphoto": "pexels_photo",
+    "pexels_image": "pexels_photo",
+    "pixabay": "pixabay_photo",
+    "pixabay_photo": "pixabay_photo",
+    "pixabay_video": "pixabay_video",
+    "pixabay_image": "pixabay_photo",
+    "wikipedia": "wikipedia_image",
+    "wikipedia_image": "wikipedia_image",
+    "wikipedia_photo": "wikipedia_image",
+    "wiki": "wikipedia_image",
+    "youtube": "youtube_video",
+    "youtube_video": "youtube_video",
+    "archive": "archive_photo",
+    "archive_photo": "archive_photo",
+    "archive_video": "archive_video",
+    "archive_image": "archive_photo",
+}
+
+
+def _resolve_search_source(raw: str) -> str | None:
+    """Normalize a user-supplied search source to a canonical tool source."""
+    if not isinstance(raw, str):
+        return None
+    key = raw.strip().lower().replace("-", "_").replace(" ", "_")
+    return _SEARCH_SOURCE_ALIASES.get(key)
+
 
 @mcp.tool()
 def search_media(source: str, query: str, orientation: str = "landscape") -> dict:
@@ -1896,9 +1942,13 @@ def search_media(source: str, query: str, orientation: str = "landscape") -> dic
     are returned. youtube_video verifies a match exists; archive_photo/archive_video
     search archive.org for public domain/historical media.
     Successful verifications are recorded session-wide: save_visuals reports
-    any Image/Video query you did NOT verify here as unverified_queries."""
-    if source not in _SEARCH_SOURCES:
-        return {"ok": False, "error": f"source must be one of {list(_SEARCH_SOURCES)}."}
+    any Image/Video query you did NOT verify here as unverified_queries.
+    Aliases accepted: pexels/pixabay/wikipedia/youtube/archive (generic names
+    from the skills auto-resolve to the photo/video variant)."""
+    resolved = _resolve_search_source(source)
+    if resolved is None:
+        return {"ok": False, "error": f"source must be one of {list(_SEARCH_SOURCES)} (aliases accepted: pexels, pixabay, wikipedia, youtube, archive). Got {source!r}."}
+    source = resolved
     if not (query or "").strip():
         return {"ok": False, "error": "query must be a non-empty string."}
     try:
@@ -2092,6 +2142,9 @@ already explicitly specified in the user's request):
     + render to pending. Never hand-edit script.json/manifests to clear — use these.
 11. run_stage(fetch_assets, wait=false) → sleep(30) → stage_status, repeat
     until completed (same waiting rule as step 4).
+    NEVER use wait=true for fetch_assets (20 assets time out the HTTP tool
+    at ~73% with MCP error -32001 while the worker keeps going — you lose
+    visibility). wait=false + poll is the default for >10 cuts.
     Fetch AFTER all sections are saved so every query resolves to a
     downloaded local_path. Composition review without this step shows
     placeholders, not final visuals.
@@ -2215,13 +2268,26 @@ def review_frame(project_id: str, section_type: str = "scene", scene_index: int 
 # ── Visuals (agent-authored, server-validated) ────────────────────────
 
 @mcp.tool()
-def get_section_timings(project_id: str, include_words: bool = True) -> dict:
+def get_section_timings(project_id: str, include_words: bool = True,
+                        scene_number: int | None = None,
+                        section_type: str = "") -> dict:
     """Per-section narration + TRUE audio durations (+ word timestamps)
     from the voiceover manifest. Author each section's sub_visuals so
     durations sum to the reported duration. Includes display_label,
-    1-based scene_number and cut_number for every section and cut. Run after transcribe."""
+    1-based scene_number and cut_number for every section and cut. Run after transcribe.
+    Long videos: pass include_words=false for a compact summary (no per-word
+    timestamps), and/or scene_number=N (1-based UI Scene N) or
+    section_type=introduction|scene|conclusion to fetch ONE section."""
     try:
-        return payloads.get_section_timings(project_id, include_words)
+        _sn = None
+        if scene_number is not None:
+            try:
+                _sn = int(scene_number)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "scene_number must be a 1-based integer."}
+        return payloads.get_section_timings(project_id, _coerce_bool(include_words, True),
+                                            scene_number=_sn,
+                                            section_type=section_type or "")
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     except Exception as e:
@@ -2328,6 +2394,8 @@ def probe_scene(project_id: str, section_type: str,
                 scene_number: int | None = None) -> dict:
     """Inspect ONE section: per-cut summaries + timing rollups +
     variety. Read-only. Use to find which cut to fix, then probe_cut it.
+    Pre-visuals sections return ok:true with has_visuals=false + audio_duration
+    (TRUE section length) so you can plan cut durations before authoring.
 
     Targeting:
     - Pass 1-based `scene_number` matching UI (e.g. scene_number=1 for Scene 1).

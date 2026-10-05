@@ -43,6 +43,9 @@ def _resolve_cuts(project_id: str, section_type: str,
 
     manifest_duration is the TRUE audio length of the section (for variety
     drift checks); None when no manifest entry matched.
+    Empty (pre-visuals) sections return empty cuts WITHOUT an error — callers
+    decide: probe_scene reports timing rollup with has_visuals=false,
+    probe_cut/probe_asset report a targeted missing-cut error.
     """
     norm_sec, scene_index, _, err = resolve_scene_and_cut(
         section_type, scene_index=scene_index, scene_number=scene_number, default_scene=0
@@ -98,12 +101,11 @@ def _resolve_cuts(project_id: str, section_type: str,
         logger.warning(f"probe: manifest read failed ({e}); using script.json")
     cuts = _current_section_cuts(proj_dir, section_type, scene_index,
                                  fallback=fallback)
-    display_label = format_display_label(section_type, scene_index)
-    # Keep raw order (including rare non-dict entries) so cut_index matches
-    # get_visuals; every consumer below guards non-dict cuts individually.
-    if not [c for c in cuts if isinstance(c, dict)]:
-        return proj, proj_dir, [], manifest_duration, {"ok": False, "error": (
-            f"No visuals found for {display_label}. Author visuals with save_visuals first.")}
+    # Pre-visuals sections return empty cuts WITHOUT an error — probe_scene
+    # surfaces timing rollup with has_visuals=false; probe_cut/probe_asset
+    # surface a cut-level hint instead.
+    if not isinstance(cuts, list):
+        cuts = []
     return proj, proj_dir, cuts, manifest_duration, None
 
 
@@ -238,6 +240,21 @@ def probe_cut_payload(project_id: str, section_type: str,
     if r_err:
         return r_err
     proj_vf = str((proj or {}).get("video_format") or "landscape")
+    dict_cuts = [c for c in cuts if isinstance(c, dict)]
+    if not dict_cuts:
+        from backend.mcp.payloads import format_display_label as _fmt
+        _label = _fmt(section_type, scene_index)
+        # Pre-visuals: still return timing rollup so agents can plan cuts.
+        return {"ok": False,
+                "error": (
+                    f"No saved cuts for {_label} yet (section has no visuals). "
+                    f"Use probe_scene for timing, then author with save_visuals."
+                ),
+                "error_code": "NO_VISUALS_YET",
+                "has_visuals": False,
+                "display_label": _label,
+                "next": ("Author visuals with save_visuals first "
+                         "(probe_scene gives you the audio duration to plan against).")}
     if not 0 <= cut_index < len(cuts):
         total_cuts = len(cuts)
         return {"ok": False,
@@ -296,6 +313,33 @@ def probe_scene_payload(project_id: str, section_type: str,
         return r_err
     proj_vf = str((proj_s or {}).get("video_format") or "landscape")
     display_label = format_display_label(section_type, scene_index, None)
+    dict_cuts = [c for c in cuts if isinstance(c, dict)]
+    if not dict_cuts:
+        # Pre-visuals: return the timing rollup (TRUE audio duration) so the
+        # agent can plan cut durations without guessing. Visuals optional.
+        try:
+            from backend.agent.timing import empty_timing_report as _empty_timing
+            _timing = _empty_timing()
+        except Exception:
+            _timing = {"warnings": [], "fixes": [], "warning_count": 0,
+                       "fix_count": 0, "cut_durations_final": [],
+                       "cuts_checked": 0, "animations_checked": 0}
+        total = round(float(manifest_duration or 0), 2)
+        return {"ok": True, "project_id": project_id,
+                "section_type": section_type,
+                "visuals_hash": _visuals_hash_for(proj_dir),
+                "scene_index": scene_index if section_type == "scene" else None,
+                "scene_number": (scene_index + 1) if section_type == "scene" else None,
+                "display_label": display_label,
+                "has_visuals": False,
+                "cut_count": 0, "total_duration": total,
+                "audio_duration": total,
+                "cuts": [],
+                "timing": _timing,
+                "variety": {},
+                "next": (f"No visuals saved yet — section audio is {total:g}s. "
+                         "Author cuts summing to this duration via save_visuals. "
+                         "Use get_section_timings(scene_number=N) for narration + word times.")}
     summaries: List[Dict[str, Any]] = []
     for idx, cut in enumerate(cuts):
         if not isinstance(cut, dict):
@@ -361,7 +405,9 @@ def probe_scene_payload(project_id: str, section_type: str,
             "scene_index": scene_index if section_type == "scene" else None,
             "scene_number": (scene_index + 1) if section_type == "scene" else None,
             "display_label": display_label,
+            "has_visuals": True,
             "cut_count": len(summaries), "total_duration": total,
+            "audio_duration": round(float(manifest_duration or total), 2),
             "cuts": summaries, "timing": timing,
             "variety": variety,
             "next": ("Drill into one cut with probe_cut, fix via "
@@ -397,6 +443,11 @@ def probe_asset_payload(project_id: str, section_type: str,
                                                 scene_index)
     if r_err:
         return r_err
+    if not [c for c in cuts if isinstance(c, dict)]:
+        display_label = format_display_label(section_type, scene_index, cut_index)
+        return {"ok": False, "error": (
+            f"No saved cuts for {display_label} yet — author with save_visuals first."),
+            "error_code": "NO_VISUALS_YET", "has_visuals": False}
     if not 0 <= cut_index < len(cuts):
         total_cuts = len(cuts)
         return {"ok": False,

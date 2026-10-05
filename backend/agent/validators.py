@@ -20,18 +20,73 @@ SPATIAL_ANIMATION_PROPS = frozenset({
 })
 
 
+def hoist_layer_sibling_style(children: List[Any], cut_label: str = "") -> int:
+    """Hoist misplaced Layer-level `style` into `content.style` (repair, not reject).
+
+    Renderer truth is `layer.content.style` — a `style` sibling of `content`
+    on the Layer node is ignored by every frontend reader (layer_box,
+    CanvasOverlay, ASTRenderer). Old skill docs taught the sibling shape, so
+    agents still emit it: merge sibling keys into content.style (sibling fills
+    missing keys; existing content.style wins on conflict), drop the sibling,
+    and count repairs so save_visuals can surface an auto_fixed warning.
+    Empty-dict and non-dict siblings are removed as stray keys (counted as
+    cleanup, not a hoist). Idempotent.
+    """
+    if not isinstance(children, list):
+        return 0
+    fixed = 0
+    for idx, layer in enumerate(children):
+        if not isinstance(layer, dict):
+            continue
+        sib = layer.get("style")
+        if not isinstance(sib, dict) or not sib:
+            if "style" in layer:
+                layer.pop("style", None)
+                fixed += 1
+            continue
+        content = layer.get("content")
+        if not isinstance(content, dict):
+            continue
+        cur = content.get("style")
+        if not isinstance(cur, dict):
+            content["style"] = dict(sib)
+        else:
+            for k, v in sib.items():
+                if k not in cur:
+                    cur[k] = v
+        layer.pop("style", None)
+        fixed += 1
+        logger.warning(
+            f"hoist_layer_sibling_style: {cut_label or 'cut'} layer#{idx}: "
+            f"hoisted Layer-level style into content.style (renderer ignores "
+            f"sibling style — author content.style directly)."
+        )
+    return fixed
+
+
 def _is_spatial_animation(anim: Any) -> bool:
+    import math as _math
     if not isinstance(anim, dict):
         return False
     if anim.get("property") not in SPATIAL_ANIMATION_PROPS:
         return False
+    # Renderer skips keyframes missing finite numeric from/to/duration>0 —
+    # motion_blur on such a layer is bypassed. Accept numeric strings
+    # ("1.0") the way the renderer coerces them; reject bools/NaN/inf.
+    for _k in ("from", "to", "duration"):
+        _v = anim.get(_k)
+        if isinstance(_v, bool) or _v is None:
+            return False
     try:
         duration = float(anim.get("duration"))
         float(anim.get("from"))
         float(anim.get("to"))
     except (ValueError, TypeError):
         return False
-    return duration == duration  # finite check (NaN fails)
+    if not (_math.isfinite(duration) and _math.isfinite(float(anim.get("from")))
+            and _math.isfinite(float(anim.get("to")))):
+        return False
+    return duration > 0
 
 
 def _has_spatial_motion(layer: Dict[str, Any]) -> bool:
@@ -677,6 +732,7 @@ def migrate_cut_geometry(sub_visuals: Any, video_format: str = "landscape",
         total += dropped
         if len(clean) > before:
             total += 1  # gradient placeholder inserted into a layer-less cut
+        total += hoist_layer_sibling_style(comp["children"], cut_label=label)
         total += sanitize_style_keys(comp["children"], cut_label=label,
                                      video_format=video_format)
         total += sanitize_layer_masks(comp["children"], cut_label=label)
@@ -1106,6 +1162,8 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
         try:
             comp = entry.get("composition") or {}
             if isinstance(comp, dict) and isinstance(comp.get("children"), list):
+                hoist_layer_sibling_style(
+                    comp["children"], cut_label=f"cut#{len(normalized)}")
                 sanitize_style_keys(
                     comp["children"], cut_label=f"cut#{len(normalized)}",
                     video_format=video_format,

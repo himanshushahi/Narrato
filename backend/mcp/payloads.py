@@ -1143,9 +1143,16 @@ def _load_transcription_words(project_dir: Path) -> list:
     return []
 
 
-def get_section_timings(project_id: str, include_words: bool = True) -> dict:
+def get_section_timings(project_id: str, include_words: bool = True,
+                        scene_number: int | None = None,
+                        section_type: str = "") -> dict:
     """Report per-section narration + audio durations so the agent can
-    author sub_visuals whose durations sum to the TRUE section length."""
+    author sub_visuals whose durations sum to the TRUE section length.
+
+    For long videos (40+ sections) the full word-timestamp dump is ~5000
+    lines and gets truncated: pass include_words=False for a compact summary,
+    and/or scene_number=N (1-based UI Scene N) or section_type=introduction|
+    scene|conclusion to fetch ONE section (with words) instead of all."""
     _get_project_or_raise(project_id)
     proj = _db.get_project(project_id)
     proj_dir = _project_dir(project_id)
@@ -1209,8 +1216,41 @@ def get_section_timings(project_id: str, include_words: bool = True) -> dict:
         sections.append(info)
         cursor += duration
         manifest_idx += 1
+    # Filtered mode: one section only (keeps long-video responses small).
+    total_sections = len(sections)
+    filt = (section_type or "").strip().lower()
+    if scene_number is not None:
+        try:
+            _sn = int(scene_number)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "scene_number must be a 1-based integer (UI Scene N)."}
+        match = next((s for s in sections
+                      if s.get("section_type") == "scene"
+                      and s.get("scene_number") == _sn), None)
+        if match is None:
+            return {"ok": False, "error": (
+                f"scene_number {_sn} not found (video has "
+                f"{sum(1 for s in sections if s.get('section_type') == 'scene')} scenes).")}
+        sections = [match]
+    elif filt in ("introduction", "intro"):
+        sections = [s for s in sections if s.get("section_type") == "introduction"]
+    elif filt in ("conclusion", "outro", "cta"):
+        sections = [s for s in sections if s.get("section_type") == "conclusion"]
+    elif filt in ("scene", "scenes"):
+        pass  # all scenes already; combine with include_words=False for summary
+    elif filt:
+        return {"ok": False, "error": (
+            f"section_type must be introduction|scene|conclusion (got {section_type!r}).")}
+    filtered = len(sections) != total_sections
     return {"ok": True, "project_id": project_id,
             "total_duration": round(cursor, 2), "sections": sections,
+            "section_count": len(sections),
+            "total_sections": total_sections,
+            "filtered": filtered,
+            "summary_hint": ("Full dump truncated? Re-call with include_words=false "
+                             "for a compact summary, or scene_number=N / "
+                             "section_type=introduction|conclusion for one section.")
+            if not filtered and total_sections > 15 and include_words else "",
             "creative_blueprint": _creative_blueprint_for_project(proj),
             "required_reading": {
                 "message": ("MANDATORY before save_visuals: "
@@ -1500,6 +1540,13 @@ def save_visuals_payload(project_id: str, section_type: str,
             _comp2 = _cut.get("composition")
             _kids2 = _comp2.get("children") if isinstance(_comp2, dict) else None
             if isinstance(_kids2, list):
+                from backend.agent.validators import hoist_layer_sibling_style as _hoist
+                _h = _hoist(_kids2, cut_label=f"cut#{_idx}")
+                if _h:
+                    auto_fixed.append(
+                        f"cut#{_idx}: hoisted/cleaned Layer-level style into content.style "
+                        f"on {_h} layer(s) (renderer ignores sibling style — "
+                        f"author content.style directly; verify in review_frame).")
                 _n = sanitize_layer_masks(_kids2, cut_label=f"cut#{_idx}")
                 if _n:
                     auto_fixed.append(
@@ -1723,9 +1770,10 @@ def save_visuals_payload(project_id: str, section_type: str,
         _DRY_RUN_HASHES.pop(section_key, None)
     if not _covered:
         result["nudge"] = (
-            "Persisted without validating this exact content via dry_run. "
-            "Dry-run-first (dry_run=true → read reports → fix → re-dry-run "
-            "fixed sections → persist) produces visibly better videos.")
+            "This exact content was persisted without a matching dry_run hash "
+            "(never dry-run, or edited after dry_run without re-validating). "
+            "Next time: dry_run=true → read reports → fix → re-dry-run ONLY "
+            "this section → persist. Unchanged sections stay covered.")
     if cut_index is not None:
         result["patched_cut_index"] = cut_index
     return result
@@ -2610,6 +2658,23 @@ def save_visuals_batch_payload(project_id: str, sections: list,
                 f"Batch persisted ({sync_res['completed']}/{sync_res['total']} sections have visuals). "
                 "Save the remaining sections to complete the visual stage, then run_stage('fetch_assets')."
             )
+    # Dry-run coverage summary: persisting edited-but-unvalidated content is
+    # the expected path after fixing flagged overflows — name exactly which
+    # sections changed so the agent re-dry-runs ONLY those next time.
+    if not dry_run and not failed:
+        _nudged = [r.get("index") for r in results
+                   if isinstance(r, dict) and r.get("nudge")]
+        _covered = [r.get("index") for r in results
+                    if isinstance(r, dict) and r.get("ok") and not r.get("nudge")]
+        if _nudged:
+            out["dry_run_coverage"] = {
+                "covered": _covered,
+                "changed_after_dry_run": _nudged,
+                "hint": (f"{len(_covered)}/{len(results)} sections matched their dry_run hash; "
+                         f"{len(_nudged)} changed afterwards (sections { _nudged }) and were "
+                         f"persisted without re-validation. Next time re-dry-run ONLY the "
+                         f"fixed indexes before persisting — no need to re-validate the whole batch."),
+            }
     return out
 
 # ── Transcription Payload ──────────────────────────────────────────

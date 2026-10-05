@@ -30,7 +30,7 @@ These are the actual failure modes observed in production — check all before s
 | **F10** | Kinetic text below subtitle safe area | Text and subtitle overlap | Keep text above `bottom: 18%` (landscape) or `bottom: 28%` (portrait) |
 | **F11** | Raw `px` in geometry | Ingest normalizes to `%` but may drift | Use `%` strings directly: `"left": "15%"` not `"left": 288` |
 | **F12** | `top` AND `bottom` both set | Engine resolves conflict (Text keeps bottom, others keep top) | Set only ONE vertical anchor. Use `bottom` for lower-thirds. |
-| **F13** | `style` placed inside `content` | Box geometry ignored; layer renders at default position | `style` goes on the **Layer node** as sibling of `content`, not inside `content` |
+| **F13** | `style` placed as sibling of `content` on Layer | Box geometry ignored; layer renders at default position | `style` goes INSIDE `content` as `content.style` (renderer reads `layer.content.style`; sibling `style` is auto-hoisted at save — verify) |
 | **F14** | `sources[]` array instead of query | Validator tries to hoist but may fail silently | Output `query` + `source` directly, never `sources[]` array |
 
 ---
@@ -97,7 +97,7 @@ Video-only sources:   pexels ✓   pixabay ✓   wikipedia ✗   archive ✓   y
 - [ ] Lower-thirds above `bottom: 18%` (landscape) / `bottom: 28%` (portrait) (F10)
 - [ ] Geometry uses `%` strings only (F11)
 - [ ] Only one vertical anchor per layer: `top` OR `bottom`, not both (F12)
-- [ ] `style` box is on the Layer node, not inside `content` (F13)
+- [ ] `style` box is inside `content` as `content.style` (F13)
 - [ ] No `sources[]` array — use `query` + `source` (F14)
 - [ ] Spoken text in correct native script (no transliterations)
 - [ ] Complex scripts use Noto fonts

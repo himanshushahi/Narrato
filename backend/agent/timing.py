@@ -63,13 +63,28 @@ def _adelay(anim: Dict[str, Any]) -> float:
 
 
 def _is_num(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    # Numeric strings ("1.0", "-30") coerce the way the renderer does —
+    # rejecting them caused motion_blur false positives on valid drifts.
+    import math as _m
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        try:
+            return _m.isfinite(float(value))
+        except (ValueError, TypeError):
+            return False
+    if isinstance(value, str):
+        try:
+            return _m.isfinite(float(value.strip()))
+        except (ValueError, AttributeError):
+            return False
+    return False
 
 
 def _is_spatial(anim: Any) -> bool:
     """Mirror renderer + validator: spatial prop with finite numeric from/to
     and duration > 0 (ASTAnimator skips keyframes missing any of these, so
-    motion_blur on such a layer is bypassed)."""
+    motion_blur on such a layer is bypassed). Accepts numeric strings."""
     if not isinstance(anim, dict):
         return False
     if anim.get("property") not in _SPATIAL_PROPS:

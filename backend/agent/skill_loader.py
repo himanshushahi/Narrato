@@ -96,6 +96,33 @@ class Skill:
         if not q:
             return None
         q = q.lstrip("§#").strip()
+        # Friendly aliases: agents ask for "layers" but the ## title is
+        # "2. The 11 Content Types". Map common shorthands first.
+        _SECTION_ALIASES = {
+            "layers": "content types",
+            "layer": "content types",
+            "content": "content types",
+            "content types": "content types",
+            "motion": "keyframe animation",
+            "animation": "keyframe animation",
+            "animations": "keyframe animation",
+            "recipes": "named composition recipes",
+            "recipe": "named composition recipes",
+            "geometry": "geometry",
+            "layout": "geometry",
+            "style": "geometry",
+            "particles": "particles",
+            "map": "map",
+            "chart": "chart",
+            "text": "text",
+            "physics": "physics",
+            "filters": "filters",
+            "mask": "mask",
+            "exit": "exit",
+            "single-take": "single-take",
+            "singletake": "single-take",
+        }
+        q = _SECTION_ALIASES.get(q, q)
         for c in chunks:  # exact/numbered ## title match first
             t = c["title"].lower()
             if q == t or t.startswith(q) or q in t:
