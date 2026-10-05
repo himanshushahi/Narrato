@@ -670,17 +670,42 @@ def list_projects() -> dict:
 @mcp.tool()
 def project_status(project_id: str) -> dict:
     """Full project row (no secrets — API keys live in the settings table
-    and are never exposed) plus per-stage task states."""
+    and are never exposed) plus per-stage task states, design status,
+    and visual completion summary."""
     try:
         proj = _db.get_project(project_id)
         if not proj:
             return {"ok": False, "error": f"Project {project_id!r} not found."}
+
+        # Reconcile on-disk visuals state with the tasks table
+        sync_res = None
+        try:
+            proj_dir = payloads._project_dir(project_id)
+            sync_res = payloads._sync_visuals_task_status(project_id, proj_dir)
+        except Exception:
+            pass
+
         tasks = _db.get_project_tasks(project_id)
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+    # Inspect design system
+    design_info = {"saved": False, "theme_name": "", "design_hash": ""}
+    try:
+        proj_dir = payloads._project_dir(project_id)
+        d_hash = payloads.current_design_hash(proj_dir)
+        if d_hash and (proj_dir / "design.json").exists():
+            with open(proj_dir / "design.json", "r", encoding="utf-8") as f:
+                theme = json.load(f).get("theme_name", "")
+            design_info = {"saved": True, "theme_name": theme, "design_hash": d_hash}
+    except Exception:
+        pass
+
     return {"ok": True, "project": proj,
             "tasks": [{k: t.get(k) for k in ("step", "status", "progress", "message")}
-                      for t in tasks]}
+                      for t in tasks],
+            "design_status": design_info,
+            "visuals_status": sync_res or {"is_complete": False, "completed": 0, "total": 0}}
 
 
 # ── Skills (how-to-write documentation for the agent) ─────────────────
@@ -827,17 +852,46 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                      video_format: str = "landscape") -> dict:
     """EASIEST grounding in ONE call: starter pack for a pipeline stage.
 
-    stage: script | design | visuals.
+    stage: script | design | visuals (aliases accepted: generate_visuals, generate_script, art_director).
     Returns the minimum must-read content + brief TOCs, and SATISFIES the
     SKILL_REQUIRED gate for save_script / save_design / save_visuals.
     Prefer this over 3 separate get_skill calls when moving fast.
     After this, pull deeper sections only as needed via
     get_skill(NAME, section="...")."""
     from backend.agent.skill_loader import skill_loader
-    stage = (stage or "").strip().lower()
+    _STAGE_ALIASES = {
+        "generate_visuals": "visuals",
+        "visual": "visuals",
+        "visuals": "visuals",
+        "generate_script": "script",
+        "script": "script",
+        "scriptwriter": "script",
+        "art_director": "design",
+        "art-director-design-system": "design",
+        "design": "design",
+    }
+    raw_stage = (stage or "").strip().lower()
+    stage = _STAGE_ALIASES.get(raw_stage, raw_stage)
+    if not stage or stage in ("auto", "detect"):
+        if project_id:
+            try:
+                proj_dir = payloads._project_dir(project_id)
+                if not (proj_dir / "script.json").is_file():
+                    stage = "script"
+                else:
+                    d_hash = payloads.current_design_hash(proj_dir)
+                    if not d_hash:
+                        stage = "design"
+                    else:
+                        stage = "visuals"
+            except Exception:
+                stage = "visuals"
+        else:
+            stage = "visuals"
+
     if stage not in STAGE_SKILL_REQUIREMENTS:
         return {"ok": False,
-                "error": f"stage must be one of {sorted(STAGE_SKILL_REQUIREMENTS)}."}
+                "error": f"stage must be one of {sorted(STAGE_SKILL_REQUIREMENTS)} (aliases accepted: generate_visuals, generate_script, art_director)."}
     ctx = {"language": language, "video_format": video_format}
     style_hint = ""
     pacing = None
@@ -938,26 +992,38 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
         elif stage == "design":
             sk = skill_loader.get_skill("art-director-design-system",
                                         context="tool")
-            # The skill template contains a {design_guidance} placeholder.
-            # Rendering without it would leak the raw placeholder to the agent,
-            # so substitute a style-hint line (or empty string).
             design_guidance = (
                 f"User style hint (honor when present, never a preset): {style_hint}"
                 if (style_hint or "").strip() else ""
             )
             bundle["art_director"] = sk.render(**{**ctx, "design_guidance": design_guidance}) if sk else ""
             _record_skill_read(project_id, "art-director-design-system")
-            bundle["next"] = ("Include motion language (transitions, text "
-                              "treatments, overlays) or the server warns. "
-                              "Then call save_design.")
+            existing_theme = ""
+            existing_d_hash = ""
+            if project_id:
+                try:
+                    proj_dir = payloads._project_dir(project_id)
+                    existing_d_hash = payloads.current_design_hash(proj_dir)
+                    if existing_d_hash and (proj_dir / "design.json").exists():
+                        with open(proj_dir / "design.json", "r", encoding="utf-8") as f:
+                            existing_theme = json.load(f).get("theme_name", "")
+                except Exception:
+                    pass
+            if existing_d_hash:
+                bundle["design_already_exists"] = True
+                bundle["existing_theme"] = existing_theme
+                bundle["existing_design_hash"] = existing_d_hash
+                bundle["next"] = (
+                    f"Design system '{existing_theme}' is ALREADY saved (hash {existing_d_hash[:8]}). "
+                    f"DO NOT re-author design unless intentionally replacing it with force=True. "
+                    f"Proceed to get_stage_skills('visuals', project_id) and save_visuals_batch."
+                )
+            else:
+                bundle["design_already_exists"] = False
+                bundle["next"] = ("Include motion language (transitions, text "
+                                  "treatments, overlays) or the server warns. "
+                                  "Then call save_design.")
         else:  # visuals: fat capability pack (briefs + full key sections).
-            # Brief-only agents underuse the layer system, so the pack
-            # inlines the highest-value capability text: the layer type
-            # reference, motion grammar, contracts, and the plan structure.
-            # This costs context once per project and is the closest MCP
-            # gets to the internal LLM's injected prompt. It does NOT
-            # satisfy the deep-read gate (see below) — that needs an
-            # active section pull.
             briefs = {}
             for name in STAGE_SKILL_REQUIREMENTS["visuals"]:
                 sk = skill_loader.get_skill(name, context="tool")
@@ -969,8 +1035,6 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                        "sentence_rule", "genre_script_guidance"):
                 ctx.setdefault(_k, "")
             bundle["creative_pack"] = _visuals_creative_pack(ctx)
-            # Must-not-break rules inline so the agent gets them even if it
-            # never pulls another section. Functional only — no taste.
             bundle["must_follow"] = [
                 "LayerBox geometry is %-only (no px).",
                 "No chapter title cards inside cuts.",
@@ -986,13 +1050,46 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
             bundle["layer_reference"] = _layer_reference()
             bundle["sample_cut"] = _sample_cut_template(video_format)
             bundle["storyboard"] = _visuals_storyboard_pack(ctx, project_id)
-            bundle["next"] = ("Then: get_section_timings -> save_design -> "
-                              "write a 1-line-per-cut beat plan (intent + "
-                              "transition + query, see storyboard.beat_plan_template) "
-                              "-> save_visuals(dry_run=true) per section, read "
-                              "timing/variety, fix, then persist. "
-                              "Pull deeper detail as needed, "
-                              "e.g. get_skill('declarative-ast', section='layers').")
+
+            design_saved = False
+            theme_name = ""
+            d_hash = ""
+            visuals_done = False
+            if project_id:
+                try:
+                    proj_dir = payloads._project_dir(project_id)
+                    d_hash = payloads.current_design_hash(proj_dir)
+                    if d_hash and (proj_dir / "design.json").exists():
+                        design_saved = True
+                        with open(proj_dir / "design.json", "r", encoding="utf-8") as f:
+                            theme_name = json.load(f).get("theme_name", "")
+                    sync_info = payloads._sync_visuals_task_status(project_id, proj_dir)
+                    visuals_done = sync_info.get("is_complete", False)
+                except Exception:
+                    pass
+
+            if visuals_done:
+                bundle["visuals_complete"] = True
+                bundle["next"] = (
+                    "All sections already have saved visuals and the 'generate_visuals' stage is complete! "
+                    "Next step: run_stage('fetch_assets', wait=false), then review_frame(mode=composition)."
+                )
+            elif design_saved:
+                bundle["design_already_exists"] = True
+                bundle["existing_theme"] = theme_name
+                bundle["existing_design_hash"] = d_hash
+                bundle["next"] = (
+                    f"Design system is ALREADY saved ('{theme_name}', hash {d_hash[:8]}). "
+                    f"DO NOT call save_design again. "
+                    f"Next: get_section_timings -> write a 1-line-per-cut beat plan -> "
+                    f"save_visuals_batch(dry_run=true) per section, read timing/variety, fix, then persist."
+                )
+            else:
+                bundle["design_already_exists"] = False
+                bundle["next"] = (
+                    "Save design first: call get_stage_skills('design', project_id) -> save_design "
+                    "so visuals can bind to its hash, then return here to author visuals."
+                )
     except Exception as e:
         logger.error(f"MCP get_stage_skills failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
@@ -1356,17 +1453,20 @@ def get_script(project_id: str, include_visuals: bool = False) -> dict:
 @mcp.tool()
 @_emit_project_event("project_updated")
 @_refuse_if_stage_running
-def save_design(project_id: str, design: dict) -> dict:
+def save_design(project_id: str, design: dict, force: bool = False) -> dict:
     """Validate and persist the global design system
     ({theme_name, color_palette, typography, css_guidelines, fonts?}).
     Required before save_visuals so cuts bind to a design hash.
+    Overwriting an existing design when visuals are already authored requires force=true
+    to prevent accidental invalidation of saved visuals.
     MANDATORY FIRST: get_stage_skills('design', project_id) or
     get_skill('art-director-design-system')."""
+    force = _coerce_bool(force, False)
     missing = _missing_stage_skills("design", project_id)
     if missing:
         return _skill_required_error("design", project_id, missing)
     try:
-        return payloads.save_design_payload(project_id, design)
+        return payloads.save_design_payload(project_id, design, force=force)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     except Exception as e:

@@ -117,6 +117,10 @@ def _patch_db(monkeypatch, proj):
     def fake_get_project_tasks(pid):
         return [dict(t) for t in records["tasks"].values() if t.get("project_id") == pid]
 
+    def fake_get_task(tid):
+        t = records["tasks"].get(tid)
+        return dict(t) if t is not None else None
+
     monkeypatch.setattr("backend.database.db.get_project", fake_get_project)
     monkeypatch.setattr("backend.database.db.get_all_projects", fake_get_all_projects)
     monkeypatch.setattr("backend.database.db.update_project", fake_update_project)
@@ -124,6 +128,7 @@ def _patch_db(monkeypatch, proj):
     monkeypatch.setattr("backend.database.db.delete_project", fake_delete_project)
     monkeypatch.setattr("backend.database.db.create_task", fake_create_task)
     monkeypatch.setattr("backend.database.db.update_task", fake_update_task)
+    monkeypatch.setattr("backend.database.db.get_task", fake_get_task)
     monkeypatch.setattr("backend.database.db.get_project_tasks", fake_get_project_tasks)
     calls["records"] = records
     return calls
@@ -2320,5 +2325,183 @@ def test_rollup_shallow_uniform_still_flagged():
                for i in range(2)]
     roll = _video_variety_rollup(entries)
     assert roll["uniform_signature"] is True
+
+
+# ── Visual Task Sync & Design Safety Fixes ─────────────────────────────
+
+def test_sync_visuals_task_status_lifecycle(tmp_path, monkeypatch):
+    """Manifest visual completion syncs generate_visuals task state in SQLite."""
+    from backend.mcp import payloads as p
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    db_calls = _patch_db(monkeypatch, _proj())
+
+    # 1. Zero sections authored -> pending
+    sync1 = p._sync_visuals_task_status("proj_mcp", proj_dir)
+    assert sync1["total"] == 4
+    assert sync1["completed"] == 0
+    assert sync1["is_complete"] is False
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["status"] == "pending"
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["progress"] == 0.0
+
+    # 2. 1 section authored -> running, 25%
+    p.save_visuals_payload("proj_mcp", "introduction", [_text_cut("Intro")])
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["status"] == "running"
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["progress"] == 25.0
+
+    # 3. All 4 sections authored -> completed, 100%
+    p.save_visuals_payload("proj_mcp", "scene", [_text_cut("S1")], scene_index=0)
+    p.save_visuals_payload("proj_mcp", "scene", [_text_cut("S2")], scene_index=1)
+    res_final = p.save_visuals_payload("proj_mcp", "conclusion", [_text_cut("Outro")])
+    assert res_final["visuals_completed"] is True
+    assert res_final["sections_with_visuals"] == "4/4"
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["status"] == "completed"
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["progress"] == 100.0
+
+
+def test_clear_visuals_resets_tasks_to_pending(tmp_path, monkeypatch):
+    """clear_visuals resets generate_visuals, fetch_assets, and render to pending."""
+    from backend.mcp import payloads as p
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    db_calls = _patch_db(monkeypatch, _proj())
+
+    # Set task as completed
+    p.save_visuals_payload("proj_mcp", "introduction", [_text_cut("Intro")])
+    p.save_visuals_payload("proj_mcp", "scene", [_text_cut("S1")], scene_index=0)
+    p.save_visuals_payload("proj_mcp", "scene", [_text_cut("S2")], scene_index=1)
+    p.save_visuals_payload("proj_mcp", "conclusion", [_text_cut("Outro")])
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["status"] == "completed"
+
+    # Clear visuals
+    res = p.clear_visuals_payload("proj_mcp")
+    assert res["ok"] is True
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["status"] == "pending"
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["progress"] == 0.0
+
+
+def test_save_design_overwrite_protection_with_bound_visuals(tmp_path, monkeypatch):
+    """save_design rejects overwriting an existing design when visuals are already bound, unless force=True."""
+    from backend.mcp import payloads as p
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    _patch_db(monkeypatch, _proj())
+
+    # Save visual bound to current design hash
+    p.save_visuals_payload("proj_mcp", "introduction", [_text_cut("Intro")])
+
+    # Attempt to overwrite with a different design (different theme/colors) without force
+    different_design = {
+        "theme_name": "Totally New Theme",
+        "color_palette": {"primary": "#ff0000"},
+        "typography": {"font_family": "Inter"},
+        "css_guidelines": "Bold and red",
+    }
+    blocked = p.save_design_payload("proj_mcp", different_design, force=False)
+    assert blocked["ok"] is False
+    assert blocked["error_code"] == "DESIGN_ALREADY_EXISTS"
+    assert blocked["sections_with_visuals"] >= 1
+    assert "force=True" in blocked["error"]
+
+    # Identical re-save without force must succeed
+    current_design = json.loads((proj_dir / "design.json").read_text(encoding="utf-8"))
+    res_same = p.save_design_payload("proj_mcp", current_design, force=False)
+    assert res_same["ok"] is True
+
+    # Overwrite WITH force=True must succeed
+    forced = p.save_design_payload("proj_mcp", different_design, force=True)
+    assert forced["ok"] is True
+    saved_design = json.loads((proj_dir / "design.json").read_text(encoding="utf-8"))
+    assert saved_design["theme_name"] == "Totally New Theme"
+
+
+def test_project_status_and_get_stage_skills_integration(tmp_path, monkeypatch):
+    """project_status reconciles tasks; get_stage_skills respects stage aliases and design existence."""
+    from backend.mcp import server, payloads as p
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    db_calls = _patch_db(monkeypatch, _proj())
+
+    # 1. Alias handling in get_stage_skills
+    skills_vis = server.get_stage_skills("generate_visuals", "proj_mcp")
+    assert skills_vis["ok"] is True
+    assert skills_vis["stage"] == "visuals"
+
+    skills_scr = server.get_stage_skills("generate_script", "proj_mcp")
+    assert skills_scr["ok"] is True
+    assert skills_scr["stage"] == "script"
+
+    skills_des = server.get_stage_skills("art_director", "proj_mcp")
+    assert skills_des["ok"] is True
+    assert skills_des["stage"] == "design"
+    assert skills_des["design_already_exists"] is True
+    assert "DO NOT re-author design" in skills_des["next"]
+
+    # 2. Visuals skills when design is already saved and visuals incomplete
+    assert skills_vis["design_already_exists"] is True
+    assert skills_vis["existing_theme"] == "T"
+    assert "Design system is ALREADY saved" in skills_vis["next"]
+
+    # 3. Save all visuals
+    p.save_visuals_batch_payload("proj_mcp", [
+        {"section_type": "introduction", "sub_visuals": [_text_cut("A")]},
+        {"section_type": "scene", "scene_index": 0, "sub_visuals": [_text_cut("B")]},
+        {"section_type": "scene", "scene_index": 1, "sub_visuals": [_text_cut("C")]},
+        {"section_type": "conclusion", "sub_visuals": [_text_cut("D")]},
+    ], dry_run=False)
+
+    # 4. project_status reports visuals completed and task status completed
+    status = server.project_status("proj_mcp")
+    assert status["design_status"]["saved"] is True
+    assert status["visuals_status"]["is_complete"] is True
+    assert status["visuals_status"]["completed"] == 4
+    assert status["visuals_status"]["total"] == 4
+    task_vis = next(t for t in status["tasks"] if t["step"] == "generate_visuals")
+    assert task_vis["status"] == "completed"
+
+    # 5. When visuals are complete, get_stage_skills('visuals') guides to fetch_assets
+    skills_after = server.get_stage_skills("visuals", "proj_mcp")
+    assert "run_stage('fetch_assets'" in skills_after["next"]
+
+
+def test_generate_project_design_system_safe_against_missing_metadata(tmp_path, monkeypatch):
+    """generate_project_design_system does not invalidate designs lacking _language/_video_format."""
+    from backend.pipeline.ai import generate_project_design_system
+    import threading
+
+    design_file = tmp_path / "design.json"
+    design_file.write_text(json.dumps({
+        "theme_name": "Minimalist Studio",
+        "color_palette": {"primary": "#111111", "accent": "#ffffff"},
+        "typography": {"font_family": "Inter"},
+        "css_guidelines": "Clean borders and spacing.",
+    }), encoding="utf-8")
+
+    proj_dict = {"name": "Test", "language": "hi", "video_format": "landscape"}
+    design_data, is_new = generate_project_design_system(
+        proj_dict, {}, tmp_path, lambda p, m: None, threading.Event()
+    )
+    assert is_new is False
+    assert design_data["theme_name"] == "Minimalist Studio"
+    assert design_data["_language"] == "hi"
+    assert design_data["_video_format"] == "landscape"
+
+    # When stored language explicitly conflicts, invalidate and regenerate
+    monkeypatch.setattr("backend.pipeline.ai._call_llm_json", lambda *a, **k: {
+        "theme_name": "Fallback Regened",
+        "color_palette": {},
+        "typography": {},
+        "css_guidelines": "",
+    })
+    design_file.write_text(json.dumps({
+        "theme_name": "Minimalist Studio",
+        "_language": "en",
+        "_video_format": "landscape",
+        "color_palette": {"primary": "#111111"},
+        "typography": {},
+        "css_guidelines": ".",
+    }), encoding="utf-8")
+
+    design_data_conflict, is_new_conflict = generate_project_design_system(
+        proj_dict, {}, tmp_path, lambda p, m: None, threading.Event()
+    )
+    assert is_new_conflict is True
+
 
 

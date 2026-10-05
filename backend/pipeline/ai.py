@@ -367,8 +367,19 @@ def generate_project_design_system(project_dict, script_data, project_dir, progr
                 raise ValueError("Invalid design.json shape")
             if data.get('_failed'):
                 raise ValueError("Previous design generation failed, regenerating")
-            if data.get('_language') != language or data.get('_video_format') != video_format:
-                raise ValueError("Language or format changed, invalidating design")
+            # Only invalidate if explicit metadata conflicts with current project settings
+            stored_lang = data.get('_language')
+            stored_fmt = data.get('_video_format')
+            if stored_lang and stored_lang != language:
+                raise ValueError(f"Language changed ({stored_lang} -> {language}), invalidating design")
+            if stored_fmt and stored_fmt != video_format:
+                raise ValueError(f"Format changed ({stored_fmt} -> {video_format}), invalidating design")
+
+            if '_language' not in data:
+                data['_language'] = language
+            if '_video_format' not in data:
+                data['_video_format'] = video_format
+            data.pop('_genre', None)
 
             return data, is_new
         except Exception as e:
@@ -2261,11 +2272,21 @@ Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
             old_total = sum([float(v.get("duration", 0)) for v in existing_sub_visuals])
             if old_total > 0:
                 scale = duration / old_total
-                for v in existing_sub_visuals:
-                    v["duration"] = round(float(v.get("duration", 0)) * scale, 2)
+                running = 0.0
+                for v in existing_sub_visuals[:-1]:
+                    d = round(float(v.get("duration", 0)) * scale, 2)
+                    v["duration"] = d
+                    running += d
+                existing_sub_visuals[-1]["duration"] = round(max(0.1, duration - running), 2)
             else:
-                for v in existing_sub_visuals:
-                    v["duration"] = round(duration / len(existing_sub_visuals), 2)
+                cut_len = len(existing_sub_visuals) or 1
+                base_d = round(duration / cut_len, 2)
+                running = 0.0
+                for v in existing_sub_visuals[:-1]:
+                    v["duration"] = base_d
+                    running += base_d
+                if existing_sub_visuals:
+                    existing_sub_visuals[-1]["duration"] = round(max(0.1, duration - running), 2)
 
             entry["sub_visuals"] = existing_sub_visuals
             entry["_narr_hash"] = narration_hash

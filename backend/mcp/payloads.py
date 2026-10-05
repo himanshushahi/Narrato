@@ -644,7 +644,7 @@ def validate_design_payload(data: dict) -> list:
     return errors
 
 
-def save_design_payload(project_id: str, data: dict) -> dict:
+def save_design_payload(project_id: str, data: dict, force: bool = False) -> dict:
     """Validate + persist an agent-authored design system.
 
     A valid design.json on disk is picked up as-is by the internal
@@ -664,14 +664,74 @@ def save_design_payload(project_id: str, data: dict) -> dict:
     document.pop("_failed", None)
     document.pop("_genre", None)
 
+    design_hash = hashlib.md5(
+        json.dumps(document, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:12]
+
+    # Guard against accidental overwrite: if visuals are already bound to the existing design,
+    # overwriting it with a DIFFERENT hash invalidates all visuals and forces LLM regeneration on resume.
+    old_hash = current_design_hash(proj_dir)
+    old_doc_hash = ""
+    try:
+        with open(proj_dir / "design.json", "r", encoding="utf-8") as f:
+            old_doc = json.load(f)
+        if isinstance(old_doc, dict):
+            od = dict(old_doc)
+            od.setdefault("_language", proj.get("language", "hi"))
+            od.setdefault("_video_format", proj.get("video_format", "landscape"))
+            od.pop("_failed", None)
+            od.pop("_genre", None)
+            old_doc_hash = hashlib.md5(json.dumps(od, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    except Exception:
+        pass
+
+    is_same_design = (design_hash == old_hash or (old_doc_hash and design_hash == old_doc_hash))
+    if old_hash and not is_same_design and not force:
+        try:
+            manifest_path = _active_manifest_path(proj, proj_dir)
+            if manifest_path and manifest_path.exists():
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    entries = json.load(f)
+                bound_sections = [
+                    e for e in (entries or [])
+                    if isinstance(e, dict) and e.get("sub_visuals") and len(e.get("sub_visuals", [])) > 0
+                ]
+                if bound_sections:
+                    existing_theme = ""
+                    try:
+                        with open(proj_dir / "design.json", "r", encoding="utf-8") as f:
+                            existing_theme = json.load(f).get("theme_name", "")
+                    except Exception:
+                        pass
+                    return {
+                        "ok": False,
+                        "error_code": "DESIGN_ALREADY_EXISTS",
+                        "error": (
+                            f"Design system already exists (theme: {existing_theme!r}, hash: {old_hash}) "
+                            f"and {len(bound_sections)} section(s) have visuals bound to it. "
+                            f"Overwriting it with a new design will change the design hash and invalidate "
+                            f"those visuals, causing them to be regenerated during pipeline resume. "
+                            f"If you intentionally want to redesign and replace all visuals, pass force=True."
+                        ),
+                        "existing_theme": existing_theme,
+                        "existing_design_hash": old_hash,
+                        "sections_with_visuals": len(bound_sections),
+                        "fix": {
+                            "keep_design": "Keep existing design.json and proceed directly to authoring visuals or fetch_assets.",
+                            "force_redesign": {
+                                "tool": "save_design",
+                                "arguments": {"project_id": project_id, "design": data, "force": True},
+                            },
+                        },
+                    }
+        except Exception as e:
+            logger.warning(f"MCP save_design overwrite guard check failed: {e}")
+
     design_path = proj_dir / "design.json"
     tmp_path = design_path.with_suffix(".tmp")
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(document, f, indent=2, ensure_ascii=False)
     tmp_path.replace(design_path)
-    design_hash = hashlib.md5(
-        json.dumps(document, sort_keys=True).encode("utf-8")
-    ).hexdigest()[:12]
     logger.info(f"MCP save_design: project {project_id} theme={document.get('theme_name')!r}.")
     result = {"ok": True, "project_id": project_id,
               "theme_name": document.get("theme_name"),
@@ -1204,6 +1264,82 @@ def _canonical_sample_cut(video_format: str = "landscape") -> dict:
     return build_sample_cut(video_format)
 
 
+def _sync_visuals_task_status(project_id: str, proj_dir: Path, manifest: list | None = None) -> dict:
+    """Inspect all manifest sections and reconcile the generate_visuals task in SQLite.
+
+    When all sections have meaningful sub_visuals (not just blank placeholders),
+    generate_visuals is marked 'completed' (progress 100.0).
+    When partially authored, it is marked 'running' with proportional progress.
+    When none are authored, it is left or set to 'pending'.
+    """
+    if manifest is None:
+        try:
+            proj = _get_project_or_raise(project_id)
+            manifest_path = _active_manifest_path(proj, proj_dir)
+            if manifest_path and manifest_path.exists():
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+        except Exception as e:
+            logger.warning(f"MCP _sync_visuals_task_status: could not load manifest: {e}")
+            manifest = None
+
+    if not isinstance(manifest, list) or not manifest:
+        return {"total": 0, "completed": 0, "is_complete": False}
+
+    try:
+        from backend.pipeline.assets import _has_meaningful_sub_visuals
+    except Exception:
+        def _has_meaningful_sub_visuals(subs):
+            return bool(isinstance(subs, list) and len(subs) > 0)
+
+    # Filter to real video sections (introduction, scene, conclusion)
+    sections = [
+        m for m in manifest
+        if isinstance(m, dict) and _normalize_section_type(m.get("section_type", "")) in ("introduction", "scene", "conclusion")
+    ]
+    if not sections:
+        return {"total": 0, "completed": 0, "is_complete": False}
+
+    total = len(sections)
+    completed = sum(1 for m in sections if _has_meaningful_sub_visuals(m.get("sub_visuals")))
+    is_complete = (completed == total and total > 0)
+
+    task_id = f"{project_id}_generate_visuals"
+    try:
+        existing = _db.get_task(task_id) if hasattr(_db, "get_task") else None
+        if not existing:
+            _db.create_task(project_id, "generate_visuals")
+        if is_complete:
+            _db.update_task(
+                task_id,
+                status="completed",
+                progress=100.0,
+                message=f"Step completed ({total}/{total} sections authored via MCP).",
+                error_message=None,
+            )
+        elif completed > 0:
+            pct = round((completed / total) * 100.0, 1)
+            _db.update_task(
+                task_id,
+                status="running",
+                progress=pct,
+                message=f"Authoring visuals via MCP: {completed}/{total} sections saved.",
+                error_message=None,
+            )
+        else:
+            _db.update_task(
+                task_id,
+                status="pending",
+                progress=0.0,
+                message="Pending visuals authoring.",
+                error_message=None,
+            )
+    except Exception as e:
+        logger.warning(f"MCP _sync_visuals_task_status: DB task update failed: {e}")
+
+    return {"total": total, "completed": completed, "is_complete": is_complete}
+
+
 def save_visuals_payload(project_id: str, section_type: str,
                          sub_visuals, scene_index: int | None = None,
                          cut_index: int | None = None,
@@ -1534,6 +1670,7 @@ def save_visuals_payload(project_id: str, section_type: str,
     logger.info(f"MCP save_visuals: project {project_id} {section_type}[{scene_index}] "
                 f"{len(normalized)} cuts, {total}s"
                 f"{f' (patched cut {cut_index})' if cut_index is not None else ''}.")
+    sync_res = _sync_visuals_task_status(project_id, proj_dir, manifest)
     result = {"ok": True, "project_id": project_id, "section_type": section_type,
               "scene_index": scene_index if section_type == "scene" else None,
               "scene_number": scene_num,
@@ -1545,7 +1682,19 @@ def save_visuals_payload(project_id: str, section_type: str,
               "durations": durations, "variety": variety,
               "timing": timing,
               "unverified_queries": unverified,
-              "auto_fixed": auto_fixed}
+              "auto_fixed": auto_fixed,
+              "visuals_completed": sync_res["is_complete"],
+              "sections_with_visuals": f"{sync_res['completed']}/{sync_res['total']}"}
+    if sync_res["is_complete"]:
+        result["next_step"] = (
+            "All sections have saved visuals and the 'generate_visuals' stage is marked complete! "
+            "Next step: run_stage('fetch_assets', wait=false), then review_frame(mode=composition)."
+        )
+    else:
+        result["next_step"] = (
+            f"Section persisted ({sync_res['completed']}/{sync_res['total']} sections saved). "
+            "Continue saving remaining sections via save_visuals or save_visuals_batch."
+        )
     if cut_index is not None:
         result["cut_index"] = cut_index
         result["cut_number"] = cut_num
@@ -2192,7 +2341,7 @@ def clear_visuals_payload(project_id: str, clear_assets: bool = True) -> dict:
     else:
         stills_pruned = _prune_stills_cache(proj_dir)
     _reset_mcp_tasks(
-        project_id, ("fetch_assets", "render"),
+        project_id, ("generate_visuals", "fetch_assets", "render"),
         "Pending upstream changes (visuals cleared via MCP).")
     try:
         _db.update_project(
@@ -2325,6 +2474,7 @@ def save_visuals_batch_payload(project_id: str, sections: list,
                 "error": f"Batch capped at {_MAX_BATCH_SECTIONS} sections "
                          f"(got {len(sections)}); split into smaller batches."}
     _get_project_or_raise(project_id)  # fail fast before any writes
+    proj_dir = _project_dir(project_id)
     results: list = []
     ok_count = 0
     cuts_total = 0
@@ -2408,8 +2558,11 @@ def save_visuals_batch_payload(project_id: str, sections: list,
     summary = {"sections_total": len(results), "sections_ok": ok_count,
                "sections_failed": failed, "cuts_total": cuts_total}
     video_variety = _video_variety_rollup([r for r in results if r.get("ok")])
+    sync_res = _sync_visuals_task_status(project_id, proj_dir) if not dry_run else {"is_complete": False, "completed": 0, "total": 0}
     out = {"project_id": project_id, "dry_run": bool(dry_run),
            "persisted": bool(not dry_run and failed == 0),
+           "visuals_completed": sync_res["is_complete"] if not dry_run else False,
+           "sections_with_visuals": f"{sync_res['completed']}/{sync_res['total']}" if not dry_run else "0/0",
            "summary": summary, "video_variety": video_variety,
            "results": results}
     flat_notes = []
@@ -2437,16 +2590,26 @@ def save_visuals_batch_payload(project_id: str, sections: list,
         out["error"] = (
             f"{failed}/{len(results)} section(s) failed — fix the failed "
             f"indexes (see results[].fix.retry_with), re-dry-run the fixed "
-            f"ones, then persist; successful sections are already "
+            "ones, then persist; successful sections are already "
             f"{'validated' if dry_run else 'persisted'}.")
     else:
         out["ok"] = True
-        out["next_step"] = (
-            "All sections validated — re-dry-run any section you edit, then "
-            "persist with dry_run=false."
-            if dry_run else
-            "All sections persisted — run_stage(fetch_assets), then "
-            "review_frame(mode=composition) per section.")
+        if dry_run:
+            out["next_step"] = (
+                "All sections validated — re-dry-run any section you edit, then "
+                "persist with dry_run=false."
+            )
+        elif sync_res["is_complete"]:
+            out["next_step"] = (
+                "All sections persisted and visuals stage marked complete! "
+                "Next step: run_stage('fetch_assets', wait=false), then "
+                "review_frame(mode=composition) per section."
+            )
+        else:
+            out["next_step"] = (
+                f"Batch persisted ({sync_res['completed']}/{sync_res['total']} sections have visuals). "
+                "Save the remaining sections to complete the visual stage, then run_stage('fetch_assets')."
+            )
     return out
 
 # ── Transcription Payload ──────────────────────────────────────────
