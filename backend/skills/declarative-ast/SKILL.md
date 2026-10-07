@@ -358,25 +358,38 @@ Spring physics: `damping` (default 14, lower = bouncier), `stiffness` (default 1
 - `transform_origin`: CSS pivot for scale/rotate (`"center center"`, `"top left"`, `"bottom center"`)
 
 ### 4.4 Looks, Filters & Blend Modes (`filters` — Layer Property)
+You can declare filters in 3 equivalent ways (the backend & renderer automatically compile them into canonical CSS tokens):
+1. **Named preset shorthand (Recommended)**:
+```json
+{ "filters": ["noir_hard"] }
+{ "filters": ["cinematic_dark_base", "blur(12px)"] }
+```
+2. **Preset or param objects**:
+```json
+{ "filters": [{ "preset": "noir_hard" }, { "type": "blur", "radius": 15 }] }
+```
+3. **Explicit CSS tokens / SVG look URLs**:
 ```json
 { "filters": ["brightness(0.35)", "contrast(1.2)"] }
 { "filters": ["drop-shadow(0 0 22px rgba(255,0,200,0.75))", "saturate(1.5)", "contrast(1.2)"] }
 { "filters": ["mix-blend-mode: overlay"] }
 ```
 
-**Cinematic CSS Looks** (compose freely):
-- `Neon Glow Pop`: `["drop-shadow(0 0 22px rgba(255,0,200,0.75))", "saturate(1.5)", "contrast(1.2)"]`
-- `Cyberpunk`: `["hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)"]`
-- `Golden Hour`: `["sepia(0.45)", "saturate(1.6)", "brightness(1.05)"]`
-- `Bleach Bypass`: `["grayscale(0.4)", "contrast(1.5)"]`
-- `Night Vision`: `["sepia(1)", "hue-rotate(70deg)", "saturate(3)", "contrast(1.2)"]`
-- `Thermal False-Color`: `["grayscale(1)", "invert(1)", "hue-rotate(190deg)", "saturate(4)"]`
-- `Noir Hard`: `["grayscale(1)", "contrast(1.8)"]`
-- `Dream Blur`: `["blur(1.5px)", "brightness(1.15)", "saturate(1.3)"]`
-- `Cinematic Dark Base`: `["brightness(0.35)", "contrast(1.2)"]` — darken B-roll under text
-- `Archival Monochrome`: `["grayscale(0.85)", "contrast(1.25)", "brightness(0.8)"]`
+**Cinematic Look Presets** (use snake_case key or expanded tokens):
+- `noir_hard`: High contrast black & white `["grayscale(1)", "contrast(1.8)"]`
+- `cyberpunk`: Vibrant neon synth look `["hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)"]`
+- `golden_hour`: Warm sunlit glow `["sepia(0.45)", "saturate(1.6)", "brightness(1.05)"]`
+- `bleach_bypass`: Desaturated gritty cinematic `["grayscale(0.4)", "contrast(1.5)"]`
+- `night_vision`: Green phosphorus monochrome `["sepia(1)", "hue-rotate(70deg)", "saturate(3)", "contrast(1.2)"]`
+- `thermal_false_color`: Heat map gradient `["grayscale(1)", "invert(1)", "hue-rotate(190deg)", "saturate(4)", "contrast(1.2)"]`
+- `neon_glow_pop`: Vivid punchy glow `["drop-shadow(0 0 22px rgba(255,0,200,0.75))", "saturate(1.5)", "contrast(1.2)"]`
+- `dream_blur`: Soft ethereal diffusion `["blur(1.5px)", "brightness(1.15)", "saturate(1.3)"]`
+- `cinematic_dark_base`: Darken B-roll under text `["brightness(0.35)", "contrast(1.2)"]`
+- `archival_monochrome`: Vintage documentary film `["grayscale(0.85)", "contrast(1.25)", "brightness(0.8)"]`
+- `vintage_sepia`: Aged paper and film `["sepia(0.65)", "contrast(1.15)", "brightness(0.85)"]`
+- `vibrant_tech_glow`: Clean high-tech punch `["contrast(1.3)", "brightness(1.15)"]`
 
-**6 SVG Filter Looks**: `"url(#fx-emboss)"` | `"url(#fx-sharpen)"` | `"url(#fx-posterize)"` | `"url(#fx-duotone-midnight)"` | `"url(#fx-duotone-inferno)"` | `"url(#fx-thermal)"`
+**SVG Filter Looks**: `"url(#fx-emboss)"` | `"url(#fx-sharpen)"` | `"url(#fx-posterize)"` | `"url(#fx-duotone-midnight)"` | `"url(#fx-duotone-inferno)"` | `"url(#fx-thermal)"`
 
 **Blend Modes**: `"mix-blend-mode: overlay"` | `screen` | `multiply` | `color-dodge` | `color-burn` | `soft-light` | `hard-light` | `difference` | `luminosity`
 

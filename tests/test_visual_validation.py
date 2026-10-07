@@ -691,3 +691,134 @@ def test_model_folds_user_reported_style():
     assert "transform" not in c.style
 
 
+def test_sanitize_layer_filters_direct():
+    from backend.agent.validators import sanitize_layer_filters
+    layers = [
+        {
+            "type": "Layer",
+            "content": {"type": "Image", "query": "city night"},
+            "filters": [
+                {"preset": "noir_hard", "type": "color_grading"},
+                {"type": "blur", "radius": 15},
+                {"type": "motion_blur", "amount": 0.5},
+                {"type": "brightness", "amount": 1.2},
+                {"type": "contrast", "amount": 1.4},
+                {"filter": "sepia(0.5)"},
+                "hue-rotate(90deg)",
+            ],
+        },
+        {
+            "type": "Layer",
+            "content": {"type": "Image", "query": "forest"},
+            "filters": "blur(5px)",
+        },
+        {
+            "type": "Layer",
+            "content": {"type": "Image", "query": "mountain"},
+            "filters": None,
+        },
+    ]
+    sanitize_layer_filters(layers, cut_label="test_cut")
+    assert layers[0]["filters"] == [
+        "grayscale(1)", "contrast(1.8)",
+        "blur(15px)",
+        "brightness(1.2)",
+        "contrast(1.4)",
+        "sepia(0.5)",
+        "hue-rotate(90deg)",
+    ]
+    assert layers[0]["motion_blur"] is True
+    assert layers[1]["filters"] == ["blur(5px)"]
+    assert layers[2]["filters"] == []
+
+
+def test_validate_sub_visuals_auto_repairs_dict_filters():
+    from backend.agent.validators import validate_sub_visuals
+    mock_sub_visuals = [
+        {
+            "duration": 3.0,
+            "transition": "cut",
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "content": {"type": "Image", "query": "city night", "source": "pexels"},
+                        "filters": [
+                            {"preset": "noir_hard", "type": "color_grading"},
+                            {"type": "blur", "radius": 15},
+                            {"type": "motion_blur", "amount": 0.5},
+                        ],
+                    }
+                ],
+            },
+        }
+    ]
+    ok, repaired, msg = validate_sub_visuals(mock_sub_visuals, target_duration=3.0)
+    assert ok is True
+    cut = repaired[0]
+    layer = cut["composition"]["children"][0]
+    assert layer["filters"] == ["grayscale(1)", "contrast(1.8)", "blur(15px)"]
+    assert layer.get("motion_blur") is True
+
+
+def test_sanitize_layer_filters_string_preset_shorthand():
+    from backend.agent.validators import sanitize_layer_filters
+    layers = [
+        {
+            "type": "Layer",
+            "content": {"type": "Image", "query": "city"},
+            "filters": ["noir_hard", "blur(10px)"],
+        },
+        {
+            "type": "Layer",
+            "content": {"type": "Image", "query": "tokyo"},
+            "filters": ["Cyberpunk"],
+        },
+        {
+            "type": "Layer",
+            "content": {"type": "Image", "query": "retro"},
+            "filters": ["vintage-sepia"],
+        },
+    ]
+    sanitize_layer_filters(layers, cut_label="test_cut")
+    assert layers[0]["filters"] == ["grayscale(1)", "contrast(1.8)", "blur(10px)"]
+    assert layers[1]["filters"] == ["hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)"]
+    assert layers[2]["filters"] == ["sepia(0.65)", "contrast(1.15)", "brightness(0.85)"]
+
+
+def test_sanitize_layer_filters_resilient_formats_and_schema():
+    from backend.agent.schemas import ASTLayerNode
+    from backend.agent.validators import sanitize_layer_filters
+
+    # Test ASTLayerNode Pydantic schema accepts dict filters without failing
+    layer_node = ASTLayerNode.model_validate({
+        "type": "Layer",
+        "content": {"type": "Image", "query": "city"},
+        "filters": [
+            {"preset": "noir_hard"},
+            {"name": "cyberpunk"},
+            {"look": "golden_hour"},
+            {"type": "blur", "radius": "20px"},
+            {"type": "motion_blur", "shutter_angle": 90},
+        ],
+    })
+    dumped = layer_node.model_dump(exclude_none=True)
+    assert len(dumped["filters"]) == 5
+
+    # Test compiler converts everything to canonical CSS strings
+    layers = [dumped]
+    sanitize_layer_filters(layers, cut_label="test_cut")
+    assert layers[0]["filters"] == [
+        "grayscale(1)", "contrast(1.8)",
+        "hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)",
+        "sepia(0.45)", "saturate(1.6)", "brightness(1.05)",
+        "blur(20px)",
+    ]
+    assert layers[0]["motion_blur"] is True
+    assert layers[0]["shutter_angle"] == 90.0
+
+
+
+
+

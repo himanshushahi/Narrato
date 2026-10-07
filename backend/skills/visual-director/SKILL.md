@@ -90,7 +90,7 @@ Layer 0 [Bottom]:   Canvas Foundation (Background shader OR darkened Video)
 ```
 
 **Foundation Rules:**
-- **Layer 0**: Typically a `Background` preset OR `Video`/`Image` with `Cinematic Dark Base` filter (`["brightness(0.35)", "contrast(1.2)"]`) + slow `scale: 1.0→1.06` drift animation.
+- **Layer 0**: Typically a `Background` preset OR `Video`/`Image` with `Cinematic Dark Base` filter (`"cinematic_dark_base"` or `["brightness(0.35)", "contrast(1.2)"]`) + slow `scale: 1.0→1.06` drift animation.
 - **Layer 1**: Use `Particles` sparingly (`opacity: 0.12–0.18`), or `Shape` with `preset_path: "corner_brackets"` for HUD framing, or a translucent frosted `Shape` card backing.
 - **Layer 2**: The data/story hero: `Chart`, `Counter`, authentic evidence
   (`archive` photo/document, `Map` with drawn route, real `Video`), transparent

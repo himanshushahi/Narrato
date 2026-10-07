@@ -862,7 +862,7 @@ class ASTLayerNode(AppBaseModel):
     shutter_angle: Optional[float] = Field(default=None, description="Camera shutter angle in degrees for motion blur (45-360, default 180; 90 crisp, 180 cinematic, 360 dreamy)")
     camera_shake: Optional[str] = Field(default=None, description="Procedural noise camera motion effect", json_schema_extra={"enum": ["none", "handheld", "shockwave", "glitch"]})
     transform_origin: Optional[str] = Field(default=None, description="CSS transform-origin pivot for scale/rotate (e.g. 'center center', 'top left'); only visible with motion")
-    filters: Optional[List[str]] = Field(default_factory=list, description="CSS/SVG filter strings (brightness/contrast/saturate/hue-rotate/blur/drop-shadow/url(#fx-*) or 'mix-blend-mode: X' — blend needs a layer beneath)")
+    filters: Optional[List[Union[str, Dict[str, Any]]]] = Field(default_factory=list, description="CSS/SVG filter strings or preset objects (e.g. ['noir_hard'], [{'preset': 'noir_hard'}], ['blur(12px)'], or 'mix-blend-mode: X' — blend needs a layer beneath)")
     mask: Optional[Union[ASTMaskConfig, Dict[str, Any]]] = Field(default=None, description="Shape masking & animated reveal configuration")
     perspective: Optional[Union[float, str]] = Field(default=None, description="3D camera perspective distance in pixels or CSS length (e.g. 1000, '1000px', '800px'). Lower = wide angle, higher = telephoto.")
     perspective_origin: Optional[str] = Field(default=None, description="3D camera vanishing point / perspective-origin (e.g. 'center center', '50% 0%', 'top left')")

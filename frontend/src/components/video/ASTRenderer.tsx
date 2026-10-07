@@ -110,7 +110,7 @@ export interface ASTLayer {
   camera_shake?: CameraShakeType;
   transform_origin?: string;
   floating?: boolean;
-  filters?: string[];
+  filters?: (string | Record<string, any>)[];
   mask?: ASTLayerMask;
   perspective?: number | string;
   perspective_origin?: string;
@@ -288,12 +288,36 @@ const CSS_LENGTH_UNITS: ReadonlySet<string> = new Set([
   'cqi', 'cqb', 'cqmin', 'cqmax', 'cm', 'mm', 'q', 'in', 'pt', 'pc',
 ]);
 
+const AST_FILTER_PRESET_MAP: Readonly<Record<string, string>> = {
+  cinematic_dark_base: 'brightness(0.35) contrast(1.2)',
+  archival_monochrome: 'grayscale(0.85) contrast(1.25) brightness(0.8)',
+  vintage_sepia: 'sepia(0.65) contrast(1.15) brightness(0.85)',
+  vibrant_tech_glow: 'contrast(1.3) brightness(1.15)',
+  ghostly_overlay: 'mix-blend-mode: overlay',
+  cinematic_b_roll_blur: 'blur(12px) brightness(0.75) contrast(1.1)',
+  frosted_glass_surface: 'backdrop-filter: blur(16px) contrast(1.05)',
+  neon_glow_pop: 'drop-shadow(0 0 22px rgba(255,0,200,0.75)) saturate(1.5) contrast(1.2)',
+  cyberpunk: 'hue-rotate(-35deg) saturate(1.8) contrast(1.25)',
+  golden_hour: 'sepia(0.45) saturate(1.6) brightness(1.05)',
+  bleach_bypass: 'grayscale(0.4) contrast(1.5)',
+  night_vision: 'sepia(1) hue-rotate(70deg) saturate(3) contrast(1.2)',
+  thermal_false_color: 'grayscale(1) invert(1) hue-rotate(190deg) saturate(4) contrast(1.2)',
+  noir_hard: 'grayscale(1) contrast(1.8)',
+  dream_blur: 'blur(1.5px) brightness(1.15) saturate(1.3)',
+  emboss_relief: 'url(#fx-emboss)',
+  sharpen_footage: 'url(#fx-sharpen)',
+  posterize_pop: 'url(#fx-posterize) saturate(1.4)',
+  midnight_duotone: 'url(#fx-duotone-midnight)',
+  inferno_duotone: 'url(#fx-duotone-inferno)',
+  thermal_x_ray: 'url(#fx-thermal)',
+};
+
 /**
  * Extracts mix-blend-mode from filters array (it's a CSS property, not a filter)
  * and returns the cleaned filters string and blend mode style.
  */
 function parseFilters(
-  filters?: string[],
+  filters?: (string | Record<string, any>)[],
   directBlur?: number | string
 ): {
   filterStyle?: string;
@@ -308,7 +332,44 @@ function parseFilters(
   let contentBlurPx = 0;
 
   if (filters && filters.length > 0) {
-    for (const f of filters) {
+    for (const rawF of filters) {
+      // Guard against non-string filters emitted by agents or APIs
+      let f: string = '';
+      if (typeof rawF === 'string') {
+        const key = rawF.trim().toLowerCase().replace(/[\s-]+/g, '_');
+        f = AST_FILTER_PRESET_MAP[key] || rawF;
+      } else if (rawF && typeof rawF === 'object') {
+        const obj = rawF as Record<string, any>;
+        if (typeof obj.filter === 'string') {
+          f = obj.filter;
+        } else if (typeof obj.preset === 'string' || typeof obj.type === 'string') {
+          const key = (obj.preset || obj.type || '').toLowerCase().replace(/[\s-]+/g, '_');
+          f = AST_FILTER_PRESET_MAP[key] || '';
+          if (!f) {
+            if (key === 'blur') {
+              const rawR = typeof obj.radius === 'number'
+                ? obj.radius
+                : parseFloat(String(obj.radius || 5).replace(/px/i, ''));
+              const r = Number.isFinite(rawR) ? rawR : 5;
+              f = `blur(${r}px)`;
+            } else if (key === 'brightness') {
+              const rawA = typeof obj.amount === 'number'
+                ? obj.amount
+                : parseFloat(String(obj.amount ?? 1.0));
+              const a = Number.isFinite(rawA) ? rawA : 1.0;
+              f = `brightness(${a})`;
+            } else if (key === 'contrast') {
+              const rawA = typeof obj.amount === 'number'
+                ? obj.amount
+                : parseFloat(String(obj.amount ?? 1.0));
+              const a = Number.isFinite(rawA) ? rawA : 1.0;
+              f = `contrast(${a})`;
+            }
+          }
+        }
+      }
+      if (!f || typeof f !== 'string') continue;
+
       const blendMatch = f.match(/mix-blend-mode:\s*([a-zA-Z-]+)/i);
       const backdropMatch = f.match(/(?:-webkit-)?backdrop-filter:\s*([^;]+)/i);
       if (blendMatch) {

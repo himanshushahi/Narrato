@@ -208,18 +208,25 @@ cause of slideshow-looking output. Full working take: `declarative-ast` §6.5.
 
 ## 7. Filter Application Guide
 
-Apply filters to match the scene's emotional tone:
+Apply filters to match the scene's emotional tone using preset shorthands or tokens:
 
-| Tone / Mood | Filter Recommendation |
+```json
+// Example: applying named presets (compiled automatically into CSS tokens)
+{ "type": "Layer", "content": { "type": "Video", "query": "city street" }, "filters": ["noir_hard"] }
+{ "type": "Layer", "content": { "type": "Video", "query": "tokyo night" }, "filters": ["cyberpunk", "contrast(1.2)"] }
+{ "type": "Layer", "content": { "type": "Image", "query": "mountains" }, "filters": ["cinematic_dark_base", "blur(12px)"] }
+```
+
+| Tone / Mood | Filter Recommendation (use in `filters: [...]`) |
 |---|---|
-| Dark tech / finance / data | `Cinematic Dark Base` on bg video + `Cyberpunk` on foreground |
-| Warm / human story | `Golden Hour` on image/video base |
-| Thriller / investigation | `Noir Hard` on video + strong `contrast(1.4)` |
-| Science / nature / space | `Thermal False-Color` or `Night Vision` on archive |
-| Retro / historical | `Archival Monochrome` or `Vintage Sepia` on archive image |
-| Futuristic / AI | `Neon Glow Pop` on key elements + `Cyberpunk` on bg |
+| Dark tech / finance / data | `"cinematic_dark_base"` on bg video + `"cyberpunk"` on foreground |
+| Warm / human story | `"golden_hour"` on image/video base |
+| Thriller / investigation | `"noir_hard"` on video + strong `"contrast(1.4)"` |
+| Science / nature / space | `"thermal_false_color"` or `"night_vision"` on archive |
+| Retro / historical | `"archival_monochrome"` or `"vintage_sepia"` on archive image |
+| Futuristic / AI | `"neon_glow_pop"` on key elements + `"cyberpunk"` on bg |
 | Danger / urgency | `brightness(1.8)→1.0` flash animation + `camera_shake: shockwave` |
-| Dream / memory | `Dream Blur` + slow scale drift |
+| Dream / memory | `"dream_blur"` + slow scale drift |
 
 **Blend mode uses:**
 - `"mix-blend-mode: overlay"` — overlay a colored shape on video for tinting

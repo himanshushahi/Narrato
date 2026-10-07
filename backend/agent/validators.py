@@ -697,6 +697,98 @@ def sanitize_layer_masks(children: List[Any], cut_label: str = "") -> int:
     return fixed
 
 
+FILTER_PRESETS = {
+    # ── CSS looks (mirrored from frontend AstFilterControls.tsx) ───────
+    "cinematic_dark_base": ["brightness(0.35)", "contrast(1.2)"],
+    "archival_monochrome": ["grayscale(0.85)", "contrast(1.25)", "brightness(0.8)"],
+    "vintage_sepia": ["sepia(0.65)", "contrast(1.15)", "brightness(0.85)"],
+    "vibrant_tech_glow": ["contrast(1.3)", "brightness(1.15)"],
+    "ghostly_overlay": ["mix-blend-mode: overlay"],
+    "cinematic_b_roll_blur": ["blur(12px)", "brightness(0.75)", "contrast(1.1)"],
+    "frosted_glass_surface": ["backdrop-filter: blur(16px)", "contrast(1.05)"],
+    "neon_glow_pop": ["drop-shadow(0 0 22px rgba(255,0,200,0.75))", "saturate(1.5)", "contrast(1.2)"],
+    "cyberpunk": ["hue-rotate(-35deg)", "saturate(1.8)", "contrast(1.25)"],
+    "golden_hour": ["sepia(0.45)", "saturate(1.6)", "brightness(1.05)"],
+    "bleach_bypass": ["grayscale(0.4)", "contrast(1.5)"],
+    "night_vision": ["sepia(1)", "hue-rotate(70deg)", "saturate(3)", "contrast(1.2)"],
+    "thermal_false_color": ["grayscale(1)", "invert(1)", "hue-rotate(190deg)", "saturate(4)", "contrast(1.2)"],
+    "noir_hard": ["grayscale(1)", "contrast(1.8)"],
+    "dream_blur": ["blur(1.5px)", "brightness(1.15)", "saturate(1.3)"],
+    # ── SVG filter looks ──────────────────────────────────────────────
+    "emboss_relief": ["url(#fx-emboss)"],
+    "sharpen_footage": ["url(#fx-sharpen)"],
+    "posterize_pop": ["url(#fx-posterize)", "saturate(1.4)"],
+    "midnight_duotone": ["url(#fx-duotone-midnight)"],
+    "inferno_duotone": ["url(#fx-duotone-inferno)"],
+    "thermal_x_ray": ["url(#fx-thermal)"],
+}
+
+
+def sanitize_layer_filters(layers: List[Dict[str, Any]], cut_label: str = "") -> None:
+    """Normalize layer.filters to strictly List[str] CSS tokens.
+
+    Compiles preset name strings, dict presets, custom filter objects,
+    and hoists motion_blur dicts into canonical CSS tokens.
+    """
+    for idx, layer in enumerate(layers):
+        if not isinstance(layer, dict):
+            continue
+        raw_filters = layer.get("filters")
+        if raw_filters is None:
+            layer["filters"] = []
+            continue
+        if isinstance(raw_filters, str):
+            raw_filters = [raw_filters]
+        if not isinstance(raw_filters, list):
+            layer["filters"] = []
+            continue
+
+        normalized_filters: List[str] = []
+        for item in raw_filters:
+            if isinstance(item, str) and item.strip():
+                clean_item = item.strip()
+                p = clean_item.lower().replace(" ", "_").replace("-", "_")
+                if p in FILTER_PRESETS:
+                    normalized_filters.extend(FILTER_PRESETS[p])
+                else:
+                    normalized_filters.append(clean_item)
+            elif isinstance(item, dict):
+                p = (item.get("preset") or item.get("type") or item.get("name") or item.get("look") or "").strip().lower().replace(" ", "_").replace("-", "_")
+                if p in FILTER_PRESETS:
+                    normalized_filters.extend(FILTER_PRESETS[p])
+                elif "filter" in item and isinstance(item["filter"], str):
+                    normalized_filters.append(item["filter"].strip())
+                elif p == "blur":
+                    raw_r = str(item.get("radius", 5)).lower().replace("px", "").strip()
+                    try:
+                        r_val = float(raw_r)
+                        normalized_filters.append(f"blur({int(r_val) if r_val.is_integer() else r_val}px)")
+                    except (ValueError, TypeError):
+                        normalized_filters.append("blur(5px)")
+                elif p == "brightness":
+                    raw_a = str(item.get("amount", 1.0)).strip()
+                    try:
+                        a_val = float(raw_a)
+                        normalized_filters.append(f"brightness({int(a_val) if a_val.is_integer() else a_val})")
+                    except (ValueError, TypeError):
+                        normalized_filters.append("brightness(1.0)")
+                elif p == "contrast":
+                    raw_a = str(item.get("amount", 1.0)).strip()
+                    try:
+                        a_val = float(raw_a)
+                        normalized_filters.append(f"contrast({int(a_val) if a_val.is_integer() else a_val})")
+                    except (ValueError, TypeError):
+                        normalized_filters.append("contrast(1.0)")
+                elif p == "motion_blur":
+                    layer["motion_blur"] = True
+                    if "shutter_angle" in item:
+                        try:
+                            layer["shutter_angle"] = float(item["shutter_angle"])
+                        except (ValueError, TypeError):
+                            pass
+        layer["filters"] = normalized_filters
+
+
 def migrate_cut_geometry(sub_visuals: Any, video_format: str = "landscape",
                          cut_label_prefix: str = "migrate") -> int:
     """Opt-in LayerBox SOT v1 migration for stored projects.
@@ -736,6 +828,7 @@ def migrate_cut_geometry(sub_visuals: Any, video_format: str = "landscape",
         total += sanitize_style_keys(comp["children"], cut_label=label,
                                      video_format=video_format)
         total += sanitize_layer_masks(comp["children"], cut_label=label)
+        sanitize_layer_filters(comp["children"], cut_label=label)
     return total
 
 
@@ -1169,6 +1262,8 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
                     video_format=video_format,
                 )
                 sanitize_layer_masks(
+                    comp["children"], cut_label=f"cut#{len(normalized)}")
+                sanitize_layer_filters(
                     comp["children"], cut_label=f"cut#{len(normalized)}")
         except Exception:
             pass
