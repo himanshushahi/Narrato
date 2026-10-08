@@ -243,7 +243,7 @@ def get_tools_schema() -> List[Dict[str, Any]]:
                 "description": (
                     "**FOR INTERNAL APP LLM ONLY — MCP EXTERNAL AGENTS use MCP get_skill instead.** "
                     "Loads a specialized skill definition for project rules and best practices. "
-                    f"Available skills: {', '.join(sorted(skill_loader.get_all_skills().keys())) if 'skill_loader' in globals() or 'skill_loader' in locals() else 'declarative-ast, visual-director-core, scriptwriter, editor-qa, subtitle-designer, stock-asset-searcher'}."
+                    f"Available skills: {', '.join(sorted({s.name for s in skill_loader.get_agent_skills().values()})) if 'skill_loader' in globals() or 'skill_loader' in locals() else 'declarative-ast, visual-director-core, scriptwriter, editor-qa, subtitle-designer, stock-asset-searcher'}."
                 ),
                 "parameters": {
                     "type": "object",
@@ -586,8 +586,11 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                 return "Error: Missing skill name."
             skill = skill_loader.get_skill(name, context="tool")
             if skill:
+                if getattr(skill, "exposure", "agent") == "internal":
+                    return (f"Error: Skill '{name}' is an internal pipeline stage prompt, "
+                            f"not an agent guide. See list_skills output for agent-facing skills.")
                 return f"--- SKILL: {name} (v{skill.version}) ---\n{skill.content}"
-            available = ", ".join(sorted(skill_loader.get_all_skills().keys()))
+            available = ", ".join(sorted({s.name for s in skill_loader.get_agent_skills().values()}))
             return f"Error: Skill '{name}' not found. Available skills: {available}."
 
         if tool_name == "search_pexels_photo":

@@ -15,13 +15,18 @@ _SUBSECTION_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
 _BRIEF_SMALL_LIMIT = 10000  # chars: at/below this, brief just returns full text
 
 class Skill:
-    def __init__(self, name: str, version: str, when_to_use: str, content: str, file_path: str, description: str = ""):
+    def __init__(self, name: str, version: str, when_to_use: str, content: str, file_path: str, description: str = "",
+                 exposure: str = "agent"):
         self.name = name
         self.version = version
         self.when_to_use = when_to_use
         self.description = description
         self.content = content
         self.file_path = file_path
+        # 'agent': listed/offered to MCP + chat agents. 'internal': pipeline/
+        # bridge stage prompt — loadable via skill_loader internally but hidden
+        # from agent skill listings.
+        self.exposure = exposure or "agent"
         self.content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
         self._mtime = Path(file_path).stat().st_mtime if file_path and Path(file_path).exists() else 0
         
@@ -82,6 +87,7 @@ class Skill:
         out = {"name": self.name, "version": self.version,
                "description": self.description,
                "when_to_use": self.when_to_use,
+               "exposure": getattr(self, "exposure", "agent"),
                "full_chars": len(rendered), "sections": sections}
         if len(rendered) <= _BRIEF_SMALL_LIMIT:
             out["content"] = rendered
@@ -166,8 +172,10 @@ class SkillLoader:
     def _load_all_skills(self):
         """Loads all SKILL.md files from the backend/skills directories.
 
-        Later directories win on name collisions (workspace overrides bundle),
-        so iterate bundle first, workspace second.
+        Skills are grouped in audience category subfolders (agent-only/,
+        shared/, internal-only/) — search recursively so nesting depth never
+        matters. Later directories win on name collisions (workspace overrides
+        bundle), so iterate bundle first, workspace second.
         """
         if not self.skills_dirs:
             candidates = [get_workspace_dir() / "backend" / "skills", BUNDLE_DIR / "backend" / "skills"]
@@ -179,11 +187,8 @@ class SkillLoader:
                     return
 
         for skills_dir in reversed(self.skills_dirs):
-            for skill_folder in skills_dir.iterdir():
-                if skill_folder.is_dir():
-                    skill_file = skill_folder / "SKILL.md"
-                    if skill_file.exists():
-                        self._parse_and_load(skill_file)
+            for skill_file in sorted(skills_dir.rglob("SKILL.md")):
+                self._parse_and_load(skill_file)
 
     def reload_skills(self):
         """Forces a full reload of all skills from disk."""
@@ -212,7 +217,8 @@ class SkillLoader:
                         when_to_use=meta.when_to_use or "",
                         content=body,
                         file_path=str(file_path),
-                        description=meta.description or ""
+                        description=meta.description or "",
+                        exposure=meta.exposure or "agent",
                     )
                     self._skills_cache[meta.name] = skill
                     if file_path.parent.name != meta.name:
@@ -272,6 +278,16 @@ class SkillLoader:
     def get_all_skills(self) -> dict:
         """Returns the dictionary of all loaded skills."""
         return self._skills_cache
+
+    def get_agent_skills(self) -> dict:
+        """Skills visible to MCP/chat agents (exposure != 'internal').
+
+        Internal pipeline/bridge stage prompts stay loadable via get_skill/
+        render_skill for backend code but are hidden from agent listings so
+        agents are never offered raw templates with unfilled placeholders.
+        """
+        return {k: s for k, s in self._skills_cache.items()
+                if getattr(s, "exposure", "agent") != "internal"}
 
 
 # Singleton instance

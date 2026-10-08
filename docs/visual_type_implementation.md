@@ -83,14 +83,14 @@ When adding or removing visual types, these are the **exact files and code symbo
 
 | File Path | What It Controls | Exact Sections / Lines to Update |
 |---|---|---|
-| [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/declarative-ast/SKILL.md) | Full AST specification loaded during generation | **Section 3: The 11 Valid AST Content Types** (Lines 48–315), Layer order table (Lines 38–44) |
-| [visual-director/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/visual-director/SKILL.md) | Visual Director prompt & type selection guide | **VALID CONTENT TYPES** (Lines 16–17), **CONTENT TYPE SELECTION GUIDE** (Lines 19–34), Rule 38, Rule 42 |
-| [storyboard-planner/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/storyboard-planner/SKILL.md) | Stage 1 beat planning (structure + constraints, no prescribed looks) | Plan Structure, Functional Constraints sections |
-| [motion-graphics-designer/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/motion-graphics-designer/SKILL.md) | Glassmorphism & styling presets | Section 1 (Line 17), Section 3 (Lines 93–105), Section 4 (Lines 113–115) |
-| [editor-qa/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/editor-qa/SKILL.md) | Guardrails & validation checklist | Rule 4 `COMPOSITION & PRIMITIVES` (Line 10) |
-| [sub-visual-rewriter/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/sub-visual-rewriter/SKILL.md) | Single sub-visual rewrite prompt | Lines 16–20 |
-| [visual-rewriter/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/visual-rewriter/SKILL.md) | Section visual rewrite prompt | Lines 13–20 |
-| [stock-asset-searcher/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/stock-asset-searcher/SKILL.md) | Stock asset querying rules | Update if the type interacts with external media sources |
+| [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/declarative-ast/SKILL.md) | Full AST specification loaded during generation | **Section 3: The 11 Valid AST Content Types** (Lines 48–315), Layer order table (Lines 38–44) |
+| [visual-director/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/visual-director/SKILL.md) | Visual Director prompt & type selection guide | **VALID CONTENT TYPES** (Lines 16–17), **CONTENT TYPE SELECTION GUIDE** (Lines 19–34), Rule 38, Rule 42 |
+| [storyboard-planner/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/storyboard-planner/SKILL.md) | Stage 1 beat planning (structure + constraints, no prescribed looks) | Plan Structure, Functional Constraints sections |
+| [motion-graphics-designer/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/motion-graphics-designer/SKILL.md) | Glassmorphism & styling presets | Section 1 (Line 17), Section 3 (Lines 93–105), Section 4 (Lines 113–115) |
+| [editor-qa/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/editor-qa/SKILL.md) | Guardrails & validation checklist | Rule 4 `COMPOSITION & PRIMITIVES` (Line 10) |
+| [sub-visual-rewriter/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/internal-only/sub-visual-rewriter/SKILL.md) | Single sub-visual rewrite prompt | Lines 16–20 |
+| [visual-rewriter/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/internal-only/visual-rewriter/SKILL.md) | Section visual rewrite prompt | Lines 13–20 |
+| [stock-asset-searcher/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/agent-only/stock-asset-searcher/SKILL.md) | Stock asset querying rules | Update if the type interacts with external media sources |
 
 ---
 
@@ -347,19 +347,19 @@ If the new type downloads media from an API (e.g. 3D models, icons, external SVG
 
 ### Step 7: Update AI Skills (`backend/skills/`)
 
-1. **`backend/skills/declarative-ast/SKILL.md`**:
+1. **`backend/skills/shared/declarative-ast/SKILL.md`**:
    - Update heading: `## 3. The 11 Valid AST Content Types`
    - Add subsection with documentation, fields, and JSON example for `CodeBlock`.
    - Update layer order table to classify the new layer (e.g. Midground middle children).
 
-2. **`backend/skills/visual-director/SKILL.md`**:
+2. **`backend/skills/shared/visual-director/SKILL.md`**:
    - Update line 17: `Image | Video | Text | Chart | Counter | Mockup | Timeline | Shape | Map | HTML | CodeBlock`
    - Add selection guidance in `CONTENT TYPE SELECTION GUIDE`.
 
-3. **`backend/skills/storyboard-planner/SKILL.md`**:
+3. **`backend/skills/shared/storyboard-planner/SKILL.md`**:
    - Mention the new type in the primitive vocabulary list.
 
-4. **`backend/skills/editor-qa/SKILL.md`**:
+4. **`backend/skills/shared/editor-qa/SKILL.md`**:
    - Update Rule 4 with the new type name.
 
 ---
@@ -386,11 +386,11 @@ Removing a visual type requires **two key considerations**:
 
 ### Step 1: Remove from Backend Skills (`backend/skills/`)
 - Remove the type from:
-  * [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/declarative-ast/SKILL.md)
-  * [visual-director/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/visual-director/SKILL.md)
-  * [editor-qa/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/editor-qa/SKILL.md)
-  * [storyboard-planner/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/storyboard-planner/SKILL.md)
-  * [motion-graphics-designer/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/motion-graphics-designer/SKILL.md)
+  * [declarative-ast/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/declarative-ast/SKILL.md)
+  * [visual-director/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/visual-director/SKILL.md)
+  * [editor-qa/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/editor-qa/SKILL.md)
+  * [storyboard-planner/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/storyboard-planner/SKILL.md)
+  * [motion-graphics-designer/SKILL.md](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/motion-graphics-designer/SKILL.md)
 
 ### Step 2: Remove from `backend/pipeline/ai.py`
 - Remove the type string from `LAYER_CONTENT_SCHEMA["properties"]["type"]["enum"]`.
@@ -445,10 +445,10 @@ When altering visual layer types, use this checklist to guarantee 100% codebase 
 - [ ] **Backend**: Free composition guidance updated in `backend/pipeline/ai.py` (`storyboard_guidance_text`)
 - [ ] **Backend**: MCP variety analytics and director rules updated in `backend/mcp/payloads.py` & `backend/mcp/server.py`
 - [ ] **Backend**: (If media-backed) `_fetch_ast_layer_asset` updated in `backend/pipeline/assets.py`
-- [ ] **Skills**: `backend/skills/declarative-ast/SKILL.md` updated
-- [ ] **Skills**: `backend/skills/visual-director/SKILL.md` updated
-- [ ] **Skills**: `backend/skills/editor-qa/SKILL.md` updated
-- [ ] **Skills**: `backend/skills/storyboard-planner/SKILL.md` updated
-- [ ] **Skills**: `backend/skills/motion-graphics-designer/SKILL.md` updated
+- [ ] **Skills**: `backend/skills/shared/declarative-ast/SKILL.md` updated
+- [ ] **Skills**: `backend/skills/shared/visual-director/SKILL.md` updated
+- [ ] **Skills**: `backend/skills/shared/editor-qa/SKILL.md` updated
+- [ ] **Skills**: `backend/skills/shared/storyboard-planner/SKILL.md` updated
+- [ ] **Skills**: `backend/skills/shared/motion-graphics-designer/SKILL.md` updated
 - [ ] **Verification**: `npx tsc --project frontend/tsconfig.json --noEmit` & `npm run build` pass with 0 errors
 - [ ] **Verification**: `pytest` passes with 0 test failures

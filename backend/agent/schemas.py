@@ -1016,6 +1016,12 @@ class SkillMetadata(AppBaseModel):
     version: str = Field(default="1.0", description="Semantic skill version")
     description: Optional[str] = Field(default="", description="Skill purpose and guidelines")
     when_to_use: Optional[str] = Field(default="", description="Condition or pipeline stage for loading this skill")
+    exposure: Optional[Literal["agent", "internal"]] = Field(
+        default="agent",
+        description="'agent': usable by MCP/chat agents via list_skills/get_skill. "
+                    "'internal': pipeline/bridge stage prompt with code-filled template vars — "
+                    "hidden from agent skill listings.",
+    )
 
 
 class ActivityTelemetryEntry(AppBaseModel):

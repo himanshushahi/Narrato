@@ -197,7 +197,7 @@ BRIDGE_VISUAL_TOOLS = frozenset({
 
 ### Step 5: Expose Tool in AI Skills
 
-Update [**`backend/skills/declarative-ast/SKILL.md`**](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/declarative-ast/SKILL.md) and [**`backend/skills/motion-graphics-designer/SKILL.md`**](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/motion-graphics-designer/SKILL.md):
+Update [**`backend/skills/shared/declarative-ast/SKILL.md`**](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/declarative-ast/SKILL.md) and [**`backend/skills/shared/motion-graphics-designer/SKILL.md`**](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/shared/motion-graphics-designer/SKILL.md):
 - Instruct the AI that it can call `search_lucide_icons` when designing Mockup badges or Shape icon callouts.
 
 ---

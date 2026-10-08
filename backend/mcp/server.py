@@ -722,7 +722,7 @@ def list_skills() -> dict:
     from backend.agent.skill_loader import skill_loader
     seen: set = set()
     skills = []
-    for s in skill_loader.get_all_skills().values():
+    for s in skill_loader.get_agent_skills().values():
         if s.name in seen:  # folder-alias duplicates (e.g. visual-director)
             continue
         seen.add(s.name)
@@ -754,6 +754,14 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
     skill = skill_loader.get_skill(skill_name, context="tool")
     if not skill:
         return {"ok": False, "error": f"Skill {skill_name!r} not found. Use list_skills."}
+    if getattr(skill, "exposure", "agent") == "internal":
+        return {"ok": False, "error_code": "SKILL_INTERNAL_ONLY",
+                "error": (
+                    f"Skill {skill.name!r} is an internal pipeline stage prompt "
+                    f"(raw template placeholders, no standalone authoring value). "
+                    f"It is not offered to agents. Use list_skills for the "
+                    f"agent-facing guides (scriptwriter, declarative-ast, "
+                    f"visual-director-core, motion-graphics-designer, ...).")}
     _record_skill_read(project_id, skill.name)
     ctx = {"language": language, "video_format": video_format}
     # Project-aware template rendering: fill pacing placeholders

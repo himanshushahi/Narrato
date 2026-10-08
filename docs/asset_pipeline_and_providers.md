@@ -180,7 +180,7 @@ elif source == "unsplash":
 
 ### Step 3: Expose Provider in AI Skills & Schemas
 1. In [**`backend/pipeline/ai.py`**](file:///D:/Real-Life-Projects/remotion_canvas/backend/pipeline/ai.py): Add `"unsplash"` to `LAYER_CONTENT_SCHEMA["properties"]["source"]["enum"]`.
-2. In [**`backend/skills/stock-asset-searcher/SKILL.md`**](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/stock-asset-searcher/SKILL.md): Add guidelines for when the AI should choose `source: "unsplash"`.
+2. In [**`backend/skills/agent-only/stock-asset-searcher/SKILL.md`**](file:///D:/Real-Life-Projects/remotion_canvas/backend/skills/agent-only/stock-asset-searcher/SKILL.md): Add guidelines for when the AI should choose `source: "unsplash"`.
 3. In [**`AstGraphicalEditor.tsx`**](file:///D:/Real-Life-Projects/remotion_canvas/frontend/src/features/ProjectEditor/components/AstGraphicalEditor.tsx): Add `<option value="unsplash">Unsplash</option>` to the Source dropdown.
 
 ---
