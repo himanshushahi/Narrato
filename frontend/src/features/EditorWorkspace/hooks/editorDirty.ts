@@ -14,20 +14,92 @@
 let dirty = false;
 const listeners = new Set<(d: boolean) => void>();
 
-export function setEditorDirty(d: boolean): void {
-  if (d === dirty) return;
-  dirty = d;
+/**
+ * Content-based unsaved tracking (per-card).
+ *
+ * Legacy `setEditorDirty(sessionOpen)` treated any open card as dirty —
+ * just opening the Visuals tab blocked agent reloads forever. The new
+ * model tracks actual unsaved edits per card: opening/reverting a card is
+ * clean, only real mutations mark it dirty. `dirty` is the OR over unsaved
+ * cards + in-flight debounced ticks (see below).
+ */
+const unsavedCards = new Set<string>();
+const pendingCards = new Set<string>();
+/** Legacy forced flag (no active callers — kept consistent so a forced true
+ *  stays sticky until explicitly cleared, never silently overridden). */
+let forcedDirty = false;
+
+function recompute(): void {
+  const next = forcedDirty || unsavedCards.size > 0 || pendingCards.size > 0;
+  if (next === dirty) return;
+  dirty = next;
   listeners.forEach((fn) => {
     try {
-      fn(d);
+      fn(dirty);
     } catch {
       /* listener errors must never break the publisher */
     }
   });
 }
 
+export function setEditorDirty(d: boolean): void {
+  // Legacy force-setter (unmount/project-switch/save tails). When forced
+  // clean, also drop per-card state so a stale card can't re-dirty later.
+  forcedDirty = d;
+  if (!d) {
+    unsavedCards.clear();
+    pendingCards.clear();
+  }
+  recompute();
+}
+
+/** Mark one card as holding unsaved edits (real mutation happened). */
+export function markCardDirty(cardKey: string): void {
+  if (!cardKey) return;
+  if (unsavedCards.has(cardKey)) return;
+  unsavedCards.add(cardKey);
+  recompute();
+}
+
+/** Mark one card clean (saved / reverted to baseline). Other cards keep state. */
+export function markCardClean(cardKey: string): void {
+  if (!cardKey) return;
+  let changed = false;
+  if (unsavedCards.delete(cardKey)) changed = true;
+  if (pendingCards.delete(cardKey)) changed = true;
+  if (changed) recompute();
+}
+
+/** Whole-document persisted (manual save, timeline persist, AI persist). */
+export function clearEditorDirty(): void {
+  if (!forcedDirty && unsavedCards.size === 0 && pendingCards.size === 0 && !dirty) return;
+  forcedDirty = false;
+  unsavedCards.clear();
+  pendingCards.clear();
+  recompute();
+}
+
+/** Visuals-tab debounce: ticks scheduled but not yet flushed to the store. */
+export function setCardPending(cardKey: string, pending: boolean): void {
+  if (!cardKey) return;
+  const had = pendingCards.has(cardKey);
+  if (pending && !had) {
+    pendingCards.add(cardKey);
+    recompute();
+  } else if (!pending && had) {
+    pendingCards.delete(cardKey);
+    recompute();
+  }
+}
+
 export function isEditorDirty(): boolean {
   return dirty;
+}
+
+/** Per-card check (for rebaseline guards — clean cards may follow external updates). */
+export function isCardDirty(cardKey: string): boolean {
+  if (!cardKey) return false;
+  return unsavedCards.has(cardKey) || pendingCards.has(cardKey);
 }
 
 export function subscribeEditorDirty(fn: (d: boolean) => void): () => void {

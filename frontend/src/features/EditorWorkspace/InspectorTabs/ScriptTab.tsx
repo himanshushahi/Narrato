@@ -5,6 +5,7 @@ import {
   VscPlay, VscSymbolRuler, VscSymbolKeyword, VscEdit as VscEditIcon, VscLayers
 } from 'react-icons/vsc';
 import { CustomInput, CustomTextarea } from '../../../components/ui/CustomInput';
+import { markCardDirty } from '../hooks/editorDirty';
 import { formatTime } from '../../ProjectEditor/constants';
 
 interface ScriptTabProps {
@@ -52,7 +53,8 @@ export const ScriptTab = React.memo(function ScriptTab({
     onSaveCardRef.current = onSaveCard;
   });
 
-  const handleSetScriptData = useCallback((data: any) => {
+  const handleSetScriptData = useCallback((data: any, cardKey?: string) => {
+    if (cardKey) markCardDirty(cardKey);
     onSetScriptDataRef.current(data);
   }, []);
 
@@ -153,7 +155,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             handleSetScriptData({
                               ...scriptData,
                               introduction: { ...(scriptData.introduction || {}), hook: v },
-                            });
+                            }, 'intro');
                           }}
                         />
                       </InsetCard>
@@ -231,7 +233,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                                     scenes: (scriptData.scenes || []).map((s: any, i: number) =>
                                       i === idx ? { ...s, title: v } : s,
                                     ),
-                                  });
+                                  }, cardKey);
                                 }}
                               />
                               <CustomTextarea
@@ -245,7 +247,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                                     scenes: (scriptData.scenes || []).map((s: any, i: number) =>
                                       i === idx ? { ...s, narration: v } : s,
                                     ),
-                                  });
+                                  }, cardKey);
                                 }}
                               />
                             </InsetCard>
@@ -364,7 +366,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             handleSetScriptData({
                               ...scriptData,
                               conclusion: { ...(scriptData.conclusion || {}), summary: v },
-                            });
+                            }, 'conclusion');
                           }}
                         />
                         <CustomTextarea
@@ -376,7 +378,7 @@ export const ScriptTab = React.memo(function ScriptTab({
                             handleSetScriptData({
                               ...scriptData,
                               conclusion: { ...(scriptData.conclusion || {}), cta: v },
-                            });
+                            }, 'conclusion');
                           }}
                         />
                       </InsetCard>

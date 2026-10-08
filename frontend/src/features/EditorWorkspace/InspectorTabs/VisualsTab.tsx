@@ -5,6 +5,7 @@ import {
 } from 'react-icons/vsc';
 import { CustomInput } from '../../../components/ui/CustomInput';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { markCardDirty, markCardClean, setCardPending } from '../hooks/editorDirty';
 import { useUIStore } from '../../../store/useUIStore';
 import { SubVisualsEditor } from '../../ProjectEditor/SubVisualsEditor';
 import { formatTime } from '../../ProjectEditor/constants';
@@ -186,15 +187,19 @@ export const VisualsTab = React.memo(function VisualsTab({
     const r = pendingResolvedRef.current ?? resolvedRef.current;
     pendingFullRef.current = null;
     pendingResolvedRef.current = null;
+    if (r) setCardPending(r.cardKey, false);
     if (!pending || !r) return null;
     // Guard: a scene insert/delete shifted script indices mid-debounce —
-    // writing by stale sceneNumber would corrupt the wrong scene. Abort.
+    // writing by stale sceneNumber would corrupt the wrong scene. Abort
+    // WITHOUT marking dirty (nothing was written, nothing to protect).
     const liveScenesLength = scriptDataRef.current?.scenes?.length ?? 0;
     const capturedLength = (r as ResolvedVisual & { scenesLength?: number }).scenesLength;
     if (capturedLength !== undefined && capturedLength !== liveScenesLength) {
       setPendingTick(t => t + 1);
       return null;
     }
+    // Flushed ticks are now real unsaved store edits (persisted on Save).
+    markCardDirty(r.cardKey);
     if (r) {
       try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(pending); } catch { /* ignore */ }
     }
@@ -212,6 +217,12 @@ export const VisualsTab = React.memo(function VisualsTab({
     pendingResolvedRef.current = cur
       ? { ...cur, scenesLength: scriptDataRef.current?.scenes?.length ?? 0 }
       : null;
+    // Debounced ticks are unsaved the moment they are scheduled (they would be
+    // lost by an agent reload), not only after the trailing-edge flush.
+    if (cur) {
+      markCardDirty(cur.cardKey);
+      setCardPending(cur.cardKey, true);
+    }
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     commitTimerRef.current = setTimeout(() => {
       commitTimerRef.current = null;
@@ -219,11 +230,13 @@ export const VisualsTab = React.memo(function VisualsTab({
       const r = pendingResolvedRef.current;
       pendingFullRef.current = null;
       pendingResolvedRef.current = null;
+      if (r) setCardPending(r.cardKey, false);
       if (!pending || !r) { setPendingTick(t => t + 1); return; }
       const liveScenesLength = scriptDataRef.current?.scenes?.length ?? 0;
       if (r.scenesLength !== liveScenesLength) { setPendingTick(t => t + 1); return; }
       if (r) {
         try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(pending); } catch { /* ignore */ }
+        markCardDirty(r.cardKey);
       }
       onSetScriptDataRef.current(writeSectionSubs(scriptDataRef.current, r, pending));
       setPendingTick(t => t + 1);
@@ -237,6 +250,8 @@ export const VisualsTab = React.memo(function VisualsTab({
       clearTimeout(commitTimerRef.current);
       commitTimerRef.current = null;
     }
+    const r = pendingResolvedRef.current;
+    if (r) setCardPending(r.cardKey, false);
     pendingFullRef.current = null;
     pendingResolvedRef.current = null;
     setPendingTick(t => t + 1);
@@ -459,6 +474,7 @@ export const VisualsTab = React.memo(function VisualsTab({
       const full = [...sectionSubs];
       full[subIdx] = next;
       try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(full); } catch { /* ignore */ }
+      markCardDirty(r.cardKey);
       onSetScriptDataRef.current(writeSectionSubs(doc, r, full));
       setPendingTick(t => t + 1);
       return;
@@ -478,6 +494,7 @@ export const VisualsTab = React.memo(function VisualsTab({
     const copy = writeSectionSubs(doc, r, full);
     if (r) {
       try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(full); } catch { /* ignore */ }
+      markCardDirty(r.cardKey);
     }
     onSetScriptDataRef.current(copy);
     return full;
@@ -589,10 +606,16 @@ export const VisualsTab = React.memo(function VisualsTab({
       const copy = writeSectionSubs(scriptDataRef.current, resolved, restored);
       try { lastWrittenJsonByCardRef.current[resolved.cardKey] = JSON.stringify(restored); } catch { /* ignore */ }
       onSetScriptDataRef.current(copy);
+      // Restored to baseline → this card is clean (other cards keep state).
+      // Session stays open so the user can keep editing; the next edit will
+      // mark it dirty again.
+      markCardClean(resolved.cardKey);
       if (selSubIdxRef.current >= restored.length) {
         setSelectedSubVisualIndex(Math.max(0, restored.length - 1));
       }
       addToast("Visual changes reverted to baseline.", 'info');
+    } else if (resolved) {
+      markCardClean(resolved.cardKey);
     }
   };
 
@@ -609,6 +632,7 @@ export const VisualsTab = React.memo(function VisualsTab({
     // Tag as our own write so the baseline effect ignores the echo — the
     // pre-AI baseline stays intact, keeping Revert meaningful.
     try { lastWrittenJsonByCardRef.current[r.cardKey] = JSON.stringify(snapSubs); } catch { /* ignore */ }
+    markCardDirty(r.cardKey);
     onSetScriptDataRef.current(doc);
   };
 

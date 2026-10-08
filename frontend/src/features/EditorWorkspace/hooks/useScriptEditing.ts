@@ -6,7 +6,7 @@ import { getMediaUrlSync } from '../../../utils/mediaUrl';
 import { inferMediaType } from '../../../utils/mediaExtensions';
 
 import { estimateTextDuration } from '../../../utils/duration';
-import { setEditorDirty, markSelfSaveStart, markSelfSaveEnd } from './editorDirty';
+import { markCardDirty, markCardClean, clearEditorDirty, isCardDirty, markSelfSaveStart, markSelfSaveEnd } from './editorDirty';
 import { getNotoFamilyForLang } from '../../../components/video/complexScriptFonts';
 
 function isTempPreviewFile(filePath: string | undefined | null): boolean {
@@ -159,16 +159,60 @@ export function useScriptEditing(
   const showConfirm = useUIStore((s) => s.showConfirm);
 
   const [editingCard, setEditingCard] = useState<{ key: string, mode: 'script' | 'visuals' } | null>(null);
-  // Publish edit-session state cross-hook: while a card is being edited the
-  // user may hold unsaved changes, so useEditorData defers live agent file
-  // reloads (instead of clobbering them) until the session closes.
+  // Content-based dirty (per-card): opening a card alone is clean — only real
+  // mutations (markCardDirty) block agent reloads. Session close never forces
+  // clean (other cards may stay dirty); unmount clears everything so a stale
+  // flag can never survive a project switch/unmount.
+  // Unmount-only reset (separate effect: folding session logic here would flush
+  // deferred reloads mid-edit). Without it, unmounting mid-edit sticks dirty.
+  useEffect(() => () => { clearEditorDirty(); }, []);
+  // Clean-card rebaseline: a card with no unsaved edits may safely follow
+  // external updates (agent save reload, timeline whole-doc persist). A dirty
+  // card keeps its pre-edit snapshot so Cancel/Save-diff still protect it.
+  // This is what stops an open-but-untouched Visuals tab from pinning dirty
+  // forever after the disk moved underneath it.
+  const rebaselineCleanCard = useCallback((cardKey: string, doc: any, manifest: any[]) => {
+    try {
+      originalByCardRef.current[cardKey] = JSON.parse(JSON.stringify(doc));
+    } catch {
+      originalByCardRef.current[cardKey] = doc;
+    }
+    try {
+      originalManifestByCardRef.current[cardKey] = JSON.parse(JSON.stringify(manifest));
+    } catch {
+      originalManifestByCardRef.current[cardKey] = manifest;
+    }
+    if (editingCardRef.current?.key === cardKey) {
+      try {
+        setOriginalScriptData(JSON.parse(JSON.stringify(doc)));
+      } catch {
+        setOriginalScriptData(doc);
+      }
+      try {
+        setOriginalManifestData(JSON.parse(JSON.stringify(manifest)));
+      } catch {
+        setOriginalManifestData(manifest);
+      }
+    }
+  }, []);
   useEffect(() => {
-    setEditorDirty(editingCard !== null);
-  }, [editingCard]);
-  // Unmount-only reset (separate effect: folding this into the effect above
-  // would publish false on every card switch and flush deferred reloads
-  // mid-edit). Without it, unmounting mid-edit sticks dirty=true forever.
-  useEffect(() => () => { setEditorDirty(false); }, []);
+    const key = editingCard?.key;
+    if (!key) return;
+    if (!originalByCardRef.current[key]) return; // not yet snapshotted
+    if (isCardDirty(key)) return; // protect unsaved edits
+    // Clean + doc moved underneath (agent reload / timeline persist) → follow.
+    let sameDoc = false;
+    let sameManifest = false;
+    try {
+      sameDoc = JSON.stringify(originalByCardRef.current[key]) === JSON.stringify(scriptData);
+    } catch { sameDoc = false; }
+    try {
+      sameManifest = JSON.stringify(originalManifestByCardRef.current[key]) === JSON.stringify(manifestData);
+    } catch { sameManifest = false; }
+    if (!sameDoc || !sameManifest) {
+      rebaselineCleanCard(key, scriptData, manifestData);
+    }
+  }, [editingCard?.key, scriptData, manifestData, rebaselineCleanCard]);
   const [rewritePrompt, setRewritePrompt] = useState('');
   const [originalScriptData, setOriginalScriptData] = useState<any>(null);
   const [originalManifestData, setOriginalManifestData] = useState<any[]>([]);
@@ -399,6 +443,7 @@ export function useScriptEditing(
       setOriginalManifestData([]);
       originalByCardRef.current = {};
       originalManifestByCardRef.current = {};
+      clearEditorDirty();
       setRewritePrompt('');
       setSavingCardKey(null);
       setSceneToDelete(null);
@@ -575,6 +620,8 @@ export function useScriptEditing(
       }
       delete originalByCardRef.current[key];
       delete originalManifestByCardRef.current[key];
+      // This card is now at its baseline — clean. Other cards keep state.
+      markCardClean(key);
       // A whole-doc persist for THIS project holding the lock may already be
       // writing (or about to publish) the pre-revert doc — stash both sides
       // of the revert so the saver converges correctly (see
@@ -593,6 +640,9 @@ export function useScriptEditing(
           };
         } catch { /* stash best-effort; stale gates still protect the UI */ }
       }
+    } else if (key) {
+      // No baseline (nothing to restore) — still drop any dirty flag for it.
+      markCardClean(key);
     }
     setEditingCard(null);
     setOriginalScriptData(null);
@@ -1075,6 +1125,7 @@ export function useScriptEditing(
         // is left alone — the user may already be editing elsewhere.
         originalByCardRef.current = {};
         originalManifestByCardRef.current = {};
+        clearEditorDirty();
         setRewritePrompt('');
         addToast("Project saved successfully!", 'success');
         return true;
@@ -1243,6 +1294,7 @@ export function useScriptEditing(
       // Whole document persisted — all per-card baselines are now stale.
       originalByCardRef.current = {};
       originalManifestByCardRef.current = {};
+      clearEditorDirty();
       setEditingCard(null);
       setSavingCardKey(null);
       setRewritePrompt('');
@@ -1394,6 +1446,8 @@ export function useScriptEditing(
           // the second stale gate, and the new project's load overwrites).
           // Deferred publish would hide the AI result for the persist
           // round-trip with no safety gain, so script + manifest stay paired.
+          // Unsaved until the auto-persist below lands (or the user Saves).
+          markCardDirty(cardKey);
           setScriptData(latest);
 
           if (isNewScene || isNewIntroduction || isNewConclusion) {
@@ -1509,6 +1563,7 @@ export function useScriptEditing(
                   // be editing elsewhere.
                   delete originalByCardRef.current[cardKey];
                   delete originalManifestByCardRef.current[cardKey];
+                  markCardClean(cardKey);
                   pendingRevertWriteRef.current = null;
                   return undefined;
                 }
@@ -1530,6 +1585,7 @@ export function useScriptEditing(
             if (aiPersistOk) {
               delete originalByCardRef.current[cardKey];
               delete originalManifestByCardRef.current[cardKey];
+              markCardClean(cardKey);
               setOriginalScriptData(null);
               setOriginalManifestData([]);
               setEditingCard(null);
