@@ -1355,7 +1355,7 @@ _VISUALS_PACK_SECTIONS: tuple = (
     ("declarative-ast", "content types", "content_types"),
     ("declarative-ast", "advanced manipulation", "motion_grammar"),
     ("declarative-ast", "compose freely", "transitions"),
-    ("declarative-ast", "living take", "living_take"),
+    ("declarative-ast", "single-take", "living_take"),
     ("declarative-ast", "editor parity", "editor_parity"),
     ("visual-director-core", "choreography", "motion_fx"),
     ("visual-director-core", "compositing", "layer_types"),
