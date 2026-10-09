@@ -1994,10 +1994,11 @@ Example: sub-visual starts at 4.0s in the scene and keyword is spoken at [6.3s] 
   with no height — the box grows upward from the bottom edge.
 - SUBTITLE SAFE AREA VS LAYERBOX FILL: the validator auto-fills missing
   Text boxes with `bottom: "18%"` (landscape) / `"25%"` (portrait) — the
-  exact subtitle boundary. If you are placing a text label, position it
+  exact subtitle boundary. Keep key content above `bottom: "18%"` (landscape) /
+  `"28%"` (portrait, 3% buffer above the boundary). If you are placing a text label, position it
   explicitly above this line to avoid overlapping kinetic captions; for
   intentional lower-third captions anchored at the bottom, `bottom: "18%"`
-  (landscape) or `bottom: "25%"` (portrait) is correct.
+  (landscape) or `bottom: "28%"` (portrait) is correct.
 - DO NOT add arbitrary properties that are not supported — especially inside
   `style`: NEVER `transform`/`translate` (the key is removed and the overlay
   box loses sync), NEVER `filter`/`opacity` in style (`filter` is hoisted to
@@ -2115,17 +2116,17 @@ Part 1: 11 Content Types (combine freely in any count, stacking is children arra
 - Background: 7 procedural shaders (gradient_mesh, grid_flow, waves, dots, blueprint, vignette_loop, paper_grain), 3-color palette [base, accent1, accent2], speed. Zero asset downloads, always fullscreen children[0].
 - Image: query (1-3 English keywords) + source (pexels, pixabay, wikipedia, archive). Pixabay image_type: illustration/vector for transparent cutouts; archive for authentic historical/space photos. objectFit: cover/contain/fill.
 - Video: query (1-3 English keywords) + source (pexels for generic stock B-roll; youtube for real-world events, tech/product demos, science simulations; archive for historical newsreels, archival footage, classic documentaries). volume (0-1), loop (false/true freezes or loops), yt_start_offset (default 15s), yt_duration (default 15s, max 30s), objectFit.
-- Lottie: lottie_url or animation_data, loop, playback_rate, direction: forward/backward.
-- Particles: 6 atmospheric presets (confetti, embers, dust, money_rain, snow, stars), count (10-300), hex colors, speed, opacity.
+- Lottie: lottie_url or animation_data, loop, playback_rate, lottie_direction: forward/backward.
+- Particles: 6 atmospheric presets (confetti, embers, dust, money_rain, snow, stars), count (10-300), particle_colors hex array, particle_size [min_px, max_px], speed, opacity, particle_direction.
 - Map: map_style (modern_dark, vintage, minimal_light, nautical_blue), locations ([{{name, coord: [lat, lon]}}]).
 - HTML: html_content (custom documents, code windows, receipts, glass cards). Fluid 100% filler root, no remote assets.
 
 Part 2: Universal Advanced Manipulation (any layer):
 - Geometry (style): LayerBox % coordinates (left, top, width, height, or bottom). borderRadius (16px, 24px, 50% circle), aspectRatio ("1 / 1"). Static rotate deg, scale multiplier, scaleX: -1 (flip H), scaleY: -1 (flip V), static 3D rotateX, rotateY, translateZ (depth px). Center math: left = 50 - width/2.
 - Animations (animations): 10 properties: 7 spatial (translateY, translateX, translateZ, scale, rotate, rotateX, rotateY) + 3 optical fades (opacity, blur px rack-focus, brightness flash). Easings: spring (damping/stiffness/mass/overshoot_clamping), ease-out, ease-in-out, ease-in, linear, bounce, elastic (elastic_bounciness), back (back_overshoot), steps (steps_count), bezier (bezier_points [x1,y1,x2,y2], x in [0,1]). Continuous motion: loop_mode loop|pingpong (one direction per duration; full pingpong round trip = 2x duration). Pair delay > 0 with opacity: 0 -> 1. Word sync via delay when timestamps exist.
-- Physics, Camera & 3D Perspective (motion): floating: true harmonic drift; motion_blur: true + shutter_angle: 45-360 (default 180); camera_shake: "handheld" | "shockwave" | "glitch" | "none"; transform_origin pivot; perspective: 1000 (300-3000px FOV distance; lower = wide angle, higher = telephoto), perspective_origin: "center center" | "50% 0%".
+- Physics, Camera & 3D Perspective (motion): floating: true harmonic drift; motion_blur: true + shutter_angle: 45-360 (default 180); camera_shake: "handheld" | "shockwave" | "glitch" | "none"; transform_origin pivot; perspective: 1000 (300-3000px FOV distance; lower = wide angle, higher = telephoto), perspective_origin: 9 points ("0% 0%", "50% 0%", "100% 0%", "0% 50%", "center center", "100% 50%", "0% 100%", "50% 100%", "100% 100%").
 - Filters & Looks (filters): array of filter strings or presets (e.g. ["noir_hard"] or ["blur(12px)"]). Supports:
-  * Named presets: "noir_hard", "cyberpunk", "golden_hour", "neon_glow_pop", "bleach_bypass", "night_vision", "thermal_false_color", "dream_blur", "cinematic_dark_base", "archival_monochrome", "vintage_sepia"
+  * Named presets: "noir_hard", "cyberpunk", "golden_hour", "neon_glow_pop", "bleach_bypass", "night_vision", "thermal_false_color", "dream_blur", "cinematic_dark_base", "archival_monochrome", "vintage_sepia", "vibrant_tech_glow"
   * SVG looks: "url(#fx-emboss)", "url(#fx-sharpen)", "url(#fx-posterize)", "url(#fx-duotone-midnight)", "url(#fx-duotone-inferno)", "url(#fx-thermal)"
   * Blend modes: "mix-blend-mode: overlay", "mix-blend-mode: screen", "mix-blend-mode: multiply", "mix-blend-mode: color-dodge"
   * Optical blurs: layer content blur "blur(12px)" (0-50px, softens own pixels for B-roll behind text) or style {{"blur": 12}}, and frosted-glass backdrop blur "backdrop-filter: blur(16px)" (0-30px, pair with translucent backgroundColor).
