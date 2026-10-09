@@ -65,8 +65,7 @@ Return ONLY valid JSON matching this schema. Bind actual hex values from `design
           {
             "type": "Layer",
             "name": "Frosted Card",
-            "content": { "type": "Shape", "shape_type": "rectangle", "fill": "rgba(255,255,255,0.06)", "stroke": "#38bdf8", "stroke_width": 1.5, "corner_radius": 24 },
-            "style": { "left": "15%", "top": "18%", "width": "70%", "height": "60%" },
+            "content": { "type": "Shape", "shape_type": "rectangle", "fill": "rgba(255,255,255,0.06)", "stroke": "#38bdf8", "stroke_width": 1.5, "corner_radius": 24, "style": { "left": "15%", "top": "18%", "width": "70%", "height": "60%" } },
             "floating": true,
             "animations": [
               { "property": "scale",   "from": 0.88, "to": 1.0, "duration": 0.5, "delay": 0.2, "easing": "spring" },
@@ -76,8 +75,7 @@ Return ONLY valid JSON matching this schema. Bind actual hex values from `design
           {
             "type": "Layer",
             "name": "Metric Counter",
-            "content": { "type": "Counter", "value": 450, "prefix": "$", "suffix": "M", "title": "CAPITAL RAISED", "font_size": 84, "color": "#facc15" },
-            "style": { "left": "20%", "top": "28%", "width": "60%", "height": "32%" },
+            "content": { "type": "Counter", "value": 450, "prefix": "$", "suffix": "M", "title": "CAPITAL RAISED", "font_size": 84, "color": "#facc15", "style": { "left": "20%", "top": "28%", "width": "60%", "height": "32%" } },
             "animations": [
               { "property": "translateY", "from": 40, "to": 0, "duration": 0.6, "delay": 0.4, "easing": "spring" },
               { "property": "opacity",    "from": 0,  "to": 1, "duration": 0.4, "delay": 0.4, "easing": "ease-out" }
@@ -86,8 +84,7 @@ Return ONLY valid JSON matching this schema. Bind actual hex values from `design
           {
             "type": "Layer",
             "name": "Kinetic Headline",
-            "content": { "type": "Text", "text": "Record funding round", "font": "Outfit", "weight": "700", "color": "#f1f5f9", "animation_mode": "words_stagger", "highlight_words": ["Record"], "highlight_color": "#facc15", "style": { "fontSize": "40px", "textAlign": "center" } },
-            "style": { "left": "10%", "bottom": "18%", "width": "80%" },
+            "content": { "type": "Text", "text": "Record funding round", "font": "Outfit", "weight": "700", "color": "#f1f5f9", "animation_mode": "words_stagger", "highlight_words": ["Record"], "highlight_color": "#facc15", "style": { "left": "10%", "bottom": "18%", "width": "80%", "fontSize": "40px", "textAlign": "center" } },
             "animations": [
               { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.7, "easing": "ease-out" }
             ]

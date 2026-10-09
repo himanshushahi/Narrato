@@ -39,7 +39,7 @@ exposure: internal
   "composition": {
     "type": "Sequence",
     "children": [              ← children[0]=bottom, children[N-1]=top
-      { "type": "Layer", "content": { "type": "...", ... }, "style": {...}, "animations": [...], "filters": [...] }
+      { "type": "Layer", "content": { "type": "...", "style": { "left": "15%", "top": "20%", "width": "70%" } }, "animations": [...], "filters": [...] }
     ]
   }
 }
@@ -87,8 +87,7 @@ Return ONLY valid JSON matching a single sub-visual structure. Bind actual color
       {
         "type": "Layer",
         "name": "Metric Card",
-        "content": { "type": "Counter", "value": 250, "prefix": "$", "suffix": "B", "title": "TOTAL REVENUE", "font_size": 80, "color": "#facc15" },
-        "style": { "left": "25%", "top": "28%", "width": "50%", "height": "32%" },
+        "content": { "type": "Counter", "value": 250, "prefix": "$", "suffix": "B", "title": "TOTAL REVENUE", "font_size": 80, "color": "#facc15", "style": { "left": "25%", "top": "28%", "width": "50%", "height": "32%" } },
         "floating": true,
         "animations": [
           { "property": "translateY", "from": 40, "to": 0, "duration": 0.5, "delay": 0.3, "easing": "spring" },
@@ -98,8 +97,7 @@ Return ONLY valid JSON matching a single sub-visual structure. Bind actual color
       {
         "type": "Layer",
         "name": "Kinetic Label",
-        "content": { "type": "Text", "text": "Breaking the record", "font": "Outfit", "weight": "700", "color": "#f1f5f9", "animation_mode": "marker_highlight", "highlight_color": "#facc15", "style": { "fontSize": "36px", "textAlign": "center" } },
-        "style": { "left": "10%", "bottom": "18%", "width": "80%" },
+        "content": { "type": "Text", "text": "Breaking the record", "font": "Outfit", "weight": "700", "color": "#f1f5f9", "animation_mode": "marker_highlight", "highlight_color": "#facc15", "style": { "left": "10%", "bottom": "18%", "width": "80%", "fontSize": "36px", "textAlign": "center" } },
         "animations": [
           { "property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.6, "easing": "ease-out" }
         ]
