@@ -150,10 +150,20 @@ function AppContent() {
 
   useEffect(() => {
     // Offline detection: browser online/offline events + periodic backend
-    // internet probe. Reconnect toast fires once per offline->online flap.
-    const dispose = initConnectivityListeners(() => {
-      useUIStore.getState().addToast('Back online. You can resume paused stages.', 'success');
-    });
+    // internet probe. Toasts fire once per online<->offline flip via the
+    // store subscription in initConnectivityListeners (either path can
+    // detect the transition — browser events are unreliable in WebView2).
+    const dispose = initConnectivityListeners(
+      () => {
+        useUIStore.getState().addToast('Back online. You can resume paused stages.', 'success');
+      },
+      () => {
+        useUIStore.getState().addToast(
+          'You are offline — editing works, AI voice / assets / chat need internet. Progress is saved.',
+          'warning', 5000,
+        );
+      },
+    );
     return dispose;
   }, []);
 

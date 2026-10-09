@@ -27,8 +27,10 @@ export const ConnectivityBanner: React.FC = () => {
     setChecking(true);
     try {
       const up = await probe(true);
-      if (up) addToast('Back online.', 'success');
-      else addToast('Still offline. Check your connection and retry.', 'warning', 4000);
+      // Success toast comes from the global online<->offline transition
+      // subscription in initConnectivityListeners — toasting here too would
+      // stack two "back online" toasts for one flip.
+      if (!up) addToast('Still offline. Check your connection and retry.', 'warning', 4000);
     } finally {
       setChecking(false);
     }
