@@ -534,6 +534,14 @@ class AgentRunner:
                 + "use composition.children Layer nodes with content.style "
                 + "%-strings and animation delay."
             )
+        elif isinstance(error_msg, str) and error_msg.startswith("MISSING_CONTENT_TYPE"):
+            correction_prompt = (
+                user_prompt
+                + f"\n\nValidation Error: {error_msg}\n"
+                + "Every Layer needs content.type — set it "
+                + "(e.g. Text/Image/Video/Shape/Background) and resubmit; "
+                + "do NOT drop the layer."
+            )
         else:
             correction_prompt = user_prompt + f"\n\nValidation Error: {error_msg}\nPlease recalculate durations so they sum exactly to {expected_duration}."
 

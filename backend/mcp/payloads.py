@@ -1415,17 +1415,30 @@ def save_visuals_payload(project_id: str, section_type: str,
     section_type = norm_sec
 
     if cut_index is not None:
-        patch = sub_visuals[0] if isinstance(sub_visuals, list) else sub_visuals
-        if not isinstance(patch, dict):
-            return {"ok": False, "error": (
-                "Single-cut patch: sub_visuals must be one cut object "
-                "(or a 1-element array).")}
         if isinstance(sub_visuals, list) and len(sub_visuals) != 1:
             return {"ok": False, "error": (
-                "Single-cut patch takes exactly one cut; omit cut_index/cut_number to "
-                "replace the whole section.")}
+                f"Single-cut patch takes exactly one cut (got {len(sub_visuals)}); "
+                "omit cut_index/cut_number to replace the whole section.")}
+        patch = sub_visuals[0] if isinstance(sub_visuals, list) else sub_visuals
+        if not isinstance(patch, dict):
+            _got = type(sub_visuals).__name__
+            if isinstance(sub_visuals, list):
+                _got = f"list[{len(sub_visuals)}] of {type(sub_visuals[0]).__name__ if sub_visuals else 'empty'}"
+            return {"ok": False, "error": (
+                "Single-cut patch: sub_visuals must be one cut object "
+                f"(or a 1-element array). Got {_got}. "
+                "Valid cut keys: duration, transition, exit_transition, "
+                "composition, emphasis, subtitle_position, visual_path, visual_url. "
+                "exit_transition IS valid here — this error means the cut itself "
+                "is not a dict (e.g. you passed bare layers). "
+                "Fix: pass [{duration, transition, composition:{type:Sequence, children:[...]}}].")}
     elif not isinstance(sub_visuals, list) or not sub_visuals:
-        return {"ok": False, "error": "sub_visuals must be a non-empty array."}
+        _got = type(sub_visuals).__name__
+        if isinstance(sub_visuals, list):
+            _got = "empty list"
+        return {"ok": False, "error": (
+            f"sub_visuals must be a non-empty array (got {_got}). "
+            "For a single-cut patch pass cut_index/cut_number + a 1-element array.")}
     proj = _get_project_or_raise(project_id)
     proj_dir = _project_dir(project_id)
     video_format = proj.get("video_format", "landscape")
@@ -1609,6 +1622,13 @@ def save_visuals_payload(project_id: str, section_type: str,
             _res["error_code"] = "SCHEMA_MISMATCH"
             _res["fix"] = {"hint": "Re-emit as composition.children Layer nodes.",
                            "retry_with": _preview}
+        elif isinstance(error_msg, str) and error_msg.startswith("MISSING_CONTENT_TYPE"):
+            _res["error_code"] = "MISSING_CONTENT_TYPE"
+            _res["fix"] = {"hint": ("Every Layer needs content.type — set it "
+                                    "(e.g. Text/Image/Video/Shape/Background) and resubmit; "
+                                    "do NOT drop the layer."),
+                           "reason": str(error_msg),
+                           "retry_with": _preview}
         else:
             _res["fix"] = {
                 "hint": ("A field has the wrong JSON type or value — the "
@@ -1660,6 +1680,12 @@ def save_visuals_payload(project_id: str, section_type: str,
                 f"not verified via search_media this session "
                 f"(e.g. {unverified[0]!r}) — they fail at fetch_assets. "
                 f"Verify, then re-dry-run before persisting.")
+        if auto_fixed:
+            _af = " | ".join(auto_fixed[:4])
+            if len(auto_fixed) > 4:
+                _af += f" (+{len(auto_fixed) - 4} more)"
+            _note = f"auto_fixed: {_af} — verify in review_frame."
+            result["warning"] = ((result.get("warning", "") + " " + _note).strip())
         if cut_index is not None:
             result["cut_index"] = cut_index
             result["cut_number"] = cut_num
@@ -1758,6 +1784,13 @@ def save_visuals_payload(project_id: str, section_type: str,
                         "those cuts in review_frame before rendering.")
         result["warning"] = ((result.get("warning", "") + " " + _review_note)
                              .strip())
+    elif auto_fixed:
+        _af = " | ".join(auto_fixed[:4])
+        if len(auto_fixed) > 4:
+            _af += f" (+{len(auto_fixed) - 4} more)"
+        result["warning"] = (
+            (result.get("warning", "") + f" auto_fixed: {_af} — verify in review_frame.")
+            .strip())
     # Content-hashed coverage: only the exact validated cuts suppress the
     # nudge. Fixed-after-dry-run content was never validated — it still
     # earns the nudge (re-dry-run the fixed section instead of persisting
@@ -1837,12 +1870,23 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
             return layer_kinds, fx, tuple(geom_buckets)
 
         cand_list = candidate if isinstance(candidate, list) else []
+        _valid_cut_keys = frozenset({
+            "duration", "transition", "exit_transition", "composition",
+            "emphasis", "subtitle_position", "visual_path", "visual_url", "note",
+        })
         for i, cut in enumerate(cand_list):
             if not isinstance(cut, dict) or i >= len(normalized):
                 continue
             norm = normalized[i]
             if not isinstance(norm, dict):
                 continue
+            _unknown = sorted(k for k in cut.keys() if k not in _valid_cut_keys)
+            if _unknown:
+                report["normalizations"].append(
+                    f"cut#{i}: ignored unknown cut keys {_unknown} — "
+                    f"valid keys: {sorted(_valid_cut_keys - {'note'})}. "
+                    f"(exit_transition IS valid as a cut sibling; "
+                    f"layer geometry belongs in content.style.)")
             raw_t = cut.get("transition")
             norm_t = norm.get("transition")
             if (isinstance(raw_t, str) and raw_t.strip()
@@ -2514,9 +2558,16 @@ def save_visuals_batch_payload(project_id: str, sections: list,
     when dry_run=false AND every section persisted (a partial persist
     never claims the whole video is saved)."""
     if not isinstance(sections, list) or not sections:
+        _got = type(sections).__name__
+        if isinstance(sections, list):
+            _got = "empty list"
+        elif isinstance(sections, dict):
+            _got = f"dict with keys {sorted(sections.keys())[:6]}"
         return {"ok": False,
-                "error": "sections must be a non-empty array of "
-                         "{section_type, sub_visuals, scene_index?, cut_index?}."}
+                "error": f"sections must be a non-empty array of "
+                         f"{{section_type, sub_visuals, scene_index?, cut_index?}} (got {_got}). "
+                         f"For intro/conclusion omit scene_index (or pass null/0) — "
+                         f"scene_index is only for section_type='scene'."}
     if len(sections) > _MAX_BATCH_SECTIONS:
         return {"ok": False,
                 "error": f"Batch capped at {_MAX_BATCH_SECTIONS} sections "

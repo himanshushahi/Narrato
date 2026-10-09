@@ -1201,6 +1201,39 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
         except Exception:
             pass
 
+        # Mandatory content.type: a Layer without content.type renders
+        # blank (null) with no renderer error. Fail fast with the exact
+        # cut/layer index so the agent fixes the type in one turn instead
+        # of shipping silent black frames.
+        try:
+            _comp = v.get("composition") if isinstance(v, dict) else None
+            _kids = _comp.get("children") if isinstance(_comp, dict) else None
+            if isinstance(_kids, list):
+                for _li, _layer in enumerate(_kids):
+                    if not isinstance(_layer, dict):
+                        continue
+                    if _layer.get("type") != "Layer":
+                        continue  # handled by _keep_layers / legacy detector
+                    _content = _layer.get("content")
+                    if not isinstance(_content, dict):
+                        return False, _dummy_visual(target_duration), (
+                            f"MISSING_CONTENT_TYPE cut#{src_idx} layer#{_li}: "
+                            f"Layer has no content dict (got {type(_content).__name__}). "
+                            f"Every Layer MUST have content.type "
+                            f"({sorted(_KNOWN_CONTENT_TYPES)}). "
+                            f"Fix: set content.type (e.g. Text/Image/Video/Shape/Background) and resubmit."
+                        )
+                    _ctype = _content.get("type")
+                    if _ctype not in _KNOWN_CONTENT_TYPES:
+                        return False, _dummy_visual(target_duration), (
+                            f"MISSING_CONTENT_TYPE cut#{src_idx} layer#{_li}: "
+                            f"content.type is missing or invalid (got {_ctype!r}). "
+                            f"Valid types: {sorted(_KNOWN_CONTENT_TYPES)}. "
+                            f"Fix: set content.type and resubmit — do NOT drop the layer."
+                        )
+        except Exception:
+            pass
+
         dur = _safe_float(v.get("duration", 1.0))
         if dur <= 0:
             dur = 1.0
