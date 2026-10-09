@@ -2504,4 +2504,100 @@ def test_generate_project_design_system_safe_against_missing_metadata(tmp_path, 
     assert is_new_conflict is True
 
 
+# ── save_visuals transport tolerance + write-verification regressions ──
+# External MCP clients have been observed double-encoding large nested args
+# (Counter+style, Map payloads) so sub_visuals arrives as a JSON string and
+# FastMCP rejects the call with "Input should be a valid list
+# (input_type=str)" before validation runs. The payload layer coerces such
+# strings; these tests lock that behavior plus the save→probe round-trip.
+
+def _counter_cut():
+    return {"duration": 8.0, "composition": {"type": "Sequence", "children": [
+        {"type": "Layer", "content": {
+            "type": "Counter", "value": 450, "title": "CAPITAL RAISED",
+            "color": "#facc15", "suffix": "M", "font_size": 84,
+            "style": {"left": "20%", "top": "28%", "width": "60%", "height": "32%"}}}]}}
+
+
+def _map_cut():
+    return {"duration": 8.0, "composition": {"type": "Sequence", "children": [
+        {"type": "Layer", "content": {
+            "type": "Map", "map_style": "modern_dark",
+            "locations": [{"name": "Delhi", "coord": [28.6, 77.2]},
+                          {"name": "Mumbai", "coord": [19.07, 72.87]}]}}]}}
+
+
+def test_save_visuals_accepts_counter_with_style(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    result = payloads.save_visuals_payload("proj_mcp", "scene", [_counter_cut()], scene_index=0)
+    assert result["ok"] is True and result["persisted"] is True
+
+
+def test_save_visuals_accepts_map_layer(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    result = payloads.save_visuals_payload("proj_mcp", "scene", [_map_cut()], scene_index=0)
+    assert result["ok"] is True and result["persisted"] is True
+
+
+def test_save_visuals_accepts_json_string_sub_visuals(tmp_path, monkeypatch):
+    # Transport tolerance: JSON-encoded string coerced to array.
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    as_string = json.dumps([_text_cut("HELLO")])
+    assert isinstance(as_string, str)
+    result = payloads.save_visuals_payload("proj_mcp", "scene", as_string, scene_index=0)
+    assert result["ok"] is True and result["persisted"] is True
+
+
+def test_save_visuals_rejects_unparseable_string(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    result = payloads.save_visuals_payload("proj_mcp", "scene", "not-json{{{", scene_index=0)
+    assert result["ok"] is False and "array directly" in result["error"]
+
+
+def test_save_visuals_batch_accepts_json_string_sections(tmp_path, monkeypatch):
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    sections = json.dumps([
+        {"section_type": "introduction", "sub_visuals": [_text_cut("A")]},
+        {"section_type": "scene", "scene_index": 0, "sub_visuals": [_text_cut("B")]},
+    ])
+    result = payloads.save_visuals_batch_payload("proj_mcp", sections, dry_run=False)
+    assert result["ok"] is True
+
+
+def test_save_visuals_returns_verified_hash(tmp_path, monkeypatch):
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    result = payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut("V")], scene_index=0)
+    assert result["ok"] is True
+    assert result.get("verified") is True
+    assert isinstance(result.get("visuals_hash"), str) and result["visuals_hash"]
+    # Save→probe round-trip: what probe reads must be what was written.
+    seen = payloads.get_visuals_payload("proj_mcp", "scene", scene_index=0)
+    assert seen["ok"] is True
+    assert seen["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "V"
+    _ = proj_dir  # fixture dir asserted via round-trip above
+
+
+def test_save_visuals_divergent_counts_still_visible(tmp_path, monkeypatch):
+    # Manifest/script scene-count divergence (filtered manifest vs raw script):
+    # the write must still land in BOTH files and probe must show new cuts.
+    proj_dir = _setup_visuals_proj(tmp_path, monkeypatch)
+    script_path = proj_dir / "script.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["scenes"].append({"scene_number": 3, "title": "Extra",
+                             "narration": "Extra narration.", "sub_visuals": []})
+    script_path.write_text(json.dumps(script), encoding="utf-8")
+
+    result = payloads.save_visuals_payload("proj_mcp", "scene", [_text_cut("NEW")], scene_index=0)
+    assert result["ok"] is True and result.get("verified") is True
+    # Divergence is surfaced, not silent.
+    assert result.get("script_sync") != "ok"
+    assert "warning" in result
+
+    seen = payloads.get_visuals_payload("proj_mcp", "scene", scene_index=0)
+    assert seen["ok"] is True
+    assert seen["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "NEW"
+    script_after = json.loads(script_path.read_text(encoding="utf-8"))
+    assert script_after["scenes"][0]["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "NEW"
+
+
 

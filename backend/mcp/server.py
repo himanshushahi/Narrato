@@ -2464,7 +2464,7 @@ def probe_asset(project_id: str, section_type: str, scene_index: int | None = No
 @mcp.tool()
 @_emit_project_event("project_updated")
 @_refuse_if_stage_running
-def save_visuals(project_id: str, section_type: str, sub_visuals: list,
+def save_visuals(project_id: str, section_type: str, sub_visuals: list | str,
                  scene_index: int | None = None, cut_index: int | None = None,
                  dry_run: bool = False, auto_migrate: bool = False,
                  scene_number: int | None = None,
@@ -2522,6 +2522,29 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list,
     reference lives in the pipeline guide and the declarative-ast
     skill, not in this description."""
     dry_run = _coerce_bool(dry_run, False)
+    logger.debug("save_visuals entry: sub_visuals type=%s (project=%s section=%s)",
+                 type(sub_visuals).__name__, project_id, section_type)
+    # Transport tolerance: some MCP clients double-encode large nested args
+    # (observed with Counter+style / Map payloads) so sub_visuals arrives as
+    # a JSON string. The annotation above is widened to list|str so the
+    # string reaches this coercion instead of failing FastMCP validation
+    # with "Input should be a valid list (input_type=str)".
+    if isinstance(sub_visuals, str):
+        try:
+            import json as _json
+            _parsed = _json.loads(sub_visuals.strip())
+        except Exception as e:
+            return {"ok": False,
+                    "error": (f"sub_visuals arrived as a string that is not valid JSON ({e}). "
+                              "Send the cuts array directly, not a JSON-encoded string.")}
+        if not isinstance(_parsed, list):
+            return {"ok": False,
+                    "error": (f"sub_visuals arrived as a JSON string holding "
+                              f"{type(_parsed).__name__}, not an array. "
+                              "Send the cuts array directly.")}
+        logger.warning("save_visuals: sub_visuals arrived as JSON string (%s chars) — parsed "
+                       "to a %s-element array.", len(sub_visuals), len(_parsed))
+        sub_visuals = _parsed
     if not dry_run:
         missing = _missing_stage_skills("visuals", project_id)
         if missing:
@@ -2581,7 +2604,7 @@ def _release_project_marker(task_id: str | None, marker) -> None:
 @mcp.tool()
 @_emit_project_event("project_updated")
 @_refuse_if_stage_running
-def save_visuals_batch(project_id: str, sections: list,
+def save_visuals_batch(project_id: str, sections: list | str,
                        dry_run: bool = False) -> dict:
     """Validate/persist sub_visuals for MANY sections in ONE call.
 
@@ -2614,6 +2637,24 @@ def save_visuals_batch(project_id: str, sections: list,
         deep = _missing_deep_reads("visuals", project_id)
         if deep:
             return _deep_read_required_error("visuals", project_id, deep)
+    logger.debug("save_visuals_batch entry: sections type=%s (project=%s)",
+                 type(sections).__name__, project_id)
+    if isinstance(sections, str):
+        try:
+            import json as _json
+            _parsed_sections = _json.loads(sections.strip())
+        except Exception as e:
+            return {"ok": False,
+                    "error": (f"sections arrived as a string that is not valid JSON ({e}). "
+                              "Send the sections array directly, not a JSON-encoded string.")}
+        if not isinstance(_parsed_sections, list):
+            return {"ok": False,
+                    "error": ("sections arrived as a JSON string holding "
+                              f"{type(_parsed_sections).__name__}, not an array. "
+                              "Send the sections array directly.")}
+        logger.warning("save_visuals_batch: sections arrived as JSON string — parsed "
+                       "to a %s-element array.", len(_parsed_sections))
+        sections = _parsed_sections
     task_id, marker = _claim_project_marker(project_id, "save_visuals_batch")
     if task_id is None:
         return marker

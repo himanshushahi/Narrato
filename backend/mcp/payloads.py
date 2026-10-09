@@ -223,6 +223,48 @@ def _normalized_cuts_hash(normalized) -> str:
         return ""
 
 
+def _coerce_json_array(value, field_name: str):
+    """Accept a JSON-encoded string for an array field (defense in depth).
+
+    Some MCP clients double-encode large nested args (e.g. Counter+style or
+    Map payloads) so the tool entry point receives a str instead of a list.
+    FastMCP's strict `list` annotation then rejects the whole call with
+    "Input should be a valid list (input_type=str)" before validation runs.
+    Parsing here lets the payload validate normally; unparseable strings
+    still fail with a field-level error naming the fix (send an array).
+    Returns (parsed_or_original, was_coerced, error_dict_or_None).
+    """
+    if isinstance(value, list):
+        return value, False, None
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return value, False, {
+                "ok": False,
+                "error": (f"{field_name} must be a non-empty array (got empty string). "
+                          "Send the cuts array directly, not a JSON-encoded string.") }
+        try:
+            parsed = json.loads(raw)
+        except Exception as e:
+            logger.warning("save_visuals: %s arrived as an unparseable string (%s chars): %s",
+                           field_name, len(raw), e)
+            return value, False, {
+                "ok": False,
+                "error": (f"{field_name} arrived as a string that is not valid JSON ({e}). "
+                          "Send the cuts array directly, not a JSON-encoded string.") }
+        if not isinstance(parsed, list):
+            return value, False, {
+                "ok": False,
+                "error": (f"{field_name} arrived as a JSON string holding "
+                          f"{type(parsed).__name__}, not an array. "
+                          "Send the cuts array directly.") }
+        logger.warning("save_visuals: %s arrived as a JSON string (%s chars) — parsed "
+                       "to a %s-element array instead of rejecting.",
+                       field_name, len(raw), len(parsed))
+        return parsed, True, None
+    return value, False, None
+
+
 def _normalize_query(query) -> str:
     return " ".join(str(query or "").lower().split())
 
@@ -1414,6 +1456,12 @@ def save_visuals_payload(project_id: str, section_type: str,
         return {"ok": False, "error": err}
     section_type = norm_sec
 
+    logger.debug("save_visuals entry: sub_visuals type=%s (project=%s section=%s scene=%s cut=%s)",
+                 type(sub_visuals).__name__, project_id, section_type, scene_index, cut_index)
+    sub_visuals, _coerced, _coerce_err = _coerce_json_array(sub_visuals, "sub_visuals")
+    if _coerce_err is not None:
+        return _coerce_err
+
     if cut_index is not None:
         if isinstance(sub_visuals, list) and len(sub_visuals) != 1:
             return {"ok": False, "error": (
@@ -1714,9 +1762,13 @@ def save_visuals_payload(project_id: str, section_type: str,
         logger.warning(f"MCP save_visuals: visuals persisted but assets_manifest_path update failed: {e}")
 
     # Mirror into script.json (agent payload is authoritative here).
-    # The manifest is authoritative for WHICH section was written; guard the
-    # script index against manifest/script divergence (filtered manifest
-    # scenes vs raw script scenes) so a skew can never cross-write a cut.
+    # The manifest is authoritative for WHICH section was written. When
+    # manifest/script scene counts diverge (filtered manifest scenes vs raw
+    # script scenes), the index can still be valid — write it and warn
+    # loudly instead of silently skipping. A silent skip used to leave
+    # script.json stale while the save reported persisted:true, so probe_cut
+    # and review_frame (both script-readers) showed old content/hashes.
+    script_sync = "ok"
     script_path = proj_dir / "script.json"
     try:
         with open(script_path, "r", encoding="utf-8") as f:
@@ -1731,14 +1783,61 @@ def save_visuals_payload(project_id: str, section_type: str,
             if len(manifest_scenes) != len(script["scenes"]):
                 logger.warning(
                     f"MCP save_visuals: manifest has {len(manifest_scenes)} scenes but "
-                    f"script.json has {len(script['scenes'])} — manifest kept, "
-                    f"script.json sync skipped to avoid cross-writing cuts.")
-            elif 0 <= scene_index < len(script["scenes"]):
+                    f"script.json has {len(script['scenes'])} — writing by index "
+                    f"{scene_index} anyway (counts diverge, verify in review_frame).")
+                script_sync = (
+                    f"diverged: manifest has {len(manifest_scenes)} scenes, "
+                    f"script.json has {len(script['scenes'])} — wrote by index "
+                    f"{scene_index}; verify this section in review_frame.")
+            if 0 <= scene_index < len(script["scenes"]):
                 script["scenes"][scene_index]["sub_visuals"] = normalized
+            else:
+                script_sync = f"skipped: scene_index {scene_index} out of script.json range"
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(script, f, indent=2, ensure_ascii=False)
     except Exception as e:
+        script_sync = f"failed: {e}"
         logger.warning(f"MCP save_visuals: manifest updated but script.json sync failed: {e}")
+
+    # Post-write verification: re-read the stored manifest row and confirm
+    # the write actually landed. A success response for a write that didn't
+    # happen is a contract violation (agents trust persisted:true) — if the
+    # stored hash differs, fail loudly instead of claiming success.
+    expected_hash = _normalized_cuts_hash(normalized)
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            _stored_manifest = json.load(f)
+        _stored_entry = None
+        if section_type == "scene":
+            _cands = [m for m in _stored_manifest
+                      if isinstance(m, dict) and m.get("section_type") == "scene"]
+            if 0 <= scene_index < len(_cands):
+                _stored_entry = _cands[scene_index]
+        else:
+            _stored_entry = next((m for m in _stored_manifest
+                                  if isinstance(m, dict) and m.get("section_type") == section_type), None)
+        _stored_cuts = (_stored_entry or {}).get("sub_visuals") or []
+        _stored_hash = _normalized_cuts_hash(_stored_cuts)
+    except Exception as e:
+        logger.error("MCP save_visuals: post-write re-read failed: %s", e)
+        return {"ok": False, "persisted": False, "verified": False,
+                "error": (f"Write could not be verified (re-read failed: {e}). "
+                          "Retry the save, then confirm with probe before reviewing.")}
+    if _stored_hash != expected_hash:
+        logger.error("MCP save_visuals: post-write hash mismatch (expected %s, stored %s)",
+                     expected_hash, _stored_hash)
+        return {"ok": False, "persisted": False, "verified": False,
+                "error": ("Write verification failed: stored content does not match "
+                          f"what was sent (expected hash {expected_hash}, stored {_stored_hash}). "
+                          "Retry the save, then confirm with probe before reviewing."),
+                "expected_hash": expected_hash, "stored_hash": _stored_hash}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            _script_doc = json.load(f)
+        from backend.mcp.stills import compute_visuals_hash as _cvh
+        _visuals_hash = _cvh(_script_doc)
+    except Exception:
+        _visuals_hash = ""
 
     logger.info(f"MCP save_visuals: project {project_id} {section_type}[{scene_index}] "
                 f"{len(normalized)} cuts, {total}s"
@@ -1751,6 +1850,8 @@ def save_visuals_payload(project_id: str, section_type: str,
               "total_scenes": total_scenes_count,
               "total_cuts": len(normalized),
               "persisted": True,
+              "verified": True,
+              "visuals_hash": _visuals_hash,
               "cut_count": len(normalized), "total_duration": total,
               "durations": durations, "variety": variety,
               "timing": timing,
@@ -1774,11 +1875,17 @@ def save_visuals_payload(project_id: str, section_type: str,
         result["patched_cut_index"] = cut_index
         result["patched_cut_number"] = cut_num
         result["patched_cut"] = normalized[cut_index]
+    if script_sync != "ok":
+        result["warning"] = (f"script.json sync: {script_sync}.").strip()
+        result["script_sync"] = script_sync
+    else:
+        result["script_sync"] = "ok"
     if unverified:
         result["warning"] = (
-            f"{len(unverified)} quer{'y' if len(unverified) == 1 else 'ies'} "
-            f"were never verified via search_media (e.g. {unverified[0]!r}) — "
-            f"expect fetch_assets misses.")
+            (result.get("warning", "") + " " +
+             f"{len(unverified)} quer{'y' if len(unverified) == 1 else 'ies'} "
+             f"were never verified via search_media (e.g. {unverified[0]!r}) — "
+             f"expect fetch_assets misses.").strip())
     if any("best-effort conversion" in f for f in auto_fixed):
         _review_note = ("Server auto-converted legacy cut shape(s) — verify "
                         "those cuts in review_frame before rendering.")
@@ -2019,7 +2126,17 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
 
 def _current_section_cuts(proj_dir: Path, section_type: str, scene_index: int,
                           fallback=None) -> list:
-    """Saved cuts for a section: script.json first, manifest entry fallback."""
+    """Saved cuts for a section: live manifest first, script.json fallback.
+
+    The manifest is the write-once source of truth (save_visuals always
+    writes it; script.json sync can lag when manifest/script scene counts
+    diverge). Reading script-first returned STALE cuts after a successful
+    whole-section save — probe_cut showed old content with old hashes while
+    the save reported persisted:true. Manifest-first keeps every reader
+    (probe, patch base, review durations) on the freshly written data.
+    """
+    if isinstance(fallback, list) and [c for c in fallback if isinstance(c, dict)]:
+        return [c for c in fallback if isinstance(c, dict)]
     try:
         with open(proj_dir / "script.json", "r", encoding="utf-8") as f:
             script = json.load(f)
@@ -2038,8 +2155,6 @@ def _current_section_cuts(proj_dir: Path, section_type: str, scene_index: int,
             return cuts
     except Exception:
         pass
-    if isinstance(fallback, list):
-        return [c for c in fallback if isinstance(c, dict)]
     return []
 
 
@@ -2571,6 +2686,12 @@ def save_visuals_batch_payload(project_id: str, sections: list,
     ok is True only when every section succeeded. persisted is True only
     when dry_run=false AND every section persisted (a partial persist
     never claims the whole video is saved)."""
+    logger.debug("save_visuals_batch entry: sections type=%s (project=%s n=%s)",
+                 type(sections).__name__, project_id,
+                 len(sections) if isinstance(sections, list) else "?")
+    sections, _bcoerced, _bcoerce_err = _coerce_json_array(sections, "sections")
+    if _bcoerce_err is not None:
+        return {"ok": False, "error": _bcoerce_err["error"]}
     if not isinstance(sections, list) or not sections:
         _got = type(sections).__name__
         if isinstance(sections, list):
@@ -2600,6 +2721,13 @@ def save_visuals_batch_payload(project_id: str, sections: list,
             continue
         section_type = item.get("section_type")
         sub_visuals = item.get("sub_visuals")
+        if isinstance(sub_visuals, str):
+            sub_visuals, _, _sv_err = _coerce_json_array(sub_visuals, f"sections[{pos}].sub_visuals")
+            if _sv_err is not None:
+                results.append({"ok": False, "index": pos,
+                                "section_type": section_type,
+                                "error": f"{label}.{_sv_err['error']}"})
+                continue
         scene_index = item.get("scene_index")
         scene_number = item.get("scene_number")
         cut_index = item.get("cut_index")
