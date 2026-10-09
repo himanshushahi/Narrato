@@ -138,6 +138,7 @@ Root Video Composition
 { "type": "Image", "query": "astronaut moon", "source": "pixabay", "image_type": "illustration" }
 ```
 - `source`: `"pexels"` (stock photo) | `"pixabay"` (+ transparent cutouts) | `"wikipedia"` (logos, flags, historical figures) | `"archive"` (NASA/Apollo, archival, vintage)
+- `objectFit`: `"cover"` (fill box, crop edges — default) | `"contain"` (fit inside, transparent cutouts) | `"fill"` (stretch to box, same on Video).
 - `image_type`: `"illustration"` or `"vector"` for transparent-background PNG cutouts on Pixabay.
 - **NEVER use `youtube` as Image source.** NEVER set `url` or `local_path`.
 
@@ -150,11 +151,11 @@ Root Video Composition
 - `yt_start_offset`: Skip intro (default 15s). `yt_duration`: Clip length (default 15s, max 30s).
 - `volume`: `0.0`–`1.0`. Default `0`. Keep `0.1`–`0.2` ambient unless voiceover is muted.
 - `loop: false` (freezes on last frame) | `true` (loops continuously).
-- **NEVER use `wikipedia` or `archive` as Video source.** Archive works for archive.org video clips.
+- **NEVER use `wikipedia` as Video source.** `archive` works for archive.org video clips.
 
 ### 8. `Lottie` — Vector Micro-Animations
 ```json
-{ "type": "Lottie", "lottie_url": "https://assets.lottiefiles.com/packages/lf20_xyz.json", "loop": true, "playback_rate": 1.0, "direction": "forward" }
+{ "type": "Lottie", "lottie_url": "https://assets.lottiefiles.com/packages/lf20_xyz.json", "loop": true, "playback_rate": 1.0, "lottie_direction": "forward" }
 ```
 
 ### 9. `Particles` — Atmospheric Ambient Overlays
@@ -262,7 +263,7 @@ Root Video Composition
 | `pixabay` | ✓ | ✓ | Stock + transparent cutouts, illustrations, vector art | Set `image_type: "illustration"` or `"vector"` for transparent PNG |
 | `wikipedia` | ✓ | ✗ | Real people portraits, brand logos, flags, landmarks | Query = EXACT full name only (e.g. "Apple Inc.", "Narendra Modi") |
 | `youtube` | ✗ | ✓ | Real events, product demos, tech reveals, sports, news, science animations | `yt_duration ≤ 30s`. Skip intros with `yt_start_offset: 15`. |
-| `archive` | ✓ | ✓ | Historical, NASA, vintage newsreels, archival documentary | Pre-1980 events, space missions, WW-era, public domain |
+| `archive` | ✓ | ✓ | Historical, NASA, vintage newsreels, archival documentary | Pre-1990 events, space missions, WW-era, public domain |
 
 ---
 
@@ -347,7 +348,7 @@ Spring physics: `damping` (default 14, lower = bouncier), `stiffness` (default 1
 0.9s: Headline kinetic reveal (words_stagger or marker_highlight)
 ```
 
-**Exit Transition** (cut level): `"exit_transition"` plays the reverse of an entrance over the cut's final frames (`"none"` default; same effects as `transition`). Reach for it on beat ends and section closers — a cut that lands its exit feels finished, one that just stops feels cut off. Aim for an exit on most beat-ending cuts (a few per video); just avoid putting them on consecutive cuts. Exit and entrance never overlap: sequential with a hard cut between. Perf: `blur_focus` (full-cut repaint) and clip-path wipes/iris are the most expensive effects — never on consecutive cuts.
+**Exit Transition** (cut level): `"exit_transition"` plays the reverse of an entrance over the cut's final frames (`"none"` default; same effects as `transition`). Use sparingly — a few per video on beat ends and section closers; never on consecutive cuts. Exit and entrance never overlap: sequential with a hard cut between. Perf: `blur_focus` (full-cut repaint) and clip-path wipes/iris are the most expensive effects — never on consecutive cuts.
 
 ### 4.3 Physics & Camera Dynamics (Layer Properties)
 ```json
@@ -392,7 +393,7 @@ You can declare filters in 3 equivalent ways (the backend & renderer automatical
 
 **SVG Filter Looks**: `"url(#fx-emboss)"` | `"url(#fx-sharpen)"` | `"url(#fx-posterize)"` | `"url(#fx-duotone-midnight)"` | `"url(#fx-duotone-inferno)"` | `"url(#fx-thermal)"`
 
-**Blend Modes**: `"mix-blend-mode: overlay"` | `screen` | `multiply` | `color-dodge` | `color-burn` | `soft-light` | `hard-light` | `difference` | `luminosity`
+**Blend Modes**: `"mix-blend-mode: overlay"` | `screen` | `multiply` | `color-dodge` | `color-burn` | `soft-light` | `hard-light` | `difference` | `luminosity` | `normal` (default, no blend)
 
 **Optical Blurs**:
 - Layer content blur: `filters: ["blur(12px)"]` or `style: { "blur": 12 }` — softens layer pixels
@@ -896,3 +897,22 @@ Bind `design.json` tokens wherever elements take colors or fonts:
 - `visible: false`: Hides from preview + export + canvas selection.
 - `locked: true`: Prevents accidental drag/resize in canvas editor.
 - `color_tag`: Hex for visual grouping in editor timeline.
+
+---
+
+## 11. Editor Parity — Advanced Controls (same knobs as the graphical editor)
+
+Copy editor labels/ranges verbatim. All keys live in `content` (or `content.style` for box keys):
+
+- `objectFit` (Image/Video): `"cover"` default | `"contain"` cutouts | `"fill"` stretch.
+- `volume` (Video): `0.0–1.0`, default `0`. `loop`: `false` freeze | `true` loop.
+- `map_style` (Map): `"vintage"` | `"modern_dark"` | `"minimal_light"` | `"nautical_blue"` — always set explicitly.
+- Particles: `particle_preset` + `particle_count 10–300` + `particle_size: [min_px, max_px] 1–60` + `particle_colors: ["#hex", ...]` + `particle_opacity 0–1` + `particle_speed` + `particle_direction up/down/left/right/outward/twinkle`.
+- Chart: `chart_type bar/line/pie/donut/progress` + `data: [{label, value, color}]` + `title` + `title_size px` + `bar_radius px` + `bar_gap px` + `bar_max_width px` + `style: {color}` accent.
+- Shape: `shape_type rectangle/circle/star/triangle/arrow/polygon/path/icon` + `direction up/down/left/right` (arrow/triangle) + `angle deg` + `points` (star sides) + `inner_radius` + `preset_path route_arch/horizontal_line/pointer_curve/corner_brackets/wave_pulse/circle_reticle` + `view_box` + `path_d` + `corner_radius` + `draw_animation` + `glow`.
+- Text: `fontStyle normal/italic` + `textShadow` presets (`Soft/None/Strong/Neon Cyan/Neon Amber` or custom CSS) + `lineHeight` + `letterSpacing`.
+- Lottie: `lottie_url` or `animation_data` (inline JSON override) + `loop` + `playback_rate` + `lottie_direction forward/backward`.
+- Mask: `shape circle/ellipse/inset/polygon` + `size/rx/ry/x/y/top/right/bottom/left/corner_radius/points` + `reveal circle_iris/wipe_right/wipe_down/split_vertical/wipe_diagonal` + `reveal_duration/reveal_delay` + `reveal_easing linear/ease-in/ease-out/ease-in-out/bounce` + `inverted: true`.
+- Motion: `floating` + `motion_blur` + `shutter_angle 45–360` + `camera_shake none/handheld/shockwave/glitch` + `transform_origin` / `perspective 300–3000` + `perspective_origin` (9 points: `0% 0%`, `50% 0%`, `100% 0%`, `0% 50%`, `center center`, `100% 50%`, `0% 100%`, `50% 100%`, `100% 100%`).
+- Cut flags: `subtitle_position bottom/top/hidden` (sibling of `transition`).
+- Agent = query-only media (`query` + `source`); human upload (`source: upload` + `local_path`) is editor-only by design.

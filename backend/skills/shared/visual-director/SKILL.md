@@ -47,7 +47,7 @@ viewer's eye, kills momentum, and reads as amateur editing.
   cannot pan to").
 - **Duration Math**: Sum of all `duration` fields MUST equal total scene duration exactly (2 decimal places). The validator auto-corrects minor float drift but not structural gaps.
 - **Array Stacking**: `children[0]` = bottom background; `children[N-1]` = foreground. Stacking order IS the rendering order — no z_index.
-- **Transition**: Set on each sub-visual, not on layers. Vary transitions across cuts in a scene (avoid repeating the same transition 3× in a row). `"exit_transition"` (same effects, reverse over final frames) — give most beat-ending cuts one so the beat lands finished; avoid on consecutive cuts.
+- **Transition**: Set on each sub-visual, not on layers. Vary transitions across cuts in a scene (avoid repeating the same transition twice in a row). `"exit_transition"` (same effects, reverse over final frames) — use sparingly, a few per video on beat ends/section closers; never on consecutive cuts.
 - **Mid-Cut Punch-Ins**: `"emphasis": [{"at": 1.2, "scale": 1.15, "duration": 0.5}]` — use on hero reveal moments.
 - **Audio Ducking**: `"mute_voiceover": true` (dramatic pause) | `"mute_bg_music": true` (testimony/silence emphasis).
 
@@ -200,7 +200,7 @@ See `declarative-ast` §7 for full AST skeletons. Pick by narrative beat:
 
 ---
 
-## 7. Visual Variety Checklist Per Scene
+## 8. Visual Variety Checklist Per Scene
 
 Before submitting a scene's sub-visuals, verify:
 - [ ] At least 2 different content types appear across the scene's cuts (not just Text + Background every time)
