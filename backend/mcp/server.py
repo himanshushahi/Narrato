@@ -1059,6 +1059,7 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 "Image/Video layers MUST carry an English search `query`; verify with search_media.",
                 "Pair entrance animations (delay>0) with opacity fade 0->1; spatial-only allowed at delay 0.",
                 "Full capability reference: declarative-ast Part 1 & Part 2 (11 layer types, universal controls, contracts, cut flags).",
+                "Default ONE living take per scene (see creative_pack living_take); use editor_parity keys (objectFit fill, blends, particle_size/colors) instead of repeating the sample_cut shape.",
             ]
             bundle["deep_read_required"] = (
                 "save_visuals ALSO needs ≥1 full section pull from "
@@ -1354,9 +1355,12 @@ _VISUALS_PACK_SECTIONS: tuple = (
     ("declarative-ast", "content types", "content_types"),
     ("declarative-ast", "advanced manipulation", "motion_grammar"),
     ("declarative-ast", "compose freely", "transitions"),
+    ("declarative-ast", "living take", "living_take"),
+    ("declarative-ast", "editor parity", "editor_parity"),
     ("visual-director-core", "choreography", "motion_fx"),
     ("visual-director-core", "compositing", "layer_types"),
     ("motion-graphics-designer", "geometry", "geometry"),
+    ("editor-qa", "pre-submission checklist", "qa_checklist"),
 )
 
 
