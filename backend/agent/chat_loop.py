@@ -258,6 +258,25 @@ def call_llm_with_tools(messages: list, tools: list, cancel_event=None,
         except (RuntimeError, InterruptedError):
             raise
         except Exception as e:
+            # Map offline/DNS/timeout/auth to actionable messages. Skip
+            # needless retries when the internet is provably down (fail
+            # fast instead of hanging through 3x300s timeouts).
+            try:
+                from backend.core.connectivity import classify_exception
+                # classify_exception is non-blocking (cache-only online
+                # view), so this adds no probe latency to the failure path.
+                code, friendly, retryable = classify_exception(e)
+            except Exception:
+                code, friendly, retryable = "UNKNOWN", str(e), False
+            if code in ("NETWORK_OFFLINE", "DNS_FAILURE"):
+                update_activity(entry_id, "error", "offline")
+                raise RuntimeError(f"[OFFLINE] {friendly}")
+            if code == "AUTH_INVALID_KEY":
+                update_activity(entry_id, "error", "invalid key")
+                raise RuntimeError(f"[AUTH] {friendly}")
+            if code == "RATE_LIMITED":
+                update_activity(entry_id, "error", "rate limited")
+                raise RuntimeError(f"[RETRY] {friendly}")
             logger.warning(f"chat native turn failed ({type(e).__name__}: {e}), "
                            f"attempt {attempt + 1}/{max_retries}.")
             if attempt < max_retries - 1:
@@ -266,5 +285,5 @@ def call_llm_with_tools(messages: list, tools: list, cancel_event=None,
                     raise InterruptedError("Cancelled")
                 continue
             update_activity(entry_id, "error", str(e)[:120])
-            raise RuntimeError(f"LLM call failed: {e}")
+            raise RuntimeError(f"LLM call failed: {friendly or e}")
     raise RuntimeError("LLM call failed after retries.")

@@ -265,15 +265,20 @@ const MessageBubble: React.FC<{ msg: ChatMessage }> = memo(({ msg }) => {
   if (msg.role === 'system') {
     if (msg.kind === 'error') {
       const text = msg.text || 'An unexpected error occurred.';
+      const offline = /\[OFFLINE\]|no internet|offline/i.test(text);
+      const clean = text.replace(/^\[(OFFLINE|AUTH|RETRY)\]\s*/, '');
       return (
-        <div className="w-full rounded-xl border border-red-500/30 bg-red-950/15 p-3 space-y-1.5 shadow-sm">
+        <div className={`w-full rounded-xl border p-3 space-y-1.5 shadow-sm ${offline ? 'border-amber-500/30 bg-amber-950/15' : 'border-red-500/30 bg-red-950/15'}`}>
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-            <p className="text-[11px] font-bold text-red-300">Agent stopped</p>
+            <AlertCircle className={`w-4 h-4 shrink-0 ${offline ? 'text-amber-400' : 'text-red-400'}`} />
+            <p className={`text-[11px] font-bold ${offline ? 'text-amber-300' : 'text-red-300'}`}>{offline ? 'Offline — message not lost' : 'Agent stopped'}</p>
           </div>
-          <p className="text-[10px] text-red-200/90 leading-relaxed whitespace-pre-wrap break-words">
-            {text.length > 2000 ? text.slice(0, 2000) + '…' : text}
+          <p className={`text-[10px] leading-relaxed whitespace-pre-wrap break-words ${offline ? 'text-amber-200/90' : 'text-red-200/90'}`}>
+            {clean.length > 2000 ? clean.slice(0, 2000) + '…' : clean}
           </p>
+          {offline && (
+            <p className="text-[9px] text-amber-400/80 font-medium">Reconnect and send again — history is saved.</p>
+          )}
         </div>
       );
     }
@@ -668,6 +673,32 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
         </div>
       )}
 
+      {/* Offline retry: last turn failed on connectivity — one-click resend */}
+      {(() => {
+        const lastErr = [...ordered].reverse().find((m) => m.role === 'system' && m.kind === 'error' && /\[OFFLINE\]|no internet|offline/i.test(m.text || ''));
+        const lastUser = [...ordered].reverse().find((m) => m.role === 'user');
+        if (!lastErr || !lastUser || running || pipelineRunning) return null;
+        // Stale guard: only offer retry when the offline error is NEWER than
+        // the last user message AND no assistant/tool reply landed after it
+        // (i.e. a later turn succeeded — don't resend stale prompts).
+        const errIdx = ordered.lastIndexOf(lastErr);
+        const userIdx = ordered.lastIndexOf(lastUser);
+        if (!(errIdx > userIdx)) return null;
+        const repliedAfter = ordered.slice(errIdx + 1).some((m) => m.role === 'assistant' || m.role === 'tool' || m.role === 'thinking');
+        if (repliedAfter) return null;
+        return (
+          <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 mb-1 rounded-lg bg-amber-500/10 border border-amber-500/25 text-[10px] text-amber-300 shrink-0">
+            <span className="truncate">Last message wasn’t sent (offline).</span>
+            <button
+              onClick={() => send(lastUser.text)}
+              className="shrink-0 px-2.5 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 font-bold transition-colors cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Input bar */}
       <div className="flex gap-2 items-center pt-2 border-t border-zinc-800/60 shrink-0">
         <input
@@ -679,7 +710,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ projectId, pipelineRunning
               submit();
             }
           }}
-          placeholder={pipelineRunning ? 'Locked while pipeline runs…' : 'Ask the agent to inspect, generate, or modify…'}
+          placeholder={pipelineRunning ? 'Locked while pipeline runs…' : (typeof navigator !== 'undefined' && !navigator.onLine ? 'Offline — reconnect to chat…' : 'Ask the agent to inspect, generate, or modify…')}
           disabled={running || pipelineRunning}
           className="flex-1 bg-zinc-900/80 border border-zinc-800 rounded-xl px-3 py-2 text-[11px] text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50 transition-all"
         />

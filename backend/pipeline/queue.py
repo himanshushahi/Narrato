@@ -210,9 +210,9 @@ class QueueManager:
         update_project(project_id, status='cancelled')
         tasks = get_project_tasks(project_id)
         for t in tasks:
-            if t['status'] == 'running':
-                update_task(t['id'], status='failed', error_message='Step cancelled by user.', message='Cancelling...')
-                self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelling...', 'failed', error_message='Step cancelled by user.')
+            if t['status'] in ('running', 'paused'):
+                update_task(t['id'], status='failed', error_message='Step cancelled by user.', message='Cancelling...', error_code='CANCELLED')
+                self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelling...', 'failed', error_message='Step cancelled by user.', error_code='CANCELLED')
             elif t['status'] == 'pending':
                 update_task(t['id'], status='pending', message='Cancelled')
                 self._broadcast_task_progress(project_id, t['step'], 0.0, 'Cancelled', 'pending')
@@ -239,7 +239,7 @@ class QueueManager:
             except Exception as e:
                 logger.error(f"Failed to run queue update progress callback: {e}")
 
-    def _broadcast_task_progress(self, project_id, step, progress, message, status, error_message=None):
+    def _broadcast_task_progress(self, project_id, step, progress, message, status, error_message=None, error_code=None):
         data = {
             "type": "progress_update",
             "project_id": project_id,
@@ -247,7 +247,8 @@ class QueueManager:
             "progress": progress,
             "message": message,
             "status": status,
-            "error_message": error_message
+            "error_message": error_message,
+            "error_code": error_code,
         }
         for cb in self._progress_callbacks:
             try:
@@ -307,18 +308,40 @@ class QueueManager:
                         break
                     except Exception as e:
                         logger.error(f"Error executing step {step} for project {project_id}: {e}", exc_info=True)
-                        err_msg = str(e)
-                        # Full traceback already captured via exc_info=True above; no
-                        # separate stack variable needed.
+                        try:
+                            from backend.core.connectivity import classify_exception
+                            error_code, friendly, retryable = classify_exception(e)
+                        except Exception:
+                            error_code, friendly, retryable = "UNKNOWN", str(e), False
+                        err_msg = friendly or str(e)
+                        # Internet dropped mid-run: pause (not fail) so the user
+                        # can resume the same stage after reconnecting. The
+                        # project status becomes 'paused' via the else-branch
+                        # below (success=False + paused marker).
+                        net_paused = error_code in ("NETWORK_OFFLINE", "DNS_FAILURE", "TIMEOUT") and retryable
+                        new_status = 'paused' if net_paused else 'failed'
                         # Don't reset progress to 0.0 on failure
-                        update_task(task_id, status='failed', error_message=err_msg, message=f'Failed: {err_msg[:50]}...')
-                        
-                        # Broadcast the last known progress instead of 0.0
+                        try:
+                            update_task(task_id, status=new_status, error_message=err_msg, message=f'{"Paused" if net_paused else "Failed"}: {err_msg[:80]}...', error_code=error_code)
+                        except TypeError:
+                            # Older DBs without the error_code column.
+                            update_task(task_id, status=new_status, error_message=err_msg, message=f'{"Paused" if net_paused else "Failed"}: {err_msg[:80]}...')
+
+                        # Broadcast the last known progress instead of 0.0.
+                        # Single toast channel: the frontend onProgressUpdate
+                        # handler toasts paused/failed (no backend onShowToast
+                        # here — that double-toasted).
                         task_rec = get_task(task_id)
                         cur_prog = task_rec['progress'] if task_rec else 0.0
-                        self._broadcast_task_progress(project_id, step, cur_prog, f'Failed: {err_msg[:50]}...', 'failed')
-                        
+                        self._broadcast_task_progress(project_id, step, cur_prog, f'{"Paused" if net_paused else "Failed"}: {err_msg[:80]}...', new_status,
+                                                      error_message=err_msg, error_code=error_code)
+
                         success = False
+                        if net_paused:
+                            try:
+                                update_project(project_id, status='paused')
+                            except Exception:
+                                pass
                         break
 
                 # End of project processing
@@ -332,9 +355,10 @@ class QueueManager:
                         pass
                 else:
                     logger.warning(f"Pipeline failed or was cancelled for project: {project_id}")
-                    # Don't overwrite if it was already marked cancelled
+                    # Don't overwrite if it was already marked cancelled/paused
+                    # (paused = internet dropped mid-run, resumable).
                     proj = get_project(project_id)
-                    if proj and proj['status'] != 'cancelled':
+                    if proj and proj['status'] not in ('cancelled', 'paused'):
                         update_project(project_id, status='failed')
                         try:
                             from backend.mcp.server import _notify_ui_project_event

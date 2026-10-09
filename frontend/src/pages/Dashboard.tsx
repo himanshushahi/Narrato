@@ -95,6 +95,7 @@ const Dashboard: React.FC = () => {
       case 'completed': return 'text-emerald-400';
       case 'processing': return 'text-amber-500 animate-pulse';
       case 'queued': return 'text-blue-500';
+      case 'paused': return 'text-amber-400';
       case 'failed': return 'text-red-500';
       default: return 'text-stone-500';
     }
@@ -129,15 +130,33 @@ const Dashboard: React.FC = () => {
               <VscFolderOpened className="text-5xl text-stone-600 mb-4 animate-bounce" />
               <h2 className="text-lg font-bold text-stone-300">Your library is empty</h2>
               <p className="text-stone-500 text-xs max-w-sm mt-1">Assemble your first automated narrative to compile timelines and assets.</p>
-              <GlowButton
-                onClick={() => setShowModal(true)}
-                variant="secondary"
-                size="sm"
-                className="mt-6"
-                icon={<VscAdd />}
-              >
-                Create Project
-              </GlowButton>
+              <div className="flex gap-3 mt-6">
+                <GlowButton
+                  onClick={() => setShowModal(true)}
+                  variant="secondary"
+                  size="sm"
+                  icon={<VscAdd />}
+                >
+                  Create Project
+                </GlowButton>
+                <GlowButton
+                  onClick={async () => {
+                    try {
+                      const { useConnectivityStore } = await import('../store/useConnectivityStore');
+                      const up = await useConnectivityStore.getState().probe(true);
+                      await fetchProjects();
+                      if (!up) addToast('Still offline. Check your connection and retry.', 'warning', 4000);
+                    } catch {
+                      await fetchProjects();
+                    }
+                  }}
+                  variant="secondary"
+                  size="sm"
+                >
+                  Retry
+                </GlowButton>
+              </div>
+              <p className="text-stone-600 text-[10px] max-w-sm mt-3">If projects should exist, the backend may be unreachable — hit Retry.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

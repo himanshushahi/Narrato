@@ -117,9 +117,16 @@ def init_db():
             cursor.execute("ALTER TABLE tasks ADD COLUMN prompt_tokens INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass # Column already exists
-            
+
         try:
             cursor.execute("ALTER TABLE tasks ADD COLUMN completion_tokens INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass # Column already exists
+
+        # Stable machine-readable failure reason for offline handling
+        # (NETWORK_OFFLINE | DNS_FAILURE | TIMEOUT | ...). NULL = not failed.
+        try:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN error_code TEXT DEFAULT NULL")
         except sqlite3.OperationalError:
             pass # Column already exists
 

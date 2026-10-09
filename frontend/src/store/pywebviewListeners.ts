@@ -47,7 +47,7 @@ export const initializePywebviewListeners = async () => {
       return;
     }
 
-    const { project_id, step, progress, message, status, error_message } = data;
+    const { project_id, step, progress, message, status, error_message, error_code } = data;
 
     if (projectStore.queue.active === project_id) {
       useProjectStore.setState({
@@ -72,7 +72,8 @@ export const initializePywebviewListeners = async () => {
           progress,
           message,
           status,
-          error_message
+          error_message,
+          error_code,
         } as Task;
 
         if (status === "completed") {
@@ -81,6 +82,26 @@ export const initializePywebviewListeners = async () => {
 
         return { tasks: updatedTasks };
       });
+    }
+
+    // Stage terminal states must toast even when the user is on another
+    // tab — previously failures were only visible inside ExportTab.
+    if (status === 'paused') {
+      useUIStore.getState().addToast(
+        `${step}: internet lost — completed stages saved. Reconnect and resume.`,
+        'warning', 8000,
+      );
+    } else if (status === 'failed') {
+      const friendly = error_message || message || `${step} failed.`;
+      // Prefer the stable backend error_code contract; fall back to text
+      // matching for older backends / non-classified errors.
+      const offline = error_code === 'NETWORK_OFFLINE' || error_code === 'DNS_FAILURE'
+        || error_code === 'TIMEOUT'
+        || /no internet|offline|dns|timed out/i.test(String(friendly));
+      useUIStore.getState().addToast(
+        `${step}: ${String(friendly).slice(0, 160)}`,
+        offline ? 'warning' : 'error', 8000,
+      );
     }
   };
 

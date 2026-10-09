@@ -467,19 +467,50 @@ export function useAgentChat(projectId: string | undefined) {
     if (!projectId || running) return;
     const trimmed = text.trim();
     if (!trimmed && !opts?.confirmRender && opts?.confirmAction === undefined) return;
+    // Fail fast when offline: don't burn a turn through LLM retries.
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setMessages((prev) => [...prev, { id: uid(), role: 'system', kind: 'error', text: '[OFFLINE] No internet connection. Reconnect and send again — your chat history is saved.', ts: Date.now() / 1000, provisional: true }]);
+      return;
+    }
     if (opts?.confirmAction === undefined) {
       setMessages((prev) => [...prev, { id: uid(), role: 'user', text: trimmed || '(approved render)', ts: Date.now() / 1000, provisional: true }]);
     }
     setRunning(true);
     if (opts?.confirmRender || opts?.confirmAction !== undefined) setPending(null);
-    const res = await callApi<any>(
-      'chat_send', projectId, trimmed, sessionId,
-      opts?.confirmRender || false,
-      opts?.confirmAction === undefined ? null : opts.confirmAction,
-    );
+    // Slow-stream watchdog: if the backend goes silent (internet dropped
+    // mid-turn), surface a hint instead of a stuck "thinking…" spinner.
+    const watchdog = setTimeout(() => {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === 'system' && last.text.includes('Connection slow')) return prev;
+        return [...prev, { id: uid(), role: 'system', kind: 'notice', text: 'Connection slow — still trying. If the internet dropped, stop and retry after reconnecting.', ts: Date.now() / 1000, provisional: true }];
+      });
+    }, 25000);
+    const SLOW_HINT = 'Connection slow — still trying.';
+    let res: any = null;
+    try {
+      res = await callApi<any>(
+        'chat_send', projectId, trimmed, sessionId,
+        opts?.confirmRender || false,
+        opts?.confirmAction === undefined ? null : opts.confirmAction,
+      );
+    } finally {
+      clearTimeout(watchdog);
+    }
+    // Watchdog hint is provisional: drop it once the turn resolves so a
+    // transient stall doesn't linger forever after success.
+    setMessages((prev) => prev.filter((m) => !(m.provisional && m.role === 'system' && m.text.includes(SLOW_HINT))));
     if (!res?.success) {
       setRunning(false);
-      setMessages((prev) => [...prev, { id: uid(), role: 'system', kind: 'error', text: res?.error || 'Failed to send.', ts: Date.now() / 1000, provisional: true }]);
+      const errText = res?.error || 'Failed to send.';
+      const offline = /no internet|offline/i.test(errText);
+      setMessages((prev) => [...prev, {
+        id: uid(), role: 'system', kind: 'error',
+        text: offline
+          ? '[OFFLINE] No internet connection. Reconnect and send again — your chat history is saved.'
+          : errText,
+        ts: Date.now() / 1000, provisional: true,
+      }]);
       refresh();
     }
   }, [projectId, running, refresh]);

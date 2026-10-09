@@ -1200,12 +1200,45 @@ class ApiBridge:
             logger.error(f"Error creating project: {e}")
             return {"error": str(e), "success": False}
 
+    def check_connectivity(self, force: bool = False) -> dict:
+        """Liveness probe for the frontend offline banner + pre-flight gates.
+
+        Never raises. Returns {internet, latency_ms, ...} so the UI can
+        distinguish "backend alive, internet down" from "backend down".
+        """
+        try:
+            from backend.core.connectivity import check_internet
+            res = check_internet(force=bool(force))
+            return {"success": True, **res}
+        except Exception as e:
+            return {"success": False, "internet": False, "error": str(e)}
+
     def start_processing_pipeline(self, project_id: str, steps: list) -> dict:
         logger.info(f"Bridge API: start_processing_pipeline for {project_id} (steps: {steps})")
+        try:
+            from backend.core.connectivity import check_internet, steps_need_internet, OFFLINE_MESSAGE
+            needs = steps_need_internet(steps or [])
+            # Explicit user action: force a fresh probe (no stale-cache reject).
+            if needs and not check_internet(force=True).get("internet", True):
+                return {"success": False, "error": OFFLINE_MESSAGE,
+                        "error_code": "NETWORK_OFFLINE", "retryable": True,
+                        "needs_internet": needs}
+        except Exception as e:
+            logger.warning(f"connectivity pre-flight failed open: {e}")
         success = global_queue_manager.queue_project(project_id, steps)
         return {"success": success}
 
     def resume_processing_pipeline(self, project_id: str, steps: list) -> dict:
+        try:
+            from backend.core.connectivity import check_internet, steps_need_internet, OFFLINE_MESSAGE
+            needs = steps_need_internet(steps or [])
+            # Explicit user action: force a fresh probe (no stale-cache reject).
+            if needs and not check_internet(force=True).get("internet", True):
+                return {"success": False, "error": OFFLINE_MESSAGE,
+                        "error_code": "NETWORK_OFFLINE", "retryable": True,
+                        "needs_internet": needs}
+        except Exception as e:
+            logger.warning(f"connectivity pre-flight failed open: {e}")
         success = global_queue_manager.queue_project(project_id, steps, is_resume=True)
         return {"success": success}
 

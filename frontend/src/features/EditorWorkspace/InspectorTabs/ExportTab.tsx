@@ -76,8 +76,9 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
     const task = tasks[stage.id];
     const isRunningStage = isRunning && (activeTaskStep?.step === stage.id || task?.status === 'running');
     const isCompleted = task?.status === 'completed';
+    const isPaused = task?.status === 'paused';
     const isFailed = task?.status === 'failed' || (!isRunning && task?.status === 'running');
-    const isLocked = !task || task.status === 'pending' || task.status === 'waiting';
+    const isLocked = (!task || task.status === 'pending' || task.status === 'waiting') && !isPaused;
 
     let progress = 0;
     if (isRunningStage) progress = activeTaskStep?.progress || task?.progress || 0;
@@ -85,9 +86,9 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
 
     const message = isRunningStage
       ? (activeTaskStep?.message || task?.message || 'Processing...')
-      : isFailed ? (task?.error_message || 'Failed') : '';
+      : (isFailed || isPaused) ? (task?.error_message || task?.message || 'Failed') : '';
 
-    const canClick = !isRunning && (isCompleted || isFailed || isLocked);
+    const canClick = !isRunning && (isCompleted || isFailed || isPaused || isLocked);
 
     return (
       <div
@@ -116,6 +117,10 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
             <div className="w-[18px] h-[18px] rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 flex items-center justify-center animate-pulse">
               <VscLoading className="text-[9px] animate-spin" />
             </div>
+          ) : isPaused ? (
+            <div className="w-[18px] h-[18px] rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+              <VscError className="text-[9px]" />
+            </div>
           ) : isFailed ? (
             <div className="w-[18px] h-[18px] rounded-full bg-red-500/15 text-red-400 border border-red-500/30 flex items-center justify-center">
               <VscError className="text-[9px]" />
@@ -130,7 +135,7 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
         {/* Content */}
         <div className="flex items-center justify-between">
           <div>
-            <span className={`text-[10px] font-bold transition-colors ${isRunningStage ? 'text-blue-400' : isCompleted ? 'text-zinc-300' : isFailed ? 'text-red-400' : 'text-zinc-500'
+            <span className={`text-[10px] font-bold transition-colors ${isRunningStage ? 'text-blue-400' : isCompleted ? 'text-zinc-300' : isPaused ? 'text-amber-400' : isFailed ? 'text-red-400' : 'text-zinc-500'
               }`}>
               {stage.title}
             </span>
@@ -138,10 +143,11 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
           </div>
           <span className={`text-[8px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border shrink-0 ${isCompleted ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
             isRunningStage ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse' :
+              isPaused ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
               isFailed ? 'bg-red-500/10 text-red-400 border-red-500/20' :
                 'bg-zinc-900 text-zinc-600 border-zinc-800'
             }`}>
-            {isCompleted ? 'Done' : isRunningStage ? `${progress.toFixed(0)}%` : isFailed ? 'Failed' : 'Waiting'}
+            {isCompleted ? 'Done' : isRunningStage ? `${progress.toFixed(0)}%` : isPaused ? 'Paused — offline' : isFailed ? 'Failed' : 'Waiting'}
           </span>
         </div>
 
@@ -157,10 +163,11 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
           </div>
         )}
 
-        {/* Error message */}
-        {message && isFailed && (
-          <p className="text-[9px] text-red-400 mt-1 font-mono bg-red-950/20 px-2 py-1 rounded border border-red-500/10">
+        {/* Error / paused message */}
+        {message && (isFailed || isPaused) && (
+          <p className={`text-[9px] mt-1 font-mono px-2 py-1 rounded border ${isPaused ? 'text-amber-300 bg-amber-950/20 border-amber-500/10' : 'text-red-400 bg-red-950/20 border-red-500/10'}`}>
             {message}
+            {isPaused && ' — reconnect and click to resume.'}
           </p>
         )}
 

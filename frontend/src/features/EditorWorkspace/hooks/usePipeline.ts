@@ -2,7 +2,40 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useProjectStore, Task } from '../../../store/useProjectStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { useConnectivityStore } from '../../../store/useConnectivityStore';
 import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
+
+// Stages that require internet (mirrors backend/core/connectivity.py).
+const NETWORK_STEPS = new Set([
+  'generate_script', 'generate_voiceover', 'generate_visuals', 'fetch_assets',
+]);
+
+async function ensureOnlineForSteps(
+  steps: string[], addToast: (m: string, t?: any, d?: number) => void,
+): Promise<boolean> {
+  const needs = steps.filter((s) => NETWORK_STEPS.has(s));
+  if (needs.length === 0) return true;
+  // Fast path: browser already says offline.
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    addToast('No internet connection. Reconnect to run: ' + needs.join(', '), 'warning', 6000);
+    return false;
+  }
+  try {
+    // Explicit user action: force a fresh backend probe so a recent
+    // reconnect isn't masked by the 30s passive-probe throttle.
+    const up = await useConnectivityStore.getState().probe(true);
+    if (!up) {
+      addToast(
+        'No internet connection. Check your connection, then resume — completed stages are saved.',
+        'warning', 6000,
+      );
+      return false;
+    }
+  } catch {
+    // Probe failure must not block local-only runs; backend re-checks anyway.
+  }
+  return true;
+}
 
 
 
@@ -159,12 +192,17 @@ export function usePipeline(
     const allSteps = ['generate_script', 'generate_voiceover', 'transcribe', 'generate_visuals', 'fetch_assets', 'render'];
     const targetIdx = allSteps.indexOf(targetStage);
     const steps = allSteps.slice(0, targetIdx + 1);
+    if (!(await ensureOnlineForSteps(steps, addToast))) return;
     await syncTrackOverrides(steps);
     const res = await startPipeline(projectId, steps);
     if (res?.success) {
       loadFiles(projectId);
+    } else if ((res as any)?.error_code === 'NETWORK_OFFLINE') {
+      addToast(res?.error || 'No internet connection. Reconnect and resume.', 'warning', 6000);
+    } else if (res && !(res as any).success) {
+      addToast((res as any)?.error || 'Failed to start pipeline', 'error');
     }
-  }, [projectId, targetStage, startPipeline, loadFiles, syncTrackOverrides]);
+  }, [projectId, targetStage, startPipeline, loadFiles, syncTrackOverrides, addToast]);
 
   const canResumeFrom = useCallback((stageId: string) => {
     const stageIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
@@ -201,11 +239,14 @@ export function usePipeline(
       return;
     }
 
+    if (!(await ensureOnlineForSteps(stepsToRun, addToast))) return;
     await syncTrackOverrides(stepsToRun);
     const res = await startPipeline(projectId, stepsToRun);
     if (res?.success) {
       addToast(`Resumed pipeline from: ${PIPELINE_STAGES[startIdx].title}`, 'success');
       loadFiles(projectId);
+    } else if ((res as any)?.error_code === 'NETWORK_OFFLINE') {
+      addToast(res?.error || 'No internet connection. Reconnect and resume.', 'warning', 6000);
     } else {
       addToast(res?.error || "Failed to start pipeline", 'error');
     }
@@ -223,6 +264,7 @@ export function usePipeline(
       const stepsToRun = endIdx === -1 ? allSteps : allSteps.slice(0, endIdx + 1);
 
       // Smart Resume: persist track visibility overrides to project settings
+      if (!(await ensureOnlineForSteps(stepsToRun, addToast))) return;
       await syncTrackOverrides(stepsToRun);
 
       // We simply pass the allowed range of steps to the backend. The backend evaluates staleness.
@@ -230,6 +272,8 @@ export function usePipeline(
       if (res?.success) {
         addToast("Pipeline started successfully", 'success');
         loadFiles(projectId);
+      } else if ((res as any)?.error_code === 'NETWORK_OFFLINE') {
+        addToast(res?.error || 'No internet connection. Reconnect and resume.', 'warning', 6000);
       } else {
         addToast(res?.error || "Failed to start pipeline", 'error');
       }

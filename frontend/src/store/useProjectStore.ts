@@ -36,6 +36,7 @@ export interface Task {
   progress: number;
   message?: string;
   error_message?: string;
+  error_code?: string;
   updated_at: string;
 }
 
@@ -62,8 +63,8 @@ interface ProjectStore {
   fetchProjectDetail: (projectId: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   updateProject: (projectId: string, updates: Partial<Project>) => Promise<boolean>;
-  startPipeline: (projectId: string, steps: string[]) => Promise<{ success: boolean; error?: string }>;
-  resumePipeline: (projectId: string, steps: string[]) => Promise<{ success: boolean; error?: string }>;
+  startPipeline: (projectId: string, steps: string[]) => Promise<{ success: boolean; error?: string; error_code?: string; retryable?: boolean }>;
+  resumePipeline: (projectId: string, steps: string[]) => Promise<{ success: boolean; error?: string; error_code?: string; retryable?: boolean }>;
   cancelPipeline: (projectId: string) => Promise<void>;
   downloadFont: (fontFamily: string) => Promise<{ success: boolean; css_path?: string }>;
 }

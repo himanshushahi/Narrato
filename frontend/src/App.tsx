@@ -8,6 +8,9 @@ const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
 import TerminalLogs from './components/ui/TerminalLogs';
 import { ToastContainer } from './components/ui/Toast';
 import { ConfirmModal } from './components/ui/ConfirmModal';
+import { ConnectivityBanner } from './components/ui/ConnectivityBanner';
+import { useConnectivityStore, initConnectivityListeners } from './store/useConnectivityStore';
+import { useUIStore } from './store/useUIStore';
 import { motion } from 'framer-motion';
 import {
   VscSettings, VscLayers, VscPulse, VscLayoutSidebarLeft, VscAccount
@@ -16,6 +19,10 @@ import {
 function Sidebar() {
   const location = useLocation();
   const queue = useProjectStore((state) => state.queue);
+  const browserOnline = useConnectivityStore((s) => s.browserOnline);
+  const internetUp = useConnectivityStore((s) => s.internetUp);
+  const backendAlive = useConnectivityStore((s) => s.backendAlive);
+  const offline = !browserOnline || internetUp === false || !backendAlive;
   const [collapsed, setCollapsed] = useState(() => {
     const prefs = (window as any).__INITIAL_PREFS__ || {};
     return prefs.sidebar_collapsed === 'true' || prefs.sidebar_collapsed === true;
@@ -117,8 +124,8 @@ function Sidebar() {
                 </div>
                 <div className="flex flex-col overflow-hidden min-w-0">
                   <span className="text-xs font-bold text-stone-200 truncate">Local Studio</span>
-                  <span className="text-[9px] text-emerald-400 font-semibold flex items-center gap-1 truncate">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" /> Online
+                  <span className={`text-[9px] font-semibold flex items-center gap-1 truncate ${offline ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${offline ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'}`} /> {offline ? 'Offline' : 'Online'}
                   </span>
                 </div>
               </div>
@@ -142,7 +149,12 @@ function AppContent() {
   const isEditorRoute = location.pathname.startsWith('/editor');
 
   useEffect(() => {
-    // Connection is handled by pywebview automatically
+    // Offline detection: browser online/offline events + periodic backend
+    // internet probe. Reconnect toast fires once per offline->online flap.
+    const dispose = initConnectivityListeners(() => {
+      useUIStore.getState().addToast('Back online. You can resume paused stages.', 'success');
+    });
+    return dispose;
   }, []);
 
   // Full-screen editor layout (no sidebar, no terminal)
@@ -151,7 +163,8 @@ function AppContent() {
       <>
         <div className="bg-cinematic fixed inset-0 z-0 pointer-events-none" />
 
-        <div className="h-screen w-screen text-stone-100 overflow-hidden font-sans relative z-10">
+        <div className="h-screen w-screen text-stone-100 overflow-hidden font-sans relative z-10 flex flex-col">
+          <ConnectivityBanner />
           <Suspense fallback={<div className="h-screen w-screen flex items-center justify-center bg-zinc-950 text-white font-mono">Loading Editor...</div>}>
             <Routes>
               <Route path="/editor/:id" element={<EditorWorkspace />} />
@@ -171,6 +184,7 @@ function AppContent() {
       <div className="h-screen w-screen flex text-stone-100 overflow-hidden font-sans relative z-10">
         <Sidebar />
         <div className="flex-1 flex flex-col min-w-0 relative bg-zinc-950/20">
+          <ConnectivityBanner />
 
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative">
             <Suspense fallback={<div className="h-screen w-screen flex items-center justify-center bg-zinc-950 text-white font-mono">Loading Module...</div>}>
