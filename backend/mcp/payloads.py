@@ -1887,6 +1887,20 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                     f"valid keys: {sorted(_valid_cut_keys - {'note'})}. "
                     f"(exit_transition IS valid as a cut sibling; "
                     f"layer geometry belongs in content.style.)")
+            try:
+                _raw_kids = (cut.get("composition") or {}).get("children") or []
+                _norm_kids = (norm.get("composition") or {}).get("children") or []
+                if isinstance(_raw_kids, list) and isinstance(_norm_kids, list):
+                    _dropped = len(_raw_kids) - len(_norm_kids)
+                    if _dropped > 0:
+                        report["normalizations"].append(
+                            f"cut#{i}: dropped {_dropped} layer(s) during validation "
+                            f"(non-Layer nodes or query-less Image/Video are removed; "
+                            f"missing content.type now hard-fails instead). "
+                            f"Kept {len(_norm_kids)}/{len(_raw_kids)} — re-emit dropped layers "
+                            f"as {{type:Layer, content:{{type, ...}}}} with query where needed.")
+            except Exception:
+                pass
             raw_t = cut.get("transition")
             norm_t = norm.get("transition")
             if (isinstance(raw_t, str) and raw_t.strip()
