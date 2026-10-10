@@ -581,8 +581,8 @@ class LayerContent(AppBaseModel):
     # Shape properties
     shape_type: Optional[str] = Field(default=None, description="Type of vector shape (if Shape)", json_schema_extra={"enum": ["rectangle", "circle", "star", "triangle", "arrow", "polygon", "path", "icon"]})
     icon_name: Optional[str] = Field(default=None, description="Lucide icon name in kebab-case (e.g. 'trending-up', 'trending-down', 'dollar-sign', 'coins', 'shield-alert', 'shield-check', 'lock', 'database', 'globe', 'zap', 'flame', 'gavel', 'target') (if Shape and shape_type='icon')")
-    fill: Optional[str] = Field(default=None, description="Fill color hex or 'transparent' (if Shape)")
-    stroke: Optional[str] = Field(default=None, description="Stroke border color hex (if Shape)")
+    fill: Optional[str] = Field(default=None, description="Fill color hex or 'transparent' (if Shape; NOT used by shape_type='icon' — Lucide icons are stroke-only outlines, use stroke for icon color)")
+    stroke: Optional[str] = Field(default=None, description="Stroke color hex (if Shape; PRIMARY color for shape_type='icon')")
     stroke_width: Optional[float] = Field(default=None, description="Stroke width in pixels (if Shape)")
     radius: Optional[float] = Field(default=None, description="Radius / size in pixels (if Shape)")
     width: Optional[float] = Field(default=None, description="Width in pixels for rectangle (if Shape)")
@@ -768,6 +768,17 @@ class LayerContent(AppBaseModel):
                 _safe_set("stroke_width", 2.0)
             if self.corner_radius is not None and self.corner_radius < 0:
                 _safe_set("corner_radius", 0.0)
+            # Lucide icons are stroke-only (fill="none" hardcoded in the
+            # icon set; renderer maps stroke -> icon color and ignores fill).
+            # Migrate a fill-only icon to stroke so `fill: "#facc15"` stops
+            # being a silent no-op on old/AI-authored cuts.
+            if self.shape_type == "icon":
+                _stroke_set = self.stroke not in (None, "", "transparent")
+                _fill_set = self.fill not in (None, "", "transparent")
+                if _fill_set and not _stroke_set:
+                    _safe_set("stroke", self.fill)
+                if self.fill is not None:
+                    _safe_set("fill", None)
         if self.type == "Counter":
             if self.value is None:
                 _safe_set("value", 100.0)

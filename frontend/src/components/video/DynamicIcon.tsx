@@ -99,8 +99,12 @@ export const DynamicIcon: React.FC<DynamicIconProps> = ({
   const IconComponent = getIconComponent(name) || LucideIcons.Sparkles;
 
   if (!IconComponent || (typeof IconComponent !== 'function' && typeof IconComponent !== 'object')) {
-    return <LucideIcons.Sparkles size={size} color={color} strokeWidth={strokeWidth} className={className} style={style} />;
+    return <LucideIcons.Sparkles size={size} color={color} strokeWidth={strokeWidth} fill="none" className={className} style={style} />;
   }
 
-  return <IconComponent size={size} color={color} strokeWidth={strokeWidth} className={className} style={style} />;
+  // Lucide icons are stroke-only (root svg hardcodes fill="none",
+  // stroke="currentColor"). Enforce fill="none" so a stray `fill` prop can
+  // never produce a filled-silhouette look the set wasn't designed for —
+  // `color` (stroke) is the single color authority.
+  return <IconComponent size={size} color={color} strokeWidth={strokeWidth} fill="none" className={className} style={style} />;
 };

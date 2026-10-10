@@ -268,12 +268,18 @@ export const ShapeRenderer: React.FC<ShapeProps> = ({
         </svg>
       )}
 
-      {/* 8. Lucide Vector Icon */}
+      {/* 8. Lucide Vector Icon — STROKE-ONLY going forward. Lucide hardcodes
+          fill="none" on the root <svg> (stroke="currentColor"), so `stroke` is
+          the single color authority for all newly authored icons. The `fill`
+          fallback below is a LEGACY safety net only: old saved projects / AI
+          cuts authored with `fill` bypass validation on load, so without it
+          they'd silently recolor to cyan. Backend sanitize migrates fill→stroke
+          on next save; until then the fallback keeps old projects pixel-identical. */}
       {shape_type === 'icon' && (
         <DynamicIcon
           name={icon_name || 'sparkles'}
           size={radius ? radius * 2 : (width || 48)}
-          color={stroke && stroke !== 'transparent' ? stroke : fill && fill !== 'transparent' ? fill : stroke || '#00d4ff'}
+          color={stroke && stroke !== 'transparent' ? stroke : fill && fill !== 'transparent' ? fill : '#00d4ff'}
           strokeWidth={stroke_width || 2}
         />
       )}

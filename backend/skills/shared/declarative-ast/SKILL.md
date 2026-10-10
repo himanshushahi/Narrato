@@ -106,11 +106,12 @@ Root Video Composition
 ### 3. `Shape` — Vector Shapes, Paths & Lucide Icons
 ```json
 { "type": "Shape", "shape_type": "rectangle", "fill": "rgba(255,255,255,0.06)", "stroke": "#38bdf8", "stroke_width": 1.5, "corner_radius": 20 }
-{ "type": "Shape", "shape_type": "icon", "icon_name": "trending-up", "fill": "#facc15", "glow": true }
+{ "type": "Shape", "shape_type": "icon", "icon_name": "trending-up", "stroke": "#facc15", "glow": true }
 { "type": "Shape", "shape_type": "path", "preset_path": "corner_brackets", "stroke": "#00d4ff", "draw_animation": true, "glow": true }
 ```
 - `shape_type`: `"rectangle"` | `"circle"` | `"star"` | `"triangle"` | `"arrow"` | `"polygon"` | `"path"` | `"icon"`
 - `icon_name`: 1,500+ Lucide icons in kebab-case (`"trending-up"`, `"shield-alert"`, `"dollar-sign"`, `"zap"`, `"flame"`, `"brain"`, `"cpu"`, `"rocket"`, `"target"`, `"lock"`, `"globe"`, `"activity"`, `"scale"`)
+- **Icons are STROKE-ONLY**: Lucide icons are outline glyphs (`fill="none"` hardcoded) — set the icon color with `stroke`, NEVER `fill` (`fill` is ignored on icons). `draw_animation` is path-only and does nothing on icons.
 - `preset_path`: `"route_arch"` | `"horizontal_line"` | `"pointer_curve"` | `"corner_brackets"` | `"wave_pulse"` | `"circle_reticle"`
 - `draw_animation: true`: Animates stroke path drawing from 0% to 100%.
 - `glow: true`: Neon bloom/drop-shadow on stroke.
@@ -702,7 +703,7 @@ consecutive cuts.
       "animations": [{"property": "scale", "from": 0.6, "to": 1.0, "duration": 0.45, "delay": 0.25, "easing": "spring"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.25, "easing": "ease-out"}] },
     { "type": "Layer", "content": { "type": "Text", "text": "SUBSCRIBE", "font": "Inter", "weight": "900", "color": "#ffffff", "animation_mode": "static", "style": { "left": "30%", "top": "39%", "width": "40%", "fontSize": "54px", "textAlign": "center" } },
       "animations": [{"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.4, "easing": "ease-out"}] },
-    { "type": "Layer", "content": { "type": "Shape", "shape_type": "icon", "icon_name": "bell-ring", "fill": "#facc15", "glow": true, "style": { "left": "72%", "top": "36%", "width": "10%", "height": "18%" } }, "floating": true,
+    { "type": "Layer", "content": { "type": "Shape", "shape_type": "icon", "icon_name": "bell-ring", "stroke": "#facc15", "glow": true, "style": { "left": "72%", "top": "36%", "width": "10%", "height": "18%" } }, "floating": true,
       "animations": [{"property": "scale", "from": 0, "to": 1.0, "duration": 0.5, "delay": 0.6, "easing": "back"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.3, "delay": 0.6, "easing": "ease-out"}] },
     { "type": "Layer", "content": { "type": "Counter", "value": 1000000, "suffix": "", "title": "JOIN THE COMMUNITY", "font_size": 44, "color": "#facc15", "style": { "left": "30%", "top": "58%", "width": "40%", "height": "20%" } },
       "animations": [{"property": "translateY", "from": 30, "to": 0, "duration": 0.5, "delay": 0.7, "easing": "ease-out"}, {"property": "opacity", "from": 0, "to": 1, "duration": 0.4, "delay": 0.7, "easing": "ease-out"}] }
@@ -744,7 +745,7 @@ consecutive cuts.
 ```json
 // Layer 0: Video (soft lifestyle B-roll) + Dream Blur filter + slow scale drift
 // Layer 1: HTML (glass card: backdrop blur, 5 gold stars ★★★★★, quote text, avatar circle + name/handle row) at left: "18%", top: "22%", width: "64%", height: "52%" — spring scale 0.85→1 at 0.3s
-// Layer 2: Shape (icon: heart or thumbs-up, fill #ec4899, glow) top-right of card — back-ease pop at 0.7s + floating
+// Layer 2: Shape (icon: heart or thumbs-up, stroke #ec4899, glow) top-right of card — back-ease pop at 0.7s + floating
 // Layer 3: Counter (the metric: 4.9 rating, 12K reviews, suffix as needed) under card — translateY entrance at 0.9s
 // Layer 4: Particles (stars, 15 count, opacity 0.15) — celebration dust
 // Transition: rise or blur_focus (soft, trustworthy — never glitch)
@@ -909,7 +910,7 @@ Copy editor labels/ranges verbatim. All keys live in `content` (or `content.styl
 - `map_style` (Map): `"vintage"` | `"modern_dark"` | `"minimal_light"` | `"nautical_blue"` — always set explicitly.
 - Particles: `particle_preset` + `particle_count 10–300` + `particle_size: [min_px, max_px] 1–60` + `particle_colors: ["#hex", ...]` + `particle_opacity 0–1` + `particle_speed` + `particle_direction up/down/left/right/outward/twinkle`.
 - Chart: `chart_type bar/line/pie/donut/progress` + `data: [{label, value, color}]` + `title` + `title_size px` + `bar_radius px` + `bar_gap px` + `bar_max_width px` + `style: {color}` accent.
-- Shape: `shape_type rectangle/circle/star/triangle/arrow/polygon/path/icon` + `direction up/down/left/right` (arrow/triangle) + `angle deg` + `points` (star sides) + `inner_radius` + `preset_path route_arch/horizontal_line/pointer_curve/corner_brackets/wave_pulse/circle_reticle` + `view_box` + `path_d` + `corner_radius` + `draw_animation` + `glow`.
+- Shape: `shape_type rectangle/circle/star/triangle/arrow/polygon/path/icon` + `direction up/down/left/right` (arrow/triangle) + `angle deg` + `points` (star sides) + `inner_radius` + `preset_path route_arch/horizontal_line/pointer_curve/corner_brackets/wave_pulse/circle_reticle` + `view_box` + `path_d` + `corner_radius` + `draw_animation` (path-only, no-op on icons) + `glow`. Icons are stroke-only: icon color via `stroke`, never `fill`.
 - Text: `fontStyle normal/italic` + `textShadow` presets (`Soft/None/Strong/Neon Cyan/Neon Amber` or custom CSS) + `lineHeight` + `letterSpacing`.
 - Lottie: `lottie_url` or `animation_data` (inline JSON override) + `loop` + `playback_rate` + `lottie_direction forward/backward`.
 - Mask: `shape circle/ellipse/inset/polygon` + `size/rx/ry/x/y/top/right/bottom/left/corner_radius/points` + `reveal circle_iris/wipe_right/wipe_down/split_vertical/wipe_diagonal` + `reveal_duration/reveal_delay` + `reveal_easing linear/ease-in/ease-out/ease-in-out/bounce` + `inverted: true`.

@@ -107,6 +107,16 @@ export const BACKGROUND_PRESET_DEFAULTS: Record<string, [string, string, string]
   paper_grain: ['#1c1917', '#292524', '#f5ebd7'],
 };
 
+// Lucide icons are stroke-only outlines (fill="none" hardcoded in the set).
+// Single migration helper so IconPicker + shape_type flips share one path:
+// move a legacy fill into stroke, then drop fill (deleted via undefined).
+const isSet = (v: any) => v !== undefined && v !== null && v !== '' && v !== 'transparent';
+export const migrateIconColor = (currentContent: Record<string, any>, extra: Record<string, any> = {}) => ({
+  ...extra,
+  stroke: isSet(currentContent.stroke) ? currentContent.stroke : isSet(currentContent.fill) ? currentContent.fill : '#00d4ff',
+  fill: undefined,
+});
+
 export interface AstLayerApi {
   updateLayer: (idx: number, field: string, val: any) => void;
   updateContent: (idx: number, field: string, val: any) => void;
@@ -400,6 +410,11 @@ export const AstGraphicalEditor = ({
     const newComp = { ...compositionRef.current };
     newComp.children = newComp.children ? [...newComp.children] : [];
     const content = { ...(newComp.children[idx]?.content || {}), ...updates };
+    // undefined = delete the key (mirrors updateLayer). Needed for
+    // fill→stroke migrations so stale `fill` can't linger on icon layers.
+    for (const k of Object.keys(updates)) {
+      if (updates[k] === undefined) delete (content as Record<string, any>)[k];
+    }
     newComp.children[idx] = { ...newComp.children[idx], content };
     triggerChange(newComp);
   };
@@ -811,14 +826,13 @@ export const AstGraphicalEditor = ({
       const pickIdx = iconPickerIdxRef.current;
       if (pickIdx === null) return;
       const currentContent = compositionRef.current.children?.[pickIdx]?.content || {};
-      updateContentFields(pickIdx, {
+      updateContentFields(pickIdx, migrateIconColor(currentContent, {
         type: 'Shape',
         shape_type: 'icon',
         icon_name: iconName,
-        stroke: currentContent.stroke || currentContent.fill || '#00d4ff',
         stroke_width: currentContent.stroke_width ?? 2,
         radius: currentContent.radius ?? 50,
-      });
+      }));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
@@ -1897,7 +1911,14 @@ export const AstGraphicalEditor = ({
                     <select
                       className="w-full bg-black/40 border border-white/10 text-xs text-stone-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500/50 cursor-pointer"
                       value={content.shape_type || 'rectangle'}
-                      onChange={e => updateContent(idx, 'shape_type', e.target.value)}
+                      onChange={e => {
+                        const next = e.target.value;
+                        if (next === 'icon') {
+                          updateContentFields(idx, migrateIconColor(content, { shape_type: next }));
+                        } else {
+                          updateContent(idx, 'shape_type', next);
+                        }
+                      }}
                     >
                       <option value="rectangle">Rectangle (Rounded)</option>
                       <option value="circle">Circle</option>
@@ -1935,7 +1956,7 @@ export const AstGraphicalEditor = ({
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-lg bg-black/50 border border-white/10 flex items-center justify-center shrink-0">
-                        <DynamicIcon name={content.icon_name || 'sparkles'} size={20} color={content.stroke || content.fill || '#00d4ff'} />
+                        <DynamicIcon name={content.icon_name || 'sparkles'} size={20} color={content.stroke && content.stroke !== 'transparent' ? content.stroke : '#00d4ff'} />
                       </div>
                       <input
                         type="text"
@@ -2060,6 +2081,27 @@ export const AstGraphicalEditor = ({
                   </div>
                 )}
 
+                {content.shape_type === 'icon' ? (
+                  <div className="space-y-1 min-w-0">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Icon Color (Stroke)</label>
+                    <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-md px-2 py-1 focus-within:border-amber-500/50 min-w-0">
+                      <input
+                        type="color"
+                        value={content.stroke?.startsWith('#') && content.stroke.length === 7 ? content.stroke : '#00d4ff'}
+                        onChange={e => updateContent(idx, 'stroke', e.target.value)}
+                        className="w-4 h-4 rounded cursor-pointer bg-transparent border-0 p-0 shrink-0"
+                      />
+                      <input
+                        type="text"
+                        className="w-full bg-transparent text-xs text-stone-200 focus:outline-none font-mono min-w-0"
+                        value={content.stroke || ''}
+                        onChange={e => updateContent(idx, 'stroke', e.target.value)}
+                        placeholder="#00d4ff"
+                      />
+                    </div>
+                    <p className="text-[9px] text-stone-500">Lucide icons are stroke-only outlines — fill does nothing and is hidden.</p>
+                  </div>
+                ) : (
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1 min-w-0">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Fill Color</label>
@@ -2098,6 +2140,7 @@ export const AstGraphicalEditor = ({
                     </div>
                   </div>
                 </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1 min-w-0">
@@ -2120,6 +2163,7 @@ export const AstGraphicalEditor = ({
                       />
                       Glow
                     </label>
+                    {content.shape_type !== 'icon' && (
                     <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-300 cursor-pointer">
                       <input
                         type="checkbox"
@@ -2129,6 +2173,7 @@ export const AstGraphicalEditor = ({
                       />
                       Draw Anim
                     </label>
+                    )}
                   </div>
                 </div>
 
@@ -2691,14 +2736,13 @@ export const AstGraphicalEditor = ({
         onSelectIcon={(iconName) => {
           if (iconPickerIdx !== null) {
             const currentContent = composition.children?.[iconPickerIdx]?.content || {};
-            updateContentFields(iconPickerIdx, {
+            updateContentFields(iconPickerIdx, migrateIconColor(currentContent, {
               type: 'Shape',
               shape_type: 'icon',
               icon_name: iconName,
-              stroke: currentContent.stroke || currentContent.fill || '#00d4ff',
               stroke_width: currentContent.stroke_width ?? 2,
               radius: currentContent.radius ?? 50,
-            });
+            }));
           }
         }}
         currentIcon={iconPickerIdx !== null ? (composition.children?.[iconPickerIdx]?.content?.icon_name || 'trending-up') : undefined}
