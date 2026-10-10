@@ -39,6 +39,16 @@ function cleanupOwnedTempPaths(
   }
 }
 
+/** Best-effort content signature for settings change detection
+ * (synchronous read — compared at decision points, no effect hazard). */
+function safeSettingsSig(v: any): string {
+  try {
+    return JSON.stringify(v ?? {}) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 /** Canonical section type: 'scenes' (script docs + Visuals tab) and 'scene'
  * (manifest entries) refer to the same thing. Normalize once so every
  * branch below only deals with 'scene'. */
@@ -130,7 +140,8 @@ interface UseScriptEditingReturn {
   confirmDeleteScene: () => Promise<void>;
   setSceneToDelete: (idx: number | null) => void;
   handleSettingsUpdate: (newSettings: any) => void;
-  handleSaveTranscription: (overrideDoc?: any) => Promise<void>;
+  flushProjectSettings: () => Promise<void>;
+  handleSaveTranscription: (overrideDoc?: any, opts?: { silent?: boolean }) => Promise<void>;
   handleResetTranscription: () => void;
   handlePreviewSubVisual: (sceneIdx: number, sectionType: string, subIdx: number, query: string, latestData?: any, layerIdx?: number, visualType?: string) => Promise<string | undefined>;
   handleDeleteLayerAsset: (sceneIdx: number, sectionType: string, subIdx: number, layerIdx: number) => void;
@@ -237,6 +248,18 @@ export function useScriptEditing(
   // within the ~150ms debounce window).
   const scriptDataRef = useRef(scriptData);
   scriptDataRef.current = scriptData;
+  // Ref mirror so flushProjectSettings persists the latest settings even
+  // before React re-renders (same pattern as scriptDataRef above).
+  const localProjectSettingsRef = useRef(localProjectSettings);
+  localProjectSettingsRef.current = localProjectSettings;
+  /** Signature of the last settings known persisted (sync effect baseline,
+   *  debounce fire, or flush) — lets the export flush skip a redundant write. */
+  const persistedSettingsSigRef = useRef<string>('');
+  // Ref mirror so handleSaveTranscription's no-override fallback reads the
+  // latest committed transcript, never a stale render closure (e.g. export
+  // in the same tick as a tab-switch unmount flush).
+  const transcriptionDataRef = useRef(transcriptionData);
+  transcriptionDataRef.current = transcriptionData;
   const manifestDataRef = useRef(manifestData);
   manifestDataRef.current = manifestData;
   const editingCardRef = useRef(editingCard);
@@ -471,6 +494,8 @@ export function useScriptEditing(
         /* keep base only */
       }
     }
+    localProjectSettingsRef.current = base;
+    persistedSettingsSigRef.current = safeSettingsSig(base);
     setLocalProjectSettings(base);
   }, [selectedProject?.project_settings, selectedProject?.id]);
 
@@ -664,14 +689,40 @@ export function useScriptEditing(
   }, [setScriptData, setManifestData, projectId, invalidateRewrites]);
 
   const handleSettingsUpdate = useCallback((newSettings: any) => {
+    localProjectSettingsRef.current = newSettings;
     setLocalProjectSettings(newSettings);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
+      saveTimeoutRef.current = null;
       if (selectedProject?.id) {
-        await updateProject(selectedProject.id, { project_settings: JSON.stringify(newSettings) });
+        const ok = await updateProject(selectedProject.id, { project_settings: JSON.stringify(newSettings) });
+        if (ok) persistedSettingsSigRef.current = safeSettingsSig(newSettings);
       }
     }, 1000);
   }, [selectedProject?.id, updateProject]);
+
+  // Immediately persist the latest subtitle-related project settings,
+  // cancelling the trailing debounce. Export preflight calls this so the
+  // render backend reads the exact settings the preview is showing
+  // (wordsPerScreen changes regroup subtitle sentences — a 1s-stale read
+  // shows a different line at the same timestamp). Skips the write when
+  // nothing changed since the last persist (every export would otherwise
+  // cost a DB write + store refresh).
+  const flushProjectSettings = useCallback(async () => {
+    const pending = !!saveTimeoutRef.current;
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    const currentId = projectIdRef.current;
+    if (!currentId) return;
+    const latest = localProjectSettingsRef.current;
+    if (!pending && safeSettingsSig(latest) === persistedSettingsSigRef.current) return;
+    const ok = await updateProject(currentId, {
+      project_settings: JSON.stringify(latest),
+    });
+    if (ok) persistedSettingsSigRef.current = safeSettingsSig(latest);
+  }, [updateProject]);
 
   const handleSaveCard = useCallback(async (cardKey?: string, index?: number, latestData?: any) => {
     // Edits apply to state synchronously on every keystroke except the Visuals
@@ -2190,14 +2241,16 @@ export function useScriptEditing(
     setSceneToDelete(null);
   }, [sceneToDelete, projectId, loadFiles, addToast, isAnyRewriting]);
 
-  const handleSaveTranscription = useCallback(async (overrideDoc?: any) => {
-    const doc = overrideDoc ?? transcriptionData;
+  const handleSaveTranscription = useCallback(async (overrideDoc?: any, opts?: { silent?: boolean }) => {
+    // Ref (not closure) fallback: the closed-over state can predate an
+    // unmount flush from the Subtitle tab when export follows in the same tick.
+    const doc = overrideDoc ?? transcriptionDataRef.current;
     if (!projectId || !doc || !selectedProject?.transcription_path) return;
     // Same project-identity rule as every other async publish: the save await
     // can span a project switch, and project A's doc/reload must not land in B.
     const subtitleProjectId = projectId;
     const subtitleEpoch = rewriteEpochRef.current;
-    setIsSavingSubtitles(true);
+    if (!opts?.silent) setIsSavingSubtitles(true);
     try {
       const success = await callApi<boolean>('save_json_file', selectedProject.transcription_path, doc);
       if (subtitleProjectId !== projectIdRef.current || subtitleEpoch !== rewriteEpochRef.current) return;
@@ -2205,22 +2258,28 @@ export function useScriptEditing(
         // Keep local state in sync when the caller flushed a newer draft
         // than the hook's closed-over transcriptionData.
         if (overrideDoc) _setTranscriptionData(overrideDoc);
-        addToast("Subtitles saved successfully!", 'success');
+        if (!opts?.silent) addToast("Subtitles saved successfully!", 'success');
         loadFiles(subtitleProjectId);
-      } else {
+      } else if (!opts?.silent) {
         addToast("Failed to save subtitles", 'error');
+      } else {
+        throw new Error("Failed to save subtitles");
       }
     } catch (e) {
       console.error(e);
       if (subtitleProjectId !== projectIdRef.current || subtitleEpoch !== rewriteEpochRef.current) return;
-      addToast("Failed to save subtitles", 'error');
+      if (!opts?.silent) {
+        addToast("Failed to save subtitles", 'error');
+      } else {
+        throw e;
+      }
     } finally {
       // Another project owns the indicator after a switch — never clear it.
       if (subtitleProjectId === projectIdRef.current && subtitleEpoch === rewriteEpochRef.current) {
         setIsSavingSubtitles(false);
       }
     }
-  }, [projectId, transcriptionData, selectedProject, loadFiles, addToast, _setTranscriptionData]);
+  }, [projectId, selectedProject, loadFiles, addToast, _setTranscriptionData]);
 
   const handleResetTranscription = useCallback(() => {
     if (!projectId || !selectedProject?.transcription_path) return;
@@ -2261,6 +2320,6 @@ export function useScriptEditing(
     handleStartEdit, handleCancelEdit,
     handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene,
-    setSceneToDelete, handleSettingsUpdate, handleSaveTranscription, handleResetTranscription,
+    setSceneToDelete, handleSettingsUpdate, handleSaveTranscription, handleResetTranscription, flushProjectSettings,
   };
 }

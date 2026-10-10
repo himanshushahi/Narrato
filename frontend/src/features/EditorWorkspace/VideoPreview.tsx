@@ -24,6 +24,8 @@ interface VideoPreviewProps {
   subtitleSettings: any;
   designSystem?: any;
   overlays?: any[];
+  /** Playback fps — mirrors backend render_fps so subtitle timing matches export. */
+  fps?: number;
   onFrameUpdate: (frame: number) => void;
   isPipelineRunning?: boolean;
   pipelineProgress?: number;
@@ -44,22 +46,22 @@ import { useStoreWithEqualityFn } from 'zustand/traditional';
 
 // ── Sub-components that subscribe to playback frame without re-rendering VideoPreview ──
 
-const formatTimestamp = (frame: number) => {
-  const totalSeconds = Math.floor(frame / 30);
+const formatTimestamp = (frame: number, fps: number = 30) => {
+  const totalSeconds = Math.floor(frame / fps);
   const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
   const s = (totalSeconds % 60).toString().padStart(2, '0');
-  const f = (frame % 30).toString().padStart(2, '0');
+  const f = (frame % fps).toString().padStart(2, '0');
   return `${m}:${s}:${f}`;
 };
 
-const PreviewActiveSceneBadge: React.FC<{ liveScenes: any[] }> = React.memo(({ liveScenes }) => {
+const PreviewActiveSceneBadge: React.FC<{ liveScenes: any[]; fps?: number }> = React.memo(({ liveScenes, fps = 30 }) => {
   const activeSceneLabel = useStoreWithEqualityFn(
     usePlaybackStore,
     (s) => {
       let offset = 0;
       for (let i = 0; i < (liveScenes || []).length; i++) {
         const scene = liveScenes[i];
-        const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+        const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * fps));
         if (s.currentFrame >= offset && s.currentFrame < offset + durationFrames) {
           return scene.title || `${scene.section_type === 'introduction' ? 'Introduction' : scene.section_type === 'conclusion' ? 'Conclusion' : `Scene ${i}`}`;
         }
@@ -149,14 +151,14 @@ const PreviewSeekBar: React.FC<{
 });
 PreviewSeekBar.displayName = 'PreviewSeekBar';
 
-const PreviewTimecode: React.FC = React.memo(() => {
+const PreviewTimecode: React.FC<{ fps?: number }> = React.memo(({ fps = 30 }) => {
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
   return (
     <div className="flex items-baseline gap-[2px] px-2.5 py-1 rounded bg-zinc-900/80 border border-zinc-800/50 font-mono">
       <span className="text-sm font-bold text-white tabular-nums tracking-wider">
-        {formatTimestamp(currentFrame)}
+        {formatTimestamp(currentFrame, fps)}
       </span>
-      <span className="text-[10px] text-zinc-500 ml-2">30fps</span>
+      <span className="text-[10px] text-zinc-500 ml-2">{fps}fps</span>
     </div>
   );
 });
@@ -170,7 +172,7 @@ const MemoizedRemotionPlayer = React.memo(RemotionVideoPlayer);
 export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
   playerRef, liveScenes, transcriptionData,
   audioUrl, bgMusicUrl, bgMusicVolume, musicClips = [], sfxClips = [], sfxVolume = 0.5, voiceoverVolume, styleType, language, videoFormat, subtitleSettings,
-  designSystem, overlays = [],
+  designSystem, overlays = [], fps = 30,
   onFrameUpdate, isPipelineRunning, pipelineProgress, fullscreenToggleRef,
   canvasLocked, onCanvasSelectLayer, onCanvasStyleCommit, sceneTimings
 }) => {
@@ -264,12 +266,14 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
     [subtitleSettings, trackHidden['subs']]
   );
 
-  // Compute total duration in frames from live scenes (matches RemotionVideoPlayer logic)
+  // Total frames from live scenes — same per-scene formula as the player
+  // (max(30, ceil(d * fps))) so the seek bar spans the full Player duration
+  // even when a scene is shorter than 1s.
   const totalFrames = React.useMemo(() => {
     if (!liveScenes || liveScenes.length === 0) return 150;
-    const totalDuration = liveScenes.reduce((acc, s) => acc + (s.duration || 0), 0);
-    return Math.max(150, Math.ceil(totalDuration * 30));
-  }, [liveScenes]);
+    const total = liveScenes.reduce((acc, s) => acc + Math.max(30, Math.ceil((s.duration || 0) * fps)), 0);
+    return Math.max(150, total);
+  }, [liveScenes, fps]);
 
   const handleSeekFromBar = React.useCallback((frame: number) => {
     if (playerRef.current) {
@@ -297,9 +301,10 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
         onStyleCommit={onCanvasStyleCommit}
         sceneTimings={sceneTimings}
         compositionSize={compositionSize}
+        fps={fps}
       />
     ),
-    [liveScenes, canvasLocked, onCanvasSelectLayer, onCanvasStyleCommit, sceneTimings, compositionSize]
+    [liveScenes, canvasLocked, onCanvasSelectLayer, onCanvasStyleCommit, sceneTimings, compositionSize, fps]
   );
 
   return (
@@ -321,7 +326,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
 
         {/* Right — scene badge + settings */}
         <div className="flex items-center gap-3">
-          <PreviewActiveSceneBadge liveScenes={liveScenes} />
+          <PreviewActiveSceneBadge liveScenes={liveScenes} fps={fps} />
         </div>
       </div>
 
@@ -387,6 +392,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
                   styleType={styleType}
                   language={language}
                   videoFormat={videoFormat}
+                  fps={fps}
                   subtitleSettings={playerSubtitleSettings}
                   designSystem={designSystem}
                   overlays={trackHidden['overlays'] ? [] : overlays}
@@ -430,7 +436,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = React.memo(({
           </button>
 
           {/* Timecode — like professional editors */}
-          <PreviewTimecode />
+          <PreviewTimecode fps={fps} />
         </div>
 
         {/* Right: Zoom controls + Fullscreen */}

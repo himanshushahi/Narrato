@@ -3,7 +3,7 @@ export const estimateTextDuration = (text: string | undefined | null): number =>
   return Math.max(5, Math.ceil(text.length / 15));
 };
 
-export const calculateSubVisualTimings = (subVisuals: any[], durationFrames: number, startFrame: number = 0) => {
+export const calculateSubVisualTimings = (subVisuals: any[], durationFrames: number, startFrame: number = 0, fps: number = 30) => {
   const numSubs = subVisuals.length;
   if (numSubs === 0) return [];
 
@@ -23,7 +23,7 @@ export const calculateSubVisualTimings = (subVisuals: any[], durationFrames: num
         ? Math.max(1, startFrame + durationFrames - currentOffset)
         : Math.max(1, Math.round(durationFrames * ratios[idx]));
     } else if (allDurationsValid) {
-      subDuration = Math.max(1, Math.round((svDurations[idx] as number) * 30));
+      subDuration = Math.max(1, Math.round((svDurations[idx] as number) * fps));
       if (idx === numSubs - 1) {
         subDuration = Math.max(1, startFrame + durationFrames - currentOffset);
       }

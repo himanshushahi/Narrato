@@ -20,13 +20,20 @@ export const RemotionRoot: React.FC = () => {
           musicClips: [],
           sfxClips: [],
           sfxVolume: 0.5,
+          voiceoverVolume: 1.0,
           muteVideoAudio: false,
           scenes: [],
           transcription: { language: 'hi', segments: [] },
           style: 'nitish_rajput',
           language: 'hi',
           videoFormat: 'landscape',
-          overlays: []
+          subtitleSettings: {},
+          designSystem: null,
+          overlays: [],
+          fps: 30,
+          qualityMode: 'export',
+          quality: { motionBlur: 'balanced', glassCap: 16 },
+          fontCssInline: ''
         } as CompositionProps}
         calculateMetadata={({ props }) => {
           if ((props as any).__file_server_port__) {
@@ -34,12 +41,16 @@ export const RemotionRoot: React.FC = () => {
           }
           const fps = (props as any).fps || 30;
           const scenes = (props as any).scenes || [];
-          const totalDuration = scenes.reduce(
-            (sum: number, sc: any) => sum + (sc.duration || 0),
-            0
+          // MUST match RemotionVideoPlayer + NitishRajputComposition:
+          // per-scene max(30, ceil(duration * fps)) so subtitle absolute
+          // times (frame/fps) land on the same sentence in preview & export.
+          const totalFrames = Math.max(
+            fps * 5,
+            scenes.reduce(
+              (sum: number, sc: any) => sum + Math.max(30, Math.ceil((sc.duration || 0) * fps)),
+              0
+            )
           );
-          // At least 5 sec fallback, otherwise compute from total scene durations
-          const totalFrames = Math.max(fps * 5, Math.ceil(totalDuration * fps));
           const isPortrait = (props as any).videoFormat === 'portrait';
           return {
             durationInFrames: totalFrames,

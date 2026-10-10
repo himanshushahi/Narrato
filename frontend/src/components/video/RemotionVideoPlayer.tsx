@@ -63,6 +63,9 @@ interface Props {
   subtitleSettings?: any;
   designSystem?: any;
   overlays?: GlobalOverlayItem[];
+  /** Frames per second — must match backend render_fps so subtitle absolute
+   *  times (frame/fps) agree between preview and export. Defaults to 30. */
+  fps?: number;
   /** Preview resolution scale (0.5 = 960x540, 1 = full 1920x1080). Defaults to 0.5 for fast scrubbing/playback. */
   compositionScale?: number;
   onFrameUpdate?: (frame: number) => void;
@@ -97,6 +100,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   subtitleSettings = {},
   designSystem,
   overlays = [],
+  fps = 30,
   compositionScale = 0.5,
   onFrameUpdate,
   onPlayStateChange,
@@ -201,9 +205,9 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
   const durationInFrames = useMemo(() => {
     if (!scenes || scenes.length === 0) return 300;
     return scenes.reduce((acc, scene) => {
-      return acc + Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      return acc + Math.max(30, Math.ceil((scene.duration || 0) * fps));
     }, 0);
-  }, [scenes]);
+  }, [scenes, fps]);
 
   // Fast preview renders the composition canvas at compositionScale resolution
   // (0.5 => 960x540) while the composition scales its 1080p layout to fill it —
@@ -241,6 +245,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       style: styleType,
       language,
       videoFormat,
+      fps,
       subtitleSettings,
       designSystem,
       overlays,
@@ -249,7 +254,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
       qualityMode: 'preview' as const,
       quality,
     };
-  }, [audioUrl, bgMusicUrl, bgMusicVolume, musicClips, sfxClips, sfxVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, subtitleSettings, designSystem, overlays, renderMotionBlur, renderGlassCap]);
+  }, [audioUrl, bgMusicUrl, bgMusicVolume, musicClips, sfxClips, sfxVolume, voiceoverVolume, muteVideoAudio, scenes, transcription, styleType, language, videoFormat, fps, subtitleSettings, designSystem, overlays, renderMotionBlur, renderGlassCap]);
 
   if (!scenes || scenes.length === 0) {
     return (
@@ -276,7 +281,7 @@ const RemotionVideoPlayer = forwardRef<RemotionVideoPlayerRef, Props>(({
         component={NitishRajputComposition}
         inputProps={inputProps as any}
         durationInFrames={durationInFrames}
-        fps={30}
+        fps={fps}
         compositionWidth={compWidth}
         compositionHeight={compHeight}
         style={{

@@ -600,7 +600,11 @@ export const NitishRajputComposition: React.FC<Props> = ({
     window.__file_server_port__ = __file_server_port__;
   }
 
-  const { width: canvasWidth, height: canvasHeight } = useVideoConfig();
+  const { width: canvasWidth, height: canvasHeight, fps: configFps } = useVideoConfig();
+  // Composition fps (Player fps in preview, render_fps in export). All
+  // scene/cut frame math derives from this so subtitle absolute times
+  // (frame/fps) agree between preview and export.
+  const timelineFps = configFps || 30;
   // Fast preview (compositionScale=0.5) shrinks the Player canvas to 960x540.
   // Visuals are authored in 1080p logical pixels, so the content tree is laid
   // out at the logical size and scaled down to fill the smaller canvas — the
@@ -609,8 +613,8 @@ export const NitishRajputComposition: React.FC<Props> = ({
 
   // Compute total duration in frames
   const totalDurationInFrames = useMemo(() => {
-    return scenes.reduce((acc, s) => acc + Math.max(30, Math.ceil((s.duration || 0) * 30)), 0);
-  }, [scenes]);
+    return scenes.reduce((acc, s) => acc + Math.max(30, Math.ceil((s.duration || 0) * timelineFps)), 0);
+  }, [scenes, timelineFps]);
 
   // Build scene timing lookup (cumulative start/end times) for subtitle gap-filling
   const sceneTimings: SceneTiming[] = useMemo(() => {
@@ -630,9 +634,9 @@ export const NitishRajputComposition: React.FC<Props> = ({
     const bg: Array<{ start: number; end: number }> = [];
     let offset = 0;
     for (const scene of scenes) {
-      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * timelineFps));
       const subVisuals = scene.sub_visuals || [];
-      const timings = subVisuals.length > 0 ? calculateSubVisualTimings(subVisuals, durationFrames, 0) : [];
+      const timings = subVisuals.length > 0 ? calculateSubVisualTimings(subVisuals, durationFrames, 0, timelineFps) : [];
       subVisuals.forEach((sv, i) => {
         const t = timings[i];
         if (!t) return;
@@ -642,7 +646,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
       offset += durationFrames;
     }
     return { voiceMuteRanges: voice, bgMuteRanges: bg };
-  }, [scenes]);
+  }, [scenes, timelineFps]);
 
   // Compute frame-range subtitle displacements for dodging (top, bottom, hidden)
   // Disabled to keep subtitles consistent at the bottom of the screen.
@@ -665,12 +669,12 @@ export const NitishRajputComposition: React.FC<Props> = ({
   const renderedScenes = useMemo(() => {
     let frameOffset = 0;
     return scenes.map((scene, idx) => {
-      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * timelineFps));
       const currentOffset = frameOffset;
       frameOffset += durationFrames;
 
       const subVisuals = scene.sub_visuals || [];
-      const timings = subVisuals.length > 0 ? calculateSubVisualTimings(subVisuals, durationFrames, 0) : [];
+      const timings = subVisuals.length > 0 ? calculateSubVisualTimings(subVisuals, durationFrames, 0, timelineFps) : [];
 
       return (
         <SceneGate key={`scene-${idx}`} from={currentOffset} durationInFrames={durationFrames}>
@@ -694,7 +698,7 @@ export const NitishRajputComposition: React.FC<Props> = ({
         </SceneGate>
       );
     });
-  }, [scenes, renderSubVisual]);
+  }, [scenes, renderSubVisual, timelineFps]);
 
   // ── Resolution scaling (fast preview) ─────────────────────────────────────
   // At scaleFactor 1 (export / full-res preview) the layers mount directly.
@@ -762,9 +766,9 @@ export const NitishRajputComposition: React.FC<Props> = ({
               if (!clip.audio_url || clip.is_muted) return null;
               const startFrame = Math.max(0, Math.round(clip.start_frame || 0));
               const durationFrames = Math.max(1, Math.round(clip.duration_frames || 30));
-              const fadeInFrames = Math.round((clip.fade_in_seconds || 0) * 30);
-              const fadeOutFrames = Math.round((clip.fade_out_seconds || 0) * 30);
-              const startFromFrame = Math.round((clip.source_start_seconds || 0) * 30);
+              const fadeInFrames = Math.round((clip.fade_in_seconds || 0) * timelineFps);
+              const fadeOutFrames = Math.round((clip.fade_out_seconds || 0) * timelineFps);
+              const startFromFrame = Math.round((clip.source_start_seconds || 0) * timelineFps);
               const clipVolume = Math.max(0, (clip.volume ?? 0.2) * (bgMusicVolume !== undefined ? bgMusicVolume / 0.15 : 1));
 
               return (
@@ -790,9 +794,9 @@ export const NitishRajputComposition: React.FC<Props> = ({
             if (!clip.audio_url || clip.is_muted) return null;
             const startFrame = Math.max(0, Math.round(clip.start_frame || 0));
             const durationFrames = Math.max(1, Math.round(clip.duration_frames || 30));
-            const fadeInFrames = Math.round((clip.fade_in_seconds || 0) * 30);
-            const fadeOutFrames = Math.round((clip.fade_out_seconds || 0) * 30);
-            const startFromFrame = Math.round((clip.source_start_seconds || 0) * 30);
+            const fadeInFrames = Math.round((clip.fade_in_seconds || 0) * timelineFps);
+            const fadeOutFrames = Math.round((clip.fade_out_seconds || 0) * timelineFps);
+            const startFromFrame = Math.round((clip.source_start_seconds || 0) * timelineFps);
             const clipVolume = Math.max(0, (clip.volume ?? 0.5) * (sfxVolume !== undefined ? sfxVolume / 0.5 : 1));
             return (
               <Sequence key={`sfx-${clip.id}`} from={startFrame} durationInFrames={durationFrames} premountFor={30}>

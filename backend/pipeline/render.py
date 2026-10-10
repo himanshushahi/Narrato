@@ -36,7 +36,7 @@ def _safe_float(val, default=0.0) -> float:
         return default
 
 
-def compute_sub_visual_timings_frames(sub_visuals, scene_frames):
+def compute_sub_visual_timings_frames(sub_visuals, scene_frames, fps=30):
     """Replicate the frontend's calculateSubVisualTimings (utils/duration.ts)
     in frames so audio cut ranges and video-audio placement match the preview.
     Priority: duration_ratio (Adjust Durations) > per-sub duration > equal split.
@@ -68,7 +68,7 @@ def compute_sub_visual_timings_frames(sub_visuals, scene_frames):
             else:
                 sub_duration = max(1, _round_half_up(scene_frames * ratios[idx]))
         elif all_durations_valid:
-            sub_duration = max(1, _round_half_up(durations[idx] * 30))
+            sub_duration = max(1, _round_half_up(durations[idx] * fps))
             if idx == num_subs - 1:
                 sub_duration = max(1, scene_frames - current_offset)
         else:
@@ -83,16 +83,59 @@ def compute_sub_visual_timings_frames(sub_visuals, scene_frames):
     return subs
 
 
-def scene_frame_offsets(scenes):
+def scene_frame_offsets(scenes, fps=30):
     """Yield (scene, scene_start_frame, scene_frames) per scene, replicating the
-    composition's frame math: max(30, ceil(duration * 30)) per scene. The 30-frame
+    composition's frame math: max(30, ceil(duration * fps)) per scene. The 30-frame
     minimum is applied per scene in the composition, so it must be replicated here
     or every later mute range drifts by the deficit."""
+    try:
+        fps = int(fps) or 30
+    except (ValueError, TypeError):
+        fps = 30
     offset = 0
     for sc in scenes:
-        scene_frames = max(30, int(math.ceil(float(sc.get("duration") or 0.0) * 30)))
+        scene_frames = max(30, int(math.ceil(float(sc.get("duration") or 0.0) * fps)))
         yield sc, offset, scene_frames
         offset += scene_frames
+
+
+def _load_design_system(project_dir) -> dict:
+    """Load design.json for export parity with the editor preview.
+
+    The preview passes design.json as `designSystem` (font + accent
+    fallbacks in KineticSubtitles). Export previously omitted it, so
+    subtitles fell back to Inter / #fbbf24 and any design edit was
+    invisible in the MP4. Returns {} when missing/invalid (never breaks
+    a render).
+    """
+    try:
+        design_path = Path(project_dir) / "design.json"
+        if design_path.exists():
+            data = json.loads(design_path.read_text(encoding="utf-8"))
+            # Gate on what the renderer actually reads (typography / palette),
+            # not theme_name: a valid file missing that label must still apply
+            # instead of silently falling back to Inter / #fbbf24.
+            if isinstance(data, dict) and (data.get("typography") or data.get("color_palette")):
+                return data
+            if isinstance(data, dict) and data:
+                logger.warning("Render: design.json lacks typography/color_palette — passing through as-is.")
+                return data
+    except Exception as e:
+        logger.warning(f"Render: could not load design.json ({e})")
+    return {}
+
+
+def _font_css_hash(props_dict) -> str:
+    """Short hash of the embedded export font CSS (avoids hashing MBs inline)."""
+    try:
+        css = props_dict.get("fontCssInline") or ""
+        if not css:
+            return ""
+        if isinstance(css, str):
+            return hashlib.sha256(css.encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        pass
+    return ""
 
 
 def compute_granular_frame_hashes(props_dict, render_settings):
@@ -110,6 +153,8 @@ def compute_granular_frame_hashes(props_dict, render_settings):
     """
     global_env = {
         "subtitleSettings": props_dict.get("subtitleSettings", {}),
+        "designSystem": props_dict.get("designSystem", {}),
+        "fontCssHash": _font_css_hash(props_dict),
         "style": props_dict.get("style"),
         "language": props_dict.get("language"),
         "videoFormat": props_dict.get("videoFormat"),
@@ -145,7 +190,7 @@ def compute_granular_frame_hashes(props_dict, render_settings):
     fps = props_dict.get("fps") or 30
     scene_records = []
 
-    for sc, scene_start_frame, scene_frames in scene_frame_offsets(scenes):
+    for sc, scene_start_frame, scene_frames in scene_frame_offsets(scenes, fps):
         idx = len(scene_records)
         scene_start_sec = scene_start_frame / float(fps)
         scene_end_sec = (scene_start_frame + scene_frames) / float(fps)
@@ -193,6 +238,8 @@ def compute_frame_hash(props_dict, render_settings):
         "scenes": props_dict.get("scenes", []),
         "transcription": props_dict.get("transcription", {}),
         "subtitleSettings": props_dict.get("subtitleSettings", {}),
+        "designSystem": props_dict.get("designSystem", {}),
+        "fontCssHash": _font_css_hash(props_dict),
         "style": props_dict.get("style"),
         "language": props_dict.get("language"),
         "videoFormat": props_dict.get("videoFormat"),
@@ -243,9 +290,10 @@ def compute_audio_hash(props_dict, render_settings):
 
     # Collect video audio sources (only when not muted)
     video_audio_sources = []
-    for sc, scene_start, scene_frames in scene_frame_offsets(props_dict.get("scenes", [])):
+    _audio_fps = props_dict.get("fps") or 30
+    for sc, scene_start, scene_frames in scene_frame_offsets(props_dict.get("scenes", []), _audio_fps):
         sub_visuals = sc.get("sub_visuals", [])
-        timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames)
+        timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames, _audio_fps)
         for sv, (t_start, t_end) in zip(sub_visuals, timings):
             vol = sv.get("videoVolume") or 0
             if not mute_video_audio and vol > 0:
@@ -253,8 +301,8 @@ def compute_audio_hash(props_dict, render_settings):
                 video_audio_sources.append({
                     "path": vpath,
                     "volume": vol,
-                    "start_time": (scene_start + t_start) / 30.0,
-                    "duration": (t_end - t_start) / 30.0,
+                    "start_time": (scene_start + t_start) / float(_audio_fps),
+                    "duration": (t_end - t_start) / float(_audio_fps),
                 })
     audio_props["videoAudioSources"] = video_audio_sources
     audio_props["musicClips"] = props_dict.get("musicClips", [])
@@ -264,16 +312,16 @@ def compute_audio_hash(props_dict, render_settings):
     # Per-sub-visual audio cut flags (mute_voiceover / mute_bg_music) — toggling
     # them must invalidate the cached audio mix.
     audio_cuts = []
-    for sc, scene_start, scene_frames in scene_frame_offsets(props_dict.get("scenes", [])):
+    for sc, scene_start, scene_frames in scene_frame_offsets(props_dict.get("scenes", []), _audio_fps):
         sub_visuals = sc.get("sub_visuals", [])
-        timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames)
+        timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames, _audio_fps)
         for sv, (t_start, t_end) in zip(sub_visuals, timings):
             mv = sv.get("mute_voiceover")
             mb = sv.get("mute_bg_music")
             if mv or mb:
                 audio_cuts.append({
-                    "start": (scene_start + t_start) / 30.0,
-                    "end": (scene_start + t_end) / 30.0,
+                    "start": (scene_start + t_start) / float(_audio_fps),
+                    "end": (scene_start + t_end) / float(_audio_fps),
                     "mute_voiceover": mv or False,
                     "mute_bg_music": mb or False,
                 })
@@ -781,6 +829,7 @@ def prepare_render_props_and_settings(project_dict, project_dir, normalize_asset
         "videoFormat": project_dict.get("video_format", "landscape"),
         "fps": fps,
         "subtitleSettings": project_settings,
+        "designSystem": _load_design_system(project_dir),
         "overlays": cleaned_overlays,
         "quality": quality_policy,
     }
@@ -796,8 +845,12 @@ def prepare_render_props_and_settings(project_dict, project_dir, normalize_asset
         _noto = NOTO_FONT_MAP.get(str(project_dict.get("language", "")).lower())
         if _noto:
             _font_fams.append(_noto)
+        _design_typ = (props.get("designSystem", {}) or {}).get("typography", {}) or {}
+        for _k in ("heading_font", "body_font"):
+            if _design_typ.get(_k):
+                _font_fams.append(_design_typ[_k])
         _design_path = project_dir / "design.json"
-        if _design_path.exists():
+        if _design_path.exists() and not _design_typ:
             _typ = json.loads(_design_path.read_text(encoding="utf-8")).get("typography", {}) or {}
             for _k in ("heading_font", "body_font"):
                 if _typ.get(_k):
@@ -1406,9 +1459,9 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
         # Per-sub-visual audio cut ranges (seconds): mute_voiceover / mute_bg_music
         voice_cuts = []  # (start_sec, end_sec)
         bg_cuts = []     # (start_sec, end_sec)
-        for sc, scene_start, scene_frames in scene_frame_offsets(scenes):
+        for sc, scene_start, scene_frames in scene_frame_offsets(scenes, fps):
             sub_visuals = sc.get("sub_visuals", [])
-            timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames)
+            timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames, fps)
             for sv, (t_start, t_end) in zip(sub_visuals, timings):
                 vol = sv.get("videoVolume") or 0
                 if not mute_video_audio and vol > 0:
@@ -1417,12 +1470,12 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
                         video_audio_tracks.append({
                             "path": vpath,
                             "volume": float(vol),
-                            "start_time": (scene_start + t_start) / 30.0,
+                            "start_time": (scene_start + t_start) / float(fps),
                         })
                 if sv.get("mute_voiceover"):
-                    voice_cuts.append(((scene_start + t_start) / 30.0, (scene_start + t_end) / 30.0))
+                    voice_cuts.append(((scene_start + t_start) / float(fps), (scene_start + t_end) / float(fps)))
                 if sv.get("mute_bg_music"):
-                    bg_cuts.append(((scene_start + t_start) / 30.0, (scene_start + t_end) / 30.0))
+                    bg_cuts.append(((scene_start + t_start) / float(fps), (scene_start + t_end) / float(fps)))
 
         # ── Collect music clip inputs ──────────────────────────────────────
         music_clip_inputs = []
@@ -1519,8 +1572,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
         # Music clips
         for idx, mc in enumerate(music_clip_inputs):
             in_idx = music_clip_start_idx + idx
-            start_sec = max(0.0, _safe_float(mc.get("start_frame"), 0.0) / 30.0)
-            dur_sec = max(0.1, _safe_float(mc.get("duration_frames"), 30.0) / 30.0)
+            start_sec = max(0.0, _safe_float(mc.get("start_frame"), 0.0) / float(fps))
+            dur_sec = max(0.1, _safe_float(mc.get("duration_frames"), 30.0) / float(fps))
             src_start = max(0.0, _safe_float(mc.get("source_start_seconds"), 0.0))
             fade_in = max(0.0, _safe_float(mc.get("fade_in_seconds"), 0.0))
             fade_out = max(0.0, _safe_float(mc.get("fade_out_seconds"), 0.0))
@@ -1558,8 +1611,8 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
         # SFX clips (same trim/fade/delay chain as music, no loop, no bg-cut ducking)
         for idx, sc in enumerate(sfx_clip_inputs):
             in_idx = sfx_clip_start_idx + idx
-            start_sec = max(0.0, _safe_float(sc.get("start_frame"), 0.0) / 30.0)
-            dur_sec = max(0.1, _safe_float(sc.get("duration_frames"), 30.0) / 30.0)
+            start_sec = max(0.0, _safe_float(sc.get("start_frame"), 0.0) / float(fps))
+            dur_sec = max(0.1, _safe_float(sc.get("duration_frames"), 30.0) / float(fps))
             src_start = max(0.0, _safe_float(sc.get("source_start_seconds"), 0.0))
             fade_in = max(0.0, _safe_float(sc.get("fade_in_seconds"), 0.0))
             fade_out = max(0.0, _safe_float(sc.get("fade_out_seconds"), 0.0))

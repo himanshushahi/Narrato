@@ -389,10 +389,10 @@ function layerToBox(
   };
 }
 
-function getActiveSceneIdx(scenes: any[], frame: number): number {
+function getActiveSceneIdx(scenes: any[], frame: number, fps: number = 30): number {
   let offset = 0;
   for (let i = 0; i < (scenes || []).length; i++) {
-    const dur = Math.max(30, Math.ceil(((scenes[i] as any)?.duration || 0) * 30));
+    const dur = Math.max(30, Math.ceil(((scenes[i] as any)?.duration || 0) * fps));
     // Exclusive end — same resolver as PreviewActiveSceneBadge so the overlay
     // and the badge never disagree past the total duration.
     if (frame >= offset && frame < offset + dur) return i;
@@ -1247,7 +1247,9 @@ export const CanvasOverlay: React.FC<{
   sceneTimings?: CanvasSceneTimings;
   /** Composition pixel size backing px→% resolution (scales with quality/orientation). */
   compositionSize?: { w: number; h: number };
-}> = ({ scenes, locked, onSelectLayer, onStyleCommit, sceneTimings, compositionSize }) => {
+  /** Playback fps — must match the Player so scene resolving agrees with it. */
+  fps?: number;
+}> = ({ scenes, locked, onSelectLayer, onStyleCommit, sceneTimings, compositionSize, fps = 30 }) => {
   const selectedSceneIndex = useEditorStore((s) => s.selectedSceneIndex);
   const selectedSubVisualIndex = useEditorStore((s) => s.selectedSubVisualIndex);
   const selectedLayerIndex = useEditorStore((s) => s.selectedLayerIndex);
@@ -1264,8 +1266,8 @@ export const CanvasOverlay: React.FC<{
 
   // Active scene resolution
   const activeSceneIdx = useMemo(() => {
-    return getActiveSceneIdx(scenes, currentFrame);
-  }, [scenes, currentFrame]);
+    return getActiveSceneIdx(scenes, currentFrame, fps);
+  }, [scenes, currentFrame, fps]);
 
   // Boxes describe the cut under the playhead — scrubbing the timeline or
   // preview bar swaps the overlay without moving the editor selection (the
@@ -1393,11 +1395,13 @@ export const CanvasOverlay: React.FC<{
   const lockedRef = useRef(isLocked);
   const sceneTimingsRef = useRef(sceneTimings);
   const scenesRef = useRef(scenes);
+  const fpsRef = useRef(fps);
   const onSelectLayerRef = useRef(onSelectLayer);
   const onStyleCommitRef = useRef(onStyleCommit);
   useEffect(() => { lockedRef.current = isLocked; }, [isLocked]);
   useEffect(() => { sceneTimingsRef.current = sceneTimings; }, [sceneTimings]);
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
+  useEffect(() => { fpsRef.current = fps; }, [fps]);
   useEffect(() => { onSelectLayerRef.current = onSelectLayer; }, [onSelectLayer]);
   useEffect(() => { onStyleCommitRef.current = onStyleCommit; }, [onStyleCommit]);
 
@@ -1478,7 +1482,7 @@ export const CanvasOverlay: React.FC<{
       // Only cycle when the playhead is currently displaying this scene's overlay
       const frame = usePlaybackStore.getState().currentFrame;
       const liveScenes = scenesRef.current;
-      if (getActiveSceneIdx(liveScenes, frame) !== sceneIdx) return;
+      if (getActiveSceneIdx(liveScenes, frame, fpsRef.current) !== sceneIdx) return;
 
       // Cycle the previewed cut's layers (adopts the cut on selection, like clicks)
       const playheadSub = getPlayheadSubIdx(sceneTimingsRef.current, sceneIdx, frame);

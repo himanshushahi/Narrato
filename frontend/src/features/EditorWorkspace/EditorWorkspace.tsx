@@ -90,7 +90,7 @@ const EditorWorkspace: React.FC = () => {
     designData,
     manifestData, setManifestData,
     transcriptionData, setTranscriptionData,
-    liveScenes, sceneTimings, reloadKey,
+    liveScenes, sceneTimings, timelineFps, reloadKey,
     musicClips, updateMusicClips,
     sfxClips, updateSfxClips,
     loadFiles
@@ -138,11 +138,18 @@ const EditorWorkspace: React.FC = () => {
     setActiveTimings(sceneTimings);
   }, [sceneTimings]);
 
+  // Export preflight slot: declared before usePipeline so the hook gets a
+  // stable callback identity (a fresh arrow each render would bust its
+  // useCallback memoization). Assigned below once the flushers exist; the
+  // indirection only runs on user-triggered pipeline starts.
+  const preflightRef = useRef<() => Promise<void>>(async () => {});
+  const preflightFn = useCallback(() => preflightRef.current(), []);
+
   const {
     tasks, queue, isRunning, targetStage, activeTaskStep,
     setTargetStage, triggerFullPipeline,
     handleResumePipeline, handleResumeFromStage, cancelPipeline
-  } = usePipeline(id, loadFiles);
+  } = usePipeline(id, loadFiles, preflightFn);
 
   const {
     editingCard, setEditingCard, rewritePrompt, setRewritePrompt,
@@ -153,11 +160,23 @@ const EditorWorkspace: React.FC = () => {
     handleDeleteLayerAsset, handleDuplicateLayerAsset, handleMoveLayerAsset, handleReorderLayerAsset, handleDeleteCutAsset,
     handleStartEdit, handleCancelEdit, handleSaveCard, handleRewriteSection, handleRewriteSubVisual,
     insertAndSaveNewScene, confirmDeleteScene, setSceneToDelete,
-    handleSettingsUpdate, handleSaveTranscription, handleResetTranscription
+    handleSettingsUpdate, handleSaveTranscription, handleResetTranscription, flushProjectSettings
   } = useScriptEditing(
     id, scriptData, setScriptData, manifestData, setManifestData,
     transcriptionData, setTranscriptionData, loadFiles
   );
+
+  // Export preflight: persist anything the preview shows but the backend
+  // hasn't read yet — debounced subtitle draft + debounced settings — so the
+  // render backend reads exactly what the preview shows. Runs before every
+  // pipeline start that includes transcribe/render (see usePipeline).
+  // NOTE: subtitleFlushRef is declared further below; this closure only reads
+  // it when invoked (user-triggered export), long after mount — no TDZ issue.
+  preflightRef.current = async () => {
+    const flushedSub = subtitleFlushRef.current?.();
+    await flushProjectSettings();
+    await handleSaveTranscription(flushedSub ?? undefined, { silent: true });
+  };
 
   // Poison any in-flight AI rewrites on project switch so late LLM results
   // can never land in the newly opened project.
@@ -1507,6 +1526,7 @@ const EditorWorkspace: React.FC = () => {
           subtitleSettings={localProjectSettings}
           designSystem={designData}
           overlays={deferredOverlays}
+          fps={timelineFps}
           onFrameUpdate={handleFrameUpdate}
           isPipelineRunning={isRunning}
           fullscreenToggleRef={fullscreenToggleRef}

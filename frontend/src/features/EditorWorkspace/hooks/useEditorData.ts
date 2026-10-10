@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useProjectStore } from '../../../store/useProjectStore';
+import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
 import { callApi } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
@@ -68,6 +69,10 @@ interface UseEditorDataReturn {
   reloadKey: number;
   liveScenes: any[];
   sceneTimings: Array<{ start: number; end: number; subs: Array<{ start: number; end: number }> }>;
+  /** Playback fps shared by player, badge, overlay and timecode — mirrors
+   *  backend render_fps fallback order (project → global → 30) so subtitle
+   *  absolute times agree with export. */
+  timelineFps: number;
   musicClips: MusicClip[];
   updateMusicClips: (clips: MusicClip[]) => Promise<boolean>;
   sfxClips: SfxClip[];
@@ -537,23 +542,45 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     return manifestData || [];
   }, [manifestData, scriptData, reloadKey, buildSceneFromScript]);
 
+  // Preview fps — single source for player, badge, overlay and timecode.
+  // Mirrors backend render.py fallback order (project → global → 30) so the
+  // preview and export interpret frame numbers identically.
+  // NOTE: select the raw string, parse in useMemo — parsing inside the
+  // selector would re-run JSON.parse on every store mutation (task ticks etc).
+  const projectSettingsRaw = useProjectStore((s) => s.selectedProject?.project_settings);
+  const projectFpsRaw = useMemo(() => {
+    try {
+      return projectSettingsRaw ? JSON.parse(projectSettingsRaw)?.render_fps : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [projectSettingsRaw]);
+  const globalFpsRaw = useSettingsStore((s) => (s.settings as any)?.render_fps);
+  const timelineFps = useMemo(() => {
+    for (const raw of [projectFpsRaw, globalFpsRaw]) {
+      const n = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10);
+      if (Number.isFinite(n) && n > 0 && n <= 120) return Math.round(n);
+    }
+    return 30;
+  }, [projectFpsRaw, globalFpsRaw]);
+
   // Compute scene timings
   const rawTimings = useMemo(() => {
     if (!liveScenes) return [];
     let offset = 0;
     return liveScenes.map((scene: any) => {
-      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * 30));
+      const durationFrames = Math.max(30, Math.ceil((scene.duration || 0) * timelineFps));
       const start = offset;
       const end = offset + durationFrames;
 
       const subVisuals = scene.sub_visuals || [];
 
-      const subs = calculateSubVisualTimings(subVisuals, durationFrames, start);
+      const subs = calculateSubVisualTimings(subVisuals, durationFrames, start, timelineFps);
 
       offset = end;
       return { start, end, subs };
     });
-  }, [liveScenes]);
+  }, [liveScenes, timelineFps]);
 
   // Deep-stabilize timings: visual/text edits that don't move frame
   // boundaries return the PREVIOUS array reference, so the Timeline, track
@@ -705,7 +732,7 @@ export function useEditorData(projectId: string | undefined): UseEditorDataRetur
     manifestData, setManifestData,
     transcriptionData, setTranscriptionData,
     loadingScript, reloadKey,
-    liveScenes, sceneTimings,
+    liveScenes, sceneTimings, timelineFps,
     musicClips, updateMusicClips,
     sfxClips, updateSfxClips,
     loadFiles,

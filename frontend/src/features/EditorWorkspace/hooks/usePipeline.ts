@@ -54,7 +54,11 @@ interface UsePipelineReturn {
 
 export function usePipeline(
   projectId: string | undefined,
-  loadFiles: (projId: string) => Promise<{ script: any; manifest: any[] }>
+  loadFiles: (projId: string) => Promise<{ script: any; manifest: any[] }>,
+  /** Runs before any render/transcribe pipeline start: flushes debounced
+   *  subtitle + settings edits and persists them so export reads exactly
+   *  what the preview shows. Throw/abort inside to cancel the pipeline. */
+  preflight?: () => Promise<void>
 ): UsePipelineReturn {
   // Fix 4: granular selectors — avoid re-running on unrelated store slices.
   const tasks = useProjectStore((s) => s.tasks);
@@ -155,6 +159,16 @@ export function usePipeline(
   const syncTrackOverrides = useCallback(async (steps: string[]): Promise<boolean> => {
     if (!projectId || !steps.includes('render')) return true;
 
+    // Re-read the project row first: export preflight just persisted pending
+    // subtitle/settings edits, and updateProject refreshes the store
+    // asynchronously — merging from a stale cached row would write old
+    // settings back over the flush.
+    try {
+      await useProjectStore.getState().fetchProjectDetail(projectId);
+    } catch {
+      // Fall through to the cached row; backend re-checks anyway.
+    }
+
     const overrides = useEditorStore.getState().getRenderTrackOverrides();
     const warnings: string[] = [];
     if (overrides.render_mute_voice) warnings.push('Voiceover is muted — exported video will have no narration');
@@ -193,6 +207,15 @@ export function usePipeline(
     const targetIdx = allSteps.indexOf(targetStage);
     const steps = allSteps.slice(0, targetIdx + 1);
     if (!(await ensureOnlineForSteps(steps, addToast))) return;
+    if (steps.includes('render') || steps.includes('transcribe')) {
+      try {
+        await preflight?.();
+      } catch (e) {
+        console.error('Export preflight failed:', e);
+        addToast('Could not save pending subtitle edits before export — please save and retry.', 'error');
+        return;
+      }
+    }
     await syncTrackOverrides(steps);
     const res = await startPipeline(projectId, steps);
     if (res?.success) {
@@ -202,7 +225,7 @@ export function usePipeline(
     } else if (res && !(res as any).success) {
       addToast((res as any)?.error || 'Failed to start pipeline', 'error');
     }
-  }, [projectId, targetStage, startPipeline, loadFiles, syncTrackOverrides, addToast]);
+  }, [projectId, targetStage, startPipeline, loadFiles, syncTrackOverrides, addToast, preflight]);
 
   const canResumeFrom = useCallback((stageId: string) => {
     const stageIdx = PIPELINE_STAGES.findIndex(s => s.id === stageId);
@@ -240,6 +263,15 @@ export function usePipeline(
     }
 
     if (!(await ensureOnlineForSteps(stepsToRun, addToast))) return;
+    if (stepsToRun.includes('render') || stepsToRun.includes('transcribe')) {
+      try {
+        await preflight?.();
+      } catch (e) {
+        console.error('Export preflight failed:', e);
+        addToast('Could not save pending subtitle edits before export — please save and retry.', 'error');
+        return;
+      }
+    }
     await syncTrackOverrides(stepsToRun);
     const res = await startPipeline(projectId, stepsToRun);
     if (res?.success) {
@@ -250,7 +282,7 @@ export function usePipeline(
     } else {
       addToast(res?.error || "Failed to start pipeline", 'error');
     }
-  }, [projectId, targetStage, startPipeline, addToast, loadFiles, isRunning, canResumeFrom, syncTrackOverrides]);
+  }, [projectId, targetStage, startPipeline, addToast, loadFiles, isRunning, canResumeFrom, syncTrackOverrides, preflight]);
 
   const handleResumePipeline = useCallback(async () => {
     if (!projectId) return;
@@ -265,6 +297,15 @@ export function usePipeline(
 
       // Smart Resume: persist track visibility overrides to project settings
       if (!(await ensureOnlineForSteps(stepsToRun, addToast))) return;
+      if (stepsToRun.includes('render') || stepsToRun.includes('transcribe')) {
+        try {
+          await preflight?.();
+        } catch (e) {
+          console.error('Export preflight failed:', e);
+          addToast('Could not save pending subtitle edits before export — please save and retry.', 'error');
+          return;
+        }
+      }
       await syncTrackOverrides(stepsToRun);
 
       // We simply pass the allowed range of steps to the backend. The backend evaluates staleness.
@@ -281,7 +322,7 @@ export function usePipeline(
       console.error(err);
       addToast("Failed to start pipeline", 'error');
     }
-  }, [projectId, targetStage, addToast, loadFiles, isRunning, syncTrackOverrides]);
+  }, [projectId, targetStage, addToast, loadFiles, isRunning, syncTrackOverrides, preflight]);
 
   const cancelPipelineAction = useCallback(() => {
     if (projectId) cancelPipeline(projectId);
