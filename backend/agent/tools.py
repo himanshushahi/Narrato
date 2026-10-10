@@ -118,6 +118,25 @@ def _hex(v):
     return "must be a hex color like '#facc15'"
 
 
+def _hex_or_empty(v):
+    # Renderer treats '' as "follow the active color" (glow/pill/keyword).
+    if isinstance(v, str) and (v == "" or _HEX_COLOR_RE.match(v)):
+        return None
+    return "must be a hex color like '#facc15' or empty to follow the active color"
+
+
+_CSS_COLOR_RE = re.compile(
+    r"^(#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|rgba?\([^)]*\))$")
+
+
+def _css_color(v):
+    # fullBgColor ships as 'rgba(0,0,0,0.6)' by default and the settings
+    # color input accepts rgba text — a hex-only check rejects our own default.
+    if isinstance(v, str) and _CSS_COLOR_RE.match(v.strip()):
+        return None
+    return "must be a css color like '#facc15' or 'rgba(0,0,0,0.6)'"
+
+
 def _rng(lo, hi):
     def check(v):
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not (lo <= v <= hi):
@@ -155,14 +174,29 @@ VISUAL_SETTINGS_SPEC = {
     "pastColor": _hex,
     "futureColor": _hex,
     "textTransform": _enum(["uppercase", "lowercase", "capitalize", "none"]),
-    "activeAnimation": _enum(["bounce", "pop", "jump", "none"]),
+    "activeAnimation": _enum(["bounce", "pop", "jump", "slide", "fade", "scale", "tilt", "none"]),
     "bottomOffset": _rng(0, 1500),
+    "topOffset": _rng(0, 1500),
     "wordsPerScreen": _rng(1, 20),
     "backgroundStyle": _enum(["none", "highlight", "full_block"]),
     "highlightBgColor": _hex,
-    "fullBgColor": _hex,
-    "fontWeight": _text,
+    "fullBgColor": _css_color,
+    "fontWeight": _rng(400, 900),
     "hide_subtitles": _flag,
+    # --- Viral-caption styling (frontend subtitleSchema.ts) ---
+    "lineHeight": _rng(0.9, 2.0),
+    "strokeWidth": _rng(0, 8),
+    "strokeColor": _hex,
+    "glowRadius": _rng(0, 40),
+    "glowColor": _hex_or_empty,
+    "pillStyle": _enum(["none", "active"]),
+    "pillBgColor": _hex_or_empty,
+    "pillRadius": _rng(0, 30),
+    "pillPadding": _text,
+    "pillTextColor": _hex_or_empty,
+    "layoutMode": _enum(["sentence", "karaoke", "stack"]),
+    "karaokeWindow": _rng(3, 9),
+    "position": _enum(["bottom", "center", "top"]),
     # --- Numbering style ---
     "numbering_number_style": _enum(["plain", "circle", "square", "badge"]),
     "numbering_font_family": _text,
@@ -181,8 +215,12 @@ VISUAL_SETTINGS_SPEC = {
 SUBTITLE_SETTING_KEYS = frozenset({
     "fontFamily", "fontSize", "wordSpacing", "activeColor", "pastColor",
     "futureColor", "textTransform", "activeAnimation", "bottomOffset",
-    "wordsPerScreen", "backgroundStyle", "highlightBgColor", "fullBgColor",
-    "fontWeight", "hide_subtitles",
+    "topOffset", "wordsPerScreen", "backgroundStyle", "highlightBgColor",
+    "fullBgColor", "fontWeight", "hide_subtitles",
+    # Viral-caption keys (mirror frontend subtitleSchema.ts SUBTITLE_DEFAULTS)
+    "lineHeight", "strokeWidth", "strokeColor", "glowRadius", "glowColor",
+    "pillStyle", "pillBgColor", "pillRadius", "pillPadding", "pillTextColor",
+    "layoutMode", "karaokeWindow", "position",
 })
 
 

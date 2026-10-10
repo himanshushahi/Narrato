@@ -1001,6 +1001,69 @@ def update_transcribe_settings(project_id: str, settings: dict) -> dict:
             "until it is downloaded from Settings > Speech-to-Text.")
     return result
 
+# ── Subtitle styling ─────────────────────────────────────────────
+
+def validate_subtitle_settings(settings: dict) -> tuple[list, dict]:
+    """Returns (errors, sanitized columns). Keys must exist in the agent
+    subtitle registry (backend/agent/tools.py SUBTITLE_SETTING_KEYS) and
+    pass that registry's per-key validators — the same keys/constraints
+    the frontend subtitleSchema.ts documents, so agent writes can never
+    produce a blob the renderer ignores or the UI can't display."""
+    from backend.agent import tools as _agent_tools
+    errors = []
+    columns = {}
+    if not isinstance(settings, dict) or not settings:
+        return ["settings must be a non-empty object."], {}
+    allowed = set(_agent_tools.SUBTITLE_SETTING_KEYS)
+    spec = _agent_tools.VISUAL_SETTINGS_SPEC
+    for key in settings:
+        if key not in allowed:
+            errors.append(f"unknown subtitle setting {key!r} (allowed: {sorted(allowed)}).")
+    if errors:
+        return errors, {}
+    for key, value in settings.items():
+        check = spec.get(key)
+        if check is None:
+            errors.append(f"no validator registered for {key!r}.")
+            continue
+        problem = check(value)
+        if problem:
+            errors.append(f"{key}: {problem}.")
+        else:
+            columns[key] = value
+    return errors, columns
+
+
+def update_subtitle_settings(project_id: str, settings: dict) -> dict:
+    """Persist subtitle styling keys (project_settings JSON) and reset the
+    stages they invalidate. Subtitle styling only changes frame pixels, so
+    render resets to pending while voiceover/transcribe/assets are untouched
+    (narration and word timings unchanged). The frame-hash covers the whole
+    settings dict, so any styling edit correctly busts the render cache."""
+    errors, columns = validate_subtitle_settings(settings)
+    if errors:
+        return {"ok": False, "error": " ".join(errors)}
+    proj = _get_project_or_raise(project_id)
+    raw = proj.get("project_settings")
+    try:
+        current = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
+        if not isinstance(current, dict):
+            current = {}
+    except Exception:
+        current = {}
+    current.update(columns)
+    _db.update_project(project_id, project_settings=json.dumps(current))
+    _db.create_task(project_id, "render")
+    _db.update_task(
+        f"{project_id}_render",
+        status="pending", progress=0.0,
+        message="Pending upstream changes (subtitle styling updated via MCP).",
+        error_message=None,
+    )
+    logger.info(f"MCP update_subtitle_settings: project {project_id} {sorted(columns)}.")
+    return {"ok": True, "project_id": project_id, "updated": columns}
+
+
 # ── Project deletion ────────────────────────────────────────────────
 
 def delete_project_payload(project_id: str) -> dict:

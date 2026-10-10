@@ -244,6 +244,15 @@ def create_project(name, style_hint, export_folder, language="hi", style="nitish
             if preset.get("id") == default_brand_preset_id:
                 project_settings_dict.update(preset.get("settings", {}))
                 break
+
+    # Portrait-safe subtitle starting point (mirrors frontend
+    # PORTRAIT_SUBTITLE_DEFAULTS): the bottom 28% safe area is ~540px at
+    # 1080x1920, so the landscape 120px offset would sit under platform UI.
+    # setdefault keeps an explicit default preset in charge when one exists.
+    if video_format == "portrait":
+        project_settings_dict.setdefault("fontSize", 64)
+        project_settings_dict.setdefault("wordsPerScreen", 6)
+        project_settings_dict.setdefault("bottomOffset", 560)
                 
     project_settings = json.dumps(project_settings_dict) if project_settings_dict else None
         

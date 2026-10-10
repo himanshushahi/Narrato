@@ -1894,6 +1894,24 @@ def update_transcribe_settings(project_id: str, settings: dict) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+@mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
+def update_subtitle_settings(project_id: str, settings: dict) -> dict:
+    """Change kinetic subtitle styling (fonts, colors, stroke, word-pill,
+    animations, layouts, position — see the subtitle-designer skill §6 for
+    the full key table). Only render resets to pending (new pixels);
+    voiceover/transcribe/assets untouched. Unknown keys or out-of-range
+    values are rejected with the allowed set."""
+    try:
+        return payloads.update_subtitle_settings(project_id, settings)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP update_subtitle_settings failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
 @_emit_project_event("projects_changed", action="deleted")
 def delete_project(project_id: str) -> dict:

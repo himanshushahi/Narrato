@@ -8,138 +8,171 @@ import { VscLoading, VscTrash, VscStarFull, VscSave, VscCheck } from 'react-icon
 import { useProjectStore } from '../../../store/useProjectStore';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useUIStore } from '../../../store/useUIStore';
+import {
+  applyPresetOverDefaults,
+  extractSubtitleKeys,
+  isPresetActive,
+  portraitSafePreset,
+  withSubtitleDefaults,
+  VIRAL_PRESETS,
+  type ViralPreset,
+} from '../../../utils/subtitleSchema';
 
-interface SubtitlePreset {
+interface ClassicPreset {
   id: string;
   label: string;
   desc: string;
-  fontFamily: string;
-  fontSize: number;
-  wordSpacing: number;
-  activeColor: string;
-  pastColor: string;
-  textTransform: string;
-  bottomOffset: number;
-  showBackgroundHighlight: boolean;
-  highlightBgColor: string;
-  wordsPerScreen: number;
-  backgroundStyle: string;
-  fullBgColor: string;
-  activeAnimation?: string;
+  settings: { [k: string]: any };
 }
 
-const SUBTITLE_PRESETS: SubtitlePreset[] = [
+const CLASSIC_PRESETS: ClassicPreset[] = [
   {
     id: 'classic_amber',
     label: 'Classic Amber',
     desc: 'Warm amber highlight on dark text',
-    fontFamily: 'Montserrat',
-    fontSize: 54,
-    wordSpacing: 18,
-    activeColor: '#fbbf24',
-    pastColor: '#d6d3d1',
-    textTransform: 'uppercase',
-    bottomOffset: 120,
-    showBackgroundHighlight: true,
-    highlightBgColor: '#fbbf24',
-    wordsPerScreen: 10,
-    backgroundStyle: 'highlight',
-    fullBgColor: 'rgba(0,0,0,0.6)',
+    settings: {
+      fontFamily: 'Montserrat', fontSize: 54, wordSpacing: 18, activeColor: '#fbbf24',
+      pastColor: '#d6d3d1', textTransform: 'uppercase', bottomOffset: 120,
+      highlightBgColor: '#fbbf24', wordsPerScreen: 10, backgroundStyle: 'highlight',
+      fullBgColor: 'rgba(0,0,0,0.6)',
+    },
   },
   {
     id: 'modern_cyan',
     label: 'Modern Cyan',
     desc: 'Clean cyan highlight, lowercase',
-    fontFamily: 'Inter',
-    fontSize: 48,
-    wordSpacing: 12,
-    activeColor: '#22d3ee',
-    pastColor: '#a1a1aa',
-    textTransform: 'none',
-    bottomOffset: 100,
-    showBackgroundHighlight: true,
-    highlightBgColor: '#22d3ee',
-    wordsPerScreen: 8,
-    backgroundStyle: 'highlight',
-    fullBgColor: 'rgba(0,0,0,0.6)',
+    settings: {
+      fontFamily: 'Inter', fontSize: 48, wordSpacing: 12, activeColor: '#22d3ee',
+      pastColor: '#a1a1aa', textTransform: 'none', bottomOffset: 100,
+      highlightBgColor: '#22d3ee', wordsPerScreen: 8, backgroundStyle: 'highlight',
+      fullBgColor: 'rgba(0,0,0,0.6)',
+    },
   },
   {
     id: 'minimal_white',
     label: 'Minimal White',
     desc: 'White text, no background bar',
-    fontFamily: 'Roboto',
-    fontSize: 60,
-    wordSpacing: 10,
-    activeColor: '#ffffff',
-    pastColor: '#71717a',
-    textTransform: 'uppercase',
-    bottomOffset: 150,
-    showBackgroundHighlight: false,
-    highlightBgColor: '#ffffff',
-    wordsPerScreen: 6,
-    backgroundStyle: 'none',
-    fullBgColor: 'rgba(0,0,0,0.6)',
+    settings: {
+      fontFamily: 'Roboto', fontSize: 60, wordSpacing: 10, activeColor: '#ffffff',
+      pastColor: '#71717a', textTransform: 'uppercase', bottomOffset: 150,
+      highlightBgColor: '#ffffff', wordsPerScreen: 6, backgroundStyle: 'none',
+      fullBgColor: 'rgba(0,0,0,0.6)',
+    },
   },
   {
     id: 'elegant_gold',
     label: 'Elegant Gold',
-    desc: 'Gold highlight, serif-like sans',
-    fontFamily: 'Lato',
-    fontSize: 52,
-    wordSpacing: 22,
-    activeColor: '#f5b041',
-    pastColor: '#a8a8a8',
-    textTransform: 'capitalize',
-    bottomOffset: 130,
-    showBackgroundHighlight: true,
-    highlightBgColor: '#f5b041',
-    wordsPerScreen: 10,
-    backgroundStyle: 'highlight',
-    fullBgColor: 'rgba(0,0,0,0.6)',
+    desc: 'Gold highlight, wide spacing',
+    settings: {
+      fontFamily: 'Lato', fontSize: 52, wordSpacing: 22, activeColor: '#f5b041',
+      pastColor: '#a8a8a8', textTransform: 'capitalize', bottomOffset: 130,
+      highlightBgColor: '#f5b041', wordsPerScreen: 10, backgroundStyle: 'highlight',
+      fullBgColor: 'rgba(0,0,0,0.6)',
+    },
   },
   {
     id: 'hindi_reader',
     label: 'Hindi Reader',
     desc: 'Large text optimized for Devanagari',
-    fontFamily: 'Hind',
-    fontSize: 64,
-    wordSpacing: 16,
-    activeColor: '#facc15',
-    pastColor: '#d4d4d8',
-    textTransform: 'none',
-    bottomOffset: 80,
-    showBackgroundHighlight: true,
-    highlightBgColor: '#facc15',
-    wordsPerScreen: 7,
-    backgroundStyle: 'highlight',
-    fullBgColor: 'rgba(0,0,0,0.6)',
+    settings: {
+      fontFamily: 'Hind', fontSize: 64, wordSpacing: 16, activeColor: '#facc15',
+      pastColor: '#d4d4d8', textTransform: 'none', bottomOffset: 80,
+      highlightBgColor: '#facc15', wordsPerScreen: 7, backgroundStyle: 'highlight',
+      fullBgColor: 'rgba(0,0,0,0.6)',
+    },
   },
   {
     id: 'bold_dark',
     label: 'Bold Dark',
     desc: 'Large bold, dramatic uppercase',
-    fontFamily: 'Anton',
-    fontSize: 72,
-    wordSpacing: 30,
-    activeColor: '#a78bfa',
-    pastColor: '#52525b',
-    textTransform: 'uppercase',
-    bottomOffset: 140,
-    showBackgroundHighlight: false,
-    highlightBgColor: '#a78bfa',
-    wordsPerScreen: 5,
-    backgroundStyle: 'none',
-    fullBgColor: 'rgba(0,0,0,0.6)',
+    settings: {
+      fontFamily: 'Anton', fontSize: 72, wordSpacing: 30, activeColor: '#a78bfa',
+      pastColor: '#52525b', textTransform: 'uppercase', bottomOffset: 140,
+      highlightBgColor: '#a78bfa', wordsPerScreen: 5, backgroundStyle: 'none',
+      fullBgColor: 'rgba(0,0,0,0.6)',
+    },
   },
 ];
 
-const SUBTITLE_KEYS = ['fontFamily', 'fontSize', 'wordSpacing', 'activeColor', 'pastColor', 'textTransform', 'bottomOffset', 'showBackgroundHighlight', 'highlightBgColor', 'wordsPerScreen', 'backgroundStyle', 'fullBgColor', 'activeAnimation'];
+/** Static live preview — same tokens as the renderer, one frozen moment
+ *  (middle word active) so tweaks can be judged without scrubbing video.
+ *  Honors layout mode, word spacing, pill padding and glow; animation is
+ *  intentionally frozen (preview the motion in the player). */
+const PREVIEW_WORDS = ['Viral', 'captions', 'keep', 'viewers', 'watching'];
 
-const extractKeys = (obj: any, keys: string[]) => {
-  return keys.reduce((acc: any, key) => {
-    if (obj[key] !== undefined) acc[key] = obj[key];
-    return acc;
-  }, {});
+const SubtitleLivePreview = ({ settings }: { settings: any }) => {
+  const s = withSubtitleDefaults(settings);
+  const pillOn = s.pillStyle === 'active';
+  const activeColor = s.activeColor;
+  const pillBg = s.pillBgColor || s.highlightBgColor || activeColor;
+  const pillText = s.pillTextColor || activeColor;
+  const glow = s.glowRadius > 0
+    ? `0 0 ${Math.max(2, Math.round(s.glowRadius / 3))}px ${s.glowColor || activeColor}, 0px 2px 6px rgba(0,0,0,0.9)`
+    : '0px 2px 6px rgba(0,0,0,0.9)';
+
+  // Mirror the renderer's layouts: karaoke shows the window subset,
+  // stack splits into two lines, sentence shows everything.
+  let rows: string[][] = [PREVIEW_WORDS];
+  let activeIdx = 2;
+  if (s.layoutMode === 'karaoke') {
+    const win = Math.max(3, s.karaokeWindow || 5);
+    const half = Math.floor(win / 2);
+    const start = PREVIEW_WORDS.length <= win ? 0 : Math.max(0, Math.min(activeIdx - half, PREVIEW_WORDS.length - win));
+    rows = [PREVIEW_WORDS.slice(start, start + win)];
+    activeIdx = activeIdx - start;
+  } else if (s.layoutMode === 'stack') {
+    rows = [PREVIEW_WORDS.slice(0, 3), PREVIEW_WORDS.slice(3)];
+  }
+  const gap = Math.min(14, Math.round(s.wordSpacing / 2));
+
+  const renderWord = (w: string, globalIdx: number) => {
+    const isActive = globalIdx === activeIdx;
+    const isPast = globalIdx < activeIdx;
+    const color = isActive ? (pillOn ? pillText : activeColor) : isPast ? s.pastColor : s.futureColor;
+    return (
+      <span key={`${globalIdx}-${w}`} style={{ position: 'relative', display: 'inline-block', marginRight: gap }}>
+        {isPast && s.backgroundStyle === 'highlight' && (
+          <span style={{
+            position: 'absolute', left: -2, right: -2, bottom: 2, height: '40%',
+            backgroundColor: s.highlightBgColor, opacity: 0.4, borderRadius: 2,
+          }} />
+        )}
+        <span style={{
+          fontFamily: `"${s.fontFamily}", sans-serif`,
+          fontWeight: s.fontWeight,
+          fontSize: Math.min(28, s.fontSize / 2),
+          color,
+          textTransform: s.textTransform,
+          WebkitTextStroke: s.strokeWidth > 0 ? `${Math.max(1, Math.round(s.strokeWidth / 2))}px ${s.strokeColor}` : undefined,
+          textShadow: isActive ? glow : '0px 2px 6px rgba(0,0,0,0.9)',
+          display: 'inline-block',
+          position: 'relative',
+          backgroundColor: isActive && pillOn ? pillBg : 'transparent',
+          padding: isActive && pillOn ? s.pillPadding : '0',
+          borderRadius: isActive && pillOn ? s.pillRadius : 0,
+        }}>
+          {w}
+        </span>
+      </span>
+    );
+  };
+
+  let cursor = 0;
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-black/70 px-3 py-4 overflow-hidden">
+      <div className="flex flex-col items-center gap-1" style={{ lineHeight: s.lineHeight }}>
+        {rows.map((row, ri) => {
+          const startIdx = cursor;
+          cursor += row.length;
+          return (
+            <div key={ri} className="text-center">
+              {row.map((w, k) => renderWord(w, startIdx + k))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 };
 
 export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpdate: (newSettings: any) => void }) => {
@@ -152,13 +185,15 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
 
   const presets = globalSettings?.subtitle_presets || [];
   const defaultPresetId = globalSettings?.default_subtitle_preset_id;
+  const selectedProject = useProjectStore((s) => s.selectedProject);
+  const isPortrait = selectedProject?.video_format === 'portrait';
 
   const handleSavePreset = async () => {
     const trimmedName = presetName.trim();
     if (!trimmedName) { addToast('Please enter a preset name', 'error'); return; }
     const existingIndex = presets.findIndex((p: any) => p.name.toLowerCase() === trimmedName.toLowerCase());
     let updatedPresets = [...presets];
-    const extractedSettings = extractKeys(settings, SUBTITLE_KEYS);
+    const extractedSettings = extractSubtitleKeys(settings);
     if (existingIndex >= 0) {
       updatedPresets[existingIndex] = { ...updatedPresets[existingIndex], settings: extractedSettings };
       addToast(`Preset "${trimmedName}" updated!`, 'success');
@@ -175,7 +210,9 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
     if (!presetId) { setPresetName(''); return; }
     const preset = presets.find((p: any) => p.id === presetId);
     if (preset) {
-      onUpdate({ ...settings, ...preset.settings });
+      // Saved presets are partial (only keys set at save time) — apply over
+      // defaults so keys from a previous style can't leak through.
+      onUpdate({ ...settings, ...applyPresetOverDefaults(portraitSafePreset(preset.settings, isPortrait)) });
       setPresetName(preset.name);
       addToast(`Loaded preset "${preset.name}"`, 'success');
     }
@@ -214,46 +251,79 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
     }
   };
 
-  const isSubtitlePresetActive = (preset: SubtitlePreset): boolean => {
-    if ((settings.fontFamily || 'Montserrat') !== preset.fontFamily) return false;
-    if ((settings.fontSize !== undefined ? settings.fontSize : 54) !== preset.fontSize) return false;
-    if ((settings.wordSpacing !== undefined ? settings.wordSpacing : 18) !== preset.wordSpacing) return false;
-    if ((settings.activeColor || '#fbbf24') !== preset.activeColor) return false;
-    if ((settings.pastColor || '#d6d3d1') !== preset.pastColor) return false;
-    if ((settings.textTransform || 'uppercase') !== preset.textTransform) return false;
-    if ((settings.bottomOffset !== undefined ? settings.bottomOffset : 120) !== preset.bottomOffset) return false;
-    if ((settings.showBackgroundHighlight !== false) !== preset.showBackgroundHighlight) return false;
-    if (preset.showBackgroundHighlight && (settings.highlightBgColor || settings.activeColor || '#fbbf24') !== preset.highlightBgColor) return false;
-    if ((settings.wordsPerScreen !== undefined ? settings.wordsPerScreen : 10) !== preset.wordsPerScreen) return false;
-    if ((settings.backgroundStyle || 'highlight') !== (preset.backgroundStyle || (preset.showBackgroundHighlight !== false ? 'highlight' : 'none'))) return false;
-    if ((settings.fullBgColor || 'rgba(0,0,0,0.6)') !== (preset.fullBgColor || 'rgba(0,0,0,0.6)')) return false;
-    if ((settings.activeAnimation || 'bounce') !== (preset.activeAnimation || 'bounce')) return false;
-    return true;
+  const applyPresetSettings = (presetSettings: { [k: string]: any }) => {
+    setSelectedPresetId('');
+    // Full reset to defaults + preset (never a merge: omitted keys must not
+    // inherit the previous style), with portrait-safe offsets.
+    onUpdate({ ...settings, ...applyPresetOverDefaults(portraitSafePreset(presetSettings, isPortrait)) });
   };
 
-  const applySubtitlePreset = (preset: SubtitlePreset) => {
-    setSelectedPresetId('');
-    onUpdate({
-      ...settings,
-      fontFamily: preset.fontFamily,
-      fontSize: preset.fontSize,
-      wordSpacing: preset.wordSpacing,
-      activeColor: preset.activeColor,
-      pastColor: preset.pastColor,
-      textTransform: preset.textTransform,
-      bottomOffset: preset.bottomOffset,
-      showBackgroundHighlight: preset.showBackgroundHighlight,
-      highlightBgColor: preset.highlightBgColor,
-      wordsPerScreen: preset.wordsPerScreen,
-      backgroundStyle: preset.backgroundStyle || (preset.showBackgroundHighlight !== false ? 'highlight' : 'none'),
-      fullBgColor: preset.fullBgColor || 'rgba(0,0,0,0.6)',
-      activeAnimation: preset.activeAnimation || 'bounce',
-    });
+  const renderPresetCard = (id: string, label: string, desc: string, swatch: string, presetSettings: { [k: string]: any }) => {
+    const active = isPresetActive({ settings: presetSettings }, settings);
+    return (
+      <motion.button
+        key={id}
+        onClick={() => applyPresetSettings(presetSettings)}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        className={`relative flex flex-col items-start gap-0.5 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+          active
+            ? 'bg-blue-600/10 border-blue-500/50'
+            : 'bg-zinc-800/40 border-zinc-700/50 hover:border-zinc-600'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 w-full">
+          <span className={`text-[10px] font-bold ${active ? 'text-blue-300' : 'text-zinc-200'}`}>
+            {label}
+          </span>
+          {active && (
+            <div className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center shrink-0 ml-auto">
+              <VscCheck className="text-[7px] text-white" />
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <span
+            className="w-3 h-3 rounded-full border border-zinc-600/50"
+            style={{ backgroundColor: swatch }}
+          />
+          <span
+            className="w-3 h-3 rounded text-[6px] font-bold flex items-center justify-center border border-zinc-600/50"
+            style={{ backgroundColor: presetSettings.pastColor || '#d6d3d1', color: '#0c0a09' }}
+          >T</span>
+        </div>
+        <p className="text-[8px] text-zinc-500">{desc}</p>
+      </motion.button>
+    );
   };
 
   return (
     <div className="space-y-3">
-      {/* Hardcoded presets */}
+      {/* Live preview */}
+      <div>
+        <div className="flex items-center gap-2 pb-1 border-b border-zinc-800/40 mb-2">
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
+            Live Preview
+          </h3>
+        </div>
+        <SubtitleLivePreview settings={settings} />
+      </div>
+
+      {/* Viral styles */}
+      <div>
+        <div className="flex items-center gap-2 pb-1 border-b border-zinc-800/40 mb-3">
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
+            Viral Styles
+          </h3>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {VIRAL_PRESETS.map((preset: ViralPreset) =>
+            renderPresetCard(preset.id, preset.label, preset.desc, preset.swatch, preset.settings)
+          )}
+        </div>
+      </div>
+
+      {/* Classic presets */}
       <div>
         <div className="flex items-center gap-2 pb-1 border-b border-zinc-800/40 mb-3">
           <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">
@@ -261,44 +331,9 @@ export const SubtitleSettings = ({ settings, onUpdate }: { settings: any; onUpda
           </h3>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          {SUBTITLE_PRESETS.map((preset) => {
-            const active = isSubtitlePresetActive(preset);
-            return (
-              <motion.button
-                key={preset.id}
-                onClick={() => applySubtitlePreset(preset)}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className={`relative flex flex-col items-start gap-0.5 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                  active
-                    ? 'bg-blue-600/10 border-blue-500/50'
-                    : 'bg-zinc-800/40 border-zinc-700/50 hover:border-zinc-600'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 w-full">
-                  <span className={`text-[10px] font-bold ${active ? 'text-blue-300' : 'text-zinc-200'}`}>
-                    {preset.label}
-                  </span>
-                  {active && (
-                    <div className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center shrink-0 ml-auto">
-                      <VscCheck className="text-[7px] text-white" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span
-                    className="w-3 h-3 rounded-full border border-zinc-600/50"
-                    style={{ backgroundColor: preset.activeColor }}
-                  />
-                  <span
-                    className="w-3 h-3 rounded text-[6px] font-bold flex items-center justify-center border border-zinc-600/50"
-                    style={{ backgroundColor: preset.pastColor, color: '#0c0a09' }}
-                  >T</span>
-                </div>
-                <p className="text-[8px] text-zinc-500">{preset.desc}</p>
-              </motion.button>
-            );
-          })}
+          {CLASSIC_PRESETS.map((preset) =>
+            renderPresetCard(preset.id, preset.label, preset.desc, preset.settings.activeColor || '#fbbf24', preset.settings)
+          )}
         </div>
       </div>
 
