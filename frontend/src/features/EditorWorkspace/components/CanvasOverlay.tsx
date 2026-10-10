@@ -446,6 +446,64 @@ function snapPos(pos: number, size: number): number {
   return pos;
 }
 
+/**
+ * Layer-to-layer snap: align the moving box's left/center/right to any
+ * reference line (canvas edges/center + sibling edges/centers).
+ * Each ref implies three candidate positions (ref, ref-size/2, ref-size);
+ * the closest candidate within `threshold` wins. Matched refs are returned
+ * so the overlay can draw guide lines exactly where alignment happened.
+ */
+const SNAP_THRESHOLD_PCT = 1; // legacy snapPos used 1%; keep single constant
+const EMPTY_GUIDES: { v: number[]; h: number[] } = { v: [], h: [] };
+
+/** px-consistent snap threshold: 8px at any preview size, clamped to [0.5, 1]%. */
+function pxSnapThreshold(rectLen: number, px = 8): number {
+  if (!Number.isFinite(rectLen) || rectLen <= 0) return SNAP_THRESHOLD_PCT;
+  return clampN((px / rectLen) * 100, 0.5, SNAP_THRESHOLD_PCT);
+}
+
+function guidesEqual(a: number[], b: number[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(a[i] - b[i]) > 1e-9) return false;
+  }
+  return true;
+}
+
+/** Canvas refs (0/50/100) vs sibling refs — solid amber vs dashed sky. */
+function isCanvasRef(v: number): boolean {
+  return v === 0 || v === 50 || v === 100 || Math.abs(v) < 0.02 || Math.abs(v - 50) < 0.02 || Math.abs(v - 100) < 0.02;
+}
+
+function snapAxis(
+  pos: number,
+  size: number,
+  refs: number[],
+  threshold = SNAP_THRESHOLD_PCT
+): { pos: number; guides: number[] } {
+  let best = pos;
+  let bestDist = threshold + 1e-9;
+  let guides: number[] = [];
+  for (const r of refs) {
+    const cands = [r, r - size / 2, r - size];
+    for (const c of cands) {
+      const d = Math.abs(pos - c);
+      if (d <= threshold && d < bestDist - 1e-9) {
+        best = c;
+        bestDist = d;
+        guides = [r];
+      } else if (d <= threshold && Math.abs(c - best) < 1e-9) {
+        // Same snapped position reached via another ref — draw both.
+        // (Compares candidate positions, not distances, so a midway point
+        // between two different lines never draws a line it didn't snap to.)
+        if (!guides.some((g) => Math.abs(g - r) < 1e-9)) guides.push(r);
+      }
+    }
+  }
+  return { pos: Math.round(best * 100) / 100, guides };
+}
+
 type DragCorner = 'se' | 'sw' | 'ne' | 'nw';
 type EdgeDir = 'n' | 's' | 'e' | 'w';
 type DragMode = 'move' | 'corner' | 'edge';
@@ -482,6 +540,42 @@ function boxTopLeft(box: Box, rectW: number, rectH: number): { left: number; top
   const left = box.leftPct !== null ? box.leftPct : 100 - (box.rightPct ?? 0) - box.widthPct;
   const top = box.topPct !== null ? box.topPct : 100 - (box.bottomPct ?? 0) - height;
   return { left, top, height };
+}
+
+/**
+ * Collect snap reference lines for a move gesture: canvas 0/50/100 plus
+ * every visible non-fullscreen sibling's left/center/right (xs) and
+ * top/center/bottom (ys), resolved to left/top percent space via boxTopLeft
+ * (aspect-locked heights included). The dragged layer itself is excluded.
+ * Rotated siblings are excluded: their layout box doesn't match visible
+ * bounds, so a layout-space line would mislead.
+ */
+function buildSnapTargets(
+  ordered: Array<{ idx: number; box: Box; hidden?: boolean }>,
+  excludeIdx: number,
+  rectW: number,
+  rectH: number
+): { xs: number[]; ys: number[] } {
+  const xs: number[] = [0, 50, 100];
+  const ys: number[] = [0, 50, 100];
+  for (const o of ordered) {
+    if (o.idx === excludeIdx || o.hidden || o.box.fullscreen) continue;
+    if (Math.abs(o.box.rotateDeg) > 0.01) continue;
+    const { left, top, height } = boxTopLeft(o.box, rectW, rectH);
+    const w = o.box.widthPct;
+    if (!Number.isFinite(left) || !Number.isFinite(top)) continue;
+    xs.push(left, left + w / 2, left + w);
+    ys.push(top, top + height / 2, top + height);
+  }
+  const dedupe = (arr: number[]) => {
+    const out: number[] = [];
+    for (const v of arr) {
+      if (!Number.isFinite(v)) continue;
+      if (!out.some((e) => Math.abs(e - v) < 0.01)) out.push(Math.round(v * 100) / 100);
+    }
+    return out;
+  };
+  return { xs: dedupe(xs), ys: dedupe(ys) };
 }
 
 /**
@@ -547,6 +641,57 @@ function snapRotate(deg: number): number {
     if (d <= 3) return s;
   }
   return deg;
+}
+
+/**
+ * Resize helper: snap a moving edge to the closest ref within threshold.
+ * Returns the snapped edge position + matched ref (for the guide line),
+ * or null when nothing is close enough.
+ */
+function snapMovingEdge(
+  edge: number,
+  refs: number[],
+  threshold: number
+): { pos: number; guide: number } | null {
+  let best: number | null = null;
+  let bestGuide = 0;
+  let bestDist = threshold + 1e-9;
+  for (const r of refs) {
+    const d = Math.abs(edge - r);
+    if (d <= threshold && d < bestDist - 1e-9) {
+      best = r;
+      bestGuide = r;
+      bestDist = d;
+    }
+  }
+  if (best === null) return null;
+  return { pos: Math.round(best * 100) / 100, guide: Math.round(bestGuide * 100) / 100 };
+}
+
+/**
+ * Rotate snap: sibling layer angles first (within 3°, wrap-aware), then the
+ * 45°-multiple base snaps. Returns the degree to use + what it snapped to
+ * so the overlay can show an indicator (base vs sibling).
+ */
+function snapRotateLayer(
+  deg: number,
+  extraAngles: number[] = []
+): { deg: number; snapped: boolean; sibling: boolean; matched: number | null } {
+  const n = norm180(deg);
+  for (const a of extraAngles) {
+    if (!Number.isFinite(a)) continue;
+    const d = Math.abs(((n - norm180(a) + 540) % 360) - 180);
+    if (d <= 3) {
+      const m = Math.round(norm180(a));
+      return { deg: m, snapped: true, sibling: true, matched: m };
+    }
+  }
+  const base = snapRotate(n);
+  if (base !== n) {
+    return { deg: Math.round(base), snapped: true, sibling: false, matched: Math.round(base) };
+  }
+  // No snap — still normalize rounding.
+  return { deg: Math.round(n), snapped: false, sibling: false, matched: null };
 }
 
 /**
@@ -623,6 +768,14 @@ interface DragSession {
   /** Live non-geometric preview (scale multipliers) applied over the style. */
   preview: Record<string, any> | null;
   moved: boolean;
+  /** Move-gesture snap lines (canvas + siblings) captured at dragstart. */
+  snapXs: number[];
+  snapYs: number[];
+  /** px-consistent per-axis thresholds captured at dragstart. */
+  snapTx: number;
+  snapTy: number;
+  /** Currently matched guide lines (subset of snapXs/snapYs), for rendering. */
+  guides: { v: number[]; h: number[] };
 }
 
 /** P4 rotate gesture session (pointer angle around the box center). */
@@ -640,10 +793,13 @@ interface RotateSession {
   offset: number;
   style: Record<string, any>;
   moved: boolean;
+  /** Sibling layer angles captured at dragstart for layer-aware rotate snap. */
+  snapAngles: number[];
 }
 
 /**
- * Drag geometry in left/top percent space. Move snaps edges/center and may
+ * Drag geometry in left/top percent space. Move snaps edges/center against
+ * canvas + sibling reference lines (see buildSnapTargets) and may
  * leave the canvas on any side (symmetric bounds: fully out in every
  * direction, e.g. slide-in offsets); resize pins the opposite edge (corners)
  * or axis (edges). Aspect-locked layers resize width-only with bottom-edge
@@ -651,6 +807,8 @@ interface RotateSession {
  * `dropAspect` (freeform path). Ranges mirror the backend save authority
  * (schemas._clamp_percent): sizes 5–100%, positions −20–100% — what you
  * drag is what survives the save.
+ * Pass snapXs/snapYs for layer-aware move snapping; omit (or empty) to fall
+ * back to the legacy canvas-only snapPos.
  */
 function computeDrag(
   init: DragInit,
@@ -658,43 +816,145 @@ function computeDrag(
   corner: DragCorner | null,
   edge: EdgeDir | null,
   dxPct: number,
-  dyPct: number
-): { left: number; top: number; width: number; height: number } {
+  dyPct: number,
+  snap?: { xs: number[]; ys: number[]; tx?: number; ty?: number }
+): { left: number; top: number; width: number; height: number; guides: { v: number[]; h: number[] } } {
   if (mode === 'move') {
-    return {
-      left: clampN(snapPos(init.left + dxPct, init.width), -20, 100),
-      top: clampN(snapPos(init.top + dyPct, init.height), -20, 100),
-      width: init.width,
-      height: init.height,
-    };
+    const rawLeft = init.left + dxPct;
+    const rawTop = init.top + dyPct;
+    let guides: { v: number[]; h: number[] } = EMPTY_GUIDES;
+    let left: number;
+    let top: number;
+    if (snap && (snap.xs.length > 0 || snap.ys.length > 0)) {
+      const tx = snap.tx ?? SNAP_THRESHOLD_PCT;
+      const ty = snap.ty ?? SNAP_THRESHOLD_PCT;
+      const sx = snapAxis(rawLeft, init.width, snap.xs.length ? snap.xs : [0, 50, 100], tx);
+      const sy = snapAxis(rawTop, init.height, snap.ys.length ? snap.ys : [0, 50, 100], ty);
+      left = clampN(sx.pos, -20, 100);
+      top = clampN(sy.pos, -20, 100);
+      guides = (sx.guides.length === 0 && sy.guides.length === 0)
+        ? EMPTY_GUIDES
+        : { v: sx.guides, h: sy.guides };
+    } else {
+      left = clampN(snapPos(rawLeft, init.width), -20, 100);
+      top = clampN(snapPos(rawTop, init.height), -20, 100);
+    }
+    return { left, top, width: init.width, height: init.height, guides };
   }
   const east = mode === 'edge' ? edge === 'e' : corner === 'se' || corner === 'ne';
   const west = mode === 'edge' ? edge === 'w' : corner === 'sw' || corner === 'nw';
   const south = mode === 'edge' ? edge === 's' : corner === 'se' || corner === 'sw';
   const north = mode === 'edge' ? edge === 'n' : corner === 'ne' || corner === 'nw';
+  const tx = snap?.tx ?? SNAP_THRESHOLD_PCT;
+  const ty = snap?.ty ?? SNAP_THRESHOLD_PCT;
+  const xs = snap && snap.xs.length ? snap.xs : [0, 50, 100];
+  const ys = snap && snap.ys.length ? snap.ys : [0, 50, 100];
   if (init.aspect) {
     const floor = init.minSize ?? 5;
-    const width = clampN(init.width + (east ? dxPct : -dxPct), floor, 100);
+    let width = clampN(init.width + (east ? dxPct : -dxPct), floor, 100);
+    // Aspect width snap: grabbed vertical edge (right for E, left for W)
+    // lands on a sibling/canvas ref; height follows the locked ratio.
+    let guideV: number[] = [];
+    let guideH: number[] = [];
+    if (snap && (east || west)) {
+      const movingRight = east ? init.left + width : null;
+      const fixedRight = init.left + init.width;
+      const movingLeft = !east && west ? fixedRight - width : null;
+      const hitV = movingRight !== null
+        ? snapMovingEdge(movingRight, xs, tx)
+        : movingLeft !== null
+          ? snapMovingEdge(movingLeft, xs, tx)
+          : null;
+      if (hitV) {
+        const snappedW = movingRight !== null
+          ? hitV.pos - init.left
+          : fixedRight - hitV.pos;
+        if (snappedW >= floor && snappedW <= 100) {
+          width = Math.round(snappedW * 100) / 100;
+          guideV = [hitV.guide];
+        }
+      }
+    }
     // Height scales linearly with width (fixed ratio, fixed container), so
     // north handles pin the bottom edge instead of growing the box downward.
     // Clamped to the backend range — tall ratios must not preview past 100%.
-    const height = init.width > 0
+    let height = init.width > 0
       ? clampN((init.height * width) / init.width, floor, 100) : init.height;
+    // Aspect height fallback: N/S handle with no width snap — solve width so
+    // the horizontal moving edge lands on a ref.
+    if (snap && guideV.length === 0 && (south || north) && init.width > 0 && init.height > 0) {
+      const movingBottom = south && !north ? init.top + height : null;
+      const fixedBottom = init.top + init.height;
+      const movingTop = !south && north ? fixedBottom - height : null;
+      const hitH = movingBottom !== null
+        ? snapMovingEdge(movingBottom, ys, ty)
+        : movingTop !== null
+          ? snapMovingEdge(movingTop, ys, ty)
+          : null;
+      if (hitH) {
+        const snappedH = movingBottom !== null ? hitH.pos - init.top : fixedBottom - hitH.pos;
+        if (snappedH >= floor && snappedH <= 100) {
+          const solvedW = (snappedH * init.width) / init.height;
+          if (solvedW >= floor && solvedW <= 100) {
+            width = Math.round(solvedW * 100) / 100;
+            height = Math.round(snappedH * 100) / 100;
+            guideH = [hitH.guide];
+          }
+        }
+      }
+    }
     return {
       left: clampN(east || (!west && !east) ? init.left : init.left + init.width - width, -20, 100),
       top: south || (!north && !south) ? init.top : clampN(init.top + init.height - height, -20, 100),
       width,
       height,
+      guides: (guideV.length === 0 && guideH.length === 0) ? EMPTY_GUIDES : { v: guideV, h: guideH },
     };
   }
   const floor = init.minSize ?? 5;
-  const width = east || west ? clampN(init.width + (east ? dxPct : -dxPct), floor, 100) : init.width;
-  const height = south || north ? clampN(init.height + (south ? dyPct : -dyPct), floor, 100) : init.height;
+  let width = east || west ? clampN(init.width + (east ? dxPct : -dxPct), floor, 100) : init.width;
+  let height = south || north ? clampN(init.height + (south ? dyPct : -dyPct), floor, 100) : init.height;
+  let left = west ? init.left + init.width - width : init.left;
+  let top = north ? init.top + init.height - height : init.top;
+  // Freeform resize snap: each moving edge lands on sibling/canvas refs.
+  let guideV: number[] = [];
+  let guideH: number[] = [];
+  if (snap) {
+    if (east && !west) {
+      const hit = snapMovingEdge(left + width, xs, tx);
+      if (hit) {
+        const w = hit.pos - left;
+        if (w >= floor && w <= 100) { width = Math.round(w * 100) / 100; guideV = [hit.guide]; }
+      }
+    } else if (west && !east) {
+      const fixedRight = init.left + init.width;
+      const hit = snapMovingEdge(fixedRight - width, xs, tx);
+      if (hit) {
+        const w = fixedRight - hit.pos;
+        if (w >= floor && w <= 100) { width = Math.round(w * 100) / 100; left = hit.pos; guideV = [hit.guide]; }
+      }
+    }
+    if (south && !north) {
+      const hit = snapMovingEdge(top + height, ys, ty);
+      if (hit) {
+        const h = hit.pos - top;
+        if (h >= floor && h <= 100) { height = Math.round(h * 100) / 100; guideH = [hit.guide]; }
+      }
+    } else if (north && !south) {
+      const fixedBottom = init.top + init.height;
+      const hit = snapMovingEdge(fixedBottom - height, ys, ty);
+      if (hit) {
+        const h = fixedBottom - hit.pos;
+        if (h >= floor && h <= 100) { height = Math.round(h * 100) / 100; top = hit.pos; guideH = [hit.guide]; }
+      }
+    }
+  }
   return {
-    left: clampN(west ? init.left + init.width - width : init.left, -20, 100),
-    top: clampN(north ? init.top + init.height - height : init.top, -20, 100),
+    left: clampN(left, -20, 100),
+    top: clampN(top, -20, 100),
     width,
     height,
+    guides: (guideV.length === 0 && guideH.length === 0) ? EMPTY_GUIDES : { v: guideV, h: guideH },
   };
 }
 
@@ -810,7 +1070,7 @@ function sessionScale(s: DragSession, dxPct: number, dyPct: number) {
 /** P4: pointer position around the box center → snapped rotation degrees. */
 function rotateDegFor(r: RotateSession, clientX: number, clientY: number) {
   const pointer = (Math.atan2(clientY - r.cy, clientX - r.cx) * 180) / Math.PI;
-  return Math.round(snapRotate(norm180(pointer - r.offset)));
+  return snapRotateLayer(norm180(pointer - r.offset), r.snapAngles);
 }
 
 interface LayerBoxProps {
@@ -1304,7 +1564,7 @@ export const CanvasOverlay: React.FC<{
   const handlePointerMoveRef = useRef<(e: React.PointerEvent) => void>(() => {});
   const finishDragRef = useRef<(e: React.PointerEvent, commit: boolean) => void>(() => {});
   // P4 rotate gesture: live degree preview + handler-live session.
-  const [rotatePreview, setRotatePreview] = useState<{ layerIdx: number; deg: number } | null>(null);
+  const [rotatePreview, setRotatePreview] = useState<{ layerIdx: number; deg: number; snapped: boolean; sibling: boolean; matched: number | null } | null>(null);
   const rotateRef = useRef<RotateSession | null>(null);
   const rotateMoveRef = useRef<{ x: number; y: number } | null>(null);
   const handleRotateMoveRef = useRef<(e: React.PointerEvent) => void>(() => {});
@@ -1398,6 +1658,9 @@ export const CanvasOverlay: React.FC<{
   const fpsRef = useRef(fps);
   const onSelectLayerRef = useRef(onSelectLayer);
   const onStyleCommitRef = useRef(onStyleCommit);
+  // Live sibling boxes for layer-aware snapping (beginDrag reads via ref so
+  // the stable callback never captures a stale `view` closure).
+  const orderedRef = useRef<Array<{ idx: number; box: Box; hidden?: boolean }>>([]);
   useEffect(() => { lockedRef.current = isLocked; }, [isLocked]);
   useEffect(() => { sceneTimingsRef.current = sceneTimings; }, [sceneTimings]);
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
@@ -1703,6 +1966,16 @@ export const CanvasOverlay: React.FC<{
     };
   }, [scenes, selectedSceneIndex, selectedSubVisualIndex, activeSceneIdx, playheadSubIdx, compW, compH, domRects]);
 
+  // Keep sibling geometry fresh for beginDrag's snap-target builder (ref so
+  // the stable drag callback never captures a stale `view` closure).
+  useEffect(() => {
+    orderedRef.current = (view?.ordered ?? []).map((o: any) => ({
+      idx: o.idx,
+      box: o.box,
+      hidden: (o.layer as any)?.visible === false,
+    }));
+  }, [view]);
+
   // ── P3/P4 direct manipulation ─────────────────────────────────────
   // Pointerdown selects immediately (click and drag share one path; the
   // follow-up click is suppressed) and opens a drag session. A <4 px nudge
@@ -1744,6 +2017,12 @@ export const CanvasOverlay: React.FC<{
     // Cut identity AFTER routing (pointerdown adopts the previewed cut) —
     // a mid-gesture selection change voids the commit at pointer-up.
     const st0 = useEditorStore.getState();
+    // Sibling snap lines for move + resize gestures (canvas + other layers).
+    // Alt-scale (multipliers) ignores them — no layout edge moves there.
+    const { xs: snapXs, ys: snapYs } =
+      !scaleMode
+        ? buildSnapTargets(orderedRef.current, layerIdx, rect.width, rect.height)
+        : { xs: [] as number[], ys: [] as number[] };
     const session: DragSession = {
       layerIdx,
       sceneIdx: st0.selectedSceneIndex ?? -1,
@@ -1766,6 +2045,11 @@ export const CanvasOverlay: React.FC<{
       cur: { left, top, width: box.widthPct, height },
       preview: null,
       moved: false,
+      snapXs,
+      snapYs,
+      snapTx: pxSnapThreshold(rect.width),
+      snapTy: pxSnapThreshold(rect.height),
+      guides: EMPTY_GUIDES,
     };
     dragRef.current = session;
     setDrag(session);
@@ -1786,27 +2070,46 @@ export const CanvasOverlay: React.FC<{
       if (cur && m) {
         const { dxPct, dyPct } = sessionDeltas(cur, m.x, m.y);
         let next = cur.cur;
+        let guides = cur.guides;
         let preview: Record<string, any> | null = null;
         if (cur.scaleMode && cur.mode === 'corner') {
           const { scaleX, scaleY } = sessionScale(cur, dxPct, dyPct);
           preview = { scaleX, scaleY };
+          const prev = cur.preview;
+          const samePreview = !!prev
+            && Math.abs((prev.scaleX ?? 0) - scaleX) < 1e-9
+            && Math.abs((prev.scaleY ?? 0) - scaleY) < 1e-9;
+          if (samePreview) return; // no visible change — skip re-render
         } else {
-          const raw = computeDrag(cur.init, cur.mode, cur.corner, cur.edge, dxPct, dyPct);
+          const raw = computeDrag(cur.init, cur.mode, cur.corner, cur.edge, dxPct, dyPct, { xs: cur.snapXs, ys: cur.snapYs, tx: cur.snapTx, ty: cur.snapTy });
+          guides = raw.guides;
           // Moves track the cursor raw; resizes re-pin the stationary edge
           // through the world transform when rotated/mirrored.
           next =
             cur.mode !== 'move' && (cur.rotDeg !== 0 || cur.flipX || cur.flipY)
               ? pinOppositeEdge(cur.init, raw, cur.rotDeg, cur.flipX, cur.flipY, cur.rectW, cur.rectH)
               : raw;
+          // Bail out when the rounded geometry and guides are unchanged —
+          // high-Hz mice otherwise re-render the overlay every pointermove.
+          const sameGeom = Math.abs(next.left - cur.cur.left) < 1e-9
+            && Math.abs(next.top - cur.cur.top) < 1e-9
+            && Math.abs(next.width - cur.cur.width) < 1e-9
+            && Math.abs(next.height - cur.cur.height) < 1e-9;
+          if (sameGeom && guidesEqual(guides.v, cur.guides.v) && guidesEqual(guides.h, cur.guides.h)) return;
         }
-        const updated: DragSession = { ...cur, cur: next, preview, moved: true };
+        const updated: DragSession = { ...cur, cur: next, preview, moved: true, guides };
         dragRef.current = updated;
         setDrag(updated);
       }
       const r = rotateRef.current;
       const rm = rotateMoveRef.current;
       if (r && rm) {
-        setRotatePreview({ layerIdx: r.layerIdx, deg: rotateDegFor(r, rm.x, rm.y) });
+        const s = rotateDegFor(r, rm.x, rm.y);
+        setRotatePreview((prev) => {
+          if (prev && prev.layerIdx === r.layerIdx && prev.deg === s.deg
+            && prev.snapped === s.snapped && prev.sibling === s.sibling) return prev;
+          return { layerIdx: r.layerIdx, deg: s.deg, snapped: s.snapped, sibling: s.sibling, matched: s.matched };
+        });
       }
     });
   }, []);
@@ -1846,7 +2149,7 @@ export const CanvasOverlay: React.FC<{
       style = { ...s.init.style, scaleX, scaleY };
       delete style.scale;
     } else {
-      const raw = computeDrag(s.init, s.mode, s.corner, s.edge, dxPct, dyPct);
+      const raw = computeDrag(s.init, s.mode, s.corner, s.edge, dxPct, dyPct, { xs: s.snapXs, ys: s.snapYs, tx: s.snapTx, ty: s.snapTy });
       const final =
         s.mode !== 'move' && (s.rotDeg !== 0 || s.flipX || s.flipY)
           ? pinOppositeEdge(s.init, raw, s.rotDeg, s.flipX, s.flipY, s.rectW, s.rectH)
@@ -1870,7 +2173,8 @@ export const CanvasOverlay: React.FC<{
   // ── P4 rotate ─────────────────────────────────────────────────────
   // Lollipop drag: rotation follows the pointer around the box's layout
   // center (the default transform pivot; custom transform_origin pivots will
-  // be approximately right). Snaps to 45° multiples within 3°.
+  // be approximately right). Snaps to 45° multiples + sibling layer angles
+  // within 3° (sibling-first, wrap-aware).
   const beginRotate = useCallback((e: React.PointerEvent, layerIdx: number, box: Box, layer: any) => {
     if (lockedRef.current || useEditorStore.getState().isPlaying) return;
     if (box.fullscreen) return;
@@ -1883,6 +2187,12 @@ export const CanvasOverlay: React.FC<{
     const cx = rect.left + ((left + box.widthPct / 2) / 100) * rect.width;
     const cy = rect.top + ((top + height / 2) / 100) * rect.height;
     const grab = (Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI;
+    // Sibling angles for layer-aware rotate snap (exclude self/fullscreen/hidden).
+    const snapAngles: number[] = [];
+    for (const o of orderedRef.current) {
+      if (o.idx === layerIdx || o.hidden || o.box.fullscreen) continue;
+      if (Number.isFinite(o.box.rotateDeg)) snapAngles.push(norm180(o.box.rotateDeg));
+    }
     rotateRef.current = {
       layerIdx,
       sceneIdx: useEditorStore.getState().selectedSceneIndex ?? -1,
@@ -1893,8 +2203,9 @@ export const CanvasOverlay: React.FC<{
       offset: grab - box.rotateDeg,
       style: { ...(layer?.content?.style || {}) },
       moved: false,
+      snapAngles,
     };
-    setRotatePreview({ layerIdx, deg: Math.round(box.rotateDeg) });
+    setRotatePreview({ layerIdx, deg: Math.round(box.rotateDeg), snapped: false, sibling: false, matched: null });
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch { /* window fallback covers the gesture */ }
@@ -1922,7 +2233,7 @@ export const CanvasOverlay: React.FC<{
       return;
     }
     if (!r.moved) return; // plain click — selection already applied on pointerdown
-    const deg = rotateDegFor(r, e.clientX, e.clientY);
+    const { deg } = rotateDegFor(r, e.clientX, e.clientY);
     const style = { ...r.style, rotate: `${deg}deg` };
     const st = useEditorStore.getState();
     const sceneIdx = st.selectedSceneIndex;
@@ -1988,28 +2299,57 @@ export const CanvasOverlay: React.FC<{
         />
       )}
 
-      {/* Live center snap guide lines (shown during body move gesture when aligned with canvas center) */}
-      {drag && drag.mode === 'move' && Math.abs((drag.cur.left + drag.cur.width / 2) - 50) < 0.75 && (
+      {/* Live snap guides: move + resize (canvas amber solid, sibling sky dashed), above boxes.
+          Alt-scale sets no guides — multipliers have no layout edge to align. */}
+      {drag && !drag.scaleMode && drag.guides.v.map((x) => {
+        const canvas = isCanvasRef(x);
+        return (
+          <div
+            key={`v-${x}`}
+            className="absolute top-0 bottom-0 pointer-events-none z-[120]"
+            style={{
+              left: `${x}%`,
+              width: canvas ? 1 : 0,
+              borderLeft: canvas ? undefined : '1px dashed rgba(56, 189, 248, 0.9)',
+              backgroundColor: canvas ? 'rgba(245, 158, 11, 0.9)' : undefined,
+              boxShadow: canvas
+                ? '0 0 8px rgba(245, 158, 11, 0.75)'
+                : '0 0 8px rgba(56, 189, 248, 0.6)',
+            }}
+          />
+        );
+      })}
+      {drag && !drag.scaleMode && drag.guides.h.map((y) => {
+        const canvas = isCanvasRef(y);
+        return (
+          <div
+            key={`h-${y}`}
+            className="absolute left-0 right-0 pointer-events-none z-[120]"
+            style={{
+              top: `${y}%`,
+              height: canvas ? 1 : 0,
+              borderTop: canvas ? undefined : '1px dashed rgba(56, 189, 248, 0.9)',
+              backgroundColor: canvas ? 'rgba(245, 158, 11, 0.9)' : undefined,
+              boxShadow: canvas
+                ? '0 0 8px rgba(245, 158, 11, 0.75)'
+                : '0 0 8px rgba(56, 189, 248, 0.6)',
+            }}
+          />
+        );
+      })}
+
+      {/* Rotate snap indicator: base 45° (amber) vs sibling angle (sky) */}
+      {rotatePreview?.snapped && (
         <div
-          className="absolute top-0 bottom-0 pointer-events-none z-30"
+          className="absolute left-1/2 top-2 z-[120] pointer-events-none -translate-x-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-extrabold tabular-nums"
           style={{
-            left: '50%',
-            width: 1,
-            backgroundColor: 'rgba(245, 158, 11, 0.9)',
-            boxShadow: '0 0 8px rgba(245, 158, 11, 0.75)',
+            background: rotatePreview.sibling ? 'rgba(56, 189, 248, 0.95)' : 'rgba(245, 158, 11, 0.95)',
+            color: '#09090b',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.45)',
           }}
-        />
-      )}
-      {drag && drag.mode === 'move' && Math.abs((drag.cur.top + drag.cur.height / 2) - 50) < 0.75 && (
-        <div
-          className="absolute left-0 right-0 pointer-events-none z-30"
-          style={{
-            top: '50%',
-            height: 1,
-            backgroundColor: 'rgba(245, 158, 11, 0.9)',
-            boxShadow: '0 0 8px rgba(245, 158, 11, 0.75)',
-          }}
-        />
+        >
+          {`${rotatePreview.deg}°${rotatePreview.sibling ? ' · layer' : ''}`}
+        </div>
       )}
 
       {view.ordered.map(({ layer, idx, box }) => {
