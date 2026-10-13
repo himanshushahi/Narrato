@@ -180,6 +180,51 @@ def _notify_ui_project_event(event_type: str, project_id: str | None = None,
         pass
 
 
+def _notify_ui_progress(project_id: str, step: str, progress: float,
+                        message: str, status: str,
+                        error_message: str | None = None) -> None:
+    """Best-effort realtime stage progress push (same channel as manual runs).
+
+    The desktop queue worker broadcasts every progress_cb call via
+    ``global_queue_manager._broadcast_task_progress`` -> ``onProgressUpdate``,
+    which is what animates ExportTab bars. MCP stages previously only sent
+    throttled ``onProjectEvent(progress_tick)`` (downgraded by the UI to a
+    10s-throttled detail pull), so bars sat at 0% until the terminal
+    completed event. This mirrors the queue payload shape exactly so
+    ``window.onProgressUpdate`` picks it up; the companion frontend change
+    (usePipeline/pywebviewListeners) treats a running task row as running
+    even when the queue is idle, since MCP never occupies queue.active.
+    Same-process only: detached stdio has no callbacks registered, so this
+    falls back to a direct ``ui_queue`` put (useful before bridge callbacks
+    register; undrained in a detached process, like the pre-existing
+    throttled project_updated puts). Never raises.
+    """
+    try:
+        from backend.pipeline.queue import global_queue_manager
+        callbacks = getattr(global_queue_manager, "_progress_callbacks", [])
+        if callbacks:
+            global_queue_manager._broadcast_task_progress(
+                project_id, step, float(progress), message or "", status,
+                error_message=error_message)
+            return
+    except Exception:
+        pass
+    try:
+        data = {
+            "type": "progress_update",
+            "project_id": project_id,
+            "step": step,
+            "progress": float(progress),
+            "message": message or "",
+            "status": status,
+            "error_message": error_message,
+        }
+        from backend.core.bridge import ui_queue
+        ui_queue.put(("onProgressUpdate", (data,)))
+    except Exception:
+        pass
+
+
 def _is_dry_run_flag(value) -> bool:
     """Lenient dry_run check for the notify gate (mirrors _coerce_bool).
 
@@ -1585,6 +1630,11 @@ def _fail_task_row(project_id: str, stage: str, error: str) -> None:
     # files_changed=False: only task/status rows changed, no content files.
     _notify_ui_project_event("project_updated", project_id,
                              files_changed=False)
+    try:
+        _notify_ui_progress(project_id, stage, 0.0, f"Failed: {str(error)[:80]}",
+                            "failed", error_message=str(error)[:500])
+    except Exception:
+        pass
 
 
 def _maybe_complete_project(project_id: str) -> None:
@@ -1639,6 +1689,14 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
             _db.update_task(task_id, progress=float(pct), message=msg or "")
         except Exception:
             pass
+        # Realtime UI: same onProgressUpdate channel as the desktop queue
+        # worker (every callback, not throttled) so ExportTab bars animate.
+        # The throttled onProjectEvent tick below stays as the DB-refetch
+        # fallback for clients that missed the push.
+        try:
+            _notify_ui_progress(project_id, stage, float(pct), msg or "", "running")
+        except Exception:
+            pass
         # Live UI: task rows only reach the open project via refetch — push
         # a throttled status-only tick so status/progress bars move without
         # spamming the bridge (each event costs the UI two local DB reads)
@@ -1657,6 +1715,7 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
         _db.create_task(project_id, stage)
         _db.update_task(task_id, status="running", progress=0.0, message="Starting (MCP)...")
         _db.update_project(project_id, status="processing")
+        _notify_ui_progress(project_id, stage, 0.0, "Starting (MCP)...", "running")
         _notify_ui_project_event("project_updated", project_id,
                                  files_changed=False)
         # Seed the throttle from the start tick so the first _progress
@@ -1678,6 +1737,8 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
                         error_message="Stage cancelled via MCP.",
                         message="Cancelled")
         _db.update_project(project_id, status="cancelled")
+        _notify_ui_progress(project_id, stage, 0.0, "Cancelled", "failed",
+                            error_message="Stage cancelled via MCP.")
         _notify_ui_project_event("project_updated", project_id)
         return {"ok": False, "error": "Stage cancelled.", "stage": stage,
                 "cancelled": True}
@@ -1686,10 +1747,17 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
         _db.update_task(task_id, status="failed", error_message=str(e),
                         message=f"Failed: {str(e)[:80]}")
         _db.update_project(project_id, status="failed")
+        try:
+            cur = (_db.get_task(task_id) or {}).get("progress", 0.0) or 0.0
+        except Exception:
+            cur = 0.0
+        _notify_ui_progress(project_id, stage, float(cur), f"Failed: {str(e)[:80]}",
+                            "failed", error_message=str(e))
         _notify_ui_project_event("project_updated", project_id)
         return {"ok": False, "error": str(e), "stage": stage}
     _db.update_task(task_id, status="completed", progress=100.0, message="Step completed (MCP).")
     _maybe_complete_project(project_id)
+    _notify_ui_progress(project_id, stage, 100.0, "Step completed (MCP).", "completed")
     _notify_ui_project_event("project_updated", project_id)
     result: dict = {"ok": True, "project_id": project_id, "stage": stage}
     if stage == "render":

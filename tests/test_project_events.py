@@ -141,12 +141,23 @@ def test_broken_queue_never_breaks_result(captured_events, monkeypatch):
 def test_fail_task_row_notifies_status_only(captured_events, monkeypatch):
     # Pre-execution stage failure mutates task + project status rows — the
     # UI must refetch instead of showing stale running/pending chips.
+    # Plus a realtime onProgressUpdate(failed) so ExportTab flips immediately
+    # instead of waiting for the next detail pull.
     monkeypatch.setattr(S._db, "create_task", lambda *a, **k: "x")
     monkeypatch.setattr(S._db, "update_task", lambda *a, **k: None)
     monkeypatch.setattr(S._db, "update_project", lambda *a, **k: None)
+    from backend.pipeline.queue import global_queue_manager
+    monkeypatch.setattr(global_queue_manager, "_progress_callbacks", [])
     S._fail_task_row("p9", "transcribe", "boom")
-    assert _shape(captured_events) == {
+    by_name = {name for name, _ in captured_events}
+    assert by_name == {"onProjectEvent", "onProgressUpdate"}
+    proj_evt = next(args[0] for name, args in captured_events if name == "onProjectEvent")
+    assert proj_evt == {
         "type": "project_updated", "project_id": "p9", "files_changed": False}
+    prog_evt = next(args[0] for name, args in captured_events if name == "onProgressUpdate")
+    assert prog_evt["type"] == "progress_update"
+    assert prog_evt["project_id"] == "p9" and prog_evt["step"] == "transcribe"
+    assert prog_evt["status"] == "failed"
 
 
 def _emit(*a, **k):

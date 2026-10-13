@@ -28,7 +28,14 @@ export const initializePywebviewListeners = async () => {
     if (data.type === "queue_update") {
       useProjectStore.setState({ queue: data.status });
       if (!data.status.active) {
-        useProjectStore.setState({ activeTask: null });
+        // Queue idle — but an MCP stage runs outside the queue, so only
+        // clear the live task when no task row is still running.
+        const stillRunning = Object.values(projectStore.tasks || {}).some(
+          (t: any) => t?.status === 'running',
+        );
+        if (!stillRunning) {
+          useProjectStore.setState({ activeTask: null });
+        }
       }
       // Fix 13: throttle detail refetch — previously every queue event did
       // full db_get_project + task map, thrashing selectedProject ref and
@@ -49,7 +56,31 @@ export const initializePywebviewListeners = async () => {
 
     const { project_id, step, progress, message, status, error_message, error_code } = data;
 
-    if (projectStore.queue.active === project_id) {
+    // Queue-gated previously: MCP stages broadcast on this same channel but
+    // never occupy queue.active, so their running updates were dropped from
+    // activeTask. Accept running/terminal pushes for the matching project
+    // regardless of queue ownership; clear only on terminal states.
+    if (status === 'running' || status === 'completed' || status === 'paused' || status === 'failed') {
+      useProjectStore.setState({
+        activeTask: {
+          id: `${project_id}_${step}`,
+          project_id,
+          step,
+          progress,
+          message,
+          status,
+          updated_at: new Date().toISOString()
+        } as Task
+      });
+      if (status !== 'running') {
+        setTimeout(() => {
+          const cur = useProjectStore.getState().activeTask;
+          if (cur && cur.id === `${project_id}_${step}`) {
+            useProjectStore.setState({ activeTask: null });
+          }
+        }, 500);
+      }
+    } else if (projectStore.queue.active === project_id) {
       useProjectStore.setState({
         activeTask: {
           id: `${project_id}_${step}`,

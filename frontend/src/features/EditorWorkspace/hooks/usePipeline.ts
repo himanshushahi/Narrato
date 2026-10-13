@@ -111,12 +111,20 @@ export function usePipeline(
   const previousTasksRef = useRef(tasks);
   const hasMountedRef = useRef(false);
 
-  const isRunning = queue.active === projectId || (projectId ? queue.queued.includes(projectId) : false);
+  const queueRunning = queue.active === projectId || (projectId ? queue.queued.includes(projectId) : false);
+
+  const runningTaskStep = useMemo(() => {
+    // MCP stages run outside global_queue_manager (no queue.active), so a
+    // running task row alone must count as running — otherwise ExportTab
+    // bars sit at 0% until the terminal completed event.
+    return Object.values(tasks).find(t => t.status === 'running') || null;
+  }, [tasks]);
+
+  const isRunning = queueRunning || runningTaskStep !== null;
 
   const activeTaskStep = useMemo(() => {
-    if (!isRunning) return null;
-    return Object.values(tasks).find(t => t.status === 'running') || null;
-  }, [isRunning, tasks]);
+    return runningTaskStep;
+  }, [runningTaskStep]);
 
   // Monitor pipeline completion
   useEffect(() => {
