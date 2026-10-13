@@ -16,6 +16,8 @@ import {
 import { GlobalOverlayItem } from '../../../components/video/GlobalOverlaysRenderer';
 import { callApi } from '../../../utils/call-api';
 import { getMediaUrlSync } from '../../../utils/mediaUrl';
+import { useSettingsStore, WatermarkChannelPreset } from '../../../store/useSettingsStore';
+import { useUIStore } from '../../../store/useUIStore';
 
 interface OverlaysTabProps {
   scriptData: any;
@@ -133,6 +135,21 @@ const safeJson = (v: any): string | null => {
 };
 
 const isBanner = (item: any): boolean => (item?.type as string) === 'banner';
+
+/** Stable empty fallback so the settings selector never returns a new [] per render. */
+const EMPTY_CHANNEL_PRESETS: WatermarkChannelPreset[] = [];
+
+/** True for remote/data URLs that need no local copy. */
+const isPortableLogoUrl = (url: string): boolean => {
+  const s = url.trim();
+  return s.startsWith('data:') || s.startsWith('http://') || s.startsWith('https://') || s.startsWith('blob:');
+};
+
+/** Best-effort check: does this local path already live in the target project's assets? */
+const isPathInProjectAssets = (logoPath: string, projectId: string): boolean => {
+  const norm = logoPath.replace(/\\/g, '/');
+  return norm.includes(`/${projectId}/`);
+};
 
 export const OverlaysTab: React.FC<OverlaysTabProps> = ({
   scriptData,
@@ -281,6 +298,122 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
     return next;
   }, [commitDraft]);
 
+  // ── Channel presets for watermarks (persisted in global settings) ──────
+  // A preset captures channel_name + logo_url + verified badge so users pick
+  // once instead of re-typing per project / per watermark. Logos are copied
+  // into the target project's assets on apply (see backend
+  // copy_preset_logo_to_project) so presets stay valid cross-project.
+  const channelPresets: WatermarkChannelPreset[] =
+    useSettingsStore((s) => s.settings.watermark_channel_presets ?? EMPTY_CHANNEL_PRESETS);
+  const defaultChannelPresetId = useSettingsStore((s) => s.settings.default_watermark_channel_preset_id);
+  const saveSettings = useSettingsStore((s) => s.saveSettings);
+  const [presetNameById, setPresetNameById] = useState<Record<string, string>>({});
+
+  /** Multi-field draft update (preset apply): one render + debounced commit. */
+  const handleUpdateItemFields = useCallback((index: number, fields: Partial<GlobalOverlayItem>) => {
+    const base = draftRef.current;
+    if (index < 0 || index >= base.length) return;
+    const next = [...base];
+    next[index] = { ...next[index], ...fields };
+    draftRef.current = next;
+    setDraft(next);
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = setTimeout(() => {
+      commitTimerRef.current = null;
+      commitDraft(draftRef.current);
+    }, COMMIT_DEBOUNCE_MS);
+  }, [commitDraft]);
+
+  const handleApplyChannelPreset = useCallback(async (index: number, presetId: string) => {
+    if (!presetId) return;
+    const preset = useSettingsStore.getState().settings.watermark_channel_presets?.find((p) => p.id === presetId);
+    if (!preset) return;
+    // Resolve the logo: remote/data URLs are portable as-is; local files from
+    // another project are copied into this project's assets so deleting the
+    // source project can never break this watermark.
+    let logoUrl = preset.logo_url || '';
+    if (logoUrl && !isPortableLogoUrl(logoUrl) && projectId && !isPathInProjectAssets(logoUrl, projectId)) {
+      try {
+        const res = await callApi<{ success: boolean; asset_path?: string; error?: string }>(
+          'copy_preset_logo_to_project',
+          projectId,
+          logoUrl
+        );
+        if (res?.success && res.asset_path) {
+          logoUrl = res.asset_path;
+        } else {
+          useUIStore.getState().addToast(
+            `Preset logo could not be copied (${res?.error || 'file missing'}) — using original path`,
+            'warning'
+          );
+        }
+      } catch {
+        useUIStore.getState().addToast('Preset logo copy failed — using original path', 'warning');
+      }
+    }
+    handleUpdateItemFields(index, {
+      channel_name: preset.channel_name || '',
+      logo_url: logoUrl,
+      show_verified_badge: preset.show_verified_badge !== false,
+    });
+  }, [handleUpdateItemFields, projectId]);
+
+  const handleSaveChannelPreset = useCallback(async (index: number) => {
+    const item = draftRef.current[index];
+    if (!item) return;
+    const channelName = (item.channel_name || '').trim();
+    const addToastNow = useUIStore.getState().addToast;
+    if (!channelName && !item.logo_url) {
+      addToastNow('Add a channel name or logo before saving a preset', 'error');
+      return;
+    }
+    const key = item.id || String(index);
+    const customName = (presetNameById[key] || '').trim();
+    const name = customName || channelName || 'Untitled channel';
+    const cur = useSettingsStore.getState().settings;
+    const existing = [...(cur.watermark_channel_presets || [])];
+    const dupIdx = existing.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (dupIdx >= 0 && !window.confirm(`Preset "${name}" already exists. Overwrite it?`)) {
+      return;
+    }
+    const entry: WatermarkChannelPreset = {
+      id: dupIdx >= 0 ? existing[dupIdx].id : (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `ch_${Date.now().toString(36)}`),
+      name,
+      // Keep display `name` separate from `channel_name`: a logo-only preset
+      // must stay logo-only instead of gaining phantom watermark text.
+      channel_name: channelName,
+      logo_url: item.logo_url || '',
+      show_verified_badge: item.show_verified_badge !== false,
+    };
+    if (dupIdx >= 0) existing[dupIdx] = entry;
+    else existing.push(entry);
+    await saveSettings({ ...cur, watermark_channel_presets: existing });
+    setPresetNameById((prev) => ({ ...prev, [key]: '' }));
+    addToastNow(dupIdx >= 0 ? `Preset "${name}" updated` : `Preset "${name}" saved`, 'success');
+  }, [presetNameById, saveSettings]);
+
+  const handleDeleteChannelPreset = useCallback(async (presetId: string) => {
+    const cur = useSettingsStore.getState().settings;
+    const target = (cur.watermark_channel_presets || []).find((p) => p.id === presetId);
+    const next = (cur.watermark_channel_presets || []).filter((p) => p.id !== presetId);
+    await saveSettings({
+      ...cur,
+      watermark_channel_presets: next,
+      default_watermark_channel_preset_id: cur.default_watermark_channel_preset_id === presetId ? undefined : cur.default_watermark_channel_preset_id,
+    });
+    useUIStore.getState().addToast(target ? `Preset "${target.name}" deleted` : 'Preset deleted', 'info');
+  }, [saveSettings]);
+
+  const handleDefaultChannelPreset = useCallback(async (presetId: string) => {
+    const cur = useSettingsStore.getState().settings;
+    const isDefault = cur.default_watermark_channel_preset_id === presetId;
+    await saveSettings({
+      ...cur,
+      default_watermark_channel_preset_id: isDefault ? undefined : presetId,
+    });
+    useUIStore.getState().addToast(isDefault ? 'Removed default channel preset' : 'Set as default channel preset', 'info');
+  }, [saveSettings]);
+
   // Film grain defaults ON via the legacy PaperOverlay fallback while no
   // film_grain item exists (see NitishRajputComposition). It is surfaced as
   // a virtual row below — no phantom writes; Customize/Disable materialize
@@ -420,7 +553,14 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
     const uid = `${type}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
     switch (type) {
-      case 'watermark':
+      case 'watermark': {
+        const defaults = useSettingsStore.getState().settings;
+        // Only an explicitly starred default pre-fills a new watermark.
+        // Falling back to the first saved preset would force one channel onto
+        // every new watermark even when the user never chose a default.
+        const preset = (defaults.watermark_channel_presets || []).find(
+          (p) => p.id === defaults.default_watermark_channel_preset_id
+        );
         newItem = {
           id: uid,
           type: 'watermark',
@@ -430,8 +570,9 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
           opacity: 0.85,
           scale: 1,
           logo_size: 34,
-          channel_name: '@ChannelHandle',
-          show_verified_badge: true,
+          channel_name: preset?.channel_name || '@ChannelHandle',
+          logo_url: preset?.logo_url || '',
+          show_verified_badge: preset?.show_verified_badge !== false,
           color: '#ffffff',
           bg_color: 'rgba(15, 23, 42, 0.7)',
           border_color: 'rgba(255, 255, 255, 0.15)',
@@ -446,6 +587,7 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
           nudge_y: 0,
         };
         break;
+      }
       case 'progress_bar':
         newItem = {
           id: uid,
@@ -828,6 +970,79 @@ export const OverlaysTab: React.FC<OverlaysTabProps> = ({
                       {/* ── Watermark Controls ── */}
                       {item.type === 'watermark' && (
                         <div className="space-y-3 pt-1">
+                          {/* Channel Preset — pick once, fills name + logo + badge */}
+                          <div className="space-y-1.5 bg-amber-500/5 p-3 rounded-lg border border-amber-500/20">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-amber-400/90 block">
+                              Channel Preset
+                            </label>
+                            <select
+                              className="w-full bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                              value=""
+                              onChange={(e) => { void handleApplyChannelPreset(idx, e.target.value); }}
+                            >
+                              <option value="">Select a saved channel…</option>
+                              {channelPresets.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}{p.id === defaultChannelPresetId ? ' ★' : ''}
+                                </option>
+                              ))}
+                            </select>
+                            {channelPresets.length === 0 ? (
+                              <p className="text-[10px] text-zinc-500 leading-relaxed">
+                                No presets yet — fill the channel name + logo below, give it a name, and hit Save.
+                              </p>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {channelPresets.map((p) => (
+                                  <span
+                                    key={p.id}
+                                    className="flex items-center gap-1 bg-black/40 border border-white/10 rounded pl-2 pr-1 py-0.5 text-[10px] text-zinc-300"
+                                    title={p.channel_name || p.name}
+                                  >
+                                    <button
+                                      onClick={() => { void handleApplyChannelPreset(idx, p.id); }}
+                                      className="hover:text-amber-300 transition-colors cursor-pointer max-w-[120px] truncate font-semibold"
+                                      title={`Apply "${p.name}" to this watermark`}
+                                    >
+                                      {p.name}
+                                    </button>
+                                    <button
+                                      onClick={() => { void handleDefaultChannelPreset(p.id); }}
+                                      className={`px-1 rounded transition-colors cursor-pointer ${defaultChannelPresetId === p.id ? 'text-amber-400' : 'text-zinc-600 hover:text-zinc-300'}`}
+                                      title={defaultChannelPresetId === p.id ? 'Remove as default for new watermarks' : 'Set as default for new watermarks'}
+                                    >
+                                      ★
+                                    </button>
+                                    <button
+                                      onClick={() => { void handleDeleteChannelPreset(p.id); }}
+                                      className="px-1 rounded text-zinc-600 hover:text-rose-400 transition-colors cursor-pointer"
+                                      title={`Delete preset "${p.name}"`}
+                                    >
+                                      <VscClose className="text-[10px]" />
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/50"
+                                value={presetNameById[item.id || String(idx)] || ''}
+                                onChange={(e) => setPresetNameById((prev) => ({ ...prev, [item.id || String(idx)]: e.target.value }))}
+                                placeholder={item.channel_name ? `Save as "${item.channel_name}"…` : 'Preset name…'}
+                              />
+                              <button
+                                onClick={() => { void handleSaveChannelPreset(idx); }}
+                                disabled={!((item.channel_name || '').trim() || item.logo_url)}
+                                className="px-2.5 py-1.5 rounded-md bg-amber-600/20 hover:bg-amber-600/30 disabled:opacity-40 disabled:cursor-not-allowed text-amber-400 border border-amber-500/30 text-xs font-semibold transition-colors cursor-pointer shrink-0"
+                                title="Save current channel name + logo as a preset"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </div>
+
                           {/* Logo Image Upload & Preview */}
                           <div className="space-y-1.5 bg-zinc-950/40 p-3 rounded-lg border border-zinc-800/40">
                             <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">

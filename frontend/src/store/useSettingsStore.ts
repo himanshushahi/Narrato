@@ -15,6 +15,14 @@ interface XttsProfile {
   reference_voice: string;
 }
 
+export interface WatermarkChannelPreset {
+  id: string;
+  name: string;
+  channel_name: string;
+  logo_url?: string;
+  show_verified_badge?: boolean;
+}
+
 export interface Settings {
   openai_api_key: string;
   openai_base_url: string;
@@ -54,6 +62,8 @@ export interface Settings {
   default_subtitle_preset_id?: string;
   branding_presets?: SubtitlePreset[];
   default_branding_preset_id?: string;
+  watermark_channel_presets?: WatermarkChannelPreset[];
+  default_watermark_channel_preset_id?: string;
   web_search_enabled: boolean;
   web_search_provider: string;
   web_search_api_key: string;

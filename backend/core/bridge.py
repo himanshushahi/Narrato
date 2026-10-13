@@ -2546,6 +2546,59 @@ class ApiBridge:
             logger.error(f"save_uploaded_overlay_data error: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
+    def copy_preset_logo_to_project(self, project_id: str, source_path: str) -> dict:
+        """Copy a channel-preset logo file into the target project's assets directory.
+
+        Presets are global but uploaded logos live under storage/<project_id>/assets,
+        so applying a preset cross-project must not keep pointing at the source
+        project's file (deleting that project would break the watermark).
+        Returns {"success": True, "asset_path": ...} with the new copy's path.
+        """
+        logger.info(f"Bridge API: copy_preset_logo_to_project for project {project_id}")
+        try:
+            if not project_id or not source_path:
+                return {"success": False, "error": "Missing project or source path"}
+            s = str(source_path).strip()
+            if s.startswith(("data:", "http://", "https://", "blob:")):
+                return {"success": False, "error": "Remote/data URLs need no copy"}
+            src = Path(s)
+            if not src.is_file():
+                return {"success": False, "error": "Source logo file not found"}
+            allowed_exts = (".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif")
+            ext = src.suffix.lower()
+            if ext not in allowed_exts:
+                return {"success": False, "error": f"Unsupported file extension '{ext}'."}
+            try:
+                if src.stat().st_size > 10 * 1024 * 1024:
+                    return {"success": False, "error": "Logo file too large (max 10MB)"}
+            except OSError:
+                return {"success": False, "error": "Cannot read source logo file"}
+            from backend.core.config import get_storage_dir
+            import shutil
+            import time
+            assets_dir = get_storage_dir() / project_id / "assets"
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                # Already in the target project — reuse instead of duplicating.
+                if assets_dir in src.resolve().parents or src.resolve() == assets_dir:
+                    return {"success": True, "asset_path": str(src), "filename": src.name}
+            except OSError:
+                pass
+            dest_file = assets_dir / f"overlay_{int(time.time() * 1000)}{ext}"
+            shutil.copy(str(src), str(dest_file))
+            stat = dest_file.stat()
+            logger.info(f"Copied preset logo to {dest_file}")
+            return {
+                "success": True,
+                "asset_path": str(dest_file),
+                "filename": dest_file.name,
+                "size_bytes": stat.st_size,
+                "extension": ext,
+            }
+        except Exception as e:
+            logger.error(f"copy_preset_logo_to_project error: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     def finalize_upload_asset(self, project_id: str, preview_path: str, manifest_scene_index: int, sub_visual_index: int, layer_index: int = -1) -> dict:
         logger.info(f"Bridge API: finalize_upload_asset for project {project_id} [{manifest_scene_index}:{sub_visual_index}] layer_index={layer_index}")
         src = Path(preview_path)
