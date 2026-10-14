@@ -5,6 +5,13 @@ import { useEditorStore } from '../../../store/useEditorStore';
 import { useConnectivityStore } from '../../../store/useConnectivityStore';
 import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
 
+// Live ExportTab progress is reserved for mechanical stages only.
+// AI-authored stages (generate_script, generate_visuals) surface completion
+// via task-row refetch — never via animated bars.
+const LIVE_PROGRESS_STEPS = new Set([
+  'generate_voiceover', 'transcribe', 'fetch_assets', 'render',
+]);
+
 // Stages that require internet (mirrors backend/core/connectivity.py).
 const NETWORK_STEPS = new Set([
   'generate_script', 'generate_voiceover', 'generate_visuals', 'fetch_assets',
@@ -114,10 +121,12 @@ export function usePipeline(
   const queueRunning = queue.active === projectId || (projectId ? queue.queued.includes(projectId) : false);
 
   const runningTaskStep = useMemo(() => {
-    // MCP stages run outside global_queue_manager (no queue.active), so a
-    // running task row alone must count as running — otherwise ExportTab
-    // bars sit at 0% until the terminal completed event.
-    return Object.values(tasks).find(t => t.status === 'running') || null;
+    // MCP mechanical stages run outside global_queue_manager (no
+    // queue.active), so a running task row alone must count as running —
+    // otherwise ExportTab bars sit at 0% until the terminal completed
+    // event. AI-authored stages (generate_script, generate_visuals) are
+    // excluded: they surface completion via refetch, never live bars.
+    return Object.entries(tasks).find(([key, t]) => t.status === 'running' && (LIVE_PROGRESS_STEPS.has(t.step) || LIVE_PROGRESS_STEPS.has(key)))?.[1] || null;
   }, [tasks]);
 
   const isRunning = queueRunning || runningTaskStep !== null;

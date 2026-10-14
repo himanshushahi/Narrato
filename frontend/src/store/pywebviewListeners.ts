@@ -2,6 +2,14 @@ import { useProjectStore, Task } from './useProjectStore';
 import { useSettingsStore } from './useSettingsStore';
 import { useUIStore } from './useUIStore';
 
+// Live progress animates ONLY for mechanical stages (voiceover,
+// transcription, asset fetch, render). AI-authored stages (script, visuals)
+// surface completion via task-row refetch — running pushes for them are
+// dropped so ExportTab never shows script/visuals bars.
+const LIVE_PROGRESS_STEPS = new Set([
+  'generate_voiceover', 'transcribe', 'fetch_assets', 'render',
+]);
+
 export const initializePywebviewListeners = async () => {
   if (!window.pywebview || typeof window.pywebview?.api?.db_get_projects !== 'function') {
     window.addEventListener('pywebviewready', () => {
@@ -56,11 +64,19 @@ export const initializePywebviewListeners = async () => {
 
     const { project_id, step, progress, message, status, error_message, error_code } = data;
 
+    const isLiveStage = LIVE_PROGRESS_STEPS.has(step);
+
     // Queue-gated previously: MCP stages broadcast on this same channel but
     // never occupy queue.active, so their running updates were dropped from
     // activeTask. Accept running/terminal pushes for the matching project
     // regardless of queue ownership; clear only on terminal states.
-    if (status === 'running' || status === 'completed' || status === 'paused' || status === 'failed') {
+    // AI-authored stages (script/visuals) never animate: running pushes for
+    // them are dropped before they reach activeTask or the tasks row.
+    const isTerminal = status === 'completed' || status === 'paused' || status === 'failed';
+    if (status === 'running' && !isLiveStage) {
+      // Drop: no activeTask, no tasks-row progress. Terminal pushes for the
+      // same stages still flow through below so Done/Failed chips flip.
+    } else if (status === 'running' || isTerminal) {
       useProjectStore.setState({
         activeTask: {
           id: `${project_id}_${step}`,
@@ -95,6 +111,12 @@ export const initializePywebviewListeners = async () => {
     }
 
     if (projectStore.selectedProject?.id === project_id) {
+      // Running pushes for AI-authored stages never touch the tasks row
+      // either — otherwise ExportTab would animate via task.progress.
+      // Terminal pushes (completed/failed) still land so Done shows.
+      if (status === 'running' && !isLiveStage) {
+        return;
+      }
       useProjectStore.setState((state) => {
         const updatedTasks = { ...state.tasks };
         updatedTasks[step] = {

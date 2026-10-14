@@ -2343,10 +2343,11 @@ def test_sync_visuals_task_status_lifecycle(tmp_path, monkeypatch):
     assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["status"] == "pending"
     assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["progress"] == 0.0
 
-    # 2. 1 section authored -> running, 25%
+    # 2. 1 section authored -> stays pending with 0% (no live ExportTab
+    # progress for AI-authored visuals; counts flow via tool results).
     p.save_visuals_payload("proj_mcp", "introduction", [_text_cut("Intro")])
-    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["status"] == "running"
-    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["progress"] == 25.0
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["status"] == "pending"
+    assert db_calls["records"]["tasks"]["proj_mcp_generate_visuals"]["progress"] == 0.0
 
     # 3. All 4 sections authored -> completed, 100%
     p.save_visuals_payload("proj_mcp", "scene", [_text_cut("S1")], scene_index=0)

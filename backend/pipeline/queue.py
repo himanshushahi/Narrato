@@ -28,6 +28,14 @@ _PROPAGATE = {
     'render': set(),
 }
 
+# Realtime ExportTab bars animate ONLY for mechanical stages. AI-authored
+# stages (generate_script, generate_visuals) update the DB task row but skip
+# live onProgressUpdate pushes mid-run; their terminal completed/failed push
+# still fires so the UI flips to Done/Failed immediately.
+_LIVE_PROGRESS_STEPS = frozenset({
+    'generate_voiceover', 'transcribe', 'fetch_assets', 'render',
+})
+
 
 def resolve_steps_to_queue(pipeline_steps, completed_steps, is_stale_fn, forced_steps=None):
     """Pure step-resolution for Smart Resume (unit-testable, no DB/file IO).
@@ -285,7 +293,11 @@ class QueueManager:
 
                     task_id = f"{project_id}_{step}"
                     update_task(task_id, status='running', progress=0.0, message='Starting...')
-                    self._broadcast_task_progress(project_id, step, 0.0, 'Starting...', 'running')
+                    # No live bar for AI-authored stages (script/visuals):
+                    # DB row still flips to running; terminal push below
+                    # flips it to Done/Failed.
+                    if step in _LIVE_PROGRESS_STEPS:
+                        self._broadcast_task_progress(project_id, step, 0.0, 'Starting...', 'running')
 
                     try:
                         # Run the specific pipeline step
@@ -397,6 +409,10 @@ class QueueManager:
         def make_progress_callback(s):
             def cb(pct, msg=None):
                 update_task(f"{project_id}_{s}", progress=pct)
+                # AI-authored stages write DB progress only — no live push,
+                # so ExportTab never animates script/visuals bars.
+                if s not in _LIVE_PROGRESS_STEPS:
+                    return
                 msg_str = msg if msg else f"Processing... {pct:.0f}%"
                 self._broadcast_task_progress(project_id, s, pct, msg_str, "running")
             return cb

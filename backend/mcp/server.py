@@ -180,11 +180,23 @@ def _notify_ui_project_event(event_type: str, project_id: str | None = None,
         pass
 
 
+# Realtime ExportTab progress is reserved for mechanical stages only.
+# AI-authored stages (generate_script, generate_visuals) surface completion
+# via project_updated refetches — never via onProgressUpdate animation.
+_LIVE_PROGRESS_STAGES = frozenset({
+    "generate_voiceover", "transcribe", "fetch_assets", "render",
+})
+
+
 def _notify_ui_progress(project_id: str, step: str, progress: float,
                         message: str, status: str,
                         error_message: str | None = None) -> None:
     """Best-effort realtime stage progress push (same channel as manual runs).
 
+    LIVE-PROGRESS ALLOWLIST: only mechanical stages animate ExportTab bars —
+    generate_voiceover, transcribe, fetch_assets, render. AI-authored stages
+    (generate_script, generate_visuals) never push here; their completion is
+    still surfaced via the project_updated refetch + terminal task-row state.
     The desktop queue worker broadcasts every progress_cb call via
     ``global_queue_manager._broadcast_task_progress`` -> ``onProgressUpdate``,
     which is what animates ExportTab bars. MCP stages previously only sent
@@ -199,6 +211,8 @@ def _notify_ui_progress(project_id: str, step: str, progress: float,
     register; undrained in a detached process, like the pre-existing
     throttled project_updated puts). Never raises.
     """
+    if (step or "") not in _LIVE_PROGRESS_STAGES:
+        return
     try:
         from backend.pipeline.queue import global_queue_manager
         callbacks = getattr(global_queue_manager, "_progress_callbacks", [])

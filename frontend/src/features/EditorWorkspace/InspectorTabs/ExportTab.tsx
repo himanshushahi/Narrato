@@ -9,6 +9,13 @@ import { PIPELINE_STAGES } from '../../ProjectEditor/constants';
 import { Task, useProjectStore } from '../../../store/useProjectStore';
 import { AgentChat } from '../components/AgentChat';
 
+// Live progress bars animate ONLY for mechanical stages (voiceover,
+// transcription, asset fetch, render). AI-authored stages (generate_script,
+// generate_visuals) show Waiting until they flip to Done — never a %.
+const LIVE_PROGRESS_STAGES = new Set([
+  'generate_voiceover', 'transcribe', 'fetch_assets', 'render',
+]);
+
 interface ExportTabProps {
   tasks: Record<string, Task>;
   queue: { active: string | null; queued: string[] };
@@ -74,7 +81,12 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
 
   const renderStage = (stage: typeof PIPELINE_STAGES[0], idx: number) => {
     const task = tasks[stage.id];
-    const isRunningStage = isRunning && (activeTaskStep?.step === stage.id || task?.status === 'running');
+    const isLiveStage = LIVE_PROGRESS_STAGES.has(stage.id);
+    // AI-authored stages never show a live bar — only Done/Failed/Waiting.
+    // While the pipeline runs they show a neutral Working spinner; a task
+    // stuck running with an idle pipeline still reports Failed (all stages).
+    const isRunningStage = isLiveStage && isRunning && (activeTaskStep?.step === stage.id || task?.status === 'running');
+    const isAuthoring = !isLiveStage && isRunning && task?.status === 'running';
     const isCompleted = task?.status === 'completed';
     const isPaused = task?.status === 'paused';
     const isFailed = task?.status === 'failed' || (!isRunning && task?.status === 'running');
@@ -117,6 +129,10 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
             <div className="w-[18px] h-[18px] rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 flex items-center justify-center animate-pulse">
               <VscLoading className="text-[9px] animate-spin" />
             </div>
+          ) : isAuthoring ? (
+            <div className="w-[18px] h-[18px] rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 flex items-center justify-center">
+              <VscLoading className="text-[9px] animate-spin" />
+            </div>
           ) : isPaused ? (
             <div className="w-[18px] h-[18px] rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center">
               <VscError className="text-[9px]" />
@@ -147,7 +163,7 @@ const ExportTabInner: React.FC<ExportTabProps> = ({
               isFailed ? 'bg-red-500/10 text-red-400 border-red-500/20' :
                 'bg-zinc-900 text-zinc-600 border-zinc-800'
             }`}>
-            {isCompleted ? 'Done' : isRunningStage ? `${progress.toFixed(0)}%` : isPaused ? 'Paused — offline' : isFailed ? 'Failed' : 'Waiting'}
+            {isCompleted ? 'Done' : isRunningStage ? `${progress.toFixed(0)}%` : isPaused ? 'Paused — offline' : isFailed ? 'Failed' : isAuthoring ? 'Working' : 'Waiting'}
           </span>
         </div>
 

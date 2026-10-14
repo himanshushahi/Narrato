@@ -1414,7 +1414,11 @@ def _sync_visuals_task_status(project_id: str, proj_dir: Path, manifest: list | 
 
     When all sections have meaningful sub_visuals (not just blank placeholders),
     generate_visuals is marked 'completed' (progress 100.0).
-    When partially authored, it is marked 'running' with proportional progress.
+    Partially-authored states stay 'pending' with progress 0.0 — AI-authored
+    stages (script/visuals) deliberately emit NO realtime progress. Only the
+    mechanical stages (generate_voiceover, transcribe, fetch_assets, render)
+    animate ExportTab bars via onProgressUpdate. The completed/total counts
+    are still returned so save_visuals tool responses can report "3/28 saved".
     When none are authored, it is left or set to 'pending'.
     """
     if manifest is None:
@@ -1463,12 +1467,14 @@ def _sync_visuals_task_status(project_id: str, proj_dir: Path, manifest: list | 
                 error_message=None,
             )
         elif completed > 0:
-            pct = round((completed / total) * 100.0, 1)
+            # No live progress for AI authoring: keep the row pending (0%)
+            # so ExportTab shows Waiting until Done. Counts still flow back
+            # via the save_visuals tool result + TopBar "AUTHORING ... x/y".
             _db.update_task(
                 task_id,
-                status="running",
-                progress=pct,
-                message=f"Authoring visuals via MCP: {completed}/{total} sections saved.",
+                status="pending",
+                progress=0.0,
+                message=f"Authored {completed}/{total} sections via MCP.",
                 error_message=None,
             )
         else:
