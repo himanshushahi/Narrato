@@ -206,13 +206,24 @@ class QueueManager:
     def cancel_project(self, project_id):
         """Cancels a project if it's currently processing or removes it from queue."""
         logger.info(f"Cancellation request received for project: {project_id}")
-        
+
         # 1. If active, trigger cancel event
         if project_id in self._cancel_events:
             self._cancel_events[project_id].set()
 
         # 2. Remove from queue if waiting
         self._queue = [q for q in self._queue if q[0] != project_id]
+
+        # 2b. Drop staged idempotency keys: a cancelled run must never
+        # promote on a later completion (the worker also drops them on
+        # failure/cancel paths; this covers queued-never-ran entries).
+        try:
+            from backend.mcp.payloads import clear_pending_idempotency
+            for _step in ("generate_voiceover", "transcribe", "fetch_assets",
+                          "render"):
+                clear_pending_idempotency(project_id, _step)
+        except Exception:
+            pass
         
         # 3. Mark database statuses
         update_project(project_id, status='cancelled')
@@ -308,6 +319,11 @@ class QueueManager:
                         update_task(task_id, status='completed', progress=100.0, message='Step completed.')
                         self._broadcast_task_progress(project_id, step, 100.0, 'Step completed.', 'completed')
                         try:
+                            from backend.mcp.payloads import consume_pending_idempotency
+                            consume_pending_idempotency(project_id, step, True)
+                        except Exception:
+                            pass
+                        try:
                             from backend.mcp.server import _notify_ui_project_event
                             _notify_ui_project_event("project_updated", project_id, files_changed=True)
                         except Exception:
@@ -316,6 +332,11 @@ class QueueManager:
                         logger.warning(f"Step {step} interrupted/cancelled.")
                         update_task(task_id, status='failed', progress=0.0, error_message='Step cancelled by user.', message='Cancelled')
                         self._broadcast_task_progress(project_id, step, 0.0, 'Cancelled', 'failed')
+                        try:
+                            from backend.mcp.payloads import consume_pending_idempotency
+                            consume_pending_idempotency(project_id, step, False)
+                        except Exception:
+                            pass
                         success = False
                         break
                     except Exception as e:
@@ -347,6 +368,11 @@ class QueueManager:
                         cur_prog = task_rec['progress'] if task_rec else 0.0
                         self._broadcast_task_progress(project_id, step, cur_prog, f'{"Paused" if net_paused else "Failed"}: {err_msg[:80]}...', new_status,
                                                       error_message=err_msg, error_code=error_code)
+                        try:
+                            from backend.mcp.payloads import consume_pending_idempotency
+                            consume_pending_idempotency(project_id, step, False)
+                        except Exception:
+                            pass
 
                         success = False
                         if net_paused:

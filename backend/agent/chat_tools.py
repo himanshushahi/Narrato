@@ -538,6 +538,20 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
         ok = global_queue_manager.queue_project(project_id, [stage])
         if not ok:
             return {"ok": False, "stage": stage, "error": "Queue rejected the stage (already queued?)."}
+        # wait=false returns before the worker finishes: stage the
+        # idempotency key now; the worker promotes it on completion
+        # (failures/cancels drop it). Keyless submits clear the slot.
+        if idem_key:
+            try:
+                _payloads.stage_pending_idempotency(project_id, stage, idem_key,
+                                                   content_hash)
+            except Exception:
+                pass
+        else:
+            try:
+                _payloads.clear_pending_idempotency(project_id, stage)
+            except Exception:
+                pass
         try:
             from backend.mcp.server import _notify_ui_project_event
             _notify_ui_project_event("project_updated", project_id, files_changed=False)

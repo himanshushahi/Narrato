@@ -3704,7 +3704,7 @@ def check_idempotency(project_id: str, stage: str, key: str,
         return None
     try:
         rec = _db.get_setting(
-            f"idempotency:{project_id}:{stage}:{(key or '').strip()}")
+            f"idempotency:{project_id}:{stage}:{(key or '').strip()[:128]}")
     except Exception:
         return None
     if isinstance(rec, dict) and rec.get("content_hash") == content_hash:
@@ -3720,7 +3720,7 @@ def record_idempotency(project_id: str, stage: str, key: str,
     import datetime as _dt
     try:
         _db.update_settings({
-            f"idempotency:{project_id}:{stage}:{(key or '').strip()}": {
+            f"idempotency:{project_id}:{stage}:{(key or '').strip()[:128]}": {
                 "content_hash": content_hash,
                 "status": status,
                 "recorded_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
@@ -3728,6 +3728,76 @@ def record_idempotency(project_id: str, stage: str, key: str,
         })
     except Exception as e:
         logger.warning(f"idempotency record failed: {e}")
+
+
+# ── Background-completion promotion (wait=false chat/agent submits) ──
+# wait=false returns before the worker finishes, so the tool call site can
+# never record completion. Instead the submit stages a *pending* entry and
+# the queue worker promotes it on step completion (or drops it on
+# failure/cancel). Keyless submits clear the slot so a later keyed
+# completion can never promote a stale key.
+
+def _pending_idem_name(project_id: str, stage: str) -> str:
+    return f"idempotency_pending:{project_id}:{stage}"
+
+
+def stage_pending_idempotency(project_id: str, stage: str, key: str,
+                              content_hash: str) -> None:
+    """Stage a pending key at submit time (wait=false)."""
+    if not (key or "").strip():
+        return
+    import datetime as _dt
+    try:
+        _db.update_settings({
+            _pending_idem_name(project_id, stage): {
+                "key": (key or "").strip()[:128],
+                "content_hash": content_hash,
+                "staged_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            }
+        })
+    except Exception as e:
+        logger.warning(f"idempotency stage failed: {e}")
+
+
+def clear_pending_idempotency(project_id: str, stage: str) -> None:
+    """Drop a stale pending slot (keyless submit, cancel paths)."""
+    try:
+        _db.update_settings({_pending_idem_name(project_id, stage): None})
+    except Exception as e:
+        logger.warning(f"idempotency clear failed: {e}")
+
+
+def consume_pending_idempotency(project_id: str, stage: str,
+                                success: bool) -> None:
+    """Promote (success) or drop (failure/cancel) the pending key.
+
+    Best-effort queue-worker hook: never raises, never blocks the pipeline.
+    On success the script hash is re-verified so a mid-run edit (possible
+    via the desktop app path, which shares this worker) invalidates rather
+    than mis-records.
+    """
+    name = _pending_idem_name(project_id, stage)
+    try:
+        pending = _db.get_setting(name)
+    except Exception as e:
+        logger.warning(f"idempotency consume read failed: {e}")
+        return
+    if not isinstance(pending, dict) or not (pending.get("key") or "").strip():
+        return
+    try:
+        if success:
+            try:
+                current = _script_content_hash(_project_dir(project_id))
+            except Exception:
+                current = ""
+            if current and current == pending.get("content_hash"):
+                record_idempotency(project_id, stage, pending["key"],
+                                   pending["content_hash"], "completed")
+            else:
+                logger.info("idempotency pending dropped (content changed mid-run).")
+        _db.update_settings({name: None})
+    except Exception as e:
+        logger.warning(f"idempotency consume failed: {e}")
 
 
 # ── Cost preview (estimate before billable/long stages) ──────────────

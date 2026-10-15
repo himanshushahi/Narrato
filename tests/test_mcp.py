@@ -2064,6 +2064,40 @@ def test_idempotency_record_and_replay(monkeypatch):
     assert payloads.check_idempotency("p", "render", "", "abc") is None
 
 
+def test_pending_idempotency_promote_and_drop(tmp_path, monkeypatch):
+    """wait=false lifecycle: stage → promote on success, drop on failure."""
+    from backend.database import db as db_mod
+    store = {}
+    monkeypatch.setattr(db_mod, "get_setting", lambda k: store.get(k))
+    monkeypatch.setattr(db_mod, "update_settings", lambda d: store.update(d))
+    _patch_storage(monkeypatch, tmp_path)
+    proj_dir = tmp_path / "pp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps({"title": "T"}), encoding="utf-8")
+    content_hash = payloads._script_content_hash(proj_dir)
+    payloads.stage_pending_idempotency("pp", "transcribe", "k1", content_hash)
+    assert "idempotency_pending:pp:transcribe" in store
+    payloads.consume_pending_idempotency("pp", "transcribe", True)
+    hit = payloads.check_idempotency("pp", "transcribe", "k1", content_hash)
+    assert hit is not None and hit["status"] == "completed"
+    assert store.get("idempotency_pending:pp:transcribe") is None
+    # Failure drops without recording.
+    payloads.stage_pending_idempotency("pp", "transcribe", "k2", content_hash)
+    payloads.consume_pending_idempotency("pp", "transcribe", False)
+    assert payloads.check_idempotency("pp", "transcribe", "k2", content_hash) is None
+    assert store.get("idempotency_pending:pp:transcribe") is None
+    # Mid-run content change invalidates instead of mis-recording.
+    payloads.stage_pending_idempotency("pp", "transcribe", "k3", content_hash)
+    (proj_dir / "script.json").write_text(json.dumps({"title": "CHANGED"}),
+                                          encoding="utf-8")
+    payloads.consume_pending_idempotency("pp", "transcribe", True)
+    assert payloads.check_idempotency("pp", "transcribe", "k3", "anything") is None
+    # Keyless submit clears a stale slot.
+    payloads.stage_pending_idempotency("pp", "transcribe", "k4", "h")
+    payloads.clear_pending_idempotency("pp", "transcribe")
+    assert store.get("idempotency_pending:pp:transcribe") is None
+
+
 # ── clear_visuals / clear_assets ────────────────────────────────────
 
 def _seed_cuts_with_assets(tmp_path, monkeypatch):
@@ -2929,6 +2963,38 @@ def test_chat_run_stage_idempotency_replays(tmp_path, monkeypatch):
         {"stage": "generate_voiceover", "wait": True, "idempotency_key": "k1"},
         "p1")
     assert res.get("ok") is True and res.get("replayed") is True
+
+
+def test_chat_wait_false_stages_pending_then_replays(tmp_path, monkeypatch):
+    """wait=false submit stages the key; worker completion enables replay."""
+    from backend.agent import chat_tools
+    from backend.database import db as db_mod
+    _patch_storage(monkeypatch, tmp_path)
+    proj_dir = tmp_path / "p2"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps({"title": "T"}), encoding="utf-8")
+    store = {}
+    monkeypatch.setattr(db_mod, "get_setting", lambda k: store.get(k))
+    monkeypatch.setattr(db_mod, "update_settings", lambda d: store.update(d))
+    from backend.pipeline.queue import global_queue_manager
+    monkeypatch.setattr(global_queue_manager, "queue_project",
+                        lambda pid, steps: True)
+    monkeypatch.setattr(global_queue_manager, "_active_project_id", None,
+                        raising=False)
+    monkeypatch.setattr(global_queue_manager, "_queue", [], raising=False)
+    submitted = chat_tools._stage_via_queue(
+        "run_stage",
+        {"stage": "transcribe", "wait": False, "idempotency_key": "k9"},
+        "p2")
+    assert submitted.get("ok") is True and submitted.get("status") == "submitted"
+    assert store.get("idempotency_pending:p2:transcribe", {}).get("key") == "k9"
+    # Worker finishes the step → promotion → repeat submit replays.
+    payloads.consume_pending_idempotency("p2", "transcribe", True)
+    replay = chat_tools._stage_via_queue(
+        "run_stage",
+        {"stage": "transcribe", "wait": False, "idempotency_key": "k9"},
+        "p2")
+    assert replay.get("ok") is True and replay.get("replayed") is True
 
 
 
