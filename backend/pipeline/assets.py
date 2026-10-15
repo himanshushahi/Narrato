@@ -266,11 +266,22 @@ def is_visuals_stale(project_dict, project_dir):
         return True
 
 def _collect_local_paths(node, paths):
+    def _is_remote(p):
+        return isinstance(p, str) and p.startswith(("data:", "http://", "https://", "blob:"))
+
     if isinstance(node, dict):
         if "local_path" in node and node["local_path"]:
             paths.append(node["local_path"])
         if "visual_path" in node and node["visual_path"]:
             paths.append(node["visual_path"])
+        # Global overlays (e.g. watermark logo_url) store project-local files
+        # under assets/overlay_*. Without this, deleting a watermark leaves
+        # its image orphaned on disk forever. Remote/data URLs are never local
+        # files — skipping them keeps is_assets_stale from false-positiving.
+        if "logo_url" in node and node["logo_url"] and not _is_remote(node["logo_url"]):
+            paths.append(node["logo_url"])
+        if "asset_path" in node and node["asset_path"] and not _is_remote(node["asset_path"]):
+            paths.append(node["asset_path"])
         for v in node.values():
             _collect_local_paths(v, paths)
     elif isinstance(node, list):
@@ -2324,9 +2335,41 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
         except Exception:
             pass
 
+    # Global watermark channel presets (app settings) may reference a logo
+    # file inside THIS project's assets/ as their source image. Preserve such
+    # files so deleting a watermark never breaks a saved preset.
+    try:
+        from backend.database.db import get_setting as _get_setting
+        _presets = _get_setting("watermark_channel_presets")
+        if isinstance(_presets, list):
+            _assets_resolved = None
+            try:
+                _assets_resolved = str(assets_dir.resolve())
+            except Exception:
+                _assets_resolved = str(assets_dir)
+            for _p in _presets:
+                if isinstance(_p, dict) and _p.get("logo_url"):
+                    _lu = str(_p["logo_url"])
+                    if _lu.startswith(("data:", "http://", "https://", "blob:")):
+                        continue
+                    try:
+                        _lu_resolved = str(Path(_lu).resolve())
+                    except Exception:
+                        _lu_resolved = _lu
+                    # Only protect files that live in this project's assets/.
+                    if _lu_resolved == _assets_resolved or _lu_resolved.startswith(_assets_resolved + os.sep):
+                        kept_paths.append(_lu)
+                    elif _lu.replace("\\", "/").startswith(str(assets_dir).replace("\\", "/")):
+                        kept_paths.append(_lu)
+    except Exception:
+        pass
+
     kept_paths_set = set()
     for p in kept_paths:
         if p and isinstance(p, str):
+            # Skip remote/data URLs — they never match a local file.
+            if p.startswith(("data:", "http://", "https://", "blob:")):
+                continue
             try:
                 kept_paths_set.add(os.path.normcase(str(Path(p).resolve())))
             except Exception:
@@ -2340,6 +2383,7 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
             stem.startswith("asset_")
             or stem.startswith("preview_")
             or stem.startswith("upload_")
+            or stem.startswith("overlay_")
         )
 
     def _reconcile_file(file_path, deleted_files, preserved_files):
@@ -2364,7 +2408,7 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
             if not file_path.is_file():
                 continue
             # Only clean up managed files (promoted assets, legacy previews,
-            # upload copies) — never touch overlays, fonts, or user files.
+            # upload copies, overlay uploads) — never touch fonts or user files.
             if not _managed_stem(file_path.stem):
                 continue
             _reconcile_file(file_path, deleted_files, preserved_files)

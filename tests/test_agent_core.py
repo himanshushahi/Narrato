@@ -1143,6 +1143,77 @@ def test_cleanup_removed_assets_case_insensitive(tmp_path, monkeypatch):
     assert kept_file.exists()
 
 
+def test_cleanup_removed_assets_overlay_reconciliation(tmp_path, monkeypatch):
+    """Watermark overlay images (assets/overlay_*) are reconciled: logos still
+    referenced by script.json survive, deleted watermarks purge their image on
+    the next save, and unrelated user files are never touched."""
+    import json
+    from backend.pipeline.assets import cleanup_removed_assets
+
+    proj_id = "test-proj-overlay"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: {"id": pid, "assets_manifest_path": str(tmp_path / pid / "assets_manifest.json")})
+    monkeypatch.setattr("backend.database.db.get_setting", lambda key: [])
+
+    proj_dir = tmp_path / proj_id
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    referenced_logo = assets_dir / "overlay_100.png"
+    referenced_logo.write_bytes(b"logo")
+    orphaned_logo = assets_dir / "overlay_200.png"
+    orphaned_logo.write_bytes(b"old watermark")
+    user_file = assets_dir / "myfont.ttf"
+    user_file.write_bytes(b"font")
+
+    script = {"overlays": [{"id": "w1", "type": "watermark", "logo_url": str(referenced_logo)}], "scenes": []}
+    (proj_dir / "script.json").write_text(json.dumps(script), encoding="utf-8")
+
+    res = cleanup_removed_assets(proj_id, [])
+    assert res["success"] is True
+    assert referenced_logo.exists(), "Referenced watermark logo must be preserved"
+    assert not orphaned_logo.exists(), "Orphaned watermark image must be purged"
+    assert user_file.exists(), "Unrelated user files must never be touched"
+
+    # Deleting the watermark releases its image for cleanup on the next save.
+    (proj_dir / "script.json").write_text(json.dumps({"overlays": [], "scenes": []}), encoding="utf-8")
+    cleanup_removed_assets(proj_id, [])
+    assert not referenced_logo.exists(), "Deleted watermark's image must be purged"
+
+
+def test_cleanup_preserves_preset_referenced_overlay(tmp_path, monkeypatch):
+    """A watermark channel preset referencing a logo inside this project's
+    assets/ keeps the file alive even after the watermark itself is deleted;
+    removing the preset releases it."""
+    import json
+    from backend.pipeline.assets import cleanup_removed_assets
+
+    proj_id = "test-proj-preset-logo"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: {"id": pid, "assets_manifest_path": str(tmp_path / pid / "assets_manifest.json")})
+
+    proj_dir = tmp_path / proj_id
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    preset_logo = assets_dir / "overlay_preset.png"
+    preset_logo.write_bytes(b"preset logo")
+    (proj_dir / "script.json").write_text(json.dumps({"overlays": [], "scenes": []}), encoding="utf-8")
+
+    monkeypatch.setattr("backend.database.db.get_setting", lambda key: (
+        [{"id": "p1", "name": "Chan", "channel_name": "Chan", "logo_url": str(preset_logo)}]
+        if key == "watermark_channel_presets" else []
+    ))
+
+    cleanup_removed_assets(proj_id, [])
+    assert preset_logo.exists(), "Preset-referenced logo must survive watermark deletion"
+
+    # Removing the preset releases the file.
+    monkeypatch.setattr("backend.database.db.get_setting", lambda key: [])
+    cleanup_removed_assets(proj_id, [])
+    assert not preset_logo.exists(), "Unreferenced overlay must purge once preset is gone"
+
+
 def test_is_assets_stale_fallback(tmp_path):
     """is_assets_stale correctly resolves manifest in voiceover/manifest.json when assets/assets_manifest.json does not exist."""
     from backend.pipeline.assets import is_assets_stale
