@@ -88,12 +88,13 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
 
 const STAGE_ORDER = [
   'create_project (+ list_voice_options → ask topic/style-hint/format/duration/language/export/voice)',
-  'save_script',
+  'save_script (patch_script for single-section fixes)',
   'run_stage(generate_voiceover) → run_stage(transcribe)',
   'get_section_timings + save_design + save_visuals (brief-first skills)',
   'run_stage(fetch_assets)',
   'review_frame(composition) per section AFTER fetch_assets → patch bad cuts (re-fetch if new query)',
-  'STOP for human review → run_stage(render, confirm_render=true)',
+  'qa_gate (must pass) + get_receipt → STOP for human review → run_stage(render, confirm_render=true)',
+  'review_frame(mode=render) spot-check of the finished mp4',
 ];
 
 const RULES_WHILE_RUNNING = [

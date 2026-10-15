@@ -1861,12 +1861,14 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
                     "Render is gated by human review. Do NOT render yet. "
                     "Instead: (1) confirm fetch_assets completed, "
                     "(2) run review_frame(mode=composition) per section and fix bad cuts "
-                    "(re-fetch if a fix adds a new query), "
-                    "(3) summarize the build for the user (title, scenes, "
-                    "voice, design, review_frame highlights), "
-                    "(4) ask them to review/edit in the app, and "
-                    "(5) only re-call run_stage(render) with confirm_render=true "
-                    "after they explicitly approve.")}
+                    "(re-fetch if a fix adds a new query; narration typos via patch_script), "
+                    "(3) run qa_gate — never render when it fails, "
+                    "(4) summarize the build for the user (title, scenes, "
+                    "voice, design, review_frame highlights, qa_gate verdict, get_receipt id), "
+                    "(5) ask them to review/edit in the app, and "
+                    "(6) only re-call run_stage(render) with confirm_render=true "
+                    "after they explicitly approve. After render, spot-check with "
+                    "review_frame(mode=render).")}
     try:
         if not _db.get_project(project_id):
             return {"ok": False, "error": f"Project {project_id!r} not found."}
@@ -1876,7 +1878,8 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
 
     # Idempotency pre-check: same key + stage + script content already ran
     # → replay instead of re-running (never resubmit a completed render).
-    idem_key = (idempotency_key or "").strip()
+    # Keys are capped: the settings-table store is unbounded per project.
+    idem_key = (idempotency_key or "").strip()[:128]
     content_hash = ""
     if idem_key:
         try:
@@ -2635,12 +2638,19 @@ already explicitly specified in the user's request):
     adds a NEW Image/Video query, re-run fetch_assets then re-review that
     cut (composition renders the downloaded files). A section is done only
     after a post-fetch review pass with named fixes — never first-pass,
-    never pre-fetch.
-13. STOP. Do not render. Summarize the build (title, scene count, voice,
-    design, review_frame highlights) and ask the user to review/edit in
+    never pre-fetch. Narration typos/single-beat fixes go through
+    patch_script (surgical, keeps audio/assets/visuals) — save_script is
+    for structural rewrites only.
+13. STOP. Do not render. Run qa_gate (fail-closed: never render when it
+    fails) and summarize the build (title, scene count, voice,
+    design, review_frame highlights, qa_gate verdict, get_receipt id) and
+    ask the user to review/edit in
     the app. Only after explicit approval: run_stage(render,
-    confirm_render=true, wait=false) → sleep(60) → stage_status → video_path.
-    (review_frame on the mp4 for the final check)
+    confirm_render=true, wait=false, idempotency_key="<unique-per-build>")
+    → sleep(60) → stage_status → video_path.
+    After render completes: spot-check the finished file with
+    review_frame(mode=render, scope=section) per section before declaring
+    done — that reads exact mp4 pixels, not the pre-render composition.
 
 ## Gotchas
 - Scene pacing: a scene is a short visual beat (~7-12s, exact in outline_targets), NOT a 60-second

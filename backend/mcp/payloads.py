@@ -3544,12 +3544,17 @@ def qa_gate_payload(project_id: str) -> dict:
             else f"sections without cuts: {empty_sections}"))
     # 6. assets fetched: every media layer resolves to an existing file.
     layers = _walk_media_layers(document)
+
+    def _layer_missing(layer: dict) -> bool:
+        raw = (layer.get("local_path") or "").strip()
+        if not raw:
+            return True
+        p = Path(raw)
+        return not (p.is_file() if p.is_absolute()
+                    else (proj_dir / raw).is_file())
+
     missing_assets = [f"S{l.get('scene_number') or '-'}C{l['cut_number']}L{l['layer_index']}:{l['query'][:40]}"
-                      for l in layers
-                      if not (l.get("local_path") and
-                              (proj_dir / l["local_path"]).is_file()
-                              if not Path(l.get("local_path") or "").is_absolute()
-                              else Path(l.get("local_path")).is_file())]
+                      for l in layers if _layer_missing(l)]
     _check("assets_fetched", "critical", not missing_assets,
            (f"{len(layers)} media layers, all downloaded" if not missing_assets
             else f"{len(missing_assets)} missing: {missing_assets[:5]}"))

@@ -2809,4 +2809,78 @@ def test_save_visuals_divergent_counts_still_visible(tmp_path, monkeypatch):
     assert script_after["scenes"][0]["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "NEW"
 
 
+# ── discovery catalog sync + chat-agent parity ───────────────────────
+
+def test_tool_catalog_matches_live_tools():
+    """_TOOL_CATALOG must never drift from the registered tools (Phase 3+)."""
+    import asyncio
+    from backend.mcp import server
+    live = sorted(t.name for t in asyncio.run(server.mcp.list_tools()))
+    catalog = sorted(e["name"] for e in server._TOOL_CATALOG)
+    assert catalog == live
+    core = server.search_tools()
+    assert core["ok"] is True
+    assert {t["name"] for t in core["core_tools"]} == set(server._CORE_TOOL_NAMES)
+
+
+def test_chat_schema_covers_all_mcp_tools():
+    """The in-app chat agent must offer every MCP tool (same names + args)."""
+    import asyncio
+    from backend.agent import chat_tools
+    from backend.mcp import server
+    live = {t.name for t in asyncio.run(server.mcp.list_tools())}
+    chat = set(chat_tools.CHAT_TOOL_NAMES)
+    assert live <= chat, f"chat missing: {sorted(live - chat)}"
+
+
+def test_chat_guards_mirror_mcp_stage_lock():
+    """Every MCP stage-guarded mutating tool must be guarded in chat too."""
+    from backend.agent import chat_tools
+    for name in ("save_script", "patch_script", "save_design", "save_visuals",
+                 "save_visuals_batch", "clear_visuals", "clear_assets",
+                 "delete_project", "update_voice_settings",
+                 "update_transcribe_settings", "update_subtitle_settings"):
+        assert name in chat_tools._CHAT_GUARDED_TOOLS, name
+
+
+def test_chat_dispatch_routes_new_tools():
+    """New tools dispatch (not 'Unknown chat tool'); skill gate still applies."""
+    from backend.agent import chat_tools
+    routed = chat_tools._dispatch(
+        "patch_script",
+        {"project_id": "proj_missing", "section_type": "scene",
+         "patch": {"narration": "x"}, "scene_number": 1}, "", None)
+    assert routed.get("ok") is False
+    assert "Unknown chat tool" not in str(routed)
+    found = chat_tools._dispatch("search_tools", {"query": "voice"}, "", None)
+    assert found.get("ok") is True
+    detail = chat_tools._dispatch("get_tool_details", {"name": "qa_gate"}, "", None)
+    assert detail.get("ok") is True and detail.get("group") == "stages/read"
+
+
+def test_chat_run_stage_idempotency_replays(tmp_path, monkeypatch):
+    """Same key+stage+content replays in chat without touching the queue."""
+    from backend.agent import chat_tools
+    from backend.database import db as db_mod
+    _patch_storage(monkeypatch, tmp_path)
+    proj_dir = tmp_path / "p1"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps({"title": "T"}), encoding="utf-8")
+    content_hash = payloads._script_content_hash(proj_dir)
+    store = {f"idempotency:p1:generate_voiceover:k1":
+             {"content_hash": content_hash, "status": "completed",
+              "recorded_at": "t"}}
+    monkeypatch.setattr(db_mod, "get_setting", lambda k: store.get(k))
+    monkeypatch.setattr(db_mod, "update_settings", lambda d: store.update(d))
+    from backend.pipeline.queue import global_queue_manager
+    monkeypatch.setattr(global_queue_manager, "queue_project",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("queue must not run on replay")))
+    res = chat_tools._stage_via_queue(
+        "run_stage",
+        {"stage": "generate_voiceover", "wait": True, "idempotency_key": "k1"},
+        "p1")
+    assert res.get("ok") is True and res.get("replayed") is True
+
+
 

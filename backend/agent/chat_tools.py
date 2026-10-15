@@ -71,6 +71,11 @@ def get_chat_tools_schema() -> List[Dict[str, Any]]:
                    "fix_or_pattern": _STR, "status": _STR}, ["skill_name", "title", "context", "observation", "fix_or_pattern"]),
         _func_def("save_script", "Validate + persist complete script {title, introduction:{hook}, scenes:[{title,narration}], conclusion:{summary,cta?}}.",
                   {"project_id": _PID, "script": _OBJ, "force": _BOOL}, ["script"]),
+        _func_def("patch_script", "Surgical single-section script fix (keeps design/audio/assets/visuals). "
+                   "introduction {hook}; scene {narration,title?} + scene_number (1-based) or scene_index; conclusion {summary,cta?}. "
+                   "Use for typos/single beats; save_script only for structural rewrites.",
+                  {"project_id": _PID, "section_type": _STR, "patch": _OBJ,
+                   "scene_index": _INT, "scene_number": _INT}, ["section_type", "patch"]),
         _func_def("get_script", "Read back script.json (ASTs stripped unless include_visuals).",
                   {"project_id": _PID, "include_visuals": _BOOL}, []),
         _func_def("save_design", "Validate + persist design system {theme_name,color_palette,typography,css_guidelines}.",
@@ -106,9 +111,10 @@ def get_chat_tools_schema() -> List[Dict[str, Any]]:
                    "scene_number": _INT, "cut_number": _INT, "scope": _STR, "mode": _STR, "max_cells": _INT}, []),
         _func_def("run_stage", "Execute mechanical stage: generate_voiceover|transcribe|fetch_assets|render. Render needs confirm_render=true. "
                    "Slow stages (generate_voiceover, transcribe, render) take minutes: use wait=true and await the result. "
-                   "Only use wait=false when the user wants to keep chatting meanwhile — then loop sleep→stage_status until completed.",
+                   "Only use wait=false when the user wants to keep chatting meanwhile — then loop sleep→stage_status until completed. "
+                   "Pass idempotency_key to guard repeat submits (same key+stage+content replays instead of re-running).",
                   {"project_id": _PID, "stage": {"type": "string", "enum": ["generate_voiceover", "transcribe", "fetch_assets", "render"]},
-                   "wait": _BOOL, "confirm_render": _BOOL}, ["stage"]),
+                   "wait": _BOOL, "confirm_render": _BOOL, "idempotency_key": _STR}, ["stage"]),
         _func_def("stage_status", "Poll a queued/background stage (task row).",
                   {"project_id": _PID, "stage": _STR}, ["stage"]),
         _func_def("cancel_stage", "Cancel a running queued stage.",
@@ -121,6 +127,20 @@ def get_chat_tools_schema() -> List[Dict[str, Any]]:
                   {"project_id": _PID, "settings": _OBJ}, ["settings"]),
         _func_def("update_transcribe_settings", "Change whisper model/device.",
                   {"project_id": _PID, "settings": _OBJ}, ["settings"]),
+        _func_def("update_subtitle_settings", "Change kinetic subtitle styling (fonts, colors, stroke, layouts). Render-only reset.",
+                  {"project_id": _PID, "settings": _OBJ}, ["settings"]),
+        _func_def("estimate_cost", "Dry-run time preview for remaining stages (no spend, no side effects).",
+                  {"project_id": _PID}, []),
+        _func_def("qa_gate", "Fail-closed publish gate — call BEFORE render. ok only when pacing/design/voiceover/captions/visuals/assets all pass. Do NOT render when ok is false.",
+                  {"project_id": _PID}, []),
+        _func_def("verify_stock", "File-truth stock check per Image/Video layer + source/license attribution. NOT a relevance check.",
+                  {"project_id": _PID}, []),
+        _func_def("get_receipt", "Video Receipt: input/output hashes + resume cursor + per-cut assets (deterministic receipt_id).",
+                  {"project_id": _PID}, []),
+        _func_def("search_tools", "Keyword-search the tool catalog. Empty query returns the core build-path tools; then get_tool_details(name) before calling.",
+                  {"query": _STR, "limit": _INT}, []),
+        _func_def("get_tool_details", "Blurb + group + usage hint for ONE tool (inspect before calling).",
+                  {"name": _STR}, ["name"]),
         _func_def("list_voice_options", "Voices/engines to offer the user before voiceover.", {}, []),
         _func_def("search_media", "Verify stock query resolves (pexels_photo|pexels_video|wikipedia_image|pixabay_photo|pixabay_video|youtube_video|archive_photo|archive_video). English queries only.",
                   {"source": _STR, "query": _STR, "orientation": _STR}, ["source", "query"]),
@@ -153,10 +173,13 @@ STAGE_SLEEP_SUGGESTIONS = {
 }
 
 # Mutating chat tools locked while a pipeline stage runs on the project.
+# Must mirror the MCP _refuse_if_stage_running coverage: every tool the MCP
+# server guards here must be guarded here too (different transports, same rule).
 _CHAT_GUARDED_TOOLS = frozenset({
-    "save_script", "save_design", "save_visuals", "save_visuals_batch",
+    "save_script", "patch_script", "save_design", "save_visuals", "save_visuals_batch",
     "clear_visuals", "clear_assets", "delete_project",
     "update_voice_settings", "update_transcribe_settings",
+    "update_subtitle_settings",
 })
 
 
@@ -277,7 +300,7 @@ def execute_chat_tool(tool_name: str, arguments: Dict[str, Any], default_project
         # model does not have to repeat it every call.
         if tool_name not in ("create_project", "list_projects", "list_skills", "get_skill",
                               "list_voice_options", "web_search", "append_skill_learning",
-                              "sleep"):
+                              "sleep", "search_tools", "get_tool_details"):
             args["project_id"] = default_project_id
 
     entry_id = emit_activity("tool", tool_name, json.dumps(args, ensure_ascii=False, default=str)[:300],
@@ -353,6 +376,11 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
     if tool_name == "save_script":
         return S.save_script(args.get("project_id", "") or default_project_id,
                              args.get("script", {}), force=_to_bool(args.get("force", False)))
+    if tool_name == "patch_script":
+        return S.patch_script(args.get("project_id", "") or default_project_id,
+                              args.get("section_type", ""), args.get("patch", {}),
+                              scene_index=_to_int_or_none(args.get("scene_index")),
+                              scene_number=_to_int_or_none(args.get("scene_number")))
     if tool_name == "get_script":
         return S.get_script(args.get("project_id", "") or default_project_id,
                             include_visuals=_to_bool(args.get("include_visuals", False)))
@@ -427,6 +455,22 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
     if tool_name == "update_transcribe_settings":
         return S.update_transcribe_settings(args.get("project_id", "") or default_project_id,
                                             args.get("settings", {}))
+    if tool_name == "update_subtitle_settings":
+        return S.update_subtitle_settings(args.get("project_id", "") or default_project_id,
+                                          args.get("settings", {}))
+    if tool_name == "estimate_cost":
+        return S.estimate_cost(args.get("project_id", "") or default_project_id)
+    if tool_name == "qa_gate":
+        return S.qa_gate(args.get("project_id", "") or default_project_id)
+    if tool_name == "verify_stock":
+        return S.verify_stock(args.get("project_id", "") or default_project_id)
+    if tool_name == "get_receipt":
+        return S.get_receipt(args.get("project_id", "") or default_project_id)
+    if tool_name == "search_tools":
+        return S.search_tools(query=args.get("query", "") or "",
+                              limit=_to_int(args.get("limit", 10), 10))
+    if tool_name == "get_tool_details":
+        return S.get_tool_details(args.get("name", ""))
     if tool_name == "list_voice_options":
         return S.list_voice_options()
     if tool_name == "search_media":
@@ -453,6 +497,26 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
         return {"ok": False, "error": f"stage must be one of {list(CHAT_RUNNABLE_STAGES)}."}
     if not project_id:
         return {"ok": False, "error": "project_id is required."}
+
+    # Idempotency mirrors MCP run_stage: same key+stage+script-content replays
+    # instead of re-running. wait=false completions land in the background
+    # worker (no hook there), so only wait=true completions are recorded here.
+    from backend.mcp import payloads as _payloads
+    idem_key = str(args.get("idempotency_key", "") or "").strip()[:128]
+    content_hash = ""
+    if idem_key:
+        try:
+            content_hash = _payloads._script_content_hash(
+                _payloads._project_dir(project_id))
+        except Exception:
+            content_hash = ""
+        prior = _payloads.check_idempotency(project_id, stage, idem_key,
+                                            content_hash)
+        if prior is not None and prior.get("status") == "completed":
+            return {"ok": True, "project_id": project_id, "stage": stage,
+                    "replayed": True, "idempotency_key": idem_key,
+                    "hint": "Identical key+stage+content already completed — "
+                            "replaying stored result instead of re-running."}
 
     if tool_name == "run_stage":
         wait = _to_bool(args.get("wait", True))
@@ -517,6 +581,12 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
                     if stage == "render":
                         try:
                             out["video_path"] = (_db.get_project(project_id) or {}).get("video_path")
+                        except Exception:
+                            pass
+                    if idem_key:
+                        try:
+                            _payloads.record_idempotency(project_id, stage, idem_key,
+                                                        content_hash, "completed")
                         except Exception:
                             pass
                     return out
