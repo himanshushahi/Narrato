@@ -1102,11 +1102,25 @@ def list_voice_options() -> dict:
     engine = _db.get_setting("tts_engine") or "edge"
     default_voice = _db.get_setting("tts_voice")
     profiles = _db.get_setting("xtts_profiles") or []
-    clone_profiles = [
-        {"id": p.get("id"), "name": p.get("name")}
-        for p in profiles
-        if isinstance(p, dict) and p.get("id")
-    ]
+    # Dedup by id (pass-through used to surface duplicate names like two
+    # "KIKI" rows with no way to tell them apart). Duplicate display names
+    # get a "(2)", "(3)" suffix so the agent can offer distinct choices.
+    seen_ids: set = set()
+    name_counts: dict = {}
+    clone_profiles = []
+    for p in profiles:
+        if not isinstance(p, dict) or not p.get("id"):
+            continue
+        pid = p.get("id")
+        if pid in seen_ids:
+            continue
+        seen_ids.add(pid)
+        raw_name = str(p.get("name") or pid)
+        n = name_counts.get(raw_name, 0) + 1
+        name_counts[raw_name] = n
+        label = raw_name if n == 1 else f"{raw_name} ({n})"
+        clone_profiles.append({"id": pid, "name": label})
+    last_used = _db.get_setting("tts_voice_last_used") or default_voice
     return {
         "ok": True,
         "engines": [
@@ -1123,6 +1137,8 @@ def list_voice_options() -> dict:
         "edge_suggestions": EDGE_VOICE_SUGGESTIONS,
         "clone_profiles": clone_profiles,
         "global_defaults": {"tts_engine": engine, "tts_voice": default_voice},
+        "last_used_voice": last_used,
+        "hint": "Offer clone_profiles by name AND id (names may repeat — ids are unique). No audio preview available yet; ask the user to pick by name.",
     }
 
 

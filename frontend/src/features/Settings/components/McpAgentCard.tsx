@@ -40,6 +40,7 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
       { name: 'list_voice_options', blurb: 'Engines + voices to offer you' },
       { name: 'update_voice_settings', blurb: 'Change voice/speed/music volume' },
       { name: 'update_transcribe_settings', blurb: 'Change whisper model/device' },
+      { name: 'update_subtitle_settings', blurb: 'Change subtitle styling (render-only reset)' },
       { name: 'get_transcription', blurb: 'Read word-level transcription & segments (section-scoped or global)' },
 
       { name: 'list_skills', blurb: 'Writing/visual guide catalogue' },

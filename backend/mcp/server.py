@@ -101,7 +101,7 @@ ASSET PIPELINE TIMING:
 VISUAL GENERATION CRITICAL GOTCHAS:
 - `content.type` is MANDATORY on every Layer's content -- missing it silently renders the scene null (no error, just blank).
 - Geometry SOT is `content.style` (INSIDE content). A `style` key placed as a sibling of `content` on the Layer node is IGNORED by the renderer — the server auto-hoists it into `content.style` with an auto_fixed warning, but always author `content.style` directly.
-- Map and Particles are ALWAYS fullscreen -- position/size ignored. Overlay Shape/Text layers on top for framing.
+- Map and Particles are ALWAYS fullscreen -- position/size ignored. Overlay Shape/Text layers on top for framing. (Background is also fullscreen.)
 - Image sources: pexels / pixabay / wikipedia / archive ONLY. NEVER youtube for Image.
 - Video sources: pexels / pixabay / youtube / archive ONLY. NEVER wikipedia for Video.
 - search_media accepts both generic (source="pexels") and qualified (source="pexels_photo"/"pexels_video") names; generic pexels/pixabay/archive resolve to _photo, youtube to _video, wikipedia to _image.
@@ -885,8 +885,11 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
                         learnings_parts.append(fb_t)
             except Exception:
                 pass
+            # No learnings logged yet: return ok:true empty instead of
+            # falling through to the generic alias error (which confused
+            # agents into thinking 'learnings' was an invalid section).
+            _record_skill_read(project_id, skill.name, section="Learnings")
             if learnings_parts:
-                _record_skill_read(project_id, skill.name, section="Learnings")
                 return {
                     "ok": True,
                     "name": skill.name,
@@ -894,6 +897,14 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
                     "section": "Learnings",
                     "content": "\n\n---\n\n".join(learnings_parts),
                 }
+            return {
+                "ok": True,
+                "name": skill.name,
+                "version": skill.version,
+                "section": "Learnings",
+                "content": "(No session learnings logged for this skill yet.)",
+                "empty": True,
+            }
 
         found = skill.render_section(section, **ctx)
         if not found:
@@ -2064,7 +2075,11 @@ def search_media(source: str, query: str, orientation: str = "landscape") -> dic
     Successful verifications are recorded session-wide: save_visuals reports
     any Image/Video query you did NOT verify here as unverified_queries.
     Aliases accepted: pexels/pixabay/wikipedia/youtube/archive (generic names
-    from the skills auto-resolve to the photo/video variant)."""
+    from the skills auto-resolve to the photo/video variant).
+    TYPE WARNING: generic `pexels`/`pixabay`/`archive` resolve to the PHOTO
+    variant — for a Video layer verify with `pexels_video`/`pixabay_video`/
+    `archive_video` instead, or the photo check will not prove footage exists.
+    The response echoes `resolved_source` so you can confirm the match."""
     resolved = _resolve_search_source(source)
     if resolved is None:
         return {"ok": False, "error": f"source must be one of {list(_SEARCH_SOURCES)} (aliases accepted: pexels, pixabay, wikipedia, youtube, archive). Got {source!r}."}
@@ -2081,7 +2096,8 @@ def search_media(source: str, query: str, orientation: str = "landscape") -> dic
     if isinstance(result, str) and result.startswith("Error"):
         return {"ok": False, "error": result}
     payloads.record_verified_query(query.strip())
-    return {"ok": True, "source": source, "query": query.strip(), "result": result}
+    return {"ok": True, "source": source, "resolved_source": source,
+            "query": query.strip(), "result": result}
 
 
 @mcp.tool()

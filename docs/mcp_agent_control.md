@@ -1,6 +1,6 @@
 # Narrato MCP Agent Control — Architecture & Developer Guide
 
-External coding agents (Claude Code, opencode, Cursor, Gemini CLI…) drive the full video pipeline through this **Model Context Protocol (MCP)** server: **33 tools + 1 resource + 1 prompt + 0 resource templates (by design)**, served over stdio or localhost Streamable HTTP. The server never calls an LLM and never needs an API key — the connected agent supplies all creative content (script prose, design systems, visual ASTs); the server validates and executes.
+External coding agents (Claude Code, opencode, Cursor, Gemini CLI…) drive the full video pipeline through this **Model Context Protocol (MCP)** server: **34 tools + 1 resource + 1 prompt + 0 resource templates (by design)**, served over stdio or localhost Streamable HTTP. The server never calls an LLM and never needs an API key — the connected agent supplies all creative content (script prose, design systems, visual ASTs); the server validates and executes.
 
 > **Internal-loop parity (why MCP visuals match app visuals):** the internal pipeline survives model mistakes via automatic correction turns, so `save_visuals`/`save_visuals_batch` do the same server-side: stray `z_index` keys are stripped, legacy `layers[]` shapes are best-effort converted (always reported in `auto_fixed`), and failures carry a machine-appliable `fix.retry_with` patch. Fix the JSON type and resubmit — never drop a layer kind to dodge a type error. Whole videos go through `save_visuals_batch` (3 calls: batch dry_run → re-dry-run fixed sections → batch persist; coverage is content-hashed, so edited-but-unvalidated content still earns the nudge) instead of 60-90 single-section calls. The batch `video_variety` rollup is the flat-video guard: `uniform_signature=true` or zero total energy cuts blocks nothing but must be fixed before rendering — per-section green is not video green.
 
@@ -52,7 +52,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 ---
 
-## 3. Tool inventory (33 tools, 1 resource, 1 prompt, 0 templates)
+## 3. Tool inventory (34 tools, 1 resource, 1 prompt, 0 templates)
 
 ### Project lifecycle
 | Tool | What it does |
@@ -71,6 +71,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 | `list_voice_options` | Engines + per-language Edge suggestions + clone profiles + global defaults — **so the agent asks instead of guessing** |
 | `update_voice_settings` | `tts_engine/voice/speed/pitch`, `bg_music_volume` (allowlisted; resets voiceover/transcribe/render only) |
 | `update_transcribe_settings` | `whisper_model/device` (validated against known + downloaded ids; reports `downloaded` flag + warning) |
+| `update_subtitle_settings` | Kinetic subtitle styling (fonts, colors, stroke, layouts; render-only reset) |
 | `get_transcription` | Read word-level transcription & segments (section-scoped or global) |
 
 | `list_skills` / `get_skill` | All 18 writing/visual guides (scriptwriter, visual-director-core, declarative-ast, …). Big skills are ~50KB: `brief=true` returns a section map first, `section="..."` (fuzzy title/subhead/number) pulls one part — never read a whole 50KB skill when a section will do |
