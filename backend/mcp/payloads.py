@@ -3325,6 +3325,373 @@ def get_transcription_payload(
     }
 
 
+# ── QA gate / stock verification / video receipts ───────────────────
+
+def _sha256_file(path) -> str:
+    """Hex sha256 of a file, or '' when missing/unreadable."""
+    import hashlib
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
+def _walk_media_layers(document: dict) -> list:
+    """Flat list of every Image/Video layer across intro/scenes/conclusion."""
+    out = []
+    sections = []
+    if isinstance(document.get("introduction"), dict):
+        sections.append(("introduction", None, document["introduction"]))
+    for i, scene in enumerate(document.get("scenes", []) or []):
+        if isinstance(scene, dict):
+            sections.append(("scene", i + 1, scene))
+    if isinstance(document.get("conclusion"), dict):
+        sections.append(("conclusion", None, document["conclusion"]))
+    for section_type, scene_number, sec in sections:
+        for ci, cut in enumerate(sec.get("sub_visuals", []) or []):
+            if not isinstance(cut, dict):
+                continue
+            comp = cut.get("composition") or {}
+            for li, layer in enumerate(comp.get("children", []) or []):
+                if not isinstance(layer, dict):
+                    continue
+                content = layer.get("content") or {}
+                ctype = str(content.get("type") or "")
+                if ctype not in ("Image", "Video"):
+                    continue
+                out.append({
+                    "section_type": section_type,
+                    "scene_number": scene_number,
+                    "cut_number": ci + 1,
+                    "layer_index": li,
+                    "layer_name": layer.get("name", ""),
+                    "media_type": ctype,
+                    "query": str(content.get("query") or ""),
+                    "source": str(content.get("source") or "pexels").lower(),
+                    "local_path": str(content.get("local_path") or ""),
+                    "asset_url": str(content.get("asset_url") or ""),
+                })
+    return out
+
+
+_LICENSE_NOTE = {
+    "pexels": "Pexels license (free use, app key BYOK)",
+    "pixabay": "Pixabay license (free use, app key BYOK)",
+    "wikipedia": "Wikimedia Commons (check per-file license on attribution page)",
+    "youtube": "YouTube (verify reuse rights for the clip before publishing)",
+    "archive": "archive.org (public domain / item license — verify per item)",
+}
+
+
+def verify_stock_payload(project_id: str) -> dict:
+    """File-truth stock check for every Image/Video layer (pre-VLM).
+
+    Reports existence + size + dimensions/duration per layer plus a
+    source/attribution rollup. Explicitly NOT a VLM relevance check — there
+    is no vision model in this pipeline, so `vision_verified` is always
+    False and relevance review stays with review_frame + the human gate.
+    """
+    from backend.mcp import probe as _probe
+    _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return {"ok": False, "error": "script.json not found. Use save_script first."}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read script.json: {e}"}
+    layers = _walk_media_layers(document)
+    items = []
+    missing = 0
+    for entry in layers:
+        info = _probe._file_info(entry["local_path"], proj_dir)
+        item = dict(entry)
+        item.update({
+            "exists": bool(info.get("exists")),
+            "size": info.get("size", -1),
+            "attribution": f"{entry['source']}: {entry['query']}".strip(": "),
+            "license_note": _LICENSE_NOTE.get(entry["source"],
+                                              "verify provider license before publishing"),
+        })
+        if "dimensions" in info:
+            item["dimensions"] = info["dimensions"]
+        if "duration" in info:
+            item["duration"] = info["duration"]
+        if not item["exists"]:
+            missing += 1
+        items.append(item)
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "vision_verified": False,
+        "vision_note": ("No VLM in this pipeline — relevance is reviewed via "
+                        "review_frame(mode=composition) + human gate, not here."),
+        "total_layers": len(items),
+        "missing": missing,
+        "layers": items,
+        "next_step": ("missing > 0 → run_stage(fetch_assets), then re-verify. "
+                      "All present → review_frame per section."),
+    }
+
+
+def qa_gate_payload(project_id: str) -> dict:
+    """Fail-closed publish gate. ok=True ONLY when every critical check passes.
+
+    Measured checks only — this repo has no LUFS/loudnorm infra
+    (render mixes voice 1.0 / music ~0.15 flat, amix normalize=0), so loudness
+    is reported as mix defaults, not measured LUFS. Resolution is the
+    pipeline canvas (1920x1080 landscape / 1080x1920 portrait), not probed
+    pixels. Do NOT render when ok=False.
+    """
+    proj = _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return {"ok": False, "error": "script.json not found. Use save_script first."}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read script.json: {e}"}
+    checks = []
+
+    def _check(name, severity, passed, detail):
+        checks.append({"name": name, "severity": severity,
+                       "passed": bool(passed), "detail": detail})
+
+    # 1. pacing: scene count within the 0.7x/1.3x guardrail band.
+    try:
+        from backend.mcp.pacing import get_pacing
+        pacing = get_pacing(proj.get("duration_mode", "medium"),
+                            proj.get("video_format", "landscape"),
+                            proj.get("language", "en"))
+        n = len(document.get("scenes", []) or [])
+        import math
+        floor = math.ceil(pacing["min_scenes"] * 0.7)
+        ceiling = math.ceil(pacing["max_scenes"] * 1.3)
+        _check("script_pacing", "critical", floor <= n <= ceiling,
+               f"{n} scenes vs guardrail {floor}-{ceiling} "
+               f"(target {pacing['min_scenes']}-{pacing['max_scenes']})")
+    except Exception as e:
+        _check("script_pacing", "critical", False, f"pacing lookup failed: {e}")
+    # 2. design saved.
+    design_path = proj_dir / "design.json"
+    _check("design_saved", "critical", design_path.is_file(),
+           "design.json present" if design_path.is_file()
+           else "design.json missing — save_design first")
+    # 3. voiceover: manifest + every segment has duration + file.
+    voice_manifest = proj_dir / "voiceover" / "manifest.json"
+    try:
+        entries = (json.loads(voice_manifest.read_text(encoding="utf-8"))
+                   if voice_manifest.is_file() else None)
+    except Exception:
+        entries = None
+    if not isinstance(entries, list) or not entries:
+        _check("voiceover_ready", "critical", False,
+               "voiceover/manifest.json missing/empty — run generate_voiceover")
+        audio_total = 0.0
+    else:
+        bad = [e.get("title", f"#{e.get('index')}") for e in entries
+               if not isinstance(e, dict) or not (e.get("duration") or 0) > 0
+               or not Path(str(e.get("audio_path") or "")).exists()]
+        audio_total = sum(float((e.get("duration") or 0)) for e in entries
+                          if isinstance(e, dict))
+        _check("voiceover_ready", "critical", not bad,
+               (f"{len(entries)} segments, {audio_total:.1f}s audio" if not bad
+                else f"bad segments: {bad[:5]}"))
+    # 4. transcription synced: segments exist and cover the timeline.
+    trans_path = proj_dir / "subtitles" / "transcription.json"
+    try:
+        tdoc = (json.loads(trans_path.read_text(encoding="utf-8"))
+                if trans_path.is_file() else None)
+        tsegs = (tdoc.get("segments", []) if isinstance(tdoc, dict) else []) or []
+    except Exception:
+        tsegs = []
+    if not tsegs:
+        _check("captions_synced", "critical", False,
+               "transcription.json missing/empty — run transcribe")
+    else:
+        try:
+            last_end = max(float(s.get("end", 0) or 0) for s in tsegs
+                           if isinstance(s, dict))
+        except ValueError:
+            last_end = 0.0
+        coverage = (last_end / audio_total) if audio_total > 0 else 0.0
+        _check("captions_synced", "critical", coverage >= 0.9,
+               f"{len(tsegs)} segments, last end {last_end:.1f}s "
+               f"vs {audio_total:.1f}s audio ({coverage:.0%} coverage)")
+    # 5. visuals: every section authored ≥1 cut.
+    empty_sections = []
+    sections = ([("introduction", None)] +
+                [("scene", i + 1) for i in
+                 range(len(document.get("scenes", []) or []))] +
+                [("conclusion", None)])
+    for st, sn in sections:
+        if st == "scene":
+            sec = (document.get("scenes", []) or [])[sn - 1]
+        else:
+            sec = document.get(st) or {}
+        if not (isinstance(sec, dict) and (sec.get("sub_visuals") or [])):
+            empty_sections.append(f"{st}{(' #' + str(sn)) if sn else ''}")
+    _check("visuals_complete", "critical", not empty_sections,
+           ("all sections have cuts" if not empty_sections
+            else f"sections without cuts: {empty_sections}"))
+    # 6. assets fetched: every media layer resolves to an existing file.
+    layers = _walk_media_layers(document)
+    missing_assets = [f"S{l.get('scene_number') or '-'}C{l['cut_number']}L{l['layer_index']}:{l['query'][:40]}"
+                      for l in layers
+                      if not (l.get("local_path") and
+                              (proj_dir / l["local_path"]).is_file()
+                              if not Path(l.get("local_path") or "").is_absolute()
+                              else Path(l.get("local_path")).is_file())]
+    _check("assets_fetched", "critical", not missing_assets,
+           (f"{len(layers)} media layers, all downloaded" if not missing_assets
+            else f"{len(missing_assets)} missing: {missing_assets[:5]}"))
+    # 7. hook ≤15 words (warning, not blocking).
+    hook = _safe_str((document.get("introduction", {}) or {}).get("hook"))
+    hw = len(hook.split())
+    _check("hook_in_3s", "warning", hw <= 15,
+           f"intro hook {hw} words ({'ok' if hw <= 15 else 'trim to <=15'})")
+    # 8. mix levels (warning — reported defaults, NOT measured LUFS).
+    try:
+        bg_vol = float(proj.get("bg_music_volume", 0.15))
+    except (TypeError, ValueError):
+        bg_vol = 0.15
+    _check("mix_levels", "warning", True,
+           (f"voice 1.0 / music {bg_vol} (flat mix, amix normalize=0). "
+            "No LUFS meter in this pipeline — confirm by ear in the app."))
+    critical_ok = all(c["passed"] for c in checks if c["severity"] == "critical")
+    return {
+        "ok": bool(critical_ok),
+        "project_id": project_id,
+        "passed": bool(critical_ok),
+        "block_render": not critical_ok,
+        "checks": checks,
+        "next_step": ("render is clear — confirm with the user, then "
+                      "run_stage(render, confirm_render=true)"
+                      if critical_ok else
+                      "Fix failing critical checks above, then re-run qa_gate."),
+    }
+
+
+def build_receipt_payload(project_id: str) -> dict:
+    """Video Receipt: input/output hashes + resume cursor + per-cut assets.
+
+    receipt_id is deterministic (sha256 of the content hashes) so identical
+    content yields an identical id — dedup-by-content without a key store.
+    Pair with run_stage(idempotency_key=...) to also guard repeat submits.
+    """
+    import hashlib
+    proj = _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    files = {
+        "script.json": proj_dir / "script.json",
+        "design.json": proj_dir / "design.json",
+        "voiceover/manifest.json": proj_dir / "voiceover" / "manifest.json",
+        "assets/assets_manifest.json": proj_dir / "assets" / "assets_manifest.json",
+        "subtitles/transcription.json": proj_dir / "subtitles" / "transcription.json",
+    }
+    hashes = {k: _sha256_file(p) for k, p in files.items()}
+    digest = hashlib.sha256(
+        "|".join(hashes[k] for k in sorted(hashes)).encode()).hexdigest()
+    receipt_id = digest[:16]
+    layers = []
+    scene_count = 0
+    script_path = proj_dir / "script.json"
+    if script_path.is_file():
+        try:
+            document = json.loads(script_path.read_text(encoding="utf-8"))
+            scene_count = len(document.get("scenes", []) or [])
+            for l in _walk_media_layers(document):
+                p = l.get("local_path") or ""
+                ap = Path(p)
+                exists = (ap.is_file() if ap.is_absolute()
+                          else (proj_dir / p).is_file()) if p else False
+                layers.append({
+                    "scene_number": l["scene_number"],
+                    "cut_number": l["cut_number"],
+                    "layer_index": l["layer_index"],
+                    "media_type": l["media_type"],
+                    "query": l["query"], "source": l["source"],
+                    "asset_file": Path(p).name if p else "",
+                    "exists": exists,
+                    "attribution": f"{l['source']}: {l['query']}".strip(": "),
+                })
+        except Exception:
+            pass
+    try:
+        tasks = _db.get_project_tasks(project_id)
+        cursor = {t.get("step"): {"status": t.get("status"),
+                                  "progress": t.get("progress")} for t in tasks}
+    except Exception:
+        cursor = {}
+    try:
+        video_path = proj.get("video_path") or ""
+        output_hash = _sha256_file(Path(video_path)) if video_path else ""
+    except Exception:
+        output_hash = ""
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "receipt_id": receipt_id,
+        "inputs": hashes,
+        "output": {"video_path": proj.get("video_path") or "",
+                   "sha256": output_hash},
+        "resume_cursor": cursor,
+        "scenes": scene_count,
+        "assets": layers,
+        "assets_ready": all(a["exists"] for a in layers),
+        "format": proj.get("video_format"),
+        "duration_mode": proj.get("duration_mode"),
+        "language": proj.get("language"),
+    }
+
+
+# ── Idempotency store (repeat-submit guard for run_stage) ────────────
+
+def _script_content_hash(proj_dir) -> str:
+    return _sha256_file(proj_dir / "script.json")
+
+
+def check_idempotency(project_id: str, stage: str, key: str,
+                      content_hash: str) -> dict | None:
+    """Return the stored record when this key+stage+content already ran."""
+    if not (key or "").strip():
+        return None
+    try:
+        rec = _db.get_setting(
+            f"idempotency:{project_id}:{stage}:{(key or '').strip()}")
+    except Exception:
+        return None
+    if isinstance(rec, dict) and rec.get("content_hash") == content_hash:
+        return rec
+    return None
+
+
+def record_idempotency(project_id: str, stage: str, key: str,
+                       content_hash: str, status: str) -> None:
+    """Persist a key→result record (settings table survives restarts)."""
+    if not (key or "").strip():
+        return
+    import datetime as _dt
+    try:
+        _db.update_settings({
+            f"idempotency:{project_id}:{stage}:{(key or '').strip()}": {
+                "content_hash": content_hash,
+                "status": status,
+                "recorded_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            }
+        })
+    except Exception as e:
+        logger.warning(f"idempotency record failed: {e}")
+
+
 # ── Cost preview (estimate before billable/long stages) ──────────────
 
 def _count_visual_media(document: dict) -> dict:

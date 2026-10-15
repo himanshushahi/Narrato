@@ -1,6 +1,6 @@
 # Narrato MCP Agent Control — Architecture & Developer Guide
 
-External coding agents (Claude Code, opencode, Cursor, Gemini CLI…) drive the full video pipeline through this **Model Context Protocol (MCP)** server: **38 tools + 1 resource + 1 prompt + 0 resource templates (by design)**, served over stdio or localhost Streamable HTTP. The server never calls an LLM and never needs an API key — the connected agent supplies all creative content (script prose, design systems, visual ASTs); the server validates and executes.
+External coding agents (Claude Code, opencode, Cursor, Gemini CLI…) drive the full video pipeline through this **Model Context Protocol (MCP)** server: **41 tools + 1 resource + 1 prompt + 0 resource templates (by design)**, served over stdio or localhost Streamable HTTP. The server never calls an LLM and never needs an API key — the connected agent supplies all creative content (script prose, design systems, visual ASTs); the server validates and executes.
 
 > **Internal-loop parity (why MCP visuals match app visuals):** the internal pipeline survives model mistakes via automatic correction turns, so `save_visuals`/`save_visuals_batch` do the same server-side: stray `z_index` keys are stripped, legacy `layers[]` shapes are best-effort converted (always reported in `auto_fixed`), and failures carry a machine-appliable `fix.retry_with` patch. Fix the JSON type and resubmit — never drop a layer kind to dodge a type error. Whole videos go through `save_visuals_batch` (3 calls: batch dry_run → re-dry-run fixed sections → batch persist; coverage is content-hashed, so edited-but-unvalidated content still earns the nudge) instead of 60-90 single-section calls. The batch `video_variety` rollup is the flat-video guard: `uniform_signature=true` or zero total energy cuts blocks nothing but must be fixed before rendering — per-section green is not video green.
 
@@ -52,7 +52,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 ---
 
-## 3. Tool inventory (38 tools, 1 resource, 1 prompt, 0 templates)
+## 3. Tool inventory (41 tools, 1 resource, 1 prompt, 0 templates)
 
 ### Project lifecycle
 | Tool | What it does |
@@ -102,6 +102,9 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 | `search_tools` | Keyword-search the tool catalog (progressive discovery: empty query returns the 10 core tools) |
 | `get_tool_details` | Blurb + group + usage hint for one tool (inspect before calling) |
 | `estimate_cost` | Dry-run time preview for remaining stages (no spend; local pipeline is unmetered BYOK, `billable_usd=0`) |
+| `qa_gate` | Fail-closed publish gate: pacing/design/voiceover/captions/visuals/assets critical, hook + mix warnings (call before render; no LUFS meter exists, mix reported as defaults) |
+| `verify_stock` | File-truth stock check per layer + source/license attribution (NOT VLM relevance — that stays with `review_frame` + human gate) |
+| `get_receipt` | Video Receipt: input/output sha256 + resume cursor + per-cut assets, deterministic `receipt_id` (pairs with `run_stage(idempotency_key=...)`) |
 | `web_search` | **FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE.** Fact research for scripts (needs app web-search key; MCP agents should prefer their own native web search first, using this as fallback) |
 | `list_project_files` / `read_project_file` | Structured disk inspection (capped text, binaries return size-only, traversal blocked) |
 
@@ -113,7 +116,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 
 ## 4. Human review gate (render)
 
-`run_stage(render)` is **refused without `confirm_render=true`** — in both wait modes, before any DB write — returning `needs_confirmation: true` plus instructions to fetch assets, then composition-review each section, summarize the build and ask the user. Default agent flow therefore ends at `fetch_assets` + `review_frame(composition)`; the user reviews/edits in the app; only explicit approval renders. The desktop app's own render path is unaffected. Long stages should use `wait=false` + `sleep` + `stage_status` over HTTP to avoid client timeouts — and run no other mutating tool while a stage is queued/running (the server locks saves/clears/settings until it settles with `awaiting_stage`).
+`run_stage(render)` is **refused without `confirm_render=true`** — in both wait modes, before any DB write — returning `needs_confirmation: true` plus instructions to fetch assets, then composition-review each section, summarize the build and ask the user. Before asking, run `qa_gate` (fail-closed: pacing/design/voiceover/captions/visuals/assets) and attach `get_receipt` (hashes + resume cursor + per-cut attribution) to the review summary — do NOT render when `qa_gate.ok` is false. Default agent flow therefore ends at `fetch_assets` + `review_frame(composition)` + `qa_gate`; the user reviews/edits in the app; only explicit approval renders. Pass `idempotency_key="..."` on every `run_stage` submit so retried calls replay instead of re-running identical content. The desktop app's own render path is unaffected. Long stages should use `wait=false` + `sleep` + `stage_status` over HTTP to avoid client timeouts — and run no other mutating tool while a stage is queued/running (the server locks saves/clears/settings until it settles with `awaiting_stage`).
 
 ---
 

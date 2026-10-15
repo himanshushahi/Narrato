@@ -1816,7 +1816,7 @@ def test_mcp_inventory_shape_and_counts():
     templates = asyncio.run(server.mcp.list_resource_templates())
     prompts = asyncio.run(server.mcp.list_prompts())
     tool_names = sorted(t.name for t in tools)
-    assert len(tool_names) == 38
+    assert len(tool_names) == 41
     assert set(tool_names) == {
         "create_project", "list_projects", "project_status", "delete_project",
         "save_script", "patch_script", "get_script", "save_design",
@@ -1831,6 +1831,7 @@ def test_mcp_inventory_shape_and_counts():
         "probe_cut", "probe_scene", "probe_asset", "review_frame",
         "search_media", "web_search", "list_project_files", "read_project_file",
         "search_tools", "get_tool_details", "estimate_cost",
+        "qa_gate", "verify_stock", "get_receipt",
     }
     assert len(resources) == 1
     assert len(templates) == 0  # by design, see docstring
@@ -1842,7 +1843,7 @@ def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
     monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
     inv = http_host.get_mcp_inventory()
     assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
-    assert len(inv["tools"]) == 38
+    assert len(inv["tools"]) == 41
     assert len(inv["resources"]) == 1
     assert inv["resource_templates"] == []
     assert len(inv["prompts"]) == 1
@@ -1894,6 +1895,125 @@ def test_estimate_cost_payload_heuristic(tmp_path, monkeypatch):
     assert result["est_total_seconds"] > 0
     assert result["bottleneck"] in {"generate_voiceover", "transcribe",
                                     "fetch_assets", "render"}
+
+
+def _phase4_doc(tmp_path, n_scenes=1):
+    proj_dir = tmp_path / "proj_mcp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "title": "T",
+        "introduction": {"hook": "short hook here now", "sub_visuals": [
+            {"duration": 4.0, "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Image", "query": "city skyline",
+                             "source": "pexels",
+                             "style": {"left": "0%", "top": "0%",
+                                       "width": "100%", "height": "100%"}}}]}}]},
+        "scenes": [
+            {"scene_number": i + 1, "title": f"S{i + 1}",
+             "narration": "one two three four",
+             "sub_visuals": []}
+            for i in range(n_scenes)
+        ],
+        "conclusion": {"summary": "bye now", "cta": "", "sub_visuals": []},
+    }
+    (proj_dir / "script.json").write_text(json.dumps(doc), encoding="utf-8")
+    return proj_dir, doc
+
+
+def test_qa_gate_blocks_then_passes(tmp_path, monkeypatch):
+    # Portrait/short guardrail is 4-6 scenes (floor 3) — small enough to
+    # complete by hand in the test.
+    proj = dict(_proj(), duration_mode="short", video_format="portrait",
+                language="en")
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, proj)
+    proj_dir, _ = _phase4_doc(tmp_path, n_scenes=4)
+    blocked = payloads.qa_gate_payload("proj_mcp")
+    assert blocked["ok"] is False and blocked["block_render"] is True
+    names = {c["name"]: c for c in blocked["checks"]}
+    assert names["design_saved"]["passed"] is False
+    assert names["visuals_complete"]["passed"] is False
+    # Complete the build: design + voiceover + transcription + visuals + asset.
+    (proj_dir / "design.json").write_text("{}")
+    (proj_dir / "voiceover").mkdir(exist_ok=True)
+    seg = proj_dir / "voiceover" / "segment_000.wav"
+    seg.write_bytes(b"RIFFxxxx")
+    texts = (["short hook here now"] + ["one two three four"] * 4 + ["bye now"])
+    kinds = (["introduction"] + ["scene"] * 4 + ["conclusion"])
+    (proj_dir / "voiceover" / "manifest.json").write_text(json.dumps([
+        {"index": i, "section_type": k, "title": f"T{i}",
+         "text": t, "audio_path": str(seg), "duration": 2.0}
+        for i, (k, t) in enumerate(zip(kinds, texts))
+    ]), encoding="utf-8")
+    (proj_dir / "subtitles").mkdir(exist_ok=True)
+    (proj_dir / "subtitles" / "transcription.json").write_text(json.dumps({
+        "language": "en",
+        "segments": [
+            {"id": 0, "start": 0.0, "end": 11.0, "text": "hello",
+             "words": [{"start": 0.0, "end": 0.5, "word": "hello"}]},
+        ],
+    }), encoding="utf-8")
+    doc = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    asset = proj_dir / "assets" / "asset_000_00_00.jpg"
+    asset.parent.mkdir(exist_ok=True)
+    asset.write_bytes(b"\xff\xd8\xff\xe0fake")
+    for scene in doc["scenes"]:
+        scene["sub_visuals"] = [
+            {"duration": 2.0, "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Text", "text": "beat",
+                             "style": {"left": "10%", "top": "10%",
+                                       "width": "80%", "height": "20%"}}}]}}]
+    doc["conclusion"]["sub_visuals"] = [
+        {"duration": 2.0, "composition": {"type": "Sequence", "children": [
+            {"type": "Layer",
+             "content": {"type": "Text", "text": "bye",
+                         "style": {"left": "10%", "top": "10%",
+                                   "width": "80%", "height": "20%"}}}]}}]
+    intro_layer = doc["introduction"]["sub_visuals"][0]["composition"]["children"][0]
+    intro_layer["content"]["local_path"] = "assets/asset_000_00_00.jpg"
+    (proj_dir / "script.json").write_text(json.dumps(doc), encoding="utf-8")
+    passed = payloads.qa_gate_payload("proj_mcp")
+    assert passed["ok"] is True and passed["block_render"] is False
+    assert all(c["passed"] for c in passed["checks"]
+               if c["severity"] == "critical")
+
+
+def test_verify_stock_and_receipt(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    proj_dir, _ = _phase4_doc(tmp_path)
+    (proj_dir / "design.json").write_text("{}")
+    stock = payloads.verify_stock_payload("proj_mcp")
+    assert stock["ok"] is True
+    assert stock["vision_verified"] is False
+    assert stock["total_layers"] == 1 and stock["missing"] == 1
+    assert stock["layers"][0]["attribution"] == "pexels: city skyline"
+    receipt = payloads.build_receipt_payload("proj_mcp")
+    assert receipt["ok"] is True
+    assert len(receipt["receipt_id"]) == 16
+    assert receipt["assets_ready"] is False
+    assert receipt["inputs"]["script.json"]  # sha present
+    again = payloads.build_receipt_payload("proj_mcp")
+    assert again["receipt_id"] == receipt["receipt_id"]  # deterministic
+
+
+def test_idempotency_record_and_replay(monkeypatch):
+    from backend.database import db as db_mod
+    store = {}
+    monkeypatch.setattr(db_mod, "get_setting", lambda k: store.get(k))
+    monkeypatch.setattr(db_mod, "update_settings",
+                        lambda d: store.update(d))
+    assert payloads.check_idempotency("p", "render", "k1", "abc") is None
+    payloads.record_idempotency("p", "render", "k1", "abc", "completed")
+    hit = payloads.check_idempotency("p", "render", "k1", "abc")
+    assert hit is not None and hit["status"] == "completed"
+    # Content change invalidates: same key, new hash → no replay.
+    assert payloads.check_idempotency("p", "render", "k1", "xyz") is None
+    # Blank keys never record or match.
+    payloads.record_idempotency("p", "render", "", "abc", "completed")
+    assert payloads.check_idempotency("p", "render", "", "abc") is None
 
 
 # ── clear_visuals / clear_assets ────────────────────────────────────

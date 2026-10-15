@@ -1828,7 +1828,7 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
 
 @mcp.tool()
 def run_stage(project_id: str, stage: str, wait: bool = True,
-              confirm_render: bool = False) -> dict:
+              confirm_render: bool = False, idempotency_key: str = "") -> dict:
     """Execute one mechanical pipeline stage: generate_voiceover →
     transcribe → fetch_assets → render (in that order; run
     get_section_timings + save_design + save_visuals between transcribe and
@@ -1845,6 +1845,11 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
     STOP and ask the user to review/edit in the app — only re-call with
     confirm_render=true after the user explicitly approves the final
     render. The desktop app's own render path is unaffected.
+
+    IDEMPOTENCY: pass idempotency_key="..." to guard repeat submits — when
+    the same key+stage already completed on identical script content, the
+    stored result is replayed instead of re-running (record survives
+    restarts; any script edit changes the content hash and re-runs).
     """
     stage = (stage or "").strip().lower()
     if stage not in _STAGE_RUNNERS:
@@ -1869,6 +1874,24 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
     except ValueError as e:
         return {"ok": False, "error": str(e)}
 
+    # Idempotency pre-check: same key + stage + script content already ran
+    # → replay instead of re-running (never resubmit a completed render).
+    idem_key = (idempotency_key or "").strip()
+    content_hash = ""
+    if idem_key:
+        try:
+            content_hash = payloads._script_content_hash(
+                payloads._project_dir(project_id))
+        except Exception:
+            content_hash = ""
+        prior = payloads.check_idempotency(project_id, stage, idem_key,
+                                           content_hash)
+        if prior is not None and prior.get("status") == "completed":
+            return {"ok": True, "project_id": project_id, "stage": stage,
+                    "replayed": True, "idempotency_key": idem_key,
+                    "hint": "Identical key+stage+content already completed — "
+                            "replaying stored result instead of re-running."}
+
     task_id = f"{project_id}_{stage}"
     with _STAGE_LOCK:
         active = _project_active_stage(project_id)
@@ -1878,8 +1901,18 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
                              f"({active}); wait for it or cancel_stage it first. "
                              f"Concurrent stages corrupt manifests."}
         if not wait:
-            future = _STAGE_POOL.submit(
-                _execute_stage_blocking, project_id, stage)
+            def _run_and_record(_pid=project_id, _st=stage,
+                                _key=idem_key, _hash=content_hash):
+                out = _execute_stage_blocking(_pid, _st)
+                try:
+                    if isinstance(out, dict) and out.get("ok") and _key:
+                        payloads.record_idempotency(_pid, _st, _key, _hash,
+                                                   "completed")
+                except Exception:
+                    pass
+                return out
+
+            future = _STAGE_POOL.submit(_run_and_record)
 
             def _forget_done(fut, _task_id=task_id):
                 # Completed pool futures serve no further purpose
@@ -1901,7 +1934,14 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
         _executing_marker = object()
         _STAGE_FUTURES[task_id] = _executing_marker  # type: ignore[assignment]
     try:
-        return _execute_stage_blocking(project_id, stage)
+        out = _execute_stage_blocking(project_id, stage)
+        try:
+            if isinstance(out, dict) and out.get("ok") and idem_key:
+                payloads.record_idempotency(project_id, stage, idem_key,
+                                           content_hash, "completed")
+        except Exception:
+            pass
+        return out
     except Exception as e:
         logger.error(f"MCP run_stage {stage} failed for {project_id}: {e}", exc_info=True)
         return {"ok": False, "error": str(e), "stage": stage}
@@ -2303,6 +2343,15 @@ _TOOL_CATALOG = [
     {"name": "estimate_cost", "group": "stages/read",
      "blurb": "Dry-run time preview for remaining stages (no spend)",
      "keywords": "estimate cost dry run preview time how long bottleneck budget spend"},
+    {"name": "qa_gate", "group": "stages/read",
+     "blurb": "Fail-closed publish gate (call before render)",
+     "keywords": "qa gate check publish block render ready captions assets hook pass fail"},
+    {"name": "verify_stock", "group": "visuals/read",
+     "blurb": "File-truth stock check + attribution rollup",
+     "keywords": "verify stock assets attribution license exists missing footage photo"},
+    {"name": "get_receipt", "group": "project/read",
+     "blurb": "Video Receipt: hashes + resume cursor + per-cut assets",
+     "keywords": "receipt lineage hash manifest resume cursor id dedup attribution"},
     # Research & files
     {"name": "search_media", "group": "research/read",
      "blurb": "Verify stock queries (Pexels/Pixabay/Wiki/YouTube/Archive)",
@@ -2328,7 +2377,7 @@ _TOOL_CATALOG = [
 _CORE_TOOL_NAMES = ("create_project", "get_stage_skills", "save_script",
                     "patch_script", "get_section_timings", "save_design",
                     "save_visuals_batch", "run_stage", "stage_status",
-                    "review_frame")
+                    "review_frame", "qa_gate")
 
 
 @mcp.tool()
@@ -2348,7 +2397,7 @@ def search_tools(query: str = "", limit: int = 10) -> dict:
         core = [e for e in _TOOL_CATALOG if e["name"] in _CORE_TOOL_NAMES]
         return {"ok": True, "mode": "core",
                 "core_tools": core,
-                "hint": "Call search_tools(query='...') to discover the rest (e.g. 'voice', 'probe', 'subtitle', 'cost')."}
+                "hint": "Call search_tools(query='...') to discover the rest (e.g. 'voice', 'probe', 'subtitle', 'cost', 'receipt')."}
     scored = []
     for entry in _TOOL_CATALOG:
         hay = f"{entry['name']} {entry['blurb']} {entry['keywords']}".lower()
@@ -2397,6 +2446,57 @@ def estimate_cost(project_id: str) -> dict:
         return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"MCP estimate_cost failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def qa_gate(project_id: str) -> dict:
+    """Fail-closed publish gate — call BEFORE run_stage(render).
+
+    ok=True ONLY when every critical check passes (pacing, design,
+    voiceover, caption sync, visuals, assets). Warnings (hook length, mix
+    levels) never block. Measured checks only: no LUFS meter and no pixel
+    probing exist in this pipeline, and the response says so. Do NOT render
+    when ok=False. Read-only."""
+    try:
+        return payloads.qa_gate_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP qa_gate failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def verify_stock(project_id: str) -> dict:
+    """File-truth stock check for every Image/Video layer + attribution rollup.
+
+    Reports exists/size/dimensions per layer and source+license notes for the
+    receipt. NOT a VLM relevance check — no vision model exists here, so
+    relevance stays with review_frame(mode=composition) + the human gate
+    (vision_verified is always False, stated explicitly). Read-only."""
+    try:
+        return payloads.verify_stock_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP verify_stock failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_receipt(project_id: str) -> dict:
+    """Video Receipt: input/output hashes + resume cursor + per-cut assets.
+
+    Deterministic receipt_id (sha256 of content hashes) — identical content
+    yields an identical id for dedup-by-content. Pair with
+    run_stage(idempotency_key=...) to guard repeat submits. Read-only."""
+    try:
+        return payloads.build_receipt_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP get_receipt failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
 
 
