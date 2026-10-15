@@ -1214,6 +1214,72 @@ def test_cleanup_preserves_preset_referenced_overlay(tmp_path, monkeypatch):
     assert not preset_logo.exists(), "Unreferenced overlay must purge once preset is gone"
 
 
+def test_cleanup_purges_orphaned_normalize_markers(tmp_path, monkeypatch):
+    """Normalize-cache markers (*.norm.json) follow their companion video:
+    kept while the video is referenced, purged with the video, and dangling
+    markers (video already gone) removed. Markers must never leak into the
+    Assets tab as stray files."""
+    import json
+    from backend.pipeline.assets import cleanup_removed_assets
+
+    proj_id = "test-proj-norm-marker"
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.database.db.get_project", lambda pid: {"id": pid, "assets_manifest_path": str(tmp_path / pid / "assets_manifest.json")})
+    monkeypatch.setattr("backend.database.db.get_setting", lambda key: [])
+
+    proj_dir = tmp_path / proj_id
+    assets_dir = proj_dir / "assets"
+    assets_dir.mkdir(parents=True)
+
+    kept_video = assets_dir / "asset_000_00_00.mp4"
+    kept_video.write_bytes(b"mp4")
+    kept_marker = assets_dir / "asset_000_00_00.norm.json"
+    kept_marker.write_text("{}")
+    orphan_video = assets_dir / "asset_001_00_00.mp4"
+    orphan_video.write_bytes(b"mp4")
+    orphan_marker = assets_dir / "asset_001_00_00.norm.json"
+    orphan_marker.write_text("{}")
+    dangling_marker = assets_dir / "asset_009_00_00.norm.json"
+    dangling_marker.write_text("{}")
+
+    script = {"scenes": [{"sub_visuals": [{"composition": {"type": "Sequence", "children": [
+        {"type": "Layer", "content": {"type": "Video", "local_path": str(kept_video)}}
+    ]}}]}]}
+    (proj_dir / "script.json").write_text(json.dumps(script), encoding="utf-8")
+
+    cleanup_removed_assets(proj_id, [])
+    assert kept_video.exists() and kept_marker.exists(), "Referenced video + its marker must survive"
+    assert not orphan_video.exists(), "Unreferenced video must be deleted"
+    assert not orphan_marker.exists(), "Marker must be purged together with its video"
+    assert not dangling_marker.exists(), "Dangling marker (no companion video) must be purged"
+
+
+def test_conflicting_asset_replace_drops_stale_marker(tmp_path):
+    """Replacing a cut position's file (new extension) removes the old file's
+    normalize marker — a fresh normalize on the new video writes its own."""
+    from backend.pipeline.assets import _cleanup_conflicting_asset_files
+
+    assets_dir = tmp_path / "assets"
+    assets_dir.mkdir(parents=True)
+    old_video = assets_dir / "asset_003_00_00.mp4"
+    old_video.write_bytes(b"old")
+    stale_marker = assets_dir / "asset_003_00_00.norm.json"
+    stale_marker.write_text("{}")
+    new_file = assets_dir / "asset_003_00_00.jpg"
+    new_file.write_bytes(b"new")
+    legacy_video = assets_dir / "asset_003_00.webm"
+    legacy_video.write_bytes(b"legacy")
+    legacy_marker = assets_dir / "asset_003_00.norm.json"
+    legacy_marker.write_text("{}")
+
+    _cleanup_conflicting_asset_files(assets_dir, 3, 0, 0, keep_file=new_file)
+
+    assert new_file.exists(), "Keep file must survive"
+    assert not old_video.exists(), "Conflicting old video removed"
+    assert not stale_marker.exists(), "Stale marker removed with replaced file"
+    assert not legacy_video.exists() and not legacy_marker.exists(), "Legacy prefix cleaned too"
+
+
 def test_is_assets_stale_fallback(tmp_path):
     """is_assets_stale correctly resolves manifest in voiceover/manifest.json when assets/assets_manifest.json does not exist."""
     from backend.pipeline.assets import is_assets_stale

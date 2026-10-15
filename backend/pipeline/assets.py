@@ -1492,6 +1492,19 @@ def _cleanup_conflicting_asset_files(assets_dir, seg_idx, sub_idx, layer_idx, ke
                 except Exception as e:
                     logger.warning(f"Could not remove old asset file {old_f}: {e}")
 
+    # The replaced file's normalize-cache marker is stale by definition: the
+    # next video written here gets normalized again and writes a fresh marker.
+    # Leaving it behind would orphan a *.norm.json forever (cleanup treats
+    # .json as non-media) and surface it as a stray file in the Assets tab.
+    for pfx in prefixes:
+        marker = assets_dir / f"{pfx}{NORMALIZE_MARKER_SUFFIX}"
+        if marker.exists():
+            try:
+                marker.unlink()
+                logger.info(f"Removed stale normalize marker: {marker.name}")
+            except Exception as e:
+                logger.warning(f"Could not remove normalize marker {marker}: {e}")
+
 
 def _save_asset_url_to_layer(asset_url, layer, assets_dir, seg_idx, sub_idx, layer_idx, cancel_event):
     """Download asset_url into the canonical asset file and link it on the layer.
@@ -2447,6 +2460,25 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
                         continue
                 except OSError:
                     pass
+                if file_path.name.endswith(NORMALIZE_MARKER_SUFFIX):
+                    # Normalize-cache marker for a companion video: keep it
+                    # while that video is still on disk (fresh previews were
+                    # preserved above); purge once the video is gone.
+                    base = file_path.name[: -len(NORMALIZE_MARKER_SUFFIX)]
+                    companion_alive = any(
+                        (previews_dir / f"{base}{video_ext}").exists()
+                        for video_ext in _NORMALIZE_VIDEO_EXTS
+                    )
+                    if companion_alive:
+                        preserved_files.append(str(file_path))
+                        continue
+                    try:
+                        file_path.unlink()
+                        deleted_files.append(str(file_path))
+                        logger.info(f"Deleted orphaned normalize marker: {file_path.name}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete {file_path}: {e}")
+                    continue
                 if file_path.suffix.lower() in KNOWN_MEDIA_EXTENSIONS:
                     try:
                         file_path.unlink()
@@ -2460,6 +2492,35 @@ def cleanup_removed_assets(project_id, new_manifest_data, content_hash="", outpu
                     logger.info(f"Removed empty previews directory: {previews_dir}")
             except Exception:
                 pass
+
+        # Normalize-cache markers (asset_*.norm.json) are internal FFmpeg
+        # metadata, not assets. Keep a marker only while its companion video
+        # is still referenced and on disk — anything else is an orphan that
+        # would otherwise linger forever (.json is never a media extension,
+        # so the managed-file reconciliation above skips them).
+        for file_path in assets_dir.glob(f"*{NORMALIZE_MARKER_SUFFIX}"):
+            try:
+                if not file_path.is_file():
+                    continue
+                base = file_path.name[: -len(NORMALIZE_MARKER_SUFFIX)]
+                companion_kept = False
+                for video_ext in _NORMALIZE_VIDEO_EXTS:
+                    companion = assets_dir / f"{base}{video_ext}"
+                    if not companion.exists():
+                        continue
+                    try:
+                        companion_norm = os.path.normcase(str(companion.resolve()))
+                    except Exception:
+                        companion_norm = os.path.normcase(str(companion))
+                    if companion_norm in kept_paths_set:
+                        companion_kept = True
+                        break
+                if not companion_kept:
+                    file_path.unlink()
+                    deleted_files.append(str(file_path))
+                    logger.info(f"Deleted orphaned normalize marker: {file_path.name}")
+            except Exception as e:
+                logger.warning(f"Could not delete normalize marker {file_path}: {e}")
 
     # Embed content hash into each manifest entry for change detection on pipeline resume
     if content_hash:

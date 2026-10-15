@@ -242,7 +242,10 @@ export function useProjectAssets(
     // Also include any physical assets on disk in the project assets folder not matched above
     Object.values(diskFilesMap).forEach((df) => {
       if (claimedFilenames.has(df.filename)) return;
-      if (df.filename === 'assets_manifest.json') return;
+      // Internal metadata is never a renderable asset: assets_manifest.json
+      // and normalize-cache markers (asset_*.norm.json) must not appear in
+      // the Assets tab — their filenames are implementation details.
+      if (df.extension.toLowerCase() === '.json') return;
 
       const ext = df.extension.toLowerCase();
       const isVid = isVideoExt(ext);
