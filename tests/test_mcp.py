@@ -1980,6 +1980,54 @@ def test_qa_gate_blocks_then_passes(tmp_path, monkeypatch):
                if c["severity"] == "critical")
 
 
+def test_qa_gate_loudness_measured_branches(tmp_path, monkeypatch):
+    from backend.pipeline import render as render_mod
+    assert render_mod.parse_ebur128_integrated("") is None
+    assert render_mod.parse_ebur128_integrated("no loudness here") is None
+    sample = ("[Parsed_ebur128_0 @ 0x1234] Summary:\n"
+              "  Integrated loudness:\n"
+              "    I:         -13.8 LUFS\n"
+              "    Threshold: -34.2 LUFS\n")
+    assert render_mod.parse_ebur128_integrated(sample) == -13.8
+    # In-tolerance sidecar → critical check passes.
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    proj_dir = tmp_path / "proj_mcp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps({
+        "title": "T",
+        "introduction": {"hook": "short hook", "sub_visuals": [
+            {"duration": 2.0, "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Text", "text": "hi",
+                             "style": {"left": "0%", "top": "0%",
+                                       "width": "100%", "height": "100%"}}}]}}]},
+        "scenes": [],
+        "conclusion": {"summary": "bye", "cta": "", "sub_visuals": [
+            {"duration": 1.0, "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Text", "text": "bye",
+                             "style": {"left": "0%", "top": "0%",
+                                       "width": "100%", "height": "100%"}}}]}}]},
+    }), encoding="utf-8")
+    (proj_dir / "render_loudness.json").write_text(json.dumps({
+        "target_i": -14.0, "integrated_lufs": -13.8, "normalized": True,
+    }), encoding="utf-8")
+    res = payloads.qa_gate_payload("proj_mcp")
+    loud = {c["name"]: c for c in res["checks"]}["loudness_lufs"]
+    assert loud["severity"] == "critical" and loud["passed"] is True
+    # Drifted mix → critical fail (blocks render).
+    (proj_dir / "render_loudness.json").write_text(json.dumps({
+        "target_i": -14.0, "integrated_lufs": -20.5, "normalized": False,
+    }), encoding="utf-8")
+    res2 = payloads.qa_gate_payload("proj_mcp")
+    loud2 = {c["name"]: c for c in res2["checks"]}["loudness_lufs"]
+    assert loud2["passed"] is False and res2["block_render"] is True
+    # Receipt surfaces the measured value.
+    receipt = payloads.build_receipt_payload("proj_mcp")
+    assert receipt["output"]["integrated_lufs"] == -20.5
+
+
 def test_verify_stock_and_receipt(tmp_path, monkeypatch):
     _patch_storage(monkeypatch, tmp_path)
     _patch_db(monkeypatch, _proj())

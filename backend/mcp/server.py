@@ -2457,9 +2457,9 @@ def qa_gate(project_id: str) -> dict:
     """Fail-closed publish gate — call BEFORE run_stage(render).
 
     ok=True ONLY when every critical check passes (pacing, design,
-    voiceover, caption sync, visuals, assets). Warnings (hook length, mix
-    levels) never block. Measured checks only: no LUFS meter and no pixel
-    probing exist in this pipeline, and the response says so. Do NOT render
+    voiceover, caption sync, visuals, assets, and — when a render exists —
+    measured loudness from render_loudness.json). Warnings (hook length,
+    unmeasured pre-first-render loudness) never block. Do NOT render
     when ok=False. Read-only."""
     try:
         return payloads.qa_gate_payload(project_id)

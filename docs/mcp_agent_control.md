@@ -102,7 +102,7 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 | `search_tools` | Keyword-search the tool catalog (progressive discovery: empty query returns the 10 core tools) |
 | `get_tool_details` | Blurb + group + usage hint for one tool (inspect before calling) |
 | `estimate_cost` | Dry-run time preview for remaining stages (no spend; local pipeline is unmetered BYOK, `billable_usd=0`) |
-| `qa_gate` | Fail-closed publish gate: pacing/design/voiceover/captions/visuals/assets critical, hook + mix warnings (call before render; no LUFS meter exists, mix reported as defaults) |
+| `qa_gate` | Fail-closed publish gate: pacing/design/voiceover/captions/visuals/assets critical, measured LUFS critical when a render exists (hook + unmeasured-loudness warnings; call before render) |
 | `verify_stock` | File-truth stock check per layer + source/license attribution (NOT VLM relevance — that stays with `review_frame` + human gate) |
 | `get_receipt` | Video Receipt: input/output sha256 + resume cursor + per-cut assets, deterministic `receipt_id` (pairs with `run_stage(idempotency_key=...)`) |
 | `web_search` | **FOR MCP EXTERNAL AGENT ONLY — INTERNAL APP LLM IGNORE.** Fact research for scripts (needs app web-search key; MCP agents should prefer their own native web search first, using this as fallback) |

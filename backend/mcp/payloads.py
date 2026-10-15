@@ -393,6 +393,7 @@ def purge_downstream_artifacts(project_dir: Path) -> list:
     _rm(project_dir / "render.hash.txt", "render.hash.txt")
     _rm(project_dir / "render_props.json", "render_props.json")
     _rm(project_dir / "render_props.still.json", "render_props.still.json")
+    _rm(project_dir / "render_loudness.json", "render_loudness.json")
     return removed
 
 
@@ -766,7 +767,8 @@ def patch_script_payload(project_id: str, section_type: str, patch: dict,
     removed = []
     for rel in ("subtitles/transcription.json", "subtitles/transcription.srt",
                 "subtitles/transcription.vtt", "transcribe.hash.txt",
-                "render.hash.txt", "render_props.json", "render_props.still.json"):
+                "render.hash.txt", "render_props.json", "render_props.still.json",
+                "render_loudness.json"):
         p = proj_dir / rel
         try:
             if p.is_file() or p.is_symlink():
@@ -3443,11 +3445,11 @@ def verify_stock_payload(project_id: str) -> dict:
 def qa_gate_payload(project_id: str) -> dict:
     """Fail-closed publish gate. ok=True ONLY when every critical check passes.
 
-    Measured checks only — this repo has no LUFS/loudnorm infra
-    (render mixes voice 1.0 / music ~0.15 flat, amix normalize=0), so loudness
-    is reported as mix defaults, not measured LUFS. Resolution is the
-    pipeline canvas (1920x1080 landscape / 1080x1920 portrait), not probed
-    pixels. Do NOT render when ok=False.
+    Loudness is measured LUFS from render_loudness.json (written by render
+    via ebur128) when a render exists; pre-first-render it falls back to a
+    mix-defaults warning. Resolution is the pipeline canvas (1920x1080
+    landscape / 1080x1920 portrait), not probed pixels. Do NOT render when
+    ok=False (re-renders refresh the sidecar; script patches purge it).
     """
     proj = _get_project_or_raise(project_id)
     proj_dir = _project_dir(project_id)
@@ -3563,14 +3565,37 @@ def qa_gate_payload(project_id: str) -> dict:
     hw = len(hook.split())
     _check("hook_in_3s", "warning", hw <= 15,
            f"intro hook {hw} words ({'ok' if hw <= 15 else 'trim to <=15'})")
-    # 8. mix levels (warning — reported defaults, NOT measured LUFS).
+    # 8. loudness: measured LUFS from the last render sidecar (critical when
+    # present). Pre-first-render there is nothing measured — warning only,
+    # since mix defaults are the only signal available.
+    loud_path = proj_dir / "render_loudness.json"
     try:
-        bg_vol = float(proj.get("bg_music_volume", 0.15))
-    except (TypeError, ValueError):
-        bg_vol = 0.15
-    _check("mix_levels", "warning", True,
-           (f"voice 1.0 / music {bg_vol} (flat mix, amix normalize=0). "
-            "No LUFS meter in this pipeline — confirm by ear in the app."))
+        loud_doc = (json.loads(loud_path.read_text(encoding="utf-8"))
+                    if loud_path.is_file() else None)
+    except Exception:
+        loud_doc = None
+    if not isinstance(loud_doc, dict) or loud_doc.get("integrated_lufs") is None:
+        _check("loudness_lufs", "warning", True,
+               ("Not measured yet (no render_loudness.json — render first). "
+                "Mix defaults voice 1.0 / music ~0.15 until then."))
+    else:
+        try:
+            from backend.pipeline.render import LOUDNESS_TARGET_I, LOUDNESS_TOLERANCE
+        except Exception:
+            LOUDNESS_TARGET_I, LOUDNESS_TOLERANCE = -14.0, 2.0
+        try:
+            measured_lufs = float(loud_doc["integrated_lufs"])
+        except (TypeError, ValueError):
+            measured_lufs = None
+        if measured_lufs is None:
+            _check("loudness_lufs", "warning", True,
+                   "Sidecar unreadable — re-render to re-measure.")
+        else:
+            drift = abs(measured_lufs - LOUDNESS_TARGET_I)
+            _check("loudness_lufs", "critical", drift <= LOUDNESS_TOLERANCE,
+                   (f"{measured_lufs:.1f} LUFS vs target {LOUDNESS_TARGET_I} "
+                    f"(drift {drift:.1f}, tolerance {LOUDNESS_TOLERANCE}). "
+                    f"normalized={loud_doc.get('normalized', False)}"))
     critical_ok = all(c["passed"] for c in checks if c["severity"] == "critical")
     return {
         "ok": bool(critical_ok),
@@ -3641,13 +3666,21 @@ def build_receipt_payload(project_id: str) -> dict:
         output_hash = _sha256_file(Path(video_path)) if video_path else ""
     except Exception:
         output_hash = ""
+    try:
+        loud_doc = json.loads((proj_dir / "render_loudness.json").read_text(
+            encoding="utf-8"))
+        loudness_lufs = (loud_doc.get("integrated_lufs")
+                         if isinstance(loud_doc, dict) else None)
+    except Exception:
+        loudness_lufs = None
     return {
         "ok": True,
         "project_id": project_id,
         "receipt_id": receipt_id,
         "inputs": hashes,
         "output": {"video_path": proj.get("video_path") or "",
-                   "sha256": output_hash},
+                   "sha256": output_hash,
+                   "integrated_lufs": loudness_lufs},
         "resume_cursor": cursor,
         "scenes": scene_count,
         "assets": layers,

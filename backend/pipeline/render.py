@@ -26,6 +26,66 @@ def _round_half_up(x):
     return int(math.floor(x + 0.5))
 
 
+# ── Loudness (EBU R128, YouTube/Shorts target) ─────────────────────────
+# Single-pass loudnorm at mux keeps the audio cache intact (normalization
+# applies to the already-mixed track, not per-source). ebur128 measurement
+# afterwards writes render_loudness.json for qa_gate — measured LUFS, not
+# assumed mix levels.
+LOUDNESS_TARGET_I = -14.0
+LOUDNESS_TARGET_TP = -1.5
+LOUDNESS_TARGET_LRA = 11.0
+LOUDNESS_TOLERANCE = 2.0
+
+_FFMPEG_FILTER_CACHE: dict = {}
+
+
+def _ffmpeg_has_filter(ffmpeg_bin: str, name: str) -> bool:
+    """Probe `ffmpeg -h filter=<name>` once per binary (cached)."""
+    key = (str(ffmpeg_bin), name)
+    if key in _FFMPEG_FILTER_CACHE:
+        return _FFMPEG_FILTER_CACHE[key]
+    try:
+        from backend.core.config import get_startupinfo
+        proc = subprocess.run(
+            [str(ffmpeg_bin), "-hide_banner", "-h", f"filter={name}"],
+            capture_output=True, text=True, timeout=30,
+            startupinfo=get_startupinfo())
+        ok = proc.returncode == 0 and f"Filter {name}" in (proc.stdout or "")
+    except Exception:
+        ok = False
+    _FFMPEG_FILTER_CACHE[key] = ok
+    return ok
+
+
+def parse_ebur128_integrated(stderr_text: str) -> float | None:
+    """Parse `Integrated loudness: I: -14.2 LUFS` from ebur128 output."""
+    if not stderr_text:
+        return None
+    matches = re.findall(r"Integrated loudness:\s*I:\s*([-\d.]+)\s*LUFS",
+                         stderr_text)
+    if not matches:
+        return None
+    try:
+        return float(matches[-1])
+    except (TypeError, ValueError):
+        return None
+
+
+def measure_integrated_lufs(ffmpeg_bin: str, media_path) -> float | None:
+    """Run ebur128 over a rendered file; None when unmeasurable."""
+    try:
+        from backend.core.config import get_startupinfo
+        proc = subprocess.run(
+            [str(ffmpeg_bin), "-hide_banner", "-nostats", "-i", str(media_path),
+             "-filter:a", "ebur128=peak=true", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=600,
+            startupinfo=get_startupinfo())
+        return parse_ebur128_integrated(proc.stderr or "")
+    except Exception as e:
+        logger.warning(f"Loudness measurement failed: {e}")
+        return None
+
+
 def _safe_float(val, default=0.0) -> float:
     """Safely convert value to float, handling None and invalid strings."""
     if val is None:
@@ -1721,6 +1781,11 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
 
     frame_input_pattern = f"element-%0{normalized_padding}d.{frame_ext}"
 
+    loudnorm_available = _ffmpeg_has_filter(ffmpeg_bin, "loudnorm")
+    if not loudnorm_available:
+        logger.warning("ffmpeg lacks the loudnorm filter — muxing without "
+                       "loudness normalization (qa_gate loudness check will "
+                       "fall back to mix defaults).")
     ffmpeg_cmd = [
         ffmpeg_bin, "-y",
         "-threads", str(max(1, (os.cpu_count() or 4) - 1)),
@@ -1731,11 +1796,18 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
         "-preset", "fast",
         "-crf", str(render_crf),
         "-movflags", "+faststart",
+    ]
+    if loudnorm_available:
+        ffmpeg_cmd.extend([
+            "-filter:a",
+            f"loudnorm=I={LOUDNESS_TARGET_I}:TP={LOUDNESS_TARGET_TP}:LRA={LOUDNESS_TARGET_LRA}",
+        ])
+    ffmpeg_cmd.extend([
         "-c:a", "aac",
         "-b:a", "256k",
         "-pix_fmt", "yuv420p",
         str(output_mp4_path)
-    ]
+    ])
     
     logger.info(f"Running FFmpeg muxing: {' '.join(ffmpeg_cmd)}")
     run_ffmpeg(ffmpeg_cmd, base_progress=90.0, progress_weight=9.0)
@@ -1744,6 +1816,28 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
 
     if not output_mp4_path.exists():
         raise FileNotFoundError(f"Pipeline completed but output file was not found at: {output_mp4_path}")
+
+    # Loudness sidecar (best-effort, never fails the render): ebur128
+    # measurement of the finished file for qa_gate + receipts.
+    try:
+        progress_cb(99.0, "Measuring loudness...")
+        measured = (measure_integrated_lufs(ffmpeg_bin, output_mp4_path)
+                    if _ffmpeg_has_filter(ffmpeg_bin, "ebur128") else None)
+        loudness_doc = {
+            "target_i": LOUDNESS_TARGET_I,
+            "target_tp": LOUDNESS_TARGET_TP,
+            "target_lra": LOUDNESS_TARGET_LRA,
+            "integrated_lufs": measured,
+            "normalized": bool(loudnorm_available),
+            "video_path": str(output_mp4_path),
+        }
+        with open(project_dir / "render_loudness.json", "w", encoding="utf-8") as f:
+            json.dump(loudness_doc, f, indent=2)
+        logger.info(f"Render loudness: {measured} LUFS "
+                    f"(target {LOUDNESS_TARGET_I}, "
+                    f"{'normalized' if loudnorm_available else 'NOT normalized'})")
+    except Exception as e:
+        logger.warning(f"Loudness sidecar skipped: {e}")
 
     update_project(project_dict['id'], video_path=str(output_mp4_path))
     progress_cb(100.0, "Video compilation complete!")
