@@ -1528,6 +1528,41 @@ def save_script(project_id: str, script: dict, force: bool = False) -> dict:
 
 
 @mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
+def patch_script(project_id: str, section_type: str, patch: dict,
+                 scene_index: int | None = None,
+                 scene_number: int | None = None) -> dict:
+    """Surgically edit ONE script section without the full save_script purge.
+
+    Use this to fix a single repetitive sentence / typo / scene beat: it keeps
+    design.json, voiceover segments, downloaded assets, music, and all
+    sub_visuals ASTs. Only transcription + render outputs reset; the next
+    generate_voiceover run re-synthesizes ONLY the edited section via per-
+    section Smart Resume and reuses the rest (no 90s full rebuild).
+
+    section_type: introduction|scene|conclusion (intro/outro aliases ok).
+    patch: introduction {hook}; scene {narration, title?}; conclusion {summary, cta?}.
+    Scene targeting: scene_number 1-based (matches UI) or scene_index 0-based.
+    MANDATORY FIRST: get_stage_skills('script', project_id) or
+    get_skill('scriptwriter'). For structural changes (add/remove/reorder
+    scenes, retitle the video) use save_script instead.
+    """
+    missing = _missing_stage_skills("script", project_id)
+    if missing:
+        return _skill_required_error("script", project_id, missing)
+    try:
+        return payloads.patch_script_payload(
+            project_id, section_type, patch,
+            scene_index=scene_index, scene_number=scene_number)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP patch_script failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
 def get_script(project_id: str, include_visuals: bool = False) -> dict:
     """Read back script.json. Sub-visual ASTs are stripped by default to
     save context; pass include_visuals=true to inspect them."""

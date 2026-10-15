@@ -650,6 +650,156 @@ def save_script_payload(project_id: str, data: dict, force: bool = False) -> dic
     return result
 
 
+_PATCH_SECTION_ALIASES = {
+    "introduction": "introduction", "intro": "introduction",
+    "scene": "scene",
+    "conclusion": "conclusion", "outro": "conclusion",
+}
+
+
+def patch_script_payload(project_id: str, section_type: str, patch: dict,
+                         scene_index: int | None = None,
+                         scene_number: int | None = None) -> dict:
+    """Surgical single-section script edit — the incremental alternative to
+    save_script (which rewrites the whole document and purges voiceover,
+    transcription, assets, design, and music).
+
+    Only the targeted section's prose is replaced; scene count, sub_visuals
+    ASTs, design.json, voiceover segments, and downloaded assets are kept.
+    The voiceover pipeline's per-section Smart Resume
+    (tts.find_reusable_voice_segment) then re-synthesizes ONLY the edited
+    section on the next generate_voiceover run.
+
+    patch keys per section:
+    - introduction: {hook}
+    - scene: {narration, title?} (target via scene_number 1-based or scene_index 0-based)
+    - conclusion: {summary, cta?}
+    Only transcription + render outputs are deleted (word timings and pixels
+    are stale); voiceover/transcribe/render tasks reset to pending while
+    generate_visuals/fetch_assets keep their status.
+    """
+    section = (_safe_str(section_type) or "").strip().lower()
+    section = _PATCH_SECTION_ALIASES.get(section, section)
+    if section not in ("introduction", "scene", "conclusion"):
+        return {"ok": False, "error": "section_type must be introduction|scene|conclusion."}
+    if not isinstance(patch, dict) or not patch:
+        return {"ok": False, "error": "patch must be a non-empty object."}
+    _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return {"ok": False, "error": "script.json not found. Use save_script first."}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read script.json: {e}"}
+
+    changed: dict = {}
+    if section == "introduction":
+        if "hook" not in patch:
+            return {"ok": False, "error": "patch for introduction requires 'hook'."}
+        hook = _safe_str(patch.get("hook")).strip()
+        if not hook:
+            return {"ok": False, "error": "introduction.hook must be a non-empty string."}
+        if not isinstance(document.get("introduction"), dict):
+            document["introduction"] = {}
+        document["introduction"]["hook"] = hook
+        changed = {"section_type": "introduction", "hook_words": len(hook.split())}
+    elif section == "conclusion":
+        if "summary" not in patch:
+            return {"ok": False, "error": "patch for conclusion requires 'summary'."}
+        summary = _safe_str(patch.get("summary")).strip()
+        if not summary:
+            return {"ok": False, "error": "conclusion.summary must be a non-empty string."}
+        if not isinstance(document.get("conclusion"), dict):
+            document["conclusion"] = {}
+        document["conclusion"]["summary"] = summary
+        if "cta" in patch:
+            document["conclusion"]["cta"] = _safe_str(patch.get("cta")).strip()
+        changed = {"section_type": "conclusion",
+                   "summary_words": len(summary.split())}
+    else:
+        scenes = document.get("scenes")
+        if not isinstance(scenes, list) or not scenes:
+            return {"ok": False, "error": "script has no scenes to patch."}
+        idx: int | None = None
+        if scene_number is not None:
+            try:
+                idx = int(scene_number) - 1
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "scene_number must be 1-based integer."}
+        elif scene_index is not None:
+            try:
+                idx = int(scene_index)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "scene_index must be 0-based integer."}
+        else:
+            return {"ok": False, "error": "scene patch requires scene_number (1-based) or scene_index (0-based)."}
+        if idx < 0 or idx >= len(scenes):
+            return {"ok": False, "error": f"scene index out of range (1-{len(scenes)})."}
+        target = scenes[idx]
+        if not isinstance(target, dict):
+            return {"ok": False, "error": f"scenes[{idx}] is not an object."}
+        if "narration" not in patch and "title" not in patch:
+            return {"ok": False, "error": "scene patch requires 'narration' and/or 'title'."}
+        if "narration" in patch:
+            narration = _safe_str(patch.get("narration")).strip()
+            if not narration:
+                return {"ok": False, "error": f"scenes[{idx}] narration must be non-empty."}
+            target["narration"] = narration
+        if "title" in patch:
+            title = _safe_str(patch.get("title")).strip()
+            if title:
+                target["title"] = title
+        # sub_visuals intentionally untouched — durations renormalize downstream.
+        changed = {"section_type": "scene", "scene_number": idx + 1,
+                   "narration_words": len(_safe_str(target.get("narration")).split())}
+
+    tmp_path = script_path.with_suffix(".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(document, f, indent=2, ensure_ascii=False)
+    tmp_path.replace(script_path)
+
+    # Surgical invalidation: transcription words + rendered pixels are stale.
+    # Voiceover segments, design, assets, and music are KEPT for Smart Resume.
+    removed = []
+    for rel in ("subtitles/transcription.json", "subtitles/transcription.srt",
+                "subtitles/transcription.vtt", "transcribe.hash.txt",
+                "render.hash.txt", "render_props.json", "render_props.still.json"):
+        p = proj_dir / rel
+        try:
+            if p.is_file() or p.is_symlink():
+                p.unlink()
+                removed.append(rel)
+        except Exception as e:
+            logger.warning(f"patch_script: could not delete {p}: {e}")
+    _db.create_task(project_id, "generate_script")
+    _db.update_task(
+        f"{project_id}_generate_script",
+        status="completed", progress=100.0,
+        message="Step completed (script section patched via MCP).", error_message=None,
+    )
+    for step in ("generate_voiceover", "transcribe", "render"):
+        _db.create_task(project_id, step)
+        _db.update_task(
+            f"{project_id}_{step}",
+            status="pending", progress=0.0,
+            message="Pending upstream changes (script section patched via MCP).",
+            error_message=None,
+        )
+    logger.info(f"MCP patch_script: project {project_id} {changed}.")
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "patched": changed,
+        "purged": removed,
+        "kept": ["design.json", "voiceover/", "assets/", "bg_music.mp3", "sub_visuals"],
+        "next_step": ("run_stage(generate_voiceover) re-synthesizes ONLY the edited "
+                      "section (Smart Resume reuses the rest), then transcribe."),
+    }
+
+
 def strip_script_for_agent(script: dict, include_visuals: bool = False) -> dict:
     """Return a token-lean copy of script.json (drops sub_visuals ASTs
     unless explicitly requested)."""
@@ -901,6 +1051,13 @@ def update_voice_settings(project_id: str, settings: dict) -> dict:
         return {"ok": False, "error": " ".join(errors)}
     _get_project_or_raise(project_id)
     _db.update_project(project_id, **columns)
+    # Remember the last explicitly chosen voice so list_voice_options can
+    # surface it (disambiguates duplicate clone-profile names like KIKI).
+    try:
+        if isinstance(settings, dict) and settings.get("tts_voice"):
+            _db.update_settings({"tts_voice_last_used": settings.get("tts_voice")})
+    except Exception:
+        pass
     for step in ("generate_voiceover", "transcribe", "render"):
         _db.create_task(project_id, step)
         _db.update_task(

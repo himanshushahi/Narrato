@@ -197,6 +197,46 @@ def test_save_script_writes_and_purges(tmp_path, monkeypatch):
     assert calls["upd:proj_mcp_generate_script"][-1]["status"] == "completed"
 
 
+def test_patch_script_edits_one_scene_and_keeps_audio_assets(tmp_path, monkeypatch):
+    """P0 regression: fixing 1 sentence must NOT purge design/voice/assets."""
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    proj_dir = tmp_path / "proj_mcp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "title": "T",
+        "introduction": {"hook": "hello world", "sub_visuals": []},
+        "scenes": [
+            {"scene_number": 1, "title": "S1", "narration": "first narration here",
+             "sub_visuals": [{"sentinel": 1}]},
+            {"scene_number": 2, "title": "S2", "narration": "second narration here",
+             "sub_visuals": []},
+        ],
+        "conclusion": {"summary": "bye now", "cta": "", "sub_visuals": []},
+    }
+    (proj_dir / "script.json").write_text(json.dumps(doc), encoding="utf-8")
+    (proj_dir / "design.json").write_text("{}")
+    (proj_dir / "voiceover").mkdir(exist_ok=True)
+    (proj_dir / "voiceover" / "segment_000.wav").write_bytes(b"x")
+    (proj_dir / "assets").mkdir(exist_ok=True)
+    (proj_dir / "assets" / "asset_001.mp4").write_bytes(b"z")
+    (proj_dir / "subtitles").mkdir(exist_ok=True)
+    (proj_dir / "subtitles" / "transcription.json").write_text("{}")
+
+    result = payloads.patch_script_payload(
+        "proj_mcp", "scene", {"narration": "edited second narration here"},
+        scene_number=2)
+    assert result["ok"] is True
+    assert result["patched"]["scene_number"] == 2
+    back = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    assert back["scenes"][1]["narration"] == "edited second narration here"
+    assert back["scenes"][0]["sub_visuals"] == [{"sentinel": 1}]
+    assert (proj_dir / "design.json").exists()
+    assert (proj_dir / "voiceover" / "segment_000.wav").exists()
+    assert (proj_dir / "assets" / "asset_001.mp4").exists()
+    assert not (proj_dir / "subtitles" / "transcription.json").exists()
+
+
 def test_save_script_rejects_invalid_without_touching_disk(tmp_path, monkeypatch):
     _patch_storage(monkeypatch, tmp_path)
     _patch_db(monkeypatch, _proj())
@@ -1776,10 +1816,10 @@ def test_mcp_inventory_shape_and_counts():
     templates = asyncio.run(server.mcp.list_resource_templates())
     prompts = asyncio.run(server.mcp.list_prompts())
     tool_names = sorted(t.name for t in tools)
-    assert len(tool_names) == 34
+    assert len(tool_names) == 35
     assert set(tool_names) == {
         "create_project", "list_projects", "project_status", "delete_project",
-        "save_script", "get_script", "save_design",
+        "save_script", "patch_script", "get_script", "save_design",
         "list_voice_options", "update_voice_settings", "update_transcribe_settings",
         "update_subtitle_settings",
         "get_transcription",
@@ -1801,7 +1841,7 @@ def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
     monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
     inv = http_host.get_mcp_inventory()
     assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
-    assert len(inv["tools"]) == 34
+    assert len(inv["tools"]) == 35
     assert len(inv["resources"]) == 1
     assert inv["resource_templates"] == []
     assert len(inv["prompts"]) == 1

@@ -35,6 +35,7 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
     title: 'Script, Design & Voice',
     tools: [
       { name: 'save_script', blurb: 'Validate + save agent-written narration' },
+      { name: 'patch_script', blurb: 'Surgical single-section fix (keeps audio/assets/visuals)' },
       { name: 'get_script', blurb: 'Read script back (ASTs stripped by default)' },
       { name: 'save_design', blurb: 'Save the design system cuts bind to' },
       { name: 'list_voice_options', blurb: 'Engines + voices to offer you' },
