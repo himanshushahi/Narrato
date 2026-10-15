@@ -35,7 +35,7 @@ from backend.agent.chat_loop import call_llm_with_tools
 
 MAX_CHAT_TURNS = 60
 MAX_LLM_MESSAGES = 41  # system + last 40
-DESTRUCTIVE_TOOLS = frozenset({"delete_project", "clear_visuals", "clear_assets"})
+DESTRUCTIVE_TOOLS = frozenset({"clear_visuals", "clear_assets"})
 
 
 def _session_dir(project_id: str) -> Path:
@@ -61,6 +61,47 @@ def _split_thinking(content: str) -> tuple:
     return thinking, clean
 
 
+def _chat_server_instructions(base: str) -> str:
+    """Adapt MCP server instructions for the project-bound chat.
+
+    The MCP intake protocol orders the agent to invoke `create_project`,
+    but the chat schema does not offer it (project lifecycle is app-UI
+    only). Injecting the raw block makes the model attempt a tool that can
+    only fail as "Unknown chat tool". Replace that block with a chat-bound
+    lifecycle rule; leave every other section (numbering, skill gates,
+    probes, visual gotchas, learnings) intact.
+    """
+    override = (
+        "PROJECT LIFECYCLE (chat-bound):\n"
+        "This chat runs inside one existing project. You cannot create or "
+        "delete projects — creation uses the app's 'New Narrative Build' "
+        "form and deletion uses the app's delete button with UI confirmation. "
+        "If the user asks for a new video, explain they need to create it in "
+        "the app UI, then continue once they open that project. "
+        "Never invoke `create_project` or `delete_project` "
+        "(they are not available as chat tools)."
+    )
+    try:
+        replaced, n = re.subn(
+            r"MANDATORY PROJECT INTAKE PROTOCOL:.*?invoke `create_project`\.",
+            override, base or "", flags=re.DOTALL)
+        if n:
+            return replaced
+    except Exception:
+        pass
+    return (base or "") + "\n\n" + override
+
+
+_CHAT_PIPELINE_PREAMBLE = (
+    "# CHAT ADAPTATION (project already open)\n"
+    "This chat is bound to one existing project (see CURRENT PROJECT "
+    "SNAPSHOT for its id). Skip pipeline-guide step 1 (`create_project`): "
+    "the project already exists. Start at research/script writing with this "
+    "project_id. Never call `create_project` or `delete_project` — "
+    "they are app-UI only.\n\n"
+)
+
+
 def _build_system_prompt(project_id: str) -> str:
     """Same context as MCP (instructions + pipeline guide + live snapshot),
     plus an agent charter describing capabilities and workflow.
@@ -71,9 +112,9 @@ def _build_system_prompt(project_id: str) -> str:
     """
     from backend.mcp.server import NARRATO_SERVER_INSTRUCTIONS, pipeline_guide
 
-    parts = [NARRATO_SERVER_INSTRUCTIONS]
+    parts = [_chat_server_instructions(NARRATO_SERVER_INSTRUCTIONS)]
     try:
-        parts.append("\n\n# PIPELINE GUIDE (narrato://pipeline-guide)\n" + pipeline_guide())
+        parts.append("\n\n# PIPELINE GUIDE (narrato://pipeline-guide)\n" + _CHAT_PIPELINE_PREAMBLE + pipeline_guide())
     except Exception as e:
         logger.warning(f"chat pipeline-guide inject failed: {e}")
     try:
@@ -111,7 +152,8 @@ def _build_system_prompt(project_id: str) -> str:
         "validate with dry_run before persisting visuals; prefer save_visuals_batch for whole "
         "videos; run fetch_assets before review_frame; review every section, then STOP and "
         "present a review summary — the final render runs only after the user's explicit "
-        "approval, as do deletions and clears (ask, don't assume). After render, spot-check "
+        "approval, as do clears (ask, don't assume). Project creation and deletion "
+        "live in the app UI, not in chat. After render, spot-check "
         "the finished file with review_frame(mode=render) before declaring done.\n"
         "Slow stages (generate_voiceover, transcribe, render — minutes long): call "
         "run_stage(wait=true) and await the result; the turn stays open and Stop still "

@@ -50,15 +50,8 @@ _PID = {"type": "string", "description": "Project id (auto-filled with the curre
 def get_chat_tools_schema() -> List[Dict[str, Any]]:
     """OpenAI function schemas for every MCP tool, same names + same args."""
     return [
-        _func_def("create_project", "Create a new video project. Ask topic/language/format/duration/voice first — do not guess.",
-                  {"name": _STR, "language": {"type": "string", "enum": ["hi", "en"]},
-                   "video_format": {"type": "string", "enum": ["landscape", "portrait"]},
-                   "duration_mode": {"type": "string", "enum": ["short", "medium", "long", "extra_long"]},
-                   "export_folder": _STR, "style": _STR, "style_hint": _STR},
-                  ["name", "language", "video_format", "duration_mode"]),
         _func_def("list_projects", "List all projects (id, name, status, language).", {}, []),
         _func_def("project_status", "Full project row + per-stage task states.", {"project_id": _PID}, []),
-        _func_def("delete_project", "Permanently delete a project + files. Cannot be undone.", {"project_id": _PID}, ["project_id"]),
         _func_def("list_skills", "List writing/visual guide skills.", {}, []),
         _func_def("get_skill", "Full markdown guide for one skill; brief=true for section map, section='...' for one part, section='learnings' for past session observations.",
                   {"skill_name": _STR, "language": _STR, "video_format": _STR, "section": _STR,
@@ -172,14 +165,37 @@ STAGE_SLEEP_SUGGESTIONS = {
     "fetch_assets": 45,
 }
 
+# Tools the chat agent must never see: project lifecycle belongs to the app
+# (New Narrative Build modal + one-click delete with UI confirmation), not to
+# a project-bound chat. Removed from schema AND dispatch.
+_CHAT_DROPPED_TOOLS = frozenset({"create_project", "delete_project"})
+
 # Mutating chat tools locked while a pipeline stage runs on the project.
 # Must mirror the MCP _refuse_if_stage_running coverage: every tool the MCP
 # server guards here must be guarded here too (different transports, same rule).
 _CHAT_GUARDED_TOOLS = frozenset({
     "save_script", "patch_script", "save_design", "save_visuals", "save_visuals_batch",
-    "clear_visuals", "clear_assets", "delete_project",
+    "clear_visuals", "clear_assets",
     "update_voice_settings", "update_transcribe_settings",
     "update_subtitle_settings",
+})
+
+# Mutating tools bound to the session's project: an explicit project_id that
+# differs from the open project is refused (reads may span projects, writes
+# may not). execute_chat_tool auto-fills the open project when omitted, so
+# normal use is unaffected — only cross-project attempts trip this.
+# review_frame is scoped too: it persists a JPEG cache under the project's
+# chat/reviews folder, so a cross-project call would write outside the open
+# project. append_skill_learning is intentionally UNSCOPED: it appends to
+# global skill LEARNINGS.md (skills dir, not project data), append-only.
+_PROJECT_SCOPED_TOOLS = frozenset({
+    "save_script", "patch_script", "save_design",
+    "save_visuals", "save_visuals_batch",
+    "clear_visuals", "clear_assets",
+    "update_voice_settings", "update_transcribe_settings",
+    "update_subtitle_settings",
+    "run_stage", "cancel_stage",
+    "review_frame",
 })
 
 
@@ -298,7 +314,7 @@ def execute_chat_tool(tool_name: str, arguments: Dict[str, Any], default_project
     if default_project_id and not args.get("project_id"):
         # Most tools are project-scoped; default to the open project so the
         # model does not have to repeat it every call.
-        if tool_name not in ("create_project", "list_projects", "list_skills", "get_skill",
+        if tool_name not in ("list_projects", "list_skills", "get_skill",
                               "list_voice_options", "web_search", "append_skill_learning",
                               "sleep", "search_tools", "get_tool_details"):
             args["project_id"] = default_project_id
@@ -328,6 +344,27 @@ def execute_chat_tool(tool_name: str, arguments: Dict[str, Any], default_project
 def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=None):
     from backend.mcp import server as S
 
+    # Project scope: this chat lives inside one project. Reads may span
+    # projects, but writes/deletes/stage-runs outside the open project are
+    # refused here (create/delete are not even offered in the schema).
+    # Default-deny: scoped tools need a resolved project id; without a bound
+    # project or an explicit id the call is refused instead of falling
+    # through to an obscure downstream error.
+    if tool_name in _PROJECT_SCOPED_TOOLS:
+        raw = args.get("project_id", "") or default_project_id
+        resolved = str(raw).strip() if raw is not None else ""
+        default = str(default_project_id).strip() if default_project_id else ""
+        if not resolved:
+            return {"ok": False, "error_code": "NO_PROJECT",
+                    "error": (f"{tool_name} needs a project_id: this chat has no "
+                              f"open project bound.")}
+        if default and resolved != default:
+            return {"ok": False, "error_code": "WRONG_PROJECT",
+                    "error": (f"{tool_name} targets project {resolved!r}, but this chat "
+                              f"is bound to project {default!r}. Writes, "
+                              f"deletes, and stage runs outside the open project "
+                              f"are not allowed; reads are.")}
+
     # Waiting discipline: while a pipeline stage runs on this project, refuse
     # state-mutating tools so a wait=false polling turn cannot wander into
     # side quests. Read-only tools, sleep, stage_status and cancel_stage pass;
@@ -346,17 +383,10 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
                                   "Mutating tools are locked until it settles; read-only probes are fine.")}
 
     # --- thin wrappers: same functions MCP calls (incl. skill-gate checks) ---
-    if tool_name == "create_project":
-        return S.create_project(
-            args.get("name", ""), language=args.get("language"), video_format=args.get("video_format"),
-            duration_mode=args.get("duration_mode"), export_folder=args.get("export_folder", ""),
-            style=args.get("style", "nitish_rajput"), style_hint=args.get("style_hint", ""))
     if tool_name == "list_projects":
         return S.list_projects()
     if tool_name == "project_status":
         return S.project_status(args.get("project_id", "") or default_project_id)
-    if tool_name == "delete_project":
-        return S.delete_project(args.get("project_id", "") or default_project_id)
     if tool_name == "list_skills":
         return S.list_skills()
     if tool_name == "get_skill":
@@ -467,10 +497,35 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
     if tool_name == "get_receipt":
         return S.get_receipt(args.get("project_id", "") or default_project_id)
     if tool_name == "search_tools":
-        return S.search_tools(query=args.get("query", "") or "",
-                              limit=_to_int(args.get("limit", 10), 10))
+        res = S.search_tools(query=args.get("query", "") or "",
+                             limit=_to_int(args.get("limit", 10), 10))
+        # Chat adaptation: hide project-lifecycle tools that are not offered
+        # here. Without filtering, discovery advertises create/delete, the
+        # model tries them, and the call fails as "Unknown chat tool".
+        if isinstance(res, dict):
+            res = dict(res)
+            for key in ("tools", "core_tools"):
+                items = res.get(key)
+                if isinstance(items, list):
+                    kept = [e for e in items
+                            if not (isinstance(e, dict)
+                                    and e.get("name") in _CHAT_DROPPED_TOOLS)]
+                    if len(kept) != len(items) and "total_matches" in res:
+                        try:
+                            res["total_matches"] = max(
+                                0, int(res["total_matches"]) - (len(items) - len(kept)))
+                        except (TypeError, ValueError):
+                            pass
+                    res[key] = kept
+        return res
     if tool_name == "get_tool_details":
-        return S.get_tool_details(args.get("name", ""))
+        name = str(args.get("name", "") or "").strip()
+        if name in _CHAT_DROPPED_TOOLS:
+            return {"ok": False, "error_code": "DROPPED_TOOL",
+                    "error": (f"{name!r} is not available in chat: project creation "
+                              f"and deletion live in the app UI (New Narrative Build "
+                              f"form + delete button), not in this project-bound chat.")}
+        return S.get_tool_details(name)
     if tool_name == "list_voice_options":
         return S.list_voice_options()
     if tool_name == "search_media":

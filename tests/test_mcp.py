@@ -2906,21 +2906,24 @@ def test_tool_catalog_matches_live_tools():
 
 
 def test_chat_schema_covers_all_mcp_tools():
-    """The in-app chat agent must offer every MCP tool (same names + args)."""
+    """The in-app chat agent must offer every MCP tool (same names + args),
+    except project-lifecycle tools dropped by design (chat is project-bound)."""
     import asyncio
     from backend.agent import chat_tools
     from backend.mcp import server
     live = {t.name for t in asyncio.run(server.mcp.list_tools())}
     chat = set(chat_tools.CHAT_TOOL_NAMES)
-    assert live <= chat, f"chat missing: {sorted(live - chat)}"
+    assert chat_tools._CHAT_DROPPED_TOOLS == {"create_project", "delete_project"}
+    assert live - chat == set(chat_tools._CHAT_DROPPED_TOOLS)
 
 
 def test_chat_guards_mirror_mcp_stage_lock():
-    """Every MCP stage-guarded mutating tool must be guarded in chat too."""
+    """Every MCP stage-guarded mutating tool must be guarded in chat too,
+    except dropped lifecycle tools (delete_project is not offered at all)."""
     from backend.agent import chat_tools
     for name in ("save_script", "patch_script", "save_design", "save_visuals",
                  "save_visuals_batch", "clear_visuals", "clear_assets",
-                 "delete_project", "update_voice_settings",
+                 "update_voice_settings",
                  "update_transcribe_settings", "update_subtitle_settings"):
         assert name in chat_tools._CHAT_GUARDED_TOOLS, name
 
@@ -2995,6 +2998,59 @@ def test_chat_wait_false_stages_pending_then_replays(tmp_path, monkeypatch):
         {"stage": "transcribe", "wait": False, "idempotency_key": "k9"},
         "p2")
     assert replay.get("ok") is True and replay.get("replayed") is True
+
+
+# ── chat project scoping ────────────────────────────────────────────
+
+def test_chat_drops_project_lifecycle_tools():
+    """create/delete are not offered to the project-bound chat at all."""
+    from backend.agent import chat_tools
+    assert "create_project" not in chat_tools.CHAT_TOOL_NAMES
+    assert "delete_project" not in chat_tools.CHAT_TOOL_NAMES
+    assert "create_project" in chat_tools._CHAT_DROPPED_TOOLS
+    assert "delete_project" not in chat_tools._CHAT_GUARDED_TOOLS
+    assert chat_tools._dispatch("create_project", {"name": "x"}, "p", None).get(
+        "error", "").startswith("Unknown chat tool")
+    assert chat_tools._dispatch("delete_project", {"project_id": "p"}, "p",
+                                None).get("error", "").startswith(
+                                    "Unknown chat tool")
+
+
+def test_chat_cross_project_writes_refused():
+    """Mutating tools with another project's id are refused pre-dispatch."""
+    from backend.agent import chat_tools
+    for tool, args in (
+        ("save_script", {"script": {}}),
+        ("patch_script", {"section_type": "scene", "patch": {}}),
+        ("save_design", {"design": {}}),
+        ("save_visuals", {"section_type": "scene", "sub_visuals": []}),
+        ("clear_assets", {}),
+        ("update_voice_settings", {"settings": {}}),
+        ("run_stage", {"stage": "transcribe"}),
+        ("cancel_stage", {"stage": "transcribe"}),
+    ):
+        res = chat_tools._dispatch(tool, {"project_id": "other", **args},
+                                   "current", None)
+        assert res.get("ok") is False, tool
+        assert res.get("error_code") == "WRONG_PROJECT", tool
+    # Same-project writes pass the scope guard (fail later on content, not scope).
+    res = chat_tools._dispatch("save_design",
+                               {"project_id": "current", "design": {}},
+                               "current", None)
+    assert res.get("error_code") != "WRONG_PROJECT"
+
+
+def test_chat_cross_project_reads_allowed(tmp_path, monkeypatch):
+    """Reads span projects: the guard must not block them."""
+    from backend.agent import chat_tools
+    _patch_storage(monkeypatch, tmp_path)
+    res = chat_tools._dispatch("get_script", {"project_id": "other"},
+                               "current", None)
+    assert res.get("error_code") != "WRONG_PROJECT"
+    assert "script.json not found" in res.get("error", "")
+    res = chat_tools._dispatch("project_status", {"project_id": "other"},
+                               "current", None)
+    assert res.get("error_code") != "WRONG_PROJECT"
 
 
 
