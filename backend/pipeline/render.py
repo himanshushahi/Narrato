@@ -96,6 +96,190 @@ def _safe_float(val, default=0.0) -> float:
         return default
 
 
+_video_duration_cache: dict = {}
+
+
+def _ffprobe_cache_key(path_str):
+    """Cache key coupling the path to the file identity (mtime + size).
+
+    A bare path key goes stale when an asset is re-downloaded or replaced in
+    place: the old (longer) duration would then wrongly clear loop=True for a
+    file that now ends early. Keying on identity makes stale entries simply
+    miss instead of lying.
+    """
+    try:
+        clean = str(path_str).split("?")[0].split("#")[0]
+        stat = os.stat(clean)
+        return (clean, stat.st_mtime, stat.st_size)
+    except OSError:
+        return None
+
+
+def _ffprobe_duration_seconds(path_str) -> float | None:
+    """Duration of a media file via ffprobe (cached per path). None when unknown."""
+    if not path_str:
+        return None
+    clean = str(path_str).split("?")[0].split("#")[0]
+    key = _ffprobe_cache_key(path_str)
+    if key is not None and key in _video_duration_cache:
+        return _video_duration_cache[key]
+    result = None
+    try:
+        from backend.core.config import get_ffprobe_path, get_startupinfo
+        ffprobe_bin = get_ffprobe_path()
+        if not ffprobe_bin or not Path(str(ffprobe_bin)).exists():
+            ffprobe_bin = "ffprobe"
+        proc = subprocess.run(
+            [str(ffprobe_bin), "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", clean],
+            capture_output=True, text=True, timeout=30,
+            startupinfo=get_startupinfo())
+        if proc.returncode == 0 and (proc.stdout or "").strip():
+            result = float((proc.stdout or "").strip())
+            if not (result > 0):
+                result = None
+    except Exception:
+        result = None
+    if key is not None:
+        _video_duration_cache[key] = result
+    return result
+
+
+def _strip_unneeded_video_loops(scenes, fps=30):
+    """Drop loop=True on composition video layers whose file outlasts the cut.
+
+    Remotion's native <Video loop> must first resolve the file's duration via
+    a delayRender() probe ("Loading <Html5Video> duration ...") in every
+    headless tab. Under render concurrency that metadata fetch can hang and
+    wedge the frame until the global timeout (minutes) — or resolve late and
+    capture a stale/blank frame (flicker). When the source is longer than the
+    cut it covers, looping can never wrap, so the flag changes zero pixels:
+    clearing it skips the probe and the <Loop> wrapper entirely.
+    Unknown durations keep loop=True (safe default — never break playback).
+    Returns the number of layers stripped (for logging).
+    """
+    try:
+        fps = int(fps) or 30
+    except (ValueError, TypeError):
+        fps = 30
+    stripped = 0
+    for sc, _scene_start, scene_frames in scene_frame_offsets(scenes, fps):
+        if not isinstance(sc, dict):
+            continue
+        sub_visuals = sc.get("sub_visuals", []) or []
+        timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames, fps)
+        for sv, (t_start, t_end) in zip(sub_visuals, timings):
+            if not isinstance(sv, dict):
+                continue
+            need_seconds = max(0.0, (t_end - t_start) / float(fps))
+            comp = sv.get("composition", {})
+            if not (isinstance(comp, dict) and comp.get("type") == "Sequence"):
+                continue
+            for layer in (comp.get("children", []) or []):
+                content = (layer.get("content", {}) or {}) if isinstance(layer, dict) else {}
+                if not isinstance(content, dict):
+                    continue
+                if content.get("type") != "Video" or not content.get("loop"):
+                    continue
+                lp = content.get("local_path")
+                if not lp or Path(str(lp).split("?")[0].split("#")[0]).suffix.lower() not in VIDEO_EXTS:
+                    continue
+                dur = _ffprobe_duration_seconds(lp)
+                if dur is not None and dur >= need_seconds + 0.5:
+                    content["loop"] = False
+                    stripped += 1
+    if stripped:
+        logger.info(f"Render: stripped unneeded loop=True from {stripped} video layer(s) (source outlasts cut — skips duration probe).")
+    return stripped
+
+
+# Entrance transitions that keep the cut subtree on the direct paint path
+# (no ancestor transform/filter): proven flicker-free on fresh video mounts
+# by frame-level NCC vs source truth. Everything else (spatial moves, wipes,
+# iris, flips, zooms, blurs, flashes, glitches) promotes the fresh <video>
+# into a composited/filtered layer whose first presentations come out blank
+# or torn in headless Chromium — deterministic across runs.
+_FADE_SAFE_ENTRANCES = frozenset({"cut", "none", "fade"})
+
+
+def _sub_mounts_fresh_video(sv) -> bool:
+    """True when the sub-visual mounts a video element at its start."""
+    if not isinstance(sv, dict):
+        return False
+    comp = sv.get("composition", {})
+    if isinstance(comp, dict) and comp.get("type") == "Sequence":
+        for layer in (comp.get("children", []) or []):
+            content = (layer.get("content", {}) or {}) if isinstance(layer, dict) else {}
+            if not isinstance(content, dict):
+                continue
+            if content.get("type") == "Video" and content.get("local_path"):
+                return True
+    vp = sv.get("visual_path")
+    if vp and Path(str(vp).split("?")[0].split("#")[0]).suffix.lower() in VIDEO_EXTS:
+        return True
+    return False
+
+
+def _calm_video_cut_entrances(scenes):
+    """Soften spatial/filter entrances to 'fade' on fresh-video cuts.
+
+    Only the entrance is touched (exits run on settled video and are safe);
+    cuts without video keep their authored transitions untouched. Returns the
+    number of entrances remapped (for logging).
+    """
+    calmed = 0
+    for sc in scenes or []:
+        if not isinstance(sc, dict):
+            continue
+        for sv in (sc.get("sub_visuals", []) or []):
+            if not isinstance(sv, dict):
+                continue
+            entrance = sv.get("transition")
+            if not entrance or entrance in _FADE_SAFE_ENTRANCES:
+                continue
+            if _sub_mounts_fresh_video(sv):
+                sv["transition"] = "fade"
+                calmed += 1
+    if calmed:
+        logger.info(f"Render: softened {calmed} video-cut entrance(s) to 'fade' (spatial entrances flicker fresh video mounts).")
+    return calmed
+
+
+# Entrances whose peak frames are single-frame spikes by design (a hot flash
+# pop, a hue-shifted glitch offset). The dropout detector below would read
+# those authored spikes as corrupt frames, so their entrance windows are
+# exempt from repair. Width matches the frontend glitch window (8 frames).
+_STROBE_ENTRANCES = frozenset({"flash", "glitch"})
+_STROBE_WINDOW_FRAMES = 8
+
+
+def _strobe_window_frames(scenes, fps=30):
+    """Absolute frame indices inside flash/glitch entrance windows."""
+    try:
+        fps = int(fps) or 30
+    except (ValueError, TypeError):
+        fps = 30
+    exempt = set()
+    try:
+        for sc, scene_start, scene_frames in scene_frame_offsets(scenes, fps):
+            if not isinstance(sc, dict):
+                continue
+            sub_visuals = sc.get("sub_visuals", []) or []
+            timings = compute_sub_visual_timings_frames(sub_visuals, scene_frames, fps)
+            for sv, (t_start, t_end) in zip(sub_visuals, timings):
+                if not isinstance(sv, dict):
+                    continue
+                if sv.get("transition") not in _STROBE_ENTRANCES:
+                    continue
+                first = scene_start + t_start
+                last = min(scene_start + t_end, first + _STROBE_WINDOW_FRAMES)
+                for f in range(max(0, first), last):
+                    exempt.add(f)
+    except Exception as e:
+        logger.warning(f"Render: strobe-window scan skipped ({e})")
+    return exempt
+
+
 def compute_sub_visual_timings_frames(sub_visuals, scene_frames, fps=30):
     """Replicate the frontend's calculateSubVisualTimings (utils/duration.ts)
     in frames so audio cut ranges and video-audio placement match the preview.
@@ -435,6 +619,169 @@ def compute_mux_hash(frame_hash, audio_hash, render_settings):
     }
     data_str = json.dumps(mux_props, sort_keys=True)
     return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
+
+def _repair_dropout_frames(frames_dir, total_frames, frame_ext, padding,
+                           dry_run=False, exempt_frames=None):
+    """Replace isolated corrupt frames with the previous neighbor (flicker fix).
+
+    Detection (grayscale NCC on the video-dominated center box): frame N is
+    a dropout when it disagrees with BOTH neighbors (NCC < 0.75) while the
+    neighbors agree with each other substantially better (margin > 0.15).
+    The relative formulation is immune to dark scenes, fades, slides and
+    overlays — those keep neighbor correlation high or degrade all three
+    scores together. Adjacent pairs are handled in a second pass. Frames in
+    `exempt_frames` (authored strobe windows) are never touched, nor are
+    comparisons involving them. Repair copies neighbor bytes over the dropout
+    path. Returns repaired list.
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+        import shutil
+        import time as _time
+    except Exception as e:
+        logger.warning(f"Frame repair skipped (missing imaging libs: {e})")
+        return []
+    try:
+        t0 = _time.time()
+        paths = {i: frames_dir / f"element-{i:0{padding}d}.{frame_ext}"
+                 for i in range(total_frames)}
+        thumbs = {}
+
+        def thumb(i):
+            if i not in thumbs:
+                try:
+                    with Image.open(paths[i]) as im:
+                        g = im.convert("L")
+                        w, h = g.size
+                        # Center box: video-dominated in fullscreen layouts;
+                        # keeps static overlays/text (usually top/bottom bands)
+                        # from diluting the correlation signal.
+                        box = g.crop((int(w * 0.25), int(h * 0.30),
+                                      int(w * 0.75), int(h * 0.65)))
+                        box.thumbnail((256, 256))
+                        thumbs[i] = np.asarray(box, dtype=np.float64)
+                except Exception:
+                    thumbs[i] = None
+            return thumbs[i]
+
+        scores = {}
+
+        def ncc(i, j):
+            key = (i, j) if i <= j else (j, i)
+            if key not in scores:
+                a, b = thumb(i), thumb(j)
+                if a is None or b is None:
+                    scores[key] = 1.0
+                else:
+                    try:
+                        x = a.ravel()
+                        y = b.ravel()
+                        x = x - x.mean()
+                        y = y - y.mean()
+                        d = float(np.sqrt(float((x * x).sum()) * float((y * y).sum())))
+                        scores[key] = float((x * y).sum() / d) if d > 0 else 1.0
+                    except Exception:
+                        scores[key] = 1.0
+            return scores[key]
+
+        def present(i):
+            try:
+                return paths[i].exists() and paths[i].stat().st_size > 0
+            except OSError:
+                return False
+
+        exempt = set(exempt_frames or [])
+
+        def usable(*idx):
+            return all(k not in exempt for k in idx)
+
+        repaired = []
+        # Edges: frame 0 and the last frame borrow the two frames after/before.
+        if total_frames >= 3:
+            if (present(0) and present(1) and present(2) and usable(0, 1, 2)):
+                nab, nbc, nac = ncc(0, 1), ncc(0, 2), ncc(1, 2)
+                if max(nab, nbc) < 0.75 and nac - max(nab, nbc) > 0.15:
+                    if dry_run:
+                        repaired.append(0)
+                    else:
+                        try:
+                            shutil.copyfile(paths[1], paths[0])
+                            thumbs.pop(0, None)
+                            scores.clear()
+                            repaired.append(0)
+                        except Exception as e:
+                            logger.warning(f"Frame repair: could not fix frame 0 ({e})")
+            last = total_frames - 1
+            if (present(last) and present(last - 1) and present(last - 2)
+                    and usable(last, last - 1, last - 2)
+                    and last not in repaired and (last - 1) not in repaired
+                    and (last - 2) not in repaired):
+                nab, nbc, nac = ncc(last, last - 1), ncc(last, last - 2), ncc(last - 1, last - 2)
+                if max(nab, nbc) < 0.75 and nac - max(nab, nbc) > 0.15:
+                    if dry_run:
+                        repaired.append(last)
+                    else:
+                        try:
+                            shutil.copyfile(paths[last - 1], paths[last])
+                            thumbs.pop(last, None)
+                            scores.clear()
+                            repaired.append(last)
+                        except Exception as e:
+                            logger.warning(f"Frame repair: could not fix frame {last} ({e})")
+        # Pass 1: isolated singles.
+        for i in range(1, total_frames - 1):
+            if not (present(i - 1) and present(i) and present(i + 1)):
+                continue
+            if not usable(i - 1, i, i + 1):
+                continue
+            if i - 1 in repaired or i + 1 in repaired:
+                continue
+            nab, nbc, nac = ncc(i - 1, i), ncc(i, i + 1), ncc(i - 1, i + 1)
+            if max(nab, nbc) < 0.75 and nac - max(nab, nbc) > 0.15:
+                if dry_run:
+                    repaired.append(i)
+                    continue
+                try:
+                    shutil.copyfile(paths[i - 1], paths[i])
+                    thumbs.pop(i, None)
+                    scores.clear()
+                    repaired.append(i)
+                except Exception as e:
+                    logger.warning(f"Frame repair: could not fix frame {i} ({e})")
+        # Pass 2: adjacent pairs (both disagree with the outer good pair).
+        for i in range(1, total_frames - 2):
+            if not all(present(k) for k in (i - 1, i, i + 1, i + 2)):
+                continue
+            if not usable(i - 1, i, i + 1, i + 2):
+                continue
+            if any(k in repaired for k in (i - 1, i, i + 1, i + 2)):
+                continue
+            if (max(ncc(i - 1, i), ncc(i + 1, i + 2)) < 0.75
+                    and ncc(i - 1, i + 2) - max(ncc(i - 1, i), ncc(i + 1, i + 2)) > 0.15):
+                if dry_run:
+                    repaired.extend([i, i + 1])
+                    continue
+                try:
+                    shutil.copyfile(paths[i - 1], paths[i])
+                    shutil.copyfile(paths[i - 1], paths[i + 1])
+                    thumbs.pop(i, None)
+                    thumbs.pop(i + 1, None)
+                    scores.clear()
+                    repaired.extend([i, i + 1])
+                except Exception as e:
+                    logger.warning(f"Frame repair: could not fix frames {i}-{i + 1} ({e})")
+        if repaired:
+            logger.info(f"Frame repair: {'found' if dry_run else 'fixed'} {len(repaired)} dropout frame(s) "
+                        f"({sorted(repaired)[:40]}{'...' if len(repaired) > 40 else ''}) "
+                        f"in {_time.time() - t0:.1f}s.")
+        else:
+            logger.info(f"Frame repair: no dropout frames found ({_time.time() - t0:.1f}s).")
+        return repaired
+    except Exception as e:
+        logger.warning(f"Frame repair skipped ({e})")
+        return []
+
 
 def get_missing_frame_ranges(frames_dir, total_frames, target_ext="jpeg"):
     """Finds all missing frame ranges from 0 to total_frames - 1."""
@@ -872,6 +1219,21 @@ def prepare_render_props_and_settings(project_dict, project_dir, normalize_asset
     except (ValueError, TypeError):
         glass_cap_px = 16
     quality_policy = {"motionBlur": motion_blur_mode, "glassCap": glass_cap_px}
+
+    # Unneeded loop flags force a per-tab duration probe in headless Chromium;
+    # strip them where the file provably outlasts the cut (no visual change).
+    _strip_unneeded_video_loops(scenes, fps)
+
+    # Spatial/filter cut entrances (slide/zoom/wipe/iris/flip/glitch/...) wrap
+    # the fresh <video> in a transformed/filtered ancestor, whose first
+    # presentations come out blank/torn in headless Chromium (frame-level NCC
+    # vs source truth: black + torn frames until ~8f in, deterministic across
+    # runs; opacity-only fade renders correct pixels from frame 0). Soften
+    # those entrances to 'fade' on cuts that mount a fresh video. No-op for
+    # text/image-only cuts and for exits. Pure in-memory edit — safe for
+    # staleness checks (same result on both paths) and covered by the
+    # scenes frame hash.
+    _calm_video_cut_entrances(scenes)
 
     props = {
         "audioUrl": clean_media_path(str(audio_path)),
@@ -1780,6 +2142,21 @@ def render_pipeline(project_dict, project_dir, progress_cb, cancel_event, force=
                 f.replace(dest)
 
     frame_input_pattern = f"element-%0{normalized_padding}d.{frame_ext}"
+
+    # ── Dropout repair (flicker fix) ─────────────────────────────────
+    # Headless Chromium occasionally captures a blank/torn video frame
+    # mid-playback (seek-presentation race under concurrency). Such a frame
+    # decorrelates from BOTH neighbors while the neighbors agree with each
+    # other — a 1-frame hold (copy the previous neighbor over it) is
+    # invisible at 30fps and removes the visible flash from the MP4.
+    # Gradual changes (fades, slides, motion, dark scenes) keep high
+    # neighbor correlation and are never touched. Authored strobe windows
+    # (flash/glitch peaks) are exempt so intentional spikes survive.
+    # Best-effort: repairs a copy-safe file swap and never fails the render
+    # on error.
+    _strobe_exempt = _strobe_window_frames(scenes, fps)
+    _repair_dropout_frames(frames_dir, total_frames, frame_ext,
+                           normalized_padding, exempt_frames=_strobe_exempt)
 
     loudnorm_available = _ffmpeg_has_filter(ffmpeg_bin, "loudnorm")
     if not loudnorm_available:
