@@ -35,11 +35,13 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
     title: 'Script, Design & Voice',
     tools: [
       { name: 'save_script', blurb: 'Validate + save agent-written narration' },
+      { name: 'patch_script', blurb: 'Surgical single-section fix (keeps audio/assets/visuals)' },
       { name: 'get_script', blurb: 'Read script back (ASTs stripped by default)' },
       { name: 'save_design', blurb: 'Save the design system cuts bind to' },
       { name: 'list_voice_options', blurb: 'Engines + voices to offer you' },
       { name: 'update_voice_settings', blurb: 'Change voice/speed/music volume' },
       { name: 'update_transcribe_settings', blurb: 'Change whisper model/device' },
+      { name: 'update_subtitle_settings', blurb: 'Change subtitle styling (render-only reset)' },
       { name: 'get_transcription', blurb: 'Read word-level transcription & segments (section-scoped or global)' },
 
       { name: 'list_skills', blurb: 'Writing/visual guide catalogue' },
@@ -71,6 +73,12 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
     title: 'Research & files',
     tools: [
       { name: 'search_media', blurb: 'Verify stock queries (Pexels/Pixabay/Wiki/YouTube/Archive)' },
+      { name: 'search_tools', blurb: 'Keyword-search the tool catalog (start from core tools)' },
+      { name: 'get_tool_details', blurb: 'Blurb + group + hint for one tool' },
+      { name: 'estimate_cost', blurb: 'Dry-run time preview for remaining stages (no spend)' },
+      { name: 'qa_gate', blurb: 'Fail-closed publish gate (call before render)' },
+      { name: 'verify_stock', blurb: 'File-truth stock check + attribution' },
+      { name: 'get_receipt', blurb: 'Video Receipt: hashes + cursor + per-cut assets' },
       { name: 'web_search', blurb: 'Fact research for scripts' },
       { name: 'list_project_files', blurb: 'Inspect project folder contents' },
       { name: 'read_project_file', blurb: 'Read text artifacts (manifests, logs)' },
@@ -80,12 +88,13 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
 
 const STAGE_ORDER = [
   'create_project (+ list_voice_options → ask topic/style-hint/format/duration/language/export/voice)',
-  'save_script',
+  'save_script (patch_script for single-section fixes)',
   'run_stage(generate_voiceover) → run_stage(transcribe)',
   'get_section_timings + save_design + save_visuals (brief-first skills)',
   'run_stage(fetch_assets)',
   'review_frame(composition) per section AFTER fetch_assets → patch bad cuts (re-fetch if new query)',
-  'STOP for human review → run_stage(render, confirm_render=true)',
+  'qa_gate (must pass) + get_receipt → STOP for human review → run_stage(render, confirm_render=true)',
+  'review_frame(mode=render) spot-check of the finished mp4',
 ];
 
 const RULES_WHILE_RUNNING = [

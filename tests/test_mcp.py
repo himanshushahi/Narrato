@@ -197,6 +197,46 @@ def test_save_script_writes_and_purges(tmp_path, monkeypatch):
     assert calls["upd:proj_mcp_generate_script"][-1]["status"] == "completed"
 
 
+def test_patch_script_edits_one_scene_and_keeps_audio_assets(tmp_path, monkeypatch):
+    """P0 regression: fixing 1 sentence must NOT purge design/voice/assets."""
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    proj_dir = tmp_path / "proj_mcp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "title": "T",
+        "introduction": {"hook": "hello world", "sub_visuals": []},
+        "scenes": [
+            {"scene_number": 1, "title": "S1", "narration": "first narration here",
+             "sub_visuals": [{"sentinel": 1}]},
+            {"scene_number": 2, "title": "S2", "narration": "second narration here",
+             "sub_visuals": []},
+        ],
+        "conclusion": {"summary": "bye now", "cta": "", "sub_visuals": []},
+    }
+    (proj_dir / "script.json").write_text(json.dumps(doc), encoding="utf-8")
+    (proj_dir / "design.json").write_text("{}")
+    (proj_dir / "voiceover").mkdir(exist_ok=True)
+    (proj_dir / "voiceover" / "segment_000.wav").write_bytes(b"x")
+    (proj_dir / "assets").mkdir(exist_ok=True)
+    (proj_dir / "assets" / "asset_001.mp4").write_bytes(b"z")
+    (proj_dir / "subtitles").mkdir(exist_ok=True)
+    (proj_dir / "subtitles" / "transcription.json").write_text("{}")
+
+    result = payloads.patch_script_payload(
+        "proj_mcp", "scene", {"narration": "edited second narration here"},
+        scene_number=2)
+    assert result["ok"] is True
+    assert result["patched"]["scene_number"] == 2
+    back = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    assert back["scenes"][1]["narration"] == "edited second narration here"
+    assert back["scenes"][0]["sub_visuals"] == [{"sentinel": 1}]
+    assert (proj_dir / "design.json").exists()
+    assert (proj_dir / "voiceover" / "segment_000.wav").exists()
+    assert (proj_dir / "assets" / "asset_001.mp4").exists()
+    assert not (proj_dir / "subtitles" / "transcription.json").exists()
+
+
 def test_save_script_rejects_invalid_without_touching_disk(tmp_path, monkeypatch):
     _patch_storage(monkeypatch, tmp_path)
     _patch_db(monkeypatch, _proj())
@@ -1776,11 +1816,12 @@ def test_mcp_inventory_shape_and_counts():
     templates = asyncio.run(server.mcp.list_resource_templates())
     prompts = asyncio.run(server.mcp.list_prompts())
     tool_names = sorted(t.name for t in tools)
-    assert len(tool_names) == 33
+    assert len(tool_names) == 41
     assert set(tool_names) == {
         "create_project", "list_projects", "project_status", "delete_project",
-        "save_script", "get_script", "save_design",
+        "save_script", "patch_script", "get_script", "save_design",
         "list_voice_options", "update_voice_settings", "update_transcribe_settings",
+        "update_subtitle_settings",
         "get_transcription",
         "list_skills", "get_skill", "get_stage_skills", "append_skill_learning",
         "run_stage", "stage_status", "cancel_stage", "sleep",
@@ -1789,6 +1830,8 @@ def test_mcp_inventory_shape_and_counts():
         "clear_visuals", "clear_assets",
         "probe_cut", "probe_scene", "probe_asset", "review_frame",
         "search_media", "web_search", "list_project_files", "read_project_file",
+        "search_tools", "get_tool_details", "estimate_cost",
+        "qa_gate", "verify_stock", "get_receipt",
     }
     assert len(resources) == 1
     assert len(templates) == 0  # by design, see docstring
@@ -1800,12 +1843,259 @@ def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
     monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
     inv = http_host.get_mcp_inventory()
     assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
-    assert len(inv["tools"]) == 33
+    assert len(inv["tools"]) == 41
     assert len(inv["resources"]) == 1
     assert inv["resource_templates"] == []
     assert len(inv["prompts"]) == 1
     # cached second call returns same object
     assert http_host.get_mcp_inventory() is inv
+
+
+def test_search_tools_core_and_keyword():
+    from backend.mcp import server
+    core = server.search_tools()
+    assert core["ok"] is True and core["mode"] == "core"
+    names = {t["name"] for t in core["core_tools"]}
+    assert {"save_script", "run_stage", "review_frame"} <= names
+    found = server.search_tools(query="voice", limit=5)
+    assert found["ok"] is True
+    got = {t["name"] for t in found["tools"]}
+    assert {"list_voice_options", "update_voice_settings"} <= got
+    detail = server.get_tool_details("patch_script")
+    assert detail["ok"] is True and detail["group"] == "script/write"
+    missing = server.get_tool_details("nope_tool")
+    assert missing["ok"] is False and "known_tools" in missing
+
+
+def test_estimate_cost_payload_heuristic(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    proj_dir = tmp_path / "proj_mcp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "title": "T",
+        "introduction": {"hook": "hello world test", "sub_visuals": []},
+        "scenes": [
+            {"scene_number": 1, "title": "S1", "narration": "one two three four",
+             "sub_visuals": [
+                 {"duration": 4.0, "composition": {"type": "Sequence", "children": [
+                     {"type": "Layer",
+                      "content": {"type": "Image", "query": "city skyline",
+                                  "source": "pexels",
+                                  "style": {"left": "0%", "top": "0%",
+                                            "width": "100%", "height": "100%"}}}]}}]},
+        ],
+        "conclusion": {"summary": "bye now", "cta": "", "sub_visuals": []},
+    }
+    (proj_dir / "script.json").write_text(json.dumps(doc), encoding="utf-8")
+    result = payloads.estimate_cost_payload("proj_mcp")
+    assert result["ok"] is True
+    assert result["metered"] is False and result["billable_usd"] == 0.0
+    assert result["inputs"]["unique_queries"] == 1
+    assert result["est_total_seconds"] > 0
+    assert result["bottleneck"] in {"generate_voiceover", "transcribe",
+                                    "fetch_assets", "render"}
+
+
+def _phase4_doc(tmp_path, n_scenes=1):
+    proj_dir = tmp_path / "proj_mcp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "title": "T",
+        "introduction": {"hook": "short hook here now", "sub_visuals": [
+            {"duration": 4.0, "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Image", "query": "city skyline",
+                             "source": "pexels",
+                             "style": {"left": "0%", "top": "0%",
+                                       "width": "100%", "height": "100%"}}}]}}]},
+        "scenes": [
+            {"scene_number": i + 1, "title": f"S{i + 1}",
+             "narration": "one two three four",
+             "sub_visuals": []}
+            for i in range(n_scenes)
+        ],
+        "conclusion": {"summary": "bye now", "cta": "", "sub_visuals": []},
+    }
+    (proj_dir / "script.json").write_text(json.dumps(doc), encoding="utf-8")
+    return proj_dir, doc
+
+
+def test_qa_gate_blocks_then_passes(tmp_path, monkeypatch):
+    # Portrait/short guardrail is 4-6 scenes (floor 3) — small enough to
+    # complete by hand in the test.
+    proj = dict(_proj(), duration_mode="short", video_format="portrait",
+                language="en")
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, proj)
+    proj_dir, _ = _phase4_doc(tmp_path, n_scenes=4)
+    blocked = payloads.qa_gate_payload("proj_mcp")
+    assert blocked["ok"] is False and blocked["block_render"] is True
+    names = {c["name"]: c for c in blocked["checks"]}
+    assert names["design_saved"]["passed"] is False
+    assert names["visuals_complete"]["passed"] is False
+    # Complete the build: design + voiceover + transcription + visuals + asset.
+    (proj_dir / "design.json").write_text("{}")
+    (proj_dir / "voiceover").mkdir(exist_ok=True)
+    seg = proj_dir / "voiceover" / "segment_000.wav"
+    seg.write_bytes(b"RIFFxxxx")
+    texts = (["short hook here now"] + ["one two three four"] * 4 + ["bye now"])
+    kinds = (["introduction"] + ["scene"] * 4 + ["conclusion"])
+    (proj_dir / "voiceover" / "manifest.json").write_text(json.dumps([
+        {"index": i, "section_type": k, "title": f"T{i}",
+         "text": t, "audio_path": str(seg), "duration": 2.0}
+        for i, (k, t) in enumerate(zip(kinds, texts))
+    ]), encoding="utf-8")
+    (proj_dir / "subtitles").mkdir(exist_ok=True)
+    (proj_dir / "subtitles" / "transcription.json").write_text(json.dumps({
+        "language": "en",
+        "segments": [
+            {"id": 0, "start": 0.0, "end": 11.0, "text": "hello",
+             "words": [{"start": 0.0, "end": 0.5, "word": "hello"}]},
+        ],
+    }), encoding="utf-8")
+    doc = json.loads((proj_dir / "script.json").read_text(encoding="utf-8"))
+    asset = proj_dir / "assets" / "asset_000_00_00.jpg"
+    asset.parent.mkdir(exist_ok=True)
+    asset.write_bytes(b"\xff\xd8\xff\xe0fake")
+    for scene in doc["scenes"]:
+        scene["sub_visuals"] = [
+            {"duration": 2.0, "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Text", "text": "beat",
+                             "style": {"left": "10%", "top": "10%",
+                                       "width": "80%", "height": "20%"}}}]}}]
+    doc["conclusion"]["sub_visuals"] = [
+        {"duration": 2.0, "composition": {"type": "Sequence", "children": [
+            {"type": "Layer",
+             "content": {"type": "Text", "text": "bye",
+                         "style": {"left": "10%", "top": "10%",
+                                   "width": "80%", "height": "20%"}}}]}}]
+    intro_layer = doc["introduction"]["sub_visuals"][0]["composition"]["children"][0]
+    intro_layer["content"]["local_path"] = "assets/asset_000_00_00.jpg"
+    (proj_dir / "script.json").write_text(json.dumps(doc), encoding="utf-8")
+    passed = payloads.qa_gate_payload("proj_mcp")
+    assert passed["ok"] is True and passed["block_render"] is False
+    assert all(c["passed"] for c in passed["checks"]
+               if c["severity"] == "critical")
+
+
+def test_qa_gate_loudness_measured_branches(tmp_path, monkeypatch):
+    from backend.pipeline import render as render_mod
+    assert render_mod.parse_ebur128_integrated("") is None
+    assert render_mod.parse_ebur128_integrated("no loudness here") is None
+    sample = ("[Parsed_ebur128_0 @ 0x1234] Summary:\n"
+              "  Integrated loudness:\n"
+              "    I:         -13.8 LUFS\n"
+              "    Threshold: -34.2 LUFS\n")
+    assert render_mod.parse_ebur128_integrated(sample) == -13.8
+    # In-tolerance sidecar → critical check passes.
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    proj_dir = tmp_path / "proj_mcp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps({
+        "title": "T",
+        "introduction": {"hook": "short hook", "sub_visuals": [
+            {"duration": 2.0, "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Text", "text": "hi",
+                             "style": {"left": "0%", "top": "0%",
+                                       "width": "100%", "height": "100%"}}}]}}]},
+        "scenes": [],
+        "conclusion": {"summary": "bye", "cta": "", "sub_visuals": [
+            {"duration": 1.0, "composition": {"type": "Sequence", "children": [
+                {"type": "Layer",
+                 "content": {"type": "Text", "text": "bye",
+                             "style": {"left": "0%", "top": "0%",
+                                       "width": "100%", "height": "100%"}}}]}}]},
+    }), encoding="utf-8")
+    (proj_dir / "render_loudness.json").write_text(json.dumps({
+        "target_i": -14.0, "integrated_lufs": -13.8, "normalized": True,
+    }), encoding="utf-8")
+    res = payloads.qa_gate_payload("proj_mcp")
+    loud = {c["name"]: c for c in res["checks"]}["loudness_lufs"]
+    assert loud["severity"] == "critical" and loud["passed"] is True
+    # Drifted mix → critical fail (blocks render).
+    (proj_dir / "render_loudness.json").write_text(json.dumps({
+        "target_i": -14.0, "integrated_lufs": -20.5, "normalized": False,
+    }), encoding="utf-8")
+    res2 = payloads.qa_gate_payload("proj_mcp")
+    loud2 = {c["name"]: c for c in res2["checks"]}["loudness_lufs"]
+    assert loud2["passed"] is False and res2["block_render"] is True
+    # Receipt surfaces the measured value.
+    receipt = payloads.build_receipt_payload("proj_mcp")
+    assert receipt["output"]["integrated_lufs"] == -20.5
+
+
+def test_verify_stock_and_receipt(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    proj_dir, _ = _phase4_doc(tmp_path)
+    (proj_dir / "design.json").write_text("{}")
+    stock = payloads.verify_stock_payload("proj_mcp")
+    assert stock["ok"] is True
+    assert stock["vision_verified"] is False
+    assert stock["total_layers"] == 1 and stock["missing"] == 1
+    assert stock["layers"][0]["attribution"] == "pexels: city skyline"
+    receipt = payloads.build_receipt_payload("proj_mcp")
+    assert receipt["ok"] is True
+    assert len(receipt["receipt_id"]) == 16
+    assert receipt["assets_ready"] is False
+    assert receipt["inputs"]["script.json"]  # sha present
+    again = payloads.build_receipt_payload("proj_mcp")
+    assert again["receipt_id"] == receipt["receipt_id"]  # deterministic
+
+
+def test_idempotency_record_and_replay(monkeypatch):
+    from backend.database import db as db_mod
+    store = {}
+    monkeypatch.setattr(db_mod, "get_setting", lambda k: store.get(k))
+    monkeypatch.setattr(db_mod, "update_settings",
+                        lambda d: store.update(d))
+    assert payloads.check_idempotency("p", "render", "k1", "abc") is None
+    payloads.record_idempotency("p", "render", "k1", "abc", "completed")
+    hit = payloads.check_idempotency("p", "render", "k1", "abc")
+    assert hit is not None and hit["status"] == "completed"
+    # Content change invalidates: same key, new hash → no replay.
+    assert payloads.check_idempotency("p", "render", "k1", "xyz") is None
+    # Blank keys never record or match.
+    payloads.record_idempotency("p", "render", "", "abc", "completed")
+    assert payloads.check_idempotency("p", "render", "", "abc") is None
+
+
+def test_pending_idempotency_promote_and_drop(tmp_path, monkeypatch):
+    """wait=false lifecycle: stage → promote on success, drop on failure."""
+    from backend.database import db as db_mod
+    store = {}
+    monkeypatch.setattr(db_mod, "get_setting", lambda k: store.get(k))
+    monkeypatch.setattr(db_mod, "update_settings", lambda d: store.update(d))
+    _patch_storage(monkeypatch, tmp_path)
+    proj_dir = tmp_path / "pp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps({"title": "T"}), encoding="utf-8")
+    content_hash = payloads._script_content_hash(proj_dir)
+    payloads.stage_pending_idempotency("pp", "transcribe", "k1", content_hash)
+    assert "idempotency_pending:pp:transcribe" in store
+    payloads.consume_pending_idempotency("pp", "transcribe", True)
+    hit = payloads.check_idempotency("pp", "transcribe", "k1", content_hash)
+    assert hit is not None and hit["status"] == "completed"
+    assert store.get("idempotency_pending:pp:transcribe") is None
+    # Failure drops without recording.
+    payloads.stage_pending_idempotency("pp", "transcribe", "k2", content_hash)
+    payloads.consume_pending_idempotency("pp", "transcribe", False)
+    assert payloads.check_idempotency("pp", "transcribe", "k2", content_hash) is None
+    assert store.get("idempotency_pending:pp:transcribe") is None
+    # Mid-run content change invalidates instead of mis-recording.
+    payloads.stage_pending_idempotency("pp", "transcribe", "k3", content_hash)
+    (proj_dir / "script.json").write_text(json.dumps({"title": "CHANGED"}),
+                                          encoding="utf-8")
+    payloads.consume_pending_idempotency("pp", "transcribe", True)
+    assert payloads.check_idempotency("pp", "transcribe", "k3", "anything") is None
+    # Keyless submit clears a stale slot.
+    payloads.stage_pending_idempotency("pp", "transcribe", "k4", "h")
+    payloads.clear_pending_idempotency("pp", "transcribe")
+    assert store.get("idempotency_pending:pp:transcribe") is None
 
 
 # ── clear_visuals / clear_assets ────────────────────────────────────
@@ -2599,6 +2889,168 @@ def test_save_visuals_divergent_counts_still_visible(tmp_path, monkeypatch):
     assert seen["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "NEW"
     script_after = json.loads(script_path.read_text(encoding="utf-8"))
     assert script_after["scenes"][0]["sub_visuals"][0]["composition"]["children"][0]["content"]["text"] == "NEW"
+
+
+# ── discovery catalog sync + chat-agent parity ───────────────────────
+
+def test_tool_catalog_matches_live_tools():
+    """_TOOL_CATALOG must never drift from the registered tools (Phase 3+)."""
+    import asyncio
+    from backend.mcp import server
+    live = sorted(t.name for t in asyncio.run(server.mcp.list_tools()))
+    catalog = sorted(e["name"] for e in server._TOOL_CATALOG)
+    assert catalog == live
+    core = server.search_tools()
+    assert core["ok"] is True
+    assert {t["name"] for t in core["core_tools"]} == set(server._CORE_TOOL_NAMES)
+
+
+def test_chat_schema_covers_all_mcp_tools():
+    """The in-app chat agent must offer every MCP tool (same names + args),
+    except project-lifecycle tools dropped by design (chat is project-bound)."""
+    import asyncio
+    from backend.agent import chat_tools
+    from backend.mcp import server
+    live = {t.name for t in asyncio.run(server.mcp.list_tools())}
+    chat = set(chat_tools.CHAT_TOOL_NAMES)
+    assert chat_tools._CHAT_DROPPED_TOOLS == {"create_project", "delete_project"}
+    assert live - chat == set(chat_tools._CHAT_DROPPED_TOOLS)
+
+
+def test_chat_guards_mirror_mcp_stage_lock():
+    """Every MCP stage-guarded mutating tool must be guarded in chat too,
+    except dropped lifecycle tools (delete_project is not offered at all)."""
+    from backend.agent import chat_tools
+    for name in ("save_script", "patch_script", "save_design", "save_visuals",
+                 "save_visuals_batch", "clear_visuals", "clear_assets",
+                 "update_voice_settings",
+                 "update_transcribe_settings", "update_subtitle_settings"):
+        assert name in chat_tools._CHAT_GUARDED_TOOLS, name
+
+
+def test_chat_dispatch_routes_new_tools():
+    """New tools dispatch (not 'Unknown chat tool'); skill gate still applies."""
+    from backend.agent import chat_tools
+    routed = chat_tools._dispatch(
+        "patch_script",
+        {"project_id": "proj_missing", "section_type": "scene",
+         "patch": {"narration": "x"}, "scene_number": 1}, "", None)
+    assert routed.get("ok") is False
+    assert "Unknown chat tool" not in str(routed)
+    found = chat_tools._dispatch("search_tools", {"query": "voice"}, "", None)
+    assert found.get("ok") is True
+    detail = chat_tools._dispatch("get_tool_details", {"name": "qa_gate"}, "", None)
+    assert detail.get("ok") is True and detail.get("group") == "stages/read"
+
+
+def test_chat_run_stage_idempotency_replays(tmp_path, monkeypatch):
+    """Same key+stage+content replays in chat without touching the queue."""
+    from backend.agent import chat_tools
+    from backend.database import db as db_mod
+    _patch_storage(monkeypatch, tmp_path)
+    proj_dir = tmp_path / "p1"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps({"title": "T"}), encoding="utf-8")
+    content_hash = payloads._script_content_hash(proj_dir)
+    store = {f"idempotency:p1:generate_voiceover:k1":
+             {"content_hash": content_hash, "status": "completed",
+              "recorded_at": "t"}}
+    monkeypatch.setattr(db_mod, "get_setting", lambda k: store.get(k))
+    monkeypatch.setattr(db_mod, "update_settings", lambda d: store.update(d))
+    from backend.pipeline.queue import global_queue_manager
+    monkeypatch.setattr(global_queue_manager, "queue_project",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("queue must not run on replay")))
+    res = chat_tools._stage_via_queue(
+        "run_stage",
+        {"stage": "generate_voiceover", "wait": True, "idempotency_key": "k1"},
+        "p1")
+    assert res.get("ok") is True and res.get("replayed") is True
+
+
+def test_chat_wait_false_stages_pending_then_replays(tmp_path, monkeypatch):
+    """wait=false submit stages the key; worker completion enables replay."""
+    from backend.agent import chat_tools
+    from backend.database import db as db_mod
+    _patch_storage(monkeypatch, tmp_path)
+    proj_dir = tmp_path / "p2"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "script.json").write_text(json.dumps({"title": "T"}), encoding="utf-8")
+    store = {}
+    monkeypatch.setattr(db_mod, "get_setting", lambda k: store.get(k))
+    monkeypatch.setattr(db_mod, "update_settings", lambda d: store.update(d))
+    from backend.pipeline.queue import global_queue_manager
+    monkeypatch.setattr(global_queue_manager, "queue_project",
+                        lambda pid, steps: True)
+    monkeypatch.setattr(global_queue_manager, "_active_project_id", None,
+                        raising=False)
+    monkeypatch.setattr(global_queue_manager, "_queue", [], raising=False)
+    submitted = chat_tools._stage_via_queue(
+        "run_stage",
+        {"stage": "transcribe", "wait": False, "idempotency_key": "k9"},
+        "p2")
+    assert submitted.get("ok") is True and submitted.get("status") == "submitted"
+    assert store.get("idempotency_pending:p2:transcribe", {}).get("key") == "k9"
+    # Worker finishes the step → promotion → repeat submit replays.
+    payloads.consume_pending_idempotency("p2", "transcribe", True)
+    replay = chat_tools._stage_via_queue(
+        "run_stage",
+        {"stage": "transcribe", "wait": False, "idempotency_key": "k9"},
+        "p2")
+    assert replay.get("ok") is True and replay.get("replayed") is True
+
+
+# ── chat project scoping ────────────────────────────────────────────
+
+def test_chat_drops_project_lifecycle_tools():
+    """create/delete are not offered to the project-bound chat at all."""
+    from backend.agent import chat_tools
+    assert "create_project" not in chat_tools.CHAT_TOOL_NAMES
+    assert "delete_project" not in chat_tools.CHAT_TOOL_NAMES
+    assert "create_project" in chat_tools._CHAT_DROPPED_TOOLS
+    assert "delete_project" not in chat_tools._CHAT_GUARDED_TOOLS
+    assert chat_tools._dispatch("create_project", {"name": "x"}, "p", None).get(
+        "error", "").startswith("Unknown chat tool")
+    assert chat_tools._dispatch("delete_project", {"project_id": "p"}, "p",
+                                None).get("error", "").startswith(
+                                    "Unknown chat tool")
+
+
+def test_chat_cross_project_writes_refused():
+    """Mutating tools with another project's id are refused pre-dispatch."""
+    from backend.agent import chat_tools
+    for tool, args in (
+        ("save_script", {"script": {}}),
+        ("patch_script", {"section_type": "scene", "patch": {}}),
+        ("save_design", {"design": {}}),
+        ("save_visuals", {"section_type": "scene", "sub_visuals": []}),
+        ("clear_assets", {}),
+        ("update_voice_settings", {"settings": {}}),
+        ("run_stage", {"stage": "transcribe"}),
+        ("cancel_stage", {"stage": "transcribe"}),
+    ):
+        res = chat_tools._dispatch(tool, {"project_id": "other", **args},
+                                   "current", None)
+        assert res.get("ok") is False, tool
+        assert res.get("error_code") == "WRONG_PROJECT", tool
+    # Same-project writes pass the scope guard (fail later on content, not scope).
+    res = chat_tools._dispatch("save_design",
+                               {"project_id": "current", "design": {}},
+                               "current", None)
+    assert res.get("error_code") != "WRONG_PROJECT"
+
+
+def test_chat_cross_project_reads_allowed(tmp_path, monkeypatch):
+    """Reads span projects: the guard must not block them."""
+    from backend.agent import chat_tools
+    _patch_storage(monkeypatch, tmp_path)
+    res = chat_tools._dispatch("get_script", {"project_id": "other"},
+                               "current", None)
+    assert res.get("error_code") != "WRONG_PROJECT"
+    assert "script.json not found" in res.get("error", "")
+    res = chat_tools._dispatch("project_status", {"project_id": "other"},
+                               "current", None)
+    assert res.get("error_code") != "WRONG_PROJECT"
 
 
 

@@ -37,14 +37,16 @@ exposure: agent
 | **Abbreviations** | `e.g.`, `i.e.`, `etc.` | `"for example"`, `"that is"`, `"and so on"` |
 | **Special Symbols** | `&`, `@`, `©`, `→`, `%` | `"and"`, `"at"`, `"percent"` |
 | **Dates** | `Jan 1, 2024` | `"January first, twenty twenty-four"` |
-| **Initials** | `USA` | `"U.S.A."` |
+| **Initials** | `USA`, `FBI`, `AI`, `USB` | `"U.S.A."`, `"F.B.I."`, `"A.I."`, `"U.S.B."` |
+| **Product names** | `OpenAI` (reads as "openay") | `"Open A I"` (letter-spelled) |
 | **Punctuation** | Semicolons, em-dashes, parentheses | Commas and periods for natural speech pauses |
 
 ### Detailed TTS Guidelines
 - Write numbers as words ("forty-two" NOT "42"), avoid abbreviations ("for example" NOT "e.g.").
 - Use short clear sentences. Avoid special characters (& @ ©) that break TTS.
 - Write dates in full. Use commas and periods for natural pauses.
-- Spell out initials with periods: "U.S.A." NOT "USA".
+- Spell out initials with periods: "U.S.A." NOT "USA", "F.B.I." NOT "FBI", "A.I." NOT "AI", "U.S.B." NOT "USB".
+- Letter-spell product names that TTS slurs: "Open A I" NOT "OpenAI".
 - Avoid parentheses — restructure sentences naturally instead.
 
 ---

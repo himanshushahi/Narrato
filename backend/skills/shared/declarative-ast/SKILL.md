@@ -443,6 +443,11 @@ Cut-level tools (set on the sub-visual, never on Layers):
 "transition": "slide_left"
 ```
 `"cut"` | `"slide_left"` | `"slide_right"` | `"slide_up"` | `"slide_down"` | `"zoom_in"` | `"zoom_out"` | `"glitch"` | `"blur_focus"` | `"flash"` | `"wipe_right"` | `"iris_open"` | `"rise"` | `"flip"` | `"crossfade"` | `"dissolve"` | `"fade"` | `"none"`
+Legacy alias: `whip_pan` (removed enum value) silently remaps to `slide_left` server-side — never author it, use `slide_left` directly.
+
+### Exit vs Emphasis rule (fast cuts)
+- `transition` = entry into THIS cut. `exit_transition` = outro of THIS cut (same enum as `transition`). `emphasis` = mid-cut punch-in array (`at`/`scale`/`duration`), not a transition.
+- Fast cuts (<6s): entry `transition` only + optional `emphasis` punch-in. Skip `exit_transition` — entry+exit on a 4-6s cut reads as churn. Use `exit_transition` only on ≥6s takes or genuine beat closers.
 
 ### Mid-Cut Punch-In (`emphasis`)
 ```json

@@ -393,6 +393,7 @@ def purge_downstream_artifacts(project_dir: Path) -> list:
     _rm(project_dir / "render.hash.txt", "render.hash.txt")
     _rm(project_dir / "render_props.json", "render_props.json")
     _rm(project_dir / "render_props.still.json", "render_props.still.json")
+    _rm(project_dir / "render_loudness.json", "render_loudness.json")
     return removed
 
 
@@ -650,6 +651,157 @@ def save_script_payload(project_id: str, data: dict, force: bool = False) -> dic
     return result
 
 
+_PATCH_SECTION_ALIASES = {
+    "introduction": "introduction", "intro": "introduction",
+    "scene": "scene",
+    "conclusion": "conclusion", "outro": "conclusion",
+}
+
+
+def patch_script_payload(project_id: str, section_type: str, patch: dict,
+                         scene_index: int | None = None,
+                         scene_number: int | None = None) -> dict:
+    """Surgical single-section script edit — the incremental alternative to
+    save_script (which rewrites the whole document and purges voiceover,
+    transcription, assets, design, and music).
+
+    Only the targeted section's prose is replaced; scene count, sub_visuals
+    ASTs, design.json, voiceover segments, and downloaded assets are kept.
+    The voiceover pipeline's per-section Smart Resume
+    (tts.find_reusable_voice_segment) then re-synthesizes ONLY the edited
+    section on the next generate_voiceover run.
+
+    patch keys per section:
+    - introduction: {hook}
+    - scene: {narration, title?} (target via scene_number 1-based or scene_index 0-based)
+    - conclusion: {summary, cta?}
+    Only transcription + render outputs are deleted (word timings and pixels
+    are stale); voiceover/transcribe/render tasks reset to pending while
+    generate_visuals/fetch_assets keep their status.
+    """
+    section = (_safe_str(section_type) or "").strip().lower()
+    section = _PATCH_SECTION_ALIASES.get(section, section)
+    if section not in ("introduction", "scene", "conclusion"):
+        return {"ok": False, "error": "section_type must be introduction|scene|conclusion."}
+    if not isinstance(patch, dict) or not patch:
+        return {"ok": False, "error": "patch must be a non-empty object."}
+    _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return {"ok": False, "error": "script.json not found. Use save_script first."}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read script.json: {e}"}
+
+    changed: dict = {}
+    if section == "introduction":
+        if "hook" not in patch:
+            return {"ok": False, "error": "patch for introduction requires 'hook'."}
+        hook = _safe_str(patch.get("hook")).strip()
+        if not hook:
+            return {"ok": False, "error": "introduction.hook must be a non-empty string."}
+        if not isinstance(document.get("introduction"), dict):
+            document["introduction"] = {}
+        document["introduction"]["hook"] = hook
+        changed = {"section_type": "introduction", "hook_words": len(hook.split())}
+    elif section == "conclusion":
+        if "summary" not in patch:
+            return {"ok": False, "error": "patch for conclusion requires 'summary'."}
+        summary = _safe_str(patch.get("summary")).strip()
+        if not summary:
+            return {"ok": False, "error": "conclusion.summary must be a non-empty string."}
+        if not isinstance(document.get("conclusion"), dict):
+            document["conclusion"] = {}
+        document["conclusion"]["summary"] = summary
+        if "cta" in patch:
+            document["conclusion"]["cta"] = _safe_str(patch.get("cta")).strip()
+        changed = {"section_type": "conclusion",
+                   "summary_words": len(summary.split())}
+    else:
+        scenes = document.get("scenes")
+        if not isinstance(scenes, list) or not scenes:
+            return {"ok": False, "error": "script has no scenes to patch."}
+        idx: int | None = None
+        if scene_number is not None:
+            try:
+                idx = int(scene_number) - 1
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "scene_number must be 1-based integer."}
+        elif scene_index is not None:
+            try:
+                idx = int(scene_index)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "scene_index must be 0-based integer."}
+        else:
+            return {"ok": False, "error": "scene patch requires scene_number (1-based) or scene_index (0-based)."}
+        if idx < 0 or idx >= len(scenes):
+            return {"ok": False, "error": f"scene index out of range (1-{len(scenes)})."}
+        target = scenes[idx]
+        if not isinstance(target, dict):
+            return {"ok": False, "error": f"scenes[{idx}] is not an object."}
+        if "narration" not in patch and "title" not in patch:
+            return {"ok": False, "error": "scene patch requires 'narration' and/or 'title'."}
+        if "narration" in patch:
+            narration = _safe_str(patch.get("narration")).strip()
+            if not narration:
+                return {"ok": False, "error": f"scenes[{idx}] narration must be non-empty."}
+            target["narration"] = narration
+        if "title" in patch:
+            title = _safe_str(patch.get("title")).strip()
+            if title:
+                target["title"] = title
+        # sub_visuals intentionally untouched — durations renormalize downstream.
+        changed = {"section_type": "scene", "scene_number": idx + 1,
+                   "narration_words": len(_safe_str(target.get("narration")).split())}
+
+    tmp_path = script_path.with_suffix(".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(document, f, indent=2, ensure_ascii=False)
+    tmp_path.replace(script_path)
+
+    # Surgical invalidation: transcription words + rendered pixels are stale.
+    # Voiceover segments, design, assets, and music are KEPT for Smart Resume.
+    removed = []
+    for rel in ("subtitles/transcription.json", "subtitles/transcription.srt",
+                "subtitles/transcription.vtt", "transcribe.hash.txt",
+                "render.hash.txt", "render_props.json", "render_props.still.json",
+                "render_loudness.json"):
+        p = proj_dir / rel
+        try:
+            if p.is_file() or p.is_symlink():
+                p.unlink()
+                removed.append(rel)
+        except Exception as e:
+            logger.warning(f"patch_script: could not delete {p}: {e}")
+    _db.create_task(project_id, "generate_script")
+    _db.update_task(
+        f"{project_id}_generate_script",
+        status="completed", progress=100.0,
+        message="Step completed (script section patched via MCP).", error_message=None,
+    )
+    for step in ("generate_voiceover", "transcribe", "render"):
+        _db.create_task(project_id, step)
+        _db.update_task(
+            f"{project_id}_{step}",
+            status="pending", progress=0.0,
+            message="Pending upstream changes (script section patched via MCP).",
+            error_message=None,
+        )
+    logger.info(f"MCP patch_script: project {project_id} {changed}.")
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "patched": changed,
+        "purged": removed,
+        "kept": ["design.json", "voiceover/", "assets/", "bg_music.mp3", "sub_visuals"],
+        "next_step": ("run_stage(generate_voiceover) re-synthesizes ONLY the edited "
+                      "section (Smart Resume reuses the rest), then transcribe."),
+    }
+
+
 def strip_script_for_agent(script: dict, include_visuals: bool = False) -> dict:
     """Return a token-lean copy of script.json (drops sub_visuals ASTs
     unless explicitly requested)."""
@@ -901,6 +1053,13 @@ def update_voice_settings(project_id: str, settings: dict) -> dict:
         return {"ok": False, "error": " ".join(errors)}
     _get_project_or_raise(project_id)
     _db.update_project(project_id, **columns)
+    # Remember the last explicitly chosen voice so list_voice_options can
+    # surface it (disambiguates duplicate clone-profile names like KIKI).
+    try:
+        if isinstance(settings, dict) and settings.get("tts_voice"):
+            _db.update_settings({"tts_voice_last_used": settings.get("tts_voice")})
+    except Exception:
+        pass
     for step in ("generate_voiceover", "transcribe", "render"):
         _db.create_task(project_id, step)
         _db.update_task(
@@ -1102,11 +1261,25 @@ def list_voice_options() -> dict:
     engine = _db.get_setting("tts_engine") or "edge"
     default_voice = _db.get_setting("tts_voice")
     profiles = _db.get_setting("xtts_profiles") or []
-    clone_profiles = [
-        {"id": p.get("id"), "name": p.get("name")}
-        for p in profiles
-        if isinstance(p, dict) and p.get("id")
-    ]
+    # Dedup by id (pass-through used to surface duplicate names like two
+    # "KIKI" rows with no way to tell them apart). Duplicate display names
+    # get a "(2)", "(3)" suffix so the agent can offer distinct choices.
+    seen_ids: set = set()
+    name_counts: dict = {}
+    clone_profiles = []
+    for p in profiles:
+        if not isinstance(p, dict) or not p.get("id"):
+            continue
+        pid = p.get("id")
+        if pid in seen_ids:
+            continue
+        seen_ids.add(pid)
+        raw_name = str(p.get("name") or pid)
+        n = name_counts.get(raw_name, 0) + 1
+        name_counts[raw_name] = n
+        label = raw_name if n == 1 else f"{raw_name} ({n})"
+        clone_profiles.append({"id": pid, "name": label})
+    last_used = _db.get_setting("tts_voice_last_used") or default_voice
     return {
         "ok": True,
         "engines": [
@@ -1123,6 +1296,8 @@ def list_voice_options() -> dict:
         "edge_suggestions": EDGE_VOICE_SUGGESTIONS,
         "clone_profiles": clone_profiles,
         "global_defaults": {"tts_engine": engine, "tts_voice": default_voice},
+        "last_used_voice": last_used,
+        "hint": "Offer clone_profiles by name AND id (names may repeat — ids are unique). No audio preview available yet; ask the user to pick by name.",
     }
 
 
@@ -3149,5 +3324,587 @@ def get_transcription_payload(
         "offset": offset,
         "limit": limit,
         "segments": paginated,
+    }
+
+
+# ── QA gate / stock verification / video receipts ───────────────────
+
+def _sha256_file(path) -> str:
+    """Hex sha256 of a file, or '' when missing/unreadable."""
+    import hashlib
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
+def _walk_media_layers(document: dict) -> list:
+    """Flat list of every Image/Video layer across intro/scenes/conclusion."""
+    out = []
+    sections = []
+    if isinstance(document.get("introduction"), dict):
+        sections.append(("introduction", None, document["introduction"]))
+    for i, scene in enumerate(document.get("scenes", []) or []):
+        if isinstance(scene, dict):
+            sections.append(("scene", i + 1, scene))
+    if isinstance(document.get("conclusion"), dict):
+        sections.append(("conclusion", None, document["conclusion"]))
+    for section_type, scene_number, sec in sections:
+        for ci, cut in enumerate(sec.get("sub_visuals", []) or []):
+            if not isinstance(cut, dict):
+                continue
+            comp = cut.get("composition") or {}
+            for li, layer in enumerate(comp.get("children", []) or []):
+                if not isinstance(layer, dict):
+                    continue
+                content = layer.get("content") or {}
+                ctype = str(content.get("type") or "")
+                if ctype not in ("Image", "Video"):
+                    continue
+                out.append({
+                    "section_type": section_type,
+                    "scene_number": scene_number,
+                    "cut_number": ci + 1,
+                    "layer_index": li,
+                    "layer_name": layer.get("name", ""),
+                    "media_type": ctype,
+                    "query": str(content.get("query") or ""),
+                    "source": str(content.get("source") or "pexels").lower(),
+                    "local_path": str(content.get("local_path") or ""),
+                    "asset_url": str(content.get("asset_url") or ""),
+                })
+    return out
+
+
+_LICENSE_NOTE = {
+    "pexels": "Pexels license (free use, app key BYOK)",
+    "pixabay": "Pixabay license (free use, app key BYOK)",
+    "wikipedia": "Wikimedia Commons (check per-file license on attribution page)",
+    "youtube": "YouTube (verify reuse rights for the clip before publishing)",
+    "archive": "archive.org (public domain / item license — verify per item)",
+}
+
+
+def verify_stock_payload(project_id: str) -> dict:
+    """File-truth stock check for every Image/Video layer (pre-VLM).
+
+    Reports existence + size + dimensions/duration per layer plus a
+    source/attribution rollup. Explicitly NOT a VLM relevance check — there
+    is no vision model in this pipeline, so `vision_verified` is always
+    False and relevance review stays with review_frame + the human gate.
+    """
+    from backend.mcp import probe as _probe
+    _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return {"ok": False, "error": "script.json not found. Use save_script first."}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read script.json: {e}"}
+    layers = _walk_media_layers(document)
+    items = []
+    missing = 0
+    for entry in layers:
+        info = _probe._file_info(entry["local_path"], proj_dir)
+        item = dict(entry)
+        item.update({
+            "exists": bool(info.get("exists")),
+            "size": info.get("size", -1),
+            "attribution": f"{entry['source']}: {entry['query']}".strip(": "),
+            "license_note": _LICENSE_NOTE.get(entry["source"],
+                                              "verify provider license before publishing"),
+        })
+        if "dimensions" in info:
+            item["dimensions"] = info["dimensions"]
+        if "duration" in info:
+            item["duration"] = info["duration"]
+        if not item["exists"]:
+            missing += 1
+        items.append(item)
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "vision_verified": False,
+        "vision_note": ("No VLM in this pipeline — relevance is reviewed via "
+                        "review_frame(mode=composition) + human gate, not here."),
+        "total_layers": len(items),
+        "missing": missing,
+        "layers": items,
+        "next_step": ("missing > 0 → run_stage(fetch_assets), then re-verify. "
+                      "All present → review_frame per section."),
+    }
+
+
+def qa_gate_payload(project_id: str) -> dict:
+    """Fail-closed publish gate. ok=True ONLY when every critical check passes.
+
+    Loudness is measured LUFS from render_loudness.json (written by render
+    via ebur128) when a render exists; pre-first-render it falls back to a
+    mix-defaults warning. Resolution is the pipeline canvas (1920x1080
+    landscape / 1080x1920 portrait), not probed pixels. Do NOT render when
+    ok=False (re-renders refresh the sidecar; script patches purge it).
+    """
+    proj = _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return {"ok": False, "error": "script.json not found. Use save_script first."}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read script.json: {e}"}
+    checks = []
+
+    def _check(name, severity, passed, detail):
+        checks.append({"name": name, "severity": severity,
+                       "passed": bool(passed), "detail": detail})
+
+    # 1. pacing: scene count within the 0.7x/1.3x guardrail band.
+    try:
+        from backend.mcp.pacing import get_pacing
+        pacing = get_pacing(proj.get("duration_mode", "medium"),
+                            proj.get("video_format", "landscape"),
+                            proj.get("language", "en"))
+        n = len(document.get("scenes", []) or [])
+        import math
+        floor = math.ceil(pacing["min_scenes"] * 0.7)
+        ceiling = math.ceil(pacing["max_scenes"] * 1.3)
+        _check("script_pacing", "critical", floor <= n <= ceiling,
+               f"{n} scenes vs guardrail {floor}-{ceiling} "
+               f"(target {pacing['min_scenes']}-{pacing['max_scenes']})")
+    except Exception as e:
+        _check("script_pacing", "critical", False, f"pacing lookup failed: {e}")
+    # 2. design saved.
+    design_path = proj_dir / "design.json"
+    _check("design_saved", "critical", design_path.is_file(),
+           "design.json present" if design_path.is_file()
+           else "design.json missing — save_design first")
+    # 3. voiceover: manifest + every segment has duration + file.
+    voice_manifest = proj_dir / "voiceover" / "manifest.json"
+    try:
+        entries = (json.loads(voice_manifest.read_text(encoding="utf-8"))
+                   if voice_manifest.is_file() else None)
+    except Exception:
+        entries = None
+    if not isinstance(entries, list) or not entries:
+        _check("voiceover_ready", "critical", False,
+               "voiceover/manifest.json missing/empty — run generate_voiceover")
+        audio_total = 0.0
+    else:
+        bad = [e.get("title", f"#{e.get('index')}") for e in entries
+               if not isinstance(e, dict) or not (e.get("duration") or 0) > 0
+               or not Path(str(e.get("audio_path") or "")).exists()]
+        audio_total = sum(float((e.get("duration") or 0)) for e in entries
+                          if isinstance(e, dict))
+        _check("voiceover_ready", "critical", not bad,
+               (f"{len(entries)} segments, {audio_total:.1f}s audio" if not bad
+                else f"bad segments: {bad[:5]}"))
+    # 4. transcription synced: segments exist and cover the timeline.
+    trans_path = proj_dir / "subtitles" / "transcription.json"
+    try:
+        tdoc = (json.loads(trans_path.read_text(encoding="utf-8"))
+                if trans_path.is_file() else None)
+        tsegs = (tdoc.get("segments", []) if isinstance(tdoc, dict) else []) or []
+    except Exception:
+        tsegs = []
+    if not tsegs:
+        _check("captions_synced", "critical", False,
+               "transcription.json missing/empty — run transcribe")
+    else:
+        try:
+            last_end = max(float(s.get("end", 0) or 0) for s in tsegs
+                           if isinstance(s, dict))
+        except ValueError:
+            last_end = 0.0
+        coverage = (last_end / audio_total) if audio_total > 0 else 0.0
+        _check("captions_synced", "critical", coverage >= 0.9,
+               f"{len(tsegs)} segments, last end {last_end:.1f}s "
+               f"vs {audio_total:.1f}s audio ({coverage:.0%} coverage)")
+    # 5. visuals: every section authored ≥1 cut.
+    empty_sections = []
+    sections = ([("introduction", None)] +
+                [("scene", i + 1) for i in
+                 range(len(document.get("scenes", []) or []))] +
+                [("conclusion", None)])
+    for st, sn in sections:
+        if st == "scene":
+            sec = (document.get("scenes", []) or [])[sn - 1]
+        else:
+            sec = document.get(st) or {}
+        if not (isinstance(sec, dict) and (sec.get("sub_visuals") or [])):
+            empty_sections.append(f"{st}{(' #' + str(sn)) if sn else ''}")
+    _check("visuals_complete", "critical", not empty_sections,
+           ("all sections have cuts" if not empty_sections
+            else f"sections without cuts: {empty_sections}"))
+    # 6. assets fetched: every media layer resolves to an existing file.
+    layers = _walk_media_layers(document)
+
+    def _layer_missing(layer: dict) -> bool:
+        raw = (layer.get("local_path") or "").strip()
+        if not raw:
+            return True
+        p = Path(raw)
+        return not (p.is_file() if p.is_absolute()
+                    else (proj_dir / raw).is_file())
+
+    missing_assets = [f"S{l.get('scene_number') or '-'}C{l['cut_number']}L{l['layer_index']}:{l['query'][:40]}"
+                      for l in layers if _layer_missing(l)]
+    _check("assets_fetched", "critical", not missing_assets,
+           (f"{len(layers)} media layers, all downloaded" if not missing_assets
+            else f"{len(missing_assets)} missing: {missing_assets[:5]}"))
+    # 7. hook ≤15 words (warning, not blocking).
+    hook = _safe_str((document.get("introduction", {}) or {}).get("hook"))
+    hw = len(hook.split())
+    _check("hook_in_3s", "warning", hw <= 15,
+           f"intro hook {hw} words ({'ok' if hw <= 15 else 'trim to <=15'})")
+    # 8. loudness: measured LUFS from the last render sidecar (critical when
+    # present). Pre-first-render there is nothing measured — warning only,
+    # since mix defaults are the only signal available.
+    loud_path = proj_dir / "render_loudness.json"
+    try:
+        loud_doc = (json.loads(loud_path.read_text(encoding="utf-8"))
+                    if loud_path.is_file() else None)
+    except Exception:
+        loud_doc = None
+    if not isinstance(loud_doc, dict) or loud_doc.get("integrated_lufs") is None:
+        _check("loudness_lufs", "warning", True,
+               ("Not measured yet (no render_loudness.json — render first). "
+                "Mix defaults voice 1.0 / music ~0.15 until then."))
+    else:
+        try:
+            from backend.pipeline.render import LOUDNESS_TARGET_I, LOUDNESS_TOLERANCE
+        except Exception:
+            LOUDNESS_TARGET_I, LOUDNESS_TOLERANCE = -14.0, 2.0
+        try:
+            measured_lufs = float(loud_doc["integrated_lufs"])
+        except (TypeError, ValueError):
+            measured_lufs = None
+        if measured_lufs is None:
+            _check("loudness_lufs", "warning", True,
+                   "Sidecar unreadable — re-render to re-measure.")
+        else:
+            drift = abs(measured_lufs - LOUDNESS_TARGET_I)
+            _check("loudness_lufs", "critical", drift <= LOUDNESS_TOLERANCE,
+                   (f"{measured_lufs:.1f} LUFS vs target {LOUDNESS_TARGET_I} "
+                    f"(drift {drift:.1f}, tolerance {LOUDNESS_TOLERANCE}). "
+                    f"normalized={loud_doc.get('normalized', False)}"))
+    critical_ok = all(c["passed"] for c in checks if c["severity"] == "critical")
+    return {
+        "ok": bool(critical_ok),
+        "project_id": project_id,
+        "passed": bool(critical_ok),
+        "block_render": not critical_ok,
+        "checks": checks,
+        "next_step": ("render is clear — confirm with the user, then "
+                      "run_stage(render, confirm_render=true)"
+                      if critical_ok else
+                      "Fix failing critical checks above, then re-run qa_gate."),
+    }
+
+
+def build_receipt_payload(project_id: str) -> dict:
+    """Video Receipt: input/output hashes + resume cursor + per-cut assets.
+
+    receipt_id is deterministic (sha256 of the content hashes) so identical
+    content yields an identical id — dedup-by-content without a key store.
+    Pair with run_stage(idempotency_key=...) to also guard repeat submits.
+    """
+    import hashlib
+    proj = _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    files = {
+        "script.json": proj_dir / "script.json",
+        "design.json": proj_dir / "design.json",
+        "voiceover/manifest.json": proj_dir / "voiceover" / "manifest.json",
+        "assets/assets_manifest.json": proj_dir / "assets" / "assets_manifest.json",
+        "subtitles/transcription.json": proj_dir / "subtitles" / "transcription.json",
+    }
+    hashes = {k: _sha256_file(p) for k, p in files.items()}
+    digest = hashlib.sha256(
+        "|".join(hashes[k] for k in sorted(hashes)).encode()).hexdigest()
+    receipt_id = digest[:16]
+    layers = []
+    scene_count = 0
+    script_path = proj_dir / "script.json"
+    if script_path.is_file():
+        try:
+            document = json.loads(script_path.read_text(encoding="utf-8"))
+            scene_count = len(document.get("scenes", []) or [])
+            for l in _walk_media_layers(document):
+                p = l.get("local_path") or ""
+                ap = Path(p)
+                exists = (ap.is_file() if ap.is_absolute()
+                          else (proj_dir / p).is_file()) if p else False
+                layers.append({
+                    "scene_number": l["scene_number"],
+                    "cut_number": l["cut_number"],
+                    "layer_index": l["layer_index"],
+                    "media_type": l["media_type"],
+                    "query": l["query"], "source": l["source"],
+                    "asset_file": Path(p).name if p else "",
+                    "exists": exists,
+                    "attribution": f"{l['source']}: {l['query']}".strip(": "),
+                })
+        except Exception:
+            pass
+    try:
+        tasks = _db.get_project_tasks(project_id)
+        cursor = {t.get("step"): {"status": t.get("status"),
+                                  "progress": t.get("progress")} for t in tasks}
+    except Exception:
+        cursor = {}
+    try:
+        video_path = proj.get("video_path") or ""
+        output_hash = _sha256_file(Path(video_path)) if video_path else ""
+    except Exception:
+        output_hash = ""
+    try:
+        loud_doc = json.loads((proj_dir / "render_loudness.json").read_text(
+            encoding="utf-8"))
+        loudness_lufs = (loud_doc.get("integrated_lufs")
+                         if isinstance(loud_doc, dict) else None)
+    except Exception:
+        loudness_lufs = None
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "receipt_id": receipt_id,
+        "inputs": hashes,
+        "output": {"video_path": proj.get("video_path") or "",
+                   "sha256": output_hash,
+                   "integrated_lufs": loudness_lufs},
+        "resume_cursor": cursor,
+        "scenes": scene_count,
+        "assets": layers,
+        "assets_ready": all(a["exists"] for a in layers),
+        "format": proj.get("video_format"),
+        "duration_mode": proj.get("duration_mode"),
+        "language": proj.get("language"),
+    }
+
+
+# ── Idempotency store (repeat-submit guard for run_stage) ────────────
+
+def _script_content_hash(proj_dir) -> str:
+    return _sha256_file(proj_dir / "script.json")
+
+
+def check_idempotency(project_id: str, stage: str, key: str,
+                      content_hash: str) -> dict | None:
+    """Return the stored record when this key+stage+content already ran."""
+    if not (key or "").strip():
+        return None
+    try:
+        rec = _db.get_setting(
+            f"idempotency:{project_id}:{stage}:{(key or '').strip()[:128]}")
+    except Exception:
+        return None
+    if isinstance(rec, dict) and rec.get("content_hash") == content_hash:
+        return rec
+    return None
+
+
+def record_idempotency(project_id: str, stage: str, key: str,
+                       content_hash: str, status: str) -> None:
+    """Persist a key→result record (settings table survives restarts)."""
+    if not (key or "").strip():
+        return
+    import datetime as _dt
+    try:
+        _db.update_settings({
+            f"idempotency:{project_id}:{stage}:{(key or '').strip()[:128]}": {
+                "content_hash": content_hash,
+                "status": status,
+                "recorded_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            }
+        })
+    except Exception as e:
+        logger.warning(f"idempotency record failed: {e}")
+
+
+# ── Background-completion promotion (wait=false chat/agent submits) ──
+# wait=false returns before the worker finishes, so the tool call site can
+# never record completion. Instead the submit stages a *pending* entry and
+# the queue worker promotes it on step completion (or drops it on
+# failure/cancel). Keyless submits clear the slot so a later keyed
+# completion can never promote a stale key.
+
+def _pending_idem_name(project_id: str, stage: str) -> str:
+    return f"idempotency_pending:{project_id}:{stage}"
+
+
+def stage_pending_idempotency(project_id: str, stage: str, key: str,
+                              content_hash: str) -> None:
+    """Stage a pending key at submit time (wait=false)."""
+    if not (key or "").strip():
+        return
+    import datetime as _dt
+    try:
+        _db.update_settings({
+            _pending_idem_name(project_id, stage): {
+                "key": (key or "").strip()[:128],
+                "content_hash": content_hash,
+                "staged_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            }
+        })
+    except Exception as e:
+        logger.warning(f"idempotency stage failed: {e}")
+
+
+def clear_pending_idempotency(project_id: str, stage: str) -> None:
+    """Drop a stale pending slot (keyless submit, cancel paths)."""
+    try:
+        _db.update_settings({_pending_idem_name(project_id, stage): None})
+    except Exception as e:
+        logger.warning(f"idempotency clear failed: {e}")
+
+
+def consume_pending_idempotency(project_id: str, stage: str,
+                                success: bool) -> None:
+    """Promote (success) or drop (failure/cancel) the pending key.
+
+    Best-effort queue-worker hook: never raises, never blocks the pipeline.
+    On success the script hash is re-verified so a mid-run edit (possible
+    via the desktop app path, which shares this worker) invalidates rather
+    than mis-records.
+    """
+    name = _pending_idem_name(project_id, stage)
+    try:
+        pending = _db.get_setting(name)
+    except Exception as e:
+        logger.warning(f"idempotency consume read failed: {e}")
+        return
+    if not isinstance(pending, dict) or not (pending.get("key") or "").strip():
+        return
+    try:
+        if success:
+            try:
+                current = _script_content_hash(_project_dir(project_id))
+            except Exception:
+                current = ""
+            if current and current == pending.get("content_hash"):
+                record_idempotency(project_id, stage, pending["key"],
+                                   pending["content_hash"], "completed")
+            else:
+                logger.info("idempotency pending dropped (content changed mid-run).")
+        _db.update_settings({name: None})
+    except Exception as e:
+        logger.warning(f"idempotency consume failed: {e}")
+
+
+# ── Cost preview (estimate before billable/long stages) ──────────────
+
+def _count_visual_media(document: dict) -> dict:
+    """Count authored cuts + Image/Video queries across all sections."""
+    cuts = 0
+    queries: set = set()
+    media_layers = 0
+    sections = []
+    if isinstance(document.get("introduction"), dict):
+        sections.append(document["introduction"])
+    for scene in document.get("scenes", []) or []:
+        if isinstance(scene, dict):
+            sections.append(scene)
+    if isinstance(document.get("conclusion"), dict):
+        sections.append(document["conclusion"])
+    for sec in sections:
+        for cut in sec.get("sub_visuals", []) or []:
+            if not isinstance(cut, dict):
+                continue
+            cuts += 1
+            comp = cut.get("composition") or {}
+            for layer in comp.get("children", []) or []:
+                if not isinstance(layer, dict):
+                    continue
+                content = layer.get("content") or {}
+                ctype = str(content.get("type") or "")
+                if ctype in ("Image", "Video"):
+                    media_layers += 1
+                    q = str(content.get("query") or "").strip().lower()
+                    if q:
+                        queries.add(q)
+    return {"cuts": cuts, "media_layers": media_layers,
+            "unique_queries": len(queries)}
+
+
+def estimate_cost_payload(project_id: str) -> dict:
+    """Dry-run cost/time preview for the remaining pipeline (no spend).
+
+    Local pipeline has no metered billing — TTS/stock/search keys are BYOK
+    in app Settings, so there is no USD charge to cap. This returns wall-time
+    estimates per stage plus what would dominate, so the agent can decide
+    whether to run fetch_assets/render now or keep authoring. Honest
+    heuristic, not a quote: label it as such.
+    """
+    proj = _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return {"ok": False, "error": "script.json not found. Use save_script first."}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read script.json: {e}"}
+    language = proj.get("language", "en") or "en"
+    rate = 2.5 if language == "hi" else 3.0  # words/sec, mirrors scriptwriter pacing
+    words = 0
+    try:
+        words += len(_safe_str(document.get("introduction", {}).get("hook")).split())
+        for s in document.get("scenes", []) or []:
+            if isinstance(s, dict):
+                words += len(_safe_str(s.get("narration")).split())
+        concl = document.get("conclusion", {}) or {}
+        words += len(_safe_str(concl.get("summary")).split())
+        words += len(_safe_str(concl.get("cta")).split())
+    except Exception:
+        pass
+    audio_seconds = round(words / rate, 1) if rate else 0.0
+    media = _count_visual_media(document)
+    queries = media["unique_queries"]
+    # Heuristics (documented as rough): edge TTS ~2x realtime Tup, whisper
+    # ~0.25x audio, stock fetch ~5s/query, render ~2x final duration.
+    voiceover_s = round(audio_seconds * 0.5, 1)
+    transcribe_s = round(audio_seconds * 0.25, 1)
+    fetch_s = round(queries * 5.0, 1)
+    render_s = round(audio_seconds * 2.0, 1)
+    total_s = round(voiceover_s + transcribe_s + fetch_s + render_s, 1)
+    stages = [
+        {"stage": "generate_voiceover", "est_seconds": voiceover_s,
+         "basis": f"{words} words @ ~{rate}/s (~{audio_seconds}s audio)"},
+        {"stage": "transcribe", "est_seconds": transcribe_s,
+         "basis": f"~0.25x of {audio_seconds}s audio"},
+        {"stage": "fetch_assets", "est_seconds": fetch_s,
+         "basis": f"{queries} unique queries x ~5s"},
+        {"stage": "render", "est_seconds": render_s,
+         "basis": f"~2x of {audio_seconds}s timeline"},
+    ]
+    bottleneck = max(stages, key=lambda s: s["est_seconds"])["stage"] if stages else ""
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "billable_usd": 0.0,
+        "metered": False,
+        "currency_note": ("Local pipeline: no metered billing. External APIs "
+                          "(Edge/TTS, stock, web-search) use your own keys in "
+                          "app Settings; max_spend_usd is not enforced."),
+        "inputs": {"words": words, "audio_seconds": audio_seconds,
+                   "cuts": media["cuts"], "media_layers": media["media_layers"],
+                   "unique_queries": queries, "language": language},
+        "stages": stages,
+        "est_total_seconds": total_s,
+        "bottleneck": bottleneck,
+        "assumptions": ["edge TTS ~0.5x audio (xtts cloning is slower)",
+                        "whisper ~0.25x audio", "stock ~5s/query",
+                        "render ~2x timeline"],
+        "next_step": "run_stage(wait=false) + sleep + stage_status per stage.",
     }
 

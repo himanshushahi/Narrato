@@ -101,7 +101,7 @@ ASSET PIPELINE TIMING:
 VISUAL GENERATION CRITICAL GOTCHAS:
 - `content.type` is MANDATORY on every Layer's content -- missing it silently renders the scene null (no error, just blank).
 - Geometry SOT is `content.style` (INSIDE content). A `style` key placed as a sibling of `content` on the Layer node is IGNORED by the renderer — the server auto-hoists it into `content.style` with an auto_fixed warning, but always author `content.style` directly.
-- Map and Particles are ALWAYS fullscreen -- position/size ignored. Overlay Shape/Text layers on top for framing.
+- Map and Particles are ALWAYS fullscreen -- position/size ignored. Overlay Shape/Text layers on top for framing. (Background is also fullscreen.)
 - Image sources: pexels / pixabay / wikipedia / archive ONLY. NEVER youtube for Image.
 - Video sources: pexels / pixabay / youtube / archive ONLY. NEVER wikipedia for Video.
 - search_media accepts both generic (source="pexels") and qualified (source="pexels_photo"/"pexels_video") names; generic pexels/pixabay/archive resolve to _photo, youtube to _video, wikipedia to _image.
@@ -885,8 +885,11 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
                         learnings_parts.append(fb_t)
             except Exception:
                 pass
+            # No learnings logged yet: return ok:true empty instead of
+            # falling through to the generic alias error (which confused
+            # agents into thinking 'learnings' was an invalid section).
+            _record_skill_read(project_id, skill.name, section="Learnings")
             if learnings_parts:
-                _record_skill_read(project_id, skill.name, section="Learnings")
                 return {
                     "ok": True,
                     "name": skill.name,
@@ -894,6 +897,14 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
                     "section": "Learnings",
                     "content": "\n\n---\n\n".join(learnings_parts),
                 }
+            return {
+                "ok": True,
+                "name": skill.name,
+                "version": skill.version,
+                "section": "Learnings",
+                "content": "(No session learnings logged for this skill yet.)",
+                "empty": True,
+            }
 
         found = skill.render_section(section, **ctx)
         if not found:
@@ -1517,6 +1528,41 @@ def save_script(project_id: str, script: dict, force: bool = False) -> dict:
 
 
 @mcp.tool()
+@_emit_project_event("project_updated")
+@_refuse_if_stage_running
+def patch_script(project_id: str, section_type: str, patch: dict,
+                 scene_index: int | None = None,
+                 scene_number: int | None = None) -> dict:
+    """Surgically edit ONE script section without the full save_script purge.
+
+    Use this to fix a single repetitive sentence / typo / scene beat: it keeps
+    design.json, voiceover segments, downloaded assets, music, and all
+    sub_visuals ASTs. Only transcription + render outputs reset; the next
+    generate_voiceover run re-synthesizes ONLY the edited section via per-
+    section Smart Resume and reuses the rest (no 90s full rebuild).
+
+    section_type: introduction|scene|conclusion (intro/outro aliases ok).
+    patch: introduction {hook}; scene {narration, title?}; conclusion {summary, cta?}.
+    Scene targeting: scene_number 1-based (matches UI) or scene_index 0-based.
+    MANDATORY FIRST: get_stage_skills('script', project_id) or
+    get_skill('scriptwriter'). For structural changes (add/remove/reorder
+    scenes, retitle the video) use save_script instead.
+    """
+    missing = _missing_stage_skills("script", project_id)
+    if missing:
+        return _skill_required_error("script", project_id, missing)
+    try:
+        return payloads.patch_script_payload(
+            project_id, section_type, patch,
+            scene_index=scene_index, scene_number=scene_number)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP patch_script failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
 def get_script(project_id: str, include_visuals: bool = False) -> dict:
     """Read back script.json. Sub-visual ASTs are stripped by default to
     save context; pass include_visuals=true to inspect them."""
@@ -1782,7 +1828,7 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
 
 @mcp.tool()
 def run_stage(project_id: str, stage: str, wait: bool = True,
-              confirm_render: bool = False) -> dict:
+              confirm_render: bool = False, idempotency_key: str = "") -> dict:
     """Execute one mechanical pipeline stage: generate_voiceover →
     transcribe → fetch_assets → render (in that order; run
     get_section_timings + save_design + save_visuals between transcribe and
@@ -1799,6 +1845,11 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
     STOP and ask the user to review/edit in the app — only re-call with
     confirm_render=true after the user explicitly approves the final
     render. The desktop app's own render path is unaffected.
+
+    IDEMPOTENCY: pass idempotency_key="..." to guard repeat submits — when
+    the same key+stage already completed on identical script content, the
+    stored result is replayed instead of re-running (record survives
+    restarts; any script edit changes the content hash and re-runs).
     """
     stage = (stage or "").strip().lower()
     if stage not in _STAGE_RUNNERS:
@@ -1810,18 +1861,39 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
                     "Render is gated by human review. Do NOT render yet. "
                     "Instead: (1) confirm fetch_assets completed, "
                     "(2) run review_frame(mode=composition) per section and fix bad cuts "
-                    "(re-fetch if a fix adds a new query), "
-                    "(3) summarize the build for the user (title, scenes, "
-                    "voice, design, review_frame highlights), "
-                    "(4) ask them to review/edit in the app, and "
-                    "(5) only re-call run_stage(render) with confirm_render=true "
-                    "after they explicitly approve.")}
+                    "(re-fetch if a fix adds a new query; narration typos via patch_script), "
+                    "(3) run qa_gate — never render when it fails, "
+                    "(4) summarize the build for the user (title, scenes, "
+                    "voice, design, review_frame highlights, qa_gate verdict, get_receipt id), "
+                    "(5) ask them to review/edit in the app, and "
+                    "(6) only re-call run_stage(render) with confirm_render=true "
+                    "after they explicitly approve. After render, spot-check with "
+                    "review_frame(mode=render).")}
     try:
         if not _db.get_project(project_id):
             return {"ok": False, "error": f"Project {project_id!r} not found."}
         payloads._project_dir(project_id)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
+
+    # Idempotency pre-check: same key + stage + script content already ran
+    # → replay instead of re-running (never resubmit a completed render).
+    # Keys are capped: the settings-table store is unbounded per project.
+    idem_key = (idempotency_key or "").strip()[:128]
+    content_hash = ""
+    if idem_key:
+        try:
+            content_hash = payloads._script_content_hash(
+                payloads._project_dir(project_id))
+        except Exception:
+            content_hash = ""
+        prior = payloads.check_idempotency(project_id, stage, idem_key,
+                                           content_hash)
+        if prior is not None and prior.get("status") == "completed":
+            return {"ok": True, "project_id": project_id, "stage": stage,
+                    "replayed": True, "idempotency_key": idem_key,
+                    "hint": "Identical key+stage+content already completed — "
+                            "replaying stored result instead of re-running."}
 
     task_id = f"{project_id}_{stage}"
     with _STAGE_LOCK:
@@ -1832,8 +1904,18 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
                              f"({active}); wait for it or cancel_stage it first. "
                              f"Concurrent stages corrupt manifests."}
         if not wait:
-            future = _STAGE_POOL.submit(
-                _execute_stage_blocking, project_id, stage)
+            def _run_and_record(_pid=project_id, _st=stage,
+                                _key=idem_key, _hash=content_hash):
+                out = _execute_stage_blocking(_pid, _st)
+                try:
+                    if isinstance(out, dict) and out.get("ok") and _key:
+                        payloads.record_idempotency(_pid, _st, _key, _hash,
+                                                   "completed")
+                except Exception:
+                    pass
+                return out
+
+            future = _STAGE_POOL.submit(_run_and_record)
 
             def _forget_done(fut, _task_id=task_id):
                 # Completed pool futures serve no further purpose
@@ -1855,7 +1937,14 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
         _executing_marker = object()
         _STAGE_FUTURES[task_id] = _executing_marker  # type: ignore[assignment]
     try:
-        return _execute_stage_blocking(project_id, stage)
+        out = _execute_stage_blocking(project_id, stage)
+        try:
+            if isinstance(out, dict) and out.get("ok") and idem_key:
+                payloads.record_idempotency(project_id, stage, idem_key,
+                                           content_hash, "completed")
+        except Exception:
+            pass
+        return out
     except Exception as e:
         logger.error(f"MCP run_stage {stage} failed for {project_id}: {e}", exc_info=True)
         return {"ok": False, "error": str(e), "stage": stage}
@@ -2064,7 +2153,11 @@ def search_media(source: str, query: str, orientation: str = "landscape") -> dic
     Successful verifications are recorded session-wide: save_visuals reports
     any Image/Video query you did NOT verify here as unverified_queries.
     Aliases accepted: pexels/pixabay/wikipedia/youtube/archive (generic names
-    from the skills auto-resolve to the photo/video variant)."""
+    from the skills auto-resolve to the photo/video variant).
+    TYPE WARNING: generic `pexels`/`pixabay`/`archive` resolve to the PHOTO
+    variant — for a Video layer verify with `pexels_video`/`pixabay_video`/
+    `archive_video` instead, or the photo check will not prove footage exists.
+    The response echoes `resolved_source` so you can confirm the match."""
     resolved = _resolve_search_source(source)
     if resolved is None:
         return {"ok": False, "error": f"source must be one of {list(_SEARCH_SOURCES)} (aliases accepted: pexels, pixabay, wikipedia, youtube, archive). Got {source!r}."}
@@ -2081,7 +2174,8 @@ def search_media(source: str, query: str, orientation: str = "landscape") -> dic
     if isinstance(result, str) and result.startswith("Error"):
         return {"ok": False, "error": result}
     payloads.record_verified_query(query.strip())
-    return {"ok": True, "source": source, "query": query.strip(), "result": result}
+    return {"ok": True, "source": source, "resolved_source": source,
+            "query": query.strip(), "result": result}
 
 
 @mcp.tool()
@@ -2142,6 +2236,270 @@ def list_voice_options() -> dict:
         return payloads.list_voice_options()
     except Exception as e:
         logger.error(f"MCP list_voice_options failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+# ── Progressive discovery (2026 MCP spec: search → inspect → call) ────
+# 35+ tools in one context degrades agent accuracy past ~20-30. These two
+# read-only tools let the agent start from ~10 core tools and discover the
+# rest by keyword instead of loading every schema up front.
+
+_TOOL_CATALOG = [
+    # Core build path (start here)
+    {"name": "create_project", "group": "project/write",
+     "blurb": "Create project (format, duration, language, voice)",
+     "keywords": "new start create init topic"},
+    {"name": "save_script", "group": "script/write",
+     "blurb": "Validate + save full narration (purges downstream)",
+     "keywords": "script narration write full rewrite scenes hook summary"},
+    {"name": "patch_script", "group": "script/write",
+     "blurb": "Surgical single-section fix (keeps audio/assets/visuals)",
+     "keywords": "fix typo sentence patch edit one scene intro conclusion"},
+    {"name": "get_script", "group": "script/read",
+     "blurb": "Read script back (ASTs stripped by default)",
+     "keywords": "read view script narration"},
+    {"name": "save_design", "group": "script/write",
+     "blurb": "Save the design system cuts bind to",
+     "keywords": "design theme palette typography style"},
+    {"name": "get_section_timings", "group": "stages/read",
+     "blurb": "True audio durations + word timestamps",
+     "keywords": "timing duration audio words storyboard plan"},
+    {"name": "save_visuals", "group": "visuals/write",
+     "blurb": "Validate + save sub-visuals per section (cut patch + dry-run)",
+     "keywords": "visual cut layer image video map chart text animation"},
+    {"name": "save_visuals_batch", "group": "visuals/write",
+     "blurb": "Whole video visuals in 3 calls (dry-run, fix, persist)",
+     "keywords": "batch all sections video visuals"},
+    {"name": "run_stage", "group": "stages/write",
+     "blurb": "Run voiceover / transcribe / assets / render (wait or background)",
+     "keywords": "run execute voiceover transcribe fetch render generate pipeline"},
+    {"name": "review_frame", "group": "visuals/read",
+     "blurb": "Contact-sheet snapshots per section (mandatory post-fetch review)",
+     "keywords": "review preview frame still composition check qa"},
+    # Skills / grounding
+    {"name": "get_stage_skills", "group": "skills/read",
+     "blurb": "One-call starter pack per stage (satisfies skill gate)",
+     "keywords": "skill guide start how to write starter gate grounded"},
+    {"name": "get_skill", "group": "skills/read",
+     "blurb": "Full guide markdown, brief map, or one section chunk",
+     "keywords": "skill guide docs section layers motion recipes learnings"},
+    {"name": "list_skills", "group": "skills/read",
+     "blurb": "Writing/visual guide catalogue",
+     "keywords": "list skills catalogue guides"},
+    {"name": "append_skill_learning", "group": "skills/write",
+     "blurb": "Log persistent learnings to skill LEARNINGS.md",
+     "keywords": "learning log pattern failure observation improve"},
+    # Inspection / probes
+    {"name": "get_visuals", "group": "visuals/read",
+     "blurb": "Read back sub-visuals for one section / single cut",
+     "keywords": "read visuals cut inspect"},
+    {"name": "probe_cut", "group": "visuals/read",
+     "blurb": "Inspect one cut: JSON + timing + asset files",
+     "keywords": "probe inspect cut json timing"},
+    {"name": "probe_scene", "group": "visuals/read",
+     "blurb": "Inspect one section: per-cut summaries + variety",
+     "keywords": "probe scene section summary variety"},
+    {"name": "probe_asset", "group": "visuals/read",
+     "blurb": "File truth for one media layer (exists/size/fix)",
+     "keywords": "probe asset file exists media download"},
+    {"name": "project_status", "group": "project/read",
+     "blurb": "Full project row + per-stage states",
+     "keywords": "status state progress stage task"},
+    {"name": "list_projects", "group": "project/read",
+     "blurb": "List all projects with status",
+     "keywords": "list projects all"},
+    {"name": "get_transcription", "group": "stages/read",
+     "blurb": "Read word-level transcription & segments",
+     "keywords": "transcription words captions subtitles segments"},
+    # Stages / polling / destructive resets
+    {"name": "stage_status", "group": "stages/read",
+     "blurb": "Poll a background stage",
+     "keywords": "poll status background wait progress"},
+    {"name": "sleep", "group": "stages/read",
+     "blurb": "Pause up to 120s between polls",
+     "keywords": "sleep wait pause poll delay"},
+    {"name": "cancel_stage", "group": "stages/write",
+     "blurb": "Stop a running agent stage",
+     "keywords": "cancel stop abort kill stage"},
+    {"name": "clear_visuals", "group": "stages/write",
+     "blurb": "Delete ALL visual ASTs (keeps narration/audio/design)",
+     "keywords": "clear delete reset visuals wipe restart"},
+    {"name": "clear_assets", "group": "stages/write",
+     "blurb": "Delete ALL downloaded assets (keeps cuts for re-fetch)",
+     "keywords": "clear delete assets downloads wipe refetch"},
+    {"name": "delete_project", "group": "project/write",
+     "blurb": "Permanently delete project + files",
+     "keywords": "delete remove destroy project"},
+    # Voices / settings / cost preview
+    {"name": "list_voice_options", "group": "voice/read",
+     "blurb": "Engines + voices to offer the user",
+     "keywords": "voice tts edge clone profile kiki offer ask"},
+    {"name": "update_voice_settings", "group": "voice/write",
+     "blurb": "Change voice/speed/music volume",
+     "keywords": "voice settings speed pitch tts update change"},
+    {"name": "update_transcribe_settings", "group": "voice/write",
+     "blurb": "Change whisper model/device",
+     "keywords": "transcribe whisper model device settings"},
+    {"name": "update_subtitle_settings", "group": "voice/write",
+     "blurb": "Change subtitle styling (render-only reset)",
+     "keywords": "subtitle caption styling font color layout"},
+    {"name": "estimate_cost", "group": "stages/read",
+     "blurb": "Dry-run time preview for remaining stages (no spend)",
+     "keywords": "estimate cost dry run preview time how long bottleneck budget spend"},
+    {"name": "qa_gate", "group": "stages/read",
+     "blurb": "Fail-closed publish gate (call before render)",
+     "keywords": "qa gate check publish block render ready captions assets hook pass fail"},
+    {"name": "verify_stock", "group": "visuals/read",
+     "blurb": "File-truth stock check + attribution rollup",
+     "keywords": "verify stock assets attribution license exists missing footage photo"},
+    {"name": "get_receipt", "group": "project/read",
+     "blurb": "Video Receipt: hashes + resume cursor + per-cut assets",
+     "keywords": "receipt lineage hash manifest resume cursor id dedup attribution"},
+    # Research & files
+    {"name": "search_media", "group": "research/read",
+     "blurb": "Verify stock queries (Pexels/Pixabay/Wiki/YouTube/Archive)",
+     "keywords": "stock media photo video footage search verify pexels youtube archive"},
+    {"name": "web_search", "group": "research/read",
+     "blurb": "Fact research for scripts",
+     "keywords": "web search facts research google topic"},
+    {"name": "list_project_files", "group": "files/read",
+     "blurb": "Inspect project folder contents",
+     "keywords": "files list disk folder contents inspect"},
+    {"name": "read_project_file", "group": "files/read",
+     "blurb": "Read text artifacts (manifests, logs)",
+     "keywords": "read file manifest log artifact text"},
+    # This catalog itself
+    {"name": "search_tools", "group": "discovery/read",
+     "blurb": "Keyword-search the tool catalog (progressive discovery)",
+     "keywords": "search tools find discover catalog what can you do"},
+    {"name": "get_tool_details", "group": "discovery/read",
+     "blurb": "Blurb + group + usage hint for one tool",
+     "keywords": "tool details describe help usage how to use args"},
+]
+
+_CORE_TOOL_NAMES = ("create_project", "get_stage_skills", "save_script",
+                    "patch_script", "get_section_timings", "save_design",
+                    "save_visuals_batch", "run_stage", "stage_status",
+                    "review_frame", "qa_gate")
+
+
+@mcp.tool()
+def search_tools(query: str = "", limit: int = 10) -> dict:
+    """Keyword-search the MCP tool catalog (progressive discovery).
+
+    38 tools no longer fit one context well past ~20-30. Start from the
+    core build path (returned as `core_tools` when query is empty) and call
+    this to discover the rest by keyword — then get_tool_details(name) for
+    the usage hint before calling. Read-only, never executes anything."""
+    try:
+        lim = max(1, min(int(limit or 10), len(_TOOL_CATALOG)))
+    except (TypeError, ValueError):
+        lim = 10
+    q = (query or "").strip().lower()
+    if not q:
+        core = [e for e in _TOOL_CATALOG if e["name"] in _CORE_TOOL_NAMES]
+        return {"ok": True, "mode": "core",
+                "core_tools": core,
+                "hint": "Call search_tools(query='...') to discover the rest (e.g. 'voice', 'probe', 'subtitle', 'cost', 'receipt')."}
+    scored = []
+    for entry in _TOOL_CATALOG:
+        hay = f"{entry['name']} {entry['blurb']} {entry['keywords']}".lower()
+        if q in hay:
+            # Name hits rank first, then blurb, then keywords.
+            rank = (0 if q in entry["name"].lower()
+                    else 1 if q in entry["blurb"].lower() else 2)
+            scored.append((rank, entry))
+    scored.sort(key=lambda t: (t[0], t[1]["name"]))
+    return {"ok": True, "mode": "search", "query": query.strip(),
+            "tools": [e for _, e in scored[:lim]],
+            "total_matches": len(scored)}
+
+
+@mcp.tool()
+def get_tool_details(name: str) -> dict:
+    """Blurb + group + usage hint for ONE tool (inspect before calling).
+
+    Companion to search_tools: discover by keyword, inspect here, then call.
+    For full JSON schemas use the MCP client discovery (tools/list) —
+    this returns the curated usage hint, which is what agents usually need."""
+    key = (name or "").strip()
+    for entry in _TOOL_CATALOG:
+        if entry["name"] == key:
+            out = dict(entry)
+            out.update({"ok": True, "call": f"{key}(...)"})
+            return out
+    known = sorted(e["name"] for e in _TOOL_CATALOG)
+    return {"ok": False, "error": f"Unknown tool {name!r}.",
+            "hint": "Call search_tools(query='...') to find the right name.",
+            "known_tools": known}
+
+
+@mcp.tool()
+def estimate_cost(project_id: str) -> dict:
+    """Dry-run time preview for the remaining pipeline (no spend, no side effects).
+
+    Returns per-stage wall-time estimates + bottleneck + inputs (words, audio
+    seconds, cuts, unique stock queries). Local pipeline has no metered
+    billing (BYOK keys), so billable_usd is 0 and max_spend_usd is not
+    enforced — use this to decide whether to run fetch_assets/render now.
+    Read-only."""
+    try:
+        return payloads.estimate_cost_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP estimate_cost failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def qa_gate(project_id: str) -> dict:
+    """Fail-closed publish gate — call BEFORE run_stage(render).
+
+    ok=True ONLY when every critical check passes (pacing, design,
+    voiceover, caption sync, visuals, assets, and — when a render exists —
+    measured loudness from render_loudness.json). Warnings (hook length,
+    unmeasured pre-first-render loudness) never block. Do NOT render
+    when ok=False. Read-only."""
+    try:
+        return payloads.qa_gate_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP qa_gate failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def verify_stock(project_id: str) -> dict:
+    """File-truth stock check for every Image/Video layer + attribution rollup.
+
+    Reports exists/size/dimensions per layer and source+license notes for the
+    receipt. NOT a VLM relevance check — no vision model exists here, so
+    relevance stays with review_frame(mode=composition) + the human gate
+    (vision_verified is always False, stated explicitly). Read-only."""
+    try:
+        return payloads.verify_stock_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP verify_stock failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_receipt(project_id: str) -> dict:
+    """Video Receipt: input/output hashes + resume cursor + per-cut assets.
+
+    Deterministic receipt_id (sha256 of content hashes) — identical content
+    yields an identical id for dedup-by-content. Pair with
+    run_stage(idempotency_key=...) to guard repeat submits. Read-only."""
+    try:
+        return payloads.build_receipt_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP get_receipt failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
 
 
@@ -2280,12 +2638,19 @@ already explicitly specified in the user's request):
     adds a NEW Image/Video query, re-run fetch_assets then re-review that
     cut (composition renders the downloaded files). A section is done only
     after a post-fetch review pass with named fixes — never first-pass,
-    never pre-fetch.
-13. STOP. Do not render. Summarize the build (title, scene count, voice,
-    design, review_frame highlights) and ask the user to review/edit in
+    never pre-fetch. Narration typos/single-beat fixes go through
+    patch_script (surgical, keeps audio/assets/visuals) — save_script is
+    for structural rewrites only.
+13. STOP. Do not render. Run qa_gate (fail-closed: never render when it
+    fails) and summarize the build (title, scene count, voice,
+    design, review_frame highlights, qa_gate verdict, get_receipt id) and
+    ask the user to review/edit in
     the app. Only after explicit approval: run_stage(render,
-    confirm_render=true, wait=false) → sleep(60) → stage_status → video_path.
-    (review_frame on the mp4 for the final check)
+    confirm_render=true, wait=false, idempotency_key="<unique-per-build>")
+    → sleep(60) → stage_status → video_path.
+    After render completes: spot-check the finished file with
+    review_frame(mode=render, scope=section) per section before declaring
+    done — that reads exact mp4 pixels, not the pre-render composition.
 
 ## Gotchas
 - Scene pacing: a scene is a short visual beat (~7-12s, exact in outline_targets), NOT a 60-second
