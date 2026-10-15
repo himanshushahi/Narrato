@@ -2196,6 +2196,210 @@ def list_voice_options() -> dict:
         return {"ok": False, "error": str(e)}
 
 
+# ── Progressive discovery (2026 MCP spec: search → inspect → call) ────
+# 35+ tools in one context degrades agent accuracy past ~20-30. These two
+# read-only tools let the agent start from ~10 core tools and discover the
+# rest by keyword instead of loading every schema up front.
+
+_TOOL_CATALOG = [
+    # Core build path (start here)
+    {"name": "create_project", "group": "project/write",
+     "blurb": "Create project (format, duration, language, voice)",
+     "keywords": "new start create init topic"},
+    {"name": "save_script", "group": "script/write",
+     "blurb": "Validate + save full narration (purges downstream)",
+     "keywords": "script narration write full rewrite scenes hook summary"},
+    {"name": "patch_script", "group": "script/write",
+     "blurb": "Surgical single-section fix (keeps audio/assets/visuals)",
+     "keywords": "fix typo sentence patch edit one scene intro conclusion"},
+    {"name": "get_script", "group": "script/read",
+     "blurb": "Read script back (ASTs stripped by default)",
+     "keywords": "read view script narration"},
+    {"name": "save_design", "group": "script/write",
+     "blurb": "Save the design system cuts bind to",
+     "keywords": "design theme palette typography style"},
+    {"name": "get_section_timings", "group": "stages/read",
+     "blurb": "True audio durations + word timestamps",
+     "keywords": "timing duration audio words storyboard plan"},
+    {"name": "save_visuals", "group": "visuals/write",
+     "blurb": "Validate + save sub-visuals per section (cut patch + dry-run)",
+     "keywords": "visual cut layer image video map chart text animation"},
+    {"name": "save_visuals_batch", "group": "visuals/write",
+     "blurb": "Whole video visuals in 3 calls (dry-run, fix, persist)",
+     "keywords": "batch all sections video visuals"},
+    {"name": "run_stage", "group": "stages/write",
+     "blurb": "Run voiceover / transcribe / assets / render (wait or background)",
+     "keywords": "run execute voiceover transcribe fetch render generate pipeline"},
+    {"name": "review_frame", "group": "visuals/read",
+     "blurb": "Contact-sheet snapshots per section (mandatory post-fetch review)",
+     "keywords": "review preview frame still composition check qa"},
+    # Skills / grounding
+    {"name": "get_stage_skills", "group": "skills/read",
+     "blurb": "One-call starter pack per stage (satisfies skill gate)",
+     "keywords": "skill guide start how to write starter gate grounded"},
+    {"name": "get_skill", "group": "skills/read",
+     "blurb": "Full guide markdown, brief map, or one section chunk",
+     "keywords": "skill guide docs section layers motion recipes learnings"},
+    {"name": "list_skills", "group": "skills/read",
+     "blurb": "Writing/visual guide catalogue",
+     "keywords": "list skills catalogue guides"},
+    {"name": "append_skill_learning", "group": "skills/write",
+     "blurb": "Log persistent learnings to skill LEARNINGS.md",
+     "keywords": "learning log pattern failure observation improve"},
+    # Inspection / probes
+    {"name": "get_visuals", "group": "visuals/read",
+     "blurb": "Read back sub-visuals for one section / single cut",
+     "keywords": "read visuals cut inspect"},
+    {"name": "probe_cut", "group": "visuals/read",
+     "blurb": "Inspect one cut: JSON + timing + asset files",
+     "keywords": "probe inspect cut json timing"},
+    {"name": "probe_scene", "group": "visuals/read",
+     "blurb": "Inspect one section: per-cut summaries + variety",
+     "keywords": "probe scene section summary variety"},
+    {"name": "probe_asset", "group": "visuals/read",
+     "blurb": "File truth for one media layer (exists/size/fix)",
+     "keywords": "probe asset file exists media download"},
+    {"name": "project_status", "group": "project/read",
+     "blurb": "Full project row + per-stage states",
+     "keywords": "status state progress stage task"},
+    {"name": "list_projects", "group": "project/read",
+     "blurb": "List all projects with status",
+     "keywords": "list projects all"},
+    {"name": "get_transcription", "group": "stages/read",
+     "blurb": "Read word-level transcription & segments",
+     "keywords": "transcription words captions subtitles segments"},
+    # Stages / polling / destructive resets
+    {"name": "stage_status", "group": "stages/read",
+     "blurb": "Poll a background stage",
+     "keywords": "poll status background wait progress"},
+    {"name": "sleep", "group": "stages/read",
+     "blurb": "Pause up to 120s between polls",
+     "keywords": "sleep wait pause poll delay"},
+    {"name": "cancel_stage", "group": "stages/write",
+     "blurb": "Stop a running agent stage",
+     "keywords": "cancel stop abort kill stage"},
+    {"name": "clear_visuals", "group": "stages/write",
+     "blurb": "Delete ALL visual ASTs (keeps narration/audio/design)",
+     "keywords": "clear delete reset visuals wipe restart"},
+    {"name": "clear_assets", "group": "stages/write",
+     "blurb": "Delete ALL downloaded assets (keeps cuts for re-fetch)",
+     "keywords": "clear delete assets downloads wipe refetch"},
+    {"name": "delete_project", "group": "project/write",
+     "blurb": "Permanently delete project + files",
+     "keywords": "delete remove destroy project"},
+    # Voices / settings / cost preview
+    {"name": "list_voice_options", "group": "voice/read",
+     "blurb": "Engines + voices to offer the user",
+     "keywords": "voice tts edge clone profile kiki offer ask"},
+    {"name": "update_voice_settings", "group": "voice/write",
+     "blurb": "Change voice/speed/music volume",
+     "keywords": "voice settings speed pitch tts update change"},
+    {"name": "update_transcribe_settings", "group": "voice/write",
+     "blurb": "Change whisper model/device",
+     "keywords": "transcribe whisper model device settings"},
+    {"name": "update_subtitle_settings", "group": "voice/write",
+     "blurb": "Change subtitle styling (render-only reset)",
+     "keywords": "subtitle caption styling font color layout"},
+    {"name": "estimate_cost", "group": "stages/read",
+     "blurb": "Dry-run time preview for remaining stages (no spend)",
+     "keywords": "estimate cost dry run preview time how long bottleneck budget spend"},
+    # Research & files
+    {"name": "search_media", "group": "research/read",
+     "blurb": "Verify stock queries (Pexels/Pixabay/Wiki/YouTube/Archive)",
+     "keywords": "stock media photo video footage search verify pexels youtube archive"},
+    {"name": "web_search", "group": "research/read",
+     "blurb": "Fact research for scripts",
+     "keywords": "web search facts research google topic"},
+    {"name": "list_project_files", "group": "files/read",
+     "blurb": "Inspect project folder contents",
+     "keywords": "files list disk folder contents inspect"},
+    {"name": "read_project_file", "group": "files/read",
+     "blurb": "Read text artifacts (manifests, logs)",
+     "keywords": "read file manifest log artifact text"},
+    # This catalog itself
+    {"name": "search_tools", "group": "discovery/read",
+     "blurb": "Keyword-search the tool catalog (progressive discovery)",
+     "keywords": "search tools find discover catalog what can you do"},
+    {"name": "get_tool_details", "group": "discovery/read",
+     "blurb": "Blurb + group + usage hint for one tool",
+     "keywords": "tool details describe help usage how to use args"},
+]
+
+_CORE_TOOL_NAMES = ("create_project", "get_stage_skills", "save_script",
+                    "patch_script", "get_section_timings", "save_design",
+                    "save_visuals_batch", "run_stage", "stage_status",
+                    "review_frame")
+
+
+@mcp.tool()
+def search_tools(query: str = "", limit: int = 10) -> dict:
+    """Keyword-search the MCP tool catalog (progressive discovery).
+
+    38 tools no longer fit one context well past ~20-30. Start from the
+    core build path (returned as `core_tools` when query is empty) and call
+    this to discover the rest by keyword — then get_tool_details(name) for
+    the usage hint before calling. Read-only, never executes anything."""
+    try:
+        lim = max(1, min(int(limit or 10), len(_TOOL_CATALOG)))
+    except (TypeError, ValueError):
+        lim = 10
+    q = (query or "").strip().lower()
+    if not q:
+        core = [e for e in _TOOL_CATALOG if e["name"] in _CORE_TOOL_NAMES]
+        return {"ok": True, "mode": "core",
+                "core_tools": core,
+                "hint": "Call search_tools(query='...') to discover the rest (e.g. 'voice', 'probe', 'subtitle', 'cost')."}
+    scored = []
+    for entry in _TOOL_CATALOG:
+        hay = f"{entry['name']} {entry['blurb']} {entry['keywords']}".lower()
+        if q in hay:
+            # Name hits rank first, then blurb, then keywords.
+            rank = (0 if q in entry["name"].lower()
+                    else 1 if q in entry["blurb"].lower() else 2)
+            scored.append((rank, entry))
+    scored.sort(key=lambda t: (t[0], t[1]["name"]))
+    return {"ok": True, "mode": "search", "query": query.strip(),
+            "tools": [e for _, e in scored[:lim]],
+            "total_matches": len(scored)}
+
+
+@mcp.tool()
+def get_tool_details(name: str) -> dict:
+    """Blurb + group + usage hint for ONE tool (inspect before calling).
+
+    Companion to search_tools: discover by keyword, inspect here, then call.
+    For full JSON schemas use the MCP client discovery (tools/list) —
+    this returns the curated usage hint, which is what agents usually need."""
+    key = (name or "").strip()
+    for entry in _TOOL_CATALOG:
+        if entry["name"] == key:
+            out = dict(entry)
+            out.update({"ok": True, "call": f"{key}(...)"})
+            return out
+    known = sorted(e["name"] for e in _TOOL_CATALOG)
+    return {"ok": False, "error": f"Unknown tool {name!r}.",
+            "hint": "Call search_tools(query='...') to find the right name.",
+            "known_tools": known}
+
+
+@mcp.tool()
+def estimate_cost(project_id: str) -> dict:
+    """Dry-run time preview for the remaining pipeline (no spend, no side effects).
+
+    Returns per-stage wall-time estimates + bottleneck + inputs (words, audio
+    seconds, cuts, unique stock queries). Local pipeline has no metered
+    billing (BYOK keys), so billable_usd is 0 and max_spend_usd is not
+    enforced — use this to decide whether to run fetch_assets/render now.
+    Read-only."""
+    try:
+        return payloads.estimate_cost_payload(project_id)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"MCP estimate_cost failed: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
 # ── Guide resource + build prompt (agent context) ────────────────────
 
 @mcp.resource("narrato://pipeline-guide", name="pipeline-guide",

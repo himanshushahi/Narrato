@@ -73,6 +73,9 @@ const TOOL_GROUPS: { title: string; tools: { name: string; blurb: string }[] }[]
     title: 'Research & files',
     tools: [
       { name: 'search_media', blurb: 'Verify stock queries (Pexels/Pixabay/Wiki/YouTube/Archive)' },
+      { name: 'search_tools', blurb: 'Keyword-search the tool catalog (start from core tools)' },
+      { name: 'get_tool_details', blurb: 'Blurb + group + hint for one tool' },
+      { name: 'estimate_cost', blurb: 'Dry-run time preview for remaining stages (no spend)' },
       { name: 'web_search', blurb: 'Fact research for scripts' },
       { name: 'list_project_files', blurb: 'Inspect project folder contents' },
       { name: 'read_project_file', blurb: 'Read text artifacts (manifests, logs)' },

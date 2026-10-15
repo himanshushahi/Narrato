@@ -1816,7 +1816,7 @@ def test_mcp_inventory_shape_and_counts():
     templates = asyncio.run(server.mcp.list_resource_templates())
     prompts = asyncio.run(server.mcp.list_prompts())
     tool_names = sorted(t.name for t in tools)
-    assert len(tool_names) == 35
+    assert len(tool_names) == 38
     assert set(tool_names) == {
         "create_project", "list_projects", "project_status", "delete_project",
         "save_script", "patch_script", "get_script", "save_design",
@@ -1830,6 +1830,7 @@ def test_mcp_inventory_shape_and_counts():
         "clear_visuals", "clear_assets",
         "probe_cut", "probe_scene", "probe_asset", "review_frame",
         "search_media", "web_search", "list_project_files", "read_project_file",
+        "search_tools", "get_tool_details", "estimate_cost",
     }
     assert len(resources) == 1
     assert len(templates) == 0  # by design, see docstring
@@ -1841,12 +1842,58 @@ def test_mcp_inventory_helper_reports_all_lists(monkeypatch):
     monkeypatch.setattr(http_host, "_mcp_inventory_cache", None)
     inv = http_host.get_mcp_inventory()
     assert set(inv) == {"tools", "resources", "resource_templates", "prompts"}
-    assert len(inv["tools"]) == 35
+    assert len(inv["tools"]) == 38
     assert len(inv["resources"]) == 1
     assert inv["resource_templates"] == []
     assert len(inv["prompts"]) == 1
     # cached second call returns same object
     assert http_host.get_mcp_inventory() is inv
+
+
+def test_search_tools_core_and_keyword():
+    from backend.mcp import server
+    core = server.search_tools()
+    assert core["ok"] is True and core["mode"] == "core"
+    names = {t["name"] for t in core["core_tools"]}
+    assert {"save_script", "run_stage", "review_frame"} <= names
+    found = server.search_tools(query="voice", limit=5)
+    assert found["ok"] is True
+    got = {t["name"] for t in found["tools"]}
+    assert {"list_voice_options", "update_voice_settings"} <= got
+    detail = server.get_tool_details("patch_script")
+    assert detail["ok"] is True and detail["group"] == "script/write"
+    missing = server.get_tool_details("nope_tool")
+    assert missing["ok"] is False and "known_tools" in missing
+
+
+def test_estimate_cost_payload_heuristic(tmp_path, monkeypatch):
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, _proj())
+    proj_dir = tmp_path / "proj_mcp"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "title": "T",
+        "introduction": {"hook": "hello world test", "sub_visuals": []},
+        "scenes": [
+            {"scene_number": 1, "title": "S1", "narration": "one two three four",
+             "sub_visuals": [
+                 {"duration": 4.0, "composition": {"type": "Sequence", "children": [
+                     {"type": "Layer",
+                      "content": {"type": "Image", "query": "city skyline",
+                                  "source": "pexels",
+                                  "style": {"left": "0%", "top": "0%",
+                                            "width": "100%", "height": "100%"}}}]}}]},
+        ],
+        "conclusion": {"summary": "bye now", "cta": "", "sub_visuals": []},
+    }
+    (proj_dir / "script.json").write_text(json.dumps(doc), encoding="utf-8")
+    result = payloads.estimate_cost_payload("proj_mcp")
+    assert result["ok"] is True
+    assert result["metered"] is False and result["billable_usd"] == 0.0
+    assert result["inputs"]["unique_queries"] == 1
+    assert result["est_total_seconds"] > 0
+    assert result["bottleneck"] in {"generate_voiceover", "transcribe",
+                                    "fetch_assets", "render"}
 
 
 # ── clear_visuals / clear_assets ────────────────────────────────────

@@ -3324,3 +3324,112 @@ def get_transcription_payload(
         "segments": paginated,
     }
 
+
+# ── Cost preview (estimate before billable/long stages) ──────────────
+
+def _count_visual_media(document: dict) -> dict:
+    """Count authored cuts + Image/Video queries across all sections."""
+    cuts = 0
+    queries: set = set()
+    media_layers = 0
+    sections = []
+    if isinstance(document.get("introduction"), dict):
+        sections.append(document["introduction"])
+    for scene in document.get("scenes", []) or []:
+        if isinstance(scene, dict):
+            sections.append(scene)
+    if isinstance(document.get("conclusion"), dict):
+        sections.append(document["conclusion"])
+    for sec in sections:
+        for cut in sec.get("sub_visuals", []) or []:
+            if not isinstance(cut, dict):
+                continue
+            cuts += 1
+            comp = cut.get("composition") or {}
+            for layer in comp.get("children", []) or []:
+                if not isinstance(layer, dict):
+                    continue
+                content = layer.get("content") or {}
+                ctype = str(content.get("type") or "")
+                if ctype in ("Image", "Video"):
+                    media_layers += 1
+                    q = str(content.get("query") or "").strip().lower()
+                    if q:
+                        queries.add(q)
+    return {"cuts": cuts, "media_layers": media_layers,
+            "unique_queries": len(queries)}
+
+
+def estimate_cost_payload(project_id: str) -> dict:
+    """Dry-run cost/time preview for the remaining pipeline (no spend).
+
+    Local pipeline has no metered billing — TTS/stock/search keys are BYOK
+    in app Settings, so there is no USD charge to cap. This returns wall-time
+    estimates per stage plus what would dominate, so the agent can decide
+    whether to run fetch_assets/render now or keep authoring. Honest
+    heuristic, not a quote: label it as such.
+    """
+    proj = _get_project_or_raise(project_id)
+    proj_dir = _project_dir(project_id)
+    script_path = proj_dir / "script.json"
+    if not script_path.exists():
+        return {"ok": False, "error": "script.json not found. Use save_script first."}
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read script.json: {e}"}
+    language = proj.get("language", "en") or "en"
+    rate = 2.5 if language == "hi" else 3.0  # words/sec, mirrors scriptwriter pacing
+    words = 0
+    try:
+        words += len(_safe_str(document.get("introduction", {}).get("hook")).split())
+        for s in document.get("scenes", []) or []:
+            if isinstance(s, dict):
+                words += len(_safe_str(s.get("narration")).split())
+        concl = document.get("conclusion", {}) or {}
+        words += len(_safe_str(concl.get("summary")).split())
+        words += len(_safe_str(concl.get("cta")).split())
+    except Exception:
+        pass
+    audio_seconds = round(words / rate, 1) if rate else 0.0
+    media = _count_visual_media(document)
+    queries = media["unique_queries"]
+    # Heuristics (documented as rough): edge TTS ~2x realtime Tup, whisper
+    # ~0.25x audio, stock fetch ~5s/query, render ~2x final duration.
+    voiceover_s = round(audio_seconds * 0.5, 1)
+    transcribe_s = round(audio_seconds * 0.25, 1)
+    fetch_s = round(queries * 5.0, 1)
+    render_s = round(audio_seconds * 2.0, 1)
+    total_s = round(voiceover_s + transcribe_s + fetch_s + render_s, 1)
+    stages = [
+        {"stage": "generate_voiceover", "est_seconds": voiceover_s,
+         "basis": f"{words} words @ ~{rate}/s (~{audio_seconds}s audio)"},
+        {"stage": "transcribe", "est_seconds": transcribe_s,
+         "basis": f"~0.25x of {audio_seconds}s audio"},
+        {"stage": "fetch_assets", "est_seconds": fetch_s,
+         "basis": f"{queries} unique queries x ~5s"},
+        {"stage": "render", "est_seconds": render_s,
+         "basis": f"~2x of {audio_seconds}s timeline"},
+    ]
+    bottleneck = max(stages, key=lambda s: s["est_seconds"])["stage"] if stages else ""
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "billable_usd": 0.0,
+        "metered": False,
+        "currency_note": ("Local pipeline: no metered billing. External APIs "
+                          "(Edge/TTS, stock, web-search) use your own keys in "
+                          "app Settings; max_spend_usd is not enforced."),
+        "inputs": {"words": words, "audio_seconds": audio_seconds,
+                   "cuts": media["cuts"], "media_layers": media["media_layers"],
+                   "unique_queries": queries, "language": language},
+        "stages": stages,
+        "est_total_seconds": total_s,
+        "bottleneck": bottleneck,
+        "assumptions": ["edge TTS ~0.5x audio (xtts cloning is slower)",
+                        "whisper ~0.25x audio", "stock ~5s/query",
+                        "render ~2x timeline"],
+        "next_step": "run_stage(wait=false) + sleep + stage_status per stage.",
+    }
+
