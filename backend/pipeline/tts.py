@@ -157,7 +157,7 @@ def _resolve_tts_settings(project_dict, strict=False):
     """Resolve TTS settings from project overrides or global settings.
 
     When ``strict`` is True (actual generation), an explicitly selected
-    OmniVoice profile that no longer resolves — deleted profile, or a
+    clone profile that no longer resolves — deleted profile, or a
     reference clip that was moved/deleted — raises a clear error instead of
     silently falling back to the default reference voice (which would
     produce a whole voiceover in the wrong voice). Callers doing read-only
@@ -178,6 +178,13 @@ def _resolve_tts_settings(project_dict, strict=False):
 
     from backend.database.db import get_setting
     engine = project_settings.get("tts_engine") or project_dict.get("tts_engine") or get_setting("tts_engine") or "edge"
+    if engine in ("xtts", "omnivoice"):
+        # Legacy clone-engine ids from the XTTS/OmniVoice era: the cloning
+        # backend is DhVaani now. Mapping here (instead of rejecting) keeps
+        # old projects generating; the engine change flags voiceover stale
+        # once so it regenerates with DhVaani.
+        logger.info(f"Legacy clone engine '{engine}' mapped to 'dhvaani'.")
+        engine = "dhvaani"
     speed = float(project_settings.get("tts_speed") or project_dict.get("tts_speed") or get_setting("tts_speed") or 1.0)
     pitch = project_settings.get("tts_pitch") or get_setting("tts_pitch") or "0"
     language = project_dict.get("language", "hi")
@@ -195,10 +202,9 @@ def _resolve_tts_settings(project_dict, strict=False):
         # (older versions persisted it there); edge-tts would fail on that name.
         if not voice or not re.match(r"^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$", voice or ""):
             voice = "hi-IN-SwaraNeural" if language == "hi" else "en-US-AndrewNeural"
-    elif engine in ("xtts", "omnivoice"):
-        # Voice cloning via OmniVoice (migrated from XTTS v2; engine id "xtts"
-        # is kept in settings/DB for backward compat, "omnivoice" is the
-        # forward alias). For XTTS, check if tts_voice points to an XTTS profile ID
+    elif engine in ("xtts", "omnivoice", "dhvaani"):
+        # Voice cloning via DhVaani ("xtts"/"omnivoice" are legacy ids mapped
+        # to "dhvaani" above). tts_voice holds a clone profile id.
         tts_voice_id = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
         xtts_profiles = get_setting("xtts_profiles") or []
 
@@ -243,6 +249,81 @@ def _resolve_tts_settings(project_dict, strict=False):
         voice = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice") or "hi-IN-SwaraNeural"
 
     return engine, speed, pitch, voice
+
+
+def _transcript_hash(transcript: str | None) -> str:
+    import hashlib as _hl
+
+    t = (transcript or "").strip()
+    if not t:
+        return ""
+    return _hl.md5(t.encode("utf-8")).hexdigest()[:12]
+
+
+def _resolve_clone_transcript(project_dict) -> str | None:
+    """Exact prompt transcript stored on the selected clone profile, if any.
+
+    When present, generate_dhvaani_tts uses it directly and skips
+    faster-whisper transcription entirely (faster + deterministic).
+    """
+    try:
+        project_settings_raw = project_dict.get("project_settings")
+        project_settings = {}
+        if project_settings_raw:
+            try:
+                if isinstance(project_settings_raw, str):
+                    project_settings = json.loads(project_settings_raw)
+                else:
+                    project_settings = project_settings_raw
+            except Exception:
+                pass
+        from backend.database.db import get_setting
+
+        tts_voice_id = project_settings.get("tts_voice") or project_dict.get("tts_voice") or get_setting("tts_voice")
+        if not tts_voice_id:
+            return None
+        profiles = get_setting("xtts_profiles") or []
+        for p in profiles or []:
+            if isinstance(p, dict) and p.get("id") == tts_voice_id:
+                t = (p.get("transcript") or "").strip()
+                return t or None
+        return None
+    except Exception:
+        return None
+
+
+def _resolve_clone_steps(project_dict) -> int:
+    """Sampling steps from the clone quality preset.
+
+    Order: project_settings.dhvaani_quality > project row > global setting >
+    'balanced'. Unknown values fall back to balanced (16).
+    """
+    try:
+        from backend.dhvaani_tts import dhvaani_steps_for_quality
+    except Exception:
+        return 16
+    try:
+        project_settings_raw = project_dict.get("project_settings")
+        project_settings = {}
+        if project_settings_raw:
+            try:
+                if isinstance(project_settings_raw, str):
+                    project_settings = json.loads(project_settings_raw)
+                else:
+                    project_settings = project_settings_raw
+            except Exception:
+                pass
+        from backend.database.db import get_setting
+
+        quality = (
+            project_settings.get("dhvaani_quality")
+            or project_dict.get("dhvaani_quality")
+            or get_setting("dhvaani_quality")
+            or "balanced"
+        )
+        return dhvaani_steps_for_quality(quality)
+    except Exception:
+        return 16
 
 def is_voiceover_stale(project_dict, project_dir):
     """Check if script hash or TTS settings changed, or voiceover.wav is missing."""
@@ -292,10 +373,33 @@ def is_voiceover_stale(project_dict, project_dir):
         if stored_voice != voice:
             logger.info(f"voiceover stale: voice mismatch stored={stored_voice} current={voice}")
             return True
+        # A profile transcript edit changes cloning even when the audio path
+        # is identical — compare hashes so correcting the transcript
+        # invalidates the voiceover.
+        if engine in ("xtts", "omnivoice", "dhvaani"):
+            current_transcript_hash = _transcript_hash(_resolve_clone_transcript(project_dict))
+            stored_transcript_hash = str(first_entry.get("_voiceover_transcript_hash") or "")
+            # Old manifests predate the hash (missing): only treat as stale
+            # when a transcript is newly set (whisper guess -> exact text).
+            if stored_transcript_hash or current_transcript_hash:
+                if stored_transcript_hash != current_transcript_hash:
+                    logger.info("voiceover stale: clone transcript changed")
+                    return True
+            # A quality-preset change re-renders with different steps.
+            # Manifests predating the field (missing) are kept as-is to avoid
+            # a forced full regen on upgrade.
+            stored_steps = first_entry.get("_voiceover_num_step")
+            if stored_steps is not None:
+                try:
+                    if int(stored_steps) != int(_resolve_clone_steps(project_dict)):
+                        logger.info("voiceover stale: clone quality changed")
+                        return True
+                except (TypeError, ValueError):
+                    pass
 
         # A reference clip replaced in place keeps the same path; compare mtime so
         # re-recording over the same file also invalidates the voiceover.
-        if engine in ("xtts", "omnivoice") and voice and Path(voice).exists():
+        if engine in ("xtts", "omnivoice", "dhvaani") and voice and Path(voice).exists():
             try:
                 stored_mtime = first_entry.get("_voiceover_voice_mtime")
                 if stored_mtime is not None and float(stored_mtime) != os.path.getmtime(voice):
@@ -343,7 +447,7 @@ def _normalize_pitch_value(val: str) -> int:
     return int(float(v))
 
 
-def _tts_entry_settings_match(old_entry, engine, speed, pitch, voice):
+def _tts_entry_settings_match(old_entry, engine, speed, pitch, voice, transcript=None, num_step=None):
     """True when a previous manifest entry was synthesized with identical TTS settings.
 
     Mirrors the comparisons in is_voiceover_stale so the per-section resume
@@ -355,6 +459,22 @@ def _tts_entry_settings_match(old_entry, engine, speed, pitch, voice):
         return False
     if old_entry.get("_voiceover_voice") != voice:
         return False
+    if engine in ("xtts", "omnivoice", "dhvaani"):
+        if str(old_entry.get("_voiceover_transcript_hash") or "") != _transcript_hash(transcript):
+            # Old entries predate the hash: match only when both sides are
+            # empty (no transcript then, none now) to avoid forcing a full
+            # regen on upgrade.
+            if str(old_entry.get("_voiceover_transcript_hash") or "") or _transcript_hash(transcript):
+                return False
+        # Same grandfathering for quality: entries without the field reuse
+        # only when the current setting equals the historic default.
+        stored_steps = old_entry.get("_voiceover_num_step")
+        if stored_steps is not None and num_step is not None:
+            try:
+                if int(stored_steps) != int(num_step):
+                    return False
+            except (TypeError, ValueError):
+                return False
     try:
         if float(old_entry.get("_voiceover_speed", 1.0)) != float(speed):
             return False
@@ -368,7 +488,7 @@ def _tts_entry_settings_match(old_entry, engine, speed, pitch, voice):
         if str(old_entry.get("_voiceover_pitch", "0")) != str(pitch):
             return False
     # A reference clip replaced in place keeps the same path — compare mtime.
-    if engine in ("xtts", "omnivoice") and voice and Path(voice).exists():
+    if engine in ("xtts", "omnivoice", "dhvaani") and voice and Path(voice).exists():
         try:
             if float(old_entry.get("_voiceover_voice_mtime", -1)) != os.path.getmtime(voice):
                 return False
@@ -377,7 +497,7 @@ def _tts_entry_settings_match(old_entry, engine, speed, pitch, voice):
     return True
 
 
-def find_reusable_voice_segment(sec_type, text, old_manifest, engine, speed, pitch, voice):
+def find_reusable_voice_segment(sec_type, text, old_manifest, engine, speed, pitch, voice, transcript=None, num_step=None):
     """Per-section TTS Smart Resume lookup.
 
     Returns (audio_path_str, duration) of a previously synthesized segment
@@ -394,7 +514,7 @@ def find_reusable_voice_segment(sec_type, text, old_manifest, engine, speed, pit
             continue
         if (old_entry.get("section_type"), (old_entry.get("text") or "").strip()) != key:
             continue
-        if not _tts_entry_settings_match(old_entry, engine, speed, pitch, voice):
+        if not _tts_entry_settings_match(old_entry, engine, speed, pitch, voice, transcript, num_step):
             continue
         old_audio = old_entry.get("audio_path") or ""
         if old_audio and Path(old_audio).exists():
@@ -451,6 +571,9 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
 
     engine, speed, pitch, voice = _resolve_tts_settings(project_dict, strict=True)
     language = project_dict.get("language", "hi")
+    clone_transcript = _resolve_clone_transcript(project_dict) if engine in ("xtts", "omnivoice", "dhvaani") else None
+    # Non-clone engines ignore steps; value only flows into clone manifest fields.
+    clone_steps = _resolve_clone_steps(project_dict) if engine in ("xtts", "omnivoice", "dhvaani") else 16
 
     temp_files = []
     manifest_entries = []
@@ -481,7 +604,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
         reused = False
         duration = 0.0
         reused_audio, reused_duration = find_reusable_voice_segment(
-            sec["type"], sec["text"], old_manifest, engine, speed, pitch, voice)
+            sec["type"], sec["text"], old_manifest, engine, speed, pitch, voice, clone_transcript, clone_steps)
         if reused_audio:
             try:
                 if str(Path(reused_audio)) != str(seg_file):
@@ -499,13 +622,18 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             # Synthesize audio segment
             import concurrent.futures
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            _tts_cancelled = False
             try:
-                if engine in ("xtts", "omnivoice"):
-                    from backend.omnivoice_tts import generate_omnivoice_tts
+                if engine in ("xtts", "omnivoice", "dhvaani"):
+                    # All clone ids resolve to DhVaani (legacy ids mapped above).
+                    # ref_text skips whisper transcription when the profile
+                    # stores the exact prompt transcript.
+                    from backend.dhvaani_tts import generate_dhvaani_tts
                     future = executor.submit(
-                        generate_omnivoice_tts, sec['text'], str(seg_file),
+                        generate_dhvaani_tts, sec['text'], str(seg_file),
                         speaker_wav=voice, language=language, speed=speed,
-                        cancel_event=cancel_event,
+                        cancel_event=cancel_event, ref_text=clone_transcript,
+                        num_step=clone_steps,
                     )
                 else:
                     future = executor.submit(
@@ -520,15 +648,23 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
                         # until the running synthesis finishes. Cancel the queued
                         # future and let the worker thread abort at its next chunk
                         # boundary (both engines check cancel_event per chunk).
+                        _tts_cancelled = True
                         executor.shutdown(wait=False, cancel_futures=True)
                         raise InterruptedError("Cancelled")
                     import time
                     time.sleep(0.5)
                 future.result()
             finally:
-                # Safe: after a cancel the worker has already seen the event and is
-                # exiting (chunk-granular), so this wait is short.
-                executor.shutdown(wait=True)
+                # Never block Cancel on a long CPU chunk: after a cancel the
+                # worker exits at its next chunk boundary on its own, so wait
+                # only on the normal (non-cancelled) path.
+                if _tts_cancelled or cancel_event.is_set():
+                    try:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                    except Exception:
+                        pass
+                else:
+                    executor.shutdown(wait=True)
 
             duration = get_audio_duration(str(seg_file))
         temp_files.append(str(seg_file))
@@ -595,7 +731,10 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
             entry["_voiceover_voice"] = voice
             entry["_voiceover_speed"] = speed
             entry["_voiceover_pitch"] = pitch
-            if engine in ("xtts", "omnivoice") and voice and Path(voice).exists():
+            if engine in ("xtts", "omnivoice", "dhvaani"):
+                entry["_voiceover_transcript_hash"] = _transcript_hash(clone_transcript)
+                entry["_voiceover_num_step"] = int(clone_steps)
+            if engine in ("xtts", "omnivoice", "dhvaani") and voice and Path(voice).exists():
                 try:
                     entry["_voiceover_voice_mtime"] = os.path.getmtime(voice)
                 except OSError:
@@ -740,7 +879,7 @@ def generate_voiceover_pipeline(project_dict, project_dir, progress_cb, cancel_e
 
     # Sync resolved settings back to the project so downstream staleness checks
     # and the UI read the same values that were actually used.
-    if engine in ("xtts", "omnivoice"):
+    if engine in ("xtts", "omnivoice", "dhvaani"):
         # Never persist the raw reference path into tts_voice: that column must
         # only ever hold an Edge voice name, otherwise switching the project back
         # to Edge would feed the path to edge-tts and break generation. Persist

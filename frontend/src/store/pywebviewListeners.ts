@@ -249,7 +249,7 @@ export const initializePywebviewListeners = async () => {
     }
   };
 
-  const handleDownloadProgress = (data: any, stateKey: 'xttsDownload' | 'whisperDownload' | 'gpuDownload', onComplete?: () => void) => {
+  const handleDownloadProgress = (data: any, stateKey: 'dhvaaniDownload' | 'whisperDownload' | 'gpuDownload', onComplete?: () => void) => {
     useSettingsStore.setState((state) => {
       const update = { ...(state as any)[stateKey] };
       if (data.status === "completed") {
@@ -270,8 +270,8 @@ export const initializePywebviewListeners = async () => {
     });
   };
 
-  window.onOmniVoiceDownloadProgress = (data: any) => {
-    handleDownloadProgress(data, 'xttsDownload');
+  window.onDhvaaniDownloadProgress = (data: any) => {
+    handleDownloadProgress(data, 'dhvaaniDownload');
   };
 
   window.onWhisperDownloadProgress = (data: any) => {

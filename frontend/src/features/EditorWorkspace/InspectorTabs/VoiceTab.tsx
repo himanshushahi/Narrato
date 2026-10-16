@@ -16,12 +16,16 @@ interface VoiceTabProps {
 
 // ─── Option lists ───────────────────────────────────────────
 
-import { EDGE_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS } from '../../Settings/voiceConstants';
+import { EDGE_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS, DHVAANI_QUALITY_OPTIONS } from '../../Settings/voiceConstants';
 
 const ENGINE_TABS: Tab[] = [
   { id: 'edge', label: 'Edge-TTS (Online)' },
-  { id: 'xtts', label: 'OmniVoice (Voice Clone)' },
+  { id: 'dhvaani', label: 'DhVaani (Voice Clone)' },
 ];
+
+// Engine ids that use voice-clone profiles ('xtts'/'omnivoice' are legacy
+// ids from the OmniVoice era; backend routes them to the clone path too).
+const isCloneEngine = (e: string) => e === 'xtts' || e === 'omnivoice' || e === 'dhvaani';
 
 // ─── Voice Presets ───────────────────────────────────────────
 
@@ -260,12 +264,12 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
 
-  // Generate OmniVoice presets dynamically
+  // Generate clone presets dynamically
   const xttsPresets: VoicePreset[] = (globalSettings.xtts_profiles || []).map(p => ({
     id: p.id,
     label: p.name,
     desc: `Voice clone — ${p.language === 'hi' ? 'Hindi' : p.language === 'en' ? 'English' : p.language}`,
-    engine: 'xtts',
+    engine: 'dhvaani',
     voice: p.id,
     speed: '1.0',
     volume: '1.0',
@@ -310,8 +314,8 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     let currentVoice = '';
     if (pEngine === 'edge') {
       currentVoice = globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
-    } else if (pEngine === 'xtts') {
-      // OmniVoice uses reference voice, no voice mismatch check needed
+    } else if (isCloneEngine(pEngine)) {
+      // Clone engines use reference voice, no voice mismatch check needed
       return;
     }
 
@@ -357,15 +361,15 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   useEffect(() => {
     setPreviewAudioUrl('');
     setPreviewError('');
-  }, [engine, projectVal('tts_voice'), projectVal('tts_speed'), projectVal('tts_pitch')]);
+  }, [engine, projectVal('tts_voice'), projectVal('tts_speed'), projectVal('tts_pitch'), projectVal('dhvaani_quality')]);
 
-  // Detect when the selected OmniVoice profile's reference audio file is
+  // Detect when the selected clone profile's reference audio file is
   // missing from disk (deleted/moved outside the app). The backend would
   // otherwise fail at generation time — flag it here proactively.
   const [voiceFileMissing, setVoiceFileMissing] = useState(false);
   const checkedVoiceRef = useRef<string>('');
   useEffect(() => {
-    if (engine !== 'xtts') {
+    if (!isCloneEngine(engine)) {
       setVoiceFileMissing(false);
       checkedVoiceRef.current = '';
       return;
@@ -397,7 +401,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   const applyPreset = (preset: VoicePreset) => {
     const updated = { ...localProjectSettings };
     updated.tts_engine = preset.engine;
-    if (preset.engine === 'edge' || preset.engine === 'xtts') {
+    if (preset.engine === 'edge' || isCloneEngine(preset.engine)) {
       updated.tts_voice = preset.voice;
     }
     if (preset.speed) updated.tts_speed = preset.speed;
@@ -415,9 +419,14 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
 
     try {
       const effectiveEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
-      const effectiveVoice = effectiveEngine === 'xtts'
-        ? (globalSettings.xtts_profiles?.find(p => p.id === (projectVal('tts_voice') || globalSettings.tts_voice))?.reference_voice || globalSettings.xtts_reference_voice || '')
+      const matchedProfile = isCloneEngine(effectiveEngine)
+        ? globalSettings.xtts_profiles?.find(p => p.id === (projectVal('tts_voice') || globalSettings.tts_voice))
+        : undefined;
+      const effectiveVoice = isCloneEngine(effectiveEngine)
+        ? (matchedProfile?.reference_voice || globalSettings.xtts_reference_voice || '')
         : (projectVal('tts_voice') || globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural'));
+      const effectiveRefText = isCloneEngine(effectiveEngine) ? ((matchedProfile as any)?.transcript || '') : '';
+      const effectiveQuality = projectVal('dhvaani_quality') || (globalSettings as any).dhvaani_quality || 'balanced';
       const effectiveSpeed = projectVal('tts_speed') || globalSettings.tts_speed || '1.0';
       const effectivePitch = projectVal('tts_pitch') || globalSettings.tts_pitch || '0Hz';
       const effectiveLang = selectedProject?.language || 'hi';
@@ -429,7 +438,9 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
         effectiveVoice,
         effectiveSpeed,
         effectivePitch,
-        effectiveLang
+        effectiveLang,
+        effectiveRefText,
+        effectiveQuality
       );
 
       if (res?.success && res.audio_path) {
@@ -448,9 +459,11 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
   // Preset active detection — match ALL preset fields so multiple presets
   // sharing the same voice don't all highlight at once
   const isPresetActive = (preset: VoicePreset): boolean => {
-    const pEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
-    if (pEngine !== preset.engine) return false;
-    if (preset.engine === 'edge' || preset.engine === 'xtts') {
+    const rawEngine = projectVal('tts_engine') || globalSettings.tts_engine || 'edge';
+    const pEngine = isCloneEngine(rawEngine) ? 'dhvaani' : rawEngine;
+    const presetEngine = isCloneEngine(preset.engine) ? 'dhvaani' : preset.engine;
+    if (pEngine !== presetEngine) return false;
+    if (preset.engine === 'edge' || isCloneEngine(preset.engine)) {
       const pVoice = projectVal('tts_voice') || globalSettings.tts_voice || (projectLanguage === 'hi' ? 'hi-IN-MadhurNeural' : 'en-US-AndrewNeural');
       if (pVoice !== preset.voice) return false;
     }
@@ -463,7 +476,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
     return true;
   };
 
-  // OmniVoice dropdown options (shared by the select + stale check below).
+  // Clone dropdown options (shared by the select + stale check below).
   // A stored voice id that matches no option means the profile was deleted
   // (or belongs to another language) — the select would misleadingly show
   // "Default Reference Voice" while the project still references the dead id.
@@ -474,7 +487,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
       .map((p: any) => ({ value: p.id, label: p.name }))
   ];
   const effectiveVoiceVal = projectVal('tts_voice') || (globalSettings as any).tts_voice || '';
-  const isVoiceStale = engine === 'xtts' && !!effectiveVoiceVal &&
+  const isVoiceStale = isCloneEngine(engine) && !!effectiveVoiceVal &&
     !xttsOptions.some(o => o.value === effectiveVoiceVal);
 
   return (
@@ -498,7 +511,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
             </span>
             <AnimatedTabs
               tabs={ENGINE_TABS}
-              activeTab={engine}
+              activeTab={isCloneEngine(engine) ? 'dhvaani' : engine}
               onChange={(v) => {
                 const updated = { ...localProjectSettings, tts_engine: v };
                 // When switching back to Edge, always set a usable Edge voice —
@@ -539,7 +552,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
           </OverrideRow>
         ) : (
           <OverrideRow
-            label="OmniVoice Profile"
+            label="Voice Clone Profile"
             globalValue={globalSettings.tts_voice || ''}
             projectValue={projectVal('tts_voice')}
             onReset={() => resetKey('tts_voice')}
@@ -577,6 +590,22 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
             onChange={(v) => updateKey('tts_speed', v)}
           />
         </OverrideRow>
+
+        {/* Clone quality (clone engines only) */}
+        {isCloneEngine(engine) && (
+          <OverrideRow
+            label="Clone Quality"
+            globalValue={(globalSettings as any).dhvaani_quality || 'balanced'}
+            projectValue={projectVal('dhvaani_quality')}
+            onReset={() => resetKey('dhvaani_quality')}
+          >
+            <CustomSelect
+              options={DHVAANI_QUALITY_OPTIONS}
+              value={projectVal('dhvaani_quality') || (globalSettings as any).dhvaani_quality || 'balanced'}
+              onChange={(v) => updateKey('dhvaani_quality', v)}
+            />
+          </OverrideRow>
+        )}
 
         {/* Pitch (Edge only) */}
         {engine === 'edge' && (
@@ -675,7 +704,7 @@ export const VoiceTab: React.FC<VoiceTabProps> = ({
                 </div>
                 <p className="text-[8px] text-zinc-500">{preset.desc}</p>
                 <span className="text-[7px] uppercase tracking-wider text-zinc-600 font-bold mt-0.5">
-                  {preset.engine === 'xtts' ? 'OmniVoice' : 'Edge'}
+                  {preset.engine === 'edge' ? 'Edge' : 'DhVaani'}
                 </span>
               </motion.button>
             );

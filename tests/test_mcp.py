@@ -1542,7 +1542,7 @@ def test_list_voice_options(monkeypatch):
                                                       "reference_voice": "C:/secret.wav"}]}.get(k))
     result = payloads.list_voice_options()
     assert result["ok"] is True
-    assert {e["id"] for e in result["engines"]} == {"edge", "xtts", "omnivoice"}
+    assert {e["id"] for e in result["engines"]} == {"edge", "dhvaani"}
     assert result["edge_suggestions"]["en"][0] == "en-US-AndrewNeural"
     assert result["clone_profiles"] == [{"id": "xtts_prof_1", "name": "Clone"}]
     assert result["global_defaults"]["tts_voice"] == "en-US-AvaNeural"

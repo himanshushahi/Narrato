@@ -75,7 +75,7 @@ All prompt intelligence is decoupled from code into **17 hot-reloadable Markdown
 
 ### 5. AI Voiceover & Audio Engine
 - **Edge TTS**: Fast, high-quality neural voices for Hindi, English, and dozens of languages.
-- **OmniVoice Voice Cloning**: Offline voice cloning from reference audio clips (~3.3 GB model; auto-unloaded after 30s of inactivity to free VRAM/RAM).
+- **DhVaani Voice Cloning**: Offline voice cloning from reference audio clips (~0.5 GB model; auto-unloaded after 30s of inactivity to free VRAM/RAM). The model is gated — accept the license at `huggingface.co/ARTPARK-IISc/DhVaani-0.5` and paste a token in Settings > Voice Synthesis > HuggingFace Token (or set the `HF_TOKEN` env var / run `hf auth login`) before downloading. The bundled default voice needs network once (Edge-TTS setup clip); afterwards cloning works fully offline. Store each profile's exact clip transcript to skip auto-transcription.
 - **Faster-Whisper Transcription**: Word-level timestamps for kinetic subtitles and synced visual animations, with word-level discrepancy audits and auto-alignment.
 
 ### 6. Interactive Studio & Timeline Editor
@@ -105,7 +105,7 @@ Any MCP-compatible coding agent (Claude Code, opencode, Cursor, Gemini CLI) can 
 |---|---|
 | **Desktop Shell** | **pywebview 6.2** (Edge WebView2) + Python **3.12 / 3.14** |
 | **Backend & Agent** | Python, `AgentRunner` tool loop, SQLite (WAL mode), `SkillLoader` |
-| **TTS & Voice** | **omnivoice 0.2.1** (OmniVoice voice cloning), **edge-tts 7.3.1**, torch 2.12.0 |
+| **TTS & Voice** | **DhVaani 0.5** (DhVaani voice cloning), **edge-tts 7.3.1**, torch 2.12.0 |
 | **Speech-to-Text** | **faster-whisper 1.2.1** (ctranslate2) |
 | **LLM & Search** | OpenAI-Compatible LLM APIs (OpenAI, OpenRouter, Groq, Ollama, DeepSeek) + LangSearch web search |
 | **Frontend** | **React 19**, **TypeScript 5.7**, **Vite 6**, **Tailwind CSS 4**, **Zustand 5**, framer-motion |
@@ -131,7 +131,7 @@ Any MCP-compatible coding agent (Claude Code, opencode, Cursor, Gemini CLI) can 
         ▼              ▼                   ▼                    ▼
   backend/agent/   backend/pipeline/   backend/skills/      backend/core/
   • agent_engine   • ai.py (LLM core)  • 17 modular skills  • config & prefs
-  • skill_loader   • tts.py (Edge/OmniVoice)• YAML frontmatter   • logger (UI stream)
+  • skill_loader   • tts.py (Edge/DhVaani)• YAML frontmatter   • logger (UI stream)
   • tools.py       • transcribe.py     • safe templating    • gpu_runtime.py
   • cache.py       • assets.py         • hot-reload         • file_server.py
   • telemetry.py   • render.py (Remotion)                   • database/db.py
@@ -170,7 +170,7 @@ Narrato/
 │   │   └── http_host.py       # Localhost HTTP host for in-app MCP serving
 │   ├── pipeline/              # Stage executors
 │   │   ├── ai.py              # LLM script, design & visual generation pipelines
-│   │   ├── tts.py             # Neural TTS (Edge TTS & OmniVoice voice cloning)
+│   │   ├── tts.py             # Neural TTS (Edge TTS & DhVaani voice cloning)
 │   │   ├── transcribe.py      # Faster-Whisper word-level transcription & subtitles
 │   │   ├── assets.py          # Media asset search & download (Pexels, Pixabay, Wikipedia, YouTube, Internet Archive)
 │   │   ├── render.py          # Chunked Remotion rendering & FFmpeg muxing
@@ -195,7 +195,7 @@ Narrato/
 │   │   ├── subtitle-designer/ # Subtitle styling & CTL rules
 │   │   ├── stock-asset-searcher/       # Keyword optimization
 │   │   └── editor-qa/         # Pre-flight guardrails for edits
-│   └── omnivoice_tts.py       # Standalone OmniVoice inference helper
+│   └── dhvaani_tts.py       # Standalone DhVaani inference helper
 ├── frontend/
 │   ├── src/
 │   │   ├── components/video/  # Remotion compositions, AST renderers & Kinetic Text
@@ -292,7 +292,7 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 | **LLM Provider** | OpenAI-Compatible Endpoint (model, temperature, tokens, base URL) |
 | **Web Search** | LangSearch (master toggle + API key) — feeds real-time web facts to scriptwriter agent |
 | **Whisper** | Faster-Whisper models (`turbo`, `large-v3`, `medium`, `small`), device CPU/CUDA |
-| **TTS Engine** | Edge TTS (voices, speed, pitch) or OmniVoice (voice profiles, reference clip, ~3.3 GB model) |
+| **TTS Engine** | Edge TTS (voices, speed, pitch) or DhVaani (voice profiles, reference clip, ~0.5 GB model) |
 | **Media Sources** | Pexels API key, Pixabay illustrations/vectors, Wikipedia images, Internet Archive, YouTube clips |
 | **Render Engine** | Resolution, FPS, CRF, codec, concurrency, hardware acceleration (CPU / NVENC) |
 | **GPU Acceleration** | Detect NVIDIA GPU, download CUDA runtime (2.6 GB), enable/disable, remove |
@@ -302,8 +302,8 @@ The output installer is generated at `installer/Narrato_Setup.exe`.
 
 ## Troubleshooting
 
-- **"OmniVoice model loaded on cpu" even with an NVIDIA GPU** — The installed torch is the CPU wheel. Download the CUDA runtime in-app from **Settings → GPU Acceleration** or run `pip install torch==2.12.0+cu126 --index-url https://download.pytorch.org/whl/cu126`.
-- **transformers must stay >= 5.3** — `omnivoice 0.2.1` requires transformers 5.x. The old `coqui-tts 0.27.5` (XTTS v2, needed transformers < 5) was removed in the OmniVoice migration.
+- **Voice cloning runs on CPU even with an NVIDIA GPU** — The installed torch is the CPU wheel. Download the CUDA runtime in-app from **Settings → GPU Acceleration** or run `pip install torch==2.12.0+cu126 --index-url https://download.pytorch.org/whl/cu126`.
+- **transformers is pinned >= 5.3** — do not downgrade below 5.x (older voice stacks required transformers < 5 and conflict with current dependencies).
 - **Complex Script Font Rendering** — If Hindi/Devanagari, Tamil, or Arabic subtitles or motion text show broken Unicode matras/ligatures, ensure `Noto Sans Devanagari` (or corresponding Noto font) is selected in the design system.
 
 ---

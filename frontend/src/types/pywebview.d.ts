@@ -27,10 +27,13 @@ interface PywebviewApi {
   save_json_file(file_path: string, data: any): Promise<boolean>;
   scan_assets_directory(project_id: string): Promise<{ files: any[]; total_size: number; total_files: number }>;
   download_google_font(font_family: string): Promise<{ success: boolean; css_path?: string; error?: string }>;
-  check_omnivoice_downloaded(): Promise<boolean>;
-  start_omnivoice_download(): Promise<{ status: string }>;
-  delete_omnivoice_model(): Promise<{ success: boolean; message?: string; error?: string }>;
-  upload_reference_voice(): Promise<{ success: boolean; path?: string; filename?: string; error?: string }>;
+  check_dhvaani_downloaded(): Promise<boolean>;
+  start_dhvaani_download(): Promise<{ status: string }>;
+  cancel_dhvaani_download(): Promise<{ status: string }>;
+  delete_dhvaani_model(): Promise<{ success: boolean; message?: string; error?: string }>;
+  get_legacy_omnivoice_size(): Promise<{ size_mb: number; error?: string }>;
+  cleanup_legacy_omnivoice(): Promise<{ success: boolean; reclaimed_mb?: number; error?: string }>;
+  upload_reference_voice(): Promise<{ success: boolean; path?: string; filename?: string; duration_seconds?: number; warning?: string; error?: string }>;
   check_file_exists(path: string): Promise<boolean>;
   check_whisper_downloaded(model_size: string): Promise<boolean>;
   start_whisper_download(model_size: string): Promise<{ status: string }>;
@@ -46,7 +49,7 @@ interface PywebviewApi {
   regenerate_visuals_section(project_id: string, scene_idx: number, section_type: string, full_script: any, rewrite_prompt: string): Promise<{ success: boolean; data?: any; error?: string }>;
   regenerate_sub_visual(project_id: string, scene_idx: number, section_type: string, sub_idx: number, full_script: any, rewrite_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
   add_scene_with_ai(full_script: any, user_prompt: string, language: string): Promise<{ success: boolean; data?: any; error?: string }>;
-  generate_voice_preview(text: string, engine: string, voice: string, speed: string, pitch: string, language: string): Promise<{ success: boolean; audio_path?: string; error?: string }>;
+  generate_voice_preview(text: string, engine: string, voice: string, speed: string, pitch: string, language: string, ref_text?: string, quality?: string): Promise<{ success: boolean; audio_path?: string; error?: string }>;
   get_ytdlp_version(): Promise<{ installed: boolean; version: string | null; path: string | null }>;
   update_ytdlp(): Promise<{ status: string }>;
   fetch_single_scene_asset(project_id: string, manifest_scene_index: number, sub_visual_index: number): Promise<any>;
@@ -77,7 +80,7 @@ interface Window {
   onAgentActivity?: (entry: any) => void;
   onChatEvent?: (evt: any) => void;
   onProjectEvent?: (evt: any) => void;
-  onOmniVoiceDownloadProgress?: (data: any) => void;
+  onDhvaaniDownloadProgress?: (data: any) => void;
   onWhisperDownloadProgress?: (data: any) => void;
   onYtdlpUpdateProgress?: (data: any) => void;
   onGpuDownloadProgress?: (data: any) => void;

@@ -40,7 +40,10 @@ def check_python_dependencies():
         import webview
         import faster_whisper
         import edge_tts
-        import omnivoice  # OmniVoice voice cloning (replaces coqui-TTS/XTTS v2)
+        import vocos  # DhVaani voice cloning vocoder
+        import einops  # required by vocos / DhVaani backend
+        import librosa  # DhVaani chunk resampling
+        import num2words  # DhVaani number normalization
         import huggingface_hub
         import soundfile
         import numpy

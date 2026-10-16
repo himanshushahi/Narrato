@@ -23,8 +23,8 @@ datas = [
 ]
 
 # Internal assets bundled as real files (PyInstaller data).
-# NOTE: Coqui-TTS (XTTS v2) was removed in the OmniVoice migration —
-# no TTS / coqui-tts / ko_speech_tools / inflect collection here.
+# NOTE: Coqui-TTS (XTTS v2) and later OmniVoice were removed in the DhVaani
+# migration — no TTS / coqui-tts / ko_speech_tools / inflect collection here.
 # (inflect was only required by coqui-tts text cleaners.)
 # torchcodec needs its FFmpeg shared DLLs at load time; bundle the whole package
 # (data files + .pyd/.dll binaries) so the frozen app can load them.
@@ -51,6 +51,10 @@ datas += collect_data_files('transformers', include_py_files=True)
 # faster_whisper: silero_vad_v6.onnx asset required for VAD filtering
 datas += collect_data_files('faster_whisper')
 datas += copy_metadata('faster_whisper')
+datas += copy_metadata('vocos')
+datas += copy_metadata('librosa')
+datas += copy_metadata('num2words')
+datas += copy_metadata('soundfile')
 # torch: shipped as REAL FILES and excluded from the PYZ below so an external
 # GPU runtime on sys.path[0] (downloaded in-app, backend/core/gpu_runtime.py)
 # can shadow the bundled CPU torch. With torch in the PYZ, the frozen importer
@@ -68,8 +72,16 @@ a = Analysis(
         'clr',
         'faster_whisper',
         'edge_tts',
-        'omnivoice',
+        'vocos',
+        'einops',
+        'safetensors',
+        'torchaudio',
         'soundfile',
+        'librosa',
+        'num2words',
+        'indic_numtowords',
+        'soxr',
+        'scipy',
         'numpy',
         'torch',
         'requests',
@@ -88,7 +100,7 @@ a = Analysis(
         'h11',
         'huggingface_hub',
         'scipy._external.array_api_compat.numpy.fft',
-    ] + collect_submodules('transformers') + collect_submodules('faster_whisper') + collect_submodules('omnivoice') + collect_submodules('backend.mcp') + collect_submodules('mcp') + collect_submodules('mcp_types') + collect_submodules('uvicorn') + collect_submodules('starlette') + collect_submodules('sse_starlette') + collect_submodules('anyio') + collect_submodules('httpx') + collect_submodules('httpcore'),
+    ] + collect_submodules('transformers') + collect_submodules('faster_whisper') + collect_submodules('vocos') + collect_submodules('librosa') + collect_submodules('num2words') + collect_submodules('backend.mcp') + collect_submodules('mcp') + collect_submodules('mcp_types') + collect_submodules('uvicorn') + collect_submodules('starlette') + collect_submodules('sse_starlette') + collect_submodules('anyio') + collect_submodules('httpx') + collect_submodules('httpcore'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

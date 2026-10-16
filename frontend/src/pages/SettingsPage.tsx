@@ -10,7 +10,7 @@ import { CustomInput } from '../components/ui/CustomInput';
 import { CustomSelect, SelectOption } from '../components/ui/CustomSelect';
 import { CustomRange } from '../components/ui/CustomRange';
 import { motion } from 'framer-motion';
-import { EDGE_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS, WHISPER_MODEL_OPTIONS } from '../features/Settings/voiceConstants';
+import { EDGE_VOICE_OPTIONS, SPEED_OPTIONS, PITCH_OPTIONS, WHISPER_MODEL_OPTIONS, DHVAANI_QUALITY_OPTIONS } from '../features/Settings/voiceConstants';
 import {
   VscSettings, VscSave, VscCloudDownload, VscLoading, VscCheck, VscServer, VscFeedback,
   VscKey, VscLink, VscSymbolClass, VscGlobe, VscPlay, VscFolderOpened, VscTrash
@@ -33,8 +33,14 @@ const SettingsPage: React.FC = () => {
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const fetchSettings = useSettingsStore((state) => state.fetchSettings);
 
-  const xttsDownload = useSettingsStore((state) => state.xttsDownload);
-  const downloadXtts = useSettingsStore((state) => state.downloadXtts);
+  const dhvaaniDownload = useSettingsStore((state) => state.dhvaaniDownload);
+  const downloadDhvaani = useSettingsStore((state) => state.downloadDhvaani);
+  const cancelDhvaani = useSettingsStore((state) => state.cancelDhvaani);
+  const legacyOmnivoiceMb = useSettingsStore((state) => state.legacyOmnivoiceMb);
+  const fetchLegacyOmnivoiceSize = useSettingsStore((state) => state.fetchLegacyOmnivoiceSize);
+  const cleanupLegacyOmnivoice = useSettingsStore((state) => state.cleanupLegacyOmnivoice);
+  const isCloneEngine = (e: string) => e === 'xtts' || e === 'omnivoice' || e === 'dhvaani';
+  const normalizeEngine = (e: string) => (isCloneEngine(e) ? 'dhvaani' : e);
   const whisperDownload = useSettingsStore((state) => state.whisperDownload);
   const downloadWhisper = useSettingsStore((state) => state.downloadWhisper);
   const downloadedWhisperModels = useSettingsStore((state) => state.downloadedWhisperModels);
@@ -54,7 +60,7 @@ const SettingsPage: React.FC = () => {
 
   const [formData, setFormData] = useState<SettingsType>({ ...settings });
   const [saveStatus, setSaveStatus] = useState('');
-  const [xttsInstalled, setXttsInstalled] = useState(false);
+  const [dhvaaniInstalled, setDhvaaniInstalled] = useState(false);
   const [whisperInstalled, setWhisperInstalled] = useState(false);
   const gpuAvailable = useSettingsStore((state) => state.gpuAvailable);
 
@@ -89,6 +95,7 @@ const SettingsPage: React.FC = () => {
   const [previewError, setPreviewError] = useState('');
 
   const [newProfileName, setNewProfileName] = useState('');
+  const [newProfileTranscript, setNewProfileTranscript] = useState('');
 
   // Profile ids whose reference audio file is missing from disk. Checked
   // whenever the profile list changes so broken voices are flagged inline.
@@ -123,7 +130,8 @@ const SettingsPage: React.FC = () => {
     fetchSettings();
     fetchDownloadedWhisperModels();
     fetchGpuStatus();
-  }, [fetchSettings, fetchDownloadedWhisperModels, fetchGpuStatus]);
+    fetchLegacyOmnivoiceSize();
+  }, [fetchSettings, fetchDownloadedWhisperModels, fetchGpuStatus, fetchLegacyOmnivoiceSize]);
 
   // Check yt-dlp version on mount and after updates
   useEffect(() => {
@@ -153,6 +161,11 @@ const SettingsPage: React.FC = () => {
       if ((updated as any).app_language !== 'hi' && (updated as any).app_language !== 'en') {
         (updated as any).app_language = lang;
       }
+      // One-time migration: legacy clone ids become dhvaani in the form so
+      // the engine tabs always show a selection.
+      if ((updated as any).tts_engine === 'xtts' || (updated as any).tts_engine === 'omnivoice') {
+        (updated as any).tts_engine = 'dhvaani';
+      }
       if (!gpuAvailable) {
         updated.whisper_device = 'cpu';
         updated.render_hardware = 'cpu';
@@ -174,16 +187,16 @@ const SettingsPage: React.FC = () => {
   useEffect(() => {
     setPreviewAudioUrl('');
     setPreviewError('');
-  }, [formData.tts_engine, formData.tts_voice, formData.tts_speed, formData.tts_pitch, formData.xtts_reference_voice]);
+  }, [formData.tts_engine, formData.tts_voice, formData.tts_speed, formData.tts_pitch, formData.xtts_reference_voice, (formData as any).dhvaani_quality]);
 
-  // Check OmniVoice model downloads
+  // Check clone model downloads
   useEffect(() => {
-    checkXttsAssets();
-  }, [xttsDownload.status]);
+    checkDhvaaniAssets();
+  }, [dhvaaniDownload.status]);
 
-  const checkXttsAssets = async () => {
-    const ok = await callApi<boolean>('check_omnivoice_downloaded');
-    setXttsInstalled(!!ok);
+  const checkDhvaaniAssets = async () => {
+    const ok = await callApi<boolean>('check_dhvaani_downloaded');
+    setDhvaaniInstalled(!!ok);
   };
 
 
@@ -211,8 +224,8 @@ const SettingsPage: React.FC = () => {
       if (name === 'app_language') {
         const lang = value as 'hi' | 'en';
         (updated as any).app_language = lang;
-        if (updated.tts_engine === 'xtts') {
-          // Keep the OmniVoice profile only if it matches the new language,
+        if (isCloneEngine(updated.tts_engine)) {
+          // Keep the clone profile only if it matches the new language,
           // otherwise clear it so the filtered dropdown isn't stale.
           // The language itself is preserved via app_language, so unlike before
           // clearing the voice no longer flips the language back to English.
@@ -246,17 +259,21 @@ const SettingsPage: React.FC = () => {
     setPreviewAudioUrl('');
     try {
       let voice = formData.tts_voice;
-      if (formData.tts_engine === 'xtts') {
+      let refText = '';
+      if (isCloneEngine(formData.tts_engine)) {
         const profile = formData.xtts_profiles?.find((p: any) => p.id === formData.tts_voice);
         voice = profile?.reference_voice || formData.xtts_reference_voice || '';
+        refText = (profile as any)?.transcript || '';
       }
       const res = await callApi<{ success: boolean; audio_path?: string; error?: string }>('generate_voice_preview',
         previewText,
-        formData.tts_engine,
+        normalizeEngine(formData.tts_engine),
         voice,
         formData.tts_speed,
         formData.tts_pitch,
-        currentLang
+        currentLang,
+        refText,
+        (formData as any).dhvaani_quality || 'balanced'
       );
 
       if (res?.success && res.audio_path) {
@@ -307,7 +324,7 @@ const SettingsPage: React.FC = () => {
 
   const ttsEngineTabs: Tab[] = [
     { id: 'edge', label: 'Edge-TTS (Online)' },
-    { id: 'xtts', label: 'OmniVoice (Voice Clone)' }
+    { id: 'dhvaani', label: 'DhVaani (Voice Clone)' }
   ];
 
   const edgeVoiceOptions = EDGE_VOICE_OPTIONS;
@@ -666,35 +683,35 @@ const SettingsPage: React.FC = () => {
                 </h2>
                 
                 <div className="flex items-center gap-2">
-                  {formData.tts_engine === 'xtts' && xttsInstalled && (
+                  {isCloneEngine(formData.tts_engine) && dhvaaniInstalled && (
                     <button
                       type="button"
                       onClick={() => {
-                        showConfirm("Delete OmniVoice Model", "Are you sure you want to delete the OmniVoice model (~3.3GB)? You will need to download it again to use offline voice cloning.", async () => {
-                          const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_omnivoice_model');
+                        showConfirm("Delete DhVaani Model", "Are you sure you want to delete the DhVaani model (~0.5GB)? You will need to download it again to use offline voice cloning.", async () => {
+                          const res = await callApi<{ success: boolean; message?: string; error?: string }>('delete_dhvaani_model');
                           if (res?.success) {
-                            setXttsInstalled(false);
-                            useUIStore.getState().addToast('OmniVoice model deleted successfully.', 'success');
+                            setDhvaaniInstalled(false);
+                            useUIStore.getState().addToast('DhVaani model deleted successfully.', 'success');
                           } else {
                             useUIStore.getState().addToast(res?.error || 'Failed to delete model.', 'error');
                           }
                         });
                       }}
                       className="text-rose-500/70 hover:text-rose-400 p-1 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
-                      title="Delete OmniVoice Model"
+                      title="Delete DhVaani Model"
                     >
                       <VscTrash className="text-lg" />
                     </button>
                   )}
 
-                  {formData.tts_engine === 'xtts' && (
-                    <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${xttsInstalled
+                  {isCloneEngine(formData.tts_engine) && (
+                    <span className={`px-2 py-0.5 text-[8px] rounded font-extrabold uppercase tracking-wider border ${dhvaaniInstalled
                       ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/30'
-                      : xttsDownload.active
+                      : dhvaaniDownload.active
                         ? 'bg-blue-950/40 text-blue-400 border-blue-800/30 animate-pulse'
                         : 'bg-amber-950/40 text-amber-500 border-amber-800/30'
                       }`}>
-                      {xttsInstalled ? 'Installed' : xttsDownload.active ? 'Downloading' : 'Missing Assets'}
+                      {dhvaaniInstalled ? 'Installed' : dhvaaniDownload.active ? 'Downloading' : 'Missing Assets'}
                     </span>
                   )}
                 </div>
@@ -705,13 +722,13 @@ const SettingsPage: React.FC = () => {
                   <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider mb-1.5">Synthesis Engine</label>
                   <AnimatedTabs
                     tabs={ttsEngineTabs}
-                    activeTab={formData.tts_engine}
+                    activeTab={normalizeEngine(formData.tts_engine)}
                     onChange={(id) => handleSelectChange('tts_engine', id)}
                     layoutId="settings-tts-engine-tab"
                   />
                 </div>
 
-                {formData.tts_engine === 'edge' ? (
+                {!isCloneEngine(formData.tts_engine) ? (
                   <div className="space-y-4">
                     <CustomSelect
                       label="Edge Cloud Voice"
@@ -738,9 +755,9 @@ const SettingsPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* OmniVoice Voice dropdown — mirrors Edge voice selection */}
+                    {/* Clone Voice dropdown — mirrors Edge voice selection */}
                     <CustomSelect
-                      label="OmniVoice Voice (Clone Profile)"
+                      label="DhVaani Voice (Clone Profile)"
                       options={[
                         { value: '', label: 'Default Reference Voice (Bundled)' },
                         ...(formData.xtts_profiles || [])
@@ -768,60 +785,83 @@ const SettingsPage: React.FC = () => {
                       value={formData.tts_speed}
                       onChange={(val) => handleSelectChange('tts_speed', val)}
                     />
+                    <CustomSelect
+                      label="Clone Quality"
+                      options={DHVAANI_QUALITY_OPTIONS}
+                      value={(formData as any).dhvaani_quality || 'balanced'}
+                      onChange={(val) => handleSelectChange('dhvaani_quality', val)}
+                    />
 
-                    {/* OmniVoice Profile Manager */}
+                    {/* Clone Profile Manager */}
                     <div className="space-y-3 pt-2 border-t border-stone-800/50">
-                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Voice Profiles (OmniVoice)</label>
+                      <label className="block text-[10px] text-stone-400 font-bold uppercase tracking-wider">Voice Profiles (DhVaani)</label>
                       
                       {/* Profile List */}
                       {formData.xtts_profiles && formData.xtts_profiles.length > 0 && (
                         <div className="space-y-2">
                           {formData.xtts_profiles.map((profile) => (
-                            <div key={profile.id} className="flex items-center justify-between bg-black/30 rounded p-2 border border-stone-800/40">
-                              <div>
-                                <div className="text-xs font-semibold text-stone-200">{profile.name}</div>
-                                <div className="text-[10px] text-stone-500 uppercase tracking-wider">{profile.language === 'hi' ? 'Hindi' : profile.language === 'en' ? 'English' : profile.language}</div>
-                                {missingProfileAudio.includes(profile.id) && (
-                                  <div className="text-[9px] text-amber-400 font-medium mt-0.5">Audio file missing — replace it or this voice will fail.</div>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  title="Replace voice audio (re-upload clip, keeps this profile selected in projects)"
-                                  onClick={async () => {
-                                    const res = await callApi<{ success: boolean; path?: string; filename?: string; error?: string }>('upload_reference_voice');
-                                    if (res?.success && res.path) {
+                            <div key={profile.id} className="bg-black/30 rounded p-2 border border-stone-800/40 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-xs font-semibold text-stone-200">{profile.name}</div>
+                                  <div className="text-[10px] text-stone-500 uppercase tracking-wider">{profile.language === 'hi' ? 'Hindi' : profile.language === 'en' ? 'English' : profile.language}</div>
+                                  {missingProfileAudio.includes(profile.id) && (
+                                    <div className="text-[9px] text-amber-400 font-medium mt-0.5">Audio file missing — replace it or this voice will fail.</div>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    title="Replace voice audio (re-upload clip, keeps this profile selected in projects)"
+                                    onClick={async () => {
+                                      const res = await callApi<{ success: boolean; path?: string; filename?: string; warning?: string; error?: string }>('upload_reference_voice');
+                                      if (res?.success && res.path) {
+                                        setFormData(prev => ({
+                                          ...prev,
+                                          xtts_profiles: (prev.xtts_profiles || []).map(pr =>
+                                            pr.id === profile.id ? { ...pr, reference_voice: res.path as string } : pr
+                                          )
+                                        }));
+                                        useUIStore.getState().addToast(`Voice audio replaced: ${res.filename}.${res.warning ? ' ' + res.warning : ''} Click Save Preferences to apply.`, 'success');
+                                      } else if (res?.error && res.error !== 'No file selected.') {
+                                        useUIStore.getState().addToast(res.error, 'error');
+                                      }
+                                    }}
+                                    className="text-sky-500/70 hover:text-sky-400 p-1.5 cursor-pointer rounded hover:bg-sky-500/10 transition-colors"
+                                  >
+                                    <VscFolderOpened />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = formData.xtts_profiles!.filter(p => p.id !== profile.id);
                                       setFormData(prev => ({
                                         ...prev,
-                                        xtts_profiles: (prev.xtts_profiles || []).map(pr =>
-                                          pr.id === profile.id ? { ...pr, reference_voice: res.path as string } : pr
-                                        )
+                                        xtts_profiles: updated,
+                                        tts_voice: prev.tts_voice === profile.id ? '' : prev.tts_voice
                                       }));
-                                      useUIStore.getState().addToast(`Voice audio replaced: ${res.filename}. Click Save Preferences to apply.`, 'success');
-                                    } else if (res?.error && res.error !== 'No file selected.') {
-                                      useUIStore.getState().addToast(res.error, 'error');
-                                    }
-                                  }}
-                                  className="text-sky-500/70 hover:text-sky-400 p-1.5 cursor-pointer rounded hover:bg-sky-500/10 transition-colors"
-                                >
-                                  <VscFolderOpened />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = formData.xtts_profiles!.filter(p => p.id !== profile.id);
-                                    setFormData(prev => ({
-                                      ...prev,
-                                      xtts_profiles: updated,
-                                      tts_voice: prev.tts_voice === profile.id ? '' : prev.tts_voice
-                                    }));
-                                  }}
-                                  className="text-rose-500/70 hover:text-rose-400 p-1.5 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
-                                >
-                                  <VscTrash />
-                                </button>
+                                    }}
+                                    className="text-rose-500/70 hover:text-rose-400 p-1.5 cursor-pointer rounded hover:bg-rose-500/10 transition-colors"
+                                  >
+                                    <VscTrash />
+                                  </button>
+                                </div>
                               </div>
+                              <CustomInput
+                                type="text"
+                                label="Exact transcript of the clip (optional, skips auto-transcription)"
+                                placeholder="Type exactly what is spoken in the clip…"
+                                value={(profile as any).transcript || ''}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    xtts_profiles: (prev.xtts_profiles || []).map(pr =>
+                                      pr.id === profile.id ? { ...(pr as any), transcript: v } : pr
+                                    )
+                                  }));
+                                }}
+                              />
                             </div>
                           ))}
                         </div>
@@ -843,25 +883,33 @@ const SettingsPage: React.FC = () => {
                             Lang: {currentLang === 'hi' ? 'Hindi' : 'English'}
                           </div>
                         </div>
+                        <CustomInput
+                          type="text"
+                          placeholder="Exact transcript of the clip (optional — avoids auto-transcription)"
+                          value={newProfileTranscript}
+                          onChange={(e) => setNewProfileTranscript(e.target.value)}
+                        />
                         <GlowButton variant="secondary" size="sm" type="button" fullWidth icon={<VscFolderOpened />} onClick={async () => {
                           if (!newProfileName.trim()) {
                             useUIStore.getState().addToast('Please enter a profile name first.', 'error');
                             return;
                           }
-                          const res = await callApi<{ success: boolean; path?: string; filename?: string; error?: string }>('upload_reference_voice');
+                          const res = await callApi<{ success: boolean; path?: string; filename?: string; warning?: string; error?: string }>('upload_reference_voice');
                           if (res?.success && res.path) {
                             const newProfile = {
                               id: 'xtts_prof_' + Math.random().toString(36).substr(2, 9),
                               name: newProfileName,
                               language: currentLang,
-                              reference_voice: res.path
+                              reference_voice: res.path,
+                              transcript: newProfileTranscript.trim() || undefined,
                             };
                             setFormData(prev => ({
                               ...prev,
                               xtts_profiles: [...(prev.xtts_profiles || []), newProfile]
                             }));
                             setNewProfileName('');
-                            useUIStore.getState().addToast(`Profile added: ${res.filename}`, 'success');
+                            setNewProfileTranscript('');
+                            useUIStore.getState().addToast(`Profile added: ${res.filename}${res.warning ? ' ' + res.warning : ''}`, 'success');
                           } else if (res?.error && res.error !== 'No file selected.') {
                             useUIStore.getState().addToast(res.error, 'error');
                           }
@@ -869,7 +917,7 @@ const SettingsPage: React.FC = () => {
                           Upload Audio (.wav) & Save Profile
                         </GlowButton>
                       </div>
-                      <p className="text-[9px] text-stone-500">Upload a 3–10 second clear voice clip (.wav) for voice cloning.</p>
+                      <p className="text-[9px] text-stone-500">Upload a 3–10 second clear voice clip. Adding the exact transcript skips the one-time auto-transcription and improves cloning.</p>
                     </div>
                   </div>
                 )}
@@ -888,10 +936,10 @@ const SettingsPage: React.FC = () => {
                         className="text-xs"
                       />
                     </div>
-                    {formData.tts_engine === 'xtts' && (
+                    {isCloneEngine(formData.tts_engine) && (
                       <div className="flex items-center gap-2 text-[10px] text-stone-500 px-1 pb-1">
                         <VscFeedback className="text-xs text-[var(--color-accent-primary)]" />
-                        Preview uses the OmniVoice voice selected above.
+                        Preview uses the voice-clone voice selected above.
                       </div>
                     )}
                     <GlowButton
@@ -899,7 +947,7 @@ const SettingsPage: React.FC = () => {
                       size="sm"
                       type="button"
                       onClick={handlePlayPreview}
-                      disabled={previewLoading || !previewText.trim() || (formData.tts_engine === 'xtts' && !xttsInstalled)}
+                      disabled={previewLoading || !previewText.trim() || (isCloneEngine(formData.tts_engine) && !dhvaaniInstalled)}
                       icon={previewLoading ? <VscLoading className="animate-spin" /> : <VscPlay />}
                     >
                       {previewLoading ? 'Testing...' : 'Preview'}
@@ -924,25 +972,52 @@ const SettingsPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* OmniVoice Download UI */}
-                {formData.tts_engine === 'xtts' && !xttsInstalled && (
+                {/* DhVaani Download UI */}
+                {isCloneEngine(formData.tts_engine) && !dhvaaniInstalled && (
                   <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-4 space-y-3">
-                    <p className="text-[10px] text-amber-200/70">OmniVoice model is required for offline voice cloning. Size is ~3.3GB. A CUDA GPU is recommended.</p>
-                    {xttsDownload.active ? (
+                    <p className="text-[10px] text-amber-200/70">DhVaani model is required for offline voice cloning (~0.5GB, fast even on CPU). The model is gated: accept the license at huggingface.co/ARTPARK-IISc/DhVaani-0.5, paste your token below (or set the HF_TOKEN environment variable / run `hf auth login`), then download. The token is saved with preferences before the download starts.</p>
+                    <CustomInput
+                      label="HuggingFace Token"
+                      type="password"
+                      name="hf_token"
+                      value={(formData as any).hf_token || ''}
+                      onChange={handleInputChange}
+                      placeholder="hf_... (create at huggingface.co/settings/tokens)"
+                      icon={<VscKey />}
+                    />
+                    {dhvaaniDownload.active ? (
                       <div className="space-y-2">
                         <div className="flex justify-between text-[10px] text-amber-400 font-medium">
-                          <span>Downloading {xttsDownload.file || 'model'}...</span>
-                          <span>{xttsDownload.progress}%</span>
+                          <span>Downloading {dhvaaniDownload.file || 'model'}...</span>
+                          <span>{dhvaaniDownload.progress}%</span>
                         </div>
                         <div className="w-full bg-black/50 rounded-full h-1 border border-amber-800/20">
-                          <div className="h-full bg-amber-500" style={{ width: `${xttsDownload.progress}%` }} />
+                          <div className="h-full bg-amber-500" style={{ width: `${dhvaaniDownload.progress}%` }} />
                         </div>
+                        <GlowButton variant="secondary" size="sm" fullWidth onClick={() => cancelDhvaani()} type="button">
+                          Cancel Download
+                        </GlowButton>
                       </div>
                     ) : (
-                      <GlowButton variant="secondary" size="sm" fullWidth onClick={downloadXtts} type="button" icon={<VscCloudDownload />}>
-                        Download OmniVoice Model
+                      <GlowButton variant="secondary" size="sm" fullWidth onClick={async () => { await saveSettings(formData); downloadDhvaani(); }} type="button" icon={<VscCloudDownload />}>
+                        Download DhVaani Model
                       </GlowButton>
                     )}
+                    {dhvaaniDownload.status === 'failed' && dhvaaniDownload.error && (
+                      <div className="text-[10px] text-rose-400 bg-rose-950/20 border border-rose-900/30 rounded p-2.5 font-mono">
+                        {dhvaaniDownload.error}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {legacyOmnivoiceMb > 1 && (
+                  <div className="bg-stone-950/40 border border-stone-800/60 rounded-lg p-3 flex items-center justify-between gap-3">
+                    <div className="text-[10px] text-stone-400">
+                      Retired OmniVoice weights found ({legacyOmnivoiceMb.toFixed(0)} MB). The old engine is gone — remove them to reclaim disk.
+                    </div>
+                    <GlowButton variant="secondary" size="sm" type="button" onClick={() => cleanupLegacyOmnivoice()}>
+                      Remove
+                    </GlowButton>
                   </div>
                 )}
               </div>
@@ -969,7 +1044,7 @@ const SettingsPage: React.FC = () => {
 
               <div className="space-y-3 text-xs text-stone-400">
                 <p className="leading-relaxed">
-                  Voice cloning (OmniVoice) runs on the CPU by default. If your PC has an NVIDIA GPU, you can
+                  Voice cloning (DhVaani) runs on the CPU by default. If your PC has an NVIDIA GPU, you can
                   download the CUDA runtime (~2.6 GB) once and get several times faster voice generation.
                 </p>
 

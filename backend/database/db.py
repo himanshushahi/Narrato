@@ -150,11 +150,13 @@ def init_db():
             "app_language": "hi", # default script language: 'hi' (Hindi) or 'en' (English)
             "whisper_model": "small",
             "whisper_device": "cpu", # 'cpu' or 'cuda'
-            "tts_engine": "edge", # 'edge' or 'xtts' (legacy id for OmniVoice voice cloning)
+            "tts_engine": "edge", # 'edge' or 'dhvaani' ('xtts'/'omnivoice' are legacy clone ids, auto-mapped to 'dhvaani')
             "tts_voice": "hi-IN-SwaraNeural", # default Edge voice (Hindi)
             "tts_speed": "1.0",
             "tts_pitch": "0",
-            "xtts_reference_voice": "", # OmniVoice reference clip path for voice cloning (legacy key name)
+            "xtts_reference_voice": "", # clone reference clip path for voice cloning (legacy key name, shared by all clone engines)
+            "dhvaani_quality": "balanced", # clone quality preset: 'fast' (8 steps) / 'balanced' (16) / 'best' (32)
+            "hf_token": "", # HuggingFace token for gated model downloads (DhVaani); HF_TOKEN env var takes precedence
             "bg_music_path": "",
             "bg_music_volume": "0.15",
             "sfx_volume": "0.5",

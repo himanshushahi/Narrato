@@ -20,6 +20,12 @@ export const PITCH_OPTIONS: SelectOption[] = [
   { value: '+5Hz', label: '+5Hz (Higher)' },
 ];
 
+export const DHVAANI_QUALITY_OPTIONS: SelectOption[] = [
+  { value: 'fast', label: 'Fast (8 steps)' },
+  { value: 'balanced', label: 'Balanced (16 steps, recommended)' },
+  { value: 'best', label: 'Best (32 steps, slowest)' },
+];
+
 export const WHISPER_MODEL_OPTIONS: SelectOption[] = [
   { value: 'small', label: 'Small (~460MB) - Good Accuracy' },
   { value: 'medium', label: 'Medium (~1.5GB) - High Accuracy' },

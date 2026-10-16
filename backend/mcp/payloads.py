@@ -980,14 +980,32 @@ def current_design_hash(project_dir: Path) -> str:
 
 # ── Voice / audio settings ──────────────────────────────────────────
 
-# Writable project columns only — never settings-table secrets (API keys).
+# Writable voice/audio settings. tts_engine/tts_voice/tts_speed/tts_pitch/
+# bg_music_volume are real project columns; dhvaani_quality lives in
+# project_settings JSON (update_voice_settings routes it there).
 VOICE_SETTING_KEYS = ("tts_engine", "tts_voice", "tts_speed", "tts_pitch",
-                      "bg_music_volume")
-VALID_TTS_ENGINES = ("edge", "xtts", "omnivoice")
+                      "bg_music_volume", "dhvaani_quality")
+VALID_TTS_ENGINES = ("edge", "dhvaani")
+VALID_DHVAANI_QUALITIES = ("fast", "balanced", "best")
+# Legacy clone ids from the XTTS/OmniVoice era. The pipeline maps them to
+# 'dhvaani'; MCP accepts them too (normalized) so old projects echoed back
+# by agents don't fail validation.
+LEGACY_CLONE_ENGINES = ("xtts", "omnivoice")
 _EDGE_VOICE_RE = r"^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$"
 
 
-def validate_voice_settings(settings: dict) -> tuple[list, dict]:
+def _normalize_tts_engine(engine) -> str | None:
+    if not isinstance(engine, str):
+        return None
+    e = engine.strip().lower()
+    if e in LEGACY_CLONE_ENGINES:
+        return "dhvaani"
+    if e in VALID_TTS_ENGINES:
+        return e
+    return None
+
+
+def validate_voice_settings(settings: dict, current_engine: str | None = None) -> tuple[list, dict]:
     """Returns (errors, sanitized columns). Unknown keys are rejected so a
     typo can never silently do nothing."""
     import re
@@ -1002,20 +1020,25 @@ def validate_voice_settings(settings: dict) -> tuple[list, dict]:
         return errors, {}
     if "tts_engine" in settings:
         engine = settings["tts_engine"]
-        if engine not in VALID_TTS_ENGINES:
+        norm = _normalize_tts_engine(engine)
+        if norm is None:
             errors.append(f"tts_engine must be one of {list(VALID_TTS_ENGINES)}.")
         else:
-            columns["tts_engine"] = engine
+            columns["tts_engine"] = norm
     if "tts_voice" in settings:
         voice = settings["tts_voice"]
         if not isinstance(voice, str) or not voice.strip():
             errors.append("tts_voice must be a non-empty string.")
         else:
-            engine = settings.get("tts_engine")
-            if (engine or "edge") == "edge" and not re.match(_EDGE_VOICE_RE, voice.strip()):
+            # When the payload omits tts_engine (voice-only update), validate
+            # against the project's current engine instead of assuming edge —
+            # otherwise a dhvaani profile id is wrongly rejected.
+            raw_engine = settings.get("tts_engine", current_engine or "edge")
+            eff_engine = _normalize_tts_engine(raw_engine) or "edge"
+            if eff_engine == "edge" and not re.match(_EDGE_VOICE_RE, voice.strip()):
                 errors.append(
                     "tts_voice for engine 'edge' must look like 'hi-IN-SwaraNeural'. "
-                    "For voice cloning use tts_engine 'xtts'/'omnivoice' with a profile id.")
+                    "For voice cloning use tts_engine 'dhvaani' with a profile id.")
             else:
                 columns["tts_voice"] = voice.strip()
     if "tts_speed" in settings:
@@ -1029,6 +1052,12 @@ def validate_voice_settings(settings: dict) -> tuple[list, dict]:
             errors.append("tts_speed must be a number between 0.5 and 2.0.")
     if "tts_pitch" in settings:
         columns["tts_pitch"] = str(settings["tts_pitch"])
+    if "dhvaani_quality" in settings:
+        quality = settings["dhvaani_quality"]
+        if not isinstance(quality, str) or quality.strip().lower() not in VALID_DHVAANI_QUALITIES:
+            errors.append(f"dhvaani_quality must be one of {list(VALID_DHVAANI_QUALITIES)}.")
+        else:
+            columns["dhvaani_quality"] = quality.strip().lower()
     if "bg_music_volume" in settings:
         try:
             vol = float(settings["bg_music_volume"])
@@ -1048,11 +1077,37 @@ def update_voice_settings(project_id: str, settings: dict) -> dict:
     transcribe + render, but NOT visuals/assets (narration unchanged, so
     ASTs are rescaled in place by the voiceover pipeline).
     """
-    errors, columns = validate_voice_settings(settings)
+    proj = _get_project_or_raise(project_id)
+    # Resolve the effective current engine so voice-only updates validate
+    # correctly (a dhvaani profile id without an explicit engine must pass).
+    current_engine = None
+    try:
+        current_engine = (
+            (proj.get("tts_engine") if isinstance(proj, dict) else None)
+            or _db.get_setting("tts_engine")
+            or "edge"
+        )
+        current_engine = _normalize_tts_engine(current_engine) or "edge"
+    except Exception:
+        current_engine = "edge"
+    errors, columns = validate_voice_settings(settings, current_engine=current_engine)
     if errors:
         return {"ok": False, "error": " ".join(errors)}
-    _get_project_or_raise(project_id)
-    _db.update_project(project_id, **columns)
+    # dhvaani_quality is not a projects-table column — merge it into
+    # project_settings JSON (same pattern as update_transcribe_settings).
+    quality = columns.pop("dhvaani_quality", None)
+    if columns:
+        _db.update_project(project_id, **columns)
+    if quality is not None:
+        raw = proj.get("project_settings")
+        try:
+            current = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
+            if not isinstance(current, dict):
+                current = {}
+        except Exception:
+            current = {}
+        current["dhvaani_quality"] = quality
+        _db.update_project(project_id, project_settings=json.dumps(current))
     # Remember the last explicitly chosen voice so list_voice_options can
     # surface it (disambiguates duplicate clone-profile names like KIKI).
     try:
@@ -1258,7 +1313,7 @@ def list_voice_options() -> dict:
     """Voices/engines the agent can offer the user. Returns engine
     descriptions, per-language Edge suggestions, configured clone
     profiles (id + name only, no paths), and current global defaults."""
-    engine = _db.get_setting("tts_engine") or "edge"
+    engine = _normalize_tts_engine(_db.get_setting("tts_engine") or "edge") or "edge"
     default_voice = _db.get_setting("tts_voice")
     profiles = _db.get_setting("xtts_profiles") or []
     # Dedup by id (pass-through used to surface duplicate names like two
@@ -1286,11 +1341,8 @@ def list_voice_options() -> dict:
             {"id": "edge",
              "label": "Edge TTS (single Neural voice, fast, no training)",
              "voice_format": "Neural name like 'hi-IN-SwaraNeural'"},
-            {"id": "xtts",
-             "label": "Voice cloning via OmniVoice profile (needs a configured profile)",
-             "voice_format": "profile id like 'xtts_prof_...' (see clone_profiles)"},
-            {"id": "omnivoice",
-             "label": "Alias of xtts (forward name for the same cloning engine)",
+            {"id": "dhvaani",
+             "label": "Voice cloning via DhVaani profile (fast Indic cloning, needs a configured profile)",
              "voice_format": "profile id like 'xtts_prof_...' (see clone_profiles)"},
         ],
         "edge_suggestions": EDGE_VOICE_SUGGESTIONS,
@@ -3902,7 +3954,7 @@ def estimate_cost_payload(project_id: str) -> dict:
         "stages": stages,
         "est_total_seconds": total_s,
         "bottleneck": bottleneck,
-        "assumptions": ["edge TTS ~0.5x audio (xtts cloning is slower)",
+        "assumptions": ["edge TTS ~0.5x audio (dhvaani cloning is slower, CPU-bound)",
                         "whisper ~0.25x audio", "stock ~5s/query",
                         "render ~2x timeline"],
         "next_step": "run_stage(wait=false) + sleep + stage_status per stage.",

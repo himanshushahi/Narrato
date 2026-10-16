@@ -25,7 +25,8 @@ from backend.agent.schemas import (
 from backend.core.power import power_manager, auto_instrument_bridge
 
 ui_queue = queue.Queue()
-_omnivoice_download_active = False
+_dhvaani_download_active = False
+_dhvaani_download_cancel = None
 _whisper_download_active = False
 _ytdlp_update_active = False
 _gpu_download_active = False
@@ -1314,61 +1315,101 @@ class ApiBridge:
             return {"success": True, "css_path": str(css_file)}
         return {"success": False, "error": err or f"Could not download font {font_family}"}
 
-    def check_omnivoice_downloaded(self) -> bool:
-        from backend.omnivoice_tts import check_omnivoice_model
-        return check_omnivoice_model()
+    def check_dhvaani_downloaded(self) -> bool:
+        from backend.dhvaani_tts import check_dhvaani_model
+        return check_dhvaani_model()
 
-    def delete_omnivoice_model(self) -> dict:
+    def get_legacy_omnivoice_size(self) -> dict:
         try:
-            from backend.omnivoice_tts import delete_omnivoice_model
-            success = delete_omnivoice_model()
+            from backend.dhvaani_tts import get_legacy_omnivoice_size
+            return {"size_mb": get_legacy_omnivoice_size()}
+        except Exception as e:
+            return {"size_mb": 0.0, "error": str(e)}
+
+    def cleanup_legacy_omnivoice(self) -> dict:
+        try:
+            from backend.dhvaani_tts import remove_legacy_omnivoice_files
+            reclaimed = remove_legacy_omnivoice_files()
+            return {"success": True, "reclaimed_mb": reclaimed}
+        except Exception as e:
+            logger.error(f"Legacy OmniVoice cleanup failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    def delete_dhvaani_model(self) -> dict:
+        try:
+            from backend.dhvaani_tts import delete_dhvaani_model
+            success = delete_dhvaani_model()
             if success:
-                return {"success": True, "message": "OmniVoice model deleted successfully."}
+                return {"success": True, "message": "DhVaani model deleted successfully."}
             else:
                 return {"success": False, "error": "Model not found or could not be deleted."}
         except Exception as e:
-            logger.error(f"OmniVoice model delete failed: {e}")
+            logger.error(f"DhVaani model delete failed: {e}")
             return {"success": False, "error": str(e)}
 
-    def start_omnivoice_download(self) -> dict:
-        global _omnivoice_download_active
-        if _omnivoice_download_active:
+    def start_dhvaani_download(self) -> dict:
+        global _dhvaani_download_active, _dhvaani_download_cancel
+        if _dhvaani_download_active:
             return {"status": "already_running"}
-        from backend.omnivoice_tts import check_omnivoice_model
-        if check_omnivoice_model():
+        from backend.dhvaani_tts import check_dhvaani_model
+        if check_dhvaani_model():
             return {"status": "already_downloaded"}
-        _omnivoice_download_active = True
+        _dhvaani_download_active = True
+        _dhvaani_download_cancel = threading.Event()
 
         def _download_task():
-            global _omnivoice_download_active
+            global _dhvaani_download_active, _dhvaani_download_cancel
+            cancel_ev = _dhvaani_download_cancel
             try:
                 def safe_progress(data):
                     try:
-                        ui_queue.put(("onOmniVoiceDownloadProgress", (data,)))
+                        ui_queue.put(("onDhvaaniDownloadProgress", (data,)))
                     except Exception:
                         pass
                 safe_progress({"file": "model", "progress": 0})
-                from backend.omnivoice_tts import download_omnivoice_model
-                download_omnivoice_model(progress_callback=safe_progress)
-                safe_progress({"status": "completed"})
-                logger.info("OmniVoice model downloaded successfully.")
+                from backend.dhvaani_tts import download_dhvaani_model
+                download_dhvaani_model(progress_callback=safe_progress, cancel_event=cancel_ev)
+                if cancel_ev is not None and cancel_ev.is_set():
+                    safe_progress({"status": "failed", "error": "Download cancelled."})
+                else:
+                    safe_progress({"status": "completed"})
+                    logger.info("DhVaani model downloaded successfully.")
+            except InterruptedError:
+                logger.info("DhVaani download cancelled.")
+                try:
+                    ui_queue.put(("onDhvaaniDownloadProgress", ({"status": "failed", "error": "Download cancelled."},)))
+                except Exception:
+                    pass
             except Exception as e:
-                logger.error(f"OmniVoice model download failed: {e}")
-                safe_progress({"status": "failed", "error": str(e)})
+                logger.error(f"DhVaani model download failed: {e}")
+                try:
+                    ui_queue.put(("onDhvaaniDownloadProgress", ({"status": "failed", "error": str(e)},)))
+                except Exception:
+                    pass
             finally:
-                _omnivoice_download_active = False
+                _dhvaani_download_active = False
+                _dhvaani_download_cancel = None
 
         threading.Thread(target=_download_task, daemon=True).start()
         return {"status": "started"}
 
-    def upload_reference_voice(self) -> dict:
-        """Opens a file dialog to select a reference voice clip for OmniVoice voice cloning.
+    def cancel_dhvaani_download(self) -> dict:
+        global _dhvaani_download_cancel
+        if _dhvaani_download_cancel is not None:
+            _dhvaani_download_cancel.set()
+            return {"status": "cancelling"}
+        return {"status": "not_running"}
 
-        The clip is converted to a 22050 Hz mono WAV and stored under a
-        content-addressed filename (xtts_reference_voice_<hash>.wav) so that
-        re-uploading a different clip yields a different path. Downstream
-        voiceover staleness checks compare the reference path, so a new upload
-        correctly triggers voiceover regeneration.
+    def upload_reference_voice(self) -> dict:
+        """Opens a file dialog to select a reference voice clip for voice cloning.
+
+        The clip is normalized to a 24 kHz mono WAV (DhVaani model rate) and
+        stored under a content-addressed filename
+        (xtts_reference_voice_<hash>.wav) so that re-uploading a different
+        clip yields a different path. Downstream voiceover staleness checks
+        compare the reference path, so a new upload correctly triggers
+        voiceover regeneration. The `xtts_*` filename prefix is legacy and
+        kept for backward compat with existing projects/profiles.
         """
         try:
             import webview
@@ -1389,29 +1430,68 @@ class ApiBridge:
             if not Path(selected_path).exists():
                 return {"success": False, "error": "Selected file does not exist."}
 
-            # Convert to 22050 Hz mono wav if needed, staged in the temp dir so a
-            # failed conversion never leaves a half-written file in assets/.
+            # Normalize to the DhVaani prompt rate (24 kHz mono), staged in
+            # the temp dir so a failed conversion never leaves a half-written
+            # file in assets/. WAV inputs are re-encoded too so stereo /
+            # odd-rate uploads can't slip through unnormalized.
             import hashlib
             import shutil
             from backend.core.config import get_assets_dir, get_ffmpeg_path, get_startupinfo, get_temp_dir
+            from backend.dhvaani_tts import PROMPT_SAMPLE_RATE
 
             tmp_wav = get_temp_dir() / "xtts_reference_upload_tmp.wav"
             tmp_wav.unlink(missing_ok=True)
 
-            ext = Path(selected_path).suffix.lower()
-            if ext != '.wav':
-                import subprocess
-                cmd = [get_ffmpeg_path(), "-y", "-i", selected_path, "-ar", "22050", "-ac", "1", str(tmp_wav)]
-                result_proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=get_startupinfo())
-                if result_proc.returncode != 0:
-                    err_msg = result_proc.stderr.decode("utf-8", errors="ignore")
-                    logger.error(f"Reference voice conversion failed: {err_msg}")
-                    return {"success": False, "error": f"Audio conversion failed: {err_msg[-300:]}"}
-            else:
-                shutil.copy2(selected_path, tmp_wav)
+            import subprocess
+            cmd = [get_ffmpeg_path(), "-y", "-i", selected_path, "-ar", str(PROMPT_SAMPLE_RATE), "-ac", "1", str(tmp_wav)]
+            result_proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=get_startupinfo())
+            if result_proc.returncode != 0:
+                err_msg = result_proc.stderr.decode("utf-8", errors="ignore")
+                logger.error(f"Reference voice conversion failed: {err_msg}")
+                return {"success": False, "error": f"Audio conversion failed: {err_msg[-300:]}"}
 
             if not tmp_wav.exists() or tmp_wav.stat().st_size == 0:
                 return {"success": False, "error": "Converted reference voice is empty."}
+            with open(tmp_wav, "rb") as _f:
+                if _f.read(4) != b"RIFF":
+                    return {"success": False, "error": "Converted reference voice is not a valid WAV file."}
+
+            # Duration guard: DhVaani wants a 3-10s prompt. Shorter clips
+            # clone poorly; very long clips waste memory/time and dilute
+            # similarity. Long clips are hard-trimmed to the first 10s so the
+            # stored file (and any transcript of it) always matches what the
+            # model actually conditions on.
+            duration_s = 0.0
+            try:
+                duration_s = self._probe_audio_duration_seconds(str(tmp_wav))
+            except Exception:
+                pass
+            warning = ""
+            if duration_s and duration_s < 2.5:
+                warning = f" Clip is very short ({duration_s:.1f}s) — 3-10s of clear speech clones best."
+                logger.warning(f"Reference voice very short ({duration_s:.1f}s): {selected_path}")
+            elif duration_s:
+                from backend.dhvaani_tts import PROMPT_TRIM_SECONDS, PROMPT_TRIM_THRESHOLD_SECONDS
+                if duration_s <= PROMPT_TRIM_SECONDS:
+                    pass  # ideal 2.5-10s range: nothing to say
+                elif duration_s <= PROMPT_TRIM_THRESHOLD_SECONDS:
+                    warning = f" Clip is {duration_s:.1f}s — only the first ~10s effectively condition the voice."
+                    logger.warning(f"Reference voice long ({duration_s:.1f}s): {selected_path}")
+                else:
+                    trimmed = get_temp_dir() / "xtts_reference_upload_trim_tmp.wav"
+                    trimmed.unlink(missing_ok=True)
+                    cut_cmd = [get_ffmpeg_path(), "-y", "-i", str(tmp_wav), "-t", str(PROMPT_TRIM_SECONDS), "-acodec", "pcm_s16le", str(trimmed)]
+                    cut_proc = subprocess.run(cut_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=get_startupinfo())
+                    if cut_proc.returncode == 0 and trimmed.exists() and trimmed.stat().st_size > 0:
+                        tmp_wav.unlink(missing_ok=True)
+                        trimmed.rename(tmp_wav)
+                        duration_s = self._probe_audio_duration_seconds(str(tmp_wav)) or PROMPT_TRIM_SECONDS
+                        warning = f" Long clip trimmed to the first {PROMPT_TRIM_SECONDS:.0f}s for best cloning."
+                        logger.info(f"Reference voice trimmed to first {PROMPT_TRIM_SECONDS:.0f}s: {selected_path}")
+                    else:
+                        err = cut_proc.stderr.decode("utf-8", errors="ignore")[-200:]
+                        logger.warning(f"Reference voice trim failed, keeping full clip: {err}")
+                        warning = f" Clip is long ({duration_s:.1f}s) — only the first ~10s effectively condition the voice."
 
             # Content-addressed filename: re-uploading a different clip changes the
             # path, which is exactly what downstream staleness checks compare.
@@ -1439,7 +1519,11 @@ class ApiBridge:
             # hundred KB, so keeping orphans is far cheaper than breaking voices.
 
             logger.info(f"Reference voice saved to {dest}")
-            return {"success": True, "path": str(dest), "filename": Path(selected_path).name}
+            out = {"success": True, "path": str(dest), "filename": Path(selected_path).name,
+                   "duration_seconds": round(duration_s, 2) if duration_s else 0.0}
+            if warning:
+                out["warning"] = warning.strip()
+            return out
         except Exception as e:
             logger.error(f"Reference voice upload failed: {e}")
             return {"success": False, "error": str(e)}
@@ -2081,7 +2165,7 @@ class ApiBridge:
             result["data"]["sub_visuals"] = []
         return result
 
-    def generate_voice_preview(self, text: str, engine: str, voice: str, speed: str, pitch: str, language: str) -> dict:
+    def generate_voice_preview(self, text: str, engine: str, voice: str, speed: str, pitch: str, language: str, ref_text: str = "", quality: str = "") -> dict:
         logger.info(f"Bridge API: generate_voice_preview engine={engine} voice={voice}")
         try:
             from backend.core.config import get_temp_dir
@@ -2095,10 +2179,8 @@ class ApiBridge:
                     pass
             preview_file = temp_dir / f"preview_{uuid.uuid4().hex}.wav"
             speed_float = float(speed) if speed else 1.0
-            if engine in ("xtts", "omnivoice"):
-                from backend.omnivoice_tts import check_omnivoice_model, generate_omnivoice_tts
-                if not check_omnivoice_model():
-                    return {"success": False, "error": "OmniVoice model is not downloaded. Please download it from Settings."}
+            if engine in ("xtts", "omnivoice", "dhvaani"):
+                # All clone ids resolve to DhVaani (pipeline maps legacy ids).
                 # 'voice' parameter here holds the reference speaker_wav path.
                 # An explicitly selected voice whose file is missing must fail
                 # loudly — silently previewing the default voice hides a
@@ -2106,9 +2188,14 @@ class ApiBridge:
                 if voice and not Path(voice).exists():
                     return {"success": False, "error": f"Selected voice file is missing: {voice}. The reference audio was deleted or moved — re-upload it in Settings > Voice Synthesis (replace the profile audio) or select another voice."}
                 speaker_wav = voice or ""
-                generate_omnivoice_tts(
+                from backend.dhvaani_tts import check_dhvaani_model, dhvaani_steps_for_quality, generate_dhvaani_tts
+                if not check_dhvaani_model():
+                    return {"success": False, "error": "DhVaani model is not downloaded. Please download it from Settings."}
+                generate_dhvaani_tts(
                     text, str(preview_file),
-                    speaker_wav=speaker_wav, language=language, speed=speed_float
+                    speaker_wav=speaker_wav, language=language, speed=speed_float,
+                    ref_text=(ref_text or "").strip() or None,
+                    num_step=dhvaani_steps_for_quality(quality),
                 )
             else:
                 # Sanitize the edge voice: a project whose tts_voice column was

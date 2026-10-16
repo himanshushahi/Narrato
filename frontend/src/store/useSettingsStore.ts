@@ -13,6 +13,9 @@ interface XttsProfile {
   name: string;
   language: string;
   reference_voice: string;
+  // Exact words spoken in reference_voice. When set, DhVaani skips
+  // faster-whisper transcription entirely (faster + deterministic).
+  transcript?: string;
 }
 
 export interface WatermarkChannelPreset {
@@ -39,6 +42,8 @@ export interface Settings {
   tts_pitch: string;
   xtts_reference_voice: string;
   xtts_profiles?: XttsProfile[];
+  dhvaani_quality: string;
+  hf_token: string;
   bg_music_path: string;
   bg_music_volume: string;
   pexels_api_key: string;
@@ -120,16 +125,20 @@ interface GpuDownload {
 interface SettingsStore {
   settings: Settings;
   gpuAvailable: boolean;
-  xttsDownload: XttsDownload;
+  dhvaaniDownload: XttsDownload;
   whisperDownload: WhisperDownload;
   downloadedWhisperModels: DownloadedWhisperModel[];
   ytdlpUpdate: YtdlpUpdate;
+  legacyOmnivoiceMb: number;
 
   setSettings: (settings: Settings) => void;
   fetchSettings: () => Promise<void>;
   saveSettings: (settings: Settings) => Promise<void>;
   checkGpuAvailability: () => Promise<void>;
-  downloadXtts: () => Promise<void>;
+  downloadDhvaani: () => Promise<void>;
+  cancelDhvaani: () => Promise<void>;
+  fetchLegacyOmnivoiceSize: () => Promise<void>;
+  cleanupLegacyOmnivoice: () => Promise<number>;
   downloadWhisper: (modelSize: string) => Promise<void>;
   fetchDownloadedWhisperModels: () => Promise<void>;
   deleteWhisperModel: (id: string) => Promise<boolean>;
@@ -167,6 +176,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     tts_speed: "1.0",
     tts_pitch: "0",
     xtts_reference_voice: "",
+    dhvaani_quality: "balanced",
+    hf_token: "",
     bg_music_path: "",
     bg_music_volume: "0.15",
     pexels_api_key: "",
@@ -193,7 +204,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   },
   gpuAvailable: false,
-  xttsDownload: {
+  legacyOmnivoiceMb: 0,
+  dhvaaniDownload: {
     active: false,
     file: "",
     progress: 0,
@@ -226,6 +238,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   fetchSettings: async () => {
     const data = await safeApiCall<any>('db_get_settings');
     if (data) {
+      // Migrate legacy clone engine ids (XTTS/OmniVoice era) to dhvaani once.
+      if (data.tts_engine === 'xtts' || data.tts_engine === 'omnivoice') {
+        data.tts_engine = 'dhvaani';
+      }
+      if (!['fast', 'balanced', 'best'].includes(data.dhvaani_quality)) {
+        data.dhvaani_quality = 'balanced';
+      }
       // Backfill app_language for DBs created before the key existed.
       // Prefer the persisted value; otherwise derive from the saved voice so
       // existing users keep their language instead of flipping to default.
@@ -261,9 +280,29 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set({ gpuAvailable: !!available });
   },
 
-  downloadXtts: async () => {
-    set({ xttsDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
-    await safeApiCall<void>('start_omnivoice_download');
+  downloadDhvaani: async () => {
+    set({ dhvaaniDownload: { active: true, file: "", progress: 0, status: "started", error: "" } });
+    await safeApiCall<void>('start_dhvaani_download');
+  },
+
+  cancelDhvaani: async () => {
+    await safeApiCall<void>('cancel_dhvaani_download');
+  },
+
+  fetchLegacyOmnivoiceSize: async () => {
+    const res = await safeApiCall<{ size_mb?: number }>('get_legacy_omnivoice_size');
+    set({ legacyOmnivoiceMb: res?.size_mb || 0 });
+  },
+
+  cleanupLegacyOmnivoice: async () => {
+    const res = await safeApiCall<{ success: boolean; reclaimed_mb?: number }>('cleanup_legacy_omnivoice');
+    if (res?.success) {
+      set({ legacyOmnivoiceMb: 0 });
+      useUIStore.getState().addToast(`Removed retired voice files (${(res.reclaimed_mb || 0).toFixed(0)} MB reclaimed).`, 'success');
+      return res.reclaimed_mb || 0;
+    }
+    useUIStore.getState().addToast('Could not remove retired voice files.', 'error');
+    return 0;
   },
 
   downloadWhisper: async (modelSize) => {
