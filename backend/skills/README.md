@@ -1,6 +1,6 @@
-# Narrato Agent Skills Registry — v5.0
+# Narrato Agent Skills Registry — v5.1
 
-17 specialized AI agent skills powering the Narrato video production engine.
+18 specialized AI agent skills powering the Narrato video production engine.
 Skills are consumed by both the **Internal Application LLM** (via `SkillLoader.render_skill()`) and **External MCP Agents** (via `get_skill`, `get_stage_skills`, `list_skills`).
 
 ---
@@ -47,6 +47,7 @@ visual-rewriter / sub-visual-rewriter ── OUTPUT CONTRACTS ──────
 | **6** | [`visual-director-core`](shared/visual-director/SKILL.md) | Visuals (Operations) | Production gotchas, depth architecture, variety checklist | — |
 | **7** | [`motion-graphics-designer`](shared/motion-graphics-designer/SKILL.md) | Visuals (Choreography) | Entrance recipes, filter guide, timing density | — |
 | **8** | [`editor-qa`](shared/editor-qa/SKILL.md) | Verification | **14 production failure modes + pre-submission checklist** | — |
+| **9** | [`visual-style-library`](shared/visual-style-library/SKILL.md) | Visuals (Style Looks) | **50 named visual/motion styles + AST mappings; 1 style per scene, design-token bound** | — |
 
 ### `agent-only/` — MCP/chat agent guides (never loaded by pipeline code)
 
@@ -63,8 +64,8 @@ visual-rewriter / sub-visual-rewriter ── OUTPUT CONTRACTS ──────
 | **12** | [`script-scene-writer`](internal-only/script-scene-writer/SKILL.md) | Script (Stage 3) | Scene narration, word budgeting | `{scene_num}`, `{chapter_title}`, `{per_scene_duration}`, `{per_scene_word_target}`, `{prev_context}`, `{language}`, `{script_rules_block}`, `{sentence_rule}` |
 | **13** | [`script-rewriter`](internal-only/script-rewriter/SKILL.md) | Script Bridge | Scene rewriting & tone repair | `{doc_title}`, `{intro_hook}`, `{scenes_summary}`, `{conclusion_summary}`, `{language}`, `{language_instructions}`, `{length_constraint}` |
 | **14** | [`script-scene-adder`](internal-only/script-scene-adder/SKILL.md) | Script Bridge | Inserting new scene narrations | `{doc_title}`, `{intro_hook}`, `{scenes_summary}`, `{conclusion_summary}`, `{length_constraint}`, `{language_instructions}` |
-| **15** | [`visual-rewriter`](internal-only/visual-rewriter/SKILL.md) | Visuals Bridge | Multi-cut scene visual regeneration | `{design_system_text}`, `{visual_rules}` |
-| **16** | [`sub-visual-rewriter`](internal-only/sub-visual-rewriter/SKILL.md) | Visuals Bridge | Single sub-visual AST modification | `{design_system_text}`, `{visual_rules}` |
+| **15** | [`visual-rewriter`](internal-only/visual-rewriter/SKILL.md) | Visuals Bridge | Multi-cut scene visual regeneration | `{design_system_text}`, `{visual_rules}`, `{style_block}` |
+| **16** | [`sub-visual-rewriter`](internal-only/sub-visual-rewriter/SKILL.md) | Visuals Bridge | Single sub-visual AST modification | `{design_system_text}`, `{visual_rules}`, `{style_block}` |
 | **17** | [`search-query-optimizer`](internal-only/search-query-optimizer/SKILL.md) | Research | Web search query formulation | — |
 
 ---
@@ -76,10 +77,11 @@ and each `SKILL.md` carries a matching `exposure: agent|internal` flag that driv
 `list_skills`/`get_skill` filtering at runtime (so the folder layout and the
 loader can never silently disagree).
 
-- **`exposure: agent`** (10 skills) — offered to MCP/chat agents via `list_skills`/`get_skill`:
+- **`exposure: agent`** (11 skills) — offered to MCP/chat agents via `list_skills`/`get_skill`:
   `scriptwriter`, `script-base-writer`, `art-director-design-system`,
   `storyboard-planner`, `declarative-ast`, `visual-director-core`,
-  `motion-graphics-designer`, `stock-asset-searcher`, `subtitle-designer`, `editor-qa`.
+  `motion-graphics-designer`, `stock-asset-searcher`, `subtitle-designer`, `editor-qa`,
+  `visual-style-library`.
 - **`exposure: internal`** (7 skills) — pipeline/bridge stage prompts with code-filled
   template vars (`{target_duration}`, `{scene_num}`, `{doc_title}`, …). Loaded directly
   by `pipeline/ai.py` and `core/bridge.py`; hidden from agent listings and refused
@@ -94,7 +96,7 @@ remains for backend code and `append_skill_learning` name validation.
 |---|---|---|
 | **`script`** | `scriptwriter` (or `script-base-writer`) | `get_stage_skills('script', project_id)` |
 | **`design`** | `art-director-design-system` | `get_stage_skills('design', project_id)` |
-| **`visuals`** | `declarative-ast`, `visual-director-core`, `motion-graphics-designer` | `get_stage_skills('visuals', project_id)` |
+| **`visuals`** | `declarative-ast`, `visual-director-core`, `motion-graphics-designer` (+ `visual-style-library` index bundled, deep sections on demand) | `get_stage_skills('visuals', project_id)` |
 
 ### Progressive Disclosure (Token Saving)
 1. **Lightweight TOC**: `get_skill(name, brief=True)` — metadata + section list (<300 tokens).

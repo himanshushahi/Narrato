@@ -334,11 +334,19 @@ def _format_design_guidance(topic: str = "", title: str = "", seed_hint: str = "
 
     No rigid genre presets: the model derives mood, palette story, and theme
     name from the topic/title itself. When a user style_hint is provided,
-    it takes precedence.
+    it takes precedence. When the hint names one of the 50 library styles,
+    the resolved style name is surfaced so the palette supports the look
+    (tokens still invented fresh — never style hex).
     """
     hint = (style_hint or "").strip()
     if hint:
-        direction = f"USER-DEFINED STYLE HINT — {hint}"
+        try:
+            from backend.pipeline.style_library import resolve_style, STYLE_SPECS
+            _slug = resolve_style(hint)
+            _suffix = f" (library style: {STYLE_SPECS[_slug]['name']})" if _slug else ""
+        except Exception:
+            _suffix = ""
+        direction = f"USER-DEFINED STYLE HINT — {hint}{_suffix}"
     else:
         direction = _pick_design_direction(topic, title, seed_hint)
     hint_line = f"\n- User style hint: {hint}" if hint else ""
@@ -2085,6 +2093,19 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
     editor_qa_rules = _skill_content("editor-qa")
     motion_designer_rules = _skill_content("motion-graphics-designer")
 
+    # Active visual style (50-style library): resolve the free-text project
+    # hint to a canonical slug once per run so every scene in this video
+    # shares one deliberate look. Unknown hints -> "" (topic-driven fallback).
+    try:
+        from backend.pipeline.style_library import style_block_for as _style_block_for
+        _style_hint_for_run = _get_style_hint(project_dict)
+        _style_block_text, _style_slug = _style_block_for(_style_hint_for_run)
+        if _style_slug:
+            logger.info(f"Visual style resolved: {_style_slug} from hint {(_style_hint_for_run or '')[:60]!r}")
+    except Exception as _se:
+        logger.warning(f"Style resolution skipped: {_se}")
+        _style_block_text, _style_slug = "", None
+
     editor_qa_block = f"""=== EDITOR QA GUARDRAILS ===
 {editor_qa_rules}
 
@@ -2105,6 +2126,7 @@ def generate_visuals_pipeline(project_dict, project_dir, progress_cb, cancel_eve
 CORE MISSION:
 Transform narration into motion graphic cuts from the 11 layer types. Every creative decision — types, counts, geometry, motion, looks — is yours. What follows lists what the harness supports and what breaks rendering.
 {design_system_text}
+{_style_block_text}
 {visual_director_block}
 {motion_designer_block}
 === HARNESS CAPABILITY ARCHITECTURE (full reference in skills) ===
@@ -2317,6 +2339,7 @@ Return ONLY valid JSON matching VISUALS_ARRAY_SCHEMA:
             "Kinetic Text, Maps, Lottie, Footage, Counters, Procedural "
             "Backgrounds, Particles. Match the active design system's palette."
             + (f"\n- User style hint (honor when present): {_style_hint}" if _style_hint else "")
+            + (f"\n{_style_block_text}" if _style_block_text else "")
         )
 
         storyboard_skill = skill_loader.get_skill("storyboard-planner")

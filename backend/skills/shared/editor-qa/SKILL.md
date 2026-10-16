@@ -85,7 +85,6 @@ Video-only sources:   pexels ✓   pixabay ✓   wikipedia ✗   archive ✓   y
 ---
 
 ## 4. Pre-Submission Checklist
-
 - [ ] Every Layer's `content` has a `type` field (F1)
 - [ ] Every Image/Video has `query` in English (F2)
 - [ ] Map/Particles are not being positioned (F3)
@@ -104,3 +103,15 @@ Video-only sources:   pexels ✓   pixabay ✓   wikipedia ✗   archive ✓   y
 - [ ] Complex scripts use Noto fonts
 - [ ] No markdown/backticks wrapping the JSON output
 - [ ] Rich purposeful layering — every layer earns its place, no single bare layer, no blind stacking
+
+---
+
+## 5. Visual Style Conformance (warnings only — never block render)
+
+When an active style slug is present (`visual-style-library`):
+
+- [ ] ONE style per scene; max 2–3 styles per video (mixing 5 looks in one scene = fail)
+- [ ] Base/hero/text/filter/transition follow the style's AST mapping (index line alone is not enough — pull the family section)
+- [ ] All colors/fonts bound to `design.json` tokens (no hardcoded style hex copied into AST)
+- [ ] Same style ≠ same transition/recipe twice in a row (alternate energy high→low→high)
+- [ ] Harness rules F1–F14 always win over style fidelity — a style break is a warning, a render break is a rejection

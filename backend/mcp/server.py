@@ -65,7 +65,7 @@ Instead, you MUST conduct the "New Narrative Build" intake interview and ask the
    - For Portrait: Short (~60s), Medium (~90s), or Long (~2m)
 5. Export Destination Folder: Confirm if the user wants a specific directory or default project exports folder.
 6. Voice: Call `list_voice_options` to offer concrete voice choices (set with `update_voice_settings`).
-7. Visual Style (optional free text): Ask what look/mood they want (e.g. "warm editorial", "dark cinematic"). There are NO preset genres — invent palettes, typography, and compositions from the topic + this hint.
+7. Visual Style: Ask what look/mood they want. Offer the 50-style library (`list_skills` → `visual-style-library` index: noir, HUD, paper collage, kinetic type, archival, blueprint, liquid glass, …) OR free text (e.g. "warm editorial", "dark cinematic"). Pass the chosen style name/slug as `style_hint` to `create_project` — the pipeline resolves it to ONE canonical style and binds it to design.json tokens. No preset genres beyond the 50-style look vocabulary.
 
 ONLY after the user confirms these preferences (or if already explicitly specified), invoke `create_project`.
 
@@ -80,7 +80,7 @@ UI vs API NUMBERING & SECTION TARGETING:
 MANDATORY SKILL GROUNDING (hard gate, not guidance):
 - save_script REQUIRES scriptwriter first.
 - save_design REQUIRES art-director-design-system first.
-- save_visuals REQUIRES declarative-ast + visual-director-core + motion-graphics-designer first (brief=true counts).
+- save_visuals REQUIRES declarative-ast + visual-director-core + motion-graphics-designer first (brief=true counts). visual-style-library index is BUNDLED in the visuals starter pack — pull one family section (get_skill section=...) when a style hint is present.
 - EASIEST: one call get_stage_skills(stage, project_id) per stage -- it returns the starter pack AND satisfies the gate.
   script -> get_stage_skills('script', project_id); design -> get_stage_skills('design', project_id); visuals -> get_stage_skills('visuals', project_id).
 - The server REJECTS save_* with SKILL_REQUIRED if you skip this. get_section_timings also pushes a creative_blueprint (layer reference + sample cut) -- use it.
@@ -603,7 +603,7 @@ def create_project(
         str,
         Field(
             default="",
-            description="Optional free-text visual style/mood hint (e.g. 'warm editorial', 'dark cinematic'). No presets — invent from topic + hint.",
+            description="Visual style: 50-style library slug/name (e.g. 'investigative-noir', 'liquid-glass', 'archival-film') or free-text mood ('warm editorial'). Resolved to ONE canonical style, bound to design.json tokens.",
         ),
     ] = "",
     **legacy_kwargs,
@@ -1130,6 +1130,7 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 "Pair entrance animations (delay>0) with opacity fade 0->1; spatial-only allowed at delay 0.",
                 "Full capability reference: declarative-ast Part 1 & Part 2 (11 layer types, universal controls, contracts, cut flags).",
                 "Default ONE living take per scene (see creative_pack living_take); use editor_parity keys (objectFit fill, blends, particle_size/colors) instead of repeating the sample_cut shape.",
+                "Style: honor bundle.style_library.active_style_block when resolved_style is set (ONE style per scene); bind style colors/fonts to design.json tokens.",
             ]
             bundle["deep_read_required"] = (
                 "save_visuals ALSO needs ≥1 full section pull from "
@@ -1139,6 +1140,27 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
             bundle["layer_reference"] = _layer_reference()
             bundle["sample_cut"] = _sample_cut_template(video_format)
             bundle["storyboard"] = _visuals_storyboard_pack(ctx, project_id)
+            # 50-style look vocabulary: compact index bundled every time
+            # (token-cheap), family details on demand via get_skill section.
+            try:
+                from backend.pipeline.style_library import (
+                    style_block_for as _sbf, style_index_lines as _sil,
+                )
+                _phint = style_hint or ""
+                _sblock, _sslug = _sbf(_phint)
+                bundle["style_library"] = {
+                    "index": _sil(),
+                    "project_hint": _phint,
+                    "resolved_style": _sslug,
+                    "active_style_block": _sblock,
+                    "usage": ("ONE style per scene, max 2-3 per video. "
+                              "Pull the family section for the AST mapping: "
+                              "get_skill(skill_name='visual-style-library', section='...', project_id=...). "
+                              "Bind all colors/fonts to design.json tokens."),
+                }
+                _record_skill_read(project_id, "visual-style-library")
+            except Exception as _se:
+                logger.warning(f"MCP style library bundle skipped: {_se}")
 
             design_saved = False
             theme_name = ""

@@ -14,6 +14,8 @@ exposure: internal
 
 {design_system_text}
 
+{style_block}
+
 ---
 
 ## 1. Execution Rules

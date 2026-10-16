@@ -1832,12 +1832,20 @@ class ApiBridge:
         language = full_script.get("language", "hi")
         visual_rules = get_shared_visual_rules(video_format, language)
         design_system_text = _get_design_system_prompt(project_id)
+        try:
+            from backend.pipeline.style_library import style_block_for as _sbf
+            _proj = get_project(project_id) or {}
+            _style_block, _ = _sbf(str(_proj.get("prompt") or ""), rewrite_prompt)
+        except Exception as _se:
+            logger.warning(f"Bridge style resolution skipped: {_se}")
+            _style_block = ""
 
         from backend.agent.skill_loader import skill_loader
         system_prompt = skill_loader.render_skill(
             "visual-rewriter",
             design_system_text=design_system_text,
             visual_rules=visual_rules,
+            style_block=_style_block,
         )
         if not system_prompt:
             system_prompt = (
@@ -1852,6 +1860,7 @@ class ApiBridge:
                 "- IMPORTANT: Every sub_visual must have a 'composition' object (AST format) and a 'duration' (in seconds).\n"
                 "- 🚫 NO CHAPTER TITLE BADGES: Do NOT create static chapter title cards or header badges inside sub-visual cuts. Chapter indicators are rendered continuously by the root composition overlay engine.\n\n"
                 f"{visual_rules}\n"
+                f"{_style_block}\n"
             )
         if section_type == "introduction":
             target_content = full_script.get("introduction", {})
@@ -1962,12 +1971,20 @@ class ApiBridge:
         video_format = full_script.get("video_format", "landscape")
         visual_rules = get_shared_visual_rules(video_format, language)
         design_system_text = _get_design_system_prompt(project_id)
+        try:
+            from backend.pipeline.style_library import style_block_for as _sbf2
+            _proj2 = get_project(project_id) or {}
+            _style_block2, _ = _sbf2(str(_proj2.get("prompt") or ""), rewrite_prompt)
+        except Exception as _se2:
+            logger.warning(f"Bridge style resolution skipped: {_se2}")
+            _style_block2 = ""
 
         from backend.agent.skill_loader import skill_loader
         system_prompt = skill_loader.render_skill(
             "sub-visual-rewriter",
             design_system_text=design_system_text,
             visual_rules=visual_rules,
+            style_block=_style_block2,
         )
         if not system_prompt:
             system_prompt = (
@@ -1981,6 +1998,7 @@ class ApiBridge:
                 "The sub_visual has: { \"composition\": { \"type\": \"Sequence\", \"children\": [...] }, \"duration\": float }\n"
                 "- 🚫 NO CHAPTER TITLE BADGES: Do NOT place static chapter title badges or temporary header pills inside sub_visual cuts. Root overlays manage continuous chapter branding.\n\n"
                 f"{visual_rules}\n"
+                f"{_style_block2}\n"
             )
         if section_type == "introduction":
             section = full_script.get("introduction", {})
