@@ -4,7 +4,7 @@
 # silently installs the 2.6GB GPU build.
 pywebview==6.2.1
 faster-whisper==1.2.1
-edge-tts==7.2.8
+edge-tts==7.3.1
 # OmniVoice (replaces coqui-TTS/XTTS v2 for voice cloning). Needs
 # transformers>=5.3, which conflicts with coqui-tts 0.27.5 (needs <5) —
 # so coqui-tts was removed. Pulls accelerate/gradio/pydub/tensorboardx/webdataset.

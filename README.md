@@ -105,7 +105,7 @@ Any MCP-compatible coding agent (Claude Code, opencode, Cursor, Gemini CLI) can 
 |---|---|
 | **Desktop Shell** | **pywebview 6.2** (Edge WebView2) + Python **3.12 / 3.14** |
 | **Backend & Agent** | Python, `AgentRunner` tool loop, SQLite (WAL mode), `SkillLoader` |
-| **TTS & Voice** | **omnivoice 0.2.1** (OmniVoice voice cloning), **edge-tts 7.2.8**, torch 2.12.0 |
+| **TTS & Voice** | **omnivoice 0.2.1** (OmniVoice voice cloning), **edge-tts 7.3.1**, torch 2.12.0 |
 | **Speech-to-Text** | **faster-whisper 1.2.1** (ctranslate2) |
 | **LLM & Search** | OpenAI-Compatible LLM APIs (OpenAI, OpenRouter, Groq, Ollama, DeepSeek) + LangSearch web search |
 | **Frontend** | **React 19**, **TypeScript 5.7**, **Vite 6**, **Tailwind CSS 4**, **Zustand 5**, framer-motion |
