@@ -154,8 +154,8 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
         a.property === pa.property &&
         a.easing === pa.easing &&
         Math.abs((a.duration ?? 0) - (pa.duration ?? 0)) < 0.01 &&
-        Math.abs(((a as any).from ?? (a as any).from_ ?? 0) - ((pa as any).from ?? 0)) < 0.01 &&
-        Math.abs(((a as any).to ?? (a as any).to_ ?? 0) - ((pa as any).to ?? 0)) < 0.01
+        Math.abs(((a as any).from ?? 0) - ((pa as any).from ?? 0)) < 0.01 &&
+        Math.abs(((a as any).to ?? 0) - ((pa as any).to ?? 0)) < 0.01
       );
     });
   };
@@ -322,7 +322,7 @@ const AstAnimationBuilderInner: React.FC<AstAnimationBuilderProps> = ({
                       step="any"
                       aria-label={`Track ${idx + 1} From Value`}
                       className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-md px-2.5 py-1 text-xs text-stone-200 focus:outline-none focus:border-amber-500/60 font-mono"
-                      value={(anim as any).from ?? (anim as any).from_ ?? 0}
+                      value={(anim as any).from ?? 0}
                       onChange={e => {
                         const v = parseFloat(e.target.value) || 0;
                         const updated = [...animations];

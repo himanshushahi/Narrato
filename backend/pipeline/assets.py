@@ -150,6 +150,89 @@ def repair_manifest_pointers():
         logger.info(f"manifest pointer repair: backfilled {repaired} project(s)")
     return repaired
 
+
+# Stored files that embed sub_visuals / render props (i.e. can hold animation
+# nodes). Chat transcripts and scratch payload chunks are deliberately NOT in
+# this list: chat history must stay a faithful record, and scratch chunks are
+# transient (they re-validate through AnimationNode — which canonicalizes —
+# every time they are re-saved).
+MIGRATION_FILES = (
+    "script.json",
+    "render_props.json",
+    "render_props.still.json",
+    "manifest.json",
+    "assets_manifest.json",
+    Path("voiceover") / "manifest.json",
+    Path("assets") / "assets_manifest.json",
+)
+
+
+def repair_legacy_from_keys(storage_dir=None) -> dict:
+    """Startup self-heal: rename legacy `from_` animation keys to the `from`
+    editor contract in every stored visuals file.
+
+    Root cause it guards: the AnimationNode serializer now always writes `from`
+    and the editor/renderer read `from` only, but ~14 legacy projects had
+    hundreds of `from_` keyframes persisted while model_dump() still used the
+    field name. Without this pass those animation tracks are silently skipped
+    at render time (the ASTAnimator guard `typeof anim.from === 'number'`
+    fails), so entrances/zooms/slides vanish from preview and export.
+
+    Mirrors repair_manifest_pointers' contract: never raises — boot must not
+    fail because of a repair pass; idempotent (a second run rewrites nothing);
+    writes `<name>.frommig.bak` next to the first original it rewrites (never
+    overwriting an earlier backup with already-migrated content) and replaces
+    files atomically (tmp + os.replace, same pattern as design.json saves).
+    Returns {"projects_touched", "files_rewritten", "backups"}.
+    """
+    from backend.agent.schemas import migrate_from_animation_keys
+    from backend.core.config import get_storage_dir
+    stats = {"projects_touched": 0, "files_rewritten": 0, "backups": 0}
+    base = Path(storage_dir) if storage_dir is not None else get_storage_dir()
+    if not base.exists():
+        return stats
+    for project_dir in sorted(p for p in base.iterdir() if p.is_dir()):
+        try:
+            project_touched = False
+            for rel in MIGRATION_FILES:
+                path = project_dir / rel
+                if not path.exists():
+                    continue
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception as e:
+                    logger.warning(
+                        f"from-key repair: unreadable {path} ({e}; skipped)")
+                    continue
+                if not isinstance(data, (dict, list)):
+                    continue
+                if not migrate_from_animation_keys(data):
+                    continue
+                backup = path.with_name(path.name + ".frommig.bak")
+                if not backup.exists():
+                    # True original: scratch of the pre-migration bytes, taken
+                    # before the first rewrite of this file ever.
+                    backup.write_text(
+                        path.read_text(encoding="utf-8"), encoding="utf-8")
+                    stats["backups"] += 1
+                tmp = path.with_name(path.name + ".frommig.tmp")
+                with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                os.replace(tmp, path)
+                stats["files_rewritten"] += 1
+                project_touched = True
+            if project_touched:
+                stats["projects_touched"] += 1
+                logger.info(
+                    f"from-key repair: migrated legacy `from_` animation keys "
+                    f"in {project_dir.name}")
+        except Exception as e:
+            logger.warning(f"from-key repair failed for {project_dir.name}: {e}")
+    if stats["files_rewritten"]:
+        logger.info(f"from-key repair: {stats}")
+    return stats
+
 def _section_texts_from_script(script_data):
     """Extract per-section narration texts in manifest order: intro, scenes..., conclusion.
 

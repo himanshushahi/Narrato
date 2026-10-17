@@ -291,7 +291,7 @@ def lint_cut_timing(cut: Dict[str, Any], cut_index: int = 0) -> Dict[str, Any]:
                 continue
             if a.get("property") != "opacity" or a.get("exit") is True:
                 continue
-            from_raw = a.get("from", a.get("from_"))
+            from_raw = a.get("from")
             from_v = _fnum(from_raw)
             to_v = _to_num(a)
             if from_v is None or to_v is None:

@@ -1,6 +1,8 @@
 import logging
 from typing import List, Dict, Any, Tuple
-from backend.agent.schemas import SubVisualAST, sanitize_layer_style
+from backend.agent.schemas import (
+    SubVisualAST, sanitize_layer_style, migrate_from_animation_keys
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1350,6 +1352,11 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
         except Exception:
             pass
         
+        # Canonicalize animation keys to the 'from' editor contract before
+        # validation so both AnimationNode instances and union fallbacks
+        # (raw dicts) reliably carry 'from', never legacy 'from_'.
+        migrate_from_animation_keys(entry)
+
         try:
             validated = SubVisualAST.model_validate(entry)
             normalized.append(validated.model_dump(exclude_none=True))
@@ -1368,6 +1375,10 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
                     _comp["children"] = _keep_layers(_comp["children"])
             except Exception:
                 pass
+            # Canonicalize the editor contract even on the fallback path: a
+            # raw entry kept here can still carry legacy `from_` animation
+            # keys, which the from-only renderer silently skips.
+            migrate_from_animation_keys(entry)
             normalized.append(entry)
 
     if not normalized:

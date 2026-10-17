@@ -103,6 +103,16 @@ def main():
     except Exception as e:
         logger.warning(f"manifest pointer repair skipped: {e}")
 
+    # One-shot data migration: legacy `from_` animation keys -> the `from`
+    # editor contract in stored visuals files, so legacy projects keep their
+    # animations after the renderer standardized on `from` (see
+    # AnimationNode's canonicalization). Never raises.
+    try:
+        from backend.pipeline.assets import repair_legacy_from_keys
+        repair_legacy_from_keys()
+    except Exception as e:
+        logger.warning(f"from-key migration skipped: {e}")
+
     setup_bridge_callbacks()
 
     ui_thread = threading.Thread(target=ui_update_loop, daemon=True)

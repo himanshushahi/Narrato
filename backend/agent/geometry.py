@@ -142,7 +142,7 @@ def _layer_time_window(layer: Dict[str, Any]) -> Tuple[float, float]:
     start = 0.0
     for a in anims:
         # If opacity starts at 0, layer is invisible until its delay
-        if a.get("property") == "opacity" and (a.get("from") == 0 or a.get("from_") == 0):
+        if a.get("property") == "opacity" and a.get("from") == 0:
             try:
                 start = max(start, float(a.get("delay") or 0.0))
             except (ValueError, TypeError):

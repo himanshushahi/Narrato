@@ -612,7 +612,11 @@ def test_3d_spatial_transforms_and_perspective_in_ast_layers():
         easing="spring",
     )
     assert anim.property == "translateZ"
+    # Python attr is spelled `from_` (reserved keyword); the serialized
+    # contract must always be the `from` key — never `from_`.
     assert anim.from_ == -200.0
+    assert anim.model_dump()["from"] == -200.0
+    assert "from_" not in anim.model_dump()
 
     # 3. Pydantic validation of ASTLayerNode with perspective & 3D layout styles
     layer_node = ASTLayerNode(
@@ -758,6 +762,196 @@ def test_layer_blur_and_backdrop_blur():
     assert "backdrop-filter: blur(16px)" in norm_layer["filters"]
     assert norm_layer["content"]["style"]["blur"] == 8
     assert norm_layer["content"]["style"]["backdropFilter"] == "blur(12px)"
+
+
+def test_migrate_from_animation_keys_walker():
+    """Raw (disk-loaded) JSON gets legacy `from_` renamed to `from`, same
+    contract AnimationNode enforces at the model boundary — the editor and
+    renderer read `from` only."""
+    from backend.agent.schemas import migrate_from_animation_keys
+
+    data = {
+        "scenes": [{
+            "sub_visuals": [{
+                "duration": 5.0,
+                "composition": {"type": "Sequence", "children": [
+                    {"type": "Layer", "animations": [
+                        {"property": "scale", "from_": 1.0,
+                         "to": 1.05, "duration": 5.0},
+                    ]},
+                ]},
+            }],
+        }],
+    }
+    assert migrate_from_animation_keys(data) is True
+    anim = (data["scenes"][0]["sub_visuals"][0]["composition"]
+            ["children"][0]["animations"][0])
+    assert anim["from"] == 1.0
+    assert "from_" not in anim
+
+    # Idempotent: a second pass changes nothing.
+    assert migrate_from_animation_keys(data) is False
+
+    # Both spellings present: `from` wins, `from_` is dropped.
+    both = {"property": "scale", "from": 5.0, "from_": 9.0,
+            "to": 2.0, "duration": 1.0}
+    assert migrate_from_animation_keys(both) is True
+    assert both["from"] == 5.0
+    assert "from_" not in both
+
+    # Gate: an unrelated `from_` key (no property/to/duration) is untouched.
+    stray = {"from_": "Mumbai", "note": "not an animation"}
+    assert migrate_from_animation_keys(stray) is False
+    assert stray["from_"] == "Mumbai"
+
+
+def test_repair_legacy_from_keys(tmp_path):
+    """Startup self-heal: migrates every stored visuals file of a project,
+    backs up originals, and is a no-op on re-run."""
+    import json
+    from backend.pipeline.assets import repair_legacy_from_keys
+
+    proj = tmp_path / "proj1"
+    (proj / "voiceover").mkdir(parents=True)
+    script = {"scenes": [{
+        "narration": "hi",
+        "sub_visuals": [{
+            "duration": 1.0,
+            "composition": {"type": "Sequence", "children": [
+                {"type": "Layer", "animations": [
+                    {"property": "opacity", "from_": 0.0,
+                     "to": 1.0, "duration": 0.5},
+                ]},
+            ]},
+        }],
+    }]}
+    (proj / "script.json").write_text(json.dumps(script), encoding="utf-8")
+    manifest = [{
+        "section_type": "scene",
+        "narration": "hi",
+        "sub_visuals": [{
+            "duration": 1.0,
+            "composition": {"type": "Sequence", "children": [
+                {"type": "Layer", "animations": [
+                    {"property": "scale", "from_": 1.0,
+                     "to": 1.2, "duration": 1.0},
+                ]},
+            ]},
+        }],
+    }]
+    (proj / "voiceover" / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8")
+
+    stats = repair_legacy_from_keys(storage_dir=tmp_path)
+    assert stats["files_rewritten"] == 2
+    assert stats["projects_touched"] == 1
+    assert stats["backups"] == 2
+
+    migrated = json.loads((proj / "script.json").read_text(encoding="utf-8"))
+    m = (migrated["scenes"][0]["sub_visuals"][0]["composition"]
+         ["children"][0]["animations"][0])
+    assert m["from"] == 0.0
+    assert "from_" not in m
+
+    # Backup still holds the pre-migration bytes.
+    bak = json.loads(
+        (proj / "script.json.frommig.bak").read_text(encoding="utf-8"))
+    b = (bak["scenes"][0]["sub_visuals"][0]["composition"]
+         ["children"][0]["animations"][0])
+    assert b["from_"] == 0.0
+    assert "from" not in b
+
+    # Idempotent: a second run rewrites nothing.
+    assert repair_legacy_from_keys(storage_dir=tmp_path)["files_rewritten"] == 0
+
+
+def test_validate_sub_visuals_fallback_canonicalizes_from():
+    """When SubVisualAST.model_validate blows up, validate_sub_visuals keeps
+    the sanitized raw entry — that entry must not persist legacy `from_`
+    keys (the from-only renderer silently skips them)."""
+    from backend.agent.validators import validate_sub_visuals
+    from backend.agent.schemas import SubVisualAST
+    import json as _json
+    import copy as _copy
+
+    # The LLM-facing schema advertises the editor contract.
+    schema = _json.dumps(SubVisualAST.model_json_schema())
+    assert '"from"' in schema and '"from_"' not in schema
+
+    svs = [{"duration": 2.0, "composition": {"type": "Sequence", "children": [
+        {"type": "Layer", "content": {"type": "Text", "text": "x"},
+         "animations": [
+             {"property": "scale", "from_": 2.0, "to": 1.0, "duration": 1.0},
+         ]},
+    ]}}]
+
+    # The fallback is reachable only when validation raises; sanitization
+    # otherwise repairs shapes first. Force it deterministically.
+    from pydantic import BaseModel
+    _orig_func = BaseModel.__dict__["model_validate"].__func__
+
+    def _boom(cls, data):
+        raise ValueError("forced by test")
+
+    SubVisualAST.model_validate = classmethod(_boom)
+    try:
+        ok, normalized, err_msg = validate_sub_visuals(
+            _copy.deepcopy(svs), 2.0)
+    finally:
+        # Restore as a real classmethod — restoring the bare __func__ would
+        # silently bind the first arg to the class and corrupt later calls.
+        SubVisualAST.model_validate = classmethod(_orig_func)
+
+    assert any(
+        layer.get("animations") and "from_" not in layer["animations"][0]
+        for entry in normalized
+        for layer in entry.get("composition", {}).get("children", [])
+    ), "fallback entry must carry the canonical `from` key"
+
+
+def test_ast_layer_node_and_normal_validate_canonicalizes_from():
+    """Verify that both direct ASTLayerNode validation and the standard
+    validate_sub_visuals pass canonicalize legacy `from_` animation keys
+    to `from` even when an animation track falls back to a dict."""
+    from backend.agent.schemas import ASTLayerNode, SubVisualAST
+    from backend.agent.validators import validate_sub_visuals
+
+    # 1. ASTLayerNode directly validates raw dict with `from_`
+    layer_dict = {
+        "type": "Layer",
+        "content": {"type": "Text", "text": "hello"},
+        "animations": [
+            {"property": "scale", "from_": 0.5, "to": 1.0, "duration": 0.0},
+        ],
+    }
+    node = ASTLayerNode.model_validate(layer_dict)
+    dumped = node.model_dump(exclude_none=True)
+    anim = dumped["animations"][0]
+    assert anim["from"] == 0.5
+    assert "from_" not in anim
+
+    # 2. validate_sub_visuals normal path (no forced exception)
+    svs = [{
+        "duration": 3.0,
+        "composition": {
+            "type": "Sequence",
+            "children": [
+                {
+                    "type": "Layer",
+                    "content": {"type": "Text", "text": "title"},
+                    "animations": [
+                        {"property": "opacity", "from_": 0.0, "to": 1.0, "duration": 0.5},
+                    ],
+                }
+            ],
+        },
+    }]
+    ok, normalized, err = validate_sub_visuals(svs, 3.0)
+    assert ok is True
+    norm_anim = normalized[0]["composition"]["children"][0]["animations"][0]
+    assert norm_anim["from"] == 0.0
+    assert "from_" not in norm_anim
+
 
 
 

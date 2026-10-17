@@ -69,8 +69,6 @@ export interface ASTLayerMask {
 export interface ASTAnimation {
   property: 'scale' | 'opacity' | 'translateX' | 'translateY' | 'translateZ' | 'rotate' | 'rotateX' | 'rotateY' | 'blur' | 'brightness';
   from: number;
-  /** Backend pydantic schema serializes the `from` alias as `from_` — accept both. */
-  from_?: number;
   to: number;
   duration: number; // in seconds
   delay?: number; // in seconds (optional)
@@ -534,9 +532,6 @@ const AnimatedLayer: React.FC<AnimatedLayerProps> = ({
     // 1. Compute AST keyframe & spring transforms
     for (let i = 0; i < animations.length; i++) {
       const anim = animations[i];
-      // `from` is the editor contract; `from_` is what the backend LLM schema
-      // serializes (pydantic alias). Accept both — otherwise AI-generated
-      // motion is silently skipped and cuts render static.
       const animFrom = typeof anim.from === 'number' ? anim.from : (anim as any).from_;
       if (typeof anim.duration !== 'number' || typeof animFrom !== 'number' || typeof anim.to !== 'number') {
         continue;

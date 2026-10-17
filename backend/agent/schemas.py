@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any, Dict, List, Literal, Optional, Union
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 
 logger = logging.getLogger(__name__)
@@ -203,6 +203,64 @@ class AnimationNode(AppBaseModel):
         nums[0] = min(1.0, max(0.0, nums[0]))
         nums[2] = min(1.0, max(0.0, nums[2]))
         return nums
+
+    # `from` is the editor-contract JSON key. `from` is a Python reserved
+    # keyword, so the attribute is `from_` — which is what plain
+    # model_dump()/model_dump_json() would emit. Canonicalize both directions
+    # so every payload (in and out) uses `from` only, never `from_`.
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize_from_key(cls, data: Any) -> Any:
+        """Migrate legacy `from_` input keys to `from`."""
+        if isinstance(data, dict) and "from_" in data:
+            data = dict(data)  # never mutate the caller's dict
+            if "from" not in data:
+                data["from"] = data.pop("from_")
+            else:
+                data.pop("from_")
+        return data
+
+    @model_serializer(mode="wrap")
+    def _dump_with_from(self, handler) -> Dict[str, Any]:
+        """Always emit the serialized key as `from` (never `from_`)."""
+        data = handler(self)
+        if isinstance(data, dict) and "from_" in data:
+            data["from"] = data.pop("from_")
+        return data
+
+
+def migrate_from_animation_keys(value: Any) -> bool:
+    """Recursively rename legacy `from_` animation keys to the `from` editor
+    contract in raw (json.load-ed) dicts/lists.
+
+    Complements the AnimationNode validator/serializer pair above: that
+    contract only helps payloads that pass through the model, while files
+    already on disk (script.json, manifests, render_props snapshots) are
+    loaded as raw dicts and read `from`-only by the renderer. Mutates nested
+    dicts in place and returns True when anything changed, so callers can
+    decide whether a rewrite is needed (idempotent — a second pass changes
+    nothing). Gated on the AnimationNode field set (`property`/`to`/
+    `duration`) so an unrelated `from_` key elsewhere in a payload is left
+    untouched rather than silently renamed.
+    """
+    changed = False
+    if isinstance(value, dict):
+        if "from_" in value and any(k in value for k in ("property", "to", "duration")):
+            if "from" not in value:
+                value["from"] = value.pop("from_")
+            else:
+                # Both spellings present — `from` wins, matching
+                # _canonicalize_from_key.
+                value.pop("from_")
+            changed = True
+        for v in list(value.values()):
+            if migrate_from_animation_keys(v):
+                changed = True
+    elif isinstance(value, list):
+        for item in value:
+            if migrate_from_animation_keys(item):
+                changed = True
+    return changed
 
 
 class ChartDataPoint(AppBaseModel):
@@ -881,8 +939,11 @@ class ASTLayerNode(AppBaseModel):
     @model_validator(mode="before")
     @classmethod
     def reject_legacy_ordering_keys(cls, data: Any) -> Any:
-        if isinstance(data, dict) and ("z_index" in data or "zIndex" in data):
-            raise ValueError("Invalid layer field 'z_index'/'zIndex': stacking is children array order (children[0]=bottom). Remove the field instead of ordering layers.")
+        if isinstance(data, dict):
+            if "z_index" in data or "zIndex" in data:
+                raise ValueError("Invalid layer field 'z_index'/'zIndex': stacking is children array order (children[0]=bottom). Remove the field instead of ordering layers.")
+            if "animations" in data and isinstance(data["animations"], list):
+                migrate_from_animation_keys(data["animations"])
         return data
 
 
