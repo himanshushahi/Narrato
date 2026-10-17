@@ -128,16 +128,61 @@ class Skill:
             "single-take": "single-take",
             "singletake": "single-take",
         }
-        q = _SECTION_ALIASES.get(q, q)
+        if self.name == "visual-style-library":
+            _VSL_ALIASES = {
+                "style": "style index",
+                "styles": "style index",
+                "index": "style index",
+                "all": "style index",
+                "contract": "application contract",
+                "rules": "application contract",
+                "how to": "how to apply a style",
+                "apply": "how to apply a style",
+                "how to apply": "how to apply a style",
+                "editorial": "editorial, print & type",
+                "print": "editorial, print & type",
+                "type": "editorial, print & type",
+                "cinematic": "cinematic & documentary",
+                "documentary": "cinematic & documentary",
+                "3d": "3d, cgi & vector",
+                "cgi": "3d, cgi & vector",
+                "vector": "3d, cgi & vector",
+                "tech": "tech, hud & data",
+                "hud": "tech, hud & data",
+                "data": "tech, hud & data",
+                "organic": "organic, fluid & experimental",
+                "fluid": "organic, fluid & experimental",
+                "experimental": "organic, fluid & experimental",
+            }
+            q = _VSL_ALIASES.get(q, q)
+        else:
+            q = _SECTION_ALIASES.get(q, q)
+
+        # Resolve style slugs/names for visual-style-library
+        style_spec_name = ""
+        try:
+            from backend.pipeline.style_library import STYLE_SPECS, resolve_style
+            resolved_slug = resolve_style(q)
+            style_spec_name = (STYLE_SPECS.get(q, {}).get("name", "") or
+                               (STYLE_SPECS.get(resolved_slug, {}).get("name", "") if resolved_slug else "")).lower()
+        except Exception:
+            style_spec_name = ""
+
         for c in chunks:  # exact/numbered ## title match first
             t = c["title"].lower()
             if q == t or t.startswith(q) or q in t:
                 return {"title": c["title"], "body": c["body"],
                         "remaining": [x["title"] for x in chunks
                                       if x["title"] != c["title"]]}
+        q_norm = q.replace("-", " ").replace("_", " ").strip()
         for c in chunks:  # then ### subhead → enclosing section
             for s in _SUBSECTION_RE.findall(c["body"]):
-                if q in s.lower():
+                s_lower = s.lower()
+                s_norm = s_lower.replace("-", " ").replace("_", " ").replace("/", " ")
+                s_slug = s_lower.replace(" ", "-").replace("/", "-")
+                if (q in s_lower or q_norm in s_norm or q in s_slug
+                        or q.replace("_", "-") in s_slug or s_norm in q_norm
+                        or (style_spec_name and style_spec_name in s_lower)):
                     return {"title": c["title"],
                             "matched_subhead": s.strip(), "body": c["body"],
                             "remaining": [x["title"] for x in chunks

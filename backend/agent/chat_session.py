@@ -694,11 +694,22 @@ class ChatSession:
 
     def _push_tool_result(self, name: str, call_id: str, args: dict,
                            result_text: str, on_event, turn: str | None = None) -> None:
+        # Slice with an in-band marker: a model reading mid-cut JSON with no
+        # notice treats truncated content as complete data (it never sees
+        # chat_tools' own 12000-char marker if that marker lands past 6000).
+        def _window(text: str, cap: int = 6000) -> str:
+            text = "" if text is None else str(text)
+            if len(text) <= cap:
+                return text
+            return (text[:cap] + f"... [TRUNCATED — {len(text) - cap} more "
+                    "chars lost. Call again with narrower args or read "
+                    "specific fields instead of the whole blob.]")
+        windowed = _window(result_text)
         self.llm_messages.append({"role": "tool", "tool_call_id": call_id,
-                                  "content": result_text[:6000]})
+                                  "content": windowed})
         history_entry: dict = {"role": "tool", "tool": name,
                              "call_id": call_id, "args": args if isinstance(args, dict) else {},
-                             "text": result_text[:6000]}
+                             "text": windowed}
         if turn is not None:
             history_entry["turn"] = turn
         entry = self._append_history(history_entry)

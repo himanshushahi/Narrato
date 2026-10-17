@@ -17,7 +17,9 @@ Differences from the MCP transport (intentional, documented):
 
 import base64
 import json
+import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -258,10 +260,41 @@ def _sleep_tool(args: dict, cancel_event=None) -> dict:
 
 
 def _results_json(result) -> str:
+    """Serialize a tool result for the LLM window.
+
+    Two contract details matter for agent self-correction:
+    1. Error-repair fields (error/error_code/fix/hint/...) are hoisted to the
+       front of error dicts, so a later token-cap slice can never cut off
+       exactly the fields the repair loop needs (dict key order is the
+       order json.dumps emits).
+    2. Oversized results are cut with an explicit marker so the model knows
+       text was lost instead of reading truncated JSON as complete data.
+    """
+    if isinstance(result, dict) and (result.get("ok") is False
+                                     or "error" in result):
+        _PRIORITY = ("ok", "error", "error_code", "fix", "hint", "reason",
+                     "reasons", "retry_with", "next", "next_step",
+                     "awaiting_stage", "needs_confirmation", "task_id",
+                     "stage", "dry_run", "persisted", "auto_fixed",
+                     "warning")
+        ordered: dict = {}
+        for k in _PRIORITY:
+            if k in result:
+                ordered[k] = result[k]
+        for k, v in result.items():
+            if k not in ordered:
+                ordered[k] = v
+        result = ordered
     try:
-        return json.dumps(result, ensure_ascii=False, default=str)
+        text = json.dumps(result, ensure_ascii=False, default=str)
     except Exception:
         return str(result)
+    if len(text) > 12000:
+        # try=3 keeps the marker inside the same budget the LLM window
+        # expects (chat_session slices again at 6000 but preserves markers).
+        marker_len = 64
+        text = text[:12000 - marker_len] + "... [TRUNCATED for context]"
+    return text
 
 
 def _to_bool(value, default: bool = False) -> bool:
@@ -301,6 +334,51 @@ def _to_int_or_none(value):
     return int(f) if f.is_integer() else None
 
 
+_REPETITION_EXEMPT_TOOLS = ("sleep", "stage_status", "cancel_stage")
+_REPETITION_WINDOW = 8
+_REPETITION_THRESHOLD = 3
+_RECENT_CALLS: deque = None
+_RECENT_CALLS_LOCK = threading.Lock()
+
+
+def _record_repetition(tool_name: str, args: dict):
+    """Detect blind retries: the SAME tool called repeatedly with IDENTICAL
+    arguments. Three identical consecutive calls almost always mean the
+    agent re-calls in a loop hoping for a different outcome (errors now
+    carry fix/retry_with guidance, so identical calls are opaque).
+
+    Returns a warning string on the 3rd+ consecutive identical call, else
+    None. Polling tools (sleep/stage_status/cancel_stage) are exempt —
+    their sleep→stage_status rhythm naturally interleaves, and a same-args
+    stage_status is legitimate progress watching.
+    """
+    global _RECENT_CALLS
+    if tool_name in _REPETITION_EXEMPT_TOOLS:
+        return None
+    signature = tool_name + ":" + json.dumps(
+        args, sort_keys=True, ensure_ascii=False, default=str)
+    with _RECENT_CALLS_LOCK:
+        if _RECENT_CALLS is None:
+            _RECENT_CALLS = deque(maxlen=_REPETITION_WINDOW)
+        _RECENT_CALLS.append(signature)
+        streak = 0
+        for sig in reversed(_RECENT_CALLS):
+            if sig != signature:
+                break
+            streak += 1
+        if streak < _REPETITION_THRESHOLD:
+            return None
+    return (
+        f"REPEATED_IDENTICAL_CALL: {tool_name} was called {streak}x in a row "
+        f"with byte-identical arguments — identical calls return identical "
+        f"results, so do NOT expect a different outcome from re-calling. "
+        f"Next: read the full error/result (especially fix / retry_with / "
+        f"error_code fields), change an argument or the underlying state "
+        f"(save/patch/fetch/render), or switch to a different tool. If the "
+        f"previous identical result was ok:true, reuse it instead of "
+        f"re-calling.")
+
+
 def execute_chat_tool(tool_name: str, arguments: Dict[str, Any], default_project_id: str = "",
                       cancel_event=None) -> str:
     """Execute one chat tool via the same implementation the MCP server uses.
@@ -323,6 +401,10 @@ def execute_chat_tool(tool_name: str, arguments: Dict[str, Any], default_project
                              "running", args=args)
     try:
         result = _dispatch(tool_name, args, default_project_id, cancel_event)
+        repeat_warning = _record_repetition(tool_name, args)
+        if repeat_warning and isinstance(result, dict):
+            result = dict(result)
+            result.setdefault("repetition_warning", repeat_warning)
         status = "ok" if not (isinstance(result, dict) and result.get("ok") is False) else "error"
         text = _results_json(result)
         # Cap tool-result size for LLM context (probe/review payloads are big).
@@ -338,7 +420,16 @@ def execute_chat_tool(tool_name: str, arguments: Dict[str, Any], default_project
     except Exception as e:
         logger.error(f"chat tool {tool_name} failed: {e}", exc_info=True)
         update_activity(entry_id, "error", f"exception: {e}", result=None)
-        return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
+        return json.dumps({
+            "ok": False,
+            "error_code": "CHAT_TOOL_EXCEPTION",
+            "error": str(e),
+            "tool_name": tool_name,
+            "error_type": type(e).__name__,
+            "fix": {
+                "hint": f"Execution of chat tool '{tool_name}' failed with {type(e).__name__}. Check arguments and try again."
+            }
+        }, ensure_ascii=False)
 
 
 def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=None):
@@ -357,13 +448,28 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
         if not resolved:
             return {"ok": False, "error_code": "NO_PROJECT",
                     "error": (f"{tool_name} needs a project_id: this chat has no "
-                              f"open project bound.")}
+                              f"open project bound."),
+                    "tool": tool_name,
+                    "fix": {
+                        "tool": "list_projects",
+                        "arguments": {},
+                        "hint": "Provide an explicit project_id argument, or use list_projects to find existing projects."
+                    }}
         if default and resolved != default:
             return {"ok": False, "error_code": "WRONG_PROJECT",
                     "error": (f"{tool_name} targets project {resolved!r}, but this chat "
                               f"is bound to project {default!r}. Writes, "
                               f"deletes, and stage runs outside the open project "
-                              f"are not allowed; reads are.")}
+                              f"are not allowed; reads are."),
+                    "requested_project_id": resolved,
+                    "bound_project_id": default,
+                    "tool": tool_name,
+                    "fix": {
+                        "tool": tool_name,
+                        "arguments": {"project_id": default},
+                        "params": {"project_id": default},
+                        "hint": f"Omit project_id or set project_id={default!r} to target the open project."
+                    }}
 
     # Waiting discipline: while a pipeline stage runs on this project, refuse
     # state-mutating tools so a wait=false polling turn cannot wander into
@@ -377,10 +483,17 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
             busy = _chat_busy_stage(pid)
             if busy:
                 name = busy if isinstance(busy, str) else "unknown"
-                return {"ok": False, "awaiting_stage": name,
+                return {"ok": False, "error_code": "STAGE_RUNNING", "awaiting_stage": name,
                         "error": (f"Stage {name!r} is running on this project — wait for it first: "
                                   "sleep, then stage_status, repeat until completed/failed. "
-                                  "Mutating tools are locked until it settles; read-only probes are fine.")}
+                                  "Mutating tools are locked until it settles; read-only probes are fine."),
+                        "tool": tool_name,
+                        "fix": {
+                            "tool": "stage_status",
+                            "arguments": {"project_id": pid, "stage": name},
+                            "params": {"project_id": pid, "stage": name},
+                            "hint": f"Call sleep(30-60) then stage_status(stage={name!r}) until the stage completes or fails."
+                        }}
 
     # --- thin wrappers: same functions MCP calls (incl. skill-gate checks) ---
     if tool_name == "list_projects":
@@ -524,7 +637,11 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
             return {"ok": False, "error_code": "DROPPED_TOOL",
                     "error": (f"{name!r} is not available in chat: project creation "
                               f"and deletion live in the app UI (New Narrative Build "
-                              f"form + delete button), not in this project-bound chat.")}
+                              f"form + delete button), not in this project-bound chat."),
+                    "tool": name,
+                    "fix": {
+                        "hint": "Use the application UI for project creation and deletion. Chat agents operate within an existing project context."
+                    }}
         return S.get_tool_details(name)
     if tool_name == "list_voice_options":
         return S.list_voice_options()
@@ -538,7 +655,13 @@ def _dispatch(tool_name: str, args: dict, default_project_id: str, cancel_event=
     if tool_name == "read_project_file":
         return S.read_project_file(args.get("project_id", "") or default_project_id,
                                    args.get("path", ""), offset=_to_int(args.get("offset", 0), 0))
-    return {"ok": False, "error": f"Unknown chat tool {tool_name!r}."}
+    return {"ok": False, "error_code": "UNKNOWN_CHAT_TOOL",
+            "error": f"Unknown chat tool {tool_name!r}.",
+            "tool": tool_name,
+            "fix": {
+                "tool": "search_tools",
+                "hint": f"Tool '{tool_name}' is not recognized. Call search_tools to discover available tools and check schema."
+            }}
 
 
 def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel_event=None) -> dict:
@@ -549,9 +672,26 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
     project_id = args.get("project_id", "") or default_project_id
     stage = (args.get("stage", "") or "").strip().lower()
     if stage not in CHAT_RUNNABLE_STAGES:
-        return {"ok": False, "error": f"stage must be one of {list(CHAT_RUNNABLE_STAGES)}."}
+        return {
+            "ok": False,
+            "error_code": "INVALID_STAGE",
+            "error": f"stage must be one of {list(CHAT_RUNNABLE_STAGES)}.",
+            "allowed_stages": list(CHAT_RUNNABLE_STAGES),
+            "got_stage": stage,
+            "fix": {
+                "hint": f"Set stage to one of: {', '.join(CHAT_RUNNABLE_STAGES)}."
+            }
+        }
     if not project_id:
-        return {"ok": False, "error": "project_id is required."}
+        return {
+            "ok": False,
+            "error_code": "MISSING_REQUIRED_FIELD",
+            "error": "project_id is required.",
+            "field": "project_id",
+            "fix": {
+                "hint": "Provide a valid project_id parameter."
+            }
+        }
 
     # Idempotency mirrors MCP run_stage: same key+stage+script-content replays
     # instead of re-running. wait=false completions land in the background
@@ -577,22 +717,56 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
         wait = _to_bool(args.get("wait", True))
         confirm_render = _to_bool(args.get("confirm_render", False))
         if stage == "render" and not confirm_render:
-            return {"ok": False, "stage": stage, "needs_confirmation": True,
-                    "error": ("Render is gated by human review. Summarize the build, ask the user "
-                              "to review/edit in the app, and only re-call run_stage(render) with "
-                              "confirm_render=true after explicit approval.")}
+            return {
+                "ok": False,
+                "error_code": "RENDER_CONFIRMATION_REQUIRED",
+                "stage": stage,
+                "needs_confirmation": True,
+                "error": ("Render is gated by human review. Summarize the build, ask the user "
+                          "to review/edit in the app, and only re-call run_stage(render) with "
+                          "confirm_render=true after explicit approval."),
+                "fix": {
+                    "tool": "run_stage",
+                    "arguments": {"project_id": project_id, "stage": "render", "confirm_render": True},
+                    "params": {"project_id": project_id, "stage": "render", "confirm_render": True},
+                    "hint": "First ask the user for confirmation. Once approved, pass confirm_render=true to run_stage."
+                }
+            }
         # One driver at a time: refuse when the desktop queue is busy on this project.
         try:
             active = getattr(global_queue_manager, "_active_project_id", None)
             queued = list(getattr(global_queue_manager, "_queue", []) or [])
             if active == project_id or project_id in _queue_ids(queued):
-                return {"ok": False, "stage": stage,
-                        "error": f"Project {project_id!r} already has a queued/running pipeline stage; wait or cancel it first."}
+                return {
+                    "ok": False,
+                    "error_code": "STAGE_RUNNING",
+                    "stage": stage,
+                    "error": f"Project {project_id!r} already has a queued/running pipeline stage; wait or cancel it first.",
+                    "project_id": project_id,
+                    "fix": {
+                        "tool": "stage_status",
+                        "arguments": {"project_id": project_id, "stage": stage},
+                        "params": {"project_id": project_id, "stage": stage},
+                        "hint": "Poll stage_status or call sleep before checking again, or use cancel_stage to abort."
+                    }
+                }
         except Exception:
             pass
         ok = global_queue_manager.queue_project(project_id, [stage])
         if not ok:
-            return {"ok": False, "stage": stage, "error": "Queue rejected the stage (already queued?)."}
+            return {
+                "ok": False,
+                "error_code": "QUEUE_REJECTED",
+                "stage": stage,
+                "error": "Queue rejected the stage (already queued?).",
+                "project_id": project_id,
+                "fix": {
+                    "tool": "stage_status",
+                    "arguments": {"project_id": project_id, "stage": stage},
+                    "params": {"project_id": project_id, "stage": stage},
+                    "hint": "Check stage_status to see if the stage is already in progress or completed."
+                }
+            }
         # wait=false returns before the worker finishes: stage the
         # idempotency key now; the worker promotes it on completion
         # (failures/cancels drop it). Keyless submits clear the slot.
@@ -659,20 +833,57 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
                         except Exception:
                             pass
                     return out
-                return {"ok": False, "project_id": project_id, "stage": stage,
-                        "error": row.get("error_message") or row.get("message") or "Stage failed."}
-        return {"ok": False, "project_id": project_id, "stage": stage,
-                "error": "Timed out waiting for stage (still running in background — poll stage_status)."}
+                return {
+                    "ok": False,
+                    "error_code": "STAGE_FAILED",
+                    "project_id": project_id,
+                    "stage": stage,
+                    "error": row.get("error_message") or row.get("message") or "Stage failed.",
+                    "fix": {
+                        "hint": f"Inspect the error above for stage '{stage}'. You may need to review inputs or retry the stage."
+                    }
+                }
+        return {
+            "ok": False,
+            "error_code": "STAGE_TIMEOUT",
+            "project_id": project_id,
+            "stage": stage,
+            "error": "Timed out waiting for stage (still running in background — poll stage_status).",
+            "fix": {
+                "tool": "stage_status",
+                "arguments": {"project_id": project_id, "stage": stage},
+                "params": {"project_id": project_id, "stage": stage},
+                "hint": "Stage is still running in background. Use sleep then stage_status to check completion."
+            }
+        }
 
     task_id = f"{project_id}_{stage}"
     if tool_name == "stage_status":
         try:
             rows = {t.get("step"): t for t in (_db.get_project_tasks(project_id) or [])}
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return {
+                "ok": False,
+                "error_code": "DB_QUERY_FAILED",
+                "error": str(e),
+                "fix": {
+                    "hint": "Database query for project tasks failed. Verify database connectivity."
+                }
+            }
         row = rows.get(stage)
         if row is None:
-            return {"ok": False, "error": f"No task {task_id!r} yet. Submit with run_stage first."}
+            return {
+                "ok": False,
+                "error_code": "TASK_NOT_FOUND",
+                "error": f"No task {task_id!r} yet. Submit with run_stage first.",
+                "task_id": task_id,
+                "fix": {
+                    "tool": "run_stage",
+                    "arguments": {"project_id": project_id, "stage": stage},
+                    "params": {"project_id": project_id, "stage": stage},
+                    "hint": f"Submit stage '{stage}' using run_stage before querying its status."
+                }
+            }
         try:
             active = getattr(global_queue_manager, "_active_project_id", None)
             queued = list(getattr(global_queue_manager, "_queue", []) or [])
@@ -692,7 +903,14 @@ def _stage_via_queue(tool_name: str, args: dict, default_project_id: str, cancel
             pass
         return {"ok": True, "task_id": task_id, "cancel_requested": True}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "CANCEL_FAILED",
+            "error": str(e),
+            "fix": {
+                "hint": f"Failed to cancel project queue: {e}."
+            }
+        }
 
 
 def _review_frame_chat(args: dict, default_project_id: str) -> dict:
@@ -710,10 +928,24 @@ def _review_frame_chat(args: dict, default_project_id: str) -> dict:
             scene_number=_to_int_or_none(args.get("scene_number")),
             cut_number=_to_int_or_none(args.get("cut_number")))
     except (ValueError, RuntimeError) as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "REVIEW_FRAME_ERROR",
+            "error": str(e),
+            "fix": {
+                "hint": "Verify section_type, scene_number, cut_number, and that assets/frames exist for the target cut."
+            }
+        }
     except Exception as e:
         logger.error(f"chat review_frame failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "REVIEW_FRAME_FAILED",
+            "error": str(e),
+            "fix": {
+                "hint": f"Review frame generation encountered an error: {e}. Check logs or verify project state."
+            }
+        }
     if isinstance(meta, dict) and meta.get("ok") is False:
         return meta
     try:

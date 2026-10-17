@@ -349,10 +349,22 @@ def _refuse_if_stage_running(fn):
                     stage = active[len(pid) + 1:]
                 else:
                     stage = active.rsplit("_", 1)[-1] if "_" in active else active
-                return {"ok": False, "awaiting_stage": stage,
-                        "error": (f"Project {pid!r} has a running MCP stage ({stage}); "
-                                  "sleep, then stage_status until it completes. "
-                                  "Mutating tools are locked meanwhile; read-only probes are fine.")}
+                return {
+                    "ok": False,
+                    "awaiting_stage": stage,
+                    "error_code": "STAGE_RUNNING",
+                    "error": (f"Project {pid!r} has a running MCP stage ({stage}); "
+                              "sleep, then stage_status until it completes. "
+                              "Mutating tools are locked meanwhile; read-only probes are fine."),
+                    "project_id": pid,
+                    "fix": {
+                        "wait_calls": [
+                            {"tool": "sleep", "arguments": {"seconds": 30}},
+                            {"tool": "stage_status", "arguments": {"project_id": pid, "stage": stage}},
+                        ],
+                        "hint": f"Wait for {stage} to complete before running mutating tools.",
+                    },
+                }
         return fn(*args, **kwargs)
 
     return wrapper
@@ -540,6 +552,84 @@ def _skill_required_error(stage: str, project_id: str, missing: list) -> dict:
         },
     }
 
+def _format_tool_error(
+    tool_name: str,
+    exc: Exception | str,
+    default_error_code: str = "TOOL_ERROR",
+    hint: str | None = None,
+    **extra_fields,
+) -> dict:
+    err_str = str(exc)
+    error_code = default_error_code
+    project_id = extra_fields.get("project_id")
+
+    fix_dict: dict | None = None
+    if isinstance(extra_fields.get("fix"), dict):
+        fix_dict = extra_fields.pop("fix")
+    elif hint:
+        fix_dict = {"hint": hint}
+
+    err_lower = err_str.lower()
+    # Intelligent pattern matching so error codes and fixes never mislead the AI:
+    if "not found in database" in err_lower or "not found in the database" in err_lower:
+        error_code = "PROJECT_NOT_FOUND"
+        if not fix_dict:
+            fix_dict = {
+                "tool": "list_projects",
+                "arguments": {},
+                "hint": "Project does not exist. Call list_projects() to view valid project IDs or create_project() to create one."
+            }
+    elif "index/number conflict" in err_lower:
+        error_code = "INDEX_NUMBER_CONFLICT"
+        if not fix_dict:
+            fix_dict = {"hint": "Pass either 1-based number (scene_number/cut_number) OR 0-based index (scene_index/cut_index), not conflicting values."}
+    elif "numbers are 1-based" in err_lower:
+        error_code = "INVALID_1BASED_NUMBER"
+        if not fix_dict:
+            fix_dict = {"hint": "Scene and cut numbers in Narrato UI are 1-based (Scene 1, Cut #1). For 0-based indexing use scene_index or cut_index."}
+    elif "section_type must be one of" in err_lower:
+        error_code = "INVALID_SECTION_TYPE"
+        if not fix_dict:
+            fix_dict = {"hint": "section_type must be 'introduction', 'scene', or 'conclusion'."}
+    elif "cut_index" in err_lower and "out of range" in err_lower:
+        error_code = "CUT_INDEX_OUT_OF_RANGE"
+    elif "scene_index" in err_lower and "out of range" in err_lower:
+        error_code = "SCENE_INDEX_OUT_OF_RANGE"
+    elif "layer_index" in err_lower and "out of range" in err_lower:
+        error_code = "LAYER_INDEX_OUT_OF_RANGE"
+    elif "no authored sub_visuals yet" in err_lower or "no visuals yet" in err_lower:
+        error_code = "NO_VISUALS_YET"
+        if not fix_dict:
+            fix_dict = {
+                "tool": "save_visuals",
+                "arguments": {"project_id": project_id} if project_id else {},
+                "hint": "Author sub_visuals with save_visuals before probing or reviewing frames."
+            }
+    elif "composition_stills_timeout" in err_str.upper():
+        error_code = "STILL_RENDER_TIMEOUT"
+        if not fix_dict:
+            fix_dict = {"hint": "Headless still render timed out. Retry with max_cells=1 or verify Chromium/Remotion stills."}
+    elif "render script not found" in err_lower:
+        error_code = "RENDER_SCRIPT_NOT_FOUND"
+        if not fix_dict:
+            fix_dict = {"hint": "Frontend render bundle missing. Run a full render once from the app to build the Remotion bundles."}
+    elif "next: " in err_str and not fix_dict:
+        next_hint = err_str.split("Next: ", 1)[1].strip()
+        fix_dict = {"hint": next_hint}
+
+    res = {
+        "ok": False,
+        "error": err_str,
+        "error_code": error_code,
+        "tool": tool_name,
+    }
+    if fix_dict is not None:
+        res["fix"] = fix_dict
+    for k, v in extra_fields.items():
+        if v is not None:
+            res[k] = v
+    return res
+
 
 # ── Projects ──────────────────────────────────────────────────────────
 
@@ -621,7 +711,12 @@ def create_project(
     4. Duration Mode: 'short', 'medium', 'long', 'extra_long' (matched to format).
     5. Export Destination Folder: Confirm custom path or default exports dir.
     6. Voice: Offer choices via list_voice_options.
-    7. Visual Style (optional): free-text mood hint — there are no preset genres.
+    7. Visual Style: Ask what look/mood they want. Offer the 50-style library
+       (list_skills → visual-style-library index: noir, HUD, paper collage,
+       kinetic type, archival, blueprint, liquid glass, …) OR free text
+       ("warm editorial"). Pass the chosen style name/slug as `style_hint` —
+       the pipeline resolves it to ONE canonical look bound to design.json
+       tokens, and this tool's result reports the resolved style back.
 
     Read the narrato://pipeline-guide resource before starting a full build."""
     # Required intake fields: Ellipsis/None means the agent skipped the
@@ -632,11 +727,38 @@ def create_project(
     if legacy_kwargs:
         logger.warning(f"create_project ignoring removed legacy args: {sorted(legacy_kwargs)}")
     if language is ... or language is None:
-        return {"ok": False, "error": "language is required — ask the user (hi, en)."}
+        return {
+            "ok": False,
+            "error": "language is required — ask the user (hi, en).",
+            "error_code": "MISSING_REQUIRED_FIELD",
+            "field": "language",
+            "allowed_languages": ["hi", "en"],
+            "fix": {
+                "hint": "Ask the user to choose a language ('hi' for Hindi or 'en' for English) before calling create_project.",
+            },
+        }
     if video_format is ... or video_format is None:
-        return {"ok": False, "error": "video_format is required — ask the user (landscape, portrait)."}
+        return {
+            "ok": False,
+            "error": "video_format is required — ask the user (landscape, portrait).",
+            "error_code": "MISSING_REQUIRED_FIELD",
+            "field": "video_format",
+            "allowed_formats": ["landscape", "portrait"],
+            "fix": {
+                "hint": "Ask the user to choose a video format ('landscape' for 16:9 YouTube or 'portrait' for 9:16 Shorts/Reels).",
+            },
+        }
     if duration_mode is ... or duration_mode is None:
-        return {"ok": False, "error": "duration_mode is required — ask the user (short, medium, long, extra_long)."}
+        return {
+            "ok": False,
+            "error": "duration_mode is required — ask the user (short, medium, long, extra_long).",
+            "error_code": "MISSING_REQUIRED_FIELD",
+            "field": "duration_mode",
+            "allowed_duration_modes": ["short", "medium", "long", "extra_long"],
+            "fix": {
+                "hint": "Ask the user for duration mode. For landscape: medium (~5m), long (~10m), extra_long (~15m). For portrait: short (~60s), medium (~90s), long (~2m).",
+            },
+        }
     if export_folder is ... or export_folder is None:
         export_folder = ""
     if style is ... or style is None:
@@ -645,40 +767,95 @@ def create_project(
         style_hint = ""
 
     if not (name or "").strip():
-        return {"ok": False, "error": "name must be a non-empty string."}
+        return {
+            "ok": False,
+            "error": "name must be a non-empty string.",
+            "error_code": "INVALID_FIELD_VALUE",
+            "field": "name",
+            "fix": {"hint": "Provide a descriptive title/topic for the narrative (e.g. 'How Bitcoin Works')."},
+        }
     if video_format not in ("landscape", "portrait"):
-        return {"ok": False, "error": "video_format must be landscape or portrait."}
+        return {
+            "ok": False,
+            "error": "video_format must be landscape or portrait.",
+            "error_code": "INVALID_FIELD_VALUE",
+            "field": "video_format",
+            "allowed": ["landscape", "portrait"],
+            "fix": {"hint": "Specify 'landscape' (16:9) or 'portrait' (9:16)."},
+        }
     if duration_mode not in ("short", "medium", "long", "extra_long"):
-        return {"ok": False,
-                "error": "duration_mode must be short, medium, long or extra_long."}
+        return {
+            "ok": False,
+            "error": "duration_mode must be short, medium, long or extra_long.",
+            "error_code": "INVALID_FIELD_VALUE",
+            "field": "duration_mode",
+            "allowed": ["short", "medium", "long", "extra_long"],
+            "fix": {"hint": "Choose short, medium, long, or extra_long."},
+        }
     # Mode must match format — otherwise pacing would silently remap
     # (e.g. landscape/short stored as short but enforced as medium/300s).
     try:
         from backend.mcp.pacing import VALID_COMBOS
         if duration_mode not in VALID_COMBOS.get(video_format, set()):
-            return {"ok": False,
-                    "error": (
-                        f"duration_mode {duration_mode!r} is not valid for "
-                        f"video_format {video_format!r}. Valid: "
-                        f"landscape={sorted(VALID_COMBOS['landscape'])}, "
-                        f"portrait={sorted(VALID_COMBOS['portrait'])}.")}
+            return {
+                "ok": False,
+                "error": (
+                    f"duration_mode {duration_mode!r} is not valid for "
+                    f"video_format {video_format!r}. Valid: "
+                    f"landscape={sorted(VALID_COMBOS['landscape'])}, "
+                    f"portrait={sorted(VALID_COMBOS['portrait'])}."
+                ),
+                "error_code": "INVALID_FORMAT_DURATION_COMBO",
+                "video_format": video_format,
+                "duration_mode": duration_mode,
+                "valid_combos": {k: sorted(v) for k, v in VALID_COMBOS.items()},
+                "fix": {
+                    "hint": f"For {video_format!r}, choose from {sorted(VALID_COMBOS.get(video_format, []))}.",
+                },
+            }
     except Exception as e:
         err = str(e)
         if "not valid for" in err:
-            return {"ok": False, "error": err}
+            return {"ok": False, "error": err, "error_code": "INVALID_FORMAT_DURATION_COMBO"}
     if language not in ("hi", "en"):
-        return {"ok": False, "error": "language must be 'hi' or 'en'."}
+        return {
+            "ok": False,
+            "error": "language must be 'hi' or 'en'.",
+            "error_code": "INVALID_FIELD_VALUE",
+            "field": "language",
+            "allowed": ["hi", "en"],
+            "fix": {"hint": "Provide 'hi' for Hindi or 'en' for English."},
+        }
     if not (style or "").strip():
-        return {"ok": False, "error": "style must be a non-empty string."}
+        return {
+            "ok": False,
+            "error": "style must be a non-empty string.",
+            "error_code": "INVALID_FIELD_VALUE",
+            "field": "style",
+            "fix": {"hint": "Use 'nitish_rajput' or another valid style string."},
+        }
     if export_folder:
         # Reject traversal/relative games; fail fast on unusable paths.
         normalized = str(export_folder).strip()
         if ".." in normalized.replace("\\", "/").split("/"):
-            return {"ok": False, "error": "export_folder must not contain '..'."}
+            return {
+                "ok": False,
+                "error": "export_folder must not contain '..'.",
+                "error_code": "UNSAFE_PATH",
+                "field": "export_folder",
+                "fix": {"hint": "Provide an absolute or relative directory path without parent directory traversal ('..')."},
+            }
         try:
             Path(normalized).mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            return {"ok": False, "error": f"export_folder is not usable: {e}"}
+            return {
+                "ok": False,
+                "error": f"export_folder {normalized!r} is not usable ({e}).",
+                "error_code": "PATH_CREATION_FAILED",
+                "field": "export_folder",
+                "attempted_path": normalized,
+                "fix": {"hint": "Provide a valid writable folder path (or leave export_folder empty to use the default exports directory). Common causes: drive not mounted, permission denied, or an invalid character in the path."},
+            }
         export_folder = normalized
     else:
         safe = "".join(c for c in name.strip()[:60] if c not in '<>:"/\\|?*').strip() or "untitled"
@@ -695,7 +872,7 @@ def create_project(
         )
     except Exception as e:
         logger.error(f"MCP create_project failed: {e}")
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("create_project", e, default_error_code="PROJECT_CREATION_FAILED")
     (_config.get_storage_dir() / project_id).mkdir(parents=True, exist_ok=True)
     try:
         from backend.mcp.pacing import get_pacing
@@ -714,6 +891,28 @@ def create_project(
             "target_per_scene_words": _pacing["per_scene_words_label"],
             "next_step": "Call get_stage_skills('script', project_id) before authoring the script.",
         })
+    # Report the resolved 50-style look so external agents learn ONE of:
+    # (a) which library style the hint matched, (b) that the hint is free
+    # text (topic-driven look), or (c) that a typo landed nowhere — all
+    # actionable BEFORE any visual work happens.
+    if (style_hint or "").strip():
+        try:
+            from backend.pipeline.style_library import resolve_style, STYLE_SPECS
+            _slug = resolve_style(style_hint)
+            if _slug:
+                result["resolved_style"] = {
+                    "slug": _slug, "name": STYLE_SPECS[_slug]["name"]}
+            else:
+                result["resolved_style"] = {
+                    "slug": "", "name": "",
+                    "note": ("Hint stored as free text — look will be "
+                             "invented from topic. To pin a curated look, "
+                             "recreate the project (or update the prompt) "
+                             "with a 50-style library slug from list_skills "
+                             "→ visual-style-library (e.g. 'noir', "
+                             "'liquid-glass', 'archival-film').")}
+        except Exception as e:
+            logger.warning(f"create_project style resolution skipped: {e}")
     return result
 
 
@@ -723,7 +922,7 @@ def list_projects() -> dict:
     try:
         rows = _db.get_all_projects()
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("list_projects", e, default_error_code="DB_QUERY_FAILED")
     return {"ok": True, "projects": [
         {k: r.get(k) for k in ("id", "name", "status", "language", "duration_mode",
                                "video_format", "created_at", "updated_at")}
@@ -739,7 +938,17 @@ def project_status(project_id: str) -> dict:
     try:
         proj = _db.get_project(project_id)
         if not proj:
-            return {"ok": False, "error": f"Project {project_id!r} not found."}
+            return {
+                "ok": False,
+                "error": f"Project {project_id!r} not found.",
+                "error_code": "PROJECT_NOT_FOUND",
+                "project_id": project_id,
+                "fix": {
+                    "tool": "list_projects",
+                    "arguments": {},
+                    "hint": "Check the available project IDs using list_projects().",
+                },
+            }
 
         # Reconcile on-disk visuals state with the tasks table
         sync_res = None
@@ -751,7 +960,7 @@ def project_status(project_id: str) -> dict:
 
         tasks = _db.get_project_tasks(project_id)
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("project_status", e, default_error_code="PROJECT_STATUS_FAILED", project_id=project_id)
 
     # Inspect design system
     design_info = {"saved": False, "theme_name": "", "design_hash": ""}
@@ -795,7 +1004,8 @@ def list_skills() -> dict:
 def get_skill(skill_name: str, language: str = "hi", video_format: str = "landscape",
               section: str = "", brief: bool = False, project_id: str = "") -> dict:
     """**FOR MCP EXTERNAL AGENT ONLY.** Get the full markdown guide for one skill (e.g. scriptwriter,
-    visual-director-core, motion-graphics-designer, declarative-ast).
+    visual-director-core, motion-graphics-designer, declarative-ast,
+    visual-style-library — the 50-look index, pull one family section via section="cinematic").
     Template variables are rendered for the given language/format.
     Big skills are ~50KB: pass brief=true for a section map first, then
     section="..." (fuzzy: title, subhead like "particles", or number)
@@ -812,15 +1022,38 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
     from backend.agent.skill_loader import skill_loader
     skill = skill_loader.get_skill(skill_name, context="tool")
     if not skill:
-        return {"ok": False, "error": f"Skill {skill_name!r} not found. Use list_skills."}
+        from backend.agent.skill_loader import skill_loader
+        known = sorted({s.name for s in skill_loader.get_agent_skills().values()})
+        return {
+            "ok": False,
+            "error": f"Skill {skill_name!r} not found. Use list_skills.",
+            "error_code": "SKILL_NOT_FOUND",
+            "skill_name": skill_name,
+            "available_skills": known,
+            "fix": {
+                "tool": "list_skills",
+                "arguments": {},
+                "hint": f"Skill {skill_name!r} was not found. Call list_skills to see all valid skills.",
+            },
+        }
     if getattr(skill, "exposure", "agent") == "internal":
-        return {"ok": False, "error_code": "SKILL_INTERNAL_ONLY",
-                "error": (
-                    f"Skill {skill.name!r} is an internal pipeline stage prompt "
-                    f"(raw template placeholders, no standalone authoring value). "
-                    f"It is not offered to agents. Use list_skills for the "
-                    f"agent-facing guides (scriptwriter, declarative-ast, "
-                    f"visual-director-core, motion-graphics-designer, ...).")}
+        return {
+            "ok": False,
+            "error_code": "SKILL_INTERNAL_ONLY",
+            "error": (
+                f"Skill {skill.name!r} is an internal pipeline stage prompt "
+                f"(raw template placeholders, no standalone authoring value). "
+                f"It is not offered to agents. Use list_skills for the "
+                f"agent-facing guides (scriptwriter, declarative-ast, "
+                f"visual-director-core, motion-graphics-designer, ...)."
+            ),
+            "skill_name": skill.name,
+            "fix": {
+                "tool": "list_skills",
+                "arguments": {},
+                "hint": "Use list_skills to view agent-facing skills.",
+            },
+        }
     _record_skill_read(project_id, skill.name)
     ctx = {"language": language, "video_format": video_format}
     # Project-aware template rendering: fill pacing placeholders
@@ -910,10 +1143,34 @@ def get_skill(skill_name: str, language: str = "hi", video_format: str = "landsc
         if not found:
             titles = [s["title"] for s in
                       skill.brief(**ctx)["sections"]]
-            return {"ok": False,
-                    "error": f"No section matching {section!r} in {skill.name}. Try aliases: layers→'content types', motion→'keyframe animation', recipes→'named composition recipes', geometry→'geometry'.",
-                    "available_sections": titles,
-                    "hint": "Aliases accepted: layers, motion, recipes, geometry, particles, map, chart, text, filters, mask, exit."}
+            if skill.name == "visual-style-library":
+                hint_text = (
+                    "Choose one of the 5 style families ('cinematic', 'tech', '3d', 'editorial', 'organic'), "
+                    "'style index', 'how to apply', or query any of the 50 style slugs directly "
+                    "(e.g. 'investigative-noir', 'cybersecurity-hud', 'blueprint-schematic', 'liquid-glass')."
+                )
+                err_text = f"No section matching {section!r} in {skill.name}. {hint_text}"
+            elif skill.name == "declarative-ast":
+                hint_text = "Aliases accepted: layers, motion, recipes, geometry, particles, map, chart, text, filters, mask, exit."
+                err_text = f"No section matching {section!r} in {skill.name}. Try aliases: layers→'content types', motion→'keyframe animation', recipes→'named composition recipes', geometry→'geometry'."
+            else:
+                hint_text = f"Available sections: {titles}. Call get_skill(skill_name={skill.name!r}, brief=True) for an overview."
+                err_text = f"No section matching {section!r} in {skill.name}. Available sections: {titles}"
+
+            return {
+                "ok": False,
+                "error": err_text,
+                "error_code": "SECTION_NOT_FOUND",
+                "skill_name": skill.name,
+                "requested_section": section,
+                "available_sections": titles,
+                "hint": hint_text,
+                "fix": {
+                    "tool": "get_skill",
+                    "arguments": {"skill_name": skill.name, "brief": True},
+                    "hint": hint_text,
+                },
+            }
         _record_skill_read(project_id, skill.name,
                            section=found["title"])
         return {"ok": True, "name": skill.name, "version": skill.version,
@@ -978,8 +1235,16 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
             stage = "visuals"
 
     if stage not in STAGE_SKILL_REQUIREMENTS:
-        return {"ok": False,
-                "error": f"stage must be one of {sorted(STAGE_SKILL_REQUIREMENTS)} (aliases accepted: generate_visuals, generate_script, art_director)."}
+        return {
+            "ok": False,
+            "error": f"stage must be one of {sorted(STAGE_SKILL_REQUIREMENTS)} (aliases accepted: generate_visuals, generate_script, art_director).",
+            "error_code": "INVALID_STAGE",
+            "stage": stage,
+            "allowed_stages": sorted(STAGE_SKILL_REQUIREMENTS),
+            "fix": {
+                "hint": f"Choose one of the supported stages: {sorted(STAGE_SKILL_REQUIREMENTS)}.",
+            },
+        }
     ctx = {"language": language, "video_format": video_format}
     style_hint = ""
     pacing = None
@@ -1080,11 +1345,32 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
         elif stage == "design":
             sk = skill_loader.get_skill("art-director-design-system",
                                         context="tool")
+            # Resolve the hint against the 50-style library so the design
+            # tokens SUPPORT the canonical look (mirrors pipeline ai.py
+            # _format_design_guidance). Never fails the bundle.
+            _style_lib: dict = {"resolved_style": "", "style_name": ""}
+            _dg_extra = ""
+            if (style_hint or "").strip():
+                try:
+                    from backend.pipeline.style_library import (
+                        resolve_style as _rs, STYLE_SPECS as _ss,
+                    )
+                    _slug = _rs(style_hint)
+                    if _slug:
+                        _style_lib = {"resolved_style": _slug,
+                                      "style_name": _ss[_slug]["name"]}
+                        _dg_extra = (
+                            f" (resolved library style: {_ss[_slug]['name']} "
+                            f"— shape the palette/typography to support this "
+                            f"look; invent tokens fresh, never copy style hex)")
+                except Exception as e:
+                    logger.warning(f"MCP design style resolve failed: {e}")
             design_guidance = (
-                f"User style hint (honor when present, never a preset): {style_hint}"
+                f"User style hint (honor when present, never a preset): {style_hint}{_dg_extra}"
                 if (style_hint or "").strip() else ""
             )
             bundle["art_director"] = sk.render(**{**ctx, "design_guidance": design_guidance}) if sk else ""
+            bundle["style_library"] = _style_lib
             _record_skill_read(project_id, "art-director-design-system")
             existing_theme = ""
             existing_d_hash = ""
@@ -1118,6 +1404,9 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 if sk:
                     briefs[name] = sk.brief(**ctx)
                     _record_skill_read(project_id, name)
+            sk_vsl = skill_loader.get_skill("visual-style-library", context="tool")
+            if sk_vsl:
+                briefs["visual-style-library"] = sk_vsl.brief(**ctx)
             bundle["briefs"] = briefs
             for _k in ("script_rules_block", "design_guidance",
                        "sentence_rule", "genre_script_guidance"):
@@ -1130,7 +1419,7 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 "Pair entrance animations (delay>0) with opacity fade 0->1; spatial-only allowed at delay 0.",
                 "Full capability reference: declarative-ast Part 1 & Part 2 (11 layer types, universal controls, contracts, cut flags).",
                 "Default ONE living take per scene (see creative_pack living_take); use editor_parity keys (objectFit fill, blends, particle_size/colors) instead of repeating the sample_cut shape.",
-                "Style: honor bundle.style_library.active_style_block when resolved_style is set (ONE style per scene); bind style colors/fonts to design.json tokens.",
+                "50 Visual Style Library: pick 1 style per scene from bundle.style_library (max 2-3 styles per video). When resolved_style is set, honor active_style_block. To see full AST mappings for any look, call get_skill(skill_name='visual-style-library', section='<slug_or_family>', project_id=...). Bind all colors and fonts to design.json tokens.",
             ]
             bundle["deep_read_required"] = (
                 "save_visuals ALSO needs ≥1 full section pull from "
@@ -1153,9 +1442,24 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                     "project_hint": _phint,
                     "resolved_style": _sslug,
                     "active_style_block": _sblock,
+                    "families": {
+                        "editorial": "Print, paper collage, typography, brutalist, risograph, zine",
+                        "cinematic": "Noir, parallax documentary, archival film, macro tech, double exposure",
+                        "3d": "Isometric infographics, surreal 3D, CGI, low-poly, voxel, wireframe",
+                        "tech": "Blueprint schematic, HUD, wireframe, cutaway, data viz, contour",
+                        "organic": "Liquid glass, pop art, glitch/VHS, minimalist, fluid gradient, ink",
+                    },
+                    "how_to_query": (
+                        "Call get_skill('visual-style-library', section='<slug_or_family>', project_id=...) — "
+                        "section can be a family ('cinematic', 'tech', '3d', 'editorial', 'organic'), "
+                        "'style index', 'how to apply', or any of the 50 style slugs directly "
+                        "(e.g. 'investigative-noir', 'cybersecurity-hud', 'blueprint-schematic', 'liquid-glass')."
+                    ),
                     "usage": ("ONE style per scene, max 2-3 per video. "
-                              "Pull the family section for the AST mapping: "
-                              "get_skill(skill_name='visual-style-library', section='...', project_id=...). "
+                              "Pull family or slug section for the AST mapping: "
+                              "get_skill(skill_name='visual-style-library', "
+                              "section='cinematic'|'3d'|'tech'|'editorial'|'organic'|<style_slug>, "
+                              "project_id=...) — 'style index' lists all 50. "
                               "Bind all colors/fonts to design.json tokens."),
                 }
                 _record_skill_read(project_id, "visual-style-library")
@@ -1203,7 +1507,7 @@ def get_stage_skills(stage: str = "visuals", project_id: str = "",
                 )
     except Exception as e:
         logger.error(f"MCP get_stage_skills failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_stage_skills", e, default_error_code="STAGE_SKILLS_FAILED", stage=stage)
     return bundle
 
 
@@ -1288,6 +1592,14 @@ def append_skill_learning(
                 f"Use list_skills() to see valid names. "
                 f"Known: {known}"
             ),
+            "error_code": "SKILL_NOT_FOUND",
+            "skill_name": skill_name,
+            "available_skills": known,
+            "fix": {
+                "tool": "list_skills",
+                "arguments": {},
+                "hint": "Check valid skill names with list_skills().",
+            },
         }
 
     import sys
@@ -1316,9 +1628,20 @@ def append_skill_learning(
     if status not in ("pending", "confirmed", "folded"):
         status = "pending"
     if not title or not context or not observation or not fix_or_pattern:
+        missing = [f for f, v in [
+            ("title", title),
+            ("context", context),
+            ("observation", observation),
+            ("fix_or_pattern", fix_or_pattern),
+        ] if not v]
         return {
             "ok": False,
             "error": "All fields (title, context, observation, fix_or_pattern) are required and must be non-empty.",
+            "error_code": "MISSING_REQUIRED_FIELDS",
+            "missing_fields": missing,
+            "fix": {
+                "hint": "Provide non-empty values for title, context, observation, and fix_or_pattern.",
+            },
         }
 
     # ── Format the entry ─────────────────────────────────────────────────
@@ -1453,6 +1776,7 @@ _VISUALS_PACK_SECTIONS: tuple = (
     ("visual-director-core", "compositing", "layer_types"),
     ("motion-graphics-designer", "geometry", "geometry"),
     ("editor-qa", "pre-submission checklist", "qa_checklist"),
+    ("visual-style-library", "how to apply", "style_application"),
 )
 
 
@@ -1500,12 +1824,12 @@ def _visuals_storyboard_pack(ctx: dict, project_id: str) -> dict:
                 "take per scene (establish → develop → evolve → resolve, "
                 "word-synced); a 2nd cut only on a genuine beat shift, named "
                 "in one justification line. Planned takes repeat by design, "
-                "not by accident."),
+                "not by accident. Assign 1 visual style per scene from visual-style-library."),
         "beat_plan_template": (
-            "Scene 3 (9.0s, 1 take, zoom_in): canvas=archive map + 9s drift | "
+            "Scene 3 (9.0s, 1 take, zoom_in, style: investigative-noir): canvas=archive map + 9s drift | "
             "0-2.5 establish+draw route | 2.5-5 develop+pan | "
             "5(word@5.1)-7.5 evolve+gauge+highlight | 7.5-9 resolve+emphasis@8.0\n"
-            "(one take per scene; 2nd cut only with 'because:' justification)"),
+            "(one take per scene; 2nd cut only with 'because:' justification; name style slug from visual-style-library)"),
     }
     try:
         sk = skill_loader.get_skill("storyboard-planner", context="tool")
@@ -1543,10 +1867,10 @@ def save_script(project_id: str, script: dict, force: bool = False) -> dict:
     try:
         return payloads.save_script_payload(project_id, script, force=force)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("save_script", e, default_error_code="SCRIPT_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP save_script failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("save_script", e, default_error_code="SCRIPT_SAVE_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -1578,10 +1902,10 @@ def patch_script(project_id: str, section_type: str, patch: dict,
             project_id, section_type, patch,
             scene_index=scene_index, scene_number=scene_number)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("patch_script", e, default_error_code="PATCH_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP patch_script failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("patch_script", e, default_error_code="PATCH_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -1591,15 +1915,36 @@ def get_script(project_id: str, include_visuals: bool = False) -> dict:
     try:
         proj_dir = payloads._project_dir(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_script", e, default_error_code="INVALID_PROJECT_ID", project_id=project_id)
     script_path = proj_dir / "script.json"
     if not script_path.exists():
-        return {"ok": False, "error": "script.json not found. Use save_script first."}
+        return {
+            "ok": False,
+            "error": "script.json not found. Use save_script first.",
+            "error_code": "SCRIPT_NOT_FOUND",
+            "project_id": project_id,
+            "fix": {
+                "tool": "save_script",
+                "arguments": {"project_id": project_id},
+                "hint": "Create a script with save_script or generate one using get_stage_skills('script', project_id).",
+            },
+        }
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
     except Exception as e:
-        return {"ok": False, "error": f"Could not read script.json: {e}"}
+        return {
+            "ok": False,
+            "error": f"Could not read script.json: {e}",
+            "error_code": "SCRIPT_READ_ERROR",
+            "project_id": project_id,
+            "details": str(e),
+            "fix": {
+                "tool": "save_script",
+                "arguments": {"project_id": project_id},
+                "hint": "The script file on disk is corrupt or unreadable. Rewrite it via save_script.",
+            },
+        }
     return {"ok": True, "project_id": project_id,
             "script": payloads.strip_script_for_agent(script, include_visuals)}
 
@@ -1624,10 +1969,10 @@ def save_design(project_id: str, design: dict, force: bool = False) -> dict:
     try:
         return payloads.save_design_payload(project_id, design, force=force)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("save_design", e, default_error_code="DESIGN_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP save_design failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("save_design", e, default_error_code="DESIGN_SAVE_FAILED", project_id=project_id)
 
 
 # ── Mechanical stages (executed here, no LLM) ─────────────────────────
@@ -1740,11 +2085,17 @@ def _execute_stage_blocking(project_id: str, stage: str) -> dict:
     try:
         proj = _db.get_project(project_id)
         if not proj:
-            raise ValueError(f"Project {project_id!r} not found in database.")
+            raise ValueError(
+                f"Project {project_id!r} not found in database. "
+                f"Call list_projects for valid ids, or create_project to make one.")
         proj_dir = payloads._project_dir(project_id)
     except Exception as e:
         _fail_task_row(project_id, stage, e)
-        return {"ok": False, "error": str(e), "stage": stage}
+        return _format_tool_error(
+            "run_stage", e, default_error_code="PROJECT_NOT_FOUND",
+            stage=stage, project_id=project_id,
+            hint="Check the project id with list_projects (or create the project) "
+                 "before re-submitting this stage.")
     cancel_event = threading.Event()
     with _STAGE_LOCK:
         _STAGE_CANCEL[task_id] = cancel_event
@@ -1763,8 +2114,12 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
         runner = getattr(importlib.import_module(module_name), func_name)
     except Exception as e:
         _fail_task_row(project_id, stage, f"Could not load stage runner: {e}")
-        return {"ok": False, "error": f"Could not load stage runner: {e}",
-                "stage": stage}
+        return _format_tool_error(
+            "run_stage", e, default_error_code="STAGE_RUNNER_LOAD_FAILED",
+            stage=stage, project_id=project_id,
+            hint=("The stage runner module failed to import (installation "
+                  "corrupted or a dependency is missing). Re-running will keep "
+                  "failing until the app is reinstalled — do not retry in a loop."))
 
     def _progress(pct, msg=None):
         try:
@@ -1808,8 +2163,13 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
         # of running a stage no task row tracks — otherwise wait=false
         # leaves a stuck 'running' ghost with an unobserved exception.
         _fail_task_row(project_id, stage, f"Stage bookkeeping failed: {e}")
-        return {"ok": False, "error": f"Stage bookkeeping failed: {e}",
-                "stage": stage}
+        return _format_tool_error(
+            "run_stage", e, default_error_code="DB_BOOKKEEPING_FAILED",
+            stage=stage, project_id=project_id,
+            hint=("The database rejected the task-row bookkeeping writes "
+                  "(locked or missing). This is an app-state problem, not a "
+                  "bad call: make sure the desktop app is not holding the DB, "
+                  "wait ~10s, then retry run_stage once."))
     try:
         kwargs = {"force": False} if takes_force else {}
         runner(proj, proj_dir, _progress, cancel_event, **kwargs)
@@ -1836,7 +2196,13 @@ def _run_stage_inner(project_id: str, stage: str, task_id: str,
         _notify_ui_progress(project_id, stage, float(cur), f"Failed: {str(e)[:80]}",
                             "failed", error_message=str(e))
         _notify_ui_project_event("project_updated", project_id)
-        return {"ok": False, "error": str(e), "stage": stage}
+        return _format_tool_error(
+            "run_stage", e, default_error_code="STAGE_EXECUTION_FAILED",
+            stage=stage, project_id=project_id,
+            hint=("The stage worker crashed mid-run and the task row is "
+                  "marked failed with this message. Diagnose with stage_status "
+                  "and probe_asset/read_project_file before re-running "
+                  "run_stage — do not retry blind."))
     _db.update_task(task_id, status="completed", progress=100.0, message="Step completed (MCP).")
     _maybe_complete_project(project_id)
     _notify_ui_progress(project_id, stage, 100.0, "Step completed (MCP).", "completed")
@@ -1875,28 +2241,57 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
     """
     stage = (stage or "").strip().lower()
     if stage not in _STAGE_RUNNERS:
-        return {"ok": False,
-                "error": f"stage must be one of {sorted(_STAGE_RUNNERS)}."}
+        return {
+            "ok": False,
+            "error": f"stage must be one of {sorted(_STAGE_RUNNERS)}.",
+            "error_code": "INVALID_STAGE",
+            "stage": stage,
+            "allowed_stages": sorted(_STAGE_RUNNERS),
+            "fix": {
+                "hint": f"Choose one of the supported pipeline stages: {sorted(_STAGE_RUNNERS)}.",
+            },
+        }
     if stage == "render" and not confirm_render:
-        return {"ok": False, "stage": stage, "needs_confirmation": True,
-                "error": (
-                    "Render is gated by human review. Do NOT render yet. "
-                    "Instead: (1) confirm fetch_assets completed, "
-                    "(2) run review_frame(mode=composition) per section and fix bad cuts "
-                    "(re-fetch if a fix adds a new query; narration typos via patch_script), "
-                    "(3) run qa_gate — never render when it fails, "
-                    "(4) summarize the build for the user (title, scenes, "
-                    "voice, design, review_frame highlights, qa_gate verdict, get_receipt id), "
-                    "(5) ask them to review/edit in the app, and "
-                    "(6) only re-call run_stage(render) with confirm_render=true "
-                    "after they explicitly approve. After render, spot-check with "
-                    "review_frame(mode=render).")}
+        return {
+            "ok": False,
+            "stage": stage,
+            "needs_confirmation": True,
+            "error_code": "RENDER_CONFIRMATION_REQUIRED",
+            "error": (
+                "Render is gated by human review. Do NOT render yet. "
+                "Instead: (1) confirm fetch_assets completed, "
+                "(2) run review_frame(mode=composition) per section and fix bad cuts "
+                "(re-fetch if a fix adds a new query; narration typos via patch_script), "
+                "(3) run qa_gate — never render when it fails, "
+                "(4) summarize the build for the user (title, scenes, "
+                "voice, design, review_frame highlights, qa_gate verdict, get_receipt id), "
+                "(5) ask them to review/edit in the app, and "
+                "(6) only re-call run_stage(render) with confirm_render=true "
+                "after they explicitly approve. After render, spot-check with "
+                "review_frame(mode=render)."
+            ),
+            "fix": {
+                "tool": "qa_gate",
+                "arguments": {"project_id": project_id},
+                "hint": "Run qa_gate to check project readiness, present a summary to the user, and pass confirm_render=True once approved.",
+            },
+        }
     try:
         if not _db.get_project(project_id):
-            return {"ok": False, "error": f"Project {project_id!r} not found."}
+            return {
+                "ok": False,
+                "error": f"Project {project_id!r} not found.",
+                "error_code": "PROJECT_NOT_FOUND",
+                "project_id": project_id,
+                "fix": {
+                    "tool": "list_projects",
+                    "arguments": {},
+                    "hint": "Check existing project IDs using list_projects().",
+                },
+            }
         payloads._project_dir(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("run_stage", e, default_error_code="INVALID_PROJECT_ID", project_id=project_id, stage=stage)
 
     # Idempotency pre-check: same key + stage + script content already ran
     # → replay instead of re-running (never resubmit a completed render).
@@ -1921,10 +2316,21 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
     with _STAGE_LOCK:
         active = _project_active_stage(project_id)
         if active is not None:
-            return {"ok": False, "task_id": task_id,
-                    "error": f"Project {project_id!r} already has a running MCP stage "
-                             f"({active}); wait for it or cancel_stage it first. "
-                             f"Concurrent stages corrupt manifests."}
+            return {
+                "ok": False,
+                "task_id": task_id,
+                "stage": stage,
+                "project_id": project_id,
+                "error_code": "STAGE_RUNNING",
+                "error": f"Project {project_id!r} already has a running MCP stage "
+                         f"({active}); wait for it or cancel_stage it first. "
+                         f"Concurrent stages corrupt manifests.",
+                "fix": {
+                    "tool": "stage_status",
+                    "arguments": {"project_id": project_id, "stage": active.rsplit("_", 1)[-1] if "_" in active else active},
+                    "hint": f"Wait for stage {active!r} to complete or call cancel_stage.",
+                },
+            }
         if not wait:
             def _run_and_record(_pid=project_id, _st=stage,
                                 _key=idem_key, _hash=content_hash):
@@ -1969,7 +2375,7 @@ def run_stage(project_id: str, stage: str, wait: bool = True,
         return out
     except Exception as e:
         logger.error(f"MCP run_stage {stage} failed for {project_id}: {e}", exc_info=True)
-        return {"ok": False, "error": str(e), "stage": stage}
+        return _format_tool_error("run_stage", e, default_error_code="STAGE_EXECUTION_FAILED", project_id=project_id, stage=stage)
     finally:
         with _STAGE_LOCK:
             _STAGE_FUTURES.pop(task_id, None)
@@ -1982,16 +2388,36 @@ def stage_status(project_id: str, stage: str) -> dict:
     report whether the worker is still running."""
     stage = (stage or "").strip().lower()
     if stage not in _STAGE_RUNNERS:
-        return {"ok": False,
-                "error": f"stage must be one of {sorted(_STAGE_RUNNERS)}."}
+        return {
+            "ok": False,
+            "error": f"stage must be one of {sorted(_STAGE_RUNNERS)}.",
+            "error_code": "INVALID_STAGE",
+            "stage": stage,
+            "allowed_stages": sorted(_STAGE_RUNNERS),
+            "fix": {
+                "hint": f"Choose one of {sorted(_STAGE_RUNNERS)}.",
+            },
+        }
     task_id = f"{project_id}_{stage}"
     try:
         tasks = {t.get("step"): t for t in (_db.get_project_tasks(project_id) or [])}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("stage_status", e, default_error_code="DB_QUERY_FAILED", project_id=project_id, stage=stage)
     row = tasks.get(stage)
     if row is None:
-        return {"ok": False, "error": f"No task {task_id!r} yet. Submit with run_stage first."}
+        return {
+            "ok": False,
+            "error": f"No task {task_id!r} yet. Submit with run_stage first.",
+            "error_code": "TASK_NOT_FOUND",
+            "task_id": task_id,
+            "stage": stage,
+            "project_id": project_id,
+            "fix": {
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": stage, "wait": False},
+                "hint": f"Start the stage using run_stage('{project_id}', '{stage}', wait=False).",
+            },
+        }
     running = _future_running(task_id)
     return {"ok": True, "task_id": task_id,
             "status": row.get("status"), "progress": row.get("progress"),
@@ -2032,14 +2458,34 @@ def cancel_stage(project_id: str, stage: str) -> dict:
     to confirm. Stages started by the desktop app are not affected."""
     stage = (stage or "").strip().lower()
     if stage not in _STAGE_RUNNERS:
-        return {"ok": False,
-                "error": f"stage must be one of {sorted(_STAGE_RUNNERS)}."}
+        return {
+            "ok": False,
+            "error": f"stage must be one of {sorted(_STAGE_RUNNERS)}.",
+            "error_code": "INVALID_STAGE",
+            "stage": stage,
+            "allowed_stages": sorted(_STAGE_RUNNERS),
+            "fix": {
+                "hint": f"Choose one of {sorted(_STAGE_RUNNERS)}.",
+            },
+        }
     task_id = f"{project_id}_{stage}"
     with _STAGE_LOCK:
         event = _STAGE_CANCEL.get(task_id)
     worker_running = _future_running(task_id)
     if event is None and not worker_running:
-        return {"ok": False, "error": f"No running MCP stage {task_id!r} to cancel."}
+        return {
+            "ok": False,
+            "error": f"No running MCP stage {task_id!r} to cancel.",
+            "error_code": "NO_RUNNING_STAGE",
+            "task_id": task_id,
+            "stage": stage,
+            "project_id": project_id,
+            "fix": {
+                "tool": "stage_status",
+                "arguments": {"project_id": project_id, "stage": stage},
+                "hint": "Check stage_status to see the current state of tasks.",
+            },
+        }
     if event is not None:
         event.set()
     try:
@@ -2064,10 +2510,10 @@ def update_voice_settings(project_id: str, settings: dict) -> dict:
     try:
         return payloads.update_voice_settings(project_id, settings)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("update_voice_settings", e, default_error_code="INVALID_VOICE_SETTINGS", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP update_voice_settings failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("update_voice_settings", e, default_error_code="UPDATE_VOICE_SETTINGS_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2081,10 +2527,10 @@ def update_transcribe_settings(project_id: str, settings: dict) -> dict:
     try:
         return payloads.update_transcribe_settings(project_id, settings)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("update_transcribe_settings", e, default_error_code="INVALID_TRANSCRIBE_SETTINGS", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP update_transcribe_settings failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("update_transcribe_settings", e, default_error_code="UPDATE_TRANSCRIBE_SETTINGS_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2099,10 +2545,10 @@ def update_subtitle_settings(project_id: str, settings: dict) -> dict:
     try:
         return payloads.update_subtitle_settings(project_id, settings)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("update_subtitle_settings", e, default_error_code="INVALID_SUBTITLE_SETTINGS", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP update_subtitle_settings failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("update_subtitle_settings", e, default_error_code="UPDATE_SUBTITLE_SETTINGS_FAILED", project_id=project_id)
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
@@ -2114,16 +2560,25 @@ def delete_project(project_id: str) -> dict:
     with _STAGE_LOCK:
         active = _project_active_stage(project_id)
     if active is not None:
-        return {"ok": False,
-                "error": f"Project {project_id!r} has a running MCP stage ({active}); "
-                         f"cancel_stage it first, then delete."}
+        return {
+            "ok": False,
+            "error": f"Project {project_id!r} has a running MCP stage ({active}); cancel_stage it first, then delete.",
+            "error_code": "STAGE_RUNNING",
+            "active_stage": active,
+            "project_id": project_id,
+            "fix": {
+                "tool": "cancel_stage",
+                "arguments": {"project_id": project_id, "stage": active.rsplit("_", 1)[-1] if "_" in active else active},
+                "hint": "Cancel the running stage before deleting the project.",
+            },
+        }
     try:
         return payloads.delete_project_payload(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("delete_project", e, default_error_code="DELETE_PROJECT_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP delete_project failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("delete_project", e, default_error_code="DELETE_PROJECT_FAILED", project_id=project_id)
 
 
 _SEARCH_SOURCES = ("pexels_photo", "pexels_video", "wikipedia_image",
@@ -2182,19 +2637,51 @@ def search_media(source: str, query: str, orientation: str = "landscape") -> dic
     The response echoes `resolved_source` so you can confirm the match."""
     resolved = _resolve_search_source(source)
     if resolved is None:
-        return {"ok": False, "error": f"source must be one of {list(_SEARCH_SOURCES)} (aliases accepted: pexels, pixabay, wikipedia, youtube, archive). Got {source!r}."}
+        return {
+            "ok": False,
+            "error": f"source must be one of {list(_SEARCH_SOURCES)} (aliases accepted: pexels, pixabay, wikipedia, youtube, archive). Got {source!r}.",
+            "error_code": "INVALID_MEDIA_SOURCE",
+            "source": source,
+            "allowed_sources": list(_SEARCH_SOURCES),
+            "allowed_aliases": list(_SEARCH_SOURCE_ALIASES.keys()),
+            "fix": {
+                "hint": f"Choose one of the supported media sources: {list(_SEARCH_SOURCES)} or aliases like pexels, pixabay, wikipedia, youtube, archive.",
+            },
+        }
     source = resolved
     if not (query or "").strip():
-        return {"ok": False, "error": "query must be a non-empty string."}
+        return {
+            "ok": False,
+            "error": "query must be a non-empty string.",
+            "error_code": "EMPTY_SEARCH_QUERY",
+            "field": "query",
+            "fix": {
+                "hint": "Provide a descriptive English search query (e.g. 'cyberpunk city neon rain').",
+            },
+        }
     try:
         from backend.agent.tools import execute_tool as _run_internal_tool
         result = _run_internal_tool(f"search_{source}",
                                     {"query": query.strip(), "orientation": orientation})
     except Exception as e:
         logger.error(f"MCP search_media failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("search_media", e, default_error_code="MEDIA_SEARCH_FAILED", source=source, query=query.strip())
     if isinstance(result, str) and result.startswith("Error"):
-        return {"ok": False, "error": result}
+        err_code = "MEDIA_SEARCH_ERROR"
+        hint = None
+        if "API key" in result or "not configured" in result:
+            err_code = "API_KEY_NOT_CONFIGURED"
+            hint = "This media source requires an API key in Settings. Free sources: wikipedia_image, archive_photo, archive_video."
+        res = {
+            "ok": False,
+            "error": result,
+            "error_code": err_code,
+            "source": source,
+            "query": query.strip(),
+        }
+        if hint:
+            res["fix"] = {"hint": hint, "free_sources": ["wikipedia_image", "archive_photo", "archive_video"]}
+        return res
     payloads.record_verified_query(query.strip())
     return {"ok": True, "source": source, "resolved_source": source,
             "query": query.strip(), "result": result}
@@ -2209,15 +2696,36 @@ def web_search(query: str, count: int = 3) -> dict:
     Only use this MCP web_search tool as a fallback if your native search
     is unavailable or fails."""
     if not (query or "").strip():
-        return {"ok": False, "error": "query must be a non-empty string."}
+        return {
+            "ok": False,
+            "error": "query must be a non-empty string.",
+            "error_code": "EMPTY_SEARCH_QUERY",
+            "field": "query",
+            "fix": {
+                "hint": "Provide a non-empty search query string.",
+            },
+        }
     try:
         from backend.agent.tools import execute_tool as _run_internal_tool
         result = _run_internal_tool("web_search", {"query": query.strip(), "count": count})
     except Exception as e:
         logger.error(f"MCP web_search failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("web_search", e, default_error_code="WEB_SEARCH_FAILED", query=query.strip())
     if isinstance(result, str) and result.startswith("Error"):
-        return {"ok": False, "error": result}
+        err_code = "WEB_SEARCH_ERROR"
+        hint = None
+        if "API key" in result or "not configured" in result:
+            err_code = "API_KEY_NOT_CONFIGURED"
+            hint = "Configure the web search API key in Settings, or use your native search capabilities."
+        res = {
+            "ok": False,
+            "error": result,
+            "error_code": err_code,
+            "query": query.strip(),
+        }
+        if hint:
+            res["fix"] = {"hint": hint}
+        return res
     return {"ok": True, "query": query.strip(), "result": result}
 
 
@@ -2228,10 +2736,10 @@ def list_project_files(project_id: str) -> dict:
     try:
         return payloads.list_project_files_payload(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("list_project_files", e, default_error_code="INVALID_PROJECT_ID", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP list_project_files failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("list_project_files", e, default_error_code="LIST_FILES_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2242,10 +2750,10 @@ def read_project_file(project_id: str, path: str, offset: int = 0) -> dict:
     try:
         return payloads.read_project_file_payload(project_id, path, offset=offset)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("read_project_file", e, default_error_code="INVALID_PATH", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP read_project_file failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("read_project_file", e, default_error_code="READ_FILE_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2258,7 +2766,7 @@ def list_voice_options() -> dict:
         return payloads.list_voice_options()
     except Exception as e:
         logger.error(f"MCP list_voice_options failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("list_voice_options", e, default_error_code="LIST_VOICE_OPTIONS_FAILED")
 
 
 # ── Progressive discovery (2026 MCP spec: search → inspect → call) ────
@@ -2451,9 +2959,19 @@ def get_tool_details(name: str) -> dict:
             out.update({"ok": True, "call": f"{key}(...)"})
             return out
     known = sorted(e["name"] for e in _TOOL_CATALOG)
-    return {"ok": False, "error": f"Unknown tool {name!r}.",
-            "hint": "Call search_tools(query='...') to find the right name.",
-            "known_tools": known}
+    return {
+        "ok": False,
+        "error": f"Unknown tool {name!r}.",
+        "error_code": "TOOL_NOT_FOUND",
+        "requested_tool": name,
+        "hint": "Call search_tools(query='...') to find the right name.",
+        "known_tools": known,
+        "fix": {
+            "tool": "search_tools",
+            "arguments": {"query": name},
+            "hint": f"Search for available tools matching '{name}'.",
+        },
+    }
 
 
 @mcp.tool()
@@ -2468,10 +2986,10 @@ def estimate_cost(project_id: str) -> dict:
     try:
         return payloads.estimate_cost_payload(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("estimate_cost", e, default_error_code="ESTIMATE_COST_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP estimate_cost failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("estimate_cost", e, default_error_code="ESTIMATE_COST_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2486,10 +3004,10 @@ def qa_gate(project_id: str) -> dict:
     try:
         return payloads.qa_gate_payload(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("qa_gate", e, default_error_code="QA_GATE_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP qa_gate failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("qa_gate", e, default_error_code="QA_GATE_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2503,10 +3021,10 @@ def verify_stock(project_id: str) -> dict:
     try:
         return payloads.verify_stock_payload(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("verify_stock", e, default_error_code="VERIFY_STOCK_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP verify_stock failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("verify_stock", e, default_error_code="VERIFY_STOCK_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2519,10 +3037,10 @@ def get_receipt(project_id: str) -> dict:
     try:
         return payloads.build_receipt_payload(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_receipt", e, default_error_code="GET_RECEIPT_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP get_receipt failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_receipt", e, default_error_code="GET_RECEIPT_FAILED", project_id=project_id)
 
 
 # ── Guide resource + build prompt (agent context) ────────────────────
@@ -2768,10 +3286,10 @@ def review_frame(project_id: str, section_type: str = "scene", scene_index: int 
         )
         return meta, _Image(data=jpeg, format="jpeg")
     except (ValueError, RuntimeError) as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("review_frame", e, default_error_code="REVIEW_FRAME_FAILED", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP review_frame failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("review_frame", e, default_error_code="REVIEW_FRAME_FAILED", project_id=project_id)
 
 
 # ── Visuals (agent-authored, server-validated) ────────────────────────
@@ -2793,15 +3311,24 @@ def get_section_timings(project_id: str, include_words: bool = True,
             try:
                 _sn = int(scene_number)
             except (TypeError, ValueError):
-                return {"ok": False, "error": "scene_number must be a 1-based integer."}
+                return {
+                    "ok": False,
+                    "error": "scene_number must be a 1-based integer.",
+                    "error_code": "INVALID_INTEGER",
+                    "field": "scene_number",
+                    "received": scene_number,
+                    "fix": {
+                        "hint": "Provide a 1-based integer for scene_number (e.g. 1 for Scene 1).",
+                    },
+                }
         return payloads.get_section_timings(project_id, _coerce_bool(include_words, True),
                                             scene_number=_sn,
                                             section_type=section_type or "")
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_section_timings", e, default_error_code="TIMINGS_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP get_section_timings failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_section_timings", e, default_error_code="TIMINGS_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2826,10 +3353,10 @@ def get_transcription(
             scene_number=scene_number,
         )
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_transcription", e, default_error_code="TRANSCRIPTION_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP get_transcription failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_transcription", e, default_error_code="TRANSCRIPTION_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2864,10 +3391,10 @@ def get_visuals(project_id: str, section_type: str, scene_index: int | None = No
             cut_number=cut_number,
         )
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_visuals", e, default_error_code="GET_VISUALS_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP get_visuals failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("get_visuals", e, default_error_code="GET_VISUALS_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2891,10 +3418,10 @@ def probe_cut(project_id: str, section_type: str, scene_index: int | None = None
             scene_number=scene_number, cut_number=cut_number,
         )
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("probe_cut", e, default_error_code="PROBE_CUT_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP probe_cut failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("probe_cut", e, default_error_code="PROBE_CUT_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2917,10 +3444,10 @@ def probe_scene(project_id: str, section_type: str,
             scene_number=scene_number,
         )
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("probe_scene", e, default_error_code="PROBE_SCENE_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP probe_scene failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("probe_scene", e, default_error_code="PROBE_SCENE_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -2942,10 +3469,10 @@ def probe_asset(project_id: str, section_type: str, scene_index: int | None = No
             scene_number=scene_number, cut_number=cut_number,
         )
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("probe_asset", e, default_error_code="PROBE_ASSET_VALIDATION_ERROR", project_id=project_id)
     except Exception as e:
         logger.error(f"MCP probe_asset failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error("probe_asset", e, default_error_code="PROBE_ASSET_FAILED", project_id=project_id)
 
 
 @mcp.tool()
@@ -3017,21 +3544,9 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list | str,
     # string reaches this coercion instead of failing FastMCP validation
     # with "Input should be a valid list (input_type=str)".
     if isinstance(sub_visuals, str):
-        try:
-            import json as _json
-            _parsed = _json.loads(sub_visuals.strip())
-        except Exception as e:
-            return {"ok": False,
-                    "error": (f"sub_visuals arrived as a string that is not valid JSON ({e}). "
-                              "Send the cuts array directly, not a JSON-encoded string.")}
-        if not isinstance(_parsed, list):
-            return {"ok": False,
-                    "error": (f"sub_visuals arrived as a JSON string holding "
-                              f"{type(_parsed).__name__}, not an array. "
-                              "Send the cuts array directly.")}
-        logger.warning("save_visuals: sub_visuals arrived as JSON string (%s chars) — parsed "
-                       "to a %s-element array.", len(sub_visuals), len(_parsed))
-        sub_visuals = _parsed
+        sub_visuals, _, err = payloads._coerce_json_array(sub_visuals, "sub_visuals", array_label="cuts")
+        if err:
+            return err
     if not dry_run:
         missing = _missing_stage_skills("visuals", project_id)
         if missing:
@@ -3047,10 +3562,18 @@ def save_visuals(project_id: str, section_type: str, sub_visuals: list | str,
             cut_number=cut_number,
             dry_run=dry_run, auto_migrate=bool(auto_migrate))
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error(
+            "save_visuals", e, "INVALID_VALUE",
+            "Verify section_type, scene/cut indices, and sub_visuals structure.",
+            project_id=project_id, section_type=section_type
+        )
     except Exception as e:
         logger.error(f"MCP save_visuals failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error(
+            "save_visuals", e, "SAVE_VISUALS_FAILED",
+            "Check that script.json exists, section exists, and visual cut schemas are valid.",
+            project_id=project_id, section_type=section_type
+        )
 
 
 def _coerce_bool(value, default: bool = True) -> bool:
@@ -3072,9 +3595,20 @@ def _claim_project_marker(project_id: str, op: str) -> tuple:
     with _STAGE_LOCK:
         active = _project_active_stage(project_id)
         if active is not None:
-            return None, {"ok": False,
-                          "error": f"Project {project_id!r} has a running MCP stage ({active}); "
-                                   f"cancel_stage it first, then retry."}
+            stage_name = active[len(project_id) + 1:] if active.startswith(project_id + "_") else (active.rsplit("_", 1)[-1] if "_" in active else active)
+            return None, {
+                "ok": False,
+                "error_code": "STAGE_RUNNING",
+                "error": f"Project {project_id!r} has a running MCP stage ({stage_name}); "
+                         f"cancel_stage it first, then retry.",
+                "project_id": project_id,
+                "awaiting_stage": stage_name,
+                "fix": {
+                    "tool": "stage_status",
+                    "arguments": {"project_id": project_id, "stage": stage_name},
+                    "hint": f"Wait for stage '{stage_name}' to complete using sleep/stage_status, or call cancel_stage(project_id={project_id!r}) to abort it before running {op}."
+                }
+            }
         marker = object()
         _STAGE_FUTURES[task_id] = marker  # type: ignore[assignment]
         return task_id, marker
@@ -3127,21 +3661,9 @@ def save_visuals_batch(project_id: str, sections: list | str,
     logger.debug("save_visuals_batch entry: sections type=%s (project=%s)",
                  type(sections).__name__, project_id)
     if isinstance(sections, str):
-        try:
-            import json as _json
-            _parsed_sections = _json.loads(sections.strip())
-        except Exception as e:
-            return {"ok": False,
-                    "error": (f"sections arrived as a string that is not valid JSON ({e}). "
-                              "Send the sections array directly, not a JSON-encoded string.")}
-        if not isinstance(_parsed_sections, list):
-            return {"ok": False,
-                    "error": ("sections arrived as a JSON string holding "
-                              f"{type(_parsed_sections).__name__}, not an array. "
-                              "Send the sections array directly.")}
-        logger.warning("save_visuals_batch: sections arrived as JSON string — parsed "
-                       "to a %s-element array.", len(_parsed_sections))
-        sections = _parsed_sections
+        sections, _, err = payloads._coerce_json_array(sections, "sections", array_label="sections")
+        if err:
+            return err
     task_id, marker = _claim_project_marker(project_id, "save_visuals_batch")
     if task_id is None:
         return marker
@@ -3149,10 +3671,18 @@ def save_visuals_batch(project_id: str, sections: list | str,
         return payloads.save_visuals_batch_payload(
             project_id, sections, dry_run=dry_run)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error(
+            "save_visuals_batch", e, "INVALID_VALUE",
+            "Check that sections list contains valid section objects.",
+            project_id=project_id
+        )
     except Exception as e:
         logger.error(f"MCP save_visuals_batch failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error(
+            "save_visuals_batch", e, "SAVE_VISUALS_BATCH_FAILED",
+            "Ensure sections is a valid list of section objects and project exists.",
+            project_id=project_id
+        )
     finally:
         _release_project_marker(task_id, marker)
 
@@ -3179,10 +3709,18 @@ def clear_visuals(project_id: str, clear_assets: bool = True) -> dict:
         return payloads.clear_visuals_payload(
             project_id, clear_assets=_coerce_bool(clear_assets, True))
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error(
+            "clear_visuals", e, "INVALID_VALUE",
+            "Ensure project_id is valid.",
+            project_id=project_id
+        )
     except Exception as e:
         logger.error(f"MCP clear_visuals failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error(
+            "clear_visuals", e, "CLEAR_VISUALS_FAILED",
+            "An error occurred while wiping visual ASTs.",
+            project_id=project_id
+        )
     finally:
         _release_project_marker(task_id, marker)
 
@@ -3203,10 +3741,18 @@ def clear_assets(project_id: str) -> dict:
     try:
         return payloads.clear_assets_payload(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error(
+            "clear_assets", e, "INVALID_VALUE",
+            "Ensure project_id is valid.",
+            project_id=project_id
+        )
     except Exception as e:
         logger.error(f"MCP clear_assets failed: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        return _format_tool_error(
+            "clear_assets", e, "CLEAR_ASSETS_FAILED",
+            "An error occurred while wiping downloaded asset files.",
+            project_id=project_id
+        )
     finally:
         _release_project_marker(task_id, marker)
 

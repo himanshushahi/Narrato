@@ -159,6 +159,56 @@ def test_creative_blueprint_hides_legacy_genre_token():
     assert hinted["style_hint"] == "warm editorial"
 
 
+def test_creative_blueprint_resolves_library_style():
+    from backend.mcp.payloads import _creative_blueprint_for_project
+
+    # Known hint: blueprint reports the canonical look AND recommends the
+    # visual-style-library skill (last-chance surface before save_visuals).
+    bp = _creative_blueprint_for_project(
+        {"prompt": "dark noir investigation", "video_format": "landscape"})
+    assert bp["resolved_style"] == "investigative-noir"
+    assert bp["style_name"] == "Investigative Noir"
+    assert "investigative-noir" in bp["active_style_block"]
+    assert "visual-style-library" in bp["style_note"]
+
+    # Unknown hint: resolved empty, actionable note points at the index.
+    bp2 = _creative_blueprint_for_project(
+        {"prompt": "warm editorial", "video_format": "landscape"})
+    assert not bp2.get("resolved_style")
+    assert "warm editorial" in bp2["style_note"]
+    assert "visual-style-library" in bp2["style_note"]
+
+    # Legacy genre rows: hint hidden, no style mention at all.
+    legacy = _creative_blueprint_for_project(
+        {"prompt": "documentary", "video_format": "landscape"})
+    assert legacy["style_hint"] == ""
+    assert "style_note" not in legacy
+
+
+def test_mcp_design_bundle_resolves_library_style(monkeypatch):
+    from backend.mcp import server
+
+    monkeypatch.setattr(
+        "backend.database.db.get_project",
+        lambda pid: {"id": pid, "name": "T", "prompt": "noir dossier look",
+                     "language": "hi", "video_format": "landscape"},
+    )
+    bundle = server.get_stage_skills("design", project_id="proj_x")
+    assert bundle["style_library"]["resolved_style"] == "investigative-noir"
+    assert bundle["style_library"]["style_name"] == "Investigative Noir"
+    assert "Investigative Noir" in bundle["art_director"]
+
+    # Unknown hint: guidance stays free-text, resolution stays empty.
+    monkeypatch.setattr(
+        "backend.database.db.get_project",
+        lambda pid: {"id": pid, "name": "T", "prompt": "warm editorial",
+                     "language": "hi", "video_format": "landscape"},
+    )
+    bundle2 = server.get_stage_skills("design", project_id="proj_x")
+    assert bundle2["style_library"]["resolved_style"] == ""
+    assert "warm editorial" in bundle2["art_director"]
+
+
 def test_mcp_design_bundle_renders_guidance_placeholder(monkeypatch):
     from backend.mcp import server
 

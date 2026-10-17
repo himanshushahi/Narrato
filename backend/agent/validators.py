@@ -1163,10 +1163,18 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
     Returns: (is_valid, normalized_sub_visuals, error_message)
     """
     if not isinstance(sub_visuals, list):
-        return False, _dummy_visual(target_duration), "sub_visuals must be a list."
+        return False, _dummy_visual(target_duration), (
+            f"INVALID_SUB_VISUALS_TYPE: sub_visuals must be a JSON array of "
+            f"cut objects (got {type(sub_visuals).__name__}). If the section "
+            f"arrived as a quoted STRING, send the array directly — "
+            f"e.g. sub_visuals=[{{duration: 5.0, transition: 'fade', "
+            f"composition: {{type: 'Sequence', children: [...]}}, ...}}].")
 
     if not sub_visuals:
-        return False, _dummy_visual(target_duration), "Empty sub_visuals array provided."
+        return False, _dummy_visual(target_duration), (
+            "EMPTY_SUB_VISUALS: sub_visuals is empty (0 cuts). Every section "
+            "needs at least one cut object; author cuts whose durations sum "
+            "to the section audio duration from get_section_timings.")
 
     normalized = []
     total_duration = 0.0
@@ -1382,7 +1390,16 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
             normalized.append(entry)
 
     if not normalized:
-        return False, _dummy_visual(target_duration), "No valid sub_visuals found."
+        _non_dict = sum(1 for v in sub_visuals if not isinstance(v, dict))
+        return False, _dummy_visual(target_duration), (
+            f"NO_VALID_SUB_VISUALS: 0 of {len(sub_visuals)} submitted cuts were "
+            f"usable ({_non_dict} were non-dict entries). This usually means "
+            f"the array arrived double-encoded (JSON-as-string holding a "
+            f"string) or every entry lacks the required shape. Each cut MUST "
+            f"be an object like "
+            f"{{duration: <float seconds>, transition: <str>, composition: "
+            f"{{type: 'Sequence', children: [Layer nodes]}}}}. "
+            f"Re-emit the array of cut objects directly.")
 
     # Normalization pass
     if target_duration > 0 and abs(total_duration - target_duration) > tolerance:

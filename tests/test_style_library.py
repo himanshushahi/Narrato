@@ -76,6 +76,27 @@ def test_resolve_whole_word_no_false_positives():
     assert resolve_style("wireframe") == "wireframe-3d-animation"
 
 
+def test_resolve_word_hits_with_3char_aliases():
+    # 3-char alias tokens resolve when they appear as WHOLE WORDS in a hint
+    # (boundary check guards fakes: think/topology/voxelized stay silent).
+    assert resolve_style("HUD overlay") == "cybersecurity-hud"
+    assert resolve_style("y2k vibe thing") == "y2k-chrome"
+    assert resolve_style("vhs over footage") == "analog-glitch-vhs"
+    assert resolve_style("cgi render") == "photorealistic-cgi"
+    assert resolve_style("ink flows") == "ink-in-water-simulation"
+    assert resolve_style("topo map vibe") == "abstract-topographic-animation"
+    # ...but NOT glued to other characters
+    assert resolve_style("voxelized world") is None
+    assert resolve_style("pcr hud thing") == "cybersecurity-hud"
+
+
+def test_resolve_inflection_aliases():
+    assert resolve_style("minimalism") == "minimalist-existential"
+    assert resolve_style("minimalist look") == "minimalist-existential"
+    assert resolve_style("minimalistic vibe") == "minimalist-existential"
+    assert resolve_style("heavy negative space") == "minimalist-existential"
+
+
 def test_filters_are_valid_harness_tokens():
     import re
     valid_presets = {

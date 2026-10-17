@@ -60,12 +60,26 @@ def _manifest_entries(project_dict, project_dir: Path) -> list:
     from backend.mcp import payloads
     manifest_path = payloads._active_manifest_path(project_dict, project_dir)
     if not manifest_path:
-        raise ValueError("No voiceover manifest found. Run generate_voiceover first.")
+        raise ValueError(
+            "No voiceover manifest found for this project (the voiceover "
+            "stage has not run yet). Next: run_stage('generate_voiceover'), "
+            "poll with sleep()+stage_status() until it completes, then retry.")
     import json
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest = json.load(f)
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, ValueError) as e:
+        raise ValueError(
+            f"Active voiceover manifest is unreadable ({manifest_path}): "
+            f"{type(e).__name__}: {e}. The file is missing or corrupted "
+            f"(likely an interrupted stage run). Next: re-run "
+            f"run_stage('generate_voiceover') to regenerate it, then retry.")
     if not isinstance(manifest, list) or not manifest:
-        raise ValueError("Active manifest is empty or invalid.")
+        raise ValueError(
+            f"Active voiceover manifest is empty or invalid at {manifest_path} "
+            f"(expected a non-empty JSON list of narration entries, got "
+            f"{type(manifest).__name__}). Next: re-run "
+            f"run_stage('generate_voiceover') to regenerate it, then retry.")
     return [m for m in manifest if isinstance(m, dict)]
 
 
@@ -85,9 +99,17 @@ def _script_section(project_dir: Path, section_type: str, scene_index: int) -> d
         return section
     scenes = script.get("scenes") or []
     if not 0 <= scene_index < len(scenes):
+        hint = (
+            f"Did you pass a 1-based scene number? In Narrato UI, "
+            f"Scene {scene_index} is scene_index={scene_index - 1}. "
+            f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
+            if scene_index > 0 else
+            f"This section defines no scenes yet — save_script must include "
+            f'"scenes" with at least one entry, or target '
+            f"section_type='introduction'/'conclusion'.")
         raise ValueError(
             f"scene_index {scene_index} out of range (0..{len(scenes) - 1}) "
-            f"— UI Scene {scene_index + 1} (1..{len(scenes)})."
+            f"— UI Scene {scene_index + 1} (1..{len(scenes)}). {hint}"
         )
     return scenes[scene_index]
 
@@ -109,14 +131,25 @@ def _find_entry(entries: list, section_type: str, scene_index: int) -> dict:
     if section_type == "scene":
         candidates = [m for m in entries if _normalize_section_type(m.get("section_type") or "") == "scene"]
         if not 0 <= scene_index < len(candidates):
+            hint = (
+                f"Did you pass a 1-based scene number? In Narrato UI, "
+                f"Scene {scene_index} is scene_index={scene_index - 1}. "
+                f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
+                if scene_index > 0 else
+                "The voiceover manifest has no narration-scene entries yet — "
+                "run_stage('generate_voiceover') first.")
             raise ValueError(
                 f"scene_index {scene_index} out of range (0..{len(candidates) - 1}) "
-                f"— UI Scene {scene_index + 1} (1..{len(candidates)})."
+                f"— UI Scene {scene_index + 1} (1..{len(candidates)}). {hint}"
             )
         return candidates[scene_index]
     entry = next((m for m in entries if _normalize_section_type(m.get("section_type") or "") == section_type), None)
     if entry is None:
-        raise ValueError(f"No manifest entry for {section_type}.")
+        raise ValueError(
+            f"No narration manifest entry for {section_type!r} (manifest covers "
+            f"{sorted({_normalize_section_type(m.get('section_type') or '') for m in entries})}). "
+            f"Next: check script.json has a {section_type} section, then re-run "
+            f"run_stage('generate_voiceover').")
     return entry
 
 
@@ -172,9 +205,16 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
             "Section has no authored sub_visuals yet — run save_visuals first, "
             "then review.")
     if not 0 <= cut_index < len(durations):
+        hint = (
+            f"Did you pass a 1-based cut number? In Narrato UI, "
+            f"Cut #{cut_index} is cut_index={cut_index - 1}. "
+            f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
+            if cut_index > 0 else
+            f"This section has {len(durations)} authored cut(s); cut_index 0 "
+            f"targets UI Cut #1.")
         raise ValueError(
             f"cut_index {cut_index} out of range (0..{len(durations) - 1}) "
-            f"— UI Cut #{cut_index + 1} (1..{len(durations)})."
+            f"— UI Cut #{cut_index + 1} (1..{len(durations)}). {hint}"
         )
 
     section_start = _section_start(entries, entry)
@@ -197,9 +237,12 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
                 "for proper final visuals (or pick a cut with Image/Video layers "
                 "that fetch_assets resolved).")
     elif mode == "render" and not has_video:
-        raise ValueError("No rendered video yet (video_path missing). Run render first, "
-                         "or use mode='composition' AFTER fetch_assets "
-                         "(mode='asset' for the instant lineup).")
+        raise ValueError(
+            "No rendered mp4 yet (video_path missing). Render is gated by "
+            "human approval — do NOT call run_stage('render') just to get "
+            "review pixels. For visual review use mode='composition' AFTER "
+            "fetch_assets (exact pre-render pixels) or mode='asset' (instant "
+            "media lineup).")
     elif mode == "composition":
         # Composition renders downloaded local_path files — reviewing before
         # fetch_assets yields placeholders, not final visuals. Fail fast.
@@ -291,7 +334,13 @@ def resolve_targets(project_id: str, section_type: str = "scene", scene_index: i
                     "label": f"Cut #{cut_index + 1} (idx {cut_index}) layer ({kind})",
                 })
     if not plan["cells"]:
-        raise ValueError("No snapshot cells resolved for this selector.")
+        raise ValueError(
+            f"No snapshot cells resolved (mode={mode!r}, scope={scope!r}): "
+            f"none of the sampled cuts have Image/Video layers with a "
+            f"downloaded file yet. Next: run run_stage('fetch_assets') and "
+            f"retry; if this section is procedural (Text/HTML/Chart only), "
+            f"use mode='composition' AFTER fetch_assets for exact pre-render "
+            f"pixels, or scope='cut' to target one specific cut.")
     plan["layout"] = "strip" if temporal else (
         "strip" if (scope == "section" and len(plan["cells"]) > 1) else "grid")
     return plan
@@ -389,8 +438,15 @@ def grab_render_frame(video_path: str, timestamp: float, width: int = 640):
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           startupinfo=_startupinfo(), timeout=60)
     if proc.returncode != 0 or not proc.stdout:
-        raise RuntimeError(f"ffmpeg frame grab failed at {timestamp}s: "
-                           f"{proc.stderr.decode(errors='ignore')[:200]}")
+        stderr_tail = proc.stderr.decode(errors="ignore")[:200]
+        raise RuntimeError(
+            f"FFMPEG_FRAME_GRAB_FAILED: ffmpeg frame grab failed at "
+            f"timestamp={timestamp}s from {video_path!r} (exit "
+            f"{proc.returncode}). ffmpeg stderr: {stderr_tail} | Likely "
+            f"causes: timestamp beyond the file's duration, file missing or "
+            f"corrupt, unsupported codec. Next: verify the file exists, retry "
+            f"with an earlier timestamp (<=90% of duration), and re-run "
+            f"run_stage('fetch_assets') if the media file itself is corrupt.")
     return Image.open(io.BytesIO(proc.stdout)).convert("RGB")
 
 
@@ -426,7 +482,11 @@ def merge_contact_sheet(images: list, layout: str = "strip") -> bytes:
     """Merge cell images into ONE JPEG (strip row or 2-col grid)."""
     from PIL import Image
     if not images:
-        raise ValueError("No images to merge.")
+        raise ValueError(
+            "MERGE_EMPTY_INPUT: no images to merge (got an empty cell list). "
+            "review_frame guarantees >=1 cell before merging, so if this "
+            "fires, every snapshot cell grab failed upstream — check the "
+            "grab error above it for the root cause.")
     cells = [img.convert("RGB") for img in images]
     if layout == "strip":
         scale = STRIP_CELL_HEIGHT / max(img.height for img in cells)
@@ -485,6 +545,7 @@ def build_review(project_id: str, section_type: str = "scene", scene_index: int 
     # Paired (cell, image): a failed middle cell must never shift later
     # images onto earlier cells' timestamps/labels.
     paired: list = []
+    failures: list = []
     cache_info: dict | None = None
     if plan["mode"] == "composition":
         from backend.mcp import stills as _stills
@@ -509,9 +570,22 @@ def build_review(project_id: str, section_type: str = "scene", scene_index: int 
                     img = grab_asset_cell(cell["local_path"], cell["kind"])
                 paired.append((cell, img))
             except Exception as e:
+                detail = f"{type(e).__name__}: {e}"
+                failures.append(f"{cell.get('label')} — {detail[:160]}")
                 logger.warning(f"review_frame: skipped cell {cell.get('label')}: {e}")
     if not paired:
-        raise RuntimeError("All snapshot cells failed to grab (see server log).")
+        shown = "; ".join(failures[:3])
+        more = f" (+{len(failures) - 3} more, see server log)" if len(failures) > 3 else ""
+        hint = (
+            "verify project video_path exists and every sampled timestamp is "
+            "within the mp4's duration (review earlier timestamps first)"
+            if plan["mode"] == "render" else
+            "media files referenced by this cut may be missing or corrupt — "
+            "re-run run_stage('fetch_assets') to re-download them, then retry")
+        raise RuntimeError(
+            f"ALL_SNAPSHOT_CELLS_FAILED: all {len(failures)} snapshot cell "
+            f"grab(s) failed (mode={plan['mode']}). Reasons: {shown}{more}. "
+            f"Next: {hint}, then retry review_frame.")
     jpeg = merge_contact_sheet([img for _, img in paired], plan["layout"])
     meta = {
         "ok": True,

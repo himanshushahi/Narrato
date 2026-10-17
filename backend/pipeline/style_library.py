@@ -616,6 +616,10 @@ _EXTRA_ALIASES = {
     "hologram": "holographic-wireframe",
     "wireframe hologram": "holographic-wireframe",
     "minimal": "minimalist-existential",
+    "minimalism": "minimalist-existential",
+    "minimalist": "minimalist-existential",
+    "minimalistic": "minimalist-existential",
+    "negative space": "minimalist-existential",
     "oil painting": "classical-oil-painting-motion",
     "clay": "claymation-craft",
     "stop motion": "claymation-craft",
@@ -684,6 +688,9 @@ def _is_whole_word_hit(alias: str, key: str) -> bool:
 
     Prevents "topo" matching "topology" or "ink" matching "think":
     the chars before/after the hit must not be [a-z0-9].
+    Aliases of >=3 chars qualify (hud, y2k, vhs, cgi, ink, topo, ...)
+    — these are niche style tokens, not common English words, so the
+    boundary check alone is enough protection against false positives.
     """
     start = key.find(alias)
     while start != -1:
@@ -711,7 +718,7 @@ def resolve_style(style_hint: str | None) -> str | None:
     # longest-first whole-word match: "dark noir investigation" ->
     # investigative-noir, but "topology" does NOT trigger "topo".
     for alias, slug in sorted(STYLE_ALIASES.items(), key=lambda kv: len(kv[0]), reverse=True):
-        if len(alias) >= 4 and _is_whole_word_hit(alias, key):
+        if len(alias) >= 3 and _is_whole_word_hit(alias, key):
             return slug
     for slug, spec in STYLE_SPECS.items():
         if slug in key or spec["name"].lower() in key:

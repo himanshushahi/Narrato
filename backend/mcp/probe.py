@@ -16,23 +16,23 @@ from backend.mcp import payloads
 from backend.mcp.payloads import (
     SECTION_TYPES, _active_manifest_path, _current_section_cuts,
     _get_project_or_raise, _project_dir, resolve_scene_and_cut,
-    format_display_label, _normalize_section_type,
+    format_display_label, _normalize_section_type, format_target_error,
 )
 
 
 def _coerce_index(name: str, value: Any) -> tuple[int | None, dict | None]:
     """Coerce an LLM-supplied index to int. Returns (value, error|None)."""
     if isinstance(value, bool):
-        return None, {"ok": False, "error": f"{name} must be an integer."}
+        return None, {"ok": False, "error_code": "INVALID_INTEGER", "error": f"{name} must be an integer (got boolean {value!r}).", "fix": {"hint": f"Pass {name} as a 0-based integer, not true/false."}}
     try:
         coerced = int(value)
     except (TypeError, ValueError):
-        return None, {"ok": False, "error": f"{name} must be an integer."}
+        return None, {"ok": False, "error_code": "INVALID_INTEGER", "error": f"{name} must be an integer (got {value!r}).", "fix": {"hint": f"Pass {name} as a 0-based integer (UI Cuts #N match cut_index=N-1, Scenes N match scene_index=N-1)."}}
     try:
         if float(value) != coerced:
-            return None, {"ok": False, "error": f"{name} must be an integer."}
+            return None, {"ok": False, "error_code": "INVALID_INTEGER", "error": f"{name} must be a whole integer (got {value!r}, lost precision at int()).", "fix": {"hint": f"Pass {name} as an integer with no decimal part."}}
     except (TypeError, ValueError):
-        return None, {"ok": False, "error": f"{name} must be an integer."}
+        return None, {"ok": False, "error_code": "INVALID_INTEGER", "error": f"{name} must be an integer (got {value!r}).", "fix": {"hint": f"Pass {name} as a numeric integer."}}
     return coerced, None
 
 
@@ -51,14 +51,24 @@ def _resolve_cuts(project_id: str, section_type: str,
         section_type, scene_index=scene_index, scene_number=scene_number, default_scene=0
     )
     if err:
-        return None, None, [], None, {"ok": False, "error": err}
+        return None, None, [], None, format_target_error(err, project_id=project_id)
     section_type = norm_sec
 
     try:
         proj = _get_project_or_raise(project_id)
         proj_dir = _project_dir(project_id)
     except ValueError as e:
-        return None, None, [], None, {"ok": False, "error": str(e)}
+        return None, None, [], None, {
+            "ok": False,
+            "error_code": "PROJECT_NOT_FOUND",
+            "error": str(e),
+            "project_id": project_id,
+            "fix": {
+                "tool": "list_projects",
+                "arguments": {},
+                "hint": "Check existing project IDs using list_projects().",
+            },
+        }
     fallback = None
     manifest_duration = None
     try:
@@ -78,12 +88,21 @@ def _resolve_cuts(project_id: str, section_type: str,
                         except (TypeError, ValueError):
                             manifest_duration = None
                     else:
-                        return proj, proj_dir, [], None, {"ok": False, "error": (
-                            f"scene_index {scene_index} (UI Scene {scene_index + 1}) out of range "
-                            f"(0..{total_scenes - 1} — UI Scenes 1..{total_scenes}). "
-                            f"Did you pass a 1-based scene number? In Narrato UI, Scene {scene_index} is scene_index={scene_index - 1}. "
-                            f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
-                        )}
+                        return proj, proj_dir, [], None, {
+                            "ok": False,
+                            "error_code": "SCENE_INDEX_OUT_OF_RANGE",
+                            "error": (
+                                f"scene_index {scene_index} (UI Scene {scene_index + 1}) out of range "
+                                f"(0..{total_scenes - 1} — UI Scenes 1..{total_scenes}). "
+                                f"Did you pass a 1-based scene number? In Narrato UI, Scene {scene_index} is scene_index={scene_index - 1}. "
+                                f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
+                            ),
+                            "valid_scene_indices": f"0..{total_scenes - 1}",
+                            "valid_scene_numbers": f"1..{total_scenes}",
+                            "fix": {
+                                "hint": f"Pass scene_number={scene_index} or scene_index={scene_index - 1}.",
+                            },
+                        }
                 else:
                     entry = next((m for m in manifest
                                   if isinstance(m, dict)
@@ -126,8 +145,15 @@ def _file_info(local_path: Any, base_dir: Path | None = None) -> Dict[str, Any]:
         p = Path(local_path)
         if not p.is_absolute() and base_dir is not None:
             p = base_dir / p
-        if p.is_file():
-            info["exists"] = True
+        try:
+            info["exists"] = p.is_file()
+        except Exception as _ex:
+            # Existence check itself failed (permission/lock) — report it
+            # instead of a false "missing" that would trigger a pointless
+            # re-fetch loop.
+            info["check_failed"] = str(_ex)
+            return info
+        if info["exists"]:
             try:
                 info["size"] = p.stat().st_size
             except OSError:
@@ -145,8 +171,8 @@ def _file_info(local_path: Any, base_dir: Path | None = None) -> Dict[str, Any]:
                     info["duration"] = _probe_duration(str(p))
                 except Exception:
                     pass
-    except Exception:
-        pass
+    except Exception as e:
+        info["check_failed"] = str(e)
     return info
 
 
@@ -215,7 +241,7 @@ def _layer_rows(cut: Dict[str, Any],
             row["local_path"] = lp
             row["query"] = content.get("query")
             row["source"] = content.get("source")
-            if not finfo["exists"]:
+            if not finfo["exists"] and not finfo.get("check_failed"):
                 missing.append(str(content.get("query") or ctype))
         rows.append(row)
     return rows, missing
@@ -231,7 +257,7 @@ def probe_cut_payload(project_id: str, section_type: str,
         allow_negative_cut=False
     )
     if err:
-        return {"ok": False, "error": err}
+        return format_target_error(err, project_id=project_id)
     section_type = norm_sec
     cut_index = 0 if cut_index is None else cut_index
 
@@ -257,24 +283,40 @@ def probe_cut_payload(project_id: str, section_type: str,
                          "(probe_scene gives you the audio duration to plan against).")}
     if not 0 <= cut_index < len(cuts):
         total_cuts = len(cuts)
-        return {"ok": False,
-                "error": (
-                    f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
-                    f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
-                    f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
-                    f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
-                )}
+        return {
+            "ok": False,
+            "error_code": "CUT_INDEX_OUT_OF_RANGE",
+            "error": (
+                f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
+                f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
+                f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
+                f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
+            ),
+            "valid_cut_indices": f"0..{total_cuts - 1}",
+            "valid_cut_numbers": f"1..{total_cuts}",
+            "fix": {
+                "hint": f"Pass cut_number={cut_index} or cut_index={cut_index - 1}.",
+            },
+        }
     cut = cuts[cut_index]
     if not isinstance(cut, dict):
-        return {"ok": False, "error": (
-            f"cut {cut_index} is a non-dict entry (corrupted) — "
-            f"re-save the section via save_visuals.")}
+        return {
+            "ok": False,
+            "error_code": "CORRUPT_CUT_DATA",
+            "error": (
+                f"cut {cut_index} is a non-dict entry (corrupted) — "
+                f"re-save the section via save_visuals."),
+            "fix": {"tool": "save_visuals", "hint": "Re-author and save this section's visuals with save_visuals."},
+        }
     try:
         from backend.agent.timing import lint_cut_timing
         timing = lint_cut_timing(cut, cut_index=cut_index)
-    except Exception:
+    except Exception as _lint_err:
         from backend.agent.timing import empty_timing_report
         timing = empty_timing_report()
+        # Lint is part of the decision loop ("zero warnings → persist"):
+        # an empty report from a crash is a false-green, so mark it.
+        timing["lint_failed"] = str(_lint_err)
     layers, missing = _layer_rows(cut, proj_dir)
     display_label = format_display_label(section_type, scene_index, cut_index)
     return {"ok": True, "project_id": project_id,
@@ -304,7 +346,7 @@ def probe_scene_payload(project_id: str, section_type: str,
         section_type, scene_index=scene_index, scene_number=scene_number, default_scene=0
     )
     if err:
-        return {"ok": False, "error": err}
+        return format_target_error(err, project_id=project_id)
     section_type = norm_sec
 
     proj_s, proj_dir, cuts, manifest_duration, r_err = _resolve_cuts(
@@ -386,9 +428,12 @@ def probe_scene_payload(project_id: str, section_type: str,
     try:
         from backend.agent.timing import lint_section_timing
         timing = lint_section_timing(cuts)
-    except Exception:
+    except Exception as _lint_err:
         from backend.agent.timing import empty_timing_report
         timing = empty_timing_report()
+        # "0 warnings" from a crashed linter is a false-green at the exact
+        # decision point (persist when clean) — surface the failure.
+        timing["lint_failed"] = str(_lint_err)
     try:
         dict_cuts = [c for c in cuts if isinstance(c, dict)]
         target = (manifest_duration
@@ -396,10 +441,14 @@ def probe_scene_payload(project_id: str, section_type: str,
                   else sum(s.get("duration", 0) for s in summaries))
         variety = payloads._visual_variety_report(dict_cuts, dict_cuts,
                                                   target)
-    except Exception:
+    except Exception as _var_err:
         variety = {}
+        # Same false-green rule for the variety rollup.
+        variety_failed = str(_var_err)
+    else:
+        variety_failed = None
     total = round(sum(s.get("duration", 0) for s in summaries), 2)
-    return {"ok": True, "project_id": project_id,
+    res = {"ok": True, "project_id": project_id,
             "section_type": section_type,
             "visuals_hash": _visuals_hash_for(proj_dir),
             "scene_index": scene_index if section_type == "scene" else None,
@@ -412,6 +461,14 @@ def probe_scene_payload(project_id: str, section_type: str,
             "variety": variety,
             "next": ("Drill into one cut with probe_cut, fix via "
                      "save_visuals(cut_number=N) or save_visuals(cut_index=N).")}
+    if timing.get("lint_failed") or variety_failed:
+        res["warning"] = (
+            f"Probe Q&A degraded: timing lint failed ({timing.get('lint_failed')})"
+            f"{' and variety rollup failed (' + variety_failed + ')' if variety_failed else ''}. "
+            "Elements marked 'zero warnings/no anomalies' below are NOT verified "
+            "signals — run review_frame(mode=composition) on this section "
+            "before trusting it.")
+    return res
 
 
 def probe_asset_payload(project_id: str, section_type: str,
@@ -430,7 +487,7 @@ def probe_asset_payload(project_id: str, section_type: str,
         allow_negative_cut=False
     )
     if err:
-        return {"ok": False, "error": err}
+        return format_target_error(err, project_id=project_id)
     section_type = norm_sec
     cut_index = 0 if cut_index is None else cut_index
 
@@ -447,27 +504,54 @@ def probe_asset_payload(project_id: str, section_type: str,
         display_label = format_display_label(section_type, scene_index, cut_index)
         return {"ok": False, "error": (
             f"No saved cuts for {display_label} yet — author with save_visuals first."),
-            "error_code": "NO_VISUALS_YET", "has_visuals": False}
+            "error_code": "NO_VISUALS_YET", "has_visuals": False,
+            "next": ("Use probe_scene for the section's audio duration, then "
+                     "author cuts with save_visuals; run fetch_assets before "
+                     "re-probing assets.")}
     if not 0 <= cut_index < len(cuts):
         total_cuts = len(cuts)
-        return {"ok": False,
-                "error": (
-                    f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
-                    f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
-                    f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
-                    f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
-                )}
+        return {
+            "ok": False,
+            "error_code": "CUT_INDEX_OUT_OF_RANGE",
+            "error": (
+                f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
+                f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
+                f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
+                f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
+            ),
+            "valid_cut_indices": f"0..{total_cuts - 1}",
+            "valid_cut_numbers": f"1..{total_cuts}",
+            "fix": {
+                "hint": f"Pass cut_number={cut_index} or cut_index={cut_index - 1}.",
+            },
+        }
     cut = cuts[cut_index]
     if not isinstance(cut, dict):
-        return {"ok": False, "error": (
-            f"cut {cut_index} is a non-dict entry (corrupted) — "
-            f"re-save the section via save_visuals.")}
+        return {
+            "ok": False,
+            "error_code": "CORRUPT_CUT_DATA",
+            "error": (
+                f"cut {cut_index} is a non-dict entry (corrupted) — "
+                f"re-save the section via save_visuals."),
+            "fix": {"tool": "save_visuals", "hint": "Re-author and save this section's visuals with save_visuals."},
+        }
     comp = cut.get("composition") or {}
     children = comp.get("children") or []
     if not isinstance(children, list) or not 0 <= layer_index < len(children):
-        return {"ok": False, "error": (
-            f"layer_index {layer_index} out of range "
-            f"(0..{len(children) - 1 if isinstance(children, list) else 0}).")}
+        max_idx = len(children) - 1 if isinstance(children, list) and children else 0
+        return {
+            "ok": False,
+            "error_code": "LAYER_INDEX_OUT_OF_RANGE",
+            "error": (
+                f"layer_index {layer_index} out of range "
+                f"(0..{max_idx})."),
+            "valid_layer_indices": f"0..{max_idx}",
+            "next": ("Layer indexes are 0-based in composition.children order "
+                     "([0] = bottom). Probe the cut with probe_cut to see the "
+                     "current layer list (children may differ from what you "
+                     "authored after auto-repairs)."),
+            "fix": {"hint": f"Provide layer_index between 0 and {max_idx}."},
+        }
     layer = children[layer_index]
     display_label = format_display_label(section_type, scene_index, cut_index)
     scene_num = (scene_index + 1) if section_type == "scene" else None
@@ -495,7 +579,8 @@ def probe_asset_payload(project_id: str, section_type: str,
                 "status": "procedural",
                 "note": f"Layer type {ctype!r} needs no download."}
     finfo = _file_info(content.get("local_path"), proj_dir)
-    status = "fetched" if finfo["exists"] else "missing"
+    status = "fetched" if finfo["exists"] else (
+        "unknown" if finfo.get("check_failed") else "missing")
     res: Dict[str, Any] = {"ok": True, "project_id": project_id,
             "section_type": section_type,
             "scene_index": scene_index if section_type == "scene" else None,
@@ -511,4 +596,10 @@ def probe_asset_payload(project_id: str, section_type: str,
     if status == "missing":
         res["fix"] = ("Run run_stage(fetch_assets) after save_visuals; "
                       "verify new queries with search_media first.")
+    elif status == "unknown":
+        res["warning"] = (
+            f"File existence check failed ({finfo.get('check_failed')}) — the "
+            f"file may exist but is unreadable/locked (a stage writing it?). "
+            f"Do NOT re-run fetch_assets based on this result; retry probe_asset "
+            f"after any running stage settles.")
     return res

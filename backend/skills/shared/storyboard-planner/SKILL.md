@@ -25,10 +25,11 @@ For each scene, output a storyboard plan describing:
 6. **Spatial Layout per beat**: every beat line states layer types + approximate
    positions + motion phases (canvas, establish/develop/evolve/resolve), so the
    AST author never invents geometry.
+7. **Visual Style per scene**: pick ONE style slug from `visual-style-library` (e.g. `investigative-noir`, `cybersecurity-hud`, `liquid-glass`). Pull AST recipes via `get_skill('visual-style-library', section='<slug_or_family>')`.
 
 **Plan format (single continuous take — the default):**
 ```
-Scene 3 (total: 9.0s, 1 continuous take, zoom_in):
+Scene 3 (total: 9.0s, 1 continuous take, zoom_in, style: investigative-noir):
   Canvas: archive map image ("atlantic ocean vintage map") fullscreen + Archival Monochrome + scale drift 1.0→1.3 over full 9s + Particles(dust, loop)
   0.0–2.5s ESTABLISH: full map + vignette; copper route path draws (draw_animation) toward Ireland
   2.5–5.0s DEVELOP: camera pans/translates onto Ireland; depth gauge card (frosted Shape + backdrop blur) slides in from right

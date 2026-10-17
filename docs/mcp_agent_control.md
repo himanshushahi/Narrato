@@ -143,6 +143,17 @@ Key rule: **save paths are shared, not duplicated.** `save_script_payload` / `sa
 6. **Tests in `tests/test_mcp.py`**: validation rejects, happy path persists, failure writes nothing (compare file bytes), no real DB/network/LLM (monkeypatch storage + db fns — see `_patch_storage` / `_patch_db`).
 7. **Verify live**: stdio handshake + one real call (via a quick test client script), plus `tsc --noEmit` if the Settings card changed.
 
+### Error result contract (every tool, both transports)
+
+Both the external MCP path and the internal chat agent read the same `{ok: false}` dicts, so every failure must be self-correcting on the next turn — never a bare `str(e)`:
+
+- `error_code` — stable machine key (`SCENE_INDEX_OUT_OF_RANGE`, `STAGE_RUNNING`, `SCRIPT_NOT_FOUND`, …).
+- `error` — names the failed parameter, shows valid values/ranges in BOTH bases (0-based index ↔ UI 1-based `scene_number`/`cut_number`), and ends with a concrete next action.
+- `fix` — machine-appliable where possible: `{"tool", "arguments", "hint"}` and/or `retry_with`; batch rollups set `fix.retry_with` per item so no hint dangles.
+- Warnings never masquerade as `ok` and never vanish into server logs: degraded signals ride along on `ok: true` results (`timing.lint_failed` + `warning` on `probe_scene`, `status: "unknown"` on `probe_asset` check-failures, `repetition_warning` on identical consecutive chat-agent calls).
+
+Rationale: the classic failure loop was an agent passing a 1-based UI number as a 0-based index and blindly retrying; dual-base texts + per-item fix patches let it correct in one turn.
+
 ## 7. What else MCP *could* do (future tools)
 
 Practical next candidates, roughly by value: environment **preflight** (whisper/model/ffmpeg/GPU present? — prevents doomed 10-minute stages), **voice preview** (audition a voice without a full voiceover run), **music/SFX** search + attach, **render settings** (fps/crf/codec/motion-blur), **scene add/remove/reorder**, single-asset `fetch` verify, `update_project` basics (rename/style-hint/duration), font download. All follow the §6 checklist; none require pipeline changes.

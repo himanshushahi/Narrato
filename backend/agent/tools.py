@@ -638,7 +638,7 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             from backend.pipeline.assets import search_pexels_photo
             api_key = get_setting("pexels_api_key")
             if not api_key:
-                return "Error: Pexels API key not configured."
+                return "Error: Pexels API key not configured. Set it in the app under Settings → API keys (or switch to wikipedia_image / archive_* which need no key)."
             url = search_pexels_photo(query, api_key, orientation)
             return url if url else f"No photo found for '{query}'"
 
@@ -649,7 +649,7 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             from backend.pipeline.assets import search_pexels_video
             api_key = get_setting("pexels_api_key")
             if not api_key:
-                return "Error: Pexels API key not configured."
+                return "Error: Pexels API key not configured. Set it in the app under Settings → API keys (or switch to wikipedia_image / archive_* which need no key)."
             url = search_pexels_video(query, api_key, orientation)
             return url if url else f"No video found for '{query}'"
 
@@ -747,14 +747,32 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
             try:
                 file_path = _safe_project_file(project_id, filename)
             except Exception as e:
-                return f"Error: {e}"
+                return (f"Error: {e} — filenames must be a relative path "
+                        f"inside the project folder (e.g. 'script.json'); "
+                        f"list valid files with list_project_files.")
             if file_path.exists():
                 try:
                     with open(file_path, "r", encoding="utf-8") as f:
                         return f.read()
                 except Exception as e:
-                    return f"Failed to read file: {e}"
-            return f"Error: File {file_path} does not exist."
+                    return (f"Failed to read file ({type(e).__name__}: {e}). "
+                            f"The file may be locked by a running pipeline "
+                            f"stage — wait for the stage to finish, then retry.")
+            try:
+                proj_listing = _project_dir(project_id)
+                files_list = sorted(
+                    str(p.relative_to(proj_listing)).replace("\\", "/")
+                    for p in proj_listing.rglob("*")
+                    if p.is_file() and "__pycache__" not in str(p)
+                )
+                if len(files_list) > 30:
+                    existing = "\n".join(files_list[:30]) + f"\n... ({len(files_list) - 30} more files; use list_project_files)"
+                else:
+                    existing = "\n".join(files_list) if files_list else "(no files found)"
+            except Exception:
+                existing = "(file listing unavailable)"
+            return (f"Error: File {filename!r} does not exist in project "
+                    f"{project_id!r}. Existing files:\n{existing}")
 
         if tool_name == "list_project_files":
             project_id = arguments.get("project_id")
@@ -803,7 +821,11 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                         arguments.get("cut_index", 0),
                         arguments.get("layer_index", 0))
             except Exception as e:
-                return f"Error: probe failed: {e}"
+                return (f"Error: probe {tool_name} failed for project "
+                        f"{project_id!r}, section {section_type!r} "
+                        f"({type(e).__name__}: {e}). Verify project_id and "
+                        f"section_type; run project_status_report to check "
+                        f"the project still exists.")
             return _probe_result_for_llm(res)
 
         if tool_name == "search_icons":
@@ -821,8 +843,15 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
                 return "Error: project_id is required."
 
             trans_data = _load_json(project_id, "subtitles/transcription.json")
+            if isinstance(trans_data, dict) and trans_data.get("_error"):
+                return ("Error: transcription.json is unreadable "
+                        f"({trans_data['_error']}). Run run_stage(transcribe) "
+                        "again; if it repeats, check list_project_files for "
+                        "the file's presence/size.")
             if not trans_data or not isinstance(trans_data, dict):
-                return "No transcription found for this project."
+                return ("No transcription found for this project. Run "
+                        "run_stage('transcribe') to generate word-level "
+                        "timings, then retry.")
 
             scene_info = None
             if scene_index is not None:
@@ -897,13 +926,17 @@ def _execute_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
 
             return json.dumps(resp, ensure_ascii=False)
 
-        return f"Error: Unknown tool {tool_name}"
+        return f"Error: Unknown tool {tool_name!r}. Available tools: web_search, get_skill, list_skills, search_pexels_photo, search_pexels_video, search_wikipedia_image, search_pixabay_photo, search_pixabay_video, search_youtube_video, search_archive_photo, search_archive_video, search_icons, read_project_file, list_project_files, project_status_report, probe_cut, probe_scene, probe_asset, get_word_timings."
 
     except InterruptedError:
         raise
     except Exception as e:
         logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
-        return f"Tool execution failed: {str(e)}"
+        # Name the tool + exception type so the model can tell its own
+        # argument bug from a backend/state failure and react accordingly.
+        return (f"Error: Tool {tool_name} failed with "
+                f"{type(e).__name__}: {str(e)}. Check the tool arguments; "
+                f"if it repeats, verify project state instead of retrying.")
 
 
 _LLM_PROBE_BUDGET = 8000
@@ -975,6 +1008,11 @@ def _project_status_report(project_id: str) -> str:
     ]
 
     script = _load_json(project_id, "script.json")
+    if isinstance(script, dict) and script.get("_error"):
+        lines.append(f"- script.json: UNREADABLE ({script.get('_error')}) — "
+                     "values below are NOT reliable; check the file "
+                     "(list_project_files) or re-save via save_script.")
+        script = None
     if isinstance(script, dict):
         intro = script.get("introduction") or {}
         conclusion = script.get("conclusion") or {}

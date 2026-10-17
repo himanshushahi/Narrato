@@ -24,6 +24,7 @@ LAYER COUNT — NO QUOTA: use as many layers as the beat needs — usually a ric
 PORTRAIT SAFE: Keep content above bottom: 28% in portrait, bottom: 18% in landscape.
 OPACITY PAIR: Every entrance with delay > 0 MUST pair with opacity: 0→1 at same delay.
 NO CHAPTER CARDS: Never put chapter title text inside sub-visual cuts.
+STYLE LOOKS: 50 named looks in visual-style-library (editorial, cinematic, 3d, tech, organic). Pick ONE style per scene and bind to design.json tokens.
 ```
 
 ### AST Structure

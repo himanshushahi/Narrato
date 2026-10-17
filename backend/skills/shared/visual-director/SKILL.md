@@ -24,6 +24,22 @@ Before generating any visual output, verify:
 - [ ] No chapter title cards inside cuts (root overlays handle chapter pills continuously)
 - [ ] Key content is above subtitle safe areas: `bottom: 18%` (landscape) / `bottom: 28%` (portrait)
 - [ ] Every entrance with `delay > 0` pairs with `opacity: 0→1` at the same delay
+- [ ] Visual Style: Pick 1 style per scene from `visual-style-library` (max 2–3 per video); bind colors/fonts to `design.json` tokens
+
+---
+
+## 1.5. Visual Style Selection & The 50-Style Library
+
+Pull looks from `visual-style-library` (50 styles across 5 families: editorial, cinematic, 3d, tech, organic).
+- **Rule**: Pick **ONE style per scene**, max 2–3 distinct styles per video.
+- **AST Mapping**: Map the style's primitives:
+  - `base` = Layer 0 (background/texture)
+  - `hero` = Layer 2 (main visual/data/media)
+  - `text` = Layer 3 (keyword stagger/headline)
+  - `filters` = layer filters (e.g. `noir_hard`, `paper_grain`, `cyberpunk`)
+  - `transitions` = cut transition family
+- **Tokens**: Bind style colors/fonts to `design.json` tokens (`primary`, `secondary`, `accent`, `heading_font`, `body_font`) — never invent disconnected hex colors.
+- **Querying**: Use `get_skill('visual-style-library', section='<slug_or_family>')` (e.g. section='cybersecurity-hud' or section='tech') to inspect the exact layer recipe and transition family.
 
 ---
 

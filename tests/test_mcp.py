@@ -394,6 +394,33 @@ def test_create_project_returns_pacing_targets(monkeypatch, tmp_path):
     assert "get_stage_skills" in res["next_step"]
 
 
+def test_create_project_reports_resolved_style(monkeypatch, tmp_path):
+    from backend.mcp import server
+    _patch_storage(monkeypatch, tmp_path)
+    _patch_db(monkeypatch, None)
+    monkeypatch.setattr("backend.core.config.get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr("backend.core.config.get_exports_dir", lambda: tmp_path / "exports")
+    # Library hint: result reports the canonical slug + name.
+    res = server.create_project("Noir Story", language="en",
+                                video_format="landscape", duration_mode="medium",
+                                style_hint="dark noir investigation")
+    assert res["ok"] is True
+    assert res["resolved_style"]["slug"] == "investigative-noir"
+    assert res["resolved_style"]["name"] == "Investigative Noir"
+    # Unknown hint: actionable tip points at the 50-style library.
+    res2 = server.create_project("Free Look", language="en",
+                                 video_format="landscape", duration_mode="medium",
+                                 style_hint="warm editorial")
+    assert res2["ok"] is True
+    assert res2["resolved_style"]["slug"] == ""
+    assert "visual-style-library" in res2["resolved_style"]["note"]
+    # No hint: no style block in the result.
+    res3 = server.create_project("Plain", language="en",
+                                 video_format="landscape", duration_mode="medium")
+    assert res3["ok"] is True
+    assert "resolved_style" not in res3
+
+
 def test_get_stage_skills_script_returns_outline_targets(monkeypatch):
     from backend.mcp import server
     proj = _proj()

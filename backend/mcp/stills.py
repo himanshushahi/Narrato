@@ -157,7 +157,9 @@ def _render_context(project_id: str):
     """Shared node/bundle/ffmpeg resolution (mirrors render.render_pipeline)."""
     proj = _db.get_project(project_id)
     if not proj:
-        raise ValueError(f"Project {project_id!r} not found in database.")
+        raise ValueError(
+            f"Project {project_id!r} not found in the database. Next: call "
+            f"list_projects to see valid project ids, then retry with one of them.")
     from backend.mcp import payloads
     proj_dir = payloads._project_dir(project_id)
 
@@ -166,7 +168,10 @@ def _render_context(project_id: str):
     if not render_script.exists():
         render_script = frontend_dir / "src" / "render.mjs"
     if not render_script.exists():
-        raise RuntimeError(f"Render script not found: {render_script}")
+        raise RuntimeError(
+            f"Render script not found: {render_script} (frontend build "
+            f"incomplete). Next: run a full render once from the app so the "
+            f"frontend bundles (dist-render/dist-remotion) are built, then retry.")
     bundle_dir = frontend_dir / "dist-remotion"
     if not bundle_dir.exists():
         raise RuntimeError(
@@ -289,7 +294,12 @@ def _render_missing_frames(proj, proj_dir, frontend_dir, render_script, bundle_d
             startupinfo=_config.get_startupinfo(), env=env,
             timeout=STILL_TIMEOUT_MS / 1000 + 60)
     except subprocess.TimeoutExpired as e:
-        raise RuntimeError(f"Composition stills timed out: {e}")
+        raise RuntimeError(
+            f"COMPOSITION_STILLS_TIMEOUT: headless still render exceeded "
+            f"{STILL_TIMEOUT_MS / 1000:.0f}s for the requested frames — "
+            f"Chromium never finished them ({e}). Next: retry once (transient "
+            f"Chromium stalls happen); if it times out again, review fewer "
+            f"cells per call (e.g. max_cells=1) and check the node/Chromium logs.")
     if proc.returncode != 0:
         tail = "\n".join((proc.stdout or "").splitlines()[-15:])
         raise RuntimeError(f"Composition stills failed (exit {proc.returncode}):\n{tail}")
@@ -302,7 +312,10 @@ def _render_missing_frames(proj, proj_dir, frontend_dir, render_script, bundle_d
             leftovers = sorted(p.name for p in tmp_frames_dir.iterdir())
             raise RuntimeError(
                 f"Composition stills: node exited 0 but frame {frame} missing "
-                f"(frames dir holds: {leftovers[:8]}).")
+                f"(frames dir holds: {leftovers[:8]}). Likely a silent child "
+                f"render failure or OOM kill. Next: retry once; if it repeats, "
+                f"run the app's full render once to verify Remotion stills "
+                f"work at all, then report frames {frames[:5]} as the failing set.")
         key = (cache_keys or {}).get(frame)
         if key is None:
             raise RuntimeError(

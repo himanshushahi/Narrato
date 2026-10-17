@@ -198,6 +198,33 @@ def resolve_scene_and_cut(
 
     return norm_sec, final_scene_index, final_cut_index, None
 
+
+def format_target_error(err: str, project_id: str | None = None) -> dict:
+    """Format structured, actionable error for resolve_scene_and_cut failures."""
+    err_dict = {"ok": False, "error": err}
+    if "Index/Number conflict" in err:
+        err_dict["error_code"] = "INDEX_NUMBER_CONFLICT"
+        err_dict["fix"] = {"hint": "Pass either 1-based number (scene_number/cut_number) OR 0-based index (scene_index/cut_index), not conflicting values."}
+    elif "numbers are 1-based" in err:
+        err_dict["error_code"] = "INVALID_1BASED_NUMBER"
+        err_dict["fix"] = {"hint": "Scene and cut numbers in Narrato UI are 1-based (Scene 1, Cut #1). For 0-based indexing use scene_index or cut_index."}
+    elif "must be >= 0" in err or "non-negative integer" in err:
+        err_dict["error_code"] = "NEGATIVE_INDEX"
+        err_dict["fix"] = {"hint": "Indices must be non-negative integers (0, 1, 2, ...)."}
+    elif "section_type must be one of" in err:
+        err_dict["error_code"] = "INVALID_SECTION_TYPE"
+        err_dict["allowed_section_types"] = list(SECTION_TYPES)
+        err_dict["fix"] = {"hint": f"section_type must be one of: {list(SECTION_TYPES)}"}
+    elif "must be an integer" in err:
+        err_dict["error_code"] = "INVALID_INTEGER"
+        err_dict["fix"] = {"hint": "Provide index and number parameters as integers."}
+    else:
+        err_dict["error_code"] = "INVALID_SECTION_TARGET"
+        err_dict["fix"] = {"hint": "Verify section_type, scene_number/scene_index, and cut_number/cut_index."}
+    if project_id:
+        err_dict["project_id"] = project_id
+    return err_dict
+
 # Session-wide verified media queries (recorded by search_media on success).
 # save_visuals reports any Image/Video query absent here as unverified —
 # verification used to be prose-only ("verify BEFORE writing") that agents
@@ -223,7 +250,27 @@ def _normalized_cuts_hash(normalized) -> str:
         return ""
 
 
-def _coerce_json_array(value, field_name: str):
+def _format_json_syntax_snippet(raw: str, err: Exception) -> dict | None:
+    """Extract a visual error window with pointer for JSON decode errors."""
+    if not isinstance(err, json.JSONDecodeError):
+        return None
+    pos = getattr(err, "pos", None)
+    if pos is None:
+        return None
+    start = max(0, pos - 50)
+    end = min(len(raw), pos + 50)
+    snippet_text = raw[start:end]
+    offset = pos - start
+    pointer = " " * offset + "^--- [Syntax error here]"
+    return {
+        "line": getattr(err, "lineno", None),
+        "column": getattr(err, "colno", None),
+        "char_index": pos,
+        "context": f"{snippet_text}\n{pointer}",
+    }
+
+
+def _coerce_json_array(value, field_name: str, array_label: str | None = None):
     """Accept a JSON-encoded string for an array field (defense in depth).
 
     Some MCP clients double-encode large nested args (e.g. Counter+style or
@@ -236,28 +283,74 @@ def _coerce_json_array(value, field_name: str):
     """
     if isinstance(value, list):
         return value, False, None
+    label = array_label or ("sections" if "section" in field_name.lower() else "cuts")
     if isinstance(value, str):
         raw = value.strip()
         if not raw:
             return value, False, {
                 "ok": False,
+                "error_code": "EMPTY_JSON_ARRAY",
                 "error": (f"{field_name} must be a non-empty array (got empty string). "
-                          "Send the cuts array directly, not a JSON-encoded string.") }
+                          f"Send the {label} array directly, not a JSON-encoded string."),
+                "field": field_name,
+                "fix": {
+                    "hint": f"Send the {label} array directly as a list, e.g. {field_name}: [{{...}}], not an empty string."
+                },
+            }
+        parsed = None
+        parse_err = None
         try:
             parsed = json.loads(raw)
         except Exception as e:
+            parse_err = e
+            try:
+                from backend.pipeline.ai import clean_json_response
+                repaired = clean_json_response(raw)
+                if isinstance(repaired, list):
+                    parsed = repaired
+                    parse_err = None
+                    logger.info("_coerce_json_array: auto-repaired %s JSON string (%s items)",
+                                field_name, len(parsed))
+            except Exception:
+                pass
+
+        if parse_err is not None:
             logger.warning("save_visuals: %s arrived as an unparseable string (%s chars): %s",
-                           field_name, len(raw), e)
-            return value, False, {
+                           field_name, len(raw), parse_err)
+            snippet_info = _format_json_syntax_snippet(raw, parse_err)
+            example_val = (
+                f'"{field_name}": [{{"section_type": "scene", "sub_visuals": [...]}}]'
+                if label == "sections"
+                else f'"{field_name}": [{{"duration": 3.0, "composition": {{...}}}}]'
+            )
+            err_dict = {
                 "ok": False,
-                "error": (f"{field_name} arrived as a string that is not valid JSON ({e}). "
-                          "Send the cuts array directly, not a JSON-encoded string.") }
+                "error_code": "INVALID_JSON_SYNTAX",
+                "error": (f"{field_name} arrived as a string that is not valid JSON ({parse_err}). "
+                          f"Send the {label} array directly, not a JSON-encoded string."),
+                "field": field_name,
+                "fix": {
+                    "hint": f"Send {field_name} directly as a JSON/Python array of objects, not a JSON-encoded string.",
+                    "example": example_val,
+                },
+            }
+            if snippet_info:
+                err_dict["syntax_error"] = snippet_info
+            return value, False, err_dict
+
         if not isinstance(parsed, list):
             return value, False, {
                 "ok": False,
+                "error_code": "NOT_AN_ARRAY",
                 "error": (f"{field_name} arrived as a JSON string holding "
                           f"{type(parsed).__name__}, not an array. "
-                          "Send the cuts array directly.") }
+                          f"Send the {label} array directly."),
+                "field": field_name,
+                "got_type": type(parsed).__name__,
+                "fix": {
+                    "hint": f"Wrap the items inside an array: [ ... ], not a bare {type(parsed).__name__}."
+                },
+            }
         logger.warning("save_visuals: %s arrived as a JSON string (%s chars) — parsed "
                        "to a %s-element array instead of rejecting.",
                        field_name, len(raw), len(parsed))
@@ -325,8 +418,21 @@ def _project_dir(project_id: str) -> Path:
 def _get_project_or_raise(project_id: str) -> dict:
     proj = _db.get_project(project_id)
     if not proj:
-        raise ValueError(f"Project {project_id!r} not found in database.")
+        raise ValueError(
+            f"Project {project_id!r} not found in database. "
+            f"Call list_projects for valid ids, or create_project to make one.")
     return proj
+
+
+# Valid cut transition enum (mirrors SubVisualAST's schema docstring in
+# backend.agent.schemas — single source of truth). Surfaced inline in the
+# variety "not a valid enum value" normalization notices so agents can pick
+# a valid value without an extra skill read.
+_VALID_TRANSITIONS: tuple = (
+    "cut", "fade", "crossfade", "dissolve", "slide_left", "slide_right",
+    "slide_up", "slide_down", "zoom_in", "zoom_out", "glitch", "blur_focus",
+    "flash", "wipe_right", "iris_open", "rise", "flip", "none",
+)
 
 
 def compute_project_script_hash(project_dict: dict) -> str:
@@ -568,7 +674,27 @@ def save_script_payload(project_id: str, data: dict, force: bool = False) -> dic
     the post-script stage. Returns a summary dict (raises on DB miss)."""
     errors = validate_script_payload(data)
     if errors:
-        return {"ok": False, "error": "Script validation failed: " + "; ".join(errors)}
+        return {
+            "ok": False,
+            "error_code": "SCRIPT_VALIDATION_ERROR",
+            "error": "Script validation failed: " + "; ".join(errors),
+            "errors": errors,
+            "expected_schema": {
+                "title": "string (non-empty)",
+                "introduction": {"hook": "string (non-empty narration hook)"},
+                "scenes": [{"title": "string", "narration": "string (non-empty)"}],
+                "conclusion": {"summary": "string (non-empty)", "cta": "string (optional)"},
+            },
+            "fix": {
+                "hint": "Correct the script validation errors listed above and resubmit.",
+                "example": {
+                    "title": "Video Title",
+                    "introduction": {"hook": "Opening hook narration..."},
+                    "scenes": [{"title": "Scene 1", "narration": "First scene narration..."}],
+                    "conclusion": {"summary": "Summary narration...", "cta": "Optional CTA"},
+                },
+            },
+        }
     proj = _get_project_or_raise(project_id)
     bypass_warning = None
     if not force:
@@ -682,37 +808,86 @@ def patch_script_payload(project_id: str, section_type: str, patch: dict,
     section = (_safe_str(section_type) or "").strip().lower()
     section = _PATCH_SECTION_ALIASES.get(section, section)
     if section not in ("introduction", "scene", "conclusion"):
-        return {"ok": False, "error": "section_type must be introduction|scene|conclusion."}
+        return {
+            "ok": False,
+            "error_code": "INVALID_SECTION_TYPE",
+            "error": "section_type must be introduction|scene|conclusion.",
+            "allowed_section_types": ["introduction", "scene", "conclusion"],
+            "fix": {"hint": "Set section_type to 'introduction', 'scene', or 'conclusion'."},
+        }
     if not isinstance(patch, dict) or not patch:
-        return {"ok": False, "error": "patch must be a non-empty object."}
+        return {
+            "ok": False,
+            "error_code": "EMPTY_PATCH",
+            "error": "patch must be a non-empty object.",
+            "fix": {"hint": "Provide a dictionary with fields to update (e.g. {'hook': '...'} or {'narration': '...'})."},
+        }
     _get_project_or_raise(project_id)
     proj_dir = _project_dir(project_id)
     script_path = proj_dir / "script.json"
     if not script_path.exists():
-        return {"ok": False, "error": "script.json not found. Use save_script first."}
+        return {
+            "ok": False,
+            "error_code": "SCRIPT_NOT_FOUND",
+            "error": "script.json not found. Use save_script first.",
+            "fix": {
+                "tool": "save_script",
+                "arguments": {"project_id": project_id},
+                "hint": "Save a complete script using save_script before patching individual sections.",
+            },
+        }
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             document = json.load(f)
     except Exception as e:
-        return {"ok": False, "error": f"Could not read script.json: {e}"}
+        return {
+            "ok": False,
+            "error_code": "SCRIPT_READ_ERROR",
+            "error": f"Could not read script.json ({script_path}): {e}",
+            "fix": {"hint": "The script file could not be parsed as JSON. Consider re-saving with save_script."},
+        }
 
     changed: dict = {}
     if section == "introduction":
         if "hook" not in patch:
-            return {"ok": False, "error": "patch for introduction requires 'hook'."}
+            return {
+                "ok": False,
+                "error_code": "MISSING_PATCH_FIELD",
+                "error": "patch for introduction requires 'hook'.",
+                "expected_fields": ["hook"],
+                "fix": {"example": {"hook": "Updated hook narration..."}},
+            }
         hook = _safe_str(patch.get("hook")).strip()
         if not hook:
-            return {"ok": False, "error": "introduction.hook must be a non-empty string."}
+            return {
+                "ok": False,
+                "error_code": "EMPTY_FIELD_VALUE",
+                "error": "introduction.hook must be a non-empty string.",
+                "field": "hook",
+                "fix": {"hint": "Provide non-empty narration text for the hook."},
+            }
         if not isinstance(document.get("introduction"), dict):
             document["introduction"] = {}
         document["introduction"]["hook"] = hook
         changed = {"section_type": "introduction", "hook_words": len(hook.split())}
     elif section == "conclusion":
         if "summary" not in patch:
-            return {"ok": False, "error": "patch for conclusion requires 'summary'."}
+            return {
+                "ok": False,
+                "error_code": "MISSING_PATCH_FIELD",
+                "error": "patch for conclusion requires 'summary'.",
+                "expected_fields": ["summary"],
+                "fix": {"example": {"summary": "Updated conclusion summary...", "cta": "Optional CTA"}},
+            }
         summary = _safe_str(patch.get("summary")).strip()
         if not summary:
-            return {"ok": False, "error": "conclusion.summary must be a non-empty string."}
+            return {
+                "ok": False,
+                "error_code": "EMPTY_FIELD_VALUE",
+                "error": "conclusion.summary must be a non-empty string.",
+                "field": "summary",
+                "fix": {"hint": "Provide non-empty narration text for the summary."},
+            }
         if not isinstance(document.get("conclusion"), dict):
             document["conclusion"] = {}
         document["conclusion"]["summary"] = summary
@@ -723,31 +898,75 @@ def patch_script_payload(project_id: str, section_type: str, patch: dict,
     else:
         scenes = document.get("scenes")
         if not isinstance(scenes, list) or not scenes:
-            return {"ok": False, "error": "script has no scenes to patch."}
+            return {
+                "ok": False,
+                "error_code": "NO_SCENES_IN_SCRIPT",
+                "error": "script has no scenes to patch.",
+                "fix": {"tool": "save_script", "hint": "Save a script with scenes before patching."},
+            }
         idx: int | None = None
         if scene_number is not None:
             try:
                 idx = int(scene_number) - 1
             except (TypeError, ValueError):
-                return {"ok": False, "error": "scene_number must be 1-based integer."}
+                return {
+                    "ok": False,
+                    "error_code": "INVALID_SCENE_NUMBER",
+                    "error": "scene_number must be 1-based integer.",
+                    "fix": {"hint": "Pass scene_number as a 1-based integer (e.g. scene_number=1 for Scene 1)."},
+                }
         elif scene_index is not None:
             try:
                 idx = int(scene_index)
             except (TypeError, ValueError):
-                return {"ok": False, "error": "scene_index must be 0-based integer."}
+                return {
+                    "ok": False,
+                    "error_code": "INVALID_SCENE_INDEX",
+                    "error": "scene_index must be 0-based integer.",
+                    "fix": {"hint": "Pass scene_index as a 0-based integer (e.g. scene_index=0 for Scene 1)."},
+                }
         else:
-            return {"ok": False, "error": "scene patch requires scene_number (1-based) or scene_index (0-based)."}
+            return {
+                "ok": False,
+                "error_code": "MISSING_SCENE_TARGET",
+                "error": "scene patch requires scene_number (1-based) or scene_index (0-based).",
+                "fix": {"hint": "Specify which scene to patch using scene_number=1 (recommended, 1-based) or scene_index=0."},
+            }
         if idx < 0 or idx >= len(scenes):
-            return {"ok": False, "error": f"scene index out of range (1-{len(scenes)})."}
+            return {
+                "ok": False,
+                "error_code": "SCENE_OUT_OF_RANGE",
+                "error": f"scene index out of range (1-{len(scenes)}).",
+                "valid_scene_numbers": f"1-{len(scenes)}",
+                "total_scenes": len(scenes),
+                "fix": {"hint": f"Choose a scene_number between 1 and {len(scenes)}."},
+            }
         target = scenes[idx]
         if not isinstance(target, dict):
-            return {"ok": False, "error": f"scenes[{idx}] is not an object."}
+            return {
+                "ok": False,
+                "error_code": "CORRUPT_SCENE_DATA",
+                "error": f"scenes[{idx}] is not an object.",
+                "fix": {"hint": "Re-save the script to clean up malformed scene data."},
+            }
         if "narration" not in patch and "title" not in patch:
-            return {"ok": False, "error": "scene patch requires 'narration' and/or 'title'."}
+            return {
+                "ok": False,
+                "error_code": "MISSING_PATCH_FIELD",
+                "error": "scene patch requires 'narration' and/or 'title'.",
+                "expected_fields": ["narration", "title"],
+                "fix": {"example": {"narration": "Updated scene narration text", "title": "Optional new title"}},
+            }
         if "narration" in patch:
             narration = _safe_str(patch.get("narration")).strip()
             if not narration:
-                return {"ok": False, "error": f"scenes[{idx}] narration must be non-empty."}
+                return {
+                    "ok": False,
+                    "error_code": "EMPTY_FIELD_VALUE",
+                    "error": f"scenes[{idx}] narration must be non-empty.",
+                    "field": "narration",
+                    "fix": {"hint": "Scene narration must be a non-empty string."},
+                }
             target["narration"] = narration
         if "title" in patch:
             title = _safe_str(patch.get("title")).strip()
@@ -847,7 +1066,32 @@ def save_design_payload(project_id: str, data: dict, force: bool = False) -> dic
     """
     errors = validate_design_payload(data)
     if errors:
-        return {"ok": False, "error": "Design validation failed: " + "; ".join(errors)}
+        return {
+            "ok": False,
+            "error_code": "DESIGN_VALIDATION_ERROR",
+            "error": "Design validation failed: " + "; ".join(errors),
+            "errors": errors,
+            "expected_schema": {
+                "theme_name": "string (e.g. 'cinematic_dark', 'tech_minimal')",
+                "color_palette": {
+                    "primary": "hex color string (e.g. '#FF5722')",
+                    "secondary": "hex color string",
+                    "accent": "hex color string",
+                    "background": "hex color string",
+                    "text": "hex color string",
+                },
+                "typography": {
+                    "heading_font": "string (e.g. 'Montserrat')",
+                    "body_font": "string (e.g. 'Inter')",
+                },
+                "css_guidelines": "string (optional design guidelines)",
+            },
+            "fix": {
+                "hint": "Provide a complete design system matching the required schema above. Call get_stage_skills(stage='design') for guidance.",
+                "tool": "get_stage_skills",
+                "arguments": {"stage": "design", "project_id": project_id},
+            },
+        }
     proj = _get_project_or_raise(project_id)
     proj_dir = _project_dir(project_id)
     proj_dir.mkdir(parents=True, exist_ok=True)
@@ -1092,7 +1336,16 @@ def update_voice_settings(project_id: str, settings: dict) -> dict:
         current_engine = "edge"
     errors, columns = validate_voice_settings(settings, current_engine=current_engine)
     if errors:
-        return {"ok": False, "error": " ".join(errors)}
+        return {
+            "ok": False,
+            "error_code": "INVALID_VOICE_SETTINGS",
+            "error": " ".join(errors),
+            "errors": errors,
+            "fix": {
+                "tool": "list_voice_options",
+                "hint": "Check list_voice_options() to see valid voices and engines for this language.",
+            },
+        }
     # dhvaani_quality is not a projects-table column — merge it into
     # project_settings JSON (same pattern as update_transcribe_settings).
     quality = columns.pop("dhvaani_quality", None)
@@ -1183,7 +1436,17 @@ def update_transcribe_settings(project_id: str, settings: dict) -> dict:
     """
     errors, columns = validate_transcribe_settings(settings)
     if errors:
-        return {"ok": False, "error": " ".join(errors)}
+        return {
+            "ok": False,
+            "error_code": "INVALID_TRANSCRIBE_SETTINGS",
+            "error": " ".join(errors),
+            "errors": errors,
+            "allowed_models": ["tiny", "base", "small", "medium", "large-v3"],
+            "allowed_devices": ["cuda", "cpu"],
+            "fix": {
+                "hint": "Pass whisper_model (e.g. 'base', 'small', 'medium') and whisper_device ('cpu' or 'cuda').",
+            },
+        }
     proj = _get_project_or_raise(project_id)
     raw = proj.get("project_settings")
     try:
@@ -1256,7 +1519,15 @@ def update_subtitle_settings(project_id: str, settings: dict) -> dict:
     settings dict, so any styling edit correctly busts the render cache."""
     errors, columns = validate_subtitle_settings(settings)
     if errors:
-        return {"ok": False, "error": " ".join(errors)}
+        return {
+            "ok": False,
+            "error_code": "INVALID_SUBTITLE_SETTINGS",
+            "error": " ".join(errors),
+            "errors": errors,
+            "fix": {
+                "hint": "Check subtitle setting parameters. Ensure valid font names, hex colors, and dimensions.",
+            },
+        }
     proj = _get_project_or_raise(project_id)
     raw = proj.get("project_settings")
     try:
@@ -1287,7 +1558,14 @@ def delete_project_payload(project_id: str) -> dict:
     try:
         proj_dir = _project_dir(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "UNSAFE_PROJECT_ID",
+            "error": f"Could not resolve a safe project directory for {project_id!r}: {e}.",
+            "fix": {"tool": "list_projects",
+                    "hint": "The project id failed the storage-path safety check — "
+                            "confirm the exact id with list_projects."},
+        }
     _db.delete_project(project_id)
     try:
         if proj_dir.exists():
@@ -1366,9 +1644,22 @@ def list_project_files_payload(project_id: str) -> dict:
     try:
         proj_dir = _project_dir(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "UNSAFE_PROJECT_ID",
+            "error": f"Could not resolve a safe project directory for {project_id!r}: {e}.",
+            "fix": {"tool": "list_projects",
+                    "hint": "The project id failed the storage-path safety check — "
+                            "confirm the exact id with list_projects."},
+        }
     if not proj_dir.exists():
-        return {"ok": False, "error": "Project directory does not exist."}
+        return {"ok": False,
+                "error_code": "PROJECT_DIR_MISSING",
+                "error": f"Project directory does not exist for {project_id!r}.",
+                "fix": {"hint": "The project row exists but its storage folder "
+                                "was never created (or was deleted outside the "
+                                "app). Only delete_project removes it — re-create "
+                                "the project if the folder is really gone."}}
     files = []
     truncated = False
     try:
@@ -1404,16 +1695,44 @@ def read_project_file_payload(project_id: str, path: str,
     try:
         proj_dir = _project_dir(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "UNSAFE_PROJECT_ID",
+            "error": f"Could not resolve a safe project directory for {project_id!r}: {e}.",
+            "fix": {"tool": "list_projects",
+                    "hint": "The project id failed the storage-path safety check — "
+                            "confirm the exact id with list_projects."},
+        }
     candidate = (proj_dir / (path or "").replace("\\", "/"))
     try:
         resolved = candidate.resolve()
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "PATH_RESOLVE_FAILED",
+            "error": f"Could not resolve project path {path!r}: {e}.",
+            "fix": {"hint": "Use a relative path inside the project folder "
+                            "(e.g. 'script.json' or 'voiceover/manifest.json'); "
+                            "list candidates with list_project_files."},
+        }
     if proj_dir.resolve() != resolved and proj_dir.resolve() not in resolved.parents:
-        return {"ok": False, "error": f"Unsafe path: {path!r}."}
+        return {
+            "ok": False,
+            "error_code": "UNSAFE_PATH",
+            "error": f"Unsafe path: {path!r}.",
+            "fix": {"hint": "Provide a relative path within the project storage directory."},
+        }
     if not resolved.is_file():
-        return {"ok": False, "error": f"File not found: {path!r}."}
+        return {
+            "ok": False,
+            "error_code": "FILE_NOT_FOUND",
+            "error": f"File not found: {path!r}.",
+            "fix": {
+                "tool": "list_project_files",
+                "arguments": {"project_id": project_id},
+                "hint": "Call list_project_files() to see existing files in this project directory.",
+            },
+        }
     if resolved.suffix.lower() not in _READABLE_SUFFIXES:
         try:
             size = resolved.stat().st_size
@@ -1425,7 +1744,12 @@ def read_project_file_payload(project_id: str, path: str,
     try:
         text = resolved.read_text(encoding="utf-8")
     except Exception as e:
-        return {"ok": False, "error": f"Could not read file: {e}"}
+        return {
+            "ok": False,
+            "error_code": "FILE_READ_ERROR",
+            "error": f"Could not read file {resolved}: {e}",
+            "fix": {"hint": "The file could not be read as UTF-8 text. Call list_project_files to confirm the exact relative path."},
+        }
     total_chars = len(text)
     try:
         offset = max(0, int(offset or 0))
@@ -1490,8 +1814,16 @@ def get_section_timings(project_id: str, include_words: bool = True,
     proj_dir = _project_dir(project_id)
     manifest_path = _active_manifest_path(proj, proj_dir)
     if not manifest_path:
-        return {"ok": False,
-                "error": "No voiceover manifest found. Run the generate_voiceover stage first."}
+        return {
+            "ok": False,
+            "error_code": "VOICEOVER_REQUIRED",
+            "error": "No voiceover manifest found. Run the generate_voiceover stage first.",
+            "fix": {
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "generate_voiceover", "wait": True},
+                "hint": "Voiceover audio must be generated before true section timings exist.",
+            },
+        }
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
 
@@ -1555,14 +1887,26 @@ def get_section_timings(project_id: str, include_words: bool = True,
         try:
             _sn = int(scene_number)
         except (TypeError, ValueError):
-            return {"ok": False, "error": "scene_number must be a 1-based integer (UI Scene N)."}
+            return {
+                "ok": False,
+                "error_code": "INVALID_SCENE_NUMBER",
+                "error": "scene_number must be a 1-based integer (UI Scene N).",
+                "fix": {"hint": "Provide scene_number as a 1-based integer (e.g. scene_number=1)."},
+            }
         match = next((s for s in sections
                       if s.get("section_type") == "scene"
                       and s.get("scene_number") == _sn), None)
         if match is None:
-            return {"ok": False, "error": (
-                f"scene_number {_sn} not found (video has "
-                f"{sum(1 for s in sections if s.get('section_type') == 'scene')} scenes).")}
+            total_scenes = sum(1 for s in sections if s.get('section_type') == 'scene')
+            return {
+                "ok": False,
+                "error_code": "SCENE_NOT_FOUND",
+                "error": (
+                    f"scene_number {_sn} not found (video has "
+                    f"{total_scenes} scenes)."),
+                "valid_scene_numbers": f"1..{total_scenes}",
+                "fix": {"hint": f"Choose scene_number between 1 and {total_scenes}."},
+            }
         sections = [match]
     elif filt in ("introduction", "intro"):
         sections = [s for s in sections if s.get("section_type") == "introduction"]
@@ -1571,8 +1915,14 @@ def get_section_timings(project_id: str, include_words: bool = True,
     elif filt in ("scene", "scenes"):
         pass  # all scenes already; combine with include_words=False for summary
     elif filt:
-        return {"ok": False, "error": (
-            f"section_type must be introduction|scene|conclusion (got {section_type!r}).")}
+        return {
+            "ok": False,
+            "error_code": "INVALID_SECTION_TYPE",
+            "error": (
+                f"section_type must be introduction|scene|conclusion (got {section_type!r})."),
+            "allowed_section_types": ["introduction", "scene", "conclusion"],
+            "fix": {"hint": "Filter by 'introduction', 'scene', or 'conclusion'."},
+        }
     filtered = len(sections) != total_sections
     return {"ok": True, "project_id": project_id,
             "total_duration": round(cursor, 2), "sections": sections,
@@ -1613,7 +1963,7 @@ def _creative_blueprint_for_project(proj: dict) -> dict:
     }:
         _raw_hint = ""
     style_hint = _raw_hint
-    return {
+    out = {
         "style_hint": style_hint,
         "layer_types": [
             "Image", "Video", "Text", "Chart", "Shape", "Map",
@@ -1627,6 +1977,30 @@ def _creative_blueprint_for_project(proj: dict) -> dict:
         ],
         "sample_cut": _canonical_sample_cut(video_format),
     }
+    # Resolve the 50-style hint so the agent sees the canonical look even if
+    # it skipped get_stage_skills('visuals'). Pointer only — never fails.
+    try:
+        from backend.pipeline.style_library import (
+            style_block_for as _sbf, resolve_style as _rs, STYLE_SPECS as _ss,
+        )
+        _block, _slug = _sbf(style_hint)
+        out["resolved_style"] = _slug
+        if _slug:
+            out["style_name"] = _ss.get(_slug, {}).get("name", _slug)
+            out["active_style_block"] = _block
+            out["style_note"] = (
+                f"Active look: {_slug}. ONE style per scene, max 2-3 per video; "
+                "bind colors/fonts to design.json tokens. Full AST mapping: "
+                "get_skill('visual-style-library', section='<family>', project_id=...) "
+                "or get_stage_skills('visuals', project_id).")
+        elif style_hint:
+            out["style_note"] = (
+                f"Hint {style_hint!r} is free text (no library match) — invent "
+                "a topic-driven look. To pin a curated look, use a 50-style "
+                "slug from get_skill('visual-style-library', section='style index').")
+    except Exception as e:
+        logger.warning(f"creative_blueprint style resolution skipped: {e}")
+    return out
 
 
 def _canonical_sample_cut(video_format: str = "landscape") -> dict:
@@ -1749,7 +2123,7 @@ def save_visuals_payload(project_id: str, section_type: str,
         allow_negative_cut=False
     )
     if err:
-        return {"ok": False, "error": err}
+        return format_target_error(err, project_id=project_id)
     section_type = norm_sec
 
     logger.debug("save_visuals entry: sub_visuals type=%s (project=%s section=%s scene=%s cut=%s)",
@@ -1760,84 +2134,190 @@ def save_visuals_payload(project_id: str, section_type: str,
 
     if cut_index is not None:
         if isinstance(sub_visuals, list) and len(sub_visuals) != 1:
-            return {"ok": False, "error": (
-                f"Single-cut patch takes exactly one cut (got {len(sub_visuals)}); "
-                "omit cut_index/cut_number to replace the whole section.")}
+            return {
+                "ok": False,
+                "error_code": "SINGLE_CUT_PATCH_LENGTH",
+                "error": (
+                    f"Single-cut patch takes exactly one cut (got {len(sub_visuals)}); "
+                    "omit cut_index/cut_number to replace the whole section."),
+                "got_count": len(sub_visuals),
+                "fix": {
+                    "hint": "Pass a 1-element array [{...}] when patching a single cut, or omit cut_index/cut_number to replace the entire section.",
+                },
+            }
         patch = sub_visuals[0] if isinstance(sub_visuals, list) else sub_visuals
         if not isinstance(patch, dict):
             _got = type(sub_visuals).__name__
             if isinstance(sub_visuals, list):
                 _got = f"list[{len(sub_visuals)}] of {type(sub_visuals[0]).__name__ if sub_visuals else 'empty'}"
-            return {"ok": False, "error": (
-                "Single-cut patch: sub_visuals must be one cut object "
-                f"(or a 1-element array). Got {_got}. "
-                "Valid cut keys: duration, transition, exit_transition, "
-                "composition, emphasis, subtitle_position, visual_path, visual_url. "
-                "exit_transition IS valid here — this error means the cut itself "
-                "is not a dict (e.g. you passed bare layers). "
-                "Fix: pass [{duration, transition, composition:{type:Sequence, children:[...]}}].")}
-    elif not isinstance(sub_visuals, list) or not sub_visuals:
-        _got = type(sub_visuals).__name__
-        if isinstance(sub_visuals, list):
-            _got = "empty list"
-        return {"ok": False, "error": (
-            f"sub_visuals must be a non-empty array (got {_got}). "
-            "For a single-cut patch pass cut_index/cut_number + a 1-element array.")}
+            return {
+                "ok": False,
+                "error_code": "INVALID_CUT_OBJECT",
+                "error": (
+                    "Single-cut patch: sub_visuals must be one cut object "
+                    f"(or a 1-element array). Got {_got}. "
+                    "Valid cut keys: duration, transition, exit_transition, "
+                    "composition, emphasis, subtitle_position, visual_path, visual_url. "
+                    "exit_transition IS valid here — this error means the cut itself "
+                    "is not a dict (e.g. you passed bare layers). "
+                    "Fix: pass [{duration, transition, composition:{type:Sequence, children:[...]}}]."),
+                "fix": {
+                    "hint": "Wrap layers inside cut.composition.children, not directly as the cut object.",
+                    "example": "[{\"duration\": 3.0, \"composition\": {\"type\": \"Sequence\", \"children\": [...]}}]",
+                },
+            }
+    elif not isinstance(sub_visuals, list):
+        return {
+            "ok": False,
+            "error_code": "INVALID_SUB_VISUALS_TYPE",
+            "error": (
+                f"sub_visuals must be an array of cut objects (got {type(sub_visuals).__name__}). "
+                "Send sub_visuals=[{duration: 3.0, composition: {type: 'Sequence', children: [...]}}]."),
+            "got_type": type(sub_visuals).__name__,
+            "fix": {
+                "hint": "Pass an array of cut objects, e.g. sub_visuals=[{duration: 3.0, composition: {type: 'Sequence', children: [...]}}].",
+            },
+        }
+    elif not sub_visuals:
+        return {
+            "ok": False,
+            "error_code": "EMPTY_SUB_VISUALS",
+            "error": (
+                "sub_visuals must be a non-empty array (got 0 cuts). "
+                "Every section needs at least one cut object whose duration matches the section audio."),
+            "fix": {
+                "hint": "Provide a non-empty array of cuts for this section.",
+            },
+        }
     proj = _get_project_or_raise(project_id)
     proj_dir = _project_dir(project_id)
     video_format = proj.get("video_format", "landscape")
 
     design_hash = current_design_hash(proj_dir)
     if not design_hash:
-        return {"ok": False, "error": (
-            "No valid design.json found. Save a design system first "
-            "(save_design tool) so visuals bind to a design hash.")}
+        return {
+            "ok": False,
+            "error_code": "DESIGN_REQUIRED",
+            "error": (
+                "No valid design.json found. Save a design system first "
+                "(save_design tool) so visuals bind to a design hash."),
+            "fix": {
+                "tool": "save_design",
+                "arguments": {"project_id": project_id},
+                "hint": "Save a design system with save_design first before creating visuals.",
+            },
+        }
 
     manifest_path = _active_manifest_path(proj, proj_dir)
     if not manifest_path:
-        return {"ok": False,
-                "error": "No voiceover manifest found. Run the generate_voiceover stage first."}
+        return {
+            "ok": False,
+            "error_code": "VOICEOVER_REQUIRED",
+            "error": "No voiceover manifest found. Run the generate_voiceover stage first.",
+            "fix": {
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "generate_voiceover", "wait": True},
+                "hint": "Generate voiceover audio first so section timings and audio durations are established.",
+            },
+        }
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
     if not isinstance(manifest, list) or not manifest:
-        return {"ok": False, "error": "Active manifest is empty or invalid."}
+        return {
+            "ok": False,
+            "error_code": "MANIFEST_INVALID",
+            "error": "Active manifest is empty or invalid.",
+            "fix": {
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "generate_voiceover", "wait": True},
+                "hint": "Re-run generate_voiceover stage to regenerate the manifest.",
+            },
+        }
 
     if section_type == "scene":
         candidates = [m for m in manifest if isinstance(m, dict) and m.get("section_type") == "scene"]
         if not (0 <= scene_index < len(candidates)):
             total_scenes = len(candidates)
-            return {"ok": False, "error": (
-                f"scene_index {scene_index} (UI Scene {scene_index + 1}) out of range "
-                f"(0..{total_scenes - 1} — UI Scenes 1..{total_scenes}). "
-                f"Did you pass a 1-based scene number? In Narrato UI, Scene {scene_index} is scene_index={scene_index - 1}. "
-                f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
-            )}
+            return {
+                "ok": False,
+                "error_code": "SCENE_INDEX_OUT_OF_RANGE",
+                "error": (
+                    f"scene_index {scene_index} (UI Scene {scene_index + 1}) out of range "
+                    f"(0..{total_scenes - 1} — UI Scenes 1..{total_scenes}). "
+                    f"Did you pass a 1-based scene number? In Narrato UI, Scene {scene_index} is scene_index={scene_index - 1}. "
+                    f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
+                ),
+                "valid_scene_indices": f"0..{total_scenes - 1}",
+                "valid_scene_numbers": f"1..{total_scenes}",
+                "fix": {
+                    "hint": f"Pass scene_number={scene_index} or scene_index={scene_index - 1}.",
+                },
+            }
         entry = candidates[scene_index]
     else:
         entry = next((m for m in manifest
                       if isinstance(m, dict) and m.get("section_type") == section_type), None)
         if entry is None:
-            return {"ok": False, "error": f"No manifest entry for {section_type}."}
+            return {
+                "ok": False,
+                "error_code": "SECTION_NOT_IN_MANIFEST",
+                "error": f"No manifest entry for {section_type}.",
+                "fix": {
+                    "hint": f"Section {section_type} was not found in the voiceover manifest. Verify section_type is 'introduction', 'scene', or 'conclusion'.",
+                },
+            }
 
     target_duration = float(entry.get("duration", 0) or 0)
     if target_duration <= 0:
-        return {"ok": False, "error": "Manifest entry has no usable duration."}
+        return {
+            "ok": False,
+            "error_code": "ZERO_DURATION",
+            "error": "Manifest entry has no usable duration.",
+            "fix": {
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "generate_voiceover", "wait": True},
+                "hint": "Voiceover audio for this section has 0s duration. Re-generate voiceover.",
+            },
+        }
 
     if cut_index is not None:
         current = _current_section_cuts(proj_dir, section_type, scene_index,
                                         fallback=entry.get("sub_visuals"))
         if not current:
-            return {"ok": False, "error": (
-                "Section has no saved cuts to patch — save the whole section "
-                "first (omit cut_index/cut_number), then patch individual cuts.")}
+            return {
+                "ok": False,
+                "error_code": "SECTION_NOT_PERSISTED",
+                "error": (
+                    "Section has no saved cuts to patch — save the whole section "
+                    "first (omit cut_index/cut_number), then patch individual cuts."),
+                "fix": {
+                    "tool": "save_visuals",
+                    "arguments": {
+                        "project_id": project_id,
+                        "section_type": section_type,
+                        "scene_index": scene_index,
+                        "sub_visuals": "[array of all cuts for this section]",
+                    },
+                    "hint": "Save the entire section first without cut_index/cut_number.",
+                },
+            }
         if not 0 <= cut_index < len(current):
             total_cuts = len(current)
-            return {"ok": False, "error": (
-                f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
-                f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
-                f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
-                f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
-            )}
+            return {
+                "ok": False,
+                "error_code": "CUT_INDEX_OUT_OF_RANGE",
+                "error": (
+                    f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
+                    f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
+                    f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
+                    f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
+                ),
+                "valid_cut_indices": f"0..{total_cuts - 1}",
+                "valid_cut_numbers": f"1..{total_cuts}",
+                "fix": {
+                    "hint": f"Pass cut_number={cut_index} or cut_index={cut_index - 1}.",
+                },
+            }
         import copy
         candidate = copy.deepcopy(current)
         candidate[cut_index] = patch
@@ -2311,8 +2791,8 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                     and raw_t.strip().lower() != norm_t.strip().lower()):
                 report["normalizations"].append(
                     f"cut#{i}: transition {raw_t.strip()!r} is not a valid "
-                    f"enum value, remapped to {norm_t.strip()!r} — use a valid "
-                    f"value from the visual-director skill next time.")
+                    f"enum value, remapped to {norm_t.strip()!r} — valid "
+                    f"values next time: {list(_VALID_TRANSITIONS)}.")
             raw_e = cut.get("exit_transition")
             norm_e = norm.get("exit_transition")
             if (isinstance(raw_e, str) and raw_e.strip()
@@ -2320,8 +2800,8 @@ def _visual_variety_report(candidate, normalized, target_duration: float) -> dic
                     and raw_e.strip().lower() != norm_e.strip().lower()):
                 report["normalizations"].append(
                     f"cut#{i}: exit_transition {raw_e.strip()!r} is not a valid "
-                    f"enum value, remapped to {norm_e.strip()!r} — use a valid "
-                    f"value from the visual-director skill next time.")
+                    f"enum value, remapped to {norm_e.strip()!r} — valid "
+                    f"values next time: {list(_VALID_TRANSITIONS)}.")
 
         try:
             in_total = sum(float(c.get("duration", 0) or 0)
@@ -2469,14 +2949,22 @@ def get_visuals_payload(project_id: str, section_type: str,
         cut_index=cut_index, cut_number=cut_number, default_scene=0, default_cut=None
     )
     if err:
-        return {"ok": False, "error": err}
+        return format_target_error(err, project_id=project_id)
     section_type = norm_sec
 
     try:
         proj_dir = _project_dir(project_id)
         proj = _get_project_or_raise(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "PROJECT_NOT_FOUND",
+            "error": str(e) if str(e).endswith(".")
+                     else f"{str(e)} Call list_projects for valid ids.",
+            "fix": {"tool": "list_projects",
+                    "hint": "Confirm the exact project id with list_projects; "
+                            "create_project makes a new one."},
+        }
 
     fallback_cuts = None
     manifest_path = _active_manifest_path(proj, proj_dir)
@@ -2492,12 +2980,21 @@ def get_visuals_payload(project_id: str, section_type: str,
                     if 0 <= scene_index < len(scenes):
                         fallback_cuts = scenes[scene_index].get("sub_visuals")
                     else:
-                        return {"ok": False, "error": (
-                            f"scene_index {scene_index} (UI Scene {scene_index + 1}) out of range "
-                            f"(0..{total_scenes_count - 1} — UI Scenes 1..{total_scenes_count}). "
-                            f"Did you pass a 1-based scene number? In Narrato UI, Scene {scene_index} is scene_index={scene_index - 1}. "
-                            f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
-                        )}
+                        return {
+                            "ok": False,
+                            "error_code": "SCENE_INDEX_OUT_OF_RANGE",
+                            "error": (
+                                f"scene_index {scene_index} (UI Scene {scene_index + 1}) out of range "
+                                f"(0..{total_scenes_count - 1} — UI Scenes 1..{total_scenes_count}). "
+                                f"Did you pass a 1-based scene number? In Narrato UI, Scene {scene_index} is scene_index={scene_index - 1}. "
+                                f"Use scene_number={scene_index} or scene_index={scene_index - 1}."
+                            ),
+                            "valid_scene_indices": f"0..{total_scenes_count - 1}",
+                            "valid_scene_numbers": f"1..{total_scenes_count}",
+                            "fix": {
+                                "hint": f"Pass scene_number={scene_index} or scene_index={scene_index - 1}.",
+                            },
+                        }
                 else:
                     entry = next((m for m in manifest if isinstance(m, dict) and _normalize_section_type(m.get("section_type")) == section_type), None)
                     if entry:
@@ -2510,19 +3007,36 @@ def get_visuals_payload(project_id: str, section_type: str,
     scene_num = (scene_index + 1) if section_type == "scene" else None
 
     if not cuts:
-        return {"ok": False,
-                "error": f"No visuals found for {display_label}. Author visuals with save_visuals first."}
+        return {
+            "ok": False,
+            "error_code": "NO_VISUALS_FOUND",
+            "error": f"No visuals found for {display_label}. Author visuals with save_visuals first.",
+            "display_label": display_label,
+            "fix": {
+                "tool": "save_visuals",
+                "arguments": {"project_id": project_id, "section_type": section_type},
+                "hint": f"Author visuals for {display_label} using save_visuals.",
+            },
+        }
 
     if cut_index is not None and cut_index >= 0:
         if not (0 <= cut_index < len(cuts)):
             total_cuts = len(cuts)
-            return {"ok": False,
-                    "error": (
-                        f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
-                        f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
-                        f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
-                        f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
-                    )}
+            return {
+                "ok": False,
+                "error_code": "CUT_INDEX_OUT_OF_RANGE",
+                "error": (
+                    f"cut_index {cut_index} (UI Cut #{cut_index + 1}) out of range "
+                    f"(0..{total_cuts - 1} — UI Cuts #1..#{total_cuts}). "
+                    f"Did you pass a 1-based cut number? In Narrato UI, Cut #{cut_index} is cut_index={cut_index - 1}. "
+                    f"Use cut_number={cut_index} or cut_index={cut_index - 1}."
+                ),
+                "valid_cut_indices": f"0..{total_cuts - 1}",
+                "valid_cut_numbers": f"1..{total_cuts}",
+                "fix": {
+                    "hint": f"Pass cut_number={cut_index} or cut_index={cut_index - 1}.",
+                },
+            }
         return {
             "ok": True,
             "project_id": project_id,
@@ -2763,7 +3277,14 @@ def clear_assets_payload(project_id: str) -> dict:
     try:
         proj_dir = _project_dir(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "UNSAFE_PROJECT_ID",
+            "error": f"Could not resolve a safe project directory for {project_id!r}: {e}.",
+            "fix": {"tool": "list_projects",
+                    "hint": "The project id failed the storage-path safety check — "
+                            "confirm the exact id with list_projects."},
+        }
     proj = _get_project_or_raise(project_id)
 
     deleted_files = _delete_asset_files(proj_dir)
@@ -2833,10 +3354,20 @@ def clear_visuals_payload(project_id: str, clear_assets: bool = True) -> dict:
     try:
         proj_dir = _project_dir(project_id)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return {
+            "ok": False,
+            "error_code": "UNSAFE_PROJECT_ID",
+            "error": f"Could not resolve a safe project directory for {project_id!r}: {e}.",
+            "fix": {"tool": "list_projects",
+                    "hint": "The project id failed the storage-path safety check — "
+                            "confirm the exact id with list_projects."},
+        }
     if not (proj_dir / "script.json").is_file():
         return {"ok": False,
-                "error": "script.json not found. Use save_script first."}
+                "error_code": "SCRIPT_NOT_FOUND",
+                "error": "script.json not found. Use save_script first.",
+                "fix": {"tool": "save_script",
+                        "hint": "clear_visuals needs an existing script.json (it wipes sub_visuals from it). Save a complete script with save_script first."}}
     proj = _get_project_or_raise(project_id)
 
     wipe = _clear_sub_visuals_everywhere(
@@ -2967,6 +3498,32 @@ def _video_variety_rollup(ok_entries: list) -> dict:
             "avg_layers_per_cut": avg_layers}
 
 
+def _format_batch_item_error(label: str, exc: Exception | str,
+                             default_code: str = "SECTION_ERROR") -> dict:
+    """Shaped, retellable error for one save_visuals_batch section item.
+
+    Batch rollup tells agents to apply results[].fix.retry_with — bare
+    str(e) items without a fix left that instruction dangling and caused
+    identical-payload retry loops.
+    """
+    msg = str(exc)
+    low = msg.lower()
+    if ("not valid json" in low or "jsondecode" in low or isinstance(exc, json.JSONDecodeError)):
+        code = "INVALID_JSON_SYNTAX"
+    elif ("out of range" in low or "not a valid integer" in low):
+        code = "INVALID_INDEX"
+    elif "no valid design" in low:
+        code = "DESIGN_REQUIRED"
+    elif "manifest" in low:
+        code = "VOICEOVER_REQUIRED"
+    else:
+        code = default_code
+    return {"ok": False, "error": f"{label}: {msg}", "error_code": code,
+            "fix": {"hint": "Fix only this section and re-dry-run it "
+                            "(save_visuals_batch with dry_run=true and just "
+                            "this one section) — leave OK sections untouched."}}
+
+
 def save_visuals_batch_payload(project_id: str, sections: list,
                                dry_run: bool = False) -> dict:
     """Validate/persist sub_visuals for MANY sections in ONE call.
@@ -2987,22 +3544,36 @@ def save_visuals_batch_payload(project_id: str, sections: list,
                  len(sections) if isinstance(sections, list) else "?")
     sections, _bcoerced, _bcoerce_err = _coerce_json_array(sections, "sections")
     if _bcoerce_err is not None:
-        return {"ok": False, "error": _bcoerce_err["error"]}
+        return _bcoerce_err
     if not isinstance(sections, list) or not sections:
         _got = type(sections).__name__
         if isinstance(sections, list):
             _got = "empty list"
         elif isinstance(sections, dict):
             _got = f"dict with keys {sorted(sections.keys())[:6]}"
-        return {"ok": False,
-                "error": f"sections must be a non-empty array of "
-                         f"{{section_type, sub_visuals, scene_index?, cut_index?}} (got {_got}). "
-                         f"For intro/conclusion omit scene_index (or pass null/0) — "
-                         f"scene_index is only for section_type='scene'."}
+        return {
+            "ok": False,
+            "error_code": "INVALID_BATCH_SECTIONS",
+            "error": f"sections must be a non-empty array of "
+                     f"{{section_type, sub_visuals, scene_index?, cut_index?}} (got {_got}). "
+                     f"For intro/conclusion omit scene_index (or pass null/0) — "
+                     f"scene_index is only for section_type='scene'.",
+            "fix": {
+                "hint": "Pass an array of section objects, e.g. sections: [{section_type: 'introduction', sub_visuals: [...]}, {section_type: 'scene', scene_number: 1, sub_visuals: [...]}]",
+            },
+        }
     if len(sections) > _MAX_BATCH_SECTIONS:
-        return {"ok": False,
-                "error": f"Batch capped at {_MAX_BATCH_SECTIONS} sections "
-                         f"(got {len(sections)}); split into smaller batches."}
+        return {
+            "ok": False,
+            "error_code": "BATCH_SIZE_EXCEEDED",
+            "error": f"Batch capped at {_MAX_BATCH_SECTIONS} sections "
+                     f"(got {len(sections)}); split into smaller batches.",
+            "max_batch_size": _MAX_BATCH_SECTIONS,
+            "provided_count": len(sections),
+            "fix": {
+                "hint": f"Split sections into batches of at most {_MAX_BATCH_SECTIONS} sections each and call save_visuals_batch sequentially.",
+            },
+        }
     _get_project_or_raise(project_id)  # fail fast before any writes
     proj_dir = _project_dir(project_id)
     results: list = []
@@ -3012,8 +3583,13 @@ def save_visuals_batch_payload(project_id: str, sections: list,
     for pos, item in enumerate(sections):
         label = f"sections[{pos}]"
         if not isinstance(item, dict):
-            results.append({"ok": False, "index": pos,
-                            "error": f"{label} must be an object."})
+            results.append({
+                "ok": False,
+                "index": pos,
+                "error_code": "INVALID_BATCH_ITEM",
+                "error": f"{label} must be an object.",
+                "fix": {"hint": f"Ensure {label} is a dictionary/object with section_type and sub_visuals."},
+            })
             continue
         section_type = item.get("section_type")
         sub_visuals = item.get("sub_visuals")
@@ -3049,9 +3625,11 @@ def save_visuals_batch_payload(project_id: str, sections: list,
         if target in seen_targets:
             results.append({"ok": False, "index": pos,
                             "section_type": section_type,
+                            "error_code": "DUPLICATE_BATCH_TARGET",
                             "error": f"{label} duplicates sections[{seen_targets[target]}] "
                                      f"(same section target) — keep one entry; "
-                                     f"the first was processed, this one was skipped."})
+                                     f"the first was processed, this one was skipped.",
+                            "fix": {"hint": f"Remove duplicate entry for {section_type} from the batch."}})
             continue
         seen_targets[target] = pos
         try:
@@ -3059,11 +3637,13 @@ def save_visuals_batch_payload(project_id: str, sections: list,
                 project_id, section_type, sub_visuals, scene_index=scene_index,
                 cut_index=cut_index, dry_run=bool(dry_run))
         except ValueError as e:
-            res = {"ok": False, "error": str(e)}
+            res = _format_batch_item_error(label, exc=e,
+                                           default_code="SECTION_VALIDATION_ERROR")
         except Exception as e:
             logger.error(f"MCP save_visuals_batch {label} failed: {e}",
                          exc_info=True)
-            res = {"ok": False, "error": str(e)}
+            res = _format_batch_item_error(label, exc=e,
+                                           default_code="SECTION_SAVE_FAILED")
         entry = {"ok": bool(res.get("ok")), "index": pos,
                  "section_type": section_type,
                  "display_label": format_display_label(section_type, scene_index, cut_index)}
@@ -3232,7 +3812,13 @@ def get_transcription_payload(
     if not json_path.exists():
         return {
             "ok": False,
+            "error_code": "TRANSCRIPTION_NOT_FOUND",
             "error": "transcription.json not found. Run run_stage(transcribe) first.",
+            "fix": {
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "transcribe", "wait": True},
+                "hint": "Run the transcribe stage to generate word-level timings.",
+            },
         }
 
     with open(json_path, "r", encoding="utf-8") as f:
@@ -3252,7 +3838,12 @@ def get_transcription_payload(
         try:
             want = int(segment_id)
         except (TypeError, ValueError):
-            return {"ok": False, "error": f"Segment id {segment_id!r} is not a valid integer."}
+            return {
+                "ok": False,
+                "error_code": "INVALID_SEGMENT_ID",
+                "error": f"Segment id {segment_id!r} is not a valid integer.",
+                "fix": {"hint": "Provide segment_id as an integer."},
+            }
         seg = None
         for s in segments:
             if not isinstance(s, dict):
@@ -3266,7 +3857,12 @@ def get_transcription_payload(
                     seg = s
                     break
         if seg is None:
-            return {"ok": False, "error": f"Segment id {segment_id} not found."}
+            return {
+                "ok": False,
+                "error_code": "SEGMENT_NOT_FOUND",
+                "error": f"Segment id {segment_id} not found.",
+                "fix": {"hint": "Check transcription segments without segment_id filter to find valid IDs."},
+            }
         return {"ok": True, "project_id": project_id, "segment": seg}
 
     # Section-scoped request
@@ -3275,19 +3871,37 @@ def get_transcription_payload(
             section_type, scene_index=scene_index, scene_number=scene_number, default_scene=0
         )
         if err:
-            return {"ok": False, "error": err}
+            return {"ok": False, "error_code": "INVALID_SECTION_TARGET", "error": err}
         section_type = norm_sec
 
         manifest_path = _active_manifest_path(proj, proj_dir)
         if not manifest_path:
-            return {"ok": False, "error": "Manifest not found to resolve section boundaries."}
+            return {
+                "ok": False,
+                "error_code": "MANIFEST_NOT_FOUND",
+                "error": "Manifest not found to resolve section boundaries.",
+                "fix": {
+                    "tool": "run_stage",
+                    "arguments": {"project_id": project_id, "stage": "generate_voiceover", "wait": True},
+                    "hint": "Generate voiceover to establish section boundaries.",
+                },
+            }
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
             if not isinstance(manifest, list):
                 raise ValueError("manifest is not a list")
         except Exception as e:
-            return {"ok": False, "error": f"Could not read manifest: {e}"}
+            return {
+                "ok": False,
+                "error_code": "MANIFEST_READ_ERROR",
+                "error": (f"Could not read voiceover manifest {manifest_path}: "
+                          f"{type(e).__name__}: {e}. It is missing, corrupted, or "
+                          f"not a JSON list (interrupted generate_voiceover run)."),
+                "fix": {"tool": "run_stage",
+                        "arguments": {"project_id": project_id, "stage": "generate_voiceover"},
+                        "hint": "Re-run run_stage('generate_voiceover') to regenerate the manifest, then retry this tool."},
+            }
 
         cursor = 0.0
         sec_start = None
@@ -3316,7 +3930,9 @@ def get_transcription_payload(
         if sec_start is None:
             return {
                 "ok": False,
+                "error_code": "SECTION_NOT_IN_MANIFEST",
                 "error": f"Section {format_display_label(section_type, scene_index)} not found in manifest.",
+                "fix": {"hint": "Check the section_type and scene_number against the project script."},
             }
 
         sec_end = sec_start + sec_dur
@@ -3454,12 +4070,23 @@ def verify_stock_payload(project_id: str) -> dict:
     proj_dir = _project_dir(project_id)
     script_path = proj_dir / "script.json"
     if not script_path.exists():
-        return {"ok": False, "error": "script.json not found. Use save_script first."}
+        return {"ok": False, "error_code": "SCRIPT_NOT_FOUND",
+                "error": "script.json not found. Use save_script first.",
+                "fix": {"tool": "save_script",
+                        "hint": "Save a complete script with save_script first (call get_stage_skills('script') to satisfy its skill gate)."}}
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             document = json.load(f)
     except Exception as e:
-        return {"ok": False, "error": f"Could not read script.json: {e}"}
+        return {
+            "ok": False,
+            "error_code": "SCRIPT_READ_ERROR",
+            "error": f"Could not read script.json ({e}).",
+            "fix": {"hint": "The file exists but is not valid JSON. Check "
+                            "state via list_project_files/project_status; "
+                            "if the file is corrupted, re-save with "
+                            "save_script (or clear_visuals) before continuing."},
+        }
     layers = _walk_media_layers(document)
     items = []
     missing = 0
@@ -3507,12 +4134,23 @@ def qa_gate_payload(project_id: str) -> dict:
     proj_dir = _project_dir(project_id)
     script_path = proj_dir / "script.json"
     if not script_path.exists():
-        return {"ok": False, "error": "script.json not found. Use save_script first."}
+        return {"ok": False, "error_code": "SCRIPT_NOT_FOUND",
+                "error": "script.json not found. Use save_script first.",
+                "fix": {"tool": "save_script",
+                        "hint": "Save a complete script with save_script first (call get_stage_skills('script') to satisfy its skill gate)."}}
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             document = json.load(f)
     except Exception as e:
-        return {"ok": False, "error": f"Could not read script.json: {e}"}
+        return {
+            "ok": False,
+            "error_code": "SCRIPT_READ_ERROR",
+            "error": f"Could not read script.json ({e}).",
+            "fix": {"hint": "The file exists but is not valid JSON. Check "
+                            "state via list_project_files/project_status; "
+                            "if the file is corrupted, re-save with "
+                            "save_script (or clear_visuals) before continuing."},
+        }
     checks = []
 
     def _check(name, severity, passed, detail):
@@ -3533,7 +4171,11 @@ def qa_gate_payload(project_id: str) -> dict:
                f"{n} scenes vs guardrail {floor}-{ceiling} "
                f"(target {pacing['min_scenes']}-{pacing['max_scenes']})")
     except Exception as e:
-        _check("script_pacing", "critical", False, f"pacing lookup failed: {e}")
+        _check("script_pacing", "critical", False,
+               f"INTERNAL: pacing lookup failed ({e}) — this check could not "
+               f"run, not that pacing is wrong. Re-run qa_gate once; if it "
+               f"repeats, verify the project's duration_mode/video_format "
+               f"via project_status.")
     # 2. design saved.
     design_path = proj_dir / "design.json"
     _check("design_saved", "critical", design_path.is_file(),
@@ -3649,7 +4291,68 @@ def qa_gate_payload(project_id: str) -> dict:
                     f"(drift {drift:.1f}, tolerance {LOUDNESS_TOLERANCE}). "
                     f"normalized={loud_doc.get('normalized', False)}"))
     critical_ok = all(c["passed"] for c in checks if c["severity"] == "critical")
-    return {
+    failing_critical = [c for c in checks if c["severity"] == "critical" and not c["passed"]]
+    failing_warnings = [c for c in checks if c["severity"] == "warning" and not c["passed"]]
+
+    actionable_fixes = []
+    for fc in failing_critical:
+        name = fc["name"]
+        detail = fc["detail"]
+        if name == "pacing":
+            actionable_fixes.append({
+                "check": name,
+                "tool": "patch_script",
+                "hint": f"Pacing check failed ({detail}). Adjust scenes via patch_script or re-author with save_script.",
+            })
+        elif name == "design_bound":
+            actionable_fixes.append({
+                "check": name,
+                "tool": "save_design",
+                "arguments": {"project_id": project_id},
+                "hint": f"Design check failed ({detail}). Run save_design to author and bind a design system.",
+            })
+        elif name == "voiceover_ready":
+            actionable_fixes.append({
+                "check": name,
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "generate_voiceover", "wait": True},
+                "hint": f"Voiceover check failed ({detail}). Run generate_voiceover stage.",
+            })
+        elif name == "captions_synced":
+            actionable_fixes.append({
+                "check": name,
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "transcribe", "wait": True},
+                "hint": f"Captions check failed ({detail}). Run transcribe stage to sync word timestamps.",
+            })
+        elif name == "visuals_complete":
+            actionable_fixes.append({
+                "check": name,
+                "tool": "save_visuals",
+                "arguments": {"project_id": project_id},
+                "hint": f"Visuals check failed ({detail}). Author cuts for the empty sections using save_visuals.",
+            })
+        elif name == "assets_fetched":
+            actionable_fixes.append({
+                "check": name,
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "fetch_assets", "wait": True},
+                "hint": f"Assets check failed ({detail}). Run fetch_assets stage to download media files.",
+            })
+        elif name == "loudness_lufs":
+            actionable_fixes.append({
+                "check": name,
+                "tool": "run_stage",
+                "arguments": {"project_id": project_id, "stage": "render", "confirm_render": True},
+                "hint": f"Loudness check failed ({detail}). Re-render to normalize loudness.",
+            })
+        else:
+            actionable_fixes.append({
+                "check": name,
+                "hint": f"Check failed: {detail}",
+            })
+
+    gate_result = {
         "ok": bool(critical_ok),
         "project_id": project_id,
         "passed": bool(critical_ok),
@@ -3660,6 +4363,14 @@ def qa_gate_payload(project_id: str) -> dict:
                       if critical_ok else
                       "Fix failing critical checks above, then re-run qa_gate."),
     }
+    if not critical_ok:
+        gate_result["error_code"] = "QA_GATE_FAILED"
+        gate_result["error"] = f"QA Gate failed: {len(failing_critical)} critical check(s) did not pass ({', '.join(c['name'] for c in failing_critical)}). See actionable_fixes."
+        gate_result["failing_critical_checks"] = [c["name"] for c in failing_critical]
+        gate_result["actionable_fixes"] = actionable_fixes
+    if failing_warnings:
+        gate_result["warnings"] = [c["detail"] for c in failing_warnings]
+    return gate_result
 
 
 def build_receipt_payload(project_id: str) -> dict:
@@ -3900,12 +4611,23 @@ def estimate_cost_payload(project_id: str) -> dict:
     proj_dir = _project_dir(project_id)
     script_path = proj_dir / "script.json"
     if not script_path.exists():
-        return {"ok": False, "error": "script.json not found. Use save_script first."}
+        return {"ok": False, "error_code": "SCRIPT_NOT_FOUND",
+                "error": "script.json not found. Use save_script first.",
+                "fix": {"tool": "save_script",
+                        "hint": "Save a complete script with save_script first (call get_stage_skills('script') to satisfy its skill gate)."}}
     try:
         with open(script_path, "r", encoding="utf-8") as f:
             document = json.load(f)
     except Exception as e:
-        return {"ok": False, "error": f"Could not read script.json: {e}"}
+        return {
+            "ok": False,
+            "error_code": "SCRIPT_READ_ERROR",
+            "error": f"Could not read script.json ({e}).",
+            "fix": {"hint": "The file exists but is not valid JSON. Check "
+                            "state via list_project_files/project_status; "
+                            "if the file is corrupted, re-save with "
+                            "save_script (or clear_visuals) before continuing."},
+        }
     language = proj.get("language", "en") or "en"
     rate = 2.5 if language == "hi" else 3.0  # words/sec, mirrors scriptwriter pacing
     words = 0
