@@ -283,3 +283,58 @@ class TestMcpServerIntegration:
         assert res["count"] == 6
         for arch in res["archetypes"]:
             assert arch["category"] == "forensics_tech"
+
+
+def test_compile_cut_merges_top_level_and_nested_params():
+    """Verify compile_cut merges top-level slot keys and nested params dict without losing either."""
+    cut = {
+        "archetype": "kinetic_punch",
+        "duration": "6.5",  # string duration parsing check
+        "headline": "SYSTEM COLLAPSE",
+        "params": {
+            "accent_word": "COLLAPSE",
+            "accent_box": True,
+        },
+    }
+    compiled = compile_cut(cut)
+    assert compiled["duration"] == 6.5
+    children = compiled["composition"]["children"]
+    # Check that headline was used from top-level slot
+    headline_layer = next(c for c in children if c.get("name") == "Hero typography")
+    assert headline_layer["content"]["text"] == "SYSTEM COLLAPSE"
+    assert headline_layer["content"]["highlight_words"] == ["COLLAPSE"]
+
+
+def test_validate_sub_visuals_reports_unknown_archetype_clearly():
+    """Verify validate_sub_visuals reports unknown archetype errors directly with available choices."""
+    cuts = [
+        {
+            "duration": 5.0,
+            "archetype": "non_existent_archetype_123",
+            "headline": "Testing Error",
+        }
+    ]
+    is_valid, _, error_msg = validate_sub_visuals(cuts, target_duration=5.0)
+    assert is_valid is False
+    assert "UNKNOWN_ARCHETYPE" in error_msg
+    assert "non_existent_archetype_123" in error_msg
+    assert "kinetic_punch" in error_msg  # lists available archetypes
+
+
+def test_save_visuals_fails_fast_on_unknown_archetype(tmp_path, monkeypatch):
+    """Verify save_visuals_payload returns ARCHETYPE_COMPILATION_FAILED for invalid archetype."""
+    from tests.test_archetypes import _setup_visuals_proj
+    _setup_visuals_proj(tmp_path, monkeypatch)
+    cuts = [
+        {
+            "duration": 5.0,
+            "archetype": "invalid_hallucinated_archetype",
+        }
+    ]
+    result = save_visuals_payload(
+        project_id="proj_mcp",
+        section_type="introduction",
+        sub_visuals=cuts,
+    )
+    assert result.get("ok") is False
+    assert "ARCHETYPE_COMPILATION_FAILED" in result.get("error", "")

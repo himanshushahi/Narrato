@@ -1176,9 +1176,13 @@ def validate_sub_visuals(sub_visuals: List[Dict[str, Any]], target_duration: flo
         try:
             from backend.pipeline.archetypes import compile_cut
             compiled_list = []
-            for item in sub_visuals:
+            for idx, item in enumerate(sub_visuals):
                 if isinstance(item, dict) and "archetype" in item:
-                    compiled_list.append(compile_cut(item, design_tokens=design_tokens, video_format=video_format))
+                    try:
+                        compiled_list.append(compile_cut(item, design_tokens=design_tokens, video_format=video_format))
+                    except ValueError as ve:
+                        logger.warning(f"validate_sub_visuals: cut#{idx} archetype compilation error: {ve}")
+                        return False, _dummy_visual(target_duration), f"UNKNOWN_ARCHETYPE cut#{idx}: {ve}"
                 else:
                     compiled_list.append(item)
             sub_visuals = compiled_list

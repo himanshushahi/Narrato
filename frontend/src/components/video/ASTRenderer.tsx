@@ -320,12 +320,35 @@ const AST_FILTER_PRESET_MAP: Readonly<Record<string, string>> = {
 };
 
 /** Resolves canonical SVG LUT shader token for a given style hint or genre name. */
-export function resolveLutForStyle(styleName?: string): string {
-  const s = String(styleName || '').toLowerCase().trim();
-  if (s.includes('cyber') || s.includes('tech') || s.includes('matrix') || s.includes('crypto') || s.includes('neon')) {
+export function resolveLutForStyle(styleName?: string, designSystem?: any): string {
+  let s = String(styleName || '').toLowerCase().trim();
+  if ((!s || s === 'nitish_rajput') && designSystem) {
+    s = String(designSystem.theme_name || designSystem.style_hint || '').toLowerCase().trim();
+  }
+  if (
+    s.includes('cyber') ||
+    s.includes('tech') ||
+    s.includes('hacker') ||
+    s.includes('future') ||
+    s.includes('matrix') ||
+    s.includes('crypto') ||
+    s.includes('neon')
+  ) {
     return 'url(#fx-lut-cyberpunk)';
   }
-  if (s.includes('doc') || s.includes('history') || s.includes('archive') || s.includes('vintage') || s.includes('vox') || s.includes('editorial') || s.includes('paper')) {
+  if (
+    s.includes('doc') ||
+    s.includes('history') ||
+    s.includes('historical') ||
+    s.includes('archive') ||
+    s.includes('archival') ||
+    s.includes('vintage') ||
+    s.includes('retro') ||
+    s.includes('sepia') ||
+    s.includes('vox') ||
+    s.includes('editorial') ||
+    s.includes('paper')
+  ) {
     return 'url(#fx-lut-vox-editorial)';
   }
   return 'url(#fx-lut-dark-cinematic)';

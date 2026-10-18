@@ -662,12 +662,12 @@ export const NitishRajputComposition: React.FC<Props> = ({
           composition={subVis.composition}
           qualityMode={qualityMode}
           quality={quality}
-          defaultLut={resolveLutForStyle(style)}
+          defaultLut={resolveLutForStyle(style, designSystem)}
         />
       );
     }
     return null;
-  }, [qualityMode, quality, style]);
+  }, [qualityMode, quality, style, designSystem]);
 
   // ── Time-window virtualization ──────────────────────────────────────────────
   // Pre-calculate and memoize the timeline tree once; per-frame virtualization

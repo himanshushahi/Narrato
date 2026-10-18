@@ -2358,8 +2358,17 @@ def save_visuals_payload(project_id: str, section_type: str,
         for _idx, _c in enumerate(_cuts):
             if isinstance(_c, dict) and "archetype" in _c:
                 arch_name = _c.get("archetype")
-                _cuts[_idx] = compile_cut(_c, design_tokens=design_data, video_format=video_format)
-                auto_fixed.append(f"cut#{_idx}: compiled macro-archetype '{arch_name}' into multi-layer AST")
+                try:
+                    _cuts[_idx] = compile_cut(_c, design_tokens=design_data, video_format=video_format)
+                    auto_fixed.append(f"cut#{_idx}: compiled macro-archetype '{arch_name}' into multi-layer AST")
+                except ValueError as ve:
+                    return {
+                        "ok": False,
+                        "error": f"ARCHETYPE_COMPILATION_FAILED cut#{_idx}: {ve}",
+                        "dry_run": bool(dry_run),
+                        "persisted": False,
+                        "auto_fixed": auto_fixed,
+                    }
     except Exception as e:
         logger.warning(f"save_visuals: archetype compilation failed: {e}")
     for _idx, _cut in enumerate(_cuts):
@@ -2464,8 +2473,19 @@ def save_visuals_payload(project_id: str, section_type: str,
                     design_data = json.load(_df)
             except Exception:
                 design_data = None
+        proj_style_hint = ""
+        if isinstance(design_data, dict):
+            proj_style_hint = str(design_data.get("theme_name") or design_data.get("style_hint") or "")
+        if not proj_style_hint:
+            try:
+                from backend.database.db import get_project
+                _p = get_project(project_id)
+                if _p:
+                    proj_style_hint = str(_p.get("style_hint") or _p.get("prompt") or "")
+            except Exception:
+                pass
         candidate, enrich_notes = enrich_sub_visuals(
-            candidate, design_tokens=design_data, video_format=video_format
+            candidate, design_tokens=design_data, video_format=video_format, style_hint=proj_style_hint
         )
         if enrich_notes:
             auto_fixed.extend(enrich_notes)

@@ -41,6 +41,16 @@ def _parse_pct(value: Any) -> float | None:
         return None
 
 
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely convert any value to float, handling strings, None, and malformed inputs."""
+    try:
+        if val is None or val == "":
+            return default
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 def _format_pct(val: float) -> str:
     """Format float to clean % string."""
     return f"{round(val, 2):g}%"
@@ -204,10 +214,10 @@ def clamp_frame_zero_anchors(cut: Dict[str, Any]) -> int:
         if not entrance_anims:
             continue
 
-        min_delay = min(float(a.get("delay", 0.0) or 0.0) for a in entrance_anims)
+        min_delay = min(_safe_float(a.get("delay", 0.0)) for a in entrance_anims)
         if min_delay > 0.3:
             for a in entrance_anims:
-                a_delay = float(a.get("delay", 0.0) or 0.0)
+                a_delay = _safe_float(a.get("delay", 0.0))
                 # If this animation shared the delayed entrance, clamp it to 0.0
                 if abs(a_delay - min_delay) < 0.1:
                     a["delay"] = 0.0
@@ -332,9 +342,13 @@ def enforce_safe_areas(cut: Dict[str, Any], video_format: str = "landscape") -> 
                     changed = True
             else:
                 # In landscape, subtitle safe area is bottom 18%, top 5%
-                if top_val is not None and top_val < 5.0:
-                    style["top"] = "5%"
-                    changed = True
+                if top_val is not None:
+                    if top_val < 5.0:
+                        style["top"] = "5%"
+                        changed = True
+                    elif top_val > 78.0 and bot_val is None:
+                        style["top"] = "78%"
+                        changed = True
                 if bot_val is not None and bot_val < 18.0:
                     style["bottom"] = "18%"
                     changed = True

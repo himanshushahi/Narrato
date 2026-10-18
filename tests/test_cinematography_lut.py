@@ -204,3 +204,33 @@ def test_enrich_sub_visuals_end_to_end_with_lut():
     assert "url(#fx-lut-cyberpunk)" in media_layer["filters"]
     # Notes should mention the LUT
     assert any("applied broadcast LUT shader" in n for n in notes)
+
+
+def test_resolve_style_modifier_dark_cinematic():
+    """Verify 'dark cinematic' resolves to cinematic modifier rather than cyber."""
+    assert resolve_style_modifier("dark cinematic drama") == CINEMATOGRAPHY_STYLE_MODIFIERS["cinematic"]
+    assert resolve_style_modifier("cyberpunk neon hacker") == CINEMATOGRAPHY_STYLE_MODIFIERS["dark_cyber"]
+
+
+def test_enrich_sub_visuals_with_style_hint_parameter():
+    """Verify enrich_sub_visuals accepts and respects the style_hint parameter directly."""
+    cuts = [
+        {
+            "duration": 5.0,
+            "composition": {
+                "type": "Sequence",
+                "children": [
+                    {
+                        "type": "Layer",
+                        "content": {"type": "Image", "query": "old newspaper"},
+                        "animations": [],
+                    },
+                ],
+            },
+        }
+    ]
+    enriched, notes = enrich_sub_visuals(cuts, style_hint="vox documentary")
+    children = enriched[0]["composition"]["children"]
+    image_layer = next(c for c in children if c.get("content", {}).get("type") == "Image")
+    assert "url(#fx-lut-vox-editorial)" in image_layer["filters"]
+

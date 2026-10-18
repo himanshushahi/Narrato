@@ -249,3 +249,57 @@ def test_enrich_sub_visuals_end_to_end():
     assert any(c.get("name") == "auto_vignette_scrim" for c in children)
     # Verify delay was clamped to 0.0s
     assert children[0]["animations"][0]["delay"] == 0.0
+
+
+def test_clamp_frame_zero_anchors_handles_malformed_delays():
+    """Verify malformed delay values (strings, None) do not raise ValueError."""
+    cut = {
+        "duration": 5.0,
+        "composition": {
+            "type": "Sequence",
+            "children": [
+                {
+                    "type": "Layer",
+                    "content": {"type": "Background", "background_preset": "grid_flow"},
+                    "animations": [
+                        {"property": "opacity", "from": 0, "to": 1, "delay": "unparseable"}
+                    ],
+                },
+                {
+                    "type": "Layer",
+                    "content": {"type": "Text", "text": "Anchor"},
+                    "animations": [
+                        {"property": "scale", "from": 0.8, "to": 1.0, "delay": 2.5}
+                    ],
+                },
+            ],
+        },
+    }
+    # Unparseable string safely treated as delay: 0.0s, so it counts as early element visible at frame 0
+    clamped = clamp_frame_zero_anchors(cut)
+    assert clamped == 0
+
+
+def test_enforce_safe_areas_landscape_top_clamping():
+    """Verify landscape text positioned near the bottom with top: >78% is clamped to avoid subtitles."""
+    cut = {
+        "duration": 5.0,
+        "composition": {
+            "type": "Sequence",
+            "children": [
+                {
+                    "type": "Layer",
+                    "content": {
+                        "type": "Text",
+                        "text": "Bottom Headline",
+                        "style": {"top": "86%", "width": "80%"},
+                    },
+                    "animations": [],
+                },
+            ],
+        },
+    }
+    adjusted = enforce_safe_areas(cut, video_format="landscape")
+    assert adjusted == 1
+    assert cut["composition"]["children"][0]["content"]["style"]["top"] == "78%"
+

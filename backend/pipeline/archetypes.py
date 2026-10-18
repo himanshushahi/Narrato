@@ -2312,17 +2312,27 @@ def compile_cut(cut_or_archetype: Dict[str, Any], design_tokens: Optional[Dict[s
             return cut_copy
         return cut_or_archetype
 
-    dur = duration or cut_or_archetype.get("duration") or 5.0
-    params = cut_or_archetype.get("params") or {
+    raw_dur = duration if duration is not None else cut_or_archetype.get("duration")
+    try:
+        dur = float(raw_dur if raw_dur is not None else 5.0)
+    except (ValueError, TypeError):
+        dur = 5.0
+
+    top_level_slots = {
         k: v for k, v in cut_or_archetype.items()
-        if k not in ("archetype", "duration", "transition", "exit_transition", "emphasis", "metadata")
+        if k not in ("archetype", "duration", "transition", "exit_transition", "emphasis", "metadata", "params")
     }
+    nested_params = cut_or_archetype.get("params")
+    if isinstance(nested_params, dict):
+        params = {**top_level_slots, **nested_params}
+    else:
+        params = top_level_slots
 
     compiled = compile_archetype(
         archetype_name,
         params=params,
         design_tokens=design_tokens,
-        duration=float(dur),
+        duration=dur,
         video_format=video_format,
     )
 

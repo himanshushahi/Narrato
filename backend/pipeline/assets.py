@@ -738,7 +738,7 @@ def resolve_style_modifier(style_hint: str = "") -> str:
     hint = str(style_hint or "").lower().strip()
     if not hint:
         return ""
-    if any(k in hint for k in ("cyber", "tech", "hacker", "dark", "matrix", "crypto")):
+    if any(k in hint for k in ("cyber", "tech", "hacker", "matrix", "crypto", "neon", "future")):
         return CINEMATOGRAPHY_STYLE_MODIFIERS["dark_cyber"]
     if any(k in hint for k in ("doc", "history", "historical", "archive", "archival", "vintage", "retro", "sepia")):
         return CINEMATOGRAPHY_STYLE_MODIFIERS["documentary"]
